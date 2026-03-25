@@ -1,0 +1,21 @@
+[package]
+name = "yode-tools"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+globset = { workspace = true }
+regex = { workspace = true }
+reqwest = { workspace = true }
+html2text = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+dirs = { workspace = true }
+cron = "0.15"

@@ -1,0 +1,92 @@
+[workspace]
+members = [
+    "crates/yode-core",
+    "crates/yode-llm",
+    "crates/yode-tools",
+    "crates/yode-tui",
+    "crates/yode-mcp",
+    "crates/yode-agent",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+# Async
+tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
+async-trait = "0.1"
+futures = "0.3"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# HTTP
+reqwest = { version = "0.12", features = ["json", "stream"] }
+eventsource-stream = "0.2"
+html2text = "0.14"
+
+# MCP
+rmcp = { version = "1", features = ["client", "server", "transport-child-process", "transport-io"] }
+
+# YAML (for skill frontmatter)
+serde_yaml_ng = "0.10"
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# TUI
+ratatui = "0.29"
+crossterm = "0.28"
+
+# Database
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# Utils
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+regex = "1"
+globset = "0.4"
+dirs = "6"
+
+# Internal crates
+yode-core = { path = "crates/yode-core" }
+yode-llm = { path = "crates/yode-llm" }
+yode-tools = { path = "crates/yode-tools" }
+yode-tui = { path = "crates/yode-tui" }
+yode-mcp = { path = "crates/yode-mcp" }
+yode-agent = { path = "crates/yode-agent" }
+
+[package]
+name = "yode"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+yode-core = { workspace = true }
+yode-llm = { workspace = true }
+yode-tools = { workspace = true }
+yode-tui = { workspace = true }
+yode-mcp = { workspace = true }
+yode-agent = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+dirs = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }

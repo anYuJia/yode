@@ -1,0 +1,18 @@
+[package]
+name = "yode-tui"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+yode-core = { workspace = true }
+yode-llm = { workspace = true }
+yode-tools = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+ratatui = { workspace = true }
+crossterm = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+serde_json = { workspace = true }
+unicode-width = "0.2"
+arboard = "3.4"

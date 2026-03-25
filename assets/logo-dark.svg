@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 100" fill="none">
+  <defs>
+    <linearGradient id="accent-dark" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#A594FF"/>
+      <stop offset="100%" stop-color="#8C78FF"/>
+    </linearGradient>
+  </defs>
+  <!-- Terminal cursor icon -->
+  <rect x="16" y="20" width="56" height="60" rx="8" stroke="url(#accent-dark)" stroke-width="3" fill="none"/>
+  <text x="28" y="62" font-family="'SF Mono', 'Fira Code', 'Cascadia Code', monospace" font-size="28" font-weight="700" fill="url(#accent-dark)">&#x203A;_</text>
+  <!-- Yode text -->
+  <text x="88" y="66" font-family="'Inter', 'SF Pro Display', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="52" font-weight="800" letter-spacing="-1" fill="#FFFFFF">yode</text>
+</svg>

@@ -1,0 +1,381 @@
+/// Slash command execution and shell command handling.
+
+use std::sync::Arc;
+
+use arboard::Clipboard;
+use tokio::sync::Mutex;
+use yode_core::engine::AgentEngine;
+use yode_tools::registry::ToolRegistry;
+
+use super::completion::SLASH_COMMANDS;
+use super::{App, ChatEntry, ChatRole};
+
+/// Dangerous command patterns for safety warnings.
+const DANGEROUS_PATTERNS: &[&str] = &[
+    "rm -rf",
+    "rm -r /",
+    "rmdir /",
+    "mkfs",
+    "dd if=",
+    ":(){",           // fork bomb
+    "chmod -R 777",
+    "chmod -R 000",
+    "chown -R",
+    "> /dev/sda",
+    "wget | sh",
+    "curl | sh",
+    "curl | bash",
+    "wget | bash",
+    "shutdown",
+    "reboot",
+    "init 0",
+    "kill -9 -1",
+    "pkill -9",
+    "DROP TABLE",
+    "DROP DATABASE",
+    "TRUNCATE",
+    "--no-preserve-root",
+];
+
+/// Check if a command is potentially dangerous.
+pub fn is_dangerous_command(cmd: &str) -> Option<&'static str> {
+    let lower = cmd.to_lowercase();
+    for pattern in DANGEROUS_PATTERNS {
+        if lower.contains(&pattern.to_lowercase()) {
+            return Some(pattern);
+        }
+    }
+    None
+}
+
+impl App {
+    /// Handle slash commands. Returns true if input was a command.
+    pub(crate) fn handle_slash_command(
+        &mut self,
+        input: &str,
+        tools: &Arc<ToolRegistry>,
+        _engine: &Arc<Mutex<AgentEngine>>,
+    ) -> bool {
+        let trimmed = input.trim();
+        if !trimmed.starts_with('/') {
+            return false;
+        }
+
+        let parts: Vec<&str> = trimmed.splitn(2, ' ').collect();
+        let cmd = parts[0];
+        let _arg = parts.get(1).copied().unwrap_or("");
+
+        match cmd {
+            "/help" => {
+                let mut help = String::from("Available commands:\n");
+                for sc in SLASH_COMMANDS {
+                    help.push_str(&format!("  {:<12} — {}\n", sc.name, sc.description));
+                }
+                help.push_str("\nType /keys for keyboard shortcut reference.");
+                self.add_system_message(help);
+            }
+            "/keys" => {
+                let keys = concat!(
+                    "Keyboard shortcuts:\n",
+                    "\n",
+                    "  Editing:\n",
+                    "    Ctrl+A / Home   — Move to line start\n",
+                    "    Ctrl+E / End    — Move to line end\n",
+                    "    Ctrl+U          — Clear entire line\n",
+                    "    Ctrl+K          — Delete to end of line\n",
+                    "    Ctrl+W          — Delete previous word\n",
+                    "    Ctrl+J          — Insert newline\n",
+                    "    Shift+Enter     — Insert newline\n",
+                    "    Tab             — Autocomplete\n",
+                    "\n",
+                    "  Navigation:\n",
+                    "    Up/Down         — Browse history (single-line) or navigate (multi-line)\n",
+                    "    Ctrl+R          — Reverse search history\n",
+                    "    PageUp/PageDown — Scroll chat\n",
+                    "    Ctrl+End        — Scroll to bottom\n",
+                    "\n",
+                    "  Session:\n",
+                    "    Esc / Ctrl+C    — Stop generation\n",
+                    "    Ctrl+L          — Clear screen\n",
+                    "    Shift+Tab       — Cycle permission mode (Normal → Auto → Plan)\n",
+                    "\n",
+                    "  Special input:\n",
+                    "    !command        — Execute shell command directly\n",
+                    "    @file           — Attach file as context\n",
+                    "    /command        — Slash commands\n",
+                );
+                self.add_system_message(keys.to_string());
+            }
+            "/clear" => {
+                self.chat_entries.clear();
+                self.add_system_message("Chat history cleared.".to_string());
+            }
+            "/exit" => {
+                self.should_quit = true;
+            }
+            "/model" => {
+                self.add_system_message(format!("Current model: {}", self.session.model));
+            }
+            "/tools" => {
+                let tool_list: Vec<String> = tools
+                    .definitions()
+                    .iter()
+                    .map(|t| format!("  {:<20} — {}", t.name, t.description))
+                    .collect();
+                self.add_system_message(format!(
+                    "Registered tools ({}):\n{}",
+                    tool_list.len(),
+                    tool_list.join("\n")
+                ));
+            }
+            "/compact" => {
+                if self.chat_entries.len() > 20 {
+                    let start = self.chat_entries.len() - 20;
+                    self.chat_entries = self.chat_entries[start..].to_vec();
+                }
+                self.add_system_message("History compacted.".to_string());
+            }
+            "/cost" => {
+                let cost = estimate_cost(&self.session.model, self.session.input_tokens, self.session.output_tokens);
+                self.add_system_message(format!(
+                    "Token usage:\n  Input tokens:  {}\n  Output tokens: {}\n  Total tokens:  {}\n  Tool calls:    {}\n  Est. cost:     ${:.4}",
+                    self.session.input_tokens, self.session.output_tokens,
+                    self.session.total_tokens, self.session.tool_call_count, cost
+                ));
+            }
+            "/diff" => {
+                let output = std::process::Command::new("git")
+                    .args(["diff", "--stat"])
+                    .output();
+                let content = match output {
+                    Ok(o) if o.status.success() => {
+                        let stdout = String::from_utf8_lossy(&o.stdout);
+                        if stdout.is_empty() {
+                            "No uncommitted changes.".to_string()
+                        } else {
+                            stdout.to_string()
+                        }
+                    }
+                    Ok(o) => {
+                        let stderr = String::from_utf8_lossy(&o.stderr);
+                        format!("git error: {}", stderr.trim())
+                    }
+                    Err(e) => format!("Failed to run git: {}", e),
+                };
+                self.add_system_message(format!("Git diff:\n{}", content));
+            }
+            "/context" => {
+                let total_chars: usize = self.chat_entries.iter().map(|e| e.content.len()).sum();
+                let est_tokens = total_chars / 4;
+                let pct = if self.session.total_tokens > 0 {
+                    (est_tokens as f64 / 128000.0 * 100.0).min(100.0)
+                } else {
+                    0.0
+                };
+                self.add_system_message(format!(
+                    "Context window:\n  Chat entries:    {}\n  Est. context:    ~{} tokens\n  API tokens used: {}\n  Window usage:    {:.1}%",
+                    self.chat_entries.len(), est_tokens, self.session.total_tokens, pct
+                ));
+            }
+            "/status" => {
+                let session_short = &self.session.session_id[..self.session.session_id.len().min(8)];
+                let always_allow = if self.session.always_allow_tools.is_empty() {
+                    "none".to_string()
+                } else {
+                    self.session.always_allow_tools.join(", ")
+                };
+                self.add_system_message(format!(
+                    "Session status:\n  Session:         {}\n  Model:           {}\n  Working dir:     {}\n  Permission mode: {}\n  Tokens:          {}\n  Tool calls:      {}\n  Always-allow:    {}",
+                    session_short, self.session.model, self.session.working_dir,
+                    self.session.permission_mode.label(),
+                    self.session.total_tokens, self.session.tool_call_count, always_allow
+                ));
+            }
+            "/sessions" => {
+                self.add_system_message(
+                    "Session management:\n  Current session only. Use --resume <id> to resume a previous session at startup.".to_string()
+                );
+            }
+            "/copy" => {
+                // Find last assistant message
+                let last_assistant = self.chat_entries.iter().rev().find(|e| {
+                    matches!(e.role, ChatRole::Assistant)
+                });
+
+                if let Some(entry) = last_assistant {
+                    match Clipboard::new() {
+                        Ok(mut clipboard) => {
+                            match clipboard.set_text(&entry.content) {
+                                Ok(_) => {
+                                    let preview: String = entry.content.chars().take(50).collect();
+                                    let ellipsis = if entry.content.len() > 50 { "..." } else { "" };
+                                    self.add_system_message(format!(
+                                        "Copied to clipboard:\n  {}{}{}",
+                                        preview, ellipsis,
+                                        if entry.content.len() > 50 {
+                                            format!("\n  ({} characters total)", entry.content.len())
+                                        } else {
+                                            String::new()
+                                        }
+                                    ));
+                                }
+                                Err(e) => {
+                                    self.add_system_message(format!(
+                                        "Failed to copy to clipboard: {}", e
+                                    ));
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            self.add_system_message(format!(
+                                "Failed to access clipboard: {}", e
+                            ));
+                        }
+                    }
+                } else {
+                    self.add_system_message("No assistant message to copy.".to_string());
+                }
+            }
+            _ => {
+                // Check if it's a skill command (starts with /)
+                let _skill_name = &cmd[1..]; // remove leading /
+                // Skills are handled by the engine via pending_inputs — the caller
+                // will inject the skill invocation as an LLM message instead.
+                // Return false so the command is sent as normal user input.
+                // The LLM will pick up the `/skill-name` prefix.
+                self.add_system_message(format!(
+                    "Unknown command: {}. Type /help for available commands.", cmd
+                ));
+            }
+        }
+        true
+    }
+
+    /// Handle ! shell command prefix. Returns true if input was a shell command.
+    pub(crate) fn handle_shell_command(&mut self, input: &str) -> bool {
+        let trimmed = input.trim();
+        if !trimmed.starts_with('!') || trimmed.len() <= 1 {
+            return false;
+        }
+
+        let cmd = &trimmed[1..];
+
+        // Safety check for dangerous commands
+        if let Some(pattern) = is_dangerous_command(cmd) {
+            self.chat_entries.push(ChatEntry::new(
+                ChatRole::User,
+                format!("!{}", cmd),
+            ));
+            self.add_system_message(format!(
+                "⚠ Dangerous command detected: '{}'\nCommand blocked for safety. Use the LLM to execute if intended.",
+                pattern
+            ));
+            return true;
+        }
+
+        self.chat_entries.push(ChatEntry::new(
+            ChatRole::User,
+            format!("!{}", cmd),
+        ));
+
+        let output = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(cmd)
+            .output();
+
+        let content = match output {
+            Ok(o) => {
+                let stdout = String::from_utf8_lossy(&o.stdout);
+                let stderr = String::from_utf8_lossy(&o.stderr);
+                let mut result = String::new();
+                if !stdout.is_empty() {
+                    result.push_str(&stdout);
+                }
+                if !stderr.is_empty() {
+                    if !result.is_empty() {
+                        result.push('\n');
+                    }
+                    result.push_str(&stderr);
+                }
+                if result.is_empty() {
+                    format!("(exit code: {})", o.status.code().unwrap_or(-1))
+                } else {
+                    // Truncate very long outputs
+                    if result.len() > 10000 {
+                        let truncated: String = result.chars().take(10000).collect();
+                        format!("{}...\n\n(output truncated, {} total bytes)", truncated, result.len())
+                    } else {
+                        result
+                    }
+                }
+            }
+            Err(e) => format!("Failed to execute: {}", e),
+        };
+
+        self.add_system_message(content);
+        true
+    }
+
+    /// Process @file references in input — attaches file contents.
+    pub(crate) fn process_file_references(&self, input: &str) -> String {
+        let mut result = input.to_string();
+        let mut context_parts: Vec<String> = Vec::new();
+
+        for word in input.split_whitespace() {
+            if word.starts_with('@') && word.len() > 1 {
+                let file_path = &word[1..];
+                match std::fs::read_to_string(file_path) {
+                    Ok(content) => {
+                        let line_count = content.lines().count();
+                        context_parts.push(format!(
+                            "\n<file path=\"{}\" lines=\"{}\">\n{}\n</file>",
+                            file_path, line_count, content
+                        ));
+                    }
+                    Err(e) => {
+                        context_parts.push(format!(
+                            "\n<file_error path=\"{}\">{}</file_error>",
+                            file_path, e
+                        ));
+                    }
+                }
+            }
+        }
+
+        if !context_parts.is_empty() {
+            result.push_str("\n\n[Attached file context]");
+            for part in context_parts {
+                result.push_str(&part);
+            }
+        }
+        result
+    }
+
+    /// Helper to add a system message.
+    fn add_system_message(&mut self, content: String) {
+        self.chat_entries.push(ChatEntry::new(ChatRole::System, content));
+    }
+}
+
+/// Estimate cost based on model with separate input/output pricing (per Mtok).
+pub(crate) fn estimate_cost(model: &str, input_tokens: u32, output_tokens: u32) -> f64 {
+    let (input_per_mtok, output_per_mtok) = if model.contains("claude-3-opus") || model.contains("claude-opus") {
+        (15.0, 75.0)
+    } else if model.contains("claude-3-sonnet") || model.contains("claude-3.5") || model.contains("claude-sonnet") {
+        (3.0, 15.0)
+    } else if model.contains("claude-3-haiku") || model.contains("claude-haiku") {
+        (0.25, 1.25)
+    } else if model.contains("gpt-4o") {
+        (2.5, 10.0)
+    } else if model.contains("gpt-4") {
+        (30.0, 60.0)
+    } else if model.contains("gpt-3.5") {
+        (0.5, 1.5)
+    } else if model.contains("deepseek") {
+        (0.14, 0.28)
+    } else {
+        (5.0, 15.0)
+    };
+    (input_tokens as f64 / 1_000_000.0) * input_per_mtok
+        + (output_tokens as f64 / 1_000_000.0) * output_per_mtok
+}

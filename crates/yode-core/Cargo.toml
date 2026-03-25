@@ -1,0 +1,22 @@
+[package]
+name = "yode-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+yode-llm = { workspace = true }
+yode-tools = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+dirs = { workspace = true }
+rusqlite = { workspace = true }
+serde_yaml_ng = { workspace = true }

@@ -1,0 +1,30 @@
+# Yode 默认配置
+
+[llm]
+# 默认 LLM 提供商和模型
+default_provider = "openai"
+default_model = "gpt-4o"
+
+[llm.openai]
+# api_key 通过环境变量 OPENAI_API_KEY 设置
+base_url = "https://api.openai.com/v1"
+
+[llm.anthropic]
+# api_key 通过环境变量 ANTHROPIC_API_KEY 设置
+base_url = "https://api.anthropic.com"
+
+[tools]
+# Bash 工具超时（秒）
+bash_timeout = 120
+# 需要确认的工具列表
+require_confirmation = ["bash", "write_file", "edit_file"]
+
+[session]
+# 会话数据库路径（空则使用默认 ~/.yode/sessions.db）
+db_path = ""
+
+[ui]
+# 语言：zh-CN, en
+language = "zh-CN"
+# 主题：dark, light
+theme = "dark"

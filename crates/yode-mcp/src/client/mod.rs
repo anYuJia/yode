@@ -1,0 +1,180 @@
+mod tool_wrapper;
+
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use anyhow::Result;
+use rmcp::model::CallToolRequestParams;
+use rmcp::service::{Peer, RunningService, ServiceExt};
+use rmcp::transport::{ConfigureCommandExt, TokioChildProcess};
+use rmcp::RoleClient;
+use tokio::process::Command;
+use tracing::info;
+
+use crate::config::McpServerConfig;
+use yode_tools::registry::ToolRegistry;
+
+pub use tool_wrapper::McpToolWrapper;
+
+/// A connected MCP client managing one external server.
+pub struct McpClient {
+    pub server_name: String,
+    peer: Peer<RoleClient>,
+    service: RunningService<RoleClient, ()>,
+}
+
+impl McpClient {
+    /// Connect to an MCP server via stdio transport.
+    pub async fn connect(name: &str, config: &McpServerConfig) -> Result<Self> {
+        info!(server = %name, command = %config.command, "Connecting to MCP server");
+
+        let env_vars: HashMap<String, String> = config
+            .env
+            .iter()
+            .map(|(k, v)| {
+                // Expand $ENV_VAR references in values
+                let expanded = if v.starts_with('$') {
+                    std::env::var(&v[1..]).unwrap_or_default()
+                } else {
+                    v.clone()
+                };
+                (k.clone(), expanded)
+            })
+            .collect();
+
+        let args = config.args.clone();
+        let command = config.command.clone();
+
+        let service = ().serve(TokioChildProcess::new(
+            Command::new(&command).configure(|cmd| {
+                cmd.args(&args);
+                for (k, v) in &env_vars {
+                    cmd.env(k, v);
+                }
+            }),
+        )?)
+        .await?;
+
+        let peer_info = service.peer_info();
+        if let Some(info) = peer_info {
+            info!(
+                server = %name,
+                server_name = %info.server_info.name,
+                "MCP server connected"
+            );
+        } else {
+            info!(server = %name, "MCP server connected (no peer info)");
+        }
+
+        let peer = service.peer().clone();
+
+        Ok(Self {
+            server_name: name.to_string(),
+            peer,
+            service,
+        })
+    }
+
+    /// Discover tools from the connected server and register them as wrapped Tool implementations.
+    pub async fn discover_and_register(&self, registry: &mut ToolRegistry) -> Result<usize> {
+        let tools_result = self.peer.list_tools(Default::default()).await?;
+        let tools = tools_result.tools;
+        let count = tools.len();
+
+        info!(
+            server = %self.server_name,
+            tool_count = count,
+            "Discovered MCP tools"
+        );
+
+        for tool in tools {
+            let name = format!("mcp__{}_{}", self.server_name, tool.name);
+            let wrapper = McpToolWrapper {
+                tool_name: name,
+                original_name: tool.name.to_string(),
+                description: tool.description.clone().map(|c| c.to_string()).unwrap_or_default(),
+                input_schema: serde_json::to_value(&tool.input_schema).unwrap_or_default(),
+                server_name: self.server_name.clone(),
+                peer: self.peer.clone(),
+            };
+            registry.register(Arc::new(wrapper));
+        }
+
+        Ok(count)
+    }
+
+    /// Call a tool on this MCP server.
+    pub async fn call_tool(
+        &self,
+        tool_name: &str,
+        arguments: serde_json::Value,
+    ) -> Result<String> {
+        let mut request = CallToolRequestParams::new(tool_name.to_string());
+        if let Some(obj) = arguments.as_object() {
+            request = request.with_arguments(obj.clone());
+        }
+
+        let result = self.peer.call_tool(request).await?;
+
+        // Extract text content from the result
+        let mut output = String::new();
+        for content in &result.content {
+            if let Some(text) = content.as_text() {
+                if !output.is_empty() {
+                    output.push('\n');
+                }
+                output.push_str(&text.text);
+            }
+        }
+
+        Ok(output)
+    }
+
+    /// Gracefully shut down the connection.
+    pub async fn shutdown(self) -> Result<()> {
+        info!(server = %self.server_name, "Shutting down MCP client");
+        self.service.cancel().await?;
+        Ok(())
+    }
+
+    /// List resources available on this MCP server.
+    pub async fn list_resources(&self) -> Result<Vec<(String, String, Option<String>)>> {
+        let result = self.peer.list_resources(Default::default()).await?;
+        let resources = result
+            .resources
+            .iter()
+            .map(|r| {
+                let name = r.name.clone();
+                let uri = r.uri.clone();
+                let description = r.description.clone();
+                (name, uri, description)
+            })
+            .collect();
+        Ok(resources)
+    }
+
+    /// Read a specific resource by URI.
+    pub async fn read_resource(&self, uri: &str) -> Result<String> {
+        let params = rmcp::model::ReadResourceRequestParams::new(uri);
+        let result = self.peer.read_resource(params).await?;
+
+        let mut output = String::new();
+        for content in &result.contents {
+            match content {
+                rmcp::model::ResourceContents::TextResourceContents { text, .. } => {
+                    if !output.is_empty() {
+                        output.push('\n');
+                    }
+                    output.push_str(text);
+                }
+                rmcp::model::ResourceContents::BlobResourceContents { blob, .. } => {
+                    if !output.is_empty() {
+                        output.push('\n');
+                    }
+                    output.push_str(&format!("[binary blob: {} bytes]", blob.len()));
+                }
+            }
+        }
+        Ok(output)
+    }
+}
