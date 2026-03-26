@@ -486,13 +486,14 @@ pub fn render_header(app: &App, width: usize) -> Vec<Line<'static>> {
             spans.push(Span::raw(" ".repeat(pad)));
         }
 
+        spans.push(Span::raw(" "));
         spans.push(Span::styled("│", border));
         Line::from(spans)
     };
 
     // ╭─── Yode v0.1 ─────...──╮
     let title = " Yode v0.1 ";
-    let rule_right = box_w.saturating_sub(title.len() + 4);
+    let rule_right = box_w.saturating_sub(title.len() + 3); // 3 for "╭──"
     lines.push(Line::from(vec![
         Span::styled("╭──", border),
         Span::styled(title, title_style),

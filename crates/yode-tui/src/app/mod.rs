@@ -483,16 +483,6 @@ async fn run_app(
             crossterm::terminal::BeginSynchronizedUpdate
         )?;
 
-        // Flush new entries / streaming lines to terminal scrollback
-        flush_entries_to_scrollback(terminal, app)?;
-
-        // Send queued inputs
-        if !app.is_thinking && !app.pending_inputs.is_empty() {
-            let next_input = app.pending_inputs.remove(0);
-            send_input(app, &next_input, &engine, &engine_event_tx);
-        }
-
-        // Draw viewport
         // 1. Flush entries to scrollback FIRST (pushes terminal up)
         flush_entries_to_scrollback(terminal, app)?;
         
