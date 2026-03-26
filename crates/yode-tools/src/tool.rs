@@ -108,11 +108,13 @@ impl ToolContext {
 pub struct ToolResult {
     pub content: String,
     pub is_error: bool,
+    pub success: bool,
 }
 
 impl ToolResult {
     pub fn success(content: String) -> Self {
         Self {
+            success: true,
             content,
             is_error: false,
         }
@@ -120,6 +122,7 @@ impl ToolResult {
 
     pub fn error(content: String) -> Self {
         Self {
+            success: false,
             content,
             is_error: true,
         }

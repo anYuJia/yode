@@ -1,3 +1,4 @@
+use std::process::Stdio;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -61,14 +62,14 @@ impl Tool for BashTool {
 
         let timeout_duration = Duration::from_secs(timeout_secs);
 
-        let child_future = Command::new("sh")
+        let mut child = Command::new("sh")
             .arg("-c")
-            .arg(command)
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .output();
+            .arg(&command)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
 
-        let output = match tokio::time::timeout(timeout_duration, child_future).await {
+        let output = match tokio::time::timeout(timeout_duration, child.wait_with_output()).await {
             Ok(Ok(output)) => output,
             Ok(Err(e)) => {
                 tracing::warn!(command = %command, error = %e, "Failed to execute command");

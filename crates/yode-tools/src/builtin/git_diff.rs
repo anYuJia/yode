@@ -1,0 +1,120 @@
+use anyhow::Result;
+use async_trait::async_trait;
+use serde_json::{json, Value};
+use std::process::Command;
+
+use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolErrorType, ToolResult};
+
+pub struct GitDiffTool;
+
+#[async_trait]
+impl Tool for GitDiffTool {
+    fn name(&self) -> &str {
+        "git_diff"
+    }
+
+    fn description(&self) -> &str {
+        "Show git diff for staged changes, unstaged changes, or a specific commit. Returns unified diff output."
+    }
+
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "target": {
+                    "type": "string",
+                    "description": "What to diff: \"staged\" (cached changes), \"unstaged\" (working tree), or \"commit\" (specific commit)",
+                    "default": "unstaged"
+                },
+                "commit": {
+                    "type": "string",
+                    "description": "Commit hash or ref (required when target is \"commit\")"
+                },
+                "path": {
+                    "type": "string",
+                    "description": "Optional path filter to limit diff to specific files"
+                }
+            }
+        })
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            requires_confirmation: false,
+            supports_auto_execution: true,
+            read_only: true,
+        }
+    }
+
+    async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
+        let target = params
+            .get("target")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unstaged");
+        let commit = params.get("commit").and_then(|v| v.as_str());
+        let path = params.get("path").and_then(|v| v.as_str());
+
+        let working_dir = ctx
+            .working_dir
+            .as_deref()
+            .unwrap_or_else(|| std::path::Path::new("."));
+
+        let mut cmd = Command::new("git");
+        cmd.current_dir(working_dir);
+
+        match target {
+            "staged" => {
+                cmd.args(["diff", "--staged"]);
+            }
+            "unstaged" => {
+                cmd.arg("diff");
+            }
+            "commit" => {
+                let hash = match commit {
+                    Some(c) => c,
+                    None => {
+                        return Ok(ToolResult::error_typed(
+                            "Parameter 'commit' is required when target is \"commit\"".to_string(),
+                            ToolErrorType::Validation,
+                            true,
+                            Some("Provide a commit hash or ref, e.g. \"HEAD~1\" or \"abc1234\"".to_string()),
+                        ));
+                    }
+                };
+                cmd.args(["diff", hash]);
+            }
+            other => {
+                return Ok(ToolResult::error_typed(
+                    format!("Invalid target: \"{}\". Must be \"staged\", \"unstaged\", or \"commit\"", other),
+                    ToolErrorType::Validation,
+                    true,
+                    Some("Use target: \"staged\", \"unstaged\", or \"commit\"".to_string()),
+                ));
+            }
+        }
+
+        if let Some(p) = path {
+            cmd.args(["--", p]);
+        }
+
+        let output = cmd.output().map_err(|e| anyhow::anyhow!("Failed to run git: {}", e))?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        if !output.status.success() {
+            return Ok(ToolResult::error_typed(
+                format!("git diff failed: {}", stderr.trim()),
+                ToolErrorType::Execution,
+                false,
+                None,
+            ));
+        }
+
+        if stdout.is_empty() {
+            Ok(ToolResult::success(format!("No differences found (target: {})", target)))
+        } else {
+            Ok(ToolResult::success(stdout.to_string()))
+        }
+    }
+}
