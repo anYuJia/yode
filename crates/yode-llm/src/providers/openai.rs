@@ -228,6 +228,7 @@ fn openai_message_to_internal(msg: &OpenAiMessage) -> Message {
         content: msg.content.clone(),
         tool_calls,
         tool_call_id: msg.tool_call_id.clone(),
+        images: Vec::new(),
     }
 }
 
@@ -245,14 +246,16 @@ fn tool_to_openai(tool: &ToolDefinition) -> OpenAiTool {
 // ── Provider implementation ─────────────────────────────────────────────────
 
 pub struct OpenAiProvider {
+    name: String,
     api_key: String,
     base_url: String,
     client: Client,
 }
 
 impl OpenAiProvider {
-    pub fn new(api_key: impl Into<String>, base_url: impl Into<String>) -> Self {
+    pub fn new(name: impl Into<String>, api_key: impl Into<String>, base_url: impl Into<String>) -> Self {
         Self {
+            name: name.into(),
             api_key: api_key.into(),
             base_url: base_url.into(),
             client: Client::new(),
@@ -271,7 +274,7 @@ impl OpenAiProvider {
 #[async_trait]
 impl LlmProvider for OpenAiProvider {
     fn name(&self) -> &str {
-        "openai"
+        &self.name
     }
 
     async fn chat(&self, request: ChatRequest) -> Result<ChatResponse> {
@@ -560,6 +563,7 @@ impl LlmProvider for OpenAiProvider {
             content,
             tool_calls: final_tool_calls,
             tool_call_id: None,
+            images: Vec::new(),
         };
 
         let response = ChatResponse {
@@ -609,7 +613,7 @@ impl LlmProvider for OpenAiProvider {
             .map(|m| ModelInfo {
                 id: m.id.clone(),
                 name: m.id,
-                provider: "openai".to_string(),
+                provider: self.name.clone(),
             })
             .collect();
 

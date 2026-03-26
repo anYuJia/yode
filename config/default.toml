@@ -5,12 +5,12 @@
 default_provider = "openai"
 default_model = "gpt-4o"
 
-[llm.openai]
-# api_key 通过环境变量 OPENAI_API_KEY 设置
+[llm.providers.openai]
+format = "openai"
 base_url = "https://api.openai.com/v1"
 
-[llm.anthropic]
-# api_key 通过环境变量 ANTHROPIC_API_KEY 设置
+[llm.providers.anthropic]
+format = "anthropic"
 base_url = "https://api.anthropic.com"
 
 [tools]

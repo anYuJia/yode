@@ -8,12 +8,24 @@ pub enum Role {
     Tool,
 }
 
+/// Image data for multimodal messages.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageData {
+    /// Base64-encoded image data.
+    pub base64: String,
+    /// MIME type (e.g., "image/png", "image/jpeg", "image/gif", "image/webp").
+    pub media_type: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub role: Role,
     pub content: Option<String>,
     pub tool_calls: Vec<ToolCall>,
     pub tool_call_id: Option<String>,
+    /// Images attached to this message (for multimodal support).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<ImageData>,
 }
 
 impl Message {
@@ -23,6 +35,7 @@ impl Message {
             content: Some(content.into()),
             tool_calls: Vec::new(),
             tool_call_id: None,
+            images: Vec::new(),
         }
     }
 
@@ -32,6 +45,18 @@ impl Message {
             content: Some(content.into()),
             tool_calls: Vec::new(),
             tool_call_id: None,
+            images: Vec::new(),
+        }
+    }
+
+    /// Create a user message with images.
+    pub fn user_with_images(content: impl Into<String>, images: Vec<ImageData>) -> Self {
+        Self {
+            role: Role::User,
+            content: Some(content.into()),
+            tool_calls: Vec::new(),
+            tool_call_id: None,
+            images,
         }
     }
 
@@ -41,6 +66,7 @@ impl Message {
             content: Some(content.into()),
             tool_calls: Vec::new(),
             tool_call_id: None,
+            images: Vec::new(),
         }
     }
 
@@ -50,6 +76,22 @@ impl Message {
             content: Some(content.into()),
             tool_calls: Vec::new(),
             tool_call_id: Some(tool_call_id.into()),
+            images: Vec::new(),
+        }
+    }
+
+    /// Create a tool result with an image.
+    pub fn tool_result_with_image(
+        tool_call_id: impl Into<String>,
+        content: impl Into<String>,
+        image: ImageData,
+    ) -> Self {
+        Self {
+            role: Role::Tool,
+            content: Some(content.into()),
+            tool_calls: Vec::new(),
+            tool_call_id: Some(tool_call_id.into()),
+            images: vec![image],
         }
     }
 }

@@ -51,6 +51,10 @@ enum ContentBlock {
     Thinking {
         thinking: String,
     },
+    #[serde(rename = "image")]
+    Image {
+        source: ImageSource,
+    },
     #[serde(rename = "tool_use")]
     ToolUse {
         id: String,
@@ -62,6 +66,14 @@ enum ContentBlock {
         tool_use_id: String,
         content: String,
     },
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct ImageSource {
+    #[serde(rename = "type")]
+    source_type: String,
+    media_type: String,
+    data: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -105,18 +117,21 @@ enum AnthropicStreamEvent {
     #[serde(rename = "content_block_start")]
     ContentBlockStart {
         #[allow(dead_code)]
+        #[serde(default)]
         index: u32,
         content_block: ContentBlockStart,
     },
     #[serde(rename = "content_block_delta")]
     ContentBlockDelta {
         #[allow(dead_code)]
+        #[serde(default)]
         index: u32,
         delta: ContentBlockDelta,
     },
     #[serde(rename = "content_block_stop")]
     ContentBlockStop {
         #[allow(dead_code)]
+        #[serde(default)]
         index: u32,
     },
     #[serde(rename = "message_delta")]
@@ -133,6 +148,8 @@ enum AnthropicStreamEvent {
     Error {
         error: AnthropicErrorDetail,
     },
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Debug, Deserialize)]
@@ -156,6 +173,8 @@ enum ContentBlockStart {
     },
     #[serde(rename = "tool_use")]
     ToolUse { id: String, name: String },
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Debug, Deserialize)]
@@ -170,6 +189,8 @@ enum ContentBlockDelta {
     },
     #[serde(rename = "input_json_delta")]
     InputJsonDelta { partial_json: String },
+    #[serde(other)]
+    Unknown,
 }
 
 // ── Error types ─────────────────────────────────────────────────────────────
@@ -190,14 +211,16 @@ struct AnthropicErrorDetail {
 // ── Provider implementation ─────────────────────────────────────────────────
 
 pub struct AnthropicProvider {
+    name: String,
     api_key: String,
     base_url: String,
     client: Client,
 }
 
 impl AnthropicProvider {
-    pub fn new(api_key: impl Into<String>, base_url: impl Into<String>) -> Self {
+    pub fn new(name: impl Into<String>, api_key: impl Into<String>, base_url: impl Into<String>) -> Self {
         Self {
+            name: name.into(),
             api_key: api_key.into(),
             base_url: base_url.into(),
             client: Client::new(),
@@ -220,11 +243,33 @@ impl AnthropicProvider {
                     system_prompt = msg.content.clone();
                 }
                 Role::User => {
+                    let content = if msg.images.is_empty() {
+                        AnthropicContent::Text(msg.content.clone().unwrap_or_default())
+                    } else {
+                        let mut blocks = Vec::new();
+                        
+                        if let Some(text) = &msg.content {
+                            if !text.is_empty() {
+                                blocks.push(ContentBlock::Text { text: text.clone() });
+                            }
+                        }
+
+                        for img in &msg.images {
+                            blocks.push(ContentBlock::Image {
+                                source: ImageSource {
+                                    source_type: "base64".to_string(),
+                                    media_type: img.media_type.clone(),
+                                    data: img.base64.clone(),
+                                },
+                            });
+                        }
+                        
+                        AnthropicContent::Blocks(blocks)
+                    };
+
                     anthropic_msgs.push(AnthropicMessage {
                         role: "user".to_string(),
-                        content: AnthropicContent::Text(
-                            msg.content.clone().unwrap_or_default(),
-                        ),
+                        content,
                     });
                 }
                 Role::Assistant => {
@@ -303,7 +348,7 @@ impl AnthropicProvider {
 #[async_trait]
 impl LlmProvider for AnthropicProvider {
     fn name(&self) -> &str {
-        "anthropic"
+        &self.name
     }
 
     async fn chat(&self, request: ChatRequest) -> Result<ChatResponse> {
@@ -389,6 +434,7 @@ impl LlmProvider for AnthropicProvider {
             },
             tool_calls,
             tool_call_id: None,
+            images: Vec::new(),
         };
 
         Ok(ChatResponse {
@@ -503,6 +549,7 @@ impl LlmProvider for AnthropicProvider {
                         });
                         let _ = tx.send(StreamEvent::ToolCallStart { id, name }).await;
                     }
+                    ContentBlockStart::Unknown => {}
                 },
                 AnthropicStreamEvent::ContentBlockDelta { index: _, delta } => match delta {
                     ContentBlockDelta::TextDelta { text } => {
@@ -527,6 +574,7 @@ impl LlmProvider for AnthropicProvider {
                                 .await;
                         }
                     }
+                    ContentBlockDelta::Unknown => {}
                 },
                 AnthropicStreamEvent::ContentBlockStop { index: _ } => {
                     if let Some(tc) = tool_calls.last() {
@@ -546,14 +594,14 @@ impl LlmProvider for AnthropicProvider {
                             final_usage.prompt_tokens + final_usage.completion_tokens;
                     }
                 }
-                AnthropicStreamEvent::MessageStop {} => {
-                    break;
-                }
+                AnthropicStreamEvent::MessageStop {} => {}
                 AnthropicStreamEvent::Ping {} => {}
                 AnthropicStreamEvent::Error { error } => {
                     let msg = format!("Anthropic stream error: {}", error.message);
+                    error!("{}", msg);
                     let _ = tx.send(StreamEvent::Error(msg)).await;
                 }
+                AnthropicStreamEvent::Unknown => {}
             }
         }
 
@@ -568,6 +616,7 @@ impl LlmProvider for AnthropicProvider {
             content,
             tool_calls,
             tool_call_id: None,
+            images: Vec::new(),
         };
 
         let response = ChatResponse {
@@ -585,14 +634,14 @@ impl LlmProvider for AnthropicProvider {
         // Anthropic doesn't have a list models endpoint
         Ok(vec![
             ModelInfo {
-                id: "claude-sonnet-4-20250514".to_string(),
-                name: "Claude Sonnet 4".to_string(),
-                provider: "anthropic".to_string(),
+                id: "claude-3-5-sonnet-20241022".to_string(),
+                name: "Claude 3.5 Sonnet".to_string(),
+                provider: self.name.clone(),
             },
             ModelInfo {
-                id: "claude-haiku-4-5-20251001".to_string(),
-                name: "Claude Haiku 4.5".to_string(),
-                provider: "anthropic".to_string(),
+                id: "claude-3-5-haiku-20241022".to_string(),
+                name: "Claude 3.5 Haiku".to_string(),
+                provider: self.name.clone(),
             },
         ])
     }

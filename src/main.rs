@@ -12,6 +12,7 @@ use yode_core::context::AgentContext;
 use yode_core::db::Database;
 use yode_core::permission::PermissionManager;
 use yode_core::session::Session;
+use yode_core::setup::{has_api_keys_configured, run_setup_interactive};
 use yode_core::skills::SkillRegistry;
 use yode_llm::providers::anthropic::AnthropicProvider;
 use yode_llm::providers::openai::OpenAiProvider;
@@ -46,6 +47,34 @@ struct Cli {
     /// Run as MCP server (stdio), exposing built-in tools
     #[arg(long)]
     serve_mcp: bool,
+
+    /// Non-interactive chat: send a message and print the response
+    #[arg(long = "chat", short = 'C')]
+    chat_message: Option<String>,
+
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(clap::Subcommand)]
+enum Commands {
+    /// 管理 LLM 提供商 (Add, List, Remove, SetDefault)
+    Provider {
+        #[command(subcommand)]
+        action: ProviderAction,
+    },
+}
+
+#[derive(clap::Subcommand)]
+enum ProviderAction {
+    /// 新增或覆盖自定义提供商
+    Add,
+    /// 列出所有配置的提供商
+    List,
+    /// 删除某个提供商
+    Remove { name: String },
+    /// 设置新的默认提供商
+    SetDefault { name: String },
 }
 
 #[tokio::main]
@@ -68,9 +97,51 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
+    // Check if API keys are configured, if not run setup
+    if !has_api_keys_configured() {
+        run_setup_interactive()?;
+    }
+
     // Load config
-    let config =
+    let mut config =
         Config::load_from(cli.config.as_deref()).context("Failed to load configuration")?;
+
+    if let Some(command) = cli.command {
+        match command {
+            Commands::Provider { action } => {
+                match action {
+                    ProviderAction::Add => {
+                        run_setup_interactive()?;
+                    }
+                    ProviderAction::List => {
+                        println!("已配置的提供商列表:");
+                        for (name, p) in &config.llm.providers {
+                            let is_default = if name == &config.llm.default_provider { " (当前默认)" } else { "" };
+                            println!("- {}{} [格式: {}, Base URL: {}]", name, is_default, p.format, p.base_url.as_deref().unwrap_or(""));
+                        }
+                    }
+                    ProviderAction::Remove { name } => {
+                        if config.llm.providers.remove(&name).is_some() {
+                            config.save()?;
+                            println!("已删除提供商: {}", name);
+                        } else {
+                            println!("未找到名为 '{}' 的提供商", name);
+                        }
+                    }
+                    ProviderAction::SetDefault { name } => {
+                        if config.llm.providers.contains_key(&name) {
+                            config.llm.default_provider = name.clone();
+                            config.save()?;
+                            println!("已将 '{}' 设置为默认提供商", name);
+                        } else {
+                            println!("未找到名为 '{}' 的提供商", name);
+                        }
+                    }
+                }
+                return Ok(());
+            }
+        }
+    }
 
     // Working directory (needed early for skill discovery)
     let workdir = cli
@@ -139,48 +210,50 @@ async fn main() -> Result<()> {
     // Setup LLM provider registry
     let mut provider_registry = ProviderRegistry::new();
 
-    // Register OpenAI provider if API key is available
-    if let Ok(api_key) = env::var("OPENAI_API_KEY") {
-        let base_url = config
-            .llm
-            .openai
-            .as_ref()
-            .map(|c| c.base_url.clone())
-            .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
-        provider_registry.register(Arc::new(OpenAiProvider::new(api_key, base_url)));
-    }
+    // Register all configured providers
+    for (name, p_config) in &config.llm.providers {
+        let env_prefix = name.to_uppercase().replace("-", "_");
+        let api_key = match env::var(format!("{}_API_KEY", env_prefix))
+            .ok()
+            .or_else(|| p_config.api_key.clone())
+            .or_else(|| {
+                // Fallback to legacy global env vars if none found for custom provider
+                if p_config.format == "openai" {
+                    env::var("OPENAI_API_KEY").ok()
+                } else {
+                    env::var("ANTHROPIC_API_KEY").or_else(|_| env::var("ANTHROPIC_AUTH_TOKEN")).ok()
+                }
+            }) {
+            Some(k) => k,
+            None => {
+                warn!("Provider '{}' is configured but missing an API key, skipping.", name);
+                continue;
+            }
+        };
 
-    // Register Anthropic provider if API key is available
-    let anthropic_key = env::var("ANTHROPIC_API_KEY")
-        .or_else(|_| env::var("ANTHROPIC_AUTH_TOKEN"))
-        .ok();
-    if let Some(api_key) = anthropic_key {
-        let base_url = env::var("ANTHROPIC_BASE_URL").unwrap_or_else(|_| {
-            config
-                .llm
-                .anthropic
-                .as_ref()
-                .map(|c| c.base_url.clone())
-                .unwrap_or_else(|| "https://api.anthropic.com".to_string())
-        });
-        provider_registry.register(Arc::new(AnthropicProvider::new(api_key, base_url)));
+        let default_base = if p_config.format == "openai" {
+            "https://api.openai.com/v1"
+        } else {
+            "https://api.anthropic.com"
+        };
+
+        let base_url = match env::var(format!("{}_BASE_URL", env_prefix))
+            .ok()
+            .or_else(|| p_config.base_url.clone()) {
+            Some(u) => if u.is_empty() { default_base.to_string() } else { u },
+            None => default_base.to_string(),
+        };
+
+        if p_config.format == "openai" {
+            provider_registry.register(Arc::new(OpenAiProvider::new(name, api_key, base_url)));
+        } else {
+            provider_registry.register(Arc::new(AnthropicProvider::new(name, api_key, base_url)));
+        }
     }
 
     // Auto-detect provider and model from env vars or CLI args
-    let provider_name = cli.provider.unwrap_or_else(|| {
-        if env::var("ANTHROPIC_AUTH_TOKEN").is_ok() || env::var("ANTHROPIC_API_KEY").is_ok() {
-            "anthropic".to_string()
-        } else {
-            config.llm.default_provider.clone()
-        }
-    });
-
-    let model = cli.model.unwrap_or_else(|| {
-        env::var("ANTHROPIC_MODEL")
-            .ok()
-            .filter(|_| provider_name == "anthropic")
-            .unwrap_or_else(|| config.llm.default_model.clone())
-    });
+    let provider_name = cli.provider.unwrap_or_else(|| config.llm.default_provider.clone());
+    let model = cli.model.unwrap_or_else(|| config.llm.default_model.clone());
 
     let provider = provider_registry.get(&provider_name).context(format!(
         "Provider '{}' not available. Set the appropriate API key environment variable.\n\
@@ -225,6 +298,7 @@ async fn main() -> Result<()> {
                         content: m.content,
                         tool_calls,
                         tool_call_id: m.tool_call_id,
+                        images: Vec::new(),
                     })
                 })
                 .collect();
@@ -250,6 +324,82 @@ async fn main() -> Result<()> {
         db.create_session(&session)?;
     }
 
+    // If --chat, run a single non-interactive turn and exit
+    if let Some(ref chat_msg) = cli.chat_message {
+        use yode_core::engine::{AgentEngine, ConfirmResponse, EngineEvent};
+
+        let mut engine = AgentEngine::new(
+            Arc::clone(&provider),
+            Arc::clone(&tool_registry),
+            permissions,
+            context,
+        );
+        engine.set_database(db);
+        if let Some(msgs) = restored_messages {
+            engine.restore_messages(msgs);
+        }
+
+        let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (confirm_tx, confirm_rx) = tokio::sync::mpsc::unbounded_channel();
+
+        // 用流式模式执行（兼容只支持流式的第三方 API）
+        let chat_msg_owned = chat_msg.clone();
+        let engine_handle = tokio::spawn(async move {
+            engine.run_turn_streaming(&chat_msg_owned, event_tx, confirm_rx, None).await
+        });
+
+        // 实时打印输出
+        let mut full_text = String::new();
+        while let Some(event) = event_rx.recv().await {
+            match event {
+                EngineEvent::TextDelta(delta) => {
+                    print!("{}", delta);
+                    full_text.push_str(&delta);
+                }
+                EngineEvent::TextComplete(_) => {}
+                EngineEvent::ToolCallStart { name, arguments, .. } => {
+                    eprintln!("\x1b[90m⚡ {}({})\x1b[0m", name, truncate_str(&arguments, 80));
+                }
+                EngineEvent::ToolConfirmRequired { id, name, .. } => {
+                    // 非交互模式自动允许工具执行
+                    eprintln!("\x1b[33m🔑 自动确认工具: {}\x1b[0m", name);
+                    let _ = confirm_tx.send(ConfirmResponse::Allow);
+                    let _ = id;
+                }
+                EngineEvent::ToolResult { name, result, .. } => {
+                    if result.is_error {
+                        eprintln!("\x1b[31m✗ {} 失败: {}\x1b[0m", name, truncate_str(&result.content, 200));
+                    } else {
+                        eprintln!("\x1b[90m✓ {} 完成 ({} 字节)\x1b[0m", name, result.content.len());
+                    }
+                }
+                EngineEvent::Error(e) => {
+                    eprintln!("\x1b[31m错误: {}\x1b[0m", e);
+                }
+                EngineEvent::Done => break,
+                _ => {}
+            }
+        }
+
+        // 确保输出换行
+        if !full_text.is_empty() && !full_text.ends_with('\n') {
+            println!();
+        }
+
+        // 等待引擎完成
+        if let Err(e) = engine_handle.await? {
+            eprintln!("\x1b[31m引擎错误: {}\x1b[0m", e);
+        }
+
+        // 关闭 MCP 客户端
+        for client in mcp_clients {
+            if let Err(e) = client.shutdown().await {
+                warn!(error = %e, "Error shutting down MCP client");
+            }
+        }
+        return Ok(());
+    }
+
     info!(
         "Starting TUI with provider={}, model={}, session={}",
         context.provider, context.model, context.session_id
@@ -272,4 +422,14 @@ async fn main() -> Result<()> {
 
     info!("Yode exiting.");
     Ok(())
+}
+
+/// 截断字符串用于终端显示
+fn truncate_str(s: &str, max: usize) -> String {
+    let s = s.replace('\n', " ");
+    if s.len() > max {
+        format!("{}...", &s[..max])
+    } else {
+        s
+    }
 }
