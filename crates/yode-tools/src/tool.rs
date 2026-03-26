@@ -108,23 +108,56 @@ impl ToolContext {
 pub struct ToolResult {
     pub content: String,
     pub is_error: bool,
-    pub success: bool,
+    pub error_type: Option<ToolErrorType>,
+    pub recoverable: bool,
+    pub suggestion: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub enum ToolErrorType {
+    Validation,
+    NotFound,
+    PermissionDeny,
+    Permission,
+    Execution,
+    QuotaExceeded,
+    Timeout,
+    Unknown,
 }
 
 impl ToolResult {
     pub fn success(content: String) -> Self {
         Self {
-            success: true,
             content,
             is_error: false,
+            error_type: None,
+            recoverable: false,
+            suggestion: None,
         }
     }
 
     pub fn error(content: String) -> Self {
         Self {
-            success: false,
             content,
             is_error: true,
+            error_type: Some(ToolErrorType::Execution),
+            recoverable: false,
+            suggestion: None,
+        }
+    }
+
+    pub fn error_typed(
+        content: String,
+        error_type: ToolErrorType,
+        recoverable: bool,
+        suggestion: Option<String>,
+    ) -> Self {
+        Self {
+            content,
+            is_error: true,
+            error_type: Some(error_type),
+            recoverable,
+            suggestion,
         }
     }
 }

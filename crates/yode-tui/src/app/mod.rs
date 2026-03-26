@@ -34,7 +34,7 @@ use crate::ui;
 
 use self::completion::{CommandCompletion, FileCompletion};
 use self::history::{BrowseResult, HistoryState};
-use self::input::InputState;
+use crate::app::input::{InputAttachment, InputState};
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -77,6 +77,7 @@ pub enum ChatRole {
     SubAgentCall { description: String },
     SubAgentToolCall { name: String },
     SubAgentResult,
+    AskUser { id: String },
 }
 
 /// Permission mode for tool execution.
@@ -344,26 +345,17 @@ pub async fn run(
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     stdout.execute(EnableBracketedPaste)?;
-    let backend = CrosstermBackend::new(stdout);
-    // Small inline viewport: only input + status bar. Chat goes to scrollback.
-    let mut terminal = Terminal::with_options(
-        backend,
-        ratatui::TerminalOptions {
-            viewport: ratatui::Viewport::Inline(4),
-        },
-    )?;
-
     let working_dir = context.working_dir.display().to_string();
     let is_resumed = context.is_resumed;
     let mut app = App::new(context.model.clone(), context.session_id.clone(), working_dir);
     app.cmd_completion.dynamic_commands = skill_commands;
 
-    let mut engine_inner = AgentEngine::new(provider, tools.clone(), permissions, context);
-    engine_inner.set_database(db);
+    // Print welcome header directly to stdout before starting TUI viewport
+    print_header_to_stdout(&app)?;
 
-    // Restore messages if resuming
-    if let Some(messages) = restored_messages {
-        for msg in &messages {
+    // Restore messages to app state if resuming
+    if let Some(ref messages) = restored_messages {
+        for msg in messages {
             match msg.role {
                 yode_llm::types::Role::User => {
                     if let Some(ref content) = msg.content {
@@ -378,7 +370,17 @@ pub async fn run(
                 _ => {}
             }
         }
-        engine_inner.restore_messages(messages);
+    }
+    
+    // Print restored chat entries to stdout
+    print_entries_to_stdout(&mut app)?;
+
+    let mut engine_inner = AgentEngine::new(provider, tools.clone(), permissions, context);
+    engine_inner.set_database(db);
+    
+    // Restore messages to engine (for context)
+    if let Some(ref messages) = restored_messages {
+        engine_inner.restore_messages(messages.clone());
         if is_resumed {
             app.chat_entries.push(ChatEntry::new(ChatRole::System, "Session resumed.".to_string()));
         }
@@ -387,11 +389,14 @@ pub async fn run(
     let engine = Arc::new(Mutex::new(engine_inner));
     let (engine_event_tx, mut engine_event_rx) = mpsc::unbounded_channel::<EngineEvent>();
 
-    // Print welcome header into terminal scrollback
-    print_header_to_scrollback(&mut terminal, &app)?;
-
-    // Flush any restored chat entries to scrollback
-    flush_entries_to_scrollback(&mut terminal, &mut app)?;
+    let backend = CrosstermBackend::new(stdout);
+    // Small inline viewport: only input + status bar. Chat goes to scrollback.
+    let mut terminal = Terminal::with_options(
+        backend,
+        ratatui::TerminalOptions {
+            viewport: ratatui::Viewport::Inline(4),
+        },
+    )?;
 
     let result = run_app(
         &mut terminal, &mut app, engine, tools,
@@ -488,8 +493,12 @@ async fn run_app(
         }
 
         // Draw viewport
-        terminal.draw(|frame| {
-            ui::render(frame, app);
+        // 1. Flush entries to scrollback FIRST (pushes terminal up)
+        flush_entries_to_scrollback(terminal, app)?;
+        
+        // 2. Draw viewport AFTER (occupies exactly 4 lines at the new bottom)
+        terminal.draw(|f| {
+            ui::render(f, app);
         })?;
 
         // End synchronized update — terminal renders the whole frame at once
@@ -509,12 +518,26 @@ async fn run_app(
                     handle_key_event(app, key, &engine, &tools, &engine_event_tx);
                 }
                 AppEvent::Paste(text) => {
-                    // Bracketed paste: insert all text including newlines, never trigger send
-                    for ch in text.chars() {
-                        if ch == '\n' || ch == '\r' {
-                            app.input.insert_newline();
-                        } else {
-                            app.input.insert_char(ch);
+                    let line_count = text.lines().count();
+                    if line_count > 5 {
+                        // Fold into attachment
+                        let id = app.input.attachments.len() + 1;
+                        app.input.attachments.push(InputAttachment {
+                            id,
+                            name: format!("Pasted text #{}", id),
+                            content: text,
+                            line_count,
+                        });
+                    } else {
+                        // Insert as raw text
+                        for line in text.split_inclusive('\n') {
+                            let clean = line.trim_end_matches(['\r', '\n']);
+                            for c in clean.chars() {
+                                app.input.insert_char(c);
+                            }
+                            if line.ends_with('\n') {
+                                app.input.insert_newline();
+                            }
                         }
                     }
                 }
@@ -1114,6 +1137,12 @@ fn handle_engine_event(app: &mut App, event: EngineEvent) {
                 "📋 Exited plan mode".to_string(),
             ));
         }
+        EngineEvent::ContextCompressed { removed } => {
+            app.chat_entries.push(ChatEntry::new(
+                ChatRole::System,
+                format!("Context compressed: removed {} messages to fit window.", removed),
+            ));
+        }
     }
 }
 
@@ -1199,22 +1228,64 @@ fn raw_print_lines(
     Ok(())
 }
 
-/// Print the welcome header into terminal scrollback.
-fn print_header_to_scrollback(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    app: &App,
-) -> Result<()> {
+/// Print the welcome header into terminal stdout before starting TUI.
+fn print_header_to_stdout(app: &App) -> Result<()> {
     let width = crossterm::terminal::size()?.0 as usize;
     let header_lines = ui::chat::render_header(app, width);
-    // Header is ASCII only — safe to use buf.set_line (no CJK issues)
-    let count = (header_lines.len() + 1) as u16;
-    terminal.insert_before(count, |buf| {
-        for (i, line) in header_lines.iter().enumerate() {
-            if (i as u16) < buf.area.height {
-                buf.set_line(0, i as u16, line, buf.area.width);
+    
+    let mut stdout = io::stdout();
+    for line in header_lines {
+        // Convert ratatui Line to colored strings for raw stdout
+        for span in line.spans {
+            if let Some(color) = span.style.fg {
+                let c = match color {
+                    Color::Rgb(r, g, b) => crossterm::style::Color::Rgb { r, g, b },
+                    _ => crossterm::style::Color::White,
+                };
+                stdout.execute(crossterm::style::SetForegroundColor(c))?;
             }
+            if span.style.add_modifier.contains(Modifier::BOLD) {
+                stdout.execute(crossterm::style::SetAttribute(crossterm::style::Attribute::Bold))?;
+            }
+            stdout.execute(crossterm::style::Print(&span.content))?;
+            stdout.execute(crossterm::style::SetAttribute(crossterm::style::Attribute::Reset))?;
         }
-    })?;
+        stdout.execute(crossterm::style::Print("\r\n"))?;
+    }
+    stdout.flush()?;
+    Ok(())
+}
+
+fn print_entries_to_stdout(app: &mut App) -> Result<()> {
+    if app.chat_entries.is_empty() { return Ok(()); }
+    
+    let mut stdout = io::stdout();
+    for i in 0..app.chat_entries.len() {
+        let entry = &app.chat_entries[i];
+        let text_lines = format_entry_as_strings(entry, &app.chat_entries, i);
+        
+        if i > 0 && matches!(entry.role, ChatRole::User) {
+            stdout.execute(crossterm::style::Print("\r\n"))?;
+        }
+        
+        for (text, style) in text_lines {
+            if let Some(color) = style.fg {
+                let c = match color {
+                    Color::Rgb(r, g, b) => crossterm::style::Color::Rgb { r, g, b },
+                    _ => crossterm::style::Color::White,
+                };
+                stdout.execute(crossterm::style::SetForegroundColor(c))?;
+            }
+            if style.add_modifier.contains(Modifier::BOLD) {
+                stdout.execute(crossterm::style::SetAttribute(crossterm::style::Attribute::Bold))?;
+            }
+            stdout.execute(crossterm::style::Print(text))?;
+            stdout.execute(crossterm::style::SetAttribute(crossterm::style::Attribute::Reset))?;
+            stdout.execute(crossterm::style::Print("\r\n"))?;
+        }
+    }
+    app.printed_count = app.chat_entries.len();
+    stdout.flush()?;
     Ok(())
 }
 
@@ -1637,6 +1708,9 @@ fn format_entry_as_strings(
         }
         ChatRole::SubAgentResult => {
             // Timing merged into SubAgentCall — return empty
+        }
+        ChatRole::AskUser { .. } => {
+            // Rendered as system-like prefix in handle_engine_event
         }
     }
     result

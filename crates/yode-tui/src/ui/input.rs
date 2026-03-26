@@ -53,6 +53,25 @@ pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
         ]));
         frame.render_widget(paragraph, area);
     } else {
+        // 1. Render attachments as colored pills first
+        let mut att_spans = Vec::new();
+        for att in &app.input.attachments {
+            att_spans.push(Span::styled(
+                format!("[{} +{} lines] ", att.name, att.line_count),
+                Style::default().fg(Color::Rgb(150, 200, 255)).add_modifier(Modifier::BOLD)
+            ));
+        }
+        if !att_spans.is_empty() {
+            frame.render_widget(Paragraph::new(Line::from(att_spans)), area);
+        }
+
+        // 2. Render actual text input, starting 1 line below if attachments exist
+        let input_area = if app.input.attachments.is_empty() {
+            area
+        } else {
+            Rect::new(area.x, area.y + 1, area.width, area.height.saturating_sub(1))
+        };
+
         let lines: Vec<Line> = app.input.lines
             .iter()
             .enumerate()
@@ -71,7 +90,7 @@ pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
             })
             .collect();
 
-        frame.render_widget(Paragraph::new(lines), area);
+        frame.render_widget(Paragraph::new(lines), input_area);
     }
 
     // Cursor
@@ -81,11 +100,16 @@ pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
             .take(app.input.cursor_col)
             .map(|c| UnicodeWidthChar::width(c).unwrap_or(0))
             .sum();
-        let cursor_x = area.x + 2 + display_width as u16;
-        let cursor_y = area.y + app.input.cursor_line as u16;
-        if cursor_y < area.y + area.height {
-            frame.set_cursor_position((cursor_x, cursor_y));
-        }
+        let base_y = if app.input.attachments.is_empty() {
+            area.y
+        } else {
+            area.y + 1
+        };
+
+        frame.set_cursor_position((
+            area.x + 2 + display_width as u16,
+            base_y + app.input.cursor_line as u16,
+        ));
     }
 
     // Completion popups

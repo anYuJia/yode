@@ -1,9 +1,4 @@
-/// Input editing state and cursor management.
-///
-/// Encapsulates multi-line text editing, cursor navigation,
-/// and line manipulation operations.
-
-/// Multi-line text input buffer with cursor state.
+/// Multi-line text input buffer with cursor state and attachments.
 pub struct InputState {
     /// Multi-line input buffer
     pub lines: Vec<String>,
@@ -11,6 +6,15 @@ pub struct InputState {
     pub cursor_line: usize,
     /// Cursor column index (character-based, not byte)
     pub cursor_col: usize,
+    /// Attachments (e.g. folded pasted text)
+    pub attachments: Vec<InputAttachment>,
+}
+
+pub struct InputAttachment {
+    pub id: usize,
+    pub name: String,
+    pub content: String,
+    pub line_count: usize,
 }
 
 impl InputState {
@@ -19,6 +23,7 @@ impl InputState {
             lines: vec![String::new()],
             cursor_line: 0,
             cursor_col: 0,
+            attachments: Vec::new(),
         }
     }
 
@@ -52,7 +57,16 @@ impl InputState {
 
     /// Take (extract) the input, resetting state.
     pub fn take(&mut self) -> String {
-        let text = self.text();
+        let mut text = self.text();
+        // Append attachments at the end with clear markers
+        for att in &self.attachments {
+            if !text.is_empty() {
+                text.push_str("\n\n");
+            }
+            text.push_str(&format!("--- BEGIN {} ---\n", att.name));
+            text.push_str(&att.content);
+            text.push_str(&format!("\n--- END {} ---", att.name));
+        }
         self.clear();
         text
     }
@@ -62,6 +76,7 @@ impl InputState {
         self.lines = vec![String::new()];
         self.cursor_line = 0;
         self.cursor_col = 0;
+        self.attachments.clear();
     }
 
     /// Set input to given text (single line).

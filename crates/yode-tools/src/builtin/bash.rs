@@ -62,7 +62,7 @@ impl Tool for BashTool {
 
         let timeout_duration = Duration::from_secs(timeout_secs);
 
-        let mut child = Command::new("sh")
+        let child = Command::new("sh")
             .arg("-c")
             .arg(&command)
             .stdout(Stdio::piped())

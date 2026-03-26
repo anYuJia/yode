@@ -74,7 +74,7 @@ pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
                     Span::styled(entry.content.clone(), Style::default().fg(RED)),
                 ]));
             }
-            ChatRole::System => {
+            ChatRole::System | ChatRole::AskUser { .. } => {
                 for line in entry.content.lines() {
                     lines.push(Line::from(Span::styled(
                         format!("  {}", line),
@@ -427,8 +427,8 @@ pub fn render_header(app: &App, width: usize) -> Vec<Line<'static>> {
     let accent = Style::default().fg(ACCENT);
     let green = Style::default().fg(GREEN);
 
-    let box_w = width.saturating_sub(2).min(130);
-    let inner_w = box_w.saturating_sub(4); // inside " │ " ... "│"
+    let box_w = width.saturating_sub(4).min(100);
+    let inner_w = box_w.saturating_sub(3); // "│ " ... "│"
 
     let session_short = if app.session.session_id.len() >= 8 {
         app.session.session_id[..8].to_string()
@@ -466,7 +466,7 @@ pub fn render_header(app: &App, width: usize) -> Vec<Line<'static>> {
             .map(|s| UnicodeWidthStr::width(s.content.as_ref()))
             .sum();
 
-        let mut spans = vec![Span::styled(" │ ", border)];
+        let mut spans = vec![Span::styled("│ ", border)];
         spans.extend(left_spans);
 
         if show_logo {
@@ -494,7 +494,7 @@ pub fn render_header(app: &App, width: usize) -> Vec<Line<'static>> {
     let title = " Yode v0.1 ";
     let rule_right = box_w.saturating_sub(title.len() + 4);
     lines.push(Line::from(vec![
-        Span::styled(" ╭──", border),
+        Span::styled("╭──", border),
         Span::styled(title, title_style),
         Span::styled("─".repeat(rule_right), border),
         Span::styled("╮", border),
@@ -533,7 +533,7 @@ pub fn render_header(app: &App, width: usize) -> Vec<Line<'static>> {
 
     // ╰─────...─╯
     lines.push(Line::from(vec![
-        Span::styled(" ╰", border),
+        Span::styled("╰", border),
         Span::styled("─".repeat(box_w.saturating_sub(2)), border),
         Span::styled("╯", border),
     ]));
