@@ -122,10 +122,14 @@ pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
 
 fn render_command_popup(frame: &mut Frame, area: Rect, app: &App) {
     let max_show = 8usize;
+    // For Inline(4), the input is at y=1, so we only have 1 row above (y=0).
+    // Let's cap height to available space at the top.
     let count = app.cmd_completion.candidates.len().min(max_show);
-    let popup_height = count as u16;
+    let popup_height = (count as u16).min(area.y); 
+    if popup_height == 0 { return; } // Not enough space to show suggestions
+
     let popup_y = area.y.saturating_sub(popup_height);
-    let popup_width = 48u16.min(area.width);
+    let popup_width = 48u16.min(area.width.saturating_sub(area.x + 2));
     let popup_area = Rect::new(area.x + 2, popup_y, popup_width, popup_height);
 
     frame.render_widget(Clear, popup_area);
@@ -158,10 +162,13 @@ fn render_command_popup(frame: &mut Frame, area: Rect, app: &App) {
 
 fn render_file_popup(frame: &mut Frame, area: Rect, app: &App) {
     let max_show = 10usize;
+    // Cap height to space above input
     let count = app.file_completion.candidates.len().min(max_show);
-    let popup_height = count as u16;
+    let popup_height = (count as u16).min(area.y);
+    if popup_height == 0 { return; }
+
     let popup_y = area.y.saturating_sub(popup_height);
-    let popup_width = 50u16.min(area.width);
+    let popup_width = 50u16.min(area.width.saturating_sub(area.x + 2));
     let popup_area = Rect::new(area.x + 2, popup_y, popup_width, popup_height);
 
     frame.render_widget(Clear, popup_area);
