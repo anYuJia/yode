@@ -217,7 +217,7 @@ pub struct App {
     // Engine communication
     pub pending_confirmation: Option<PendingConfirmation>,
     pub confirm_tx: Option<mpsc::UnboundedSender<ConfirmResponse>>,
-    pub pending_inputs: Vec<String>,
+    pub pending_inputs: Vec<(String, String)>,
 
     // Control
     pub should_quit: bool,
@@ -488,8 +488,8 @@ async fn run_app(
 
         // Send queued inputs
         if !app.is_thinking && !app.pending_inputs.is_empty() {
-            let next_input = app.pending_inputs.remove(0);
-            send_input(app, &next_input, &engine, &engine_event_tx);
+            let (display, payload) = app.pending_inputs.remove(0);
+            send_input(app, &display, &payload, &engine, &engine_event_tx);
         }
 
         // 2. Draw viewport AFTER (occupies exactly 4 lines at the new bottom)
@@ -515,7 +515,8 @@ async fn run_app(
                 }
                 AppEvent::Paste(text) => {
                     let line_count = text.lines().count();
-                    if line_count > 5 {
+                    // If pasted text is more than 1 line, fold it into an attachment pill
+                    if line_count > 1 {
                         // Fold into attachment
                         let id = app.input.attachments.len() + 1;
                         app.input.attachments.push(InputAttachment {
@@ -752,39 +753,40 @@ fn handle_enter(
     }
 
     // Submit input
-    let input = app.input.take();
-    if input.trim().is_empty() {
+    let (display, payload, raw_typed) = app.input.take();
+    if payload.trim().is_empty() {
         return;
     }
 
-    app.history.push(input.clone());
+    app.history.push(raw_typed.clone());
     app.cmd_completion.close();
     app.file_completion.close();
 
     // Shell command
-    if app.handle_shell_command(&input) {
+    if app.handle_shell_command(&raw_typed) {
         return;
     }
 
     // Slash command
-    if app.handle_slash_command(&input, tools, engine) {
+    if app.handle_slash_command(&raw_typed, tools, engine) {
         return;
     }
 
     // Process @file references
-    let processed = app.process_file_references(&input);
+    let processed_payload = app.process_file_references(&payload);
+    let processed_display = app.process_file_references(&display);
 
     if app.is_thinking {
-        app.chat_entries.push(ChatEntry::new(ChatRole::User, input));
-        app.pending_inputs.push(processed);
+        app.chat_entries.push(ChatEntry::new(ChatRole::User, processed_display.clone()));
+        app.pending_inputs.push((processed_display, processed_payload));
     } else if app.session.permission_mode == PermissionMode::Plan {
-        app.chat_entries.push(ChatEntry::new(ChatRole::User, input));
+        app.chat_entries.push(ChatEntry::new(ChatRole::User, processed_display.clone()));
         app.chat_entries.push(ChatEntry::new(
             ChatRole::System,
             "[Plan mode] Input recorded. Switch to Normal or Auto-Accept to execute.".to_string(),
         ));
     } else {
-        send_input(app, &processed, engine, engine_event_tx);
+        send_input(app, &processed_display, &processed_payload, engine, engine_event_tx);
     }
 }
 
@@ -894,15 +896,16 @@ fn handle_tab(app: &mut App) {
 
 fn send_input(
     app: &mut App,
-    input: &str,
+    display: &str,
+    payload: &str,
     engine: &Arc<Mutex<AgentEngine>>,
     engine_event_tx: &mpsc::UnboundedSender<EngineEvent>,
 ) {
     // Add user message (if not already queued)
     let already_added = app.chat_entries.last()
-        .map_or(false, |e| matches!(e.role, ChatRole::User) && e.content == input);
+        .map_or(false, |e| matches!(e.role, ChatRole::User) && e.content == display);
     if !already_added {
-        app.chat_entries.push(ChatEntry::new(ChatRole::User, input.to_string()));
+        app.chat_entries.push(ChatEntry::new(ChatRole::User, display.to_string()));
     }
 
     let cancel_token = CancellationToken::new();
@@ -916,7 +919,7 @@ fn send_input(
 
     let engine = engine.clone();
     let event_tx = engine_event_tx.clone();
-    let input_owned = input.to_string();
+    let input_owned = payload.to_string();
     tokio::spawn(async move {
         let mut engine = engine.lock().await;
         let result = engine

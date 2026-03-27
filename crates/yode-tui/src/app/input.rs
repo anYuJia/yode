@@ -55,20 +55,28 @@ impl InputState {
         (line_count + 1).clamp(min_height, max_height)
     }
 
-    /// Take (extract) the input, resetting state.
-    pub fn take(&mut self) -> String {
-        let mut text = self.text();
+    /// Take (extract) the input, resetting state. Returns (display, payload, raw_text)
+    pub fn take(&mut self) -> (String, String, String) {
+        let text = self.text();
+        let mut display = String::new();
+        let mut payload = text.clone();
+        
         // Append attachments at the end with clear markers
         for att in &self.attachments {
-            if !text.is_empty() {
-                text.push_str("\n\n");
+            display.push_str(&format!("[{} +{} lines] ", att.name, att.line_count));
+            
+            if !payload.is_empty() {
+                payload.push_str("\n\n");
             }
-            text.push_str(&format!("--- BEGIN {} ---\n", att.name));
-            text.push_str(&att.content);
-            text.push_str(&format!("\n--- END {} ---", att.name));
+            payload.push_str(&format!("--- BEGIN {} ---\n", att.name));
+            payload.push_str(&att.content);
+            payload.push_str(&format!("\n--- END {} ---", att.name));
         }
+        
+        display.push_str(&text);
+        
         self.clear();
-        text
+        (display, payload, text)
     }
 
     /// Clear all input and reset cursor.
