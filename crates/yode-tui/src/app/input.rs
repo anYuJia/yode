@@ -112,6 +112,8 @@ impl InputState {
             self.cursor_line -= 1;
             self.cursor_col = self.char_count();
             self.lines[self.cursor_line].push_str(&current);
+        } else if !self.attachments.is_empty() {
+            self.attachments.pop();
         }
     }
 
