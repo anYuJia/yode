@@ -513,7 +513,61 @@ async fn run_app(
         if let Some(app_event) = event::poll_event(Duration::from_millis(50))? {
             match app_event {
                 AppEvent::Key(key) => {
-                    handle_key_event(app, key, &engine, &tools, &engine_event_tx);
+                    // Collect rapid sequential key events (likely a paste from Cmd+V)
+                    let mut paste_buf = String::new();
+                    let first_key = Some(key);
+                    
+                    // Check if this is a printable char or newline that could start a paste
+                    let is_pasteable = |k: &crossterm::event::KeyEvent| -> Option<char> {
+                        if k.modifiers.is_empty() || k.modifiers == KeyModifiers::SHIFT {
+                            match k.code {
+                                KeyCode::Char(c) => Some(c),
+                                KeyCode::Enter => Some('\n'),
+                                _ => None,
+                            }
+                        } else {
+                            None
+                        }
+                    };
+
+                    if let Some(ch) = is_pasteable(&key) {
+                        paste_buf.push(ch);
+                        // Drain all immediately-available events (0ms timeout)
+                        while let Ok(true) = crossterm::event::poll(Duration::from_millis(0)) {
+                            if let Ok(crossterm::event::Event::Key(next_key)) = crossterm::event::read() {
+                                if let Some(ch) = is_pasteable(&next_key) {
+                                    paste_buf.push(ch);
+                                } else {
+                                    // Non-char key, handle normally after paste
+                                    handle_key_event(app, next_key, &engine, &tools, &engine_event_tx);
+                                    break;
+                                }
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+
+                    if paste_buf.len() > 1 {
+                        // Multiple chars arrived at once = paste operation
+                        let line_count = paste_buf.lines().count();
+                        if line_count > 1 {
+                            let id = app.input.attachments.len() + 1;
+                            app.input.attachments.push(InputAttachment {
+                                id,
+                                name: format!("Pasted text #{}", id),
+                                content: paste_buf,
+                                line_count,
+                            });
+                        } else {
+                            for c in paste_buf.chars() {
+                                app.input.insert_char(c);
+                            }
+                        }
+                    } else if let Some(k) = first_key {
+                        // Single key event, handle normally
+                        handle_key_event(app, k, &engine, &tools, &engine_event_tx);
+                    }
                 }
                 AppEvent::Paste(text) => {
                     let line_count = text.lines().count();
