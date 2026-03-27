@@ -389,17 +389,18 @@ pub async fn run(
     let engine = Arc::new(Mutex::new(engine_inner));
     let (engine_event_tx, mut engine_event_rx) = mpsc::unbounded_channel::<EngineEvent>();
 
+    let mut current_viewport_height = 4u16;
     let backend = CrosstermBackend::new(stdout);
-    // Small inline viewport: only input + status bar. Chat goes to scrollback.
+    // Dynamic inline viewport: input + status bar.
     let mut terminal = Terminal::with_options(
         backend,
         ratatui::TerminalOptions {
-            viewport: ratatui::Viewport::Inline(4),
+            viewport: ratatui::Viewport::Inline(current_viewport_height),
         },
     )?;
 
     let result = run_app(
-        &mut terminal, &mut app, engine, tools,
+        &mut terminal, &mut current_viewport_height, &mut app, engine, tools,
         engine_event_tx, &mut engine_event_rx,
     ).await;
 
@@ -463,6 +464,7 @@ fn format_number(n: u32) -> String {
 
 async fn run_app(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    current_viewport_height: &mut u16,
     app: &mut App,
     engine: Arc<Mutex<AgentEngine>>,
     tools: Arc<ToolRegistry>,
@@ -470,6 +472,30 @@ async fn run_app(
     engine_event_rx: &mut mpsc::UnboundedReceiver<EngineEvent>,
 ) -> Result<()> {
     loop {
+        app.sync_thinking();
+
+        // Dynamic viewport height check
+        let needed_height = if app.pending_confirmation.is_some() {
+            4 // fixed height for confirmation UI
+        } else {
+            // separator (1) + info (1) + bottom padding (1) + input_height
+            let input_lines = app.input.line_count() as u16 + if app.input.attachments.is_empty() { 0 } else { 1 };
+            3 + input_lines.min(10)
+        };
+
+        if needed_height != *current_viewport_height {
+            *current_viewport_height = needed_height;
+            // Re-instantiate the Terminal with new Inline size
+            let stdout = std::io::stdout();
+            let backend = CrosstermBackend::new(stdout);
+            *terminal = Terminal::with_options(
+                backend,
+                ratatui::TerminalOptions {
+                    viewport: ratatui::Viewport::Inline(needed_height),
+                },
+            )?;
+        }
+
         // Process engine events (non-blocking)
         while let Ok(event) = engine_event_rx.try_recv() {
             handle_engine_event(app, event);
