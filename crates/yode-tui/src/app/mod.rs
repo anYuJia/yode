@@ -696,7 +696,7 @@ fn handle_key_event(
     // ── Main key handling ───────────────────────────────────
     match key.code {
         KeyCode::Enter => handle_enter(app, key, engine, tools, engine_event_tx),
-        KeyCode::Char(c) if key.modifiers.contains(KeyModifiers::CONTROL) && c == 'v' => {
+        KeyCode::Char(c) if (key.modifiers.contains(KeyModifiers::CONTROL) || key.modifiers.contains(KeyModifiers::SUPER)) && c == 'v' => {
             // Ctrl+V: read from system clipboard directly (works even without BracketedPaste)
             if let Ok(output) = std::process::Command::new("pbpaste").output() {
                 if output.status.success() {
