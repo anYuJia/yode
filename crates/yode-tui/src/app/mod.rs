@@ -696,6 +696,30 @@ fn handle_key_event(
     // ── Main key handling ───────────────────────────────────
     match key.code {
         KeyCode::Enter => handle_enter(app, key, engine, tools, engine_event_tx),
+        KeyCode::Char(c) if key.modifiers.contains(KeyModifiers::CONTROL) && c == 'v' => {
+            // Ctrl+V: read from system clipboard directly (works even without BracketedPaste)
+            if let Ok(output) = std::process::Command::new("pbpaste").output() {
+                if output.status.success() {
+                    let text = String::from_utf8_lossy(&output.stdout).to_string();
+                    if !text.is_empty() {
+                        let line_count = text.lines().count();
+                        if line_count > 1 {
+                            let id = app.input.attachments.len() + 1;
+                            app.input.attachments.push(InputAttachment {
+                                id,
+                                name: format!("Pasted text #{}", id),
+                                content: text,
+                                line_count,
+                            });
+                        } else {
+                            for ch in text.chars() {
+                                app.input.insert_char(ch);
+                            }
+                        }
+                    }
+                }
+            }
+        }
         KeyCode::Char(c) => handle_char(app, key, c),
         KeyCode::Backspace => {
             app.input.backspace();
