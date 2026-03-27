@@ -24,7 +24,7 @@ pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
     let prompt_color = if app.is_thinking { PROMPT_DIM } else { PROMPT_COLOR };
     let prompt = Span::styled("❯ ", Style::default().fg(prompt_color).add_modifier(Modifier::BOLD));
 
-    let is_empty = app.input.is_empty();
+    let is_empty = app.input.is_empty() && app.input.attachments.is_empty();
 
     if is_empty && !app.is_thinking {
         let paragraph = Paragraph::new(Line::from(vec![
