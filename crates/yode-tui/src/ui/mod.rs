@@ -35,7 +35,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(1), // Separator
-                Constraint::Length(1), // Input
+                Constraint::Min(1),    // Input
                 Constraint::Length(1), // Info line
                 Constraint::Length(1), // Bottom padding
             ])

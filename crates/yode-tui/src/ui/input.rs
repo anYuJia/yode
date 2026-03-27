@@ -72,9 +72,17 @@ pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
             Rect::new(area.x, area.y + 1, area.width, area.height.saturating_sub(1))
         };
 
+        let max_visible_lines = input_area.height as usize;
+        let mut scroll_y = 0;
+        if app.input.cursor_line >= max_visible_lines && max_visible_lines > 0 {
+            scroll_y = app.input.cursor_line + 1 - max_visible_lines;
+        }
+
         let lines: Vec<Line> = app.input.lines
             .iter()
             .enumerate()
+            .skip(scroll_y)
+            .take(max_visible_lines)
             .map(|(i, line)| {
                 if i == 0 {
                     Line::from(vec![
@@ -100,15 +108,22 @@ pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
             .take(app.input.cursor_col)
             .map(|c| UnicodeWidthChar::width(c).unwrap_or(0))
             .sum();
-        let base_y = if app.input.attachments.is_empty() {
-            area.y
+            
+        let input_area = if app.input.attachments.is_empty() {
+            area
         } else {
-            area.y + 1
+            Rect::new(area.x, area.y + 1, area.width, area.height.saturating_sub(1))
         };
+        let max_visible_lines = input_area.height as usize;
+        let mut scroll_y = 0;
+        if app.input.cursor_line >= max_visible_lines && max_visible_lines > 0 {
+            scroll_y = app.input.cursor_line + 1 - max_visible_lines;
+        }
+        let cursor_screen_y = app.input.cursor_line.saturating_sub(scroll_y) as u16;
 
         frame.set_cursor_position((
             area.x + 2 + display_width as u16,
-            base_y + app.input.cursor_line as u16,
+            input_area.y + cursor_screen_y,
         ));
     }
 
