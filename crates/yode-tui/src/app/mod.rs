@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyModifiers, EnableBracketedPaste, DisableBracketedPaste};
 use crossterm::terminal::{
-    disable_raw_mode, enable_raw_mode,
+    disable_raw_mode, enable_raw_mode, Clear, ClearType,
 };
 use crossterm::ExecutableCommand;
 use ratatui::backend::CrosstermBackend;
@@ -345,6 +345,8 @@ pub async fn run(
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     stdout.execute(EnableBracketedPaste)?;
+    // Add blank line to separate from cargo build output
+    stdout.execute(crossterm::style::Print("\n"))?;
     let working_dir = context.working_dir.display().to_string();
     let is_resumed = context.is_resumed;
     let mut app = App::new(context.model.clone(), context.session_id.clone(), working_dir);
@@ -532,8 +534,9 @@ async fn run_app(
 
                     if let Some(ch) = is_pasteable(&key) {
                         paste_buf.push(ch);
-                        // Drain all immediately-available events (0ms timeout)
-                        while let Ok(true) = crossterm::event::poll(Duration::from_millis(0)) {
+                        // Drain rapidly-arriving events (5ms timeout catches paste chars
+                        // that arrive with small delays between them, e.g. from Cmd+V)
+                        while let Ok(true) = crossterm::event::poll(Duration::from_millis(5)) {
                             if let Ok(crossterm::event::Event::Key(next_key)) = crossterm::event::read() {
                                 if let Some(ch) = is_pasteable(&next_key) {
                                     paste_buf.push(ch);
@@ -1311,8 +1314,12 @@ fn raw_print_lines(
 fn print_header_to_stdout(app: &App) -> Result<()> {
     let width = crossterm::terminal::size()?.0 as usize;
     let header_lines = ui::chat::render_header(app, width);
-    
+
     let mut stdout = io::stdout();
+    // Clear any residual cargo output (progress bars may leave escape sequences)
+    stdout.execute(Clear(ClearType::CurrentLine))?;
+    stdout.execute(crossterm::style::Print("\r\n"))?;
+
     for line in header_lines {
         // Convert ratatui Line to colored strings for raw stdout
         for span in line.spans {
