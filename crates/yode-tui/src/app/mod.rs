@@ -1602,7 +1602,19 @@ fn format_entry_as_strings(
 
     match &entry.role {
         ChatRole::User => {
-            result.push((format!("> {}", entry.content), bold_white));
+            let mut first = true;
+            for line in entry.content.lines() {
+                if first {
+                    result.push((format!("> {}", line), bold_white));
+                    first = false;
+                } else {
+                    result.push((format!("  {}", line), bold_white));
+                }
+            }
+            if first {
+                // Empty content
+                result.push(("> ".to_string(), bold_white));
+            }
         }
         ChatRole::Assistant => {
             let processed = markdown_to_plain(&entry.content);
