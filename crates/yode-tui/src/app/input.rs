@@ -52,24 +52,31 @@ impl InputState {
     }
 
     /// Calculate the visual line count considering line wrapping at the given terminal width.
-    /// The prompt "❯ " takes 2 columns on the first line, "  " on subsequent lines.
-    /// Placeholder chars are expanded to their pill tag display width.
+    /// Simulates ratatui's character-level wrapping.
     pub fn visual_line_count(&self, term_width: u16) -> usize {
         if term_width == 0 { return self.lines.len(); }
         let w = term_width as usize;
-        self.lines.iter().enumerate().map(|(_i, line)| {
+        let mut total_rows = 0usize;
+        for line in &self.lines {
             let prefix_w = 2; // "❯ " or "  "
-            let content_w: usize = line.chars().map(|ch| {
-                if ch == PLACEHOLDER {
-                    // Approximate pill display width
-                    20
+            let mut col = prefix_w;
+            let mut rows = 1usize;
+            for ch in line.chars() {
+                let char_w = if ch == PLACEHOLDER {
+                    20 // approximate pill width
                 } else {
                     unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0)
+                };
+                if col + char_w > w {
+                    rows += 1;
+                    col = char_w;
+                } else {
+                    col += char_w;
                 }
-            }).sum();
-            let total = prefix_w + content_w;
-            if total == 0 { 1 } else { total.div_ceil(w).max(1) }
-        }).sum()
+            }
+            total_rows += rows;
+        }
+        total_rows
     }
 
     /// Calculate input area height.
