@@ -533,8 +533,15 @@ async fn run_app(
                     terminal.viewport = ratatui::Viewport::Inline(needed);
                     terminal.set_viewport_area(new_area);
                 } else {
-                    // Shrinking: just reduce height, bottom stays fixed
+                    // Shrinking: clear freed rows, then resize
                     let new_y = area.bottom().saturating_sub(needed);
+                    for row in area.y..new_y {
+                        crossterm::execute!(
+                            terminal.backend_mut(),
+                            crossterm::cursor::MoveTo(0, row),
+                            crossterm::terminal::Clear(crossterm::terminal::ClearType::CurrentLine)
+                        )?;
+                    }
                     let new_area = ratatui::layout::Rect {
                         x: area.x,
                         y: new_y,
@@ -543,15 +550,9 @@ async fn run_app(
                     };
                     terminal.viewport = ratatui::Viewport::Inline(needed);
                     terminal.set_viewport_area(new_area);
-                    // Clear the freed lines above the new viewport
-                    for row in area.y..new_y {
-                        crossterm::execute!(
-                            terminal.backend_mut(),
-                            crossterm::cursor::MoveTo(0, row),
-                            crossterm::terminal::Clear(crossterm::terminal::ClearType::CurrentLine)
-                        )?;
-                    }
                 }
+                // Force full redraw after resize
+                terminal.clear()?;
             }
         }
 
