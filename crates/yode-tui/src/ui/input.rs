@@ -151,9 +151,12 @@ pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
         let wrap_row = if term_w > 0 { total_x / term_w } else { 0 };
         let wrap_col = if term_w > 0 { total_x % term_w } else { total_x };
 
+        // Clamp cursor within input area
+        let cursor_y = area.y + (visual_y + wrap_row) as u16;
+        let max_y = area.y + area.height.saturating_sub(1);
         frame.set_cursor_position((
             area.x + wrap_col as u16,
-            area.y + (visual_y + wrap_row) as u16,
+            cursor_y.min(max_y),
         ));
     }
 
