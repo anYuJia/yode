@@ -1,7 +1,7 @@
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Clear, Paragraph, Wrap};
+use ratatui::widgets::{Clear, Paragraph};
 use ratatui::Frame;
 use unicode_width::UnicodeWidthChar;
 
@@ -53,57 +53,119 @@ pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
         ]));
         frame.render_widget(paragraph, area);
     } else {
-        // Render text input, replacing placeholder chars with pill tags
-        let max_visible_lines = area.height as usize;
-        let mut scroll_y = 0;
-        if app.input.cursor_line >= max_visible_lines && max_visible_lines > 0 {
-            scroll_y = app.input.cursor_line + 1 - max_visible_lines;
-        }
+        // Render text input with manual character-level wrapping.
+        // We can't use ratatui's Wrap (word-level), so we split into visual lines ourselves.
+        let term_w = area.width as usize;
+        let max_visible = area.height as usize;
 
+        let mut visual_lines: Vec<Line> = Vec::new();
         let mut att_idx = 0usize;
-        // Count placeholders in lines before scroll_y
-        for line in app.input.lines.iter().take(scroll_y) {
-            att_idx += line.chars().filter(|&c| c == '\u{FFFC}').count();
+
+        for (i, logical_line) in app.input.lines.iter().enumerate() {
+            let prefix_str = if i == 0 { "❯ " } else { "  " };
+            let prefix_w = 2usize;
+
+            // Build (char, display_str, style, width) for each character
+            let mut items: Vec<(String, Style, usize)> = Vec::new();
+            items.push((prefix_str.to_string(), Style::default().fg(prompt_color).add_modifier(Modifier::BOLD), prefix_w));
+
+            let mut buf = String::new();
+            for ch in logical_line.chars() {
+                if ch == '\u{FFFC}' {
+                    if !buf.is_empty() {
+                        let w = unicode_width::UnicodeWidthStr::width(buf.as_str());
+                        items.push((buf.clone(), Style::default().fg(TEXT_COLOR), w));
+                        buf.clear();
+                    }
+                    let pill_text = if let Some(att) = app.input.attachments.get(att_idx) {
+                        format!("[{} +{} lines]", att.name, att.line_count)
+                    } else {
+                        "[paste]".to_string()
+                    };
+                    let w = pill_text.len();
+                    items.push((pill_text, Style::default().fg(Color::Rgb(150, 200, 255)).add_modifier(Modifier::BOLD), w));
+                    att_idx += 1;
+                } else {
+                    buf.push(ch);
+                }
+            }
+            if !buf.is_empty() {
+                let w = unicode_width::UnicodeWidthStr::width(buf.as_str());
+                items.push((buf, Style::default().fg(TEXT_COLOR), w));
+            }
+
+            // Now split items into visual lines at term_w
+            let mut row_spans: Vec<Span> = Vec::new();
+            let mut col = 0usize;
+
+            for (text, style, item_w) in &items {
+                if term_w > 0 && col + item_w > term_w && col > 0 {
+                    // This item doesn't fit; need to split character by character
+                    let mut remaining = text.as_str();
+                    while !remaining.is_empty() {
+                        let mut chunk = String::new();
+                        let mut chunk_w = 0usize;
+                        let mut chars = remaining.char_indices().peekable();
+                        while let Some(&(byte_i, ch)) = chars.peek() {
+                            let cw = UnicodeWidthChar::width(ch).unwrap_or(0);
+                            if term_w > 0 && col + chunk_w + cw > term_w && (col + chunk_w) > 0 {
+                                break;
+                            }
+                            chunk.push(ch);
+                            chunk_w += cw;
+                            chars.next();
+                        }
+                        if !chunk.is_empty() {
+                            row_spans.push(Span::styled(chunk.clone(), *style));
+                            col += chunk_w;
+                            remaining = &remaining[chunk.len()..];
+                        }
+                        if !remaining.is_empty() {
+                            // Push current row and start new visual line
+                            visual_lines.push(Line::from(std::mem::take(&mut row_spans)));
+                            col = 0;
+                        }
+                    }
+                } else if term_w > 0 && col + item_w > term_w && col == 0 {
+                    // Item wider than term_w starting at col 0; split char by char
+                    let mut remaining = text.as_str();
+                    while !remaining.is_empty() {
+                        let mut chunk = String::new();
+                        let mut chunk_w = 0usize;
+                        let mut chars = remaining.char_indices().peekable();
+                        while let Some(&(_byte_i, ch)) = chars.peek() {
+                            let cw = UnicodeWidthChar::width(ch).unwrap_or(0);
+                            if chunk_w + cw > term_w && chunk_w > 0 {
+                                break;
+                            }
+                            chunk.push(ch);
+                            chunk_w += cw;
+                            chars.next();
+                        }
+                        if !chunk.is_empty() {
+                            row_spans.push(Span::styled(chunk.clone(), *style));
+                            col = chunk_w;
+                            remaining = &remaining[chunk.len()..];
+                        }
+                        if !remaining.is_empty() {
+                            visual_lines.push(Line::from(std::mem::take(&mut row_spans)));
+                            col = 0;
+                        }
+                    }
+                } else {
+                    row_spans.push(Span::styled(text.clone(), *style));
+                    col += item_w;
+                }
+            }
+            if !row_spans.is_empty() {
+                visual_lines.push(Line::from(row_spans));
+            }
         }
 
-        let lines: Vec<Line> = app.input.lines
-            .iter()
-            .enumerate()
-            .skip(scroll_y)
-            .take(max_visible_lines)
-            .map(|(i, line)| {
-                let prefix = if i == 0 { prompt.clone() } else { Span::raw("  ") };
-                let mut spans = vec![prefix];
-                // Split line on placeholder chars, inserting pill spans
-                let mut buf = String::new();
-                for ch in line.chars() {
-                    if ch == '\u{FFFC}' {
-                        if !buf.is_empty() {
-                            spans.push(Span::styled(buf.clone(), Style::default().fg(TEXT_COLOR)));
-                            buf.clear();
-                        }
-                        let pill_text = if let Some(att) = app.input.attachments.get(att_idx) {
-                            format!("[{} +{} lines]", att.name, att.line_count)
-                        } else {
-                            "[paste]".to_string()
-                        };
-                        spans.push(Span::styled(
-                            pill_text,
-                            Style::default().fg(Color::Rgb(150, 200, 255)).add_modifier(Modifier::BOLD),
-                        ));
-                        att_idx += 1;
-                    } else {
-                        buf.push(ch);
-                    }
-                }
-                if !buf.is_empty() {
-                    spans.push(Span::styled(buf, Style::default().fg(TEXT_COLOR)));
-                }
-                Line::from(spans)
-            })
-            .collect();
-
-        frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), area);
+        // Take only the visible portion
+        let skip = visual_lines.len().saturating_sub(max_visible);
+        let visible: Vec<Line> = visual_lines.into_iter().skip(skip).take(max_visible).collect();
+        frame.render_widget(Paragraph::new(visible), area);
     }
 
     // Cursor
