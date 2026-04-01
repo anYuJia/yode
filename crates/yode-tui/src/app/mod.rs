@@ -623,11 +623,13 @@ async fn run_app(
                     }
                 }
                 AppEvent::Paste(text) => {
+                    // Normalize line endings: \r\n → \n, bare \r → \n
+                    let text = text.replace("\r\n", "\n").replace('\r', "\n");
                     if input::should_fold_paste(&text) {
                         app.input.insert_attachment(text);
                     } else {
                         for line in text.split_inclusive('\n') {
-                            let clean = line.trim_end_matches(['\r', '\n']);
+                            let clean = line.trim_end_matches('\n');
                             for c in clean.chars() {
                                 app.input.insert_char(c);
                             }

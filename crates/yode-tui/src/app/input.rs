@@ -62,12 +62,14 @@ impl InputState {
     /// Insert a pasted text as a folded attachment at the current cursor position.
     /// Inserts a placeholder char into the text buffer so position is preserved.
     pub fn insert_attachment(&mut self, content: String) {
-        let line_count = count_lines(&content);
+        // Normalize line endings: \r\n → \n, bare \r → \n
+        let normalized = content.replace("\r\n", "\n").replace('\r', "\n");
+        let line_count = count_lines(&normalized);
         let id = self.attachments.len() + 1;
         self.attachments.push(InputAttachment {
             id,
             name: format!("Pasted text #{}", id),
-            content,
+            content: normalized,
             line_count,
         });
         // Insert placeholder at cursor
