@@ -51,6 +51,27 @@ impl InputState {
         self.lines.len()
     }
 
+    /// Calculate the visual line count considering line wrapping at the given terminal width.
+    /// The prompt "❯ " takes 2 columns on the first line, "  " on subsequent lines.
+    /// Placeholder chars are expanded to their pill tag display width.
+    pub fn visual_line_count(&self, term_width: u16) -> usize {
+        if term_width == 0 { return self.lines.len(); }
+        let w = term_width as usize;
+        self.lines.iter().enumerate().map(|(_i, line)| {
+            let prefix_w = 2; // "❯ " or "  "
+            let content_w: usize = line.chars().map(|ch| {
+                if ch == PLACEHOLDER {
+                    // Approximate pill display width
+                    20
+                } else {
+                    unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0)
+                }
+            }).sum();
+            let total = prefix_w + content_w;
+            if total == 0 { 1 } else { total.div_ceil(w).max(1) }
+        }).sum()
+    }
+
     /// Calculate input area height.
     pub fn area_height(&self, terminal_height: u16) -> u16 {
         let line_count = self.line_count() as u16;

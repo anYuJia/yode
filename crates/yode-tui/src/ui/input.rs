@@ -1,7 +1,7 @@
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Clear, Paragraph};
+use ratatui::widgets::{Clear, Paragraph, Wrap};
 use ratatui::Frame;
 use unicode_width::UnicodeWidthChar;
 
@@ -103,27 +103,41 @@ pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
             })
             .collect();
 
-        frame.render_widget(Paragraph::new(lines), area);
+        frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), area);
     }
 
     // Cursor
     if !app.is_thinking && app.pending_confirmation.is_none() {
-        // Calculate display width up to cursor, accounting for pill tags
+        let term_w = area.width as usize;
+        let prefix_w = 2usize; // "❯ " or "  "
+
+        // Calculate visual rows consumed by lines before cursor_line
+        let mut visual_y = 0usize;
         let mut pill_idx = 0usize;
-        // Count placeholders in lines before cursor_line
         for line in app.input.lines.iter().take(app.input.cursor_line) {
-            pill_idx += line.chars().filter(|&c| c == '\u{FFFC}').count();
+            let line_w: usize = prefix_w + line.chars().map(|ch| {
+                if ch == '\u{FFFC}' {
+                    let w = app.input.attachments.get(pill_idx)
+                        .map(|a| format!("[{} +{} lines]", a.name, a.line_count).len())
+                        .unwrap_or(6);
+                    pill_idx += 1;
+                    w
+                } else {
+                    UnicodeWidthChar::width(ch).unwrap_or(0)
+                }
+            }).sum::<usize>();
+            visual_y += if line_w == 0 || term_w == 0 { 1 } else { line_w.div_ceil(term_w).max(1) };
         }
-        let display_width: usize = app.input.lines[app.input.cursor_line]
+
+        // Display width of cursor line up to cursor_col
+        let cursor_content_w: usize = app.input.lines[app.input.cursor_line]
             .chars()
             .take(app.input.cursor_col)
             .map(|c| {
                 if c == '\u{FFFC}' {
-                    let w = if let Some(att) = app.input.attachments.get(pill_idx) {
-                        format!("[{} +{} lines]", att.name, att.line_count).len()
-                    } else {
-                        6 // "[paste]"
-                    };
+                    let w = app.input.attachments.get(pill_idx)
+                        .map(|a| format!("[{} +{} lines]", a.name, a.line_count).len())
+                        .unwrap_or(6);
                     pill_idx += 1;
                     w
                 } else {
@@ -131,17 +145,15 @@ pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
                 }
             })
             .sum();
+        let total_x = prefix_w + cursor_content_w;
 
-        let max_visible_lines = area.height as usize;
-        let mut scroll_y = 0;
-        if app.input.cursor_line >= max_visible_lines && max_visible_lines > 0 {
-            scroll_y = app.input.cursor_line + 1 - max_visible_lines;
-        }
-        let cursor_screen_y = app.input.cursor_line.saturating_sub(scroll_y) as u16;
+        // Wrap: which visual row and column
+        let wrap_row = if term_w > 0 { total_x / term_w } else { 0 };
+        let wrap_col = if term_w > 0 { total_x % term_w } else { total_x };
 
         frame.set_cursor_position((
-            area.x + 2 + display_width as u16,
-            area.y + cursor_screen_y,
+            area.x + wrap_col as u16,
+            area.y + (visual_y + wrap_row) as u16,
         ));
     }
 

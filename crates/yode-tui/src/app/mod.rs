@@ -510,8 +510,9 @@ async fn run_app(
             let needed = if app.pending_confirmation.is_some() {
                 4u16
             } else {
-                let input_lines = app.input.line_count() as u16;
-                input_lines.clamp(1, 5) + 2 // +status +padding
+                let term_width = terminal.get_frame().area().width;
+                let visual_lines = app.input.visual_line_count(term_width) as u16;
+                visual_lines.clamp(1, 5) + 2 // +status +padding
             };
             let area = terminal.get_frame().area();
             if area.height != needed {

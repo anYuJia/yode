@@ -8,7 +8,7 @@ use ratatui::Frame;
 use crate::app::App;
 
 /// Viewport is dynamically resized to exactly fit content.
-/// Pills are rendered inline within the input text.
+/// Long lines wrap automatically; input height adapts to visual line count.
 pub fn render(frame: &mut Frame, app: &mut App) {
     use ratatui::layout::{Constraint, Direction, Layout};
 
@@ -25,15 +25,16 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
         tool_confirm::render_inline_confirm(frame, &chunks, app);
     } else {
-        let input_lines = app.input.line_count() as u16;
-        let input_height = input_lines.clamp(1, 5);
+        let term_width = frame.area().width;
+        let visual_lines = app.input.visual_line_count(term_width) as u16;
+        let input_height = visual_lines.clamp(1, 5);
 
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(input_height),  // Input text (pills inline)
-                Constraint::Length(1),              // Status bar
-                Constraint::Length(1),              // Bottom padding
+                Constraint::Length(input_height),
+                Constraint::Length(1),
+                Constraint::Length(1),
             ])
             .split(frame.area());
 
