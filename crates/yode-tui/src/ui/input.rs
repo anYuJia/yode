@@ -106,7 +106,7 @@ pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
                         let mut chunk = String::new();
                         let mut chunk_w = 0usize;
                         let mut chars = remaining.char_indices().peekable();
-                        while let Some(&(byte_i, ch)) = chars.peek() {
+                        while let Some(&(_byte_i, ch)) = chars.peek() {
                             let cw = UnicodeWidthChar::width(ch).unwrap_or(0);
                             if term_w > 0 && col + chunk_w + cw > term_w && (col + chunk_w) > 0 {
                                 break;
