@@ -392,11 +392,12 @@ pub async fn run(
     let (engine_event_tx, mut engine_event_rx) = mpsc::unbounded_channel::<EngineEvent>();
 
     let backend = CrosstermBackend::new(stdout);
-    // Fixed inline viewport: input + status bar. We allocate 5 lines to allow multiline scrolling internally.
+    // Start with minimal 3-line inline viewport (1 input + 1 status + 1 padding).
+    // Grows upward dynamically via set_viewport_area as input lines increase.
     let mut terminal = Terminal::with_options(
         backend,
         ratatui::TerminalOptions {
-            viewport: ratatui::Viewport::Inline(5),
+            viewport: ratatui::Viewport::Inline(3),
         },
     )?;
 
@@ -496,7 +497,57 @@ async fn run_app(
             send_input(app, &display, &payload, &engine, &engine_event_tx);
         }
 
-        // 2. Draw viewport AFTER (occupies exactly 4 lines at the new bottom)
+        // 2. Resize viewport to match content height (grows up, shrinks down)
+        {
+            let needed = if app.pending_confirmation.is_some() {
+                4u16
+            } else {
+                let input_lines = app.input.line_count() as u16;
+                let attachment_lines = app.input.attachments.len() as u16;
+                (input_lines + attachment_lines).clamp(1, 5) + 2 // +status +padding
+            };
+            let area = terminal.get_frame().area();
+            if area.height != needed {
+                if needed > area.height {
+                    // Growing: scroll up to make room above viewport
+                    let grow_by = needed - area.height;
+                    crossterm::execute!(
+                        terminal.backend_mut(),
+                        crossterm::terminal::ScrollUp(grow_by)
+                    )?;
+                    let new_y = area.y.saturating_sub(grow_by);
+                    let new_area = ratatui::layout::Rect {
+                        x: area.x,
+                        y: new_y,
+                        width: area.width,
+                        height: needed,
+                    };
+                    terminal.viewport = ratatui::Viewport::Inline(needed);
+                    terminal.set_viewport_area(new_area);
+                } else {
+                    // Shrinking: just reduce height, bottom stays fixed
+                    let new_y = area.bottom().saturating_sub(needed);
+                    let new_area = ratatui::layout::Rect {
+                        x: area.x,
+                        y: new_y,
+                        width: area.width,
+                        height: needed,
+                    };
+                    terminal.viewport = ratatui::Viewport::Inline(needed);
+                    terminal.set_viewport_area(new_area);
+                    // Clear the freed lines above the new viewport
+                    for row in area.y..new_y {
+                        crossterm::execute!(
+                            terminal.backend_mut(),
+                            crossterm::cursor::MoveTo(0, row),
+                            crossterm::terminal::Clear(crossterm::terminal::ClearType::CurrentLine)
+                        )?;
+                    }
+                }
+            }
+        }
+
+        // 3. Draw viewport
         terminal.draw(|f| {
             ui::render(f, app);
         })?;
@@ -827,8 +878,8 @@ fn handle_enter(
         return;
     }
 
-    // Enter to submit, Ctrl+Enter for newline
-    let is_newline = key.modifiers.contains(KeyModifiers::CONTROL) || key.modifiers.contains(KeyModifiers::SUPER);
+    // Enter to submit, Shift+Enter for newline
+    let is_newline = key.modifiers.contains(KeyModifiers::SHIFT);
 
     if is_newline {
         app.input.insert_newline();

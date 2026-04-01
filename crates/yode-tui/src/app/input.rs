@@ -50,9 +50,9 @@ impl InputState {
     /// Calculate input area height.
     pub fn area_height(&self, terminal_height: u16) -> u16 {
         let line_count = self.line_count() as u16;
-        let min_height = 2u16; // separator + input line
-        let max_height = (terminal_height / 3).max(min_height);
-        (line_count + 1).clamp(min_height, max_height)
+        let min_height = 1u16; // min 1 line
+        let max_height = 5u16.min(terminal_height.saturating_sub(4)); // max 5 lines
+        line_count.clamp(min_height, max_height)
     }
 
     /// Take (extract) the input, resetting state. Returns (display, payload, raw_text)
