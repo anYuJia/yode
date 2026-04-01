@@ -320,6 +320,7 @@
 
 // show the feature flags in the generated documentation
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
+#![allow(mismatched_lifetime_syntaxes)]
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/ratatui/ratatui/main/assets/logo.png",
     html_favicon_url = "https://raw.githubusercontent.com/ratatui/ratatui/main/assets/favicon.ico"

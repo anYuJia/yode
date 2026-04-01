@@ -53,29 +53,17 @@ pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
         ]));
         frame.render_widget(paragraph, area);
     } else {
-        // 1. Render attachments as colored pills first
-        let mut att_spans = Vec::new();
-        for att in &app.input.attachments {
-            att_spans.push(Span::styled(
-                format!("[{} +{} lines] ", att.name, att.line_count),
-                Style::default().fg(Color::Rgb(150, 200, 255)).add_modifier(Modifier::BOLD)
-            ));
-        }
-        if !att_spans.is_empty() {
-            frame.render_widget(Paragraph::new(Line::from(att_spans)), area);
-        }
-
-        // 2. Render actual text input, starting 1 line below if attachments exist
-        let input_area = if app.input.attachments.is_empty() {
-            area
-        } else {
-            Rect::new(area.x, area.y + 1, area.width, area.height.saturating_sub(1))
-        };
-
-        let max_visible_lines = input_area.height as usize;
+        // Render text input, replacing placeholder chars with pill tags
+        let max_visible_lines = area.height as usize;
         let mut scroll_y = 0;
         if app.input.cursor_line >= max_visible_lines && max_visible_lines > 0 {
             scroll_y = app.input.cursor_line + 1 - max_visible_lines;
+        }
+
+        let mut att_idx = 0usize;
+        // Count placeholders in lines before scroll_y
+        for line in app.input.lines.iter().take(scroll_y) {
+            att_idx += line.chars().filter(|&c| c == '\u{FFFC}').count();
         }
 
         let lines: Vec<Line> = app.input.lines
@@ -84,37 +72,67 @@ pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
             .skip(scroll_y)
             .take(max_visible_lines)
             .map(|(i, line)| {
-                if i == 0 {
-                    Line::from(vec![
-                        prompt.clone(),
-                        Span::styled(line.as_str(), Style::default().fg(TEXT_COLOR)),
-                    ])
-                } else {
-                    Line::from(vec![
-                        Span::raw("  "),
-                        Span::styled(line.as_str(), Style::default().fg(TEXT_COLOR)),
-                    ])
+                let prefix = if i == 0 { prompt.clone() } else { Span::raw("  ") };
+                let mut spans = vec![prefix];
+                // Split line on placeholder chars, inserting pill spans
+                let mut buf = String::new();
+                for ch in line.chars() {
+                    if ch == '\u{FFFC}' {
+                        if !buf.is_empty() {
+                            spans.push(Span::styled(buf.clone(), Style::default().fg(TEXT_COLOR)));
+                            buf.clear();
+                        }
+                        let pill_text = if let Some(att) = app.input.attachments.get(att_idx) {
+                            format!("[{} +{} lines]", att.name, att.line_count)
+                        } else {
+                            "[paste]".to_string()
+                        };
+                        spans.push(Span::styled(
+                            pill_text,
+                            Style::default().fg(Color::Rgb(150, 200, 255)).add_modifier(Modifier::BOLD),
+                        ));
+                        att_idx += 1;
+                    } else {
+                        buf.push(ch);
+                    }
                 }
+                if !buf.is_empty() {
+                    spans.push(Span::styled(buf, Style::default().fg(TEXT_COLOR)));
+                }
+                Line::from(spans)
             })
             .collect();
 
-        frame.render_widget(Paragraph::new(lines), input_area);
+        frame.render_widget(Paragraph::new(lines), area);
     }
 
     // Cursor
     if !app.is_thinking && app.pending_confirmation.is_none() {
+        // Calculate display width up to cursor, accounting for pill tags
+        let mut pill_idx = 0usize;
+        // Count placeholders in lines before cursor_line
+        for line in app.input.lines.iter().take(app.input.cursor_line) {
+            pill_idx += line.chars().filter(|&c| c == '\u{FFFC}').count();
+        }
         let display_width: usize = app.input.lines[app.input.cursor_line]
             .chars()
             .take(app.input.cursor_col)
-            .map(|c| UnicodeWidthChar::width(c).unwrap_or(0))
+            .map(|c| {
+                if c == '\u{FFFC}' {
+                    let w = if let Some(att) = app.input.attachments.get(pill_idx) {
+                        format!("[{} +{} lines]", att.name, att.line_count).len()
+                    } else {
+                        6 // "[paste]"
+                    };
+                    pill_idx += 1;
+                    w
+                } else {
+                    UnicodeWidthChar::width(c).unwrap_or(0)
+                }
+            })
             .sum();
-            
-        let input_area = if app.input.attachments.is_empty() {
-            area
-        } else {
-            Rect::new(area.x, area.y + 1, area.width, area.height.saturating_sub(1))
-        };
-        let max_visible_lines = input_area.height as usize;
+
+        let max_visible_lines = area.height as usize;
         let mut scroll_y = 0;
         if app.input.cursor_line >= max_visible_lines && max_visible_lines > 0 {
             scroll_y = app.input.cursor_line + 1 - max_visible_lines;
@@ -123,7 +141,7 @@ pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
 
         frame.set_cursor_position((
             area.x + 2 + display_width as u16,
-            input_area.y + cursor_screen_y,
+            area.y + cursor_screen_y,
         ));
     }
 
@@ -132,6 +150,20 @@ pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
         render_file_popup(frame, area, app);
     } else if app.cmd_completion.is_active() {
         render_command_popup(frame, area, app);
+    }
+}
+
+/// Render attachment pill tags in a separate area below input.
+pub fn render_attachments(frame: &mut Frame, area: Rect, app: &App) {
+    let mut spans = Vec::new();
+    for att in &app.input.attachments {
+        spans.push(Span::styled(
+            format!("[{} +{} lines] ", att.name, att.line_count),
+            Style::default().fg(Color::Rgb(150, 200, 255)).add_modifier(Modifier::BOLD),
+        ));
+    }
+    if !spans.is_empty() {
+        frame.render_widget(Paragraph::new(Line::from(spans)), area);
     }
 }
 

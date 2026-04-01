@@ -55,10 +55,6 @@ rustdoc-args = [
     "docsrs",
 ]
 
-[profile.bench]
-lto = true
-codegen-units = 1
-
 [lib]
 name = "ratatui"
 path = "src/lib.rs"

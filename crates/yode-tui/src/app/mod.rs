@@ -34,7 +34,7 @@ use crate::ui;
 
 use self::completion::{CommandCompletion, FileCompletion};
 use self::history::{BrowseResult, HistoryState};
-use crate::app::input::{InputAttachment, InputState};
+use crate::app::input::InputState;
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -406,9 +406,17 @@ pub async fn run(
         engine_event_tx, &mut engine_event_rx,
     ).await;
 
+    // Clear the viewport before exiting so summary prints cleanly below
+    terminal.clear()?;
+
     disable_raw_mode()?;
     let mut stdout = io::stdout();
     stdout.execute(DisableBracketedPaste)?;
+
+    // Move cursor below the viewport area
+    let area = terminal.get_frame().area();
+    crossterm::execute!(stdout, crossterm::cursor::MoveTo(0, area.bottom()))?;
+    println!();
 
     print_exit_summary(&app);
 
@@ -503,8 +511,7 @@ async fn run_app(
                 4u16
             } else {
                 let input_lines = app.input.line_count() as u16;
-                let attachment_lines = app.input.attachments.len() as u16;
-                (input_lines + attachment_lines).clamp(1, 5) + 2 // +status +padding
+                input_lines.clamp(1, 5) + 2 // +status +padding
             };
             let area = terminal.get_frame().area();
             if area.height != needed {
@@ -603,16 +610,8 @@ async fn run_app(
                     }
 
                     if paste_buf.len() > 1 {
-                        // Multiple chars arrived at once = paste operation
-                        let line_count = paste_buf.lines().count();
-                        if line_count > 1 {
-                            let id = app.input.attachments.len() + 1;
-                            app.input.attachments.push(InputAttachment {
-                                id,
-                                name: format!("Pasted text #{}", id),
-                                content: paste_buf,
-                                line_count,
-                            });
+                        if input::should_fold_paste(&paste_buf) {
+                            app.input.insert_attachment(paste_buf);
                         } else {
                             for c in paste_buf.chars() {
                                 app.input.insert_char(c);
@@ -624,19 +623,9 @@ async fn run_app(
                     }
                 }
                 AppEvent::Paste(text) => {
-                    let line_count = text.lines().count();
-                    // If pasted text is more than 1 line, fold it into an attachment pill
-                    if line_count > 1 {
-                        // Fold into attachment
-                        let id = app.input.attachments.len() + 1;
-                        app.input.attachments.push(InputAttachment {
-                            id,
-                            name: format!("Pasted text #{}", id),
-                            content: text,
-                            line_count,
-                        });
+                    if input::should_fold_paste(&text) {
+                        app.input.insert_attachment(text);
                     } else {
-                        // Insert as raw text
                         for line in text.split_inclusive('\n') {
                             let clean = line.trim_end_matches(['\r', '\n']);
                             for c in clean.chars() {
@@ -810,15 +799,8 @@ fn handle_key_event(
                 if output.status.success() {
                     let text = String::from_utf8_lossy(&output.stdout).to_string();
                     if !text.is_empty() {
-                        let line_count = text.lines().count();
-                        if line_count > 1 {
-                            let id = app.input.attachments.len() + 1;
-                            app.input.attachments.push(InputAttachment {
-                                id,
-                                name: format!("Pasted text #{}", id),
-                                content: text,
-                                line_count,
-                            });
+                        if input::should_fold_paste(&text) {
+                            app.input.insert_attachment(text);
                         } else {
                             for ch in text.chars() {
                                 app.input.insert_char(ch);

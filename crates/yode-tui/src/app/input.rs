@@ -6,9 +6,13 @@ pub struct InputState {
     pub cursor_line: usize,
     /// Cursor column index (character-based, not byte)
     pub cursor_col: usize,
-    /// Attachments (e.g. folded pasted text)
+    /// Attachments (e.g. folded pasted text).
+    /// Inline placeholder \u{FFFC} in `lines` marks where each attachment belongs.
     pub attachments: Vec<InputAttachment>,
 }
+
+/// Placeholder character inserted into the text buffer to mark attachment position.
+const PLACEHOLDER: char = '\u{FFFC}';
 
 pub struct InputAttachment {
     pub id: usize,
@@ -29,7 +33,7 @@ impl InputState {
 
     /// Whether the input is empty.
     pub fn is_empty(&self) -> bool {
-        self.lines.len() == 1 && self.lines[0].is_empty()
+        self.lines.len() == 1 && self.lines[0].is_empty() && self.attachments.is_empty()
     }
 
     /// Whether input has multiple lines.
@@ -50,33 +54,51 @@ impl InputState {
     /// Calculate input area height.
     pub fn area_height(&self, terminal_height: u16) -> u16 {
         let line_count = self.line_count() as u16;
-        let min_height = 1u16; // min 1 line
-        let max_height = 5u16.min(terminal_height.saturating_sub(4)); // max 5 lines
+        let min_height = 1u16;
+        let max_height = 5u16.min(terminal_height.saturating_sub(4));
         line_count.clamp(min_height, max_height)
     }
 
+    /// Insert a pasted text as a folded attachment at the current cursor position.
+    /// Inserts a placeholder char into the text buffer so position is preserved.
+    pub fn insert_attachment(&mut self, content: String) {
+        let line_count = count_lines(&content);
+        let id = self.attachments.len() + 1;
+        self.attachments.push(InputAttachment {
+            id,
+            name: format!("Pasted text #{}", id),
+            content,
+            line_count,
+        });
+        // Insert placeholder at cursor
+        self.insert_char(PLACEHOLDER);
+    }
+
     /// Take (extract) the input, resetting state. Returns (display, payload, raw_text)
+    /// Replaces placeholder chars with actual attachment content.
     pub fn take(&mut self) -> (String, String, String) {
-        let text = self.text();
-        let mut display = String::new();
-        let mut payload = text.clone();
-        
-        // Append attachments at the end with clear markers
-        for att in &self.attachments {
-            display.push_str(&format!("[{} +{} lines] ", att.name, att.line_count));
-            
-            if !payload.is_empty() {
-                payload.push_str("\n\n");
+        let raw = self.text();
+
+        // Build a map from placeholder index → attachment content
+        let mut att_iter = self.attachments.iter();
+
+        // Replace each PLACEHOLDER with the corresponding attachment content
+        let mut expanded = String::with_capacity(raw.len());
+        for ch in raw.chars() {
+            if ch == PLACEHOLDER {
+                if let Some(att) = att_iter.next() {
+                    expanded.push_str(&att.content);
+                }
+            } else {
+                expanded.push(ch);
             }
-            payload.push_str(&format!("--- BEGIN {} ---\n", att.name));
-            payload.push_str(&att.content);
-            payload.push_str(&format!("\n--- END {} ---", att.name));
         }
-        
-        display.push_str(&text);
-        
+
+        let display = expanded.clone();
+        let payload = expanded;
+
         self.clear();
-        (display, payload, text)
+        (display, payload, raw)
     }
 
     /// Clear all input and reset cursor.
@@ -104,23 +126,34 @@ impl InputState {
 
     pub fn backspace(&mut self) {
         if self.cursor_col > 0 {
+            // Check if the char we're about to delete is a placeholder
+            let del_col = self.cursor_col - 1;
+            let ch = self.lines[self.cursor_line].chars().nth(del_col);
+            if ch == Some(PLACEHOLDER) {
+                // Remove the last attachment whose placeholder hasn't been removed yet
+                self.remove_attachment_at_col(del_col);
+            }
             self.cursor_col -= 1;
-            let byte_idx = self.byte_index();
-            self.lines[self.cursor_line].remove(byte_idx);
+            let start = self.byte_index();
+            let end = self.char_to_byte(self.cursor_col + 1);
+            self.lines[self.cursor_line].replace_range(start..end, "");
         } else if self.cursor_line > 0 {
             let current = self.lines.remove(self.cursor_line);
             self.cursor_line -= 1;
             self.cursor_col = self.char_count();
             self.lines[self.cursor_line].push_str(&current);
-        } else if !self.attachments.is_empty() {
-            self.attachments.pop();
         }
     }
 
     pub fn delete(&mut self) {
         if self.cursor_col < self.char_count() {
-            let byte_idx = self.byte_index();
-            self.lines[self.cursor_line].remove(byte_idx);
+            let ch = self.lines[self.cursor_line].chars().nth(self.cursor_col);
+            if ch == Some(PLACEHOLDER) {
+                self.remove_attachment_at_col(self.cursor_col);
+            }
+            let start = self.byte_index();
+            let end = self.char_to_byte(self.cursor_col + 1);
+            self.lines[self.cursor_line].replace_range(start..end, "");
         } else if self.cursor_line < self.lines.len() - 1 {
             let next = self.lines.remove(self.cursor_line + 1);
             self.lines[self.cursor_line].push_str(&next);
@@ -190,6 +223,15 @@ impl InputState {
     /// Ctrl+K: delete from cursor to end of line.
     pub fn kill_to_end(&mut self) {
         let byte_idx = self.byte_index();
+        // Remove any placeholder attachments in the killed range
+        for ch in self.lines[self.cursor_line][byte_idx..].chars() {
+            if ch == PLACEHOLDER {
+                // Remove first remaining attachment
+                if let Some(pos) = self.attachments.iter().position(|_| true) {
+                    self.attachments.remove(pos);
+                }
+            }
+        }
         self.lines[self.cursor_line].truncate(byte_idx);
     }
 
@@ -208,6 +250,14 @@ impl InputState {
         // Skip word characters
         while pos > 0 && !chars[pos - 1].is_whitespace() {
             pos -= 1;
+        }
+        // Remove any placeholder attachments in the deleted range
+        for &ch in &chars[pos..self.cursor_col] {
+            if ch == PLACEHOLDER {
+                if let Some(p) = self.attachments.iter().position(|_| true) {
+                    self.attachments.remove(p);
+                }
+            }
         }
         let byte_start = self.char_to_byte(pos);
         let byte_end = self.byte_index();
@@ -235,4 +285,54 @@ impl InputState {
             .map(|(i, _)| i)
             .unwrap_or(self.lines[self.cursor_line].len())
     }
+
+    /// Remove the n-th placeholder's corresponding attachment.
+    /// Counts placeholders across all lines up to the given (line, col) to find which attachment.
+    fn remove_attachment_at_col(&mut self, target_col: usize) {
+        let mut placeholder_idx = 0;
+        // Count placeholders in lines before cursor_line
+        for line in &self.lines[..self.cursor_line] {
+            placeholder_idx += line.chars().filter(|&c| c == PLACEHOLDER).count();
+        }
+        // Count placeholders in current line up to target_col
+        for (i, ch) in self.lines[self.cursor_line].chars().enumerate() {
+            if i == target_col {
+                break;
+            }
+            if ch == PLACEHOLDER {
+                placeholder_idx += 1;
+            }
+        }
+        if placeholder_idx < self.attachments.len() {
+            self.attachments.remove(placeholder_idx);
+        }
+    }
+}
+
+/// Count lines in text by counting newline characters (\n, \r\n, or bare \r).
+/// A string with no line breaks = 1 line. Trailing newline counts as an extra line.
+pub fn count_lines(text: &str) -> usize {
+    if text.is_empty() {
+        return 1;
+    }
+    let mut count = 1usize;
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\r' {
+            count += 1;
+            if i + 1 < bytes.len() && bytes[i + 1] == b'\n' {
+                i += 1;
+            }
+        } else if bytes[i] == b'\n' {
+            count += 1;
+        }
+        i += 1;
+    }
+    count
+}
+
+/// Should this pasted text be folded into a pill attachment?
+pub fn should_fold_paste(text: &str) -> bool {
+    count_lines(text) > 2 || text.len() > 200
 }
