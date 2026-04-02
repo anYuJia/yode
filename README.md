@@ -13,26 +13,21 @@
 [![Release](https://img.shields.io/github/v/release/anYuJia/yode?color=green)](https://github.com/anYuJia/yode/releases)
 [![Stars](https://img.shields.io/github/stars/anYuJia/yode?style=social)](https://github.com/anYuJia/yode)
 
-[Install](#install) · [Usage](#usage) · [Features](#features) · [Configuration](#configuration) · [Contributing](#contributing)
-
 **English** | [中文](README.zh-CN.md)
 
 </div>
 
 ---
 
-> Yode is a terminal-native AI coding agent built in Rust.
+> **Yode** is a terminal-native AI coding agent built in Rust.
 > It reads, edits, searches, and runs commands — all from a single conversation.
-
-<!-- TODO: Add demo GIF -->
-<!-- <p align="center"><img src="assets/demo.gif" width="720" alt="Yode demo"></p> -->
 
 ```
 ╭─── Yode ──────────────────────────────────────╮
 │  claude-sonnet-4-20250514 · ~/my-project       │
 ╰────────────────────────────────────────────────╯
 
-> Fix the authentication bug in login.rs
+❯ Fix the authentication bug in login.rs
 
 ⏺ Read(src/login.rs)
   ⎿  (248 lines)
@@ -46,88 +41,169 @@
 
 ## Install
 
-```bash
-# macOS / Linux — one-line install
-curl -fsSL https://raw.githubusercontent.com/anYuJia/yode/main/install.sh | bash
+### One-line install (macOS / Linux)
 
-# Or with Cargo
+```bash
+curl -fsSL https://raw.githubusercontent.com/anYuJia/yode/main/install.sh | bash
+```
+
+### Cargo
+
+```bash
 cargo install --git https://github.com/anYuJia/yode.git
+```
+
+### From source
+
+```bash
+git clone https://github.com/anYuJia/yode.git
+cd yode
+cargo install --path .
 ```
 
 > **Windows**: Download `yode-x86_64-pc-windows-msvc.zip` from [Releases](https://github.com/anYuJia/yode/releases).
 
-## Usage
+## Quick Start
 
 ```bash
+# Set API key
 export ANTHROPIC_API_KEY="sk-ant-..."   # or OPENAI_API_KEY
-yode                                     # launch
-yode --model claude-sonnet-4-20250514    # specify model
-yode --resume <session-id>               # resume session
+
+# Launch Yode
+yode
+
+# Specify a model
+yode --model claude-sonnet-4-20250514
+
+# Resume a previous session
+yode --resume <session-id>
 ```
 
 ## Features
 
-**Provider-agnostic** — Anthropic, OpenAI, or any OpenAI-compatible endpoint
+### LLM Integration
+- **Multi-provider** — OpenAI, Anthropic, or any OpenAI-compatible endpoint
+- **Streaming responses** — Real-time token streaming with cancellation support
+- **Context management** — Automatic summarization when approaching context limits
 
-**Rich terminal UI** — Markdown rendering, streaming responses, keyboard-driven workflow
-
-**Built-in tools** — File I/O, shell execution, search, LSP, web fetch, sub-agents, memory
-
-**MCP support** — Extend with any Model Context Protocol server
-
-**Safe by design** — Permission system with dangerous command detection
-
-**Native performance** — Pure Rust, ~3 MB binary, instant startup
-
-**Session persistence** — SQLite-backed, resume any previous conversation
-
-## Built-in Tools
-
+### Built-in Tools
 | Tool | Description |
 |------|-------------|
-| `bash` | Run shell commands with safety checks |
+| `bash` | Shell execution with dangerous command detection |
 | `read_file` / `write_file` / `edit_file` | Precise file operations |
 | `glob` / `grep` | Fast codebase search |
-| `web_fetch` / `web_search` | Fetch web content |
-| `lsp` | Go-to-definition, references, hover |
-| `agent` | Spawn sub-agents for parallel tasks |
+| `web_fetch` / `web_search` | Web scraping and search |
+| `lsp` | Language server integration (go-to-definition, references, hover) |
+| `agent` | Spawn sub-agents for parallel task execution |
 | `memory` | Persistent memory across sessions |
+| MCP support | Extend via Model Context Protocol servers |
 
-## Configuration
+### Terminal UI
+- **Markdown rendering** — Tables, code blocks with syntax highlighting, blockquotes, task lists
+- **Braille loading animation** and streaming indicators
+- **Scrollback navigation** with input history search (`Ctrl+R`)
+- **Permission mode switching** (`Shift+Tab`)
+- **Tool confirmation** — `[y]` Allow, `[n]` Deny, `[a]` Always allow
+- **File attachments** via `@file` and shell shortcuts via `!command`
+- Bracketed paste mode support
 
-```bash
-~/.config/yode/config.toml
-```
+### Safety & Control
+- **Permission system** — Normal, Auto-Accept, and Plan modes
+- **Dangerous command detection** — Blocks destructive `git` operations, `rm -rf`, etc.
+- **Session persistence** — SQLite-backed with `--resume` support
 
-```toml
-[provider]
-default = "anthropic"
-model = "claude-sonnet-4-20250514"
-```
+## Keybindings
 
-Drop a `YODE.md` in your project root for project-specific instructions:
+| Key | Action |
+|-----|--------|
+| `Enter` | Send message |
+| `Ctrl+Enter` / `Shift+Enter` | Insert newline |
+| `Ctrl+C` | Stop generation (press twice to quit) |
+| `Esc` | Stop generation |
+| `↑` / `↓` | Scroll chat |
+| `Ctrl+P` / `Ctrl+N` | Browse input history |
+| `Ctrl+R` | Reverse search history |
+| `Ctrl+L` | Clear screen |
+| `Ctrl+K` | Delete to end of line |
+| `Ctrl+W` | Delete previous word |
+| `PageUp` / `PageDown` | Scroll chat (10 lines) |
+| `Shift+Tab` | Cycle permission mode |
+| `Tab` | Auto-complete command |
 
-```markdown
-This is a Rust project using Actix-web.
-Always run `cargo clippy` after making changes.
-```
+## Slash Commands
+
+| Command | Description |
+|---------|-------------|
+| `/help` | Show all commands |
+| `/keys` | Keyboard shortcuts reference |
+| `/clear` | Clear chat display |
+| `/model` | Show current model |
+| `/provider` | Switch LLM provider |
+| `/providers` | List available providers |
+| `/tools` | List registered tools |
+| `/cost` | Show token usage & estimated cost |
+| `/diff` | Show `git diff --stat` |
+| `/status` | Session status summary |
+| `/context` | Context window usage |
+| `/compact` | Compact chat history |
+| `/copy` | Copy last response to clipboard |
+| `/sessions` | List recent sessions |
+| `/bug` | Generate bug report |
+| `/doctor` | Environment health check |
+| `/config` | Show current configuration |
+| `/version` | Version info |
 
 ## Architecture
 
 ```
 crates/
 ├── yode-core     # Engine, context, permissions, database
-├── yode-llm      # LLM provider abstraction
+├── yode-llm      # LLM provider abstraction (OpenAI, Anthropic)
 ├── yode-tools    # Tool registry & built-in tools
 ├── yode-tui      # Terminal UI (ratatui-based)
 ├── yode-mcp      # Model Context Protocol support
 └── yode-agent    # Agent orchestration
 ```
 
+## Project-specific Instructions
+
+Drop a `YODE.md` file in your project root to provide context-aware instructions:
+
+```markdown
+# Project Guidelines
+
+This is a Rust project using Actix-web.
+- Always run `cargo clippy` after code changes
+- Prefer `anyhow::Result` over custom error types
+- Use async/await for all I/O operations
+```
+
+## Configuration
+
+Config file location: `~/.config/yode/config.toml`
+
+```toml
+[provider]
+default = "anthropic"
+model = "claude-sonnet-4-20250514"
+
+[permissions]
+# Tools that never require confirmation
+allow = ["read_file", "glob", "grep"]
+# Tools that always require confirmation
+confirm = ["bash", "write_file", "edit_file"]
+```
+
 ## Contributing
 
-Contributions welcome! Fork → branch → PR.
+Contributions are welcome! Here's how you can help:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE) — feel free to use, modify, and distribute.
