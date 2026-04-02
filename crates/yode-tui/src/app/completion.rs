@@ -20,6 +20,9 @@ pub const SLASH_COMMANDS: &[SlashCommand] = &[
     SlashCommand { name: "/sessions", description: "List recent sessions" },
     SlashCommand { name: "/keys", description: "Show keyboard shortcuts" },
     SlashCommand { name: "/copy", description: "Copy last message to clipboard" },
+    SlashCommand { name: "/bug", description: "Generate bug report" },
+    SlashCommand { name: "/doctor", description: "Check environment health" },
+    SlashCommand { name: "/config", description: "Show current configuration" },
 ];
 
 /// State for slash command completion popup.

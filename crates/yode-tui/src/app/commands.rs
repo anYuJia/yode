@@ -184,11 +184,18 @@ impl App {
                 } else {
                     self.session.always_allow_tools.join(", ")
                 };
+                let duration = self.session_start.elapsed();
+                let mins = duration.as_secs() / 60;
+                let secs = duration.as_secs() % 60;
+                let cost = estimate_cost(&self.session.model, self.session.input_tokens, self.session.output_tokens);
                 self.add_system_message(format!(
-                    "Session status:\n  Session:         {}\n  Model:           {}\n  Working dir:     {}\n  Permission mode: {}\n  Tokens:          {}\n  Tool calls:      {}\n  Always-allow:    {}",
+                    "Session status:\n  Session:         {}\n  Model:           {}\n  Working dir:     {}\n  Permission mode: {}\n  Duration:        {}m {}s\n  Tokens:          {} (in: {}, out: {})\n  Tool calls:      {}\n  Est. cost:       ${:.4}\n  Always-allow:    {}\n  Terminal:        {}",
                     session_short, self.session.model, self.session.working_dir,
                     self.session.permission_mode.label(),
-                    self.session.total_tokens, self.session.tool_call_count, always_allow
+                    mins, secs,
+                    self.session.total_tokens, self.session.input_tokens, self.session.output_tokens,
+                    self.session.tool_call_count, cost, always_allow,
+                    self.terminal_caps.summary()
                 ));
             }
             "/sessions" => {
@@ -235,6 +242,103 @@ impl App {
                 } else {
                     self.add_system_message("No assistant message to copy.".to_string());
                 }
+            }
+            "/bug" => {
+                let session_short = &self.session.session_id[..self.session.session_id.len().min(8)];
+                let os_info = format!("{} {}", std::env::consts::OS, std::env::consts::ARCH);
+                let recent_msgs: Vec<String> = self.chat_entries.iter().rev().take(5).map(|e| {
+                    let role = match &e.role {
+                        ChatRole::User => "User",
+                        ChatRole::Assistant => "Assistant",
+                        ChatRole::System => "System",
+                        ChatRole::ToolCall { name } => return format!("  ToolCall({}): ...", name),
+                        ChatRole::ToolResult { name, .. } => return format!("  ToolResult({}): ...", name),
+                        _ => "Other",
+                    };
+                    let preview: String = e.content.chars().take(80).collect();
+                    format!("  {}: {}", role, preview)
+                }).collect();
+                self.add_system_message(format!(
+                    "Bug report:\n  Version:    yode {}\n  OS:         {}\n  Terminal:   {}\n  Session:    {}\n  Model:      {}\n  Tokens:     {}\n\nRecent messages (last 5):\n{}",
+                    env!("CARGO_PKG_VERSION"),
+                    os_info,
+                    self.terminal_caps.summary(),
+                    session_short,
+                    self.session.model,
+                    self.session.total_tokens,
+                    recent_msgs.into_iter().rev().collect::<Vec<_>>().join("\n")
+                ));
+            }
+            "/doctor" => {
+                let mut checks = Vec::new();
+
+                // Check API key
+                let has_api_key = std::env::var("ANTHROPIC_API_KEY").is_ok()
+                    || std::env::var("OPENAI_API_KEY").is_ok();
+                checks.push(if has_api_key {
+                    "  [ok] API key configured"
+                } else {
+                    "  [!!] No API key found (ANTHROPIC_API_KEY or OPENAI_API_KEY)"
+                });
+
+                // Check git
+                let git_ok = std::process::Command::new("git")
+                    .arg("--version")
+                    .output()
+                    .map(|o| o.status.success())
+                    .unwrap_or(false);
+                checks.push(if git_ok {
+                    "  [ok] git available"
+                } else {
+                    "  [!!] git not found"
+                });
+
+                // Check terminal capabilities
+                checks.push(if self.terminal_caps.truecolor {
+                    "  [ok] Truecolor support"
+                } else {
+                    "  [--] No truecolor (using 256 colors)"
+                });
+                if self.terminal_caps.in_tmux {
+                    checks.push("  [--] Running inside tmux");
+                }
+                if self.terminal_caps.in_ssh {
+                    checks.push("  [--] Running over SSH");
+                }
+
+                // Check tools
+                let tool_count = tools.definitions().len();
+                checks.push(if tool_count > 0 {
+                    "  [ok] Tools registered"
+                } else {
+                    "  [!!] No tools registered"
+                });
+
+                self.add_system_message(format!(
+                    "Environment check:\n{}\n\n  Terminal: {}\n  Tools:    {} registered",
+                    checks.join("\n"),
+                    self.terminal_caps.summary(),
+                    tool_count
+                ));
+            }
+            "/config" => {
+                let permission_mode = self.session.permission_mode.label();
+                let always_allow = if self.session.always_allow_tools.is_empty() {
+                    "none".to_string()
+                } else {
+                    self.session.always_allow_tools.join(", ")
+                };
+                self.add_system_message(format!(
+                    "Configuration:\n  Model:           {}\n  Permission mode: {}\n  Working dir:     {}\n  Always-allow:    {}\n  Terminal:        {}\n  Truecolor:       {}\n  Tmux:            {}\n  SSH:             {}",
+                    self.session.model,
+                    permission_mode,
+                    self.session.working_dir,
+                    always_allow,
+                    self.terminal_caps.term_program.as_deref().unwrap_or("unknown"),
+                    self.terminal_caps.truecolor,
+                    self.terminal_caps.in_tmux,
+                    self.terminal_caps.in_ssh,
+                ));
             }
             _ => {
                 // Check if it's a skill command (starts with /)
