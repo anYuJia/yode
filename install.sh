@@ -81,7 +81,7 @@ main() {
   info "Download: ${url}"
 
   tmpdir=$(mktemp -d)
-  trap 'rm -rf /tmp/yode.$$' EXIT
+  trap "rm -rf \${tmpdir:+\$tmpdir}" EXIT
 
   # download
   if ! curl -fSL --progress-bar -o "${tmpdir}/${archive}" "$url"; then
