@@ -451,8 +451,12 @@ fn print_exit_summary(app: &App) {
         app.session.output_tokens,
     );
 
+    let session_short = &app.session.session_id[..app.session.session_id.len().min(8)];
+
+    eprintln!();
     eprintln!("────────────────────────────────────────");
     eprintln!("Session summary");
+    eprintln!("  Session:       {} (resume: yode --resume {})", session_short, session_short);
     eprintln!("  Duration:      {}", duration_str);
     eprintln!("  Input tokens:  {}", format_number(app.session.input_tokens));
     eprintln!("  Output tokens: {}", format_number(app.session.output_tokens));
@@ -1752,7 +1756,14 @@ fn format_entry_as_strings(
             }
         }
         ChatRole::Error => {
-            result.push((format!("! {}", entry.content), red));
+            let err_style = ratatui::style::Style::default()
+                .fg(Color::Rgb(240, 80, 80))
+                .add_modifier(Modifier::BOLD);
+            result.push(("╭─ Error ──────────────────────────".to_string(), err_style));
+            for line in entry.content.lines() {
+                result.push((format!("│ {}", line), red));
+            }
+            result.push(("╰──────────────────────────────────".to_string(), err_style));
         }
         ChatRole::System => {
             for line in entry.content.lines() {
@@ -2057,10 +2068,15 @@ fn markdown_to_plain(text: &str) -> String {
         if line.starts_with("```") {
             in_code_block = !in_code_block;
             if in_code_block {
-                // No opening border — just a blank separator line
-                result.push('\n');
+                // Opening fence — show language label if present
+                let lang = line[3..].trim();
+                if !lang.is_empty() {
+                    result.push_str(&format!("─── {} ───\n", lang));
+                } else {
+                    result.push('\n');
+                }
             } else {
-                // No closing border — just a blank line
+                // Closing fence — blank line
                 result.push('\n');
             }
             continue;
@@ -2237,8 +2253,15 @@ fn process_md_line(line: &str, in_code_block: &mut bool) -> String {
 
     // Code block fence
     if trimmed.starts_with("```") {
+        let was_in_block = *in_code_block;
         *in_code_block = !*in_code_block;
-        // No border — just return empty line as separator
+        if !was_in_block {
+            // Opening fence — extract language label if present
+            let lang = trimmed[3..].trim();
+            if !lang.is_empty() {
+                return format!("\x1b[38;2;100;100;120m─── {} ───\x1b[0m", lang);
+            }
+        }
         return String::new();
     }
 

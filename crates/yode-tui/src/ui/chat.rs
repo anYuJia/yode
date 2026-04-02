@@ -529,7 +529,7 @@ pub fn render_header(app: &App, width: usize) -> Vec<Line<'static>> {
     lines.push(make_row(vec![
         Span::styled("  ", Style::default()),
         Span::styled("? ", accent),
-        Span::styled("/help · /keys · Ctrl+C×2 quit", dim),
+        Span::styled("/help · /keys · Shift+Tab mode · Ctrl+C×2 quit", dim),
     ], Some(5)));
 
     // ╰─────...─╯
