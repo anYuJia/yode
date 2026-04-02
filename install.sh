@@ -69,7 +69,8 @@ main() {
   need curl
   need tar
 
-  local platform version archive url tmpdir
+  local platform version archive url
+  tmpdir=""
 
   platform=$(detect_platform)
   version=$(resolve_version)
@@ -80,7 +81,7 @@ main() {
   info "Download: ${url}"
 
   tmpdir=$(mktemp -d)
-  trap 'rm -rf "'"$tmpdir"'"' EXIT
+  trap 'rm -rf "$tmpdir"' EXIT
 
   # download
   if ! curl -fSL --progress-bar -o "${tmpdir}/${archive}" "$url"; then
