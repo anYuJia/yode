@@ -39,15 +39,15 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Length(input_height),
                     Constraint::Length(completion_height),
+                    Constraint::Length(input_height),
                     Constraint::Length(1),
                     Constraint::Length(1),
                 ])
                 .split(frame.area());
 
-            input::render_input(frame, chunks[0], app);
-            input::render_command_inline(frame, chunks[1], app);
+            input::render_command_inline(frame, chunks[0], app);
+            input::render_input(frame, chunks[1], app);
             status_bar::render_info_line(frame, chunks[2], app);
         } else {
             let chunks = Layout::default()
