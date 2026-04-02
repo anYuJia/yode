@@ -600,7 +600,12 @@ async fn run_app(
             } else {
                 let term_width = terminal.get_frame().area().width;
                 let visual_lines = app.input.visual_line_count(term_width) as u16;
-                visual_lines.clamp(1, 5) + 2 // +status +padding
+                let completion_lines = if app.cmd_completion.is_active() && !app.cmd_completion.candidates.is_empty() {
+                    (app.cmd_completion.candidates.len() as u16).min(5)
+                } else {
+                    0
+                };
+                visual_lines.clamp(1, 5) + completion_lines + 2 // +status +padding
             };
             let area = terminal.get_frame().area();
             if area.height != needed {
