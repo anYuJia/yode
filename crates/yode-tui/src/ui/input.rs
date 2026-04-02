@@ -61,11 +61,15 @@ pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
         let mut visual_lines: Vec<Line> = Vec::new();
         let mut att_idx = 0usize;
 
+        // Track cursor position during wrapping (avoids separate simulation pass)
+        let mut cursor_visual_y = 0usize;
+        let mut cursor_col_x = 0usize;
+
         for (i, logical_line) in app.input.lines.iter().enumerate() {
             let prefix_str = if i == 0 { "❯ " } else { "  " };
             let prefix_w = 2usize;
 
-            // Build (char, display_str, style, width) for each character
+            // Build (text, style, width) for each item in this logical line
             let mut items: Vec<(String, Style, usize)> = Vec::new();
             items.push((prefix_str.to_string(), Style::default().fg(prompt_color).add_modifier(Modifier::BOLD), prefix_w));
 
@@ -77,11 +81,7 @@ pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
                         items.push((buf.clone(), Style::default().fg(TEXT_COLOR), w));
                         buf.clear();
                     }
-                    let pill_text = if let Some(att) = app.input.attachments.get(att_idx) {
-                        format!("[{} +{} lines]", att.name, att.line_count)
-                    } else {
-                        "[paste]".to_string()
-                    };
+                    let pill_text = app.input.pill_display_text(att_idx);
                     let w = pill_text.len();
                     items.push((pill_text, Style::default().fg(Color::Rgb(150, 200, 255)).add_modifier(Modifier::BOLD), w));
                     att_idx += 1;
@@ -93,6 +93,12 @@ pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
                 let w = unicode_width::UnicodeWidthStr::width(buf.as_str());
                 items.push((buf, Style::default().fg(TEXT_COLOR), w));
             }
+
+            // Track cursor: if this is the cursor line, compute position during wrapping
+            let is_cursor_line = i == app.input.cursor_line;
+            // For cursor tracking: map char index → (visual_row_within_line, col)
+            // We need to simulate wrapping while tracking character positions
+            let visual_y_before = visual_lines.len();
 
             // Now split items into visual lines at term_w
             let mut row_spans: Vec<Span> = Vec::new();
@@ -160,73 +166,55 @@ pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
             if !row_spans.is_empty() {
                 visual_lines.push(Line::from(row_spans));
             }
+
+            // Compute cursor position for this line if needed
+            if is_cursor_line {
+                // Simulate wrapping for chars up to cursor_col to find (row, col)
+                let mut pill_scan = 0usize;
+                // Count pills in lines before cursor line
+                for prev_line in app.input.lines.iter().take(i) {
+                    pill_scan += prev_line.chars().filter(|&c| c == '\u{FFFC}').count();
+                }
+                let mut c_col = prefix_w;
+                let mut c_row = 0usize;
+                for ch in logical_line.chars().take(app.input.cursor_col) {
+                    let cw = if ch == '\u{FFFC}' {
+                        let w = app.input.pill_width(pill_scan);
+                        pill_scan += 1;
+                        w
+                    } else {
+                        UnicodeWidthChar::width(ch).unwrap_or(0)
+                    };
+                    if term_w > 0 && c_col + cw > term_w {
+                        c_row += 1;
+                        c_col = cw;
+                    } else {
+                        c_col += cw;
+                    }
+                }
+                cursor_visual_y = visual_y_before + c_row;
+                cursor_col_x = c_col;
+            }
         }
 
         // Take only the visible portion
-        let skip = visual_lines.len().saturating_sub(max_visible);
+        let total = visual_lines.len();
+        let skip = total.saturating_sub(max_visible);
         let visible: Vec<Line> = visual_lines.into_iter().skip(skip).take(max_visible).collect();
         frame.render_widget(Paragraph::new(visible), area);
-    }
 
-    // Cursor
-    if !app.is_thinking && app.pending_confirmation.is_none() {
-        let term_w = area.width as usize;
-        let prefix_w = 2usize;
+        // Adjust cursor_visual_y for scroll offset
+        cursor_visual_y = cursor_visual_y.saturating_sub(skip);
 
-        // Simulate wrapping for lines before cursor_line to get visual_y
-        let mut visual_y = 0usize;
-        let mut pill_idx = 0usize;
-        for line in app.input.lines.iter().take(app.input.cursor_line) {
-            let mut col = prefix_w;
-            let mut rows = 1usize;
-            for ch in line.chars() {
-                let cw = if ch == '\u{FFFC}' {
-                    let w = app.input.attachments.get(pill_idx)
-                        .map(|a| format!("[{} +{} lines]", a.name, a.line_count).len())
-                        .unwrap_or(6);
-                    pill_idx += 1;
-                    w
-                } else {
-                    UnicodeWidthChar::width(ch).unwrap_or(0)
-                };
-                if term_w > 0 && col + cw > term_w {
-                    rows += 1;
-                    col = cw;
-                } else {
-                    col += cw;
-                }
-            }
-            visual_y += rows;
+        // Set cursor position (derived from rendering loop, not re-simulated)
+        if !app.is_thinking && app.pending_confirmation.is_none() {
+            let cursor_y = area.y + cursor_visual_y as u16;
+            let max_y = area.y + area.height.saturating_sub(1);
+            frame.set_cursor_position((
+                area.x + cursor_col_x as u16,
+                cursor_y.min(max_y),
+            ));
         }
-
-        // Simulate wrapping for cursor line up to cursor_col
-        let mut col = prefix_w;
-        let mut wrap_row = 0usize;
-        for ch in app.input.lines[app.input.cursor_line].chars().take(app.input.cursor_col) {
-            let cw = if ch == '\u{FFFC}' {
-                let w = app.input.attachments.get(pill_idx)
-                    .map(|a| format!("[{} +{} lines]", a.name, a.line_count).len())
-                    .unwrap_or(6);
-                pill_idx += 1;
-                w
-            } else {
-                UnicodeWidthChar::width(ch).unwrap_or(0)
-            };
-            if term_w > 0 && col + cw > term_w {
-                wrap_row += 1;
-                col = cw;
-            } else {
-                col += cw;
-            }
-        }
-
-        // Clamp cursor within input area
-        let cursor_y = area.y + (visual_y + wrap_row) as u16;
-        let max_y = area.y + area.height.saturating_sub(1);
-        frame.set_cursor_position((
-            area.x + col as u16,
-            cursor_y.min(max_y),
-        ));
     }
 
     // Completion popups

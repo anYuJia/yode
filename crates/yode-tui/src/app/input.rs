@@ -57,13 +57,16 @@ impl InputState {
         if term_width == 0 { return self.lines.len(); }
         let w = term_width as usize;
         let mut total_rows = 0usize;
+        let mut pill_idx = 0usize;
         for line in &self.lines {
             let prefix_w = 2; // "❯ " or "  "
             let mut col = prefix_w;
             let mut rows = 1usize;
             for ch in line.chars() {
                 let char_w = if ch == PLACEHOLDER {
-                    20 // approximate pill width
+                    let pw = self.pill_width(pill_idx);
+                    pill_idx += 1;
+                    pw
                 } else {
                     unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0)
                 };
@@ -77,6 +80,20 @@ impl InputState {
             total_rows += rows;
         }
         total_rows
+    }
+
+    /// Get the display text for a pill/attachment at the given index.
+    pub fn pill_display_text(&self, index: usize) -> String {
+        if let Some(att) = self.attachments.get(index) {
+            format!("[{} +{} lines]", att.name, att.line_count)
+        } else {
+            "[paste]".to_string()
+        }
+    }
+
+    /// Get the display width of a pill/attachment at the given index.
+    pub fn pill_width(&self, index: usize) -> usize {
+        self.pill_display_text(index).len()
     }
 
     /// Calculate input area height.
