@@ -803,7 +803,13 @@ fn handle_key_event(
             app.input.move_end();
         }
         KeyCode::BackTab => {
-            app.session.permission_mode = app.session.permission_mode.next();
+            if app.file_completion.is_active() {
+                app.file_completion.cycle_back();
+            } else if app.cmd_completion.is_active() {
+                app.cmd_completion.cycle_back();
+            } else {
+                app.session.permission_mode = app.session.permission_mode.next();
+            }
         }
         KeyCode::Tab => handle_tab(app),
         KeyCode::PageUp => {}

@@ -242,36 +242,66 @@ pub fn render_attachments(frame: &mut Frame, area: Rect, app: &App) {
 fn render_command_popup(frame: &mut Frame, area: Rect, app: &App) {
     let max_show = 8usize;
     let viewport_top = frame.area().top();
-    // Space above input is (area.y - viewport_top)
     let max_avail = area.y.saturating_sub(viewport_top);
-    
-    let count = app.cmd_completion.candidates.len().min(max_show);
-    let popup_height = (count as u16).min(max_avail); 
+
+    // Check for args hint mode (known command + space)
+    let show_candidates: &[(String, String)] = &app.cmd_completion.candidates;
+    let args_hint = app.cmd_completion.args_hint.as_deref();
+
+    let count = if args_hint.is_some() { 1 } else { show_candidates.len().min(max_show) };
+    let popup_height = (count as u16).min(max_avail);
     if popup_height == 0 { return; }
 
+    // Compute dynamic width based on content
+    let max_cmd_len = show_candidates.iter().take(max_show)
+        .map(|(cmd, _)| cmd.len())
+        .max()
+        .unwrap_or(8);
+    let content_width = if let Some(hint) = args_hint {
+        // args hint: "  /command  hint  "
+        hint.len() + 4
+    } else {
+        show_candidates.iter().take(max_show)
+            .map(|(cmd, desc)| cmd.len() + desc.len() + 4) // " cmd  desc "
+            .max()
+            .unwrap_or(20)
+    };
+    let popup_width = (content_width as u16).clamp(20, area.width.saturating_sub(area.x + 2));
+
     let popup_y = area.y.saturating_sub(popup_height);
-    let popup_width = 48u16.min(area.width.saturating_sub(area.x + 2));
     let popup_area = Rect::new(area.x + 2, popup_y, popup_width, popup_height);
 
     frame.render_widget(Clear, popup_area);
 
-    let selected = app.cmd_completion.selected.unwrap_or(0);
     let bg = Color::Rgb(35, 35, 40);
     let sel_bg = Color::Rgb(60, 130, 180);
 
-    let items: Vec<Line> = app.cmd_completion.candidates
+    if let Some(hint) = args_hint {
+        // Show single-line args hint
+        let items = vec![Line::from(Span::styled(
+            format!("  {} ", hint),
+            Style::default().fg(Color::Rgb(140, 140, 160)).bg(bg),
+        ))];
+        frame.render_widget(Paragraph::new(items).style(Style::default().bg(bg)), popup_area);
+        return;
+    }
+
+    let selected = app.cmd_completion.selected.unwrap_or(0);
+    let cmd_col_width = max_cmd_len + 1; // +1 for spacing
+
+    let items: Vec<Line> = show_candidates
         .iter()
         .take(max_show)
         .enumerate()
         .map(|(i, (cmd, desc))| {
             if i == selected {
                 Line::from(vec![
-                    Span::styled(format!(" {:<12}", cmd), Style::default().fg(Color::White).bg(sel_bg).add_modifier(Modifier::BOLD)),
+                    Span::styled(format!(" {:<width$}", cmd, width = cmd_col_width), Style::default().fg(Color::White).bg(sel_bg).add_modifier(Modifier::BOLD)),
                     Span::styled(format!(" {} ", desc), Style::default().fg(Color::Rgb(200, 200, 210)).bg(sel_bg)),
                 ])
             } else {
                 Line::from(vec![
-                    Span::styled(format!(" {:<12}", cmd), Style::default().fg(Color::Rgb(180, 180, 190)).bg(bg)),
+                    Span::styled(format!(" {:<width$}", cmd, width = cmd_col_width), Style::default().fg(Color::Rgb(180, 180, 190)).bg(bg)),
                     Span::styled(format!(" {} ", desc), Style::default().fg(Color::Rgb(100, 100, 110)).bg(bg)),
                 ])
             }

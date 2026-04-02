@@ -1,28 +1,32 @@
 /// Completion state for slash commands and @file references.
 
-/// Slash command definition with description.
+/// Slash command definition with description and optional args hint.
 pub struct SlashCommand {
     pub name: &'static str,
     pub description: &'static str,
+    pub args_hint: Option<&'static str>,
 }
 
 pub const SLASH_COMMANDS: &[SlashCommand] = &[
-    SlashCommand { name: "/help", description: "Show command list" },
-    SlashCommand { name: "/clear", description: "Clear chat history" },
-    SlashCommand { name: "/exit", description: "Quit application" },
-    SlashCommand { name: "/model", description: "Show current model" },
-    SlashCommand { name: "/tools", description: "List registered tools" },
-    SlashCommand { name: "/compact", description: "Compress history" },
-    SlashCommand { name: "/cost", description: "Show token usage & cost" },
-    SlashCommand { name: "/diff", description: "Show git diff" },
-    SlashCommand { name: "/context", description: "Show context window usage" },
-    SlashCommand { name: "/status", description: "Show session status" },
-    SlashCommand { name: "/sessions", description: "List recent sessions" },
-    SlashCommand { name: "/keys", description: "Show keyboard shortcuts" },
-    SlashCommand { name: "/copy", description: "Copy last message to clipboard" },
-    SlashCommand { name: "/bug", description: "Generate bug report" },
-    SlashCommand { name: "/doctor", description: "Check environment health" },
-    SlashCommand { name: "/config", description: "Show current configuration" },
+    SlashCommand { name: "/help", description: "Show command list", args_hint: None },
+    SlashCommand { name: "/clear", description: "Clear chat history", args_hint: Some("[context]") },
+    SlashCommand { name: "/exit", description: "Quit application", args_hint: None },
+    SlashCommand { name: "/model", description: "Show current model", args_hint: Some("<model-name>") },
+    SlashCommand { name: "/tools", description: "List registered tools", args_hint: None },
+    SlashCommand { name: "/compact", description: "Compress history", args_hint: Some("[keep_last=20]") },
+    SlashCommand { name: "/cost", description: "Show token usage & cost", args_hint: None },
+    SlashCommand { name: "/diff", description: "Show git diff", args_hint: None },
+    SlashCommand { name: "/context", description: "Show context window usage", args_hint: None },
+    SlashCommand { name: "/status", description: "Show session status", args_hint: None },
+    SlashCommand { name: "/sessions", description: "List recent sessions", args_hint: None },
+    SlashCommand { name: "/keys", description: "Show keyboard shortcuts", args_hint: None },
+    SlashCommand { name: "/copy", description: "Copy last message to clipboard", args_hint: None },
+    SlashCommand { name: "/bug", description: "Generate bug report", args_hint: None },
+    SlashCommand { name: "/doctor", description: "Check environment health", args_hint: None },
+    SlashCommand { name: "/config", description: "Show current configuration", args_hint: None },
+    SlashCommand { name: "/version", description: "Show version info", args_hint: None },
+    SlashCommand { name: "/history", description: "Show recent input history", args_hint: Some("[count]") },
+    SlashCommand { name: "/time", description: "Show session timing", args_hint: None },
 ];
 
 /// State for slash command completion popup.
@@ -33,6 +37,8 @@ pub struct CommandCompletion {
     pub selected: Option<usize>,
     /// Additional dynamic commands (e.g., from skills)
     pub dynamic_commands: Vec<(String, String)>,
+    /// Args hint to display when a known command + space is typed
+    pub args_hint: Option<String>,
 }
 
 impl CommandCompletion {
@@ -41,45 +47,91 @@ impl CommandCompletion {
             candidates: Vec::new(),
             selected: None,
             dynamic_commands: Vec::new(),
+            args_hint: None,
         }
     }
 
     pub fn is_active(&self) -> bool {
-        !self.candidates.is_empty()
+        !self.candidates.is_empty() || self.args_hint.is_some()
     }
 
     /// Update completions based on current input text.
     pub fn update(&mut self, input_text: &str, is_single_line: bool) {
-        if is_single_line && input_text.starts_with('/') && !input_text.contains(' ') {
-            // Static commands
-            let mut all: Vec<(String, String)> = SLASH_COMMANDS
+        self.args_hint = None;
+
+        if !is_single_line || !input_text.starts_with('/') {
+            self.close();
+            return;
+        }
+
+        // Check for "known command + space" → show args hint
+        if input_text.contains(' ') {
+            let cmd_part = input_text.split_whitespace().next().unwrap_or("");
+            let hint = SLASH_COMMANDS.iter()
+                .find(|c| c.name == cmd_part)
+                .and_then(|c| c.args_hint);
+            if let Some(h) = hint {
+                self.candidates.clear();
+                self.selected = None;
+                self.args_hint = Some(format!("{} {}", cmd_part, h));
+            } else {
+                self.close();
+            }
+            return;
+        }
+
+        // Prefix matches first
+        let mut prefix_matches: Vec<(String, String)> = SLASH_COMMANDS
+            .iter()
+            .filter(|cmd| cmd.name.starts_with(input_text) && cmd.name != input_text)
+            .map(|cmd| (cmd.name.to_string(), cmd.description.to_string()))
+            .collect();
+
+        // Dynamic skill commands — prefix
+        for (name, desc) in &self.dynamic_commands {
+            let full_name = format!("/{}", name);
+            if full_name.starts_with(input_text) && full_name != input_text {
+                prefix_matches.push((full_name, desc.clone()));
+            }
+        }
+
+        // Substring fallback: only when no prefix matches found
+        if prefix_matches.is_empty() {
+            let query = &input_text[1..]; // strip leading /
+            let mut sub_matches: Vec<(String, String)> = SLASH_COMMANDS
                 .iter()
-                .filter(|cmd| cmd.name.starts_with(input_text) && cmd.name != input_text)
+                .filter(|cmd| {
+                    let name_bare = &cmd.name[1..]; // strip /
+                    name_bare.contains(query) && cmd.name != input_text
+                })
                 .map(|cmd| (cmd.name.to_string(), cmd.description.to_string()))
                 .collect();
 
-            // Dynamic skill commands
             for (name, desc) in &self.dynamic_commands {
-                let full_name = format!("/{}", name);
-                if full_name.starts_with(input_text) && full_name != input_text {
-                    all.push((full_name, desc.clone()));
+                if name.contains(query) {
+                    let full_name = format!("/{}", name);
+                    if full_name != input_text {
+                        sub_matches.push((full_name, desc.clone()));
+                    }
                 }
             }
 
-            self.candidates = all;
-            if self.candidates.is_empty() {
-                self.selected = None;
-            } else if self.selected.is_none() {
-                self.selected = Some(0);
-            }
+            self.candidates = sub_matches;
         } else {
-            self.close();
+            self.candidates = prefix_matches;
+        }
+
+        if self.candidates.is_empty() {
+            self.selected = None;
+        } else if self.selected.map_or(true, |i| i >= self.candidates.len()) {
+            self.selected = Some(0);
         }
     }
 
     pub fn close(&mut self) {
         self.candidates.clear();
         self.selected = None;
+        self.args_hint = None;
     }
 
     /// Accept the currently selected completion. Returns the command name if accepted.
@@ -98,6 +150,15 @@ impl CommandCompletion {
         }
         let idx = self.selected.unwrap_or(0);
         self.selected = Some((idx + 1) % self.candidates.len());
+    }
+
+    /// Cycle to previous candidate.
+    pub fn cycle_back(&mut self) {
+        if self.candidates.is_empty() {
+            return;
+        }
+        let idx = self.selected.unwrap_or(0);
+        self.selected = Some(if idx == 0 { self.candidates.len() - 1 } else { idx - 1 });
     }
 }
 
@@ -178,5 +239,13 @@ impl FileCompletion {
         }
         let idx = self.selected.unwrap_or(0);
         self.selected = Some((idx + 1) % self.candidates.len());
+    }
+
+    pub fn cycle_back(&mut self) {
+        if self.candidates.is_empty() {
+            return;
+        }
+        let idx = self.selected.unwrap_or(0);
+        self.selected = Some(if idx == 0 { self.candidates.len() - 1 } else { idx - 1 });
     }
 }

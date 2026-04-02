@@ -89,6 +89,7 @@ impl App {
                     "    Ctrl+J          — Insert newline\n",
                     "    Shift+Enter     — Insert newline\n",
                     "    Tab             — Autocomplete\n",
+                    "    Shift+Tab       — Reverse autocomplete\n",
                     "\n",
                     "  Navigation:\n",
                     "    Up/Down         — Browse history (single-line) or navigate (multi-line)\n",
@@ -99,7 +100,7 @@ impl App {
                     "  Session:\n",
                     "    Esc / Ctrl+C    — Stop generation\n",
                     "    Ctrl+L          — Clear screen\n",
-                    "    Shift+Tab       — Cycle permission mode (Normal → Auto → Plan)\n",
+                    "    Shift+Tab       — Cycle permission mode (when no popup)\n",
                     "\n",
                     "  Special input:\n",
                     "    !command        — Execute shell command directly\n",
@@ -380,16 +381,65 @@ impl App {
                     self.terminal_caps.in_ssh,
                 ));
             }
-            _ => {
-                // Check if it's a skill command (starts with /)
-                let _skill_name = &cmd[1..]; // remove leading /
-                // Skills are handled by the engine via pending_inputs — the caller
-                // will inject the skill invocation as an LLM message instead.
-                // Return false so the command is sent as normal user input.
-                // The LLM will pick up the `/skill-name` prefix.
+            "/version" => {
                 self.add_system_message(format!(
-                    "Unknown command: {}. Type /help for available commands.", cmd
+                    "yode {}\n  Built with:  rustc ({})\n  OS:          {} {}\n  Profile:     {}",
+                    env!("CARGO_PKG_VERSION"),
+                    option_env!("CARGO_PKG_RUST_VERSION").unwrap_or("unknown"),
+                    std::env::consts::OS,
+                    std::env::consts::ARCH,
+                    if cfg!(debug_assertions) { "debug" } else { "release" },
                 ));
+            }
+            "/history" => {
+                let entries = self.history.entries();
+                let count = _arg.parse::<usize>().unwrap_or(10).min(50);
+                let start = entries.len().saturating_sub(count);
+                if entries.is_empty() {
+                    self.add_system_message("No input history yet.".to_string());
+                } else {
+                    let mut lines = String::from("Recent input history:\n");
+                    for (i, entry) in entries[start..].iter().enumerate() {
+                        let preview: String = entry.chars().take(80).collect();
+                        let ellipsis = if entry.len() > 80 { "..." } else { "" };
+                        lines.push_str(&format!("  {:>3}. {}{}\n", start + i + 1, preview, ellipsis));
+                    }
+                    self.add_system_message(lines);
+                }
+            }
+            "/time" => {
+                let elapsed = self.session_start.elapsed();
+                let hours = elapsed.as_secs() / 3600;
+                let mins = (elapsed.as_secs() % 3600) / 60;
+                let secs = elapsed.as_secs() % 60;
+                let turn_info = if let Some(turn_start) = self.turn_started_at {
+                    let turn_elapsed = turn_start.elapsed();
+                    format!("\n  Current turn:    {}s", turn_elapsed.as_secs())
+                } else {
+                    String::new()
+                };
+                self.add_system_message(format!(
+                    "Session timing:\n  Session duration: {}h {:02}m {:02}s\n  Messages:        {}\n  Tool calls:      {}{}",
+                    hours, mins, secs,
+                    self.chat_entries.len(),
+                    self.session.tool_call_count,
+                    turn_info,
+                ));
+            }
+            _ => {
+                // Find closest command by edit distance
+                let suggestion = find_closest_command(cmd);
+                let msg = if let Some(closest) = suggestion {
+                    format!(
+                        "Unknown command: {}. Did you mean {}?",
+                        cmd, closest
+                    )
+                } else {
+                    format!(
+                        "Unknown command: {}. Type /help for available commands.", cmd
+                    )
+                };
+                self.add_system_message(msg);
             }
         }
         true
@@ -522,4 +572,43 @@ pub(crate) fn estimate_cost(model: &str, input_tokens: u32, output_tokens: u32) 
     };
     (input_tokens as f64 / 1_000_000.0) * input_per_mtok
         + (output_tokens as f64 / 1_000_000.0) * output_per_mtok
+}
+
+/// Find the closest slash command by edit distance. Returns None if all are too distant.
+fn find_closest_command(input: &str) -> Option<&'static str> {
+    let mut best: Option<(&str, usize)> = None;
+    for cmd in SLASH_COMMANDS {
+        let d = levenshtein(input, cmd.name);
+        if best.map_or(true, |(_, bd)| d < bd) {
+            best = Some((cmd.name, d));
+        }
+    }
+    // Only suggest if distance is reasonable (at most half the command length)
+    best.and_then(|(name, d)| {
+        if d <= name.len() / 2 + 1 {
+            Some(name)
+        } else {
+            None
+        }
+    })
+}
+
+/// Simple Levenshtein distance implementation.
+fn levenshtein(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let (m, n) = (a.len(), b.len());
+    let mut prev = (0..=n).collect::<Vec<_>>();
+    let mut curr = vec![0; n + 1];
+    for i in 1..=m {
+        curr[0] = i;
+        for j in 1..=n {
+            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            curr[j] = (prev[j] + 1)
+                .min(curr[j - 1] + 1)
+                .min(prev[j - 1] + cost);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[n]
 }
