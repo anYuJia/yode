@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 
 use tokio::sync::Mutex;
 use yode_core::engine::AgentEngine;
@@ -21,6 +22,8 @@ pub struct CommandContext<'a> {
     pub terminal_caps: &'a TerminalCaps,
     pub input_history: &'a [String],
     pub should_quit: &'a mut bool,
+    pub session_start: Instant,
+    pub turn_started_at: Option<Instant>,
 }
 
 pub struct CompletionContext<'a> {
