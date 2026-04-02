@@ -1,9 +1,11 @@
 /// Slash command execution and shell command handling.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use arboard::Clipboard;
 use tokio::sync::Mutex;
+use yode_core::db::Database;
 use yode_core::engine::AgentEngine;
 use yode_tools::registry::ToolRegistry;
 
@@ -199,9 +201,47 @@ impl App {
                 ));
             }
             "/sessions" => {
-                self.add_system_message(
-                    "Session management:\n  Current session only. Use --resume <id> to resume a previous session at startup.".to_string()
-                );
+                // Open DB to list recent sessions
+                let db_path = dirs::home_dir()
+                    .unwrap_or_else(|| PathBuf::from("."))
+                    .join(".yode")
+                    .join("sessions.db");
+                match Database::open(&db_path) {
+                    Ok(db) => {
+                        match db.list_sessions(10) {
+                            Ok(sessions) if sessions.is_empty() => {
+                                self.add_system_message("No saved sessions found.".to_string());
+                            }
+                            Ok(sessions) => {
+                                let mut lines = String::from("Recent sessions:\n");
+                                for s in &sessions {
+                                    let id_short = &s.id[..s.id.len().min(8)];
+                                    let age = chrono::Utc::now().signed_duration_since(s.updated_at);
+                                    let age_str = if age.num_days() > 0 {
+                                        format!("{}d ago", age.num_days())
+                                    } else if age.num_hours() > 0 {
+                                        format!("{}h ago", age.num_hours())
+                                    } else {
+                                        format!("{}m ago", age.num_minutes().max(1))
+                                    };
+                                    let name = s.name.as_deref().unwrap_or("-");
+                                    lines.push_str(&format!(
+                                        "  {}  {:<12} {:<8} {}\n",
+                                        id_short, s.model, age_str, name
+                                    ));
+                                }
+                                lines.push_str("\nResume with: yode --resume <session-id>");
+                                self.add_system_message(lines);
+                            }
+                            Err(e) => {
+                                self.add_system_message(format!("Failed to list sessions: {}", e));
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        self.add_system_message(format!("Failed to open session database: {}", e));
+                    }
+                }
             }
             "/copy" => {
                 // Find last assistant message

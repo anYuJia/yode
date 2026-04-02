@@ -16,3 +16,5 @@ tracing = { workspace = true }
 serde_json = { workspace = true }
 unicode-width = "0.2"
 arboard = "3.4"
+dirs = { workspace = true }
+chrono = { workspace = true }
