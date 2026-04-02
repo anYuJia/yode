@@ -12,7 +12,7 @@ impl ModelCommand {
     pub fn new() -> Self {
         Self {
             meta: CommandMeta {
-                name: "/model",
+                name: "model",
                 description: "Show or switch the current model",
                 aliases: &["m"],
                 args: vec![ArgDef {

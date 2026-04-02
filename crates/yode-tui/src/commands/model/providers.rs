@@ -11,7 +11,7 @@ impl ProvidersCommand {
     pub fn new() -> Self {
         Self {
             meta: CommandMeta {
-                name: "/providers",
+                name: "providers",
                 description: "List all available providers and their models",
                 aliases: &[],
                 args: vec![],

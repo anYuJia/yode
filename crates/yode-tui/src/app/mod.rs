@@ -1124,12 +1124,9 @@ fn handle_tab(app: &mut App) {
             app.file_completion.cycle();
         }
     } else if app.cmd_completion.is_active() {
-        if app.cmd_completion.candidates.len() == 1 {
-            if let Some(cmd) = app.cmd_completion.accept() {
-                app.input.set_text(&cmd);
-            }
-        } else {
-            app.cmd_completion.cycle();
+        // Tab accepts the selected completion into input
+        if let Some(cmd) = app.cmd_completion.accept() {
+            app.input.set_text(&cmd);
         }
     } else {
         app.cmd_completion.update(&app.input.lines[0], !app.input.is_multiline(), &app.cmd_registry);

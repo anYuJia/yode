@@ -12,7 +12,7 @@ impl ProviderCommand {
     pub fn new() -> Self {
         Self {
             meta: CommandMeta {
-                name: "/provider",
+                name: "provider",
                 description: "Show or switch the current provider",
                 aliases: &[],
                 args: vec![ArgDef {

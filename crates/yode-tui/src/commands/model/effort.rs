@@ -14,7 +14,7 @@ impl EffortCommand {
     pub fn new() -> Self {
         Self {
             meta: CommandMeta {
-                name: "/effort",
+                name: "effort",
                 description: "Show or set the effort level",
                 aliases: &[],
                 args: vec![ArgDef {
