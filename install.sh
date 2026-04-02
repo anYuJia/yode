@@ -80,7 +80,7 @@ main() {
   info "Download: ${url}"
 
   tmpdir=$(mktemp -d)
-  trap 'rm -rf "${tmpdir:-}"' EXIT
+  trap 'rm -rf "'"$tmpdir"'"' EXIT
 
   # download
   if ! curl -fSL --progress-bar -o "${tmpdir}/${archive}" "$url"; then
