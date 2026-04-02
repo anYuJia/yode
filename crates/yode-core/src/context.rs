@@ -1,6 +1,37 @@
 use std::path::PathBuf;
 use uuid::Uuid;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EffortLevel {
+    Min, Low, Medium, High, Max,
+}
+
+impl std::fmt::Display for EffortLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Min => write!(f, "min"),
+            Self::Low => write!(f, "low"),
+            Self::Medium => write!(f, "medium"),
+            Self::High => write!(f, "high"),
+            Self::Max => write!(f, "max"),
+        }
+    }
+}
+
+impl std::str::FromStr for EffortLevel {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "min" => Ok(Self::Min),
+            "low" => Ok(Self::Low),
+            "medium" => Ok(Self::Medium),
+            "high" => Ok(Self::High),
+            "max" => Ok(Self::Max),
+            _ => Err(format!("Unknown effort level: {s}. Valid: min, low, medium, high, max")),
+        }
+    }
+}
+
 /// Runtime context for an agent session.
 #[derive(Debug, Clone)]
 pub struct AgentContext {
@@ -14,6 +45,8 @@ pub struct AgentContext {
     pub provider: String,
     /// Whether this session was resumed from a previous one
     pub is_resumed: bool,
+    /// Effort level for the session
+    pub effort: EffortLevel,
 }
 
 impl AgentContext {
@@ -24,6 +57,7 @@ impl AgentContext {
             model,
             provider,
             is_resumed: false,
+            effort: EffortLevel::Medium,
         }
     }
 
@@ -35,6 +69,7 @@ impl AgentContext {
             model,
             provider,
             is_resumed: true,
+            effort: EffortLevel::Medium,
         }
     }
 }

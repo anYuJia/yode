@@ -51,6 +51,15 @@ impl PermissionManager {
             ].into_iter().collect(),
         }
     }
+
+    pub fn allow(&mut self, tool_name: &str) { self.require_confirmation.remove(tool_name); }
+    pub fn deny(&mut self, tool_name: &str) { self.require_confirmation.insert(tool_name.to_string()); }
+    pub fn reset(&mut self, defaults: Vec<String>) { self.require_confirmation = defaults.into_iter().collect(); }
+    pub fn confirmable_tools(&self) -> Vec<&str> {
+        let mut tools: Vec<&str> = self.require_confirmation.iter().map(|s| s.as_str()).collect();
+        tools.sort();
+        tools
+    }
 }
 
 #[cfg(test)]
@@ -80,5 +89,38 @@ mod tests {
         let pm = PermissionManager::new(vec!["my_tool".into()]);
         assert_eq!(pm.check("my_tool"), PermissionAction::Confirm);
         assert_eq!(pm.check("other"), PermissionAction::Allow);
+    }
+
+    #[test]
+    fn test_allow_removes_confirmation() {
+        let mut pm = PermissionManager::strict();
+        assert_eq!(pm.check("bash"), PermissionAction::Confirm);
+        pm.allow("bash");
+        assert_eq!(pm.check("bash"), PermissionAction::Allow);
+    }
+
+    #[test]
+    fn test_deny_adds_confirmation() {
+        let mut pm = PermissionManager::permissive();
+        assert_eq!(pm.check("read_file"), PermissionAction::Allow);
+        pm.deny("read_file");
+        assert_eq!(pm.check("read_file"), PermissionAction::Confirm);
+    }
+
+    #[test]
+    fn test_reset_restores_defaults() {
+        let mut pm = PermissionManager::permissive();
+        pm.deny("bash");
+        pm.deny("edit_file");
+        pm.reset(vec!["write_file".into()]);
+        assert_eq!(pm.check("bash"), PermissionAction::Allow);
+        assert_eq!(pm.check("edit_file"), PermissionAction::Allow);
+        assert_eq!(pm.check("write_file"), PermissionAction::Confirm);
+    }
+
+    #[test]
+    fn test_confirmable_tools_sorted() {
+        let pm = PermissionManager::new(vec!["zebra".into(), "alpha".into(), "middle".into()]);
+        assert_eq!(pm.confirmable_tools(), vec!["alpha", "middle", "zebra"]);
     }
 }

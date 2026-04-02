@@ -16,7 +16,7 @@ use yode_tools::state::TaskStore;
 use yode_tools::tool::{SubAgentRunner, ToolContext, ToolErrorType, ToolResult, UserQuery};
 use yode_tools::validation;
 
-use crate::context::AgentContext;
+use crate::context::{AgentContext, EffortLevel};
 use crate::context_manager::ContextManager;
 use crate::db::Database;
 use crate::permission::{PermissionAction, PermissionManager};
@@ -254,6 +254,13 @@ impl AgentEngine {
         self.provider = provider;
         self.context.provider = name;
     }
+
+    pub fn set_effort(&mut self, level: EffortLevel) { self.context.effort = level; }
+    pub fn effort(&self) -> EffortLevel { self.context.effort }
+    pub fn current_model(&self) -> &str { &self.context.model }
+    pub fn current_provider(&self) -> &str { &self.context.provider }
+    pub fn permissions(&self) -> &PermissionManager { &self.permissions }
+    pub fn permissions_mut(&mut self) -> &mut PermissionManager { &mut self.permissions }
 
     /// Set channels for the ask_user tool.
     pub fn set_ask_user_channels(
