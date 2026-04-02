@@ -575,54 +575,10 @@ async fn run_app(
         if let Some(app_event) = event::poll_event(Duration::from_millis(50))? {
             match app_event {
                 AppEvent::Key(key) => {
-                    // Collect rapid sequential key events (likely a paste from Cmd+V)
-                    let mut paste_buf = String::new();
-                    let first_key = Some(key);
-                    
-                    // Check if this is a printable char or newline that could start a paste
-                    let is_pasteable = |k: &crossterm::event::KeyEvent| -> Option<char> {
-                        if k.modifiers.is_empty() || k.modifiers == KeyModifiers::SHIFT {
-                            match k.code {
-                                KeyCode::Char(c) => Some(c),
-                                KeyCode::Enter => Some('\n'),
-                                _ => None,
-                            }
-                        } else {
-                            None
-                        }
-                    };
-
-                    if let Some(ch) = is_pasteable(&key) {
-                        paste_buf.push(ch);
-                        // Drain rapidly-arriving events (5ms timeout catches paste chars
-                        // that arrive with small delays between them, e.g. from Cmd+V)
-                        while let Ok(true) = crossterm::event::poll(Duration::from_millis(5)) {
-                            if let Ok(crossterm::event::Event::Key(next_key)) = crossterm::event::read() {
-                                if let Some(ch) = is_pasteable(&next_key) {
-                                    paste_buf.push(ch);
-                                } else {
-                                    // Non-char key, handle normally after paste
-                                    handle_key_event(app, next_key, &engine, &tools, &engine_event_tx);
-                                    break;
-                                }
-                            } else {
-                                break;
-                            }
-                        }
-                    }
-
-                    if paste_buf.len() > 1 {
-                        if input::should_fold_paste(&paste_buf) {
-                            app.input.insert_attachment(paste_buf);
-                        } else {
-                            for c in paste_buf.chars() {
-                                app.input.insert_char(c);
-                            }
-                        }
-                    } else if let Some(k) = first_key {
-                        // Single key event, handle normally
-                        handle_key_event(app, k, &engine, &tools, &engine_event_tx);
-                    }
+                    // Key events are handled directly — paste detection relies on
+                    // bracketed paste mode (AppEvent::Paste) and Ctrl+V/Cmd+V
+                    // reading from the system clipboard via pbpaste.
+                    handle_key_event(app, key, &engine, &tools, &engine_event_tx);
                 }
                 AppEvent::Paste(text) => {
                     // Normalize line endings: \r\n → \n, bare \r → \n
@@ -802,12 +758,20 @@ fn handle_key_event(
             if let Ok(output) = std::process::Command::new("pbpaste").output() {
                 if output.status.success() {
                     let text = String::from_utf8_lossy(&output.stdout).to_string();
+                    // Normalize line endings: \r\n → \n, bare \r → \n
+                    let text = text.replace("\r\n", "\n").replace('\r', "\n");
                     if !text.is_empty() {
                         if input::should_fold_paste(&text) {
                             app.input.insert_attachment(text);
                         } else {
-                            for ch in text.chars() {
-                                app.input.insert_char(ch);
+                            for line in text.split_inclusive('\n') {
+                                let clean = line.trim_end_matches('\n');
+                                for c in clean.chars() {
+                                    app.input.insert_char(c);
+                                }
+                                if line.ends_with('\n') {
+                                    app.input.insert_newline();
+                                }
                             }
                         }
                     }
