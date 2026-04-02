@@ -28,6 +28,8 @@ detect_platform() {
   case "$(uname -s)" in
     Linux*)  os="unknown-linux-gnu" ;;
     Darwin*) os="apple-darwin" ;;
+    MINGW*|MSYS*|CYGWIN*)
+      error "This script doesn't support Windows. Download yode-x86_64-pc-windows-msvc.zip from https://github.com/${REPO}/releases" ;;
     *)       error "Unsupported OS: $(uname -s). Only Linux and macOS are supported." ;;
   esac
 
