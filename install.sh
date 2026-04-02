@@ -69,8 +69,8 @@ main() {
   need curl
   need tar
 
-  local platform version archive url
-  tmpdir=""
+  local platform version archive url tmpdir
+  tmpdir="/tmp/yode.$$"
 
   platform=$(detect_platform)
   version=$(resolve_version)
@@ -81,7 +81,7 @@ main() {
   info "Download: ${url}"
 
   tmpdir=$(mktemp -d)
-  trap 'rm -rf "$tmpdir" 2>/dev/null' EXIT
+  trap 'rm -rf /tmp/yode.$$' EXIT
 
   # download
   if ! curl -fSL --progress-bar -o "${tmpdir}/${archive}" "$url"; then
