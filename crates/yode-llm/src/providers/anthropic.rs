@@ -223,7 +223,10 @@ impl AnthropicProvider {
             name: name.into(),
             api_key: api_key.into(),
             base_url: base_url.into(),
-            client: Client::new(),
+            client: Client::builder()
+                .user_agent(format!("Yode/{}", env!("CARGO_PKG_VERSION")))
+                .build()
+                .expect("Failed to build HTTP client"),
         }
     }
 
@@ -467,13 +470,15 @@ impl LlmProvider for AnthropicProvider {
             self.messages_url()
         );
 
+        let body_json = serde_json::to_string(&body).context("Failed to serialize request")?;
+
         let resp = self
             .client
             .post(&self.messages_url())
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", "2023-06-01")
             .header("content-type", "application/json")
-            .json(&body)
+            .body(body_json)
             .send()
             .await
             .context("Failed to send Anthropic streaming request")?;

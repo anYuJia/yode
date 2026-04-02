@@ -56,7 +56,7 @@ impl App {
         &mut self,
         input: &str,
         tools: &Arc<ToolRegistry>,
-        _engine: &Arc<Mutex<AgentEngine>>,
+        engine: &Arc<Mutex<AgentEngine>>,
     ) -> bool {
         let trimmed = input.trim();
         if !trimmed.starts_with('/') {
@@ -65,7 +65,7 @@ impl App {
 
         let parts: Vec<&str> = trimmed.splitn(2, ' ').collect();
         let cmd = parts[0];
-        let _arg = parts.get(1).copied().unwrap_or("");
+        let arg = parts.get(1).copied().unwrap_or("").trim();
 
         match cmd {
             "/help" => {
@@ -117,7 +117,85 @@ impl App {
                 self.should_quit = true;
             }
             "/model" => {
-                self.add_system_message(format!("Current model: {}", self.session.model));
+                if arg.is_empty() {
+                    // Show current model + available models
+                    let models_list = if self.provider_models.is_empty() {
+                        "  (unrestricted)".to_string()
+                    } else {
+                        self.provider_models.iter()
+                            .map(|m| {
+                                if *m == self.session.model {
+                                    format!("  * {} (current)", m)
+                                } else {
+                                    format!("    {}", m)
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    };
+                    self.add_system_message(format!(
+                        "Current model: {}\nProvider: {}\nAvailable models:\n{}",
+                        self.session.model, self.provider_name, models_list
+                    ));
+                } else {
+                    // Switch model
+                    let new_model = arg.to_string();
+                    if !self.provider_models.is_empty() && !self.provider_models.contains(&new_model) {
+                        self.add_system_message(format!(
+                            "Model '{}' is not available for provider '{}'. Available models:\n  {}",
+                            new_model, self.provider_name,
+                            self.provider_models.join("\n  ")
+                        ));
+                    } else {
+                        self.session.model = new_model.clone();
+                        if let Ok(mut eng) = engine.try_lock() {
+                            eng.set_model(new_model.clone());
+                        }
+                        self.add_system_message(format!("Switched to model: {}", new_model));
+                    }
+                }
+            }
+            "/provider" => {
+                if arg.is_empty() {
+                    self.add_system_message(format!(
+                        "Current provider: {}\nUse /provider <name> to switch, /providers to list all.",
+                        self.provider_name
+                    ));
+                } else {
+                    let new_provider = arg.to_string();
+                    if let Some(provider) = self.provider_registry.get(&new_provider) {
+                        let new_models = self.all_provider_models.get(&new_provider).cloned().unwrap_or_default();
+                        let new_model = new_models.first().cloned().unwrap_or_else(|| self.session.model.clone());
+                        if let Ok(mut eng) = engine.try_lock() {
+                            eng.set_provider(provider, new_provider.clone());
+                            eng.set_model(new_model.clone());
+                        }
+                        self.provider_name = new_provider.clone();
+                        self.provider_models = new_models;
+                        self.session.model = new_model.clone();
+                        self.add_system_message(format!(
+                            "Switched to provider: {}, model: {}", new_provider, new_model
+                        ));
+                    } else {
+                        let available: Vec<String> = self.all_provider_models.keys().cloned().collect();
+                        self.add_system_message(format!(
+                            "Provider '{}' not found. Available: {}", new_provider, available.join(", ")
+                        ));
+                    }
+                }
+            }
+            "/providers" => {
+                let mut lines = String::from("Available providers:\n");
+                for (name, models) in &self.all_provider_models {
+                    let marker = if *name == self.provider_name { " *" } else { "  " };
+                    let model_str = if models.is_empty() {
+                        "(unrestricted)".to_string()
+                    } else {
+                        models.join(", ")
+                    };
+                    lines.push_str(&format!("{} {:<15} — {}\n", marker, name, model_str));
+                }
+                self.add_system_message(lines);
             }
             "/tools" => {
                 let tool_list: Vec<String> = tools
@@ -393,7 +471,7 @@ impl App {
             }
             "/history" => {
                 let entries = self.history.entries();
-                let count = _arg.parse::<usize>().unwrap_or(10).min(50);
+                let count = arg.parse::<usize>().unwrap_or(10).min(50);
                 let start = entries.len().saturating_sub(count);
                 if entries.is_empty() {
                     self.add_system_message("No input history yet.".to_string());

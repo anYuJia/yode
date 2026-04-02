@@ -258,7 +258,10 @@ impl OpenAiProvider {
             name: name.into(),
             api_key: api_key.into(),
             base_url: base_url.into(),
-            client: Client::new(),
+            client: Client::builder()
+                .user_agent(format!("Yode/{}", env!("CARGO_PKG_VERSION")))
+                .build()
+                .expect("Failed to build HTTP client"),
         }
     }
 

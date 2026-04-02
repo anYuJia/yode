@@ -253,7 +253,34 @@ async fn main() -> Result<()> {
 
     // Auto-detect provider and model from env vars or CLI args
     let provider_name = cli.provider.unwrap_or_else(|| config.llm.default_provider.clone());
-    let model = cli.model.unwrap_or_else(|| config.llm.default_model.clone());
+
+    // Build provider → models map from config
+    let all_provider_models: std::collections::HashMap<String, Vec<String>> = config.llm.providers.iter()
+        .filter(|(name, _)| provider_registry.get(name).is_some())
+        .map(|(name, p_config)| (name.clone(), p_config.models.clone()))
+        .collect();
+
+    // Resolve model: CLI arg > config default > first model in provider's list
+    let provider_models = all_provider_models.get(&provider_name).cloned().unwrap_or_default();
+    let model = {
+        let requested = cli.model.unwrap_or_else(|| config.llm.default_model.clone());
+        if !provider_models.is_empty() && !provider_models.contains(&requested) {
+            let first = provider_models[0].clone();
+            warn!(
+                "Model '{}' not in provider '{}' model list, using '{}' instead. Available: {:?}",
+                requested, provider_name, first, provider_models
+            );
+            eprintln!(
+                "⚠ Model '{}' not available for provider '{}', using '{}' instead.",
+                requested, provider_name, first
+            );
+            first
+        } else {
+            requested
+        }
+    };
+
+    let provider_registry = Arc::new(provider_registry);
 
     let provider = provider_registry.get(&provider_name).context(format!(
         "Provider '{}' not available. Set the appropriate API key environment variable.\n\
@@ -411,7 +438,17 @@ async fn main() -> Result<()> {
         .iter()
         .map(|s| (s.name.clone(), s.description.clone()))
         .collect();
-    yode_tui::app::run(provider, tool_registry, permissions, context, db, restored_messages, skill_cmds).await?;
+    yode_tui::app::run(
+        provider,
+        Arc::clone(&provider_registry),
+        tool_registry,
+        permissions,
+        context,
+        db,
+        restored_messages,
+        skill_cmds,
+        all_provider_models,
+    ).await?;
 
     // Shut down MCP clients
     for client in mcp_clients {

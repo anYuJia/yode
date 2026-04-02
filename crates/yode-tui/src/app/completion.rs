@@ -11,7 +11,7 @@ pub const SLASH_COMMANDS: &[SlashCommand] = &[
     SlashCommand { name: "/help", description: "Show command list", args_hint: None },
     SlashCommand { name: "/clear", description: "Clear chat history", args_hint: Some("[context]") },
     SlashCommand { name: "/exit", description: "Quit application", args_hint: None },
-    SlashCommand { name: "/model", description: "Show current model", args_hint: Some("<model-name>") },
+    SlashCommand { name: "/model", description: "Show/switch model", args_hint: Some("<model-name>") },
     SlashCommand { name: "/tools", description: "List registered tools", args_hint: None },
     SlashCommand { name: "/compact", description: "Compress history", args_hint: Some("[keep_last=20]") },
     SlashCommand { name: "/cost", description: "Show token usage & cost", args_hint: None },
@@ -27,6 +27,8 @@ pub const SLASH_COMMANDS: &[SlashCommand] = &[
     SlashCommand { name: "/version", description: "Show version info", args_hint: None },
     SlashCommand { name: "/history", description: "Show recent input history", args_hint: Some("[count]") },
     SlashCommand { name: "/time", description: "Show session timing", args_hint: None },
+    SlashCommand { name: "/provider", description: "Switch provider", args_hint: Some("<name>") },
+    SlashCommand { name: "/providers", description: "List available providers", args_hint: None },
 ];
 
 /// State for slash command completion popup.

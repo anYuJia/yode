@@ -111,6 +111,7 @@ pub fn run_setup_interactive() -> Result<()> {
         format: format_val,
         base_url: Some(p_base_url),
         api_key: Some(p_api_key.clone()),
+        models: Vec::new(),
     });
     
     config.llm.default_provider = p_name.clone();

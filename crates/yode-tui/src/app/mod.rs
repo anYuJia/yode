@@ -26,6 +26,7 @@ use yode_core::db::Database;
 use yode_core::engine::{AgentEngine, ConfirmResponse, EngineEvent};
 use yode_core::permission::PermissionManager;
 use yode_llm::provider::LlmProvider;
+use yode_llm::registry::ProviderRegistry;
 use yode_llm::types::Message;
 use yode_tools::registry::ToolRegistry;
 
@@ -249,10 +250,26 @@ pub struct App {
 
     // Terminal capabilities
     pub terminal_caps: TerminalCaps,
+
+    // Provider management
+    pub provider_name: String,
+    pub provider_models: Vec<String>,
+    /// Map of provider_name → models list (for switching)
+    pub all_provider_models: HashMap<String, Vec<String>>,
+    /// Provider registry for runtime switching
+    pub provider_registry: Arc<ProviderRegistry>,
 }
 
 impl App {
-    pub fn new(model: String, session_id: String, working_dir: String) -> Self {
+    pub fn new(
+        model: String,
+        session_id: String,
+        working_dir: String,
+        provider_name: String,
+        provider_models: Vec<String>,
+        all_provider_models: HashMap<String, Vec<String>>,
+        provider_registry: Arc<ProviderRegistry>,
+    ) -> Self {
         Self {
             input: InputState::new(),
             history: HistoryState::new(),
@@ -292,6 +309,10 @@ impl App {
             in_sub_agent: false,
             sub_agent_tool_count: 0,
             terminal_caps: TerminalCaps::detect(),
+            provider_name,
+            provider_models,
+            all_provider_models,
+            provider_registry,
         }
     }
 
@@ -340,12 +361,14 @@ impl App {
 /// Run the TUI application.
 pub async fn run(
     provider: Arc<dyn LlmProvider>,
+    provider_registry: Arc<ProviderRegistry>,
     tools: Arc<ToolRegistry>,
     permissions: PermissionManager,
     context: AgentContext,
     db: Database,
     restored_messages: Option<Vec<Message>>,
     skill_commands: Vec<(String, String)>,
+    all_provider_models: HashMap<String, Vec<String>>,
 ) -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -354,7 +377,17 @@ pub async fn run(
     stdout.execute(crossterm::style::Print("\n"))?;
     let working_dir = context.working_dir.display().to_string();
     let is_resumed = context.is_resumed;
-    let mut app = App::new(context.model.clone(), context.session_id.clone(), working_dir);
+    let provider_name = context.provider.clone();
+    let provider_models = all_provider_models.get(&provider_name).cloned().unwrap_or_default();
+    let mut app = App::new(
+        context.model.clone(),
+        context.session_id.clone(),
+        working_dir,
+        provider_name,
+        provider_models,
+        all_provider_models,
+        provider_registry,
+    );
     app.cmd_completion.dynamic_commands = skill_commands;
 
     // Print welcome header directly to stdout before starting TUI viewport

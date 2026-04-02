@@ -29,6 +29,9 @@ pub struct ProviderConfig {
     pub base_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
+    /// Allowed models for this provider. Empty means unrestricted.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub models: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

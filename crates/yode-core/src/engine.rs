@@ -244,6 +244,17 @@ impl AgentEngine {
         self.db = Some(db);
     }
 
+    /// Switch the model at runtime.
+    pub fn set_model(&mut self, model: String) {
+        self.context.model = model;
+    }
+
+    /// Switch the provider at runtime.
+    pub fn set_provider(&mut self, provider: Arc<dyn LlmProvider>, name: String) {
+        self.provider = provider;
+        self.context.provider = name;
+    }
+
     /// Set channels for the ask_user tool.
     pub fn set_ask_user_channels(
         &mut self,
