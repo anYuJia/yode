@@ -29,16 +29,38 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         let visual_lines = app.input.visual_line_count(term_width) as u16;
         let input_height = visual_lines.clamp(1, 5);
 
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(input_height),
-                Constraint::Length(1),
-                Constraint::Length(1),
-            ])
-            .split(frame.area());
+        let completion_height = if app.cmd_completion.is_active() && !app.cmd_completion.candidates.is_empty() {
+            (app.cmd_completion.candidates.len() as u16).min(5)
+        } else {
+            0
+        };
 
-        input::render_input(frame, chunks[0], app);
-        status_bar::render_info_line(frame, chunks[1], app);
+        if completion_height > 0 {
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(input_height),
+                    Constraint::Length(completion_height),
+                    Constraint::Length(1),
+                    Constraint::Length(1),
+                ])
+                .split(frame.area());
+
+            input::render_input(frame, chunks[0], app);
+            input::render_command_inline(frame, chunks[1], app);
+            status_bar::render_info_line(frame, chunks[2], app);
+        } else {
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(input_height),
+                    Constraint::Length(1),
+                    Constraint::Length(1),
+                ])
+                .split(frame.area());
+
+            input::render_input(frame, chunks[0], app);
+            status_bar::render_info_line(frame, chunks[1], app);
+        }
     }
 }

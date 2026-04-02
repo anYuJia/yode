@@ -116,8 +116,10 @@ impl CommandCompletion {
                 }
             }
 
+            sub_matches.sort_by_key(|(cmd, _)| cmd.len());
             self.candidates = sub_matches;
         } else {
+            prefix_matches.sort_by_key(|(cmd, _)| cmd.len());
             self.candidates = prefix_matches;
         }
 

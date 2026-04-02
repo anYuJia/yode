@@ -917,7 +917,9 @@ fn handle_char(app: &mut App, key: crossterm::event::KeyEvent, c: char) {
 }
 
 fn handle_up(app: &mut App) {
-    if app.input.is_multiline() {
+    if app.cmd_completion.is_active() && !app.input.is_multiline() {
+        app.cmd_completion.cycle_back();
+    } else if app.input.is_multiline() {
         app.input.move_up();
     } else {
         browse_history_prev(app);
@@ -925,7 +927,9 @@ fn handle_up(app: &mut App) {
 }
 
 fn handle_down(app: &mut App) {
-    if app.input.is_multiline() {
+    if app.cmd_completion.is_active() && !app.input.is_multiline() {
+        app.cmd_completion.cycle();
+    } else if app.input.is_multiline() {
         app.input.move_down();
     } else {
         browse_history_next(app);
