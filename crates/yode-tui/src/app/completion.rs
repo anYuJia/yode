@@ -1,35 +1,6 @@
 /// Completion state for slash commands and @file references.
 
-/// Slash command definition with description and optional args hint.
-pub struct SlashCommand {
-    pub name: &'static str,
-    pub description: &'static str,
-    pub args_hint: Option<&'static str>,
-}
-
-pub const SLASH_COMMANDS: &[SlashCommand] = &[
-    SlashCommand { name: "/help", description: "Show command list", args_hint: None },
-    SlashCommand { name: "/clear", description: "Clear chat history", args_hint: Some("[context]") },
-    SlashCommand { name: "/exit", description: "Quit application", args_hint: None },
-    SlashCommand { name: "/model", description: "Show/switch model", args_hint: Some("<model-name>") },
-    SlashCommand { name: "/tools", description: "List registered tools", args_hint: None },
-    SlashCommand { name: "/compact", description: "Compress history", args_hint: Some("[keep_last=20]") },
-    SlashCommand { name: "/cost", description: "Show token usage & cost", args_hint: None },
-    SlashCommand { name: "/diff", description: "Show git diff", args_hint: None },
-    SlashCommand { name: "/context", description: "Show context window usage", args_hint: None },
-    SlashCommand { name: "/status", description: "Show session status", args_hint: None },
-    SlashCommand { name: "/sessions", description: "List recent sessions", args_hint: None },
-    SlashCommand { name: "/keys", description: "Show keyboard shortcuts", args_hint: None },
-    SlashCommand { name: "/copy", description: "Copy last message to clipboard", args_hint: None },
-    SlashCommand { name: "/bug", description: "Generate bug report", args_hint: None },
-    SlashCommand { name: "/doctor", description: "Check environment health", args_hint: None },
-    SlashCommand { name: "/config", description: "Show current configuration", args_hint: None },
-    SlashCommand { name: "/version", description: "Show version info", args_hint: None },
-    SlashCommand { name: "/history", description: "Show recent input history", args_hint: Some("[count]") },
-    SlashCommand { name: "/time", description: "Show session timing", args_hint: None },
-    SlashCommand { name: "/provider", description: "Switch provider", args_hint: Some("<name>") },
-    SlashCommand { name: "/providers", description: "List available providers", args_hint: None },
-];
+use crate::commands::registry::CommandRegistry;
 
 /// State for slash command completion popup.
 pub struct CommandCompletion {
@@ -57,8 +28,8 @@ impl CommandCompletion {
         !self.candidates.is_empty() || self.args_hint.is_some()
     }
 
-    /// Update completions based on current input text.
-    pub fn update(&mut self, input_text: &str, is_single_line: bool) {
+    /// Update completions based on current input text, sourcing from the CommandRegistry.
+    pub fn update(&mut self, input_text: &str, is_single_line: bool, registry: &CommandRegistry) {
         self.args_hint = None;
 
         if !is_single_line || !input_text.starts_with('/') {
@@ -66,12 +37,11 @@ impl CommandCompletion {
             return;
         }
 
-        // Check for "known command + space" → show args hint
+        // Check for "known command + space" -> show args hint
         if input_text.contains(' ') {
             let cmd_part = input_text.split_whitespace().next().unwrap_or("");
-            let hint = SLASH_COMMANDS.iter()
-                .find(|c| c.name == cmd_part)
-                .and_then(|c| c.args_hint);
+            let cmd_name = &cmd_part[1..]; // strip leading /
+            let hint = registry.args_hint(cmd_name);
             if let Some(h) = hint {
                 self.candidates.clear();
                 self.selected = None;
@@ -82,48 +52,29 @@ impl CommandCompletion {
             return;
         }
 
-        // Prefix matches first
-        let mut prefix_matches: Vec<(String, String)> = SLASH_COMMANDS
-            .iter()
-            .filter(|cmd| cmd.name.starts_with(input_text) && cmd.name != input_text)
-            .map(|cmd| (cmd.name.to_string(), cmd.description.to_string()))
+        // Use registry for command name completion
+        let query = &input_text[1..]; // strip leading /
+        let suggestions = registry.complete_command(query);
+
+        let mut matches: Vec<(String, String)> = suggestions
+            .into_iter()
+            .map(|s| (format!("/{}", s.name), s.description))
+            .filter(|(name, _)| name != input_text)
             .collect();
 
-        // Dynamic skill commands — prefix
+        // Also include dynamic skill commands that aren't in the registry
         for (name, desc) in &self.dynamic_commands {
             let full_name = format!("/{}", name);
             if full_name.starts_with(input_text) && full_name != input_text {
-                prefix_matches.push((full_name, desc.clone()));
-            }
-        }
-
-        // Substring fallback: only when no prefix matches found
-        if prefix_matches.is_empty() {
-            let query = &input_text[1..]; // strip leading /
-            let mut sub_matches: Vec<(String, String)> = SLASH_COMMANDS
-                .iter()
-                .filter(|cmd| {
-                    let name_bare = &cmd.name[1..]; // strip /
-                    name_bare.contains(query) && cmd.name != input_text
-                })
-                .map(|cmd| (cmd.name.to_string(), cmd.description.to_string()))
-                .collect();
-
-            for (name, desc) in &self.dynamic_commands {
-                if name.contains(query) {
-                    let full_name = format!("/{}", name);
-                    if full_name != input_text {
-                        sub_matches.push((full_name, desc.clone()));
-                    }
+                // Only add if not already present from registry
+                if !matches.iter().any(|(n, _)| n == &full_name) {
+                    matches.push((full_name, desc.clone()));
                 }
             }
-
-            sub_matches.sort_by_key(|(cmd, _)| cmd.len());
-            self.candidates = sub_matches;
-        } else {
-            prefix_matches.sort_by_key(|(cmd, _)| cmd.len());
-            self.candidates = prefix_matches;
         }
+
+        matches.sort_by_key(|(cmd, _)| cmd.len());
+        self.candidates = matches;
 
         if self.candidates.is_empty() {
             self.selected = None;

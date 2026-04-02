@@ -24,6 +24,7 @@ pub struct CommandContext<'a> {
     pub should_quit: &'a mut bool,
     pub session_start: Instant,
     pub turn_started_at: Option<Instant>,
+    pub cmd_registry: &'a super::registry::CommandRegistry,
 }
 
 pub struct CompletionContext<'a> {

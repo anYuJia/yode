@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 
-use super::context::CompletionContext;
-use super::{ArgCompletionSource, Command, CommandCategory};
+use super::context::{CommandContext, CompletionContext};
+use super::{ArgCompletionSource, Command, CommandCategory, CommandResult};
 
 pub struct CommandSuggestion {
     pub name: String,
@@ -108,6 +108,12 @@ impl CommandRegistry {
         let meta = cmd.meta();
         if meta.args.is_empty() { return None; }
         Some(meta.args.iter().map(|a| a.hint.as_str()).collect::<Vec<_>>().join(" "))
+    }
+
+    /// Execute a command by name, returning None if the command is not found.
+    pub fn execute_command(&self, name: &str, args: &str, ctx: &mut CommandContext) -> Option<CommandResult> {
+        let cmd = self.find(name)?;
+        Some(cmd.execute(args, ctx))
     }
 
     /// Edit-distance suggestion for typos.

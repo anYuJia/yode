@@ -72,7 +72,35 @@ pub trait Command: Send + Sync {
 
 use registry::CommandRegistry;
 
-/// Register all built-in commands. Body commented out until command types exist.
-pub fn register_all(_registry: &mut CommandRegistry) {
-    // Will be filled in as commands are created in Tasks 4-9
+/// Register all built-in commands.
+pub fn register_all(registry: &mut CommandRegistry) {
+    // Session
+    registry.register(Box::new(session::ClearCommand::new()));
+    registry.register(Box::new(session::CompactCommand::new()));
+    registry.register(Box::new(session::SessionsCommand::new()));
+    registry.register(Box::new(session::ExitCommand::new()));
+    // Model
+    registry.register(Box::new(model::ModelCommand::new()));
+    registry.register(Box::new(model::ProviderCommand::new()));
+    registry.register(Box::new(model::ProvidersCommand::new()));
+    registry.register(Box::new(model::EffortCommand::new()));
+    // Tools
+    registry.register(Box::new(tools::ToolsCommand::new()));
+    registry.register(Box::new(tools::PermissionsCommand::new()));
+    // Info
+    registry.register(Box::new(info::HelpCommand::new()));
+    registry.register(Box::new(info::StatusCommand::new()));
+    registry.register(Box::new(info::CostCommand::new()));
+    registry.register(Box::new(info::VersionCommand::new()));
+    registry.register(Box::new(info::ConfigCommand::new()));
+    registry.register(Box::new(info::ContextCommand::new()));
+    registry.register(Box::new(info::DoctorCommand::new()));
+    // Dev
+    registry.register(Box::new(dev::DiffCommand::new()));
+    registry.register(Box::new(dev::BugCommand::new()));
+    // Utility
+    registry.register(Box::new(utility::CopyCommand::new()));
+    registry.register(Box::new(utility::KeysCommand::new()));
+    registry.register(Box::new(utility::HistoryCommand::new()));
+    registry.register(Box::new(utility::TimeCommand::new()));
 }

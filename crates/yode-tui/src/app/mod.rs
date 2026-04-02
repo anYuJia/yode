@@ -258,6 +258,9 @@ pub struct App {
     pub all_provider_models: HashMap<String, Vec<String>>,
     /// Provider registry for runtime switching
     pub provider_registry: Arc<ProviderRegistry>,
+
+    /// Command registry for slash commands
+    pub cmd_registry: crate::commands::registry::CommandRegistry,
 }
 
 impl App {
@@ -313,6 +316,7 @@ impl App {
             provider_models,
             all_provider_models,
             provider_registry,
+            cmd_registry: crate::commands::registry::CommandRegistry::new(),
         }
     }
 
@@ -356,6 +360,31 @@ impl App {
     }
 }
 
+// ── Skill Command Wrapper ──────────────────────────────────────────
+
+/// Dynamic skill command wrapper that delegates execution via the engine.
+struct SkillCommandWrapper {
+    meta: crate::commands::CommandMeta,
+}
+
+impl crate::commands::Command for SkillCommandWrapper {
+    fn meta(&self) -> &crate::commands::CommandMeta {
+        &self.meta
+    }
+
+    fn execute(&self, _args: &str, _ctx: &mut crate::commands::context::CommandContext) -> crate::commands::CommandResult {
+        // Skill commands are handled by showing the skill description;
+        // actual execution flows through the normal chat/engine path.
+        Ok(crate::commands::CommandOutput::Message(
+            format!("Skill command: {}", self.meta.description),
+        ))
+    }
+}
+
+// SAFETY: SkillCommandWrapper holds only static references and is safe to share.
+unsafe impl Send for SkillCommandWrapper {}
+unsafe impl Sync for SkillCommandWrapper {}
+
 // ── Run TUI ─────────────────────────────────────────────────────────
 
 /// Run the TUI application.
@@ -388,7 +417,24 @@ pub async fn run(
         all_provider_models,
         provider_registry,
     );
-    app.cmd_completion.dynamic_commands = skill_commands;
+    app.cmd_completion.dynamic_commands = skill_commands.clone();
+
+    // Register all built-in commands
+    crate::commands::register_all(&mut app.cmd_registry);
+
+    // Register dynamic skill commands as simple wrappers
+    for (name, description) in &skill_commands {
+        app.cmd_registry.register(Box::new(SkillCommandWrapper {
+            meta: crate::commands::CommandMeta {
+                name: Box::leak(name.clone().into_boxed_str()),
+                description: Box::leak(description.clone().into_boxed_str()),
+                aliases: &[],
+                args: vec![],
+                category: crate::commands::CommandCategory::Utility,
+                hidden: false,
+            },
+        }));
+    }
 
     // Print welcome header directly to stdout before starting TUI viewport
     print_header_to_stdout(&app)?;
@@ -823,7 +869,7 @@ fn handle_key_event(
         KeyCode::Char(c) => handle_char(app, key, c),
         KeyCode::Backspace => {
             app.input.backspace();
-            app.cmd_completion.update(&app.input.lines[0], !app.input.is_multiline());
+            app.cmd_completion.update(&app.input.lines[0], !app.input.is_multiline(), &app.cmd_registry);
             app.file_completion.update(&app.input.text());
         }
         KeyCode::Delete => app.input.delete(),
@@ -899,8 +945,75 @@ fn handle_enter(
         return;
     }
 
-    // Slash command
-    if app.handle_slash_command(&raw_typed, tools, engine) {
+    // Slash command — dispatch via CommandRegistry
+    if raw_typed.starts_with('/') {
+        let trimmed = raw_typed.trim();
+        let (cmd_name, cmd_args) = match trimmed.find(' ') {
+            Some(pos) => (&trimmed[1..pos], trimmed[pos + 1..].trim()),
+            None => (&trimmed[1..], ""),
+        };
+
+        // Check if command exists first (quick immutable borrow, released immediately)
+        if app.cmd_registry.find(cmd_name).is_none() {
+            // Typo suggestion
+            if let Some(suggestion) = app.cmd_registry.suggest_similar(cmd_name) {
+                app.chat_entries.push(ChatEntry::new(
+                    ChatRole::System,
+                    format!("Unknown command: /{}. Did you mean /{}?", cmd_name, suggestion),
+                ));
+            } else {
+                app.chat_entries.push(ChatEntry::new(
+                    ChatRole::System,
+                    format!("Unknown command: /{}. Type /help for available commands.", cmd_name),
+                ));
+            }
+            return;
+        }
+
+        // Execute in a block so ctx is dropped before we handle result
+        let result = {
+            let mut ctx = crate::commands::context::CommandContext {
+                engine: engine.clone(),
+                provider_registry: &app.provider_registry,
+                provider_name: &mut app.provider_name,
+                provider_models: &mut app.provider_models,
+                all_provider_models: &app.all_provider_models,
+                chat_entries: &mut app.chat_entries,
+                tools,
+                session: &app.session,
+                terminal_caps: &app.terminal_caps,
+                input_history: &app.history.entries(),
+                should_quit: &mut app.should_quit,
+                session_start: app.session_start,
+                turn_started_at: app.turn_started_at,
+                cmd_registry: &app.cmd_registry,
+            };
+            app.cmd_registry.execute_command(cmd_name, cmd_args, &mut ctx)
+        };
+
+        // ctx is dropped; we can use app.chat_entries again
+        use crate::commands::CommandOutput;
+        match result {
+            Some(Ok(CommandOutput::Message(msg))) => {
+                app.chat_entries.push(ChatEntry::new(ChatRole::System, msg));
+            }
+            Some(Ok(CommandOutput::Messages(msgs))) => {
+                for msg in msgs {
+                    app.chat_entries.push(ChatEntry::new(ChatRole::System, msg));
+                }
+            }
+            Some(Ok(CommandOutput::Silent)) => {}
+            Some(Err(e)) => {
+                app.chat_entries.push(ChatEntry::new(ChatRole::Error, e));
+            }
+            None => {
+                // Should not happen since we checked find() above
+                app.chat_entries.push(ChatEntry::new(
+                    ChatRole::System,
+                    format!("Unknown command: /{}. Type /help for available commands.", cmd_name),
+                ));
+            }
+        }
         return;
     }
 
@@ -942,7 +1055,7 @@ fn handle_char(app: &mut App, key: crossterm::event::KeyEvent, c: char) {
         }
     } else {
         app.input.insert_char(c);
-        app.cmd_completion.update(&app.input.lines[0], !app.input.is_multiline());
+        app.cmd_completion.update(&app.input.lines[0], !app.input.is_multiline(), &app.cmd_registry);
         if c == '@' || app.file_completion.is_active() {
             app.file_completion.update(&app.input.text());
         }
@@ -1019,7 +1132,7 @@ fn handle_tab(app: &mut App) {
             app.cmd_completion.cycle();
         }
     } else {
-        app.cmd_completion.update(&app.input.lines[0], !app.input.is_multiline());
+        app.cmd_completion.update(&app.input.lines[0], !app.input.is_multiline(), &app.cmd_registry);
         if app.cmd_completion.candidates.len() == 1 {
             if let Some(cmd) = app.cmd_completion.accept() {
                 app.input.set_text(&cmd);
