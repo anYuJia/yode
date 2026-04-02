@@ -58,7 +58,7 @@ resolve_version() {
   need curl
   local latest
   latest=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
-    | grep '"tag_name"' | head -1 | sed -E 's/.*"tag_name":\s*"([^"]+)".*/\1/')
+    | grep '"tag_name"' | head -1 | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')
 
   [ -n "$latest" ] || error "Could not determine latest release. Set VERSION explicitly."
   echo "$latest"
