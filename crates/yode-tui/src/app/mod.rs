@@ -1267,10 +1267,10 @@ fn raw_print_lines(
 
     // Calculate actual terminal rows needed, accounting for CJK/wide-char wrapping.
     // A logical line wider than the terminal wraps to multiple rows.
+    // Always strip ANSI codes for width — inline markdown renders ANSI-styled text.
     let term_width = crossterm::terminal::size()?.0 as usize;
-    let actual_rows: usize = lines.iter().map(|(text, color, _)| {
-        // Strip ANSI codes for accurate width when line has embedded colors
-        let visible = if color.is_none() && text.contains('\x1b') {
+    let actual_rows: usize = lines.iter().map(|(text, _color, _)| {
+        let visible = if text.contains('\x1b') {
             unicode_width::UnicodeWidthStr::width(strip_ansi(text).as_str())
         } else {
             unicode_width::UnicodeWidthStr::width(text.as_str())
@@ -2226,6 +2226,7 @@ fn render_table(rows: &[Vec<String>]) -> String {
 
 /// Process a single line of markdown for streaming output.
 /// `in_code_block` tracks whether we're inside a ``` block.
+/// Uses ANSI escape codes for inline formatting (bold, code, links).
 fn process_md_line(line: &str, in_code_block: &mut bool) -> String {
     let trimmed = line.trim();
 
@@ -2257,7 +2258,7 @@ fn process_md_line(line: &str, in_code_block: &mut bool) -> String {
         }
         let cells: Vec<String> = inner
             .split('|')
-            .map(|c| strip_inline_md(c.trim()))
+            .map(|c| render_inline_md(c.trim(), true))
             .collect();
         return format!("  {}", cells.join("  │  "));
     }
@@ -2265,7 +2266,7 @@ fn process_md_line(line: &str, in_code_block: &mut bool) -> String {
     if trimmed.starts_with("- ") || trimmed.starts_with("* ") {
         let src_indent = line.len() - line.trim_start().len();
         let pad = " ".repeat(2 + src_indent);
-        return format!("{}• {}", pad, strip_inline_md(&trimmed[2..]));
+        return format!("{}• {}", pad, render_inline_md(&trimmed[2..], true));
     }
     // Ordered list
     if let Some(dot_pos) = trimmed.find(". ") {
@@ -2274,22 +2275,41 @@ fn process_md_line(line: &str, in_code_block: &mut bool) -> String {
             let content = &trimmed[dot_pos + 2..];
             let src_indent = line.len() - line.trim_start().len();
             let pad = " ".repeat(2 + src_indent);
-            return format!("{}{}. {}", pad, num, strip_inline_md(content));
+            return format!("{}{}. {}", pad, num, render_inline_md(content, true));
         }
     }
+    // Task lists
+    if trimmed.starts_with("- [x] ") || trimmed.starts_with("- [X] ") {
+        return format!("☑ {}", render_inline_md(&trimmed[6..], true));
+    }
+    if trimmed.starts_with("- [ ] ") {
+        return format!("☐ {}", render_inline_md(&trimmed[6..], true));
+    }
     // Headers (#### → H4 as sub-bullet, ### → H3, ## → H2, # → H1)
-    if trimmed.starts_with("#### ") { return format!("  ▹ {}", strip_inline_md(&trimmed[5..])); }
-    if trimmed.starts_with("### ") { return format!("▸ {}", strip_inline_md(&trimmed[4..])); }
-    if trimmed.starts_with("## ") { return format!("── {}", strip_inline_md(&trimmed[3..])); }
-    if trimmed.starts_with("# ") { return format!("━━ {}", strip_inline_md(&trimmed[2..])); }
+    if trimmed.starts_with("#### ") { return format!("  ▹ {}", render_inline_md(&trimmed[5..], true)); }
+    if trimmed.starts_with("### ") { return format!("▸ {}", render_inline_md(&trimmed[4..], true)); }
+    if trimmed.starts_with("## ") { return format!("── {}", render_inline_md(&trimmed[3..], true)); }
+    if trimmed.starts_with("# ") { return format!("━━ {}", render_inline_md(&trimmed[2..], true)); }
     // Blockquote
-    if trimmed.starts_with("> ") { return format!("▎ {}", strip_inline_md(&trimmed[2..])); }
-    // Default: strip inline formatting
-    strip_inline_md(line)
+    if trimmed.starts_with("> ") { return format!("▎ {}", render_inline_md(&trimmed[2..], true)); }
+    // Default: render with ANSI inline formatting
+    render_inline_md(line, true)
 }
 
 /// Strip inline markdown formatting: **bold** → bold, `code` → code, [text](url) → text
 fn strip_inline_md(text: &str) -> String {
+    render_inline_md(text, false)
+}
+
+/// Render inline markdown with optional ANSI styling:
+/// **bold** → ANSI bold, `code` → colored, [text](url) → text only
+fn render_inline_md(text: &str, ansi: bool) -> String {
+    const BOLD_ON: &str = "\x1b[1m";
+    const BOLD_OFF: &str = "\x1b[22m";
+    const CODE_COLOR: &str = "\x1b[38;2;180;220;170m"; // green tint for inline code
+    const RESET: &str = "\x1b[0m";
+    const LINK_COLOR: &str = "\x1b[38;2;100;180;255m"; // blue for links
+
     let mut result = String::new();
     let chars: Vec<char> = text.chars().collect();
     let len = chars.len();
@@ -2304,7 +2324,13 @@ fn strip_inline_md(text: &str) -> String {
                 i += 1;
             }
             let content: String = chars[start..i].iter().collect();
-            result.push_str(&content);
+            if ansi {
+                result.push_str(BOLD_ON);
+                result.push_str(&content);
+                result.push_str(BOLD_OFF);
+            } else {
+                result.push_str(&content);
+            }
             if i + 1 < len { i += 2; } // skip closing **
         } else if chars[i] == '`' {
             // `code` — find closing `
@@ -2314,7 +2340,13 @@ fn strip_inline_md(text: &str) -> String {
                 i += 1;
             }
             let content: String = chars[start..i].iter().collect();
-            result.push_str(&content);
+            if ansi {
+                result.push_str(CODE_COLOR);
+                result.push_str(&content);
+                result.push_str(RESET);
+            } else {
+                result.push_str(&content);
+            }
             if i < len { i += 1; } // skip closing `
         } else if chars[i] == '[' {
             // [text](url) → text
@@ -2331,7 +2363,13 @@ fn strip_inline_md(text: &str) -> String {
                     j += 1;
                 }
                 if j < len { j += 1; } // skip )
-                result.push_str(&link_text);
+                if ansi {
+                    result.push_str(LINK_COLOR);
+                    result.push_str(&link_text);
+                    result.push_str(RESET);
+                } else {
+                    result.push_str(&link_text);
+                }
                 i = j;
             } else {
                 result.push(chars[i]);
