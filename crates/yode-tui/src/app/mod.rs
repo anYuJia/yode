@@ -30,6 +30,7 @@ use yode_llm::types::Message;
 use yode_tools::registry::ToolRegistry;
 
 use crate::event::{self, AppEvent};
+use crate::terminal_caps::TerminalCaps;
 use crate::ui;
 
 use self::completion::{CommandCompletion, FileCompletion};
@@ -245,6 +246,9 @@ pub struct App {
     // Sub-agent tracking
     pub in_sub_agent: bool,
     pub sub_agent_tool_count: usize,
+
+    // Terminal capabilities
+    pub terminal_caps: TerminalCaps,
 }
 
 impl App {
@@ -287,6 +291,7 @@ impl App {
             confirm_selected: 0,
             in_sub_agent: false,
             sub_agent_tool_count: 0,
+            terminal_caps: TerminalCaps::detect(),
         }
     }
 
