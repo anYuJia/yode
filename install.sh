@@ -33,8 +33,14 @@ detect_platform() {
 
   case "$(uname -m)" in
     x86_64|amd64)  arch="x86_64" ;;
-    arm64|aarch64) arch="aarch64" ;;
-    *)             error "Unsupported architecture: $(uname -m). Only x86_64 and aarch64 are supported." ;;
+    arm64|aarch64)
+      if [ "$os" = "apple-darwin" ]; then
+        arch="aarch64"
+      else
+        error "Linux ARM64 builds are not yet available. Only x86_64 is supported on Linux."
+      fi
+      ;;
+    *)             error "Unsupported architecture: $(uname -m). Only x86_64 and aarch64 (macOS) are supported." ;;
   esac
 
   echo "${arch}-${os}"
