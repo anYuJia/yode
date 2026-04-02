@@ -259,6 +259,9 @@ pub struct App {
     /// Provider registry for runtime switching
     pub provider_registry: Arc<ProviderRegistry>,
 
+    /// Tool registry (for completion context)
+    pub tools: Arc<ToolRegistry>,
+
     /// Command registry for slash commands
     pub cmd_registry: crate::commands::registry::CommandRegistry,
 }
@@ -272,6 +275,7 @@ impl App {
         provider_models: Vec<String>,
         all_provider_models: HashMap<String, Vec<String>>,
         provider_registry: Arc<ProviderRegistry>,
+        tools: Arc<ToolRegistry>,
     ) -> Self {
         Self {
             input: InputState::new(),
@@ -316,9 +320,11 @@ impl App {
             provider_models,
             all_provider_models,
             provider_registry,
+            tools,
             cmd_registry: crate::commands::registry::CommandRegistry::new(),
         }
     }
+
 
     /// Sync is_thinking from thinking state (call after state changes).
     fn sync_thinking(&mut self) {
@@ -416,6 +422,7 @@ pub async fn run(
         provider_models,
         all_provider_models,
         provider_registry,
+        tools.clone(),
     );
     app.cmd_completion.dynamic_commands = skill_commands.clone();
 
@@ -874,7 +881,7 @@ fn handle_key_event(
         KeyCode::Char(c) => handle_char(app, key, c),
         KeyCode::Backspace => {
             app.input.backspace();
-            app.cmd_completion.update(&app.input.lines[0], !app.input.is_multiline(), &app.cmd_registry);
+            { let ctx = crate::commands::context::CompletionContext { provider_models: &app.provider_models, all_provider_models: &app.all_provider_models, provider_name: &app.provider_name, tools: &app.tools }; app.cmd_completion.update(&app.input.lines[0], !app.input.is_multiline(), &app.cmd_registry, &ctx); }
             app.file_completion.update(&app.input.text());
         }
         KeyCode::Delete => app.input.delete(),
@@ -1060,7 +1067,7 @@ fn handle_char(app: &mut App, key: crossterm::event::KeyEvent, c: char) {
         }
     } else {
         app.input.insert_char(c);
-        app.cmd_completion.update(&app.input.lines[0], !app.input.is_multiline(), &app.cmd_registry);
+        { let ctx = crate::commands::context::CompletionContext { provider_models: &app.provider_models, all_provider_models: &app.all_provider_models, provider_name: &app.provider_name, tools: &app.tools }; app.cmd_completion.update(&app.input.lines[0], !app.input.is_multiline(), &app.cmd_registry, &ctx); }
         if c == '@' || app.file_completion.is_active() {
             app.file_completion.update(&app.input.text());
         }
@@ -1134,7 +1141,7 @@ fn handle_tab(app: &mut App) {
             app.input.set_text(&cmd);
         }
     } else {
-        app.cmd_completion.update(&app.input.lines[0], !app.input.is_multiline(), &app.cmd_registry);
+        { let ctx = crate::commands::context::CompletionContext { provider_models: &app.provider_models, all_provider_models: &app.all_provider_models, provider_name: &app.provider_name, tools: &app.tools }; app.cmd_completion.update(&app.input.lines[0], !app.input.is_multiline(), &app.cmd_registry, &ctx); }
         if app.cmd_completion.candidates.len() == 1 {
             if let Some(cmd) = app.cmd_completion.accept() {
                 app.input.set_text(&cmd);

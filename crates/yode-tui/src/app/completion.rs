@@ -1,17 +1,22 @@
 /// Completion state for slash commands and @file references.
 
+use crate::commands::context::CompletionContext;
 use crate::commands::registry::CommandRegistry;
 
 /// State for slash command completion popup.
 pub struct CommandCompletion {
-    /// Candidates: (command_name, description)
+    /// Candidates: (command_name_or_arg, description)
     pub candidates: Vec<(String, String)>,
     /// Currently selected index
     pub selected: Option<usize>,
     /// Additional dynamic commands (e.g., from skills)
     pub dynamic_commands: Vec<(String, String)>,
-    /// Args hint to display when a known command + space is typed
+    /// Args hint to display when a known command + space is typed (no arg completions available)
     pub args_hint: Option<String>,
+    /// Whether we're completing args (affects how Tab accept works)
+    pub completing_args: bool,
+    /// The command prefix when completing args (e.g. "/provider ")
+    pub arg_prefix: Option<String>,
 }
 
 impl CommandCompletion {
@@ -21,6 +26,8 @@ impl CommandCompletion {
             selected: None,
             dynamic_commands: Vec::new(),
             args_hint: None,
+            completing_args: false,
+            arg_prefix: None,
         }
     }
 
@@ -29,30 +36,65 @@ impl CommandCompletion {
     }
 
     /// Update completions based on current input text, sourcing from the CommandRegistry.
-    pub fn update(&mut self, input_text: &str, is_single_line: bool, registry: &CommandRegistry) {
+    pub fn update(&mut self, input_text: &str, is_single_line: bool, registry: &CommandRegistry, completion_ctx: &CompletionContext) {
         self.args_hint = None;
+        self.completing_args = false;
+        self.arg_prefix = None;
 
         if !is_single_line || !input_text.starts_with('/') {
             self.close();
             return;
         }
 
-        // Check for "known command + space" -> show args hint
+        // Check for "known command + space" -> try arg completion
         if input_text.contains(' ') {
-            let cmd_part = input_text.split_whitespace().next().unwrap_or("");
-            let cmd_name = &cmd_part[1..]; // strip leading /
-            let hint = registry.args_hint(cmd_name);
-            if let Some(h) = hint {
-                self.candidates.clear();
-                self.selected = None;
-                self.args_hint = Some(format!("{} {}", cmd_part, h));
+            let parts: Vec<&str> = input_text.splitn(2, ' ').collect();
+            let cmd_part = parts[0]; // e.g. "/provider"
+            let cmd_name = &cmd_part[1..]; // e.g. "provider"
+            let after_cmd = parts.get(1).unwrap_or(&""); // e.g. "ope" or ""
+
+            // Parse completed args and current partial
+            let arg_tokens: Vec<&str> = after_cmd.split_whitespace().collect();
+            let (args_so_far, partial) = if after_cmd.ends_with(' ') || after_cmd.is_empty() {
+                // Cursor after space — completing next arg
+                (arg_tokens.as_slice(), "")
             } else {
-                self.close();
+                // Cursor mid-word — completing current partial
+                let (completed, last) = arg_tokens.split_at(arg_tokens.len().saturating_sub(1));
+                (completed, last.first().copied().unwrap_or(""))
+            };
+
+            let arg_candidates = registry.complete_args(cmd_name, args_so_far, partial, completion_ctx);
+
+            if !arg_candidates.is_empty() {
+                // Build prefix: everything before the partial being completed
+                let prefix = if partial.is_empty() {
+                    format!("{} {}", cmd_part, if after_cmd.is_empty() { "" } else { after_cmd })
+                } else {
+                    let prefix_end = input_text.len() - partial.len();
+                    input_text[..prefix_end].to_string()
+                };
+
+                self.candidates = arg_candidates.into_iter()
+                    .map(|val| (val.clone(), String::new()))
+                    .collect();
+                self.completing_args = true;
+                self.arg_prefix = Some(prefix);
+                self.selected = Some(0);
+            } else {
+                // No arg completions — show hint if available
+                if let Some(h) = registry.args_hint(cmd_name) {
+                    self.candidates.clear();
+                    self.selected = None;
+                    self.args_hint = Some(format!("{} {}", cmd_part, h));
+                } else {
+                    self.close();
+                }
             }
             return;
         }
 
-        // Use registry for command name completion
+        // Command name completion
         let query = &input_text[1..]; // strip leading /
         let suggestions = registry.complete_command(query);
 
@@ -62,11 +104,10 @@ impl CommandCompletion {
             .filter(|(name, _)| name != input_text)
             .collect();
 
-        // Also include dynamic skill commands that aren't in the registry
+        // Also include dynamic skill commands
         for (name, desc) in &self.dynamic_commands {
             let full_name = format!("/{}", name);
             if full_name.starts_with(input_text) && full_name != input_text {
-                // Only add if not already present from registry
                 if !matches.iter().any(|(n, _)| n == &full_name) {
                     matches.push((full_name, desc.clone()));
                 }
@@ -87,13 +128,23 @@ impl CommandCompletion {
         self.candidates.clear();
         self.selected = None;
         self.args_hint = None;
+        self.completing_args = false;
+        self.arg_prefix = None;
     }
 
-    /// Accept the currently selected completion. Returns the command name if accepted.
+    /// Accept the currently selected completion. Returns the full text to set in input.
     pub fn accept(&mut self) -> Option<String> {
         let result = self.selected
             .and_then(|idx| self.candidates.get(idx))
-            .map(|(cmd, _)| cmd.clone());
+            .map(|(val, _)| {
+                if self.completing_args {
+                    // For args: prefix + selected value
+                    format!("{}{}", self.arg_prefix.as_deref().unwrap_or(""), val)
+                } else {
+                    // For commands: just the command name
+                    val.clone()
+                }
+            });
         self.close();
         result
     }
