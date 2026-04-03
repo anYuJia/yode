@@ -124,6 +124,9 @@ pub struct SessionState {
     pub always_allow_tools: Vec<String>,
     /// True when input_tokens is estimated (provider didn't report).
     pub input_estimated: bool,
+    /// Tokens used in the current turn only.
+    pub turn_input_tokens: u32,
+    pub turn_output_tokens: u32,
 }
 
 // ── Turn Status Line ───────────────────────────────────────────────
@@ -336,6 +339,8 @@ impl App {
                 permission_mode: PermissionMode::Normal,
                 always_allow_tools: Vec::new(),
                 input_estimated: false,
+                turn_input_tokens: 0,
+                turn_output_tokens: 0,
             },
             chat_entries: Vec::new(),
             printed_count: 0,
@@ -1326,6 +1331,9 @@ fn send_input(
 fn handle_engine_event(app: &mut App, event: EngineEvent) {
     match event {
         EngineEvent::Thinking => {
+            // Reset per-turn token counters
+            app.session.turn_input_tokens = 0;
+            app.session.turn_output_tokens = 0;
             // Pick random verb and set Working status
             let verb = {
                 use std::collections::hash_map::DefaultHasher;
@@ -1451,6 +1459,10 @@ fn handle_engine_event(app: &mut App, event: EngineEvent) {
 
             app.session.output_tokens += completion;
             app.session.total_tokens = app.session.input_tokens + app.session.output_tokens;
+
+            // Update per-turn counters
+            app.session.turn_input_tokens = if prompt > 0 { prompt } else if total > completion { total - completion } else { 0 };
+            app.session.turn_output_tokens = completion;
             app.thinking.stop();
             app.thinking_printed = false;
             app.sync_thinking();
@@ -1545,6 +1557,16 @@ fn handle_engine_event(app: &mut App, event: EngineEvent) {
             app.chat_entries.push(ChatEntry::new(
                 ChatRole::System,
                 format!("Context compressed: removed {} messages to fit window.", removed),
+            ));
+        }
+        EngineEvent::CostUpdate { estimated_cost, input_tokens, output_tokens } => {
+            // Update status bar with cost info (silently)
+            tracing::debug!("Cost: ${:.4} ({}in/{}out)", estimated_cost, input_tokens, output_tokens);
+        }
+        EngineEvent::BudgetExceeded { cost, limit } => {
+            app.chat_entries.push(ChatEntry::new(
+                ChatRole::System,
+                format!("⚠ Budget limit exceeded: ${:.4} (limit: ${:.2})", cost, limit),
             ));
         }
     }

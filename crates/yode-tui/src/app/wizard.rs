@@ -110,17 +110,27 @@ impl Wizard {
         format!("[{}/{}]", self.current + 1, self.steps.len())
     }
 
-    /// Move selection up (for Select steps)
+    /// Move selection up (for Select steps), wraps to bottom
     pub fn select_up(&mut self) {
-        if self.select_index > 0 {
-            self.select_index -= 1;
+        if let Some(WizardStep::Select { options, .. }) = self.current_step() {
+            let len = options.len();
+            if len == 0 { return; }
+            if self.select_index == 0 {
+                self.select_index = len - 1;
+            } else {
+                self.select_index -= 1;
+            }
         }
     }
 
-    /// Move selection down (for Select steps)
+    /// Move selection down (for Select steps), wraps to top
     pub fn select_down(&mut self) {
         if let Some(WizardStep::Select { options, .. }) = self.current_step() {
-            if self.select_index < options.len() - 1 {
+            let len = options.len();
+            if len == 0 { return; }
+            if self.select_index >= len - 1 {
+                self.select_index = 0;
+            } else {
                 self.select_index += 1;
             }
         }

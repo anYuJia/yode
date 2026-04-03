@@ -133,11 +133,12 @@ fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &App)
             } else {
                 String::new()
             };
-            let input_tok = app.session.input_tokens;
-            let output_tok = app.session.output_tokens;
+            // Show per-turn tokens
+            let turn_in = app.session.turn_input_tokens;
+            let turn_out = app.session.turn_output_tokens;
             Line::from(vec![
                 Span::styled(
-                    format!("  ⚡ Done · {}{} (↑{} ↓{} tok)", elapsed_str, tools_str, format_tok(input_tok), format_tok(output_tok)),
+                    format!("  ⚡ Done · {}{} (↑{} ↓{} tok)", elapsed_str, tools_str, format_tok(turn_in), format_tok(turn_out)),
                     Style::default().fg(Color::DarkGray),
                 ),
             ])
