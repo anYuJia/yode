@@ -1,110 +1,192 @@
 /// Interactive wizard for multi-step command flows.
+/// Renders in the TUI viewport with selection and text input support.
 
 use std::collections::HashMap;
 
 /// A single step in an interactive wizard.
-pub struct WizardStep {
-    /// Prompt to display to the user
-    pub prompt: String,
-    /// Default value (press Enter to accept)
-    pub default: Option<String>,
-    /// Allowed values (empty = freeform)
-    pub options: Vec<String>,
-    /// Key to store the answer under
-    pub key: String,
+pub enum WizardStep {
+    /// Select from a list of options (up/down, Enter to confirm)
+    Select {
+        prompt: String,
+        options: Vec<String>,
+        default: usize,
+        key: String,
+    },
+    /// Text input (type text, Enter to confirm)
+    Input {
+        prompt: String,
+        default: Option<String>,
+        key: String,
+    },
+}
+
+impl WizardStep {
+    pub fn key(&self) -> &str {
+        match self {
+            Self::Select { key, .. } => key,
+            Self::Input { key, .. } => key,
+        }
+    }
+
+    pub fn prompt(&self) -> &str {
+        match self {
+            Self::Select { prompt, .. } => prompt,
+            Self::Input { prompt, .. } => prompt,
+        }
+    }
 }
 
 /// Callback type for when a wizard completes.
-/// Takes the collected answers and returns messages to display.
 pub type WizardCallback = Box<dyn FnOnce(&HashMap<String, String>) -> Result<Vec<String>, String> + Send>;
 
 /// Interactive wizard state.
 pub struct Wizard {
-    /// Title shown at the start
+    /// Title shown at the top
     pub title: String,
     /// Steps to complete
-    steps: Vec<WizardStep>,
+    pub steps: Vec<WizardStep>,
     /// Current step index
-    current: usize,
+    pub current: usize,
+    /// For Select steps: currently highlighted option
+    pub select_index: usize,
+    /// For Input steps: user's typed text
+    pub input_buf: String,
     /// Collected answers so far
     pub answers: HashMap<String, String>,
     /// Callback to execute when all steps are done
     on_complete: Option<WizardCallback>,
+    /// Error message to display (from validation)
+    pub error: Option<String>,
 }
 
 impl Wizard {
     pub fn new(title: String, steps: Vec<WizardStep>, on_complete: WizardCallback) -> Self {
+        let select_index = match steps.first() {
+            Some(WizardStep::Select { default, .. }) => *default,
+            _ => 0,
+        };
+        let input_buf = match steps.first() {
+            Some(WizardStep::Input { default: Some(d), .. }) => d.clone(),
+            _ => String::new(),
+        };
         Self {
             title,
             steps,
             current: 0,
+            select_index,
+            input_buf,
             answers: HashMap::new(),
             on_complete: Some(on_complete),
+            error: None,
         }
     }
 
-    /// Get the current step, or None if wizard is done.
+    pub fn is_active(&self) -> bool {
+        self.current < self.steps.len()
+    }
+
     pub fn current_step(&self) -> Option<&WizardStep> {
         self.steps.get(self.current)
     }
 
-    /// Format the current prompt for display.
-    pub fn prompt_text(&self) -> Option<String> {
-        let step = self.current_step()?;
-        let step_num = self.current + 1;
-        let total = self.steps.len();
-
-        let mut text = format!("[{}/{}] {}", step_num, total, step.prompt);
-
-        if !step.options.is_empty() {
-            text.push_str(&format!(" ({})", step.options.join("/")));
-        }
-        if let Some(ref default) = step.default {
-            text.push_str(&format!(" [default: {}]", default));
-        }
-
-        Some(text)
+    pub fn step_label(&self) -> String {
+        format!("[{}/{}]", self.current + 1, self.steps.len())
     }
 
-    /// Submit an answer for the current step.
-    /// Returns Ok(None) if more steps remain, Ok(Some(messages)) if wizard is complete,
-    /// or Err if the input is invalid.
-    pub fn submit(&mut self, input: &str) -> Result<Option<Vec<String>>, String> {
-        let step = self.steps.get(self.current)
-            .ok_or_else(|| "Wizard already complete".to_string())?;
+    /// Move selection up (for Select steps)
+    pub fn select_up(&mut self) {
+        if self.select_index > 0 {
+            self.select_index -= 1;
+        }
+    }
 
-        let value = if input.trim().is_empty() {
-            match &step.default {
-                Some(d) => d.clone(),
-                None => return Err(format!("This field is required. {}", step.prompt)),
+    /// Move selection down (for Select steps)
+    pub fn select_down(&mut self) {
+        if let Some(WizardStep::Select { options, .. }) = self.current_step() {
+            if self.select_index < options.len() - 1 {
+                self.select_index += 1;
             }
-        } else {
-            input.trim().to_string()
+        }
+    }
+
+    /// Handle character input (for Input steps)
+    pub fn input_char(&mut self, c: char) {
+        self.input_buf.push(c);
+        self.error = None;
+    }
+
+    /// Handle backspace (for Input steps)
+    pub fn input_backspace(&mut self) {
+        self.input_buf.pop();
+    }
+
+    /// Submit the current step. Returns Ok(None) if more steps, Ok(Some(msgs)) if done.
+    pub fn submit(&mut self) -> Result<Option<Vec<String>>, String> {
+        let step = self.steps.get(self.current)
+            .ok_or("Wizard already complete")?;
+
+        let value = match step {
+            WizardStep::Select { options, .. } => {
+                options[self.select_index].clone()
+            }
+            WizardStep::Input { default, .. } => {
+                let v = self.input_buf.trim().to_string();
+                if v.is_empty() {
+                    match default {
+                        Some(d) => d.clone(),
+                        None => {
+                            self.error = Some("This field is required.".into());
+                            return Ok(None);
+                        }
+                    }
+                } else {
+                    v
+                }
+            }
         };
 
-        // Validate against options if specified
-        if !step.options.is_empty() && !step.options.iter().any(|o| o == &value) {
-            return Err(format!("Invalid value '{}'. Options: {}", value, step.options.join(", ")));
-        }
-
-        self.answers.insert(step.key.clone(), value);
+        let key = step.key().to_string();
+        self.answers.insert(key, value);
         self.current += 1;
 
+        // Prepare next step state
+        if let Some(next) = self.steps.get(self.current) {
+            match next {
+                WizardStep::Select { default, .. } => {
+                    self.select_index = *default;
+                    self.input_buf.clear();
+                }
+                WizardStep::Input { default, .. } => {
+                    self.select_index = 0;
+                    self.input_buf = default.clone().unwrap_or_default();
+                }
+            }
+        }
+        self.error = None;
+
         if self.current >= self.steps.len() {
-            // All steps done, run callback
             if let Some(callback) = self.on_complete.take() {
                 let result = callback(&self.answers)?;
                 Ok(Some(result))
             } else {
-                Ok(Some(vec!["Wizard complete.".into()]))
+                Ok(Some(vec!["Done.".into()]))
             }
         } else {
             Ok(None)
         }
     }
 
-    /// Check if the wizard is still active.
-    pub fn is_active(&self) -> bool {
-        self.current < self.steps.len()
+    /// Total lines needed for rendering this wizard in the viewport.
+    pub fn viewport_height(&self) -> u16 {
+        let step = match self.current_step() {
+            Some(s) => s,
+            None => return 2,
+        };
+        let base = 2; // title + prompt line
+        let error = if self.error.is_some() { 1 } else { 0 };
+        match step {
+            WizardStep::Select { options, .. } => base + options.len() as u16 + error,
+            WizardStep::Input { .. } => base + 1 + error, // +1 for input line
+        }
     }
 }

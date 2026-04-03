@@ -157,28 +157,25 @@ impl Command for ProviderCommand {
                 let wizard = Wizard::new(
                     "Add a new provider".into(),
                     vec![
-                        WizardStep {
+                        WizardStep::Input {
                             prompt: "Provider name:".into(),
                             default: None,
-                            options: vec![],
                             key: "name".into(),
                         },
-                        WizardStep {
+                        WizardStep::Select {
                             prompt: "API format:".into(),
-                            default: Some("openai".into()),
                             options: vec!["openai".into(), "anthropic".into()],
+                            default: 0,
                             key: "format".into(),
                         },
-                        WizardStep {
+                        WizardStep::Input {
                             prompt: "Base URL:".into(),
                             default: Some("https://api.openai.com/v1".into()),
-                            options: vec![],
                             key: "base_url".into(),
                         },
-                        WizardStep {
-                            prompt: "Models (comma-separated, or empty for unrestricted):".into(),
+                        WizardStep::Input {
+                            prompt: "Models (comma-separated, empty for unrestricted):".into(),
                             default: Some(String::new()),
-                            options: vec![],
                             key: "models".into(),
                         },
                     ],
@@ -241,25 +238,25 @@ impl Command for ProviderCommand {
                 let current_models = if p.models.is_empty() { String::new() } else { p.models.join(", ") };
                 let provider_name = name.to_string();
 
+                let format_default = if current_format == "anthropic" { 1 } else { 0 };
+
                 let wizard = Wizard::new(
-                    format!("Editing provider '{}' (press Enter to keep current value)", name),
+                    format!("Editing provider '{}' (Enter to keep current)", name),
                     vec![
-                        WizardStep {
+                        WizardStep::Select {
                             prompt: "API format:".into(),
-                            default: Some(current_format),
                             options: vec!["openai".into(), "anthropic".into()],
+                            default: format_default,
                             key: "format".into(),
                         },
-                        WizardStep {
+                        WizardStep::Input {
                             prompt: "Base URL:".into(),
                             default: Some(current_url),
-                            options: vec![],
                             key: "base_url".into(),
                         },
-                        WizardStep {
+                        WizardStep::Input {
                             prompt: "Models (comma-separated, empty for unrestricted):".into(),
                             default: Some(current_models),
-                            options: vec![],
                             key: "models".into(),
                         },
                     ],

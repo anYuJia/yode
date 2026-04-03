@@ -607,7 +607,9 @@ async fn run_app(
 
         // 2. Resize viewport to match content height (grows up, shrinks down)
         {
-            let needed = if app.pending_confirmation.is_some() {
+            let needed = if app.wizard.is_some() {
+                app.wizard.as_ref().unwrap().viewport_height() + 1 // +status
+            } else if app.pending_confirmation.is_some() {
                 4u16
             } else {
                 let term_width = terminal.get_frame().area().width;
@@ -722,6 +724,63 @@ fn handle_key_event(
     tools: &Arc<ToolRegistry>,
     engine_event_tx: &mpsc::UnboundedSender<EngineEvent>,
 ) {
+    // ── Wizard mode ────────────────────────────────────────────
+    if app.wizard.is_some() {
+        use crate::app::wizard::WizardStep;
+        match key.code {
+            KeyCode::Esc => {
+                app.wizard = None;
+                app.chat_entries.push(ChatEntry::new(ChatRole::System, "Wizard cancelled.".into()));
+            }
+            KeyCode::Up => {
+                if let Some(ref mut wiz) = app.wizard {
+                    wiz.select_up();
+                }
+            }
+            KeyCode::Down => {
+                if let Some(ref mut wiz) = app.wizard {
+                    wiz.select_down();
+                }
+            }
+            KeyCode::Char(c) => {
+                if let Some(ref mut wiz) = app.wizard {
+                    if matches!(wiz.current_step(), Some(WizardStep::Input { .. })) {
+                        wiz.input_char(c);
+                    }
+                }
+            }
+            KeyCode::Backspace => {
+                if let Some(ref mut wiz) = app.wizard {
+                    if matches!(wiz.current_step(), Some(WizardStep::Input { .. })) {
+                        wiz.input_backspace();
+                    }
+                }
+            }
+            KeyCode::Enter => {
+                if let Some(ref mut wiz) = app.wizard {
+                    match wiz.submit() {
+                        Ok(None) => {} // More steps, keep going
+                        Ok(Some(messages)) => {
+                            // Wizard complete
+                            for msg in messages {
+                                app.chat_entries.push(ChatEntry::new(ChatRole::System, msg));
+                            }
+                            app.wizard = None;
+                        }
+                        Err(e) => {
+                            // Error stays on wizard (wizard.error is set internally)
+                            // Also show as chat entry for scrollback
+                            app.chat_entries.push(ChatEntry::new(ChatRole::Error, e));
+                            app.wizard = None;
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        return;
+    }
+
     // ── History search mode ─────────────────────────────────
     if app.history.search_mode {
         match key.code {
@@ -957,39 +1016,9 @@ fn handle_enter(
     app.cmd_completion.close();
     app.file_completion.close();
 
-    // Wizard mode — feed input to active wizard
+    // Wizard mode — handled by key events, not text input
+    // (wizard uses Enter for submit, not the normal input flow)
     if app.wizard.is_some() {
-        let input = raw_typed.trim().to_string();
-        // Handle Esc/cancel
-        if input == "/cancel" || input == "q" || input == "quit" {
-            app.wizard = None;
-            app.chat_entries.push(ChatEntry::new(ChatRole::System, "Wizard cancelled.".into()));
-            return;
-        }
-
-        let wizard = app.wizard.as_mut().unwrap();
-        match wizard.submit(&input) {
-            Ok(None) => {
-                // More steps — show next prompt
-                if let Some(prompt) = wizard.prompt_text() {
-                    app.chat_entries.push(ChatEntry::new(ChatRole::System, prompt));
-                }
-            }
-            Ok(Some(messages)) => {
-                // Wizard complete
-                for msg in messages {
-                    app.chat_entries.push(ChatEntry::new(ChatRole::System, msg));
-                }
-                app.wizard = None;
-            }
-            Err(e) => {
-                // Invalid input — show error and re-prompt
-                app.chat_entries.push(ChatEntry::new(ChatRole::Error, e));
-                if let Some(prompt) = wizard.prompt_text() {
-                    app.chat_entries.push(ChatEntry::new(ChatRole::System, prompt));
-                }
-            }
-        }
         return;
     }
 
@@ -1057,11 +1086,6 @@ fn handle_enter(
             }
             Some(Ok(CommandOutput::Silent)) => {}
             Some(Ok(CommandOutput::StartWizard(wizard))) => {
-                // Show wizard title and first prompt
-                app.chat_entries.push(ChatEntry::new(ChatRole::System, wizard.title.clone()));
-                if let Some(prompt) = wizard.prompt_text() {
-                    app.chat_entries.push(ChatEntry::new(ChatRole::System, prompt));
-                }
                 app.wizard = Some(wizard);
             }
             Some(Err(e)) => {
