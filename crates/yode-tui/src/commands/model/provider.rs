@@ -70,7 +70,7 @@ impl Command for ProviderCommand {
                     String::new(),
                     "Subcommands:".into(),
                     "  /provider list                                — List all providers".into(),
-                    "  /provider switch <name>                       — Switch provider".into(),
+                    "  /provider switch <name>                       — Switch provider (persisted)".into(),
                     "  /provider add <name> <format> <url> [models]  — Add provider".into(),
                     "  /provider remove <name>                       — Remove provider".into(),
                     "  /provider edit <name>                         — Show config for editing".into(),
@@ -111,11 +111,20 @@ impl Command for ProviderCommand {
                     if !new_model.is_empty() {
                         ctx.session.model = new_model.clone();
                     }
-                    Ok(CommandOutput::Message(format!(
+
+                    // Persist to config file
+                    let persist_result = persist_default_provider(name, new_model.as_str());
+
+                    let mut messages = vec![format!(
                         "Switched to provider: {}, model: {}",
                         name,
                         if new_model.is_empty() { &ctx.session.model } else { &new_model }
-                    )))
+                    )];
+                    if let Ok(msg) = persist_result {
+                        messages.push(msg);
+                    }
+
+                    Ok(CommandOutput::Messages(messages))
                 } else {
                     let available: Vec<String> = ctx.all_provider_models.keys().cloned().collect();
                     Err(format!("Provider '{}' not found. Available: {}", name, available.join(", ")))
@@ -501,4 +510,15 @@ fn remove_provider_from_config(name: &str) -> Result<(), String> {
     let mut config = yode_core::config::Config::load().map_err(|e| e.to_string())?;
     config.llm.providers.remove(name);
     config.save().map_err(|e| e.to_string())
+}
+
+/// Persist default provider and model to config file
+fn persist_default_provider(name: &str, model: &str) -> Result<String, String> {
+    let mut config = yode_core::config::Config::load().map_err(|e| e.to_string())?;
+    config.llm.default_provider = name.to_string();
+    if !model.is_empty() {
+        config.llm.default_model = model.to_string();
+    }
+    config.save().map_err(|e| e.to_string())?;
+    Ok("✓ Config saved (will persist after restart)".to_string())
 }
