@@ -139,7 +139,19 @@ pub struct ThinkingState {
     pub cancel_token: Option<CancellationToken>,
     /// Tick counter to slow down the spinner (advance every N ticks)
     tick_count: usize,
+    /// Random verb for the spinner display
+    pub verb: &'static str,
 }
+
+/// Fun spinner verbs (inspired by Claude Code)
+const SPINNER_VERBS: &[&str] = &[
+    "Thinking", "Computing", "Pondering", "Brewing", "Crafting",
+    "Cooking", "Weaving", "Forging", "Conjuring", "Composing",
+    "Hatching", "Spinning", "Churning", "Simmering", "Percolating",
+    "Noodling", "Ruminating", "Cogitating", "Assembling", "Channeling",
+    "Synthesizing", "Crystallizing", "Orchestrating", "Manifesting",
+    "Concocting", "Germinating", "Incubating", "Cultivating",
+];
 
 /// Spinner advances every SPINNER_TICK_DIVISOR ticks.
 /// Event loop ticks at 50ms, so 4 → one frame per 200ms.
@@ -153,6 +165,7 @@ impl ThinkingState {
             started_at: None,
             cancel_token: None,
             tick_count: 0,
+            verb: "Thinking",
         }
     }
 
@@ -160,6 +173,13 @@ impl ThinkingState {
         self.active = true;
         self.started_at = Some(Instant::now());
         self.cancel_token = Some(token);
+        // Pick a random verb
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut hasher = DefaultHasher::new();
+        Instant::now().hash(&mut hasher);
+        let idx = hasher.finish() as usize % SPINNER_VERBS.len();
+        self.verb = SPINNER_VERBS[idx];
     }
 
     pub fn stop(&mut self) {
@@ -626,7 +646,8 @@ async fn run_app(
                 } else {
                     0
                 };
-                visual_lines.clamp(1, 5) + completion_lines + 3 // +separator +status_separator +status
+                let thinking_line: u16 = if app.is_thinking { 1 } else { 0 };
+                visual_lines.clamp(1, 5) + completion_lines + thinking_line + 3 // +thinking +separator +status_separator +status
             };
             let area = terminal.get_frame().area();
             if area.height != needed {
@@ -1449,7 +1470,9 @@ fn handle_engine_event(app: &mut App, event: EngineEvent) {
                 } else {
                     format!("⚡ Done · {}", format_duration(elapsed))
                 };
+                app.chat_entries.push(ChatEntry::new(ChatRole::System, String::new()));
                 app.chat_entries.push(ChatEntry::new(ChatRole::System, summary));
+                app.chat_entries.push(ChatEntry::new(ChatRole::System, String::new()));
             }
 
             app.thinking.stop();
@@ -2159,8 +2182,12 @@ fn format_entry_as_strings(
             }
         }
         ChatRole::System => {
-            for line in entry.content.lines() {
-                result.push((format!("  {}", line), dim));
+            if entry.content.is_empty() {
+                result.push((String::new(), dim));
+            } else {
+                for line in entry.content.lines() {
+                    result.push((format!("  {}", line), dim));
+                }
             }
         }
         ChatRole::SubAgentCall { description } => {

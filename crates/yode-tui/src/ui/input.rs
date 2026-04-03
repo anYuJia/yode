@@ -33,23 +33,10 @@ pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
         ]));
         frame.render_widget(paragraph, area);
     } else if app.is_thinking && is_empty {
-        // Show spinner in prompt while thinking
-        let spinner = app.spinner_char();
-        let elapsed_str = app.thinking_elapsed_str();
-        let queue_info = if !app.pending_inputs.is_empty() {
-            format!(" ({} queued)", app.pending_inputs.len())
-        } else {
-            String::new()
-        };
+        // Thinking state: show normal prompt (Working indicator is rendered separately above)
         let paragraph = Paragraph::new(Line::from(vec![
-            Span::styled(
-                format!("{} ", spinner),
-                Style::default().fg(Color::Yellow),
-            ),
-            Span::styled(
-                format!("Working… {}{}", elapsed_str, queue_info),
-                Style::default().fg(HINT_COLOR),
-            ),
+            prompt,
+            Span::styled("Ask anything…", Style::default().fg(HINT_COLOR)),
         ]));
         frame.render_widget(paragraph, area);
     } else {
