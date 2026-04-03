@@ -8,16 +8,18 @@ use unicode_width::UnicodeWidthStr;
 use crate::app::{App, ChatEntry, ChatRole};
 
 // ── Colors ──────────────────────────────────────────────────────────
-pub const GREEN: Color = Color::Rgb(80, 200, 120);
-pub const RED: Color = Color::Rgb(240, 80, 80);
-pub const YELLOW: Color = Color::Rgb(230, 190, 60);
+// Use AnsiValue for grays — universally supported (Terminal.app ignores RGB escapes)
+// Grayscale ramp: 232(#080808) … 249(#b2b2b2) … 252(#d0d0d0) … 255(#eeeeee)
+pub const GREEN: Color = Color::Rgb(78, 186, 101);
+pub const RED: Color = Color::Rgb(255, 107, 128);
+pub const YELLOW: Color = Color::Rgb(255, 193, 7);
 pub const CYAN: Color = Color::Rgb(100, 200, 220);
-pub const BLUE: Color = Color::Rgb(100, 140, 255);
-pub const DIM: Color = Color::Rgb(90, 90, 100);
-pub const WHITE: Color = Color::Rgb(220, 220, 230);
-pub const CODE_BG: Color = Color::Rgb(30, 30, 35);
-pub const INLINE_CODE_BG: Color = Color::Rgb(45, 45, 50);
-pub const ACCENT: Color = Color::Rgb(140, 120, 255); // purple for ⏺
+pub const BLUE: Color = Color::Rgb(147, 165, 255);
+pub const DIM: Color = Color::Indexed(250);        // #bcbcbc
+pub const WHITE: Color = Color::Indexed(255);       // #eeeeee
+pub const CODE_BG: Color = Color::Indexed(234);     // #1c1c1c
+pub const INLINE_CODE_BG: Color = Color::Indexed(236); // #303030
+pub const ACCENT: Color = Color::Rgb(175, 135, 255); // purple for ⏺
 
 // ── Main Render ─────────────────────────────────────────────────────
 pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
@@ -73,6 +75,14 @@ pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
                     Span::styled("! ", Style::default().fg(RED).add_modifier(Modifier::BOLD)),
                     Span::styled(entry.content.clone(), Style::default().fg(RED)),
                 ]));
+            }
+            ChatRole::Retrying => {
+                for line in entry.content.lines() {
+                    lines.push(Line::from(Span::styled(
+                        format!("  {}", line),
+                        Style::default().fg(YELLOW),
+                    )));
+                }
             }
             ChatRole::System | ChatRole::AskUser { .. } => {
                 for line in entry.content.lines() {

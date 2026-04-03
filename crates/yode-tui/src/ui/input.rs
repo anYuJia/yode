@@ -7,10 +7,10 @@ use unicode_width::UnicodeWidthChar;
 
 use crate::app::App;
 
-const PROMPT_COLOR: Color = Color::Rgb(80, 200, 120);
-const PROMPT_DIM: Color = Color::Rgb(60, 60, 65);
-const TEXT_COLOR: Color = Color::Rgb(220, 220, 225);
-const HINT_COLOR: Color = Color::Rgb(70, 70, 80);
+const PROMPT_COLOR: Color = Color::Rgb(78, 186, 101);
+const PROMPT_DIM: Color = Color::Indexed(245);  // #8a8a8a
+const TEXT_COLOR: Color = Color::Indexed(255);   // #eeeeee
+const HINT_COLOR: Color = Color::Indexed(249);   // #b2b2b2
 
 pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
     if area.height == 0 { return; }

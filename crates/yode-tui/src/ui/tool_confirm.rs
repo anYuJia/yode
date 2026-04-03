@@ -6,10 +6,10 @@ use ratatui::Frame;
 
 use crate::app::App;
 
-const SEL_COLOR: Color = Color::Rgb(80, 200, 120);
-const DIM: Color = Color::Rgb(80, 80, 90);
-const LIGHT: Color = Color::Rgb(180, 180, 190);
-const ACCENT: Color = Color::Rgb(240, 180, 50);
+const SEL_COLOR: Color = Color::Rgb(78, 186, 101);
+const DIM: Color = Color::Indexed(249);     // #b2b2b2
+const LIGHT: Color = Color::Indexed(253);   // #dadada
+const ACCENT: Color = Color::Rgb(255, 193, 7);
 
 /// Render inline vertical confirmation selector across 4 viewport lines.
 ///
@@ -68,7 +68,7 @@ pub fn render_inline_confirm(frame: &mut Frame, chunks: &[Rect], app: &App) {
             let mut spans = line.spans;
             spans.push(Span::styled(
                 "        y/n/a · ↑↓ Enter",
-                Style::default().fg(Color::Rgb(55, 55, 60)),
+                Style::default().fg(Color::Indexed(240)),
             ));
             frame.render_widget(Paragraph::new(Line::from(spans)), chunks[i + 1]);
         } else {

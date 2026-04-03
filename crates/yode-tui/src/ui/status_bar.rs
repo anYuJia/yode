@@ -6,9 +6,9 @@ use ratatui::Frame;
 
 use crate::app::App;
 
-const SEP: Color = Color::Rgb(55, 55, 60);
-const MUTED: Color = Color::Rgb(80, 80, 90);
-const LIGHT: Color = Color::Rgb(140, 140, 155);
+const SEP: Color = Color::Indexed(245);    // #8a8a8a
+const MUTED: Color = Color::Indexed(249);   // #b2b2b2
+const LIGHT: Color = Color::Indexed(252);   // #d0d0d0
 
 /// Top separator line: ────────────────────────────
 pub fn render_separator(frame: &mut Frame, area: Rect) {

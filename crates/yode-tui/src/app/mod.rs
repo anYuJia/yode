@@ -77,6 +77,8 @@ pub enum ChatRole {
     ToolResult { name: String, is_error: bool },
     Error,
     System,
+    /// Transient retry status — replaced on each retry, removed on success
+    Retrying,
     SubAgentCall { description: String },
     SubAgentToolCall { name: String },
     SubAgentResult,
@@ -1289,6 +1291,8 @@ fn send_input(
 fn handle_engine_event(app: &mut App, event: EngineEvent) {
     match event {
         EngineEvent::Thinking => {
+            // Clear retry messages — LLM connected successfully
+            app.chat_entries.retain(|e| !matches!(e.role, ChatRole::Retrying));
             app.thinking.active = true;
             app.sync_thinking();
         }
@@ -1416,13 +1420,11 @@ fn handle_engine_event(app: &mut App, event: EngineEvent) {
         EngineEvent::Retrying { error_message, attempt, max_attempts, delay_secs } => {
             finalize_streaming(app);
             app.thinking_printed = false;
+            // Remove previous Retrying entries — keep only the latest
+            app.chat_entries.retain(|e| !matches!(e.role, ChatRole::Retrying));
             app.chat_entries.push(ChatEntry::new(
-                ChatRole::Error,
-                error_message,
-            ));
-            app.chat_entries.push(ChatEntry::new(
-                ChatRole::System,
-                format!("Retrying in {} seconds… (attempt {}/{})", delay_secs, attempt, max_attempts),
+                ChatRole::Retrying,
+                format!("⎿  {}\n   Retrying in {} seconds… (attempt {}/{})", error_message, delay_secs, attempt, max_attempts),
             ));
         }
         EngineEvent::AskUser { id: _, question } => {
@@ -1908,11 +1910,11 @@ fn format_entry_as_strings(
     index: usize,
 ) -> Vec<(String, ratatui::style::Style)> {
     let mut result: Vec<(String, ratatui::style::Style)> = Vec::new();
-    let white = ratatui::style::Style::default().fg(Color::Rgb(220, 220, 230));
-    let dim = ratatui::style::Style::default().fg(Color::Rgb(90, 90, 100));
+    let white = ratatui::style::Style::default().fg(Color::Indexed(255));
+    let dim = ratatui::style::Style::default().fg(Color::Indexed(250));
     let accent = ratatui::style::Style::default().fg(Color::Rgb(140, 120, 255));
     let bold_white = white.add_modifier(Modifier::BOLD);
-    let red = ratatui::style::Style::default().fg(Color::Rgb(240, 80, 80));
+    let red = ratatui::style::Style::default().fg(Color::Rgb(255, 107, 128));
 
     match &entry.role {
         ChatRole::User => {
@@ -1954,7 +1956,7 @@ fn format_entry_as_strings(
                     let color = if let crossterm::style::Color::Rgb { r, g, b } = ct_color {
                         Color::Rgb(r, g, b)
                     } else {
-                        Color::Rgb(220, 220, 230)
+                        Color::Indexed(255)
                     };
                     let mut style = ratatui::style::Style::default().fg(color);
                     if bold {
@@ -2094,13 +2096,19 @@ fn format_entry_as_strings(
         }
         ChatRole::Error => {
             let err_style = ratatui::style::Style::default()
-                .fg(Color::Rgb(240, 80, 80))
+                .fg(Color::Rgb(255, 107, 128))
                 .add_modifier(Modifier::BOLD);
             result.push(("╭─ Error ──────────────────────────".to_string(), err_style));
             for line in entry.content.lines() {
                 result.push((format!("│ {}", line), red));
             }
             result.push(("╰──────────────────────────────────".to_string(), err_style));
+        }
+        ChatRole::Retrying => {
+            let yellow = ratatui::style::Style::default().fg(Color::Rgb(230, 190, 60));
+            for line in entry.content.lines() {
+                result.push((format!("  {}", line), yellow));
+            }
         }
         ChatRole::System => {
             for line in entry.content.lines() {
