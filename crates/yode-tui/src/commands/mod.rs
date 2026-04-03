@@ -82,7 +82,6 @@ pub fn register_all(registry: &mut CommandRegistry) {
     // Model
     registry.register(Box::new(model::ModelCommand::new()));
     registry.register(Box::new(model::ProviderCommand::new()));
-    registry.register(Box::new(model::ProvidersCommand::new()));
     registry.register(Box::new(model::EffortCommand::new()));
     // Tools
     registry.register(Box::new(tools::ToolsCommand::new()));
