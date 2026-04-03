@@ -70,6 +70,7 @@ impl Command for ModelCommand {
                 if let Ok(mut eng) = ctx.engine.try_lock() {
                     eng.set_model(new_model.clone());
                 }
+                ctx.session.model = new_model.clone();
                 Ok(CommandOutput::Message(format!(
                     "Switched to model: {}",
                     new_model

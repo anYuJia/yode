@@ -18,7 +18,7 @@ pub struct CommandContext<'a> {
     pub all_provider_models: &'a HashMap<String, Vec<String>>,
     pub chat_entries: &'a mut Vec<ChatEntry>,
     pub tools: &'a Arc<ToolRegistry>,
-    pub session: &'a SessionState,
+    pub session: &'a mut SessionState,
     pub terminal_caps: &'a TerminalCaps,
     pub input_history: &'a [String],
     pub should_quit: &'a mut bool,

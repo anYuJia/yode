@@ -1067,7 +1067,7 @@ fn handle_enter(
                 all_provider_models: &app.all_provider_models,
                 chat_entries: &mut app.chat_entries,
                 tools,
-                session: &app.session,
+                session: &mut app.session,
                 terminal_caps: &app.terminal_caps,
                 input_history: &app.history.entries(),
                 should_quit: &mut app.should_quit,

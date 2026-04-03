@@ -99,15 +99,22 @@ impl Command for ProviderCommand {
                     let new_models = ctx.all_provider_models
                         .get(*name).cloned().unwrap_or_default();
                     let new_model = new_models.first().cloned()
-                        .unwrap_or_else(|| ctx.session.model.clone());
+                        .unwrap_or_default(); // empty if unrestricted
                     if let Ok(mut eng) = ctx.engine.try_lock() {
                         eng.set_provider(provider, name.to_string());
-                        eng.set_model(new_model.clone());
+                        if !new_model.is_empty() {
+                            eng.set_model(new_model.clone());
+                        }
                     }
                     *ctx.provider_name = name.to_string();
                     *ctx.provider_models = new_models;
+                    if !new_model.is_empty() {
+                        ctx.session.model = new_model.clone();
+                    }
                     Ok(CommandOutput::Message(format!(
-                        "Switched to provider: {}, model: {}", name, new_model
+                        "Switched to provider: {}, model: {}",
+                        name,
+                        if new_model.is_empty() { &ctx.session.model } else { &new_model }
                     )))
                 } else {
                     let available: Vec<String> = ctx.all_provider_models.keys().cloned().collect();
