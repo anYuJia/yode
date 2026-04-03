@@ -18,8 +18,10 @@ use yode_tools::validation;
 
 use crate::context::{AgentContext, EffortLevel};
 use crate::context_manager::ContextManager;
+use crate::cost_tracker::CostTracker;
 use crate::db::Database;
-use crate::permission::{PermissionAction, PermissionManager};
+use crate::hooks::{HookContext, HookEvent, HookManager};
+use crate::permission::{CommandClassifier, CommandRiskLevel, PermissionAction, PermissionManager};
 
 /// Maximum size for tool results (50KB)
 const MAX_TOOL_RESULT_SIZE: usize = 50 * 1024;
@@ -158,6 +160,14 @@ pub enum EngineEvent {
     PlanModeExited,
     /// Context window was compressed to fit within limits
     ContextCompressed { removed: usize },
+    /// Cost update after API call
+    CostUpdate {
+        estimated_cost: f64,
+        input_tokens: u64,
+        output_tokens: u64,
+    },
+    /// Budget limit exceeded
+    BudgetExceeded { cost: f64, limit: f64 },
 }
 
 /// Response to a confirmation request.
@@ -199,6 +209,10 @@ pub struct AgentEngine {
     consecutive_failures: u32,
     /// Context window manager for automatic compression.
     context_manager: ContextManager,
+    /// Cost tracker for token usage and estimated cost.
+    cost_tracker: CostTracker,
+    /// Hook manager for pre/post tool use hooks.
+    hook_manager: Option<HookManager>,
     /// Files the agent has already read in this turn (path → line count).
     files_read: std::collections::HashMap<String, usize>,
     /// Files the agent has modified in this turn.
@@ -293,6 +307,7 @@ impl AgentEngine {
         messages.push(Message::system(&system_prompt));
 
         let context_manager = ContextManager::new(&context.model);
+        let cost_tracker = CostTracker::new(&context.model);
 
         Self {
             provider,
@@ -309,6 +324,8 @@ impl AgentEngine {
             recent_tool_calls: Vec::new(),
             consecutive_failures: 0,
             context_manager,
+            cost_tracker,
+            hook_manager: None,
             files_read: std::collections::HashMap::new(),
             files_modified: Vec::new(),
         }
@@ -387,6 +404,13 @@ impl AgentEngine {
     pub fn current_provider(&self) -> &str { &self.context.provider }
     pub fn permissions(&self) -> &PermissionManager { &self.permissions }
     pub fn permissions_mut(&mut self) -> &mut PermissionManager { &mut self.permissions }
+    pub fn cost_tracker(&self) -> &CostTracker { &self.cost_tracker }
+    pub fn cost_tracker_mut(&mut self) -> &mut CostTracker { &mut self.cost_tracker }
+
+    /// Set hook manager.
+    pub fn set_hook_manager(&mut self, mgr: HookManager) {
+        self.hook_manager = Some(mgr);
+    }
 
     /// Set channels for the ask_user tool.
     pub fn set_ask_user_channels(
@@ -481,6 +505,27 @@ impl AgentEngine {
 
             // Call LLM with timeout and retry
             let response = self.call_llm_with_retry(request).await?;
+
+            // Track cost
+            self.cost_tracker.record_usage(
+                response.usage.prompt_tokens as u64,
+                response.usage.completion_tokens as u64,
+            );
+
+            // Emit cost update
+            let _ = event_tx.send(EngineEvent::CostUpdate {
+                estimated_cost: self.cost_tracker.estimated_cost(),
+                input_tokens: self.cost_tracker.usage().input_tokens,
+                output_tokens: self.cost_tracker.usage().output_tokens,
+            });
+
+            // Check budget
+            if self.cost_tracker.is_over_budget() {
+                let _ = event_tx.send(EngineEvent::BudgetExceeded {
+                    cost: self.cost_tracker.estimated_cost(),
+                    limit: self.cost_tracker.remaining_budget().unwrap_or(0.0),
+                });
+            }
 
             // Check if context window needs compression (should_compress caches token count)
             if self.context_manager.should_compress(response.usage.prompt_tokens, &self.messages) {
@@ -1325,8 +1370,30 @@ impl AgentEngine {
             ));
         }
 
-        // Check permissions
-        let action = self.permissions.check(&tool_call.name);
+        // Check permissions (with content matching for bash commands)
+        let command_content = if tool_call.name == "bash" {
+            params.get("command").and_then(|v| v.as_str()).map(|s| s.to_string())
+        } else {
+            None
+        };
+        let action = self.permissions.check_with_content(&tool_call.name, command_content.as_deref());
+
+        // For bash: additional security check via command classifier
+        if tool_call.name == "bash" {
+            if let Some(ref cmd) = command_content {
+                match CommandClassifier::classify(cmd) {
+                    CommandRiskLevel::Destructive => {
+                        return Ok(ToolResult::error_typed(
+                            format!("Command blocked (destructive): {}", cmd),
+                            ToolErrorType::PermissionDeny,
+                            false,
+                            Some("This command is classified as destructive and cannot be executed.".to_string()),
+                        ));
+                    }
+                    _ => {} // Other risk levels handled by permission system
+                }
+            }
+        }
 
         match action {
             PermissionAction::Allow => {
@@ -1352,6 +1419,7 @@ impl AgentEngine {
                     }
                     Some(ConfirmResponse::Deny) => {
                         info!("Tool {} denied by user", tool_call.name);
+                        self.permissions.record_denial(&tool_call.name);
                         return Ok(ToolResult::error(
                             "Tool execution denied by user.".to_string(),
                         ));
@@ -1391,7 +1459,31 @@ impl AgentEngine {
         }
 
         // Execute the tool with timing
+        self.cost_tracker.record_tool_call();
         let start_time = std::time::Instant::now();
+
+        // Pre-tool-use hook
+        if let Some(ref hook_mgr) = self.hook_manager {
+            let hook_ctx = HookContext {
+                event: "pre_tool_use".into(),
+                session_id: self.context.session_id.clone(),
+                working_dir: self.context.working_dir.display().to_string(),
+                tool_name: Some(tool_call.name.clone()),
+                tool_input: Some(serde_json::from_str(&tool_call.arguments).unwrap_or_default()),
+                tool_output: None,
+                error: None,
+                user_prompt: None,
+            };
+            if let Some(blocked) = hook_mgr.check_blocked(HookEvent::PreToolUse, &hook_ctx).await {
+                return Ok(ToolResult::error_typed(
+                    format!("Blocked by hook: {}", blocked.reason.unwrap_or_default()),
+                    ToolErrorType::PermissionDeny,
+                    false,
+                    None,
+                ));
+            }
+        }
+
         let ctx = self.build_tool_context();
         let mut result = match tool.execute(params, &ctx).await {
             Ok(result) => result,
@@ -1515,7 +1607,7 @@ mod tests {
             registry.register(t);
         }
         let provider: Arc<dyn yode_llm::provider::LlmProvider> = Arc::new(MockProvider);
-        let permissions = PermissionManager::new(confirm_tools);
+        let permissions = PermissionManager::from_confirmation_list(confirm_tools);
         let context = AgentContext::new(
             std::env::current_dir().unwrap(),
             "mock".to_string(),
@@ -1668,7 +1760,7 @@ impl SubAgentRunner for SubAgentRunnerImpl {
             let sub_registry = Arc::new(sub_registry);
 
             // Create a permissive permission manager for sub-agents
-            let permissions = PermissionManager::new(vec![]); // auto-allow all
+            let permissions = PermissionManager::permissive(); // auto-allow all
 
             // Create sub-agent engine
             let mut engine = AgentEngine::new(
