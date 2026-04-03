@@ -49,10 +49,16 @@ fn classify_error(err: &anyhow::Error) -> ErrorKind {
     if msg.contains("429") || msg.contains("rate_limit") || msg.contains("Too Many Requests") {
         ErrorKind::RateLimit
     } else if msg.contains("500") || msg.contains("502") || msg.contains("503") || msg.contains("504")
-        || msg.contains("timeout") || msg.contains("超时")
+        || msg.contains("timeout") || msg.contains("超时") || msg.contains("timed out")
         || msg.contains("connection") || msg.contains("Connection")
+        || msg.contains("ECONNRESET") || msg.contains("ECONNREFUSED")
         || msg.contains("Broken pipe") || msg.contains("reset by peer")
-        || msg.contains("timed out")
+        || msg.contains("Failed to send") || msg.contains("failed to send")
+        || msg.contains("dns error") || msg.contains("DNS error")
+        || msg.contains("hyper") || msg.contains("reqwest")
+        || msg.contains("network") || msg.contains("Network")
+        || msg.contains("temporarily unavailable")
+        || msg.contains("connect error") || msg.contains("Connect error")
     {
         ErrorKind::Transient
     } else {
@@ -701,14 +707,28 @@ impl AgentEngine {
 
                             for attempt in 0..max_attempts {
                                 let delay = retry_delay(kind, attempt);
-                                let _ = event_tx.send(EngineEvent::Retrying {
-                                    error_message: format!("{}", err),
-                                    attempt: attempt + 1,
-                                    max_attempts,
-                                    delay_secs: delay.as_secs(),
-                                });
-                                info!("Retrying stream (attempt {}/{}), waiting {:?}", attempt + 1, max_attempts, delay);
-                                tokio::time::sleep(delay).await;
+                                let total_secs = delay.as_secs();
+
+                                // Countdown: update UI every second
+                                for remaining in (0..=total_secs).rev() {
+                                    let _ = event_tx.send(EngineEvent::Retrying {
+                                        error_message: format!("{}", err),
+                                        attempt: attempt + 1,
+                                        max_attempts,
+                                        delay_secs: remaining,
+                                    });
+                                    if remaining > 0 {
+                                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                                        // Check cancellation during countdown
+                                        if let Some(ref token) = cancel_token {
+                                            if token.is_cancelled() {
+                                                let _ = event_tx.send(EngineEvent::Done);
+                                                return Ok(());
+                                            }
+                                        }
+                                    }
+                                }
+                                info!("Retrying stream (attempt {}/{})", attempt + 1, max_attempts);
 
                                 // Check cancellation before retry
                                 if let Some(ref token) = cancel_token {
@@ -1003,16 +1023,24 @@ impl AgentEngine {
             if attempt > 0 && attempt <= max_attempts {
                 let kind = last_err.as_ref().map(classify_error).unwrap_or(ErrorKind::Transient);
                 let delay = retry_delay(kind, attempt - 1);
+                let total_secs = delay.as_secs();
                 if let Some(tx) = event_tx {
-                    let _ = tx.send(EngineEvent::Retrying {
-                        error_message: format!("{}", last_err.as_ref().unwrap()),
-                        attempt,
-                        max_attempts,
-                        delay_secs: delay.as_secs(),
-                    });
+                    // Countdown: update UI every second
+                    for remaining in (0..=total_secs).rev() {
+                        let _ = tx.send(EngineEvent::Retrying {
+                            error_message: format!("{}", last_err.as_ref().unwrap()),
+                            attempt,
+                            max_attempts,
+                            delay_secs: remaining,
+                        });
+                        if remaining > 0 {
+                            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                        }
+                    }
+                } else {
+                    tokio::time::sleep(delay).await;
                 }
-                info!("Retrying LLM call (attempt {}/{}), waiting {:?}", attempt, max_attempts, delay);
-                tokio::time::sleep(delay).await;
+                info!("Retrying LLM call (attempt {}/{})", attempt, max_attempts);
             }
 
             if attempt > max_attempts {
