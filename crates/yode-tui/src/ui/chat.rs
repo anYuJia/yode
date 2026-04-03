@@ -77,14 +77,6 @@ pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
                     Span::styled(entry.content.clone(), Style::default().fg(RED)),
                 ]));
             }
-            ChatRole::Retrying => {
-                for line in entry.content.lines() {
-                    lines.push(Line::from(Span::styled(
-                        format!("  {}", line),
-                        Style::default().fg(YELLOW),
-                    )));
-                }
-            }
             ChatRole::System | ChatRole::AskUser { .. } => {
                 for line in entry.content.lines() {
                     lines.push(Line::from(Span::styled(
@@ -437,8 +429,6 @@ pub fn render_header(app: &App, width: usize) -> Vec<Line<'static>> {
     let path_style = Style::default().fg(GREEN);
     let dim = Style::default().fg(DIM);
     let hint_style = Style::default().fg(DIM);
-    let sep = Style::default().fg(Color::Indexed(240));
-
     let session_short = if app.session.session_id.len() >= 8 {
         app.session.session_id[..8].to_string()
     } else {
@@ -457,26 +447,30 @@ pub fn render_header(app: &App, width: usize) -> Vec<Line<'static>> {
         "   ╚═╝    ╚═════╝ ╚═════╝ ╚══════╝",
     ];
     let logo_w = 34usize;
-    // Gradient using ANSI 256-color (purple range: 57→141)
-    let logo_colors: [Color; 6] = [
-        Color::Indexed(57),   // purple
-        Color::Indexed(99),
-        Color::Indexed(135),
-        Color::Indexed(141),
-        Color::Indexed(177),
-        Color::Indexed(183),  // light lavender
+    // Gradient colors for border + logo (purple range, ANSI 256)
+    let gradient: [Color; 8] = [
+        Color::Indexed(57),   // top border
+        Color::Indexed(57),   // row 0 (logo[0])
+        Color::Indexed(99),   // row 1 (logo[1])
+        Color::Indexed(135),  // row 2 (logo[2])
+        Color::Indexed(141),  // row 3 (logo[3])
+        Color::Indexed(177),  // row 4 (logo[4])
+        Color::Indexed(183),  // row 5 (logo[5])
+        Color::Indexed(183),  // bottom border
     ];
 
-    let inner_w = width.saturating_sub(4); // "│ " ... padding
+    let inner_w = width.saturating_sub(4);
     let show_logo = inner_w > logo_w + 25;
 
     // Helper: build a row with left content + optional right-aligned logo
-    let make_row = |left_spans: Vec<Span<'static>>, logo_idx: Option<usize>| -> Line<'static> {
+    // `row_idx` is the gradient index for the left border
+    let make_row = |left_spans: Vec<Span<'static>>, logo_idx: Option<usize>, row_idx: usize| -> Line<'static> {
         let left_w: usize = left_spans.iter()
             .map(|s| UnicodeWidthStr::width(s.content.as_ref()))
             .sum();
 
-        let mut spans = vec![Span::styled("│ ", sep)];
+        let border_color = Style::default().fg(gradient[row_idx]);
+        let mut spans = vec![Span::styled("│ ", border_color)];
         spans.extend(left_spans);
 
         if show_logo {
@@ -485,7 +479,7 @@ pub fn render_header(app: &App, width: usize) -> Vec<Line<'static>> {
                 spans.push(Span::raw(" ".repeat(gap)));
                 spans.push(Span::styled(
                     logo[idx].to_string(),
-                    Style::default().fg(logo_colors[idx]).add_modifier(Modifier::BOLD),
+                    Style::default().fg(gradient[row_idx]).add_modifier(Modifier::BOLD),
                 ));
             }
         }
@@ -497,56 +491,58 @@ pub fn render_header(app: &App, width: usize) -> Vec<Line<'static>> {
     let title_text = " Yode ";
     let ver_text = "v0.1 ";
     let rule_len = width.saturating_sub(title_text.len() + ver_text.len() + 2);
+    let top_color = Style::default().fg(gradient[0]);
     lines.push(Line::from(vec![
-        Span::styled("╭", sep),
+        Span::styled("╭", top_color),
         Span::styled(title_text, title_style),
         Span::styled(ver_text, ver_style),
-        Span::styled("─".repeat(rule_len), sep),
-        Span::styled("╮", sep),
+        Span::styled("─".repeat(rule_len), top_color),
+        Span::styled("╮", top_color),
     ]));
 
     // Row 0: empty + logo[0]
-    lines.push(make_row(vec![], Some(0)));
+    lines.push(make_row(vec![], Some(0), 1));
 
     // Row 1: model + logo[1]
     lines.push(make_row(vec![
         Span::styled(" ", Style::default()),
         Span::styled(model, model_style),
-    ], Some(1)));
+    ], Some(1), 2));
 
     // Row 2: workdir + logo[2]
     lines.push(make_row(vec![
         Span::styled(" ", Style::default()),
         Span::styled(workdir, path_style),
-    ], Some(2)));
+    ], Some(2), 3));
 
     // Row 3: session + logo[3]
     lines.push(make_row(vec![
         Span::styled(" ", Style::default()),
         Span::styled(format!("session {}", session_short), dim),
-    ], Some(3)));
+    ], Some(3), 4));
 
     // Row 4: empty + logo[4]
-    lines.push(make_row(vec![], Some(4)));
+    lines.push(make_row(vec![], Some(4), 5));
 
     // Row 5: tips + logo[5]
     lines.push(make_row(vec![
         Span::styled(" ", Style::default()),
         Span::styled("? ", Style::default().fg(ACCENT)),
         Span::styled("/help", hint_style),
-        Span::styled(" · ", Style::default().fg(Color::Indexed(240))),
+        Span::styled(" · ", Style::default().fg(Color::DarkGray)),
         Span::styled("/keys", hint_style),
-        Span::styled(" · ", Style::default().fg(Color::Indexed(240))),
+        Span::styled(" · ", Style::default().fg(Color::DarkGray)),
         Span::styled("Shift+Tab mode", hint_style),
-        Span::styled(" · ", Style::default().fg(Color::Indexed(240))),
+        Span::styled(" · ", Style::default().fg(Color::DarkGray)),
         Span::styled("Ctrl+C×2 quit", hint_style),
-    ], Some(5)));
+    ], Some(5), 6));
 
     // ── Bottom rule: ╰─────────────────────╯
+    let bot_color = Style::default().fg(gradient[7]);
     lines.push(Line::from(vec![
-        Span::styled("╰", sep),
-        Span::styled("─".repeat(width.saturating_sub(2)), sep),
-        Span::styled("╯", sep),
+        Span::styled("╰", bot_color),
+        Span::styled("─".repeat(width.saturating_sub(2)), bot_color),
+        Span::styled("╯", bot_color),
     ]));
 
     lines
