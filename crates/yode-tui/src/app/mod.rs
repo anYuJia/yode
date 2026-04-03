@@ -500,7 +500,7 @@ pub async fn run(
     let mut terminal = Terminal::with_options(
         backend,
         ratatui::TerminalOptions {
-            viewport: ratatui::Viewport::Inline(3),
+            viewport: ratatui::Viewport::Inline(4),
         },
     )?;
 
@@ -626,7 +626,7 @@ async fn run_app(
                 } else {
                     0
                 };
-                visual_lines.clamp(1, 5) + completion_lines + 2 // +status +padding
+                visual_lines.clamp(1, 5) + completion_lines + 3 // +separator +status_separator +status
             };
             let area = terminal.get_frame().area();
             if area.height != needed {
@@ -1659,6 +1659,56 @@ fn raw_print_lines(
     Ok(())
 }
 
+/// Convert ratatui Color to crossterm Color (handles Rgb, Indexed, and named colors).
+fn to_crossterm_color(color: Color) -> crossterm::style::Color {
+    match color {
+        Color::Rgb(r, g, b) => crossterm::style::Color::Rgb { r, g, b },
+        Color::Indexed(i) => crossterm::style::Color::AnsiValue(i),
+        Color::Black => crossterm::style::Color::Black,
+        Color::Red => crossterm::style::Color::Red,
+        Color::Green => crossterm::style::Color::Green,
+        Color::Yellow => crossterm::style::Color::Yellow,
+        Color::Blue => crossterm::style::Color::Blue,
+        Color::Magenta => crossterm::style::Color::Magenta,
+        Color::Cyan => crossterm::style::Color::Cyan,
+        Color::Gray => crossterm::style::Color::Grey,
+        Color::DarkGray => crossterm::style::Color::DarkGrey,
+        Color::LightRed => crossterm::style::Color::DarkRed,
+        Color::LightGreen => crossterm::style::Color::DarkGreen,
+        Color::LightBlue => crossterm::style::Color::DarkBlue,
+        Color::LightYellow => crossterm::style::Color::DarkYellow,
+        Color::LightMagenta => crossterm::style::Color::DarkMagenta,
+        Color::LightCyan => crossterm::style::Color::DarkCyan,
+        Color::White => crossterm::style::Color::White,
+        _ => crossterm::style::Color::White,
+    }
+}
+
+/// Convert crossterm Color to ratatui Color (reverse of to_crossterm_color).
+fn from_crossterm_color(color: crossterm::style::Color) -> Color {
+    match color {
+        crossterm::style::Color::Rgb { r, g, b } => Color::Rgb(r, g, b),
+        crossterm::style::Color::AnsiValue(i) => Color::Indexed(i),
+        crossterm::style::Color::Black => Color::Black,
+        crossterm::style::Color::Red => Color::Red,
+        crossterm::style::Color::Green => Color::Green,
+        crossterm::style::Color::Yellow => Color::Yellow,
+        crossterm::style::Color::Blue => Color::Blue,
+        crossterm::style::Color::Magenta => Color::Magenta,
+        crossterm::style::Color::Cyan => Color::Cyan,
+        crossterm::style::Color::Grey => Color::Gray,
+        crossterm::style::Color::DarkGrey => Color::DarkGray,
+        crossterm::style::Color::DarkRed => Color::LightRed,
+        crossterm::style::Color::DarkGreen => Color::LightGreen,
+        crossterm::style::Color::DarkBlue => Color::LightBlue,
+        crossterm::style::Color::DarkYellow => Color::LightYellow,
+        crossterm::style::Color::DarkMagenta => Color::LightMagenta,
+        crossterm::style::Color::DarkCyan => Color::LightCyan,
+        crossterm::style::Color::White => Color::White,
+        crossterm::style::Color::Reset => Color::Reset,
+    }
+}
+
 /// Print the welcome header into terminal stdout before starting TUI.
 fn print_header_to_stdout(app: &App) -> Result<()> {
     let width = crossterm::terminal::size()?.0 as usize;
@@ -1673,10 +1723,7 @@ fn print_header_to_stdout(app: &App) -> Result<()> {
         // Convert ratatui Line to colored strings for raw stdout
         for span in line.spans {
             if let Some(color) = span.style.fg {
-                let c = match color {
-                    Color::Rgb(r, g, b) => crossterm::style::Color::Rgb { r, g, b },
-                    _ => crossterm::style::Color::White,
-                };
+                let c = to_crossterm_color(color);
                 stdout.execute(crossterm::style::SetForegroundColor(c))?;
             }
             if span.style.add_modifier.contains(Modifier::BOLD) {
@@ -1705,10 +1752,7 @@ fn print_entries_to_stdout(app: &mut App) -> Result<()> {
         
         for (text, style) in text_lines {
             if let Some(color) = style.fg {
-                let c = match color {
-                    Color::Rgb(r, g, b) => crossterm::style::Color::Rgb { r, g, b },
-                    _ => crossterm::style::Color::White,
-                };
+                let c = to_crossterm_color(color);
                 stdout.execute(crossterm::style::SetForegroundColor(c))?;
             }
             if style.add_modifier.contains(Modifier::BOLD) {
@@ -1732,34 +1776,32 @@ fn format_duration(d: Duration) -> String {
         let mins = total_secs / 60;
         let secs = total_secs % 60;
         if secs == 0 { format!("{}m", mins) } else { format!("{}m {}s", mins, secs) }
-    } else if total_secs > 0 {
-        format!("{:.1}s", d.as_secs_f64())
     } else {
-        format!("{}ms", d.as_millis())
+        format!("{}s", total_secs)
     }
 }
 
 /// Determine color and bold for a markdown-processed line based on its prefix.
 fn md_line_color(line: &str) -> (crossterm::style::Color, bool) {
     if line.starts_with("━━ ") || line.starts_with("━━━") {
-        (crossterm::style::Color::Rgb { r: 230, g: 190, b: 60 }, true)
+        (crossterm::style::Color::Yellow, true)
     } else if line.starts_with("▸ ") {
-        (crossterm::style::Color::Rgb { r: 100, g: 140, b: 255 }, true)
+        (crossterm::style::Color::Blue, true)
     } else if line.starts_with("  ▹ ") {
-        (crossterm::style::Color::Rgb { r: 130, g: 160, b: 255 }, false)
+        (crossterm::style::Color::Cyan, false)
     } else if line.starts_with("    ") && !line.trim().is_empty() {
-        // Code block lines (4-space indent) — syntax highlight color
-        (crossterm::style::Color::Rgb { r: 180, g: 220, b: 170 }, false)
+        (crossterm::style::Color::Green, false)
     } else if line.starts_with("▎ ") {
-        (crossterm::style::Color::Rgb { r: 160, g: 150, b: 120 }, false)
+        (crossterm::style::Color::DarkYellow, false)
     } else if line.starts_with("────") {
-        (crossterm::style::Color::Rgb { r: 70, g: 70, b: 80 }, false)
+        (crossterm::style::Color::DarkGrey, false)
     } else if line.starts_with("── ") || line.starts_with("───") {
-        (crossterm::style::Color::Rgb { r: 100, g: 200, b: 220 }, true)
+        (crossterm::style::Color::Cyan, true)
     } else if line.contains('│') {
-        (crossterm::style::Color::Rgb { r: 200, g: 200, b: 215 }, false)
+        (crossterm::style::Color::White, false)
     } else {
-        (crossterm::style::Color::Rgb { r: 220, g: 220, b: 230 }, false)
+        // Normal text — use terminal default foreground (brightest)
+        (crossterm::style::Color::Reset, false)
     }
 }
 
@@ -1796,7 +1838,7 @@ fn flush_entries_to_scrollback(
                 let text = process_md_line(raw_text, &mut app.streaming_in_code_block);
                 let prefix = if is_first { "⏺ " } else { "  " };
                 if is_first {
-                    let color = crossterm::style::Color::Rgb { r: 140, g: 120, b: 255 };
+                    let color = crossterm::style::Color::Magenta;
                     all_output.push((format!("{}{}", prefix, text), Some(color), false));
                     first_printed = true;
                 } else if is_code_block_line(&text) {
@@ -1805,7 +1847,9 @@ fn flush_entries_to_scrollback(
                     all_output.push((format!("{}{}", prefix, highlighted), None, false));
                 } else {
                     let (color, bold) = md_line_color(&text);
-                    all_output.push((format!("{}{}", prefix, text), Some(color), bold));
+                    // Reset = terminal default foreground; don't set explicit color
+                    let color_opt = if matches!(color, crossterm::style::Color::Reset) { None } else { Some(color) };
+                    all_output.push((format!("{}{}", prefix, text), color_opt, bold));
                 }
             }
             app.streaming_printed_lines = complete_count;
@@ -1816,7 +1860,7 @@ fn flush_entries_to_scrollback(
     if let Some((remainder, is_first)) = app.streaming_remainder.take() {
         let has_content = remainder.iter().any(|l| !l.trim().is_empty());
         if has_content {
-            let accent = crossterm::style::Color::Rgb { r: 140, g: 120, b: 255 };
+            let accent = crossterm::style::Color::Magenta;
             let mut first_done = !is_first;
             for line in remainder.iter() {
                 // Skip leading empty lines only
@@ -1833,7 +1877,8 @@ fn flush_entries_to_scrollback(
                     all_output.push((format!("  {}", highlighted), None, false));
                 } else {
                     let (color, bold) = md_line_color(&text);
-                    all_output.push((format!("  {}", text), Some(color), bold));
+                    let color_opt = if matches!(color, crossterm::style::Color::Reset) { None } else { Some(color) };
+                    all_output.push((format!("  {}", text), color_opt, bold));
                 }
             }
         }
@@ -1884,9 +1929,14 @@ fn flush_entries_to_scrollback(
             all_output.push((String::new(), None, false));
         }
         for (text, style) in &text_lines {
-            let color = style.fg.map(|c| match c {
-                Color::Rgb(r, g, b) => crossterm::style::Color::Rgb { r, g, b },
-                _ => crossterm::style::Color::White,
+            let color = style.fg.and_then(|c| {
+                let ct = to_crossterm_color(c);
+                // White/Reset → use terminal default foreground (None)
+                if matches!(ct, crossterm::style::Color::White | crossterm::style::Color::Reset) {
+                    None
+                } else {
+                    Some(ct)
+                }
             });
             let bold = style.add_modifier.contains(Modifier::BOLD);
             all_output.push((text.clone(), color, bold));
@@ -1910,11 +1960,11 @@ fn format_entry_as_strings(
     index: usize,
 ) -> Vec<(String, ratatui::style::Style)> {
     let mut result: Vec<(String, ratatui::style::Style)> = Vec::new();
-    let white = ratatui::style::Style::default().fg(Color::Indexed(255));
-    let dim = ratatui::style::Style::default().fg(Color::Indexed(250));
-    let accent = ratatui::style::Style::default().fg(Color::Rgb(140, 120, 255));
-    let bold_white = white.add_modifier(Modifier::BOLD);
-    let red = ratatui::style::Style::default().fg(Color::Rgb(255, 107, 128));
+    let default = ratatui::style::Style::default(); // terminal default foreground
+    let dim = ratatui::style::Style::default().fg(Color::Gray);
+    let accent = ratatui::style::Style::default().fg(Color::LightMagenta);
+    let bold_white = default.add_modifier(Modifier::BOLD);
+    let red = ratatui::style::Style::default().fg(Color::LightRed);
 
     match &entry.role {
         ChatRole::User => {
@@ -1933,6 +1983,8 @@ fn format_entry_as_strings(
             }
         }
         ChatRole::Assistant => {
+            // Blank line before assistant response for visual separation
+            result.push((String::new(), dim));
             let processed = markdown_to_plain(&entry.content);
             // Skip empty/whitespace assistant entries (LLM sometimes sends blank text between tool calls)
             if processed.trim().is_empty() {
@@ -1953,11 +2005,7 @@ fn format_entry_as_strings(
                     result.push((format!("  {}", highlighted), ratatui::style::Style::default()));
                 } else {
                     let (ct_color, bold) = md_line_color(&line);
-                    let color = if let crossterm::style::Color::Rgb { r, g, b } = ct_color {
-                        Color::Rgb(r, g, b)
-                    } else {
-                        Color::Indexed(255)
-                    };
+                    let color = from_crossterm_color(ct_color);
                     let mut style = ratatui::style::Style::default().fg(color);
                     if bold {
                         style = style.add_modifier(Modifier::BOLD);
@@ -1985,8 +2033,8 @@ fn format_entry_as_strings(
                 })
                 .unwrap_or_default();
 
-            let green = ratatui::style::Style::default().fg(Color::Rgb(80, 200, 120));
-            let red_dim = ratatui::style::Style::default().fg(Color::Rgb(200, 80, 80));
+            let green = ratatui::style::Style::default().fg(Color::LightGreen);
+            let red_dim = ratatui::style::Style::default().fg(Color::LightRed);
 
             // Special display for edit_file: show Claude-style diff
             if name == "edit_file" {
@@ -2059,7 +2107,7 @@ fn format_entry_as_strings(
                         result.push((format!("     … +{} lines (ctrl+o to expand)", total_lines - max_preview), dim));
                         break;
                     }
-                    let green = ratatui::style::Style::default().fg(Color::Rgb(80, 200, 120));
+                    let green = ratatui::style::Style::default().fg(Color::LightGreen);
                     result.push((format!("     + {}", line), green));
                 }
             } else {
@@ -2096,7 +2144,7 @@ fn format_entry_as_strings(
         }
         ChatRole::Error => {
             let err_style = ratatui::style::Style::default()
-                .fg(Color::Rgb(255, 107, 128))
+                .fg(Color::LightRed)
                 .add_modifier(Modifier::BOLD);
             result.push(("╭─ Error ──────────────────────────".to_string(), err_style));
             for line in entry.content.lines() {
@@ -2105,7 +2153,7 @@ fn format_entry_as_strings(
             result.push(("╰──────────────────────────────────".to_string(), err_style));
         }
         ChatRole::Retrying => {
-            let yellow = ratatui::style::Style::default().fg(Color::Rgb(230, 190, 60));
+            let yellow = ratatui::style::Style::default().fg(Color::Yellow);
             for line in entry.content.lines() {
                 result.push((format!("  {}", line), yellow));
             }

@@ -55,27 +55,33 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                 .direction(Direction::Vertical)
                 .constraints([
                     Constraint::Length(completion_height),
+                    Constraint::Length(1), // separator above input
                     Constraint::Length(input_height),
-                    Constraint::Length(1),
+                    Constraint::Length(1), // separator above status
                     Constraint::Length(1),
                 ])
                 .split(frame.area());
 
             input::render_command_inline(frame, chunks[0], app);
-            input::render_input(frame, chunks[1], app);
-            status_bar::render_info_line(frame, chunks[2], app);
+            status_bar::render_separator(frame, chunks[1]);
+            input::render_input(frame, chunks[2], app);
+            status_bar::render_separator(frame, chunks[3]);
+            status_bar::render_info_line(frame, chunks[4], app);
         } else {
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
+                    Constraint::Length(1), // separator above input
                     Constraint::Length(input_height),
-                    Constraint::Length(1),
+                    Constraint::Length(1), // separator above status
                     Constraint::Length(1),
                 ])
                 .split(frame.area());
 
-            input::render_input(frame, chunks[0], app);
-            status_bar::render_info_line(frame, chunks[1], app);
+            status_bar::render_separator(frame, chunks[0]);
+            input::render_input(frame, chunks[1], app);
+            status_bar::render_separator(frame, chunks[2]);
+            status_bar::render_info_line(frame, chunks[3], app);
         }
     }
 }
