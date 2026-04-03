@@ -1,11 +1,14 @@
 pub mod config;
 pub mod context;
 pub mod context_manager;
+pub mod cost_tracker;
 pub mod db;
 pub mod engine;
+pub mod hooks;
 pub mod permission;
 pub mod session;
 pub mod setup;
 pub mod skills;
 
 pub use context::EffortLevel;
+pub use permission::PermissionMode;

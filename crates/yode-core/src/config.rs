@@ -12,6 +12,12 @@ pub struct Config {
     pub ui: UiConfig,
     #[serde(default)]
     pub mcp: McpConfig,
+    #[serde(default)]
+    pub permissions: PermissionsConfig,
+    #[serde(default)]
+    pub hooks: HooksConfig,
+    #[serde(default)]
+    pub cost: CostConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -51,6 +57,68 @@ pub struct UiConfig {
     pub theme: String,
 }
 
+// ─── Permission Config ──────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct PermissionsConfig {
+    /// Default permission mode: "default", "plan", "auto", "accept-edits", "bypass"
+    #[serde(default)]
+    pub default_mode: Option<String>,
+    /// Rules that always allow specific tool+pattern combos
+    #[serde(default)]
+    pub always_allow: Vec<PermissionRuleEntry>,
+    /// Rules that always deny specific tool+pattern combos
+    #[serde(default)]
+    pub always_deny: Vec<PermissionRuleEntry>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct PermissionRuleEntry {
+    pub tool: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+// ─── Hook Config ────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct HooksConfig {
+    #[serde(default)]
+    pub hooks: Vec<HookEntry>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct HookEntry {
+    pub command: String,
+    pub events: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_filter: Option<Vec<String>>,
+    #[serde(default = "default_hook_timeout")]
+    pub timeout_secs: u64,
+    #[serde(default)]
+    pub can_block: bool,
+}
+
+fn default_hook_timeout() -> u64 {
+    10
+}
+
+// ─── Cost Config ────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct CostConfig {
+    /// Maximum budget in USD per session. 0 or absent means unlimited.
+    #[serde(default)]
+    pub max_budget_usd: Option<f64>,
+    /// Whether to show cost summary after each turn
+    #[serde(default)]
+    pub show_cost_per_turn: bool,
+}
+
+// ─── Config Loading ─────────────────────────────────────────────────────────
+
 impl Config {
     /// Load config from the default config file, merging with built-in defaults.
     pub fn load() -> Result<Self> {
@@ -60,7 +128,7 @@ impl Config {
     /// Load config from a specific path, or default locations.
     pub fn load_from(path: Option<&Path>) -> Result<Self> {
         let home_config = dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".yode").join("config.toml");
-        
+
         let config_str = if let Some(p) = path {
             std::fs::read_to_string(p)?
         } else if home_config.exists() {
