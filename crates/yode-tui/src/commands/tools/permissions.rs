@@ -10,19 +10,20 @@ impl PermissionsCommand {
         Self {
             meta: CommandMeta {
                 name: "permissions",
-                description: "View or modify tool execution permissions",
+                description: "View or modify tool execution permissions and permission mode",
                 aliases: &["perms"],
                 args: vec![
                     ArgDef {
-                        name: "tool".into(),
+                        name: "subcommand".into(),
                         required: false,
-                        hint: "<tool-name|reset>".into(),
+                        hint: "<mode|tool-name|reset>".into(),
                         completions: ArgCompletionSource::Dynamic(|ctx| {
-                            let mut names: Vec<String> = ctx.tools.definitions()
-                                .iter()
-                                .map(|d| d.name.clone())
-                                .collect();
-                            names.push("reset".into());
+                            let mut names: Vec<String> = vec!["mode".into(), "reset".into()];
+                            names.extend(
+                                ctx.tools.definitions()
+                                    .iter()
+                                    .map(|d| d.name.clone())
+                            );
                             names.sort();
                             names
                         }),
@@ -30,8 +31,12 @@ impl PermissionsCommand {
                     ArgDef {
                         name: "action".into(),
                         required: false,
-                        hint: "<allow|deny>".into(),
-                        completions: ArgCompletionSource::Static(vec!["allow".into(), "deny".into()]),
+                        hint: "<allow|deny|default|plan|auto|accept-edits|bypass>".into(),
+                        completions: ArgCompletionSource::Static(vec![
+                            "allow".into(), "deny".into(),
+                            "default".into(), "plan".into(), "auto".into(),
+                            "accept-edits".into(), "bypass".into(),
+                        ]),
                     },
                 ],
                 category: CommandCategory::Tools,
@@ -51,17 +56,41 @@ impl Command for PermissionsCommand {
         };
 
         match parts.as_slice() {
-            // No args: show current permissions
+            // No args: show current permissions and mode
             [] => {
+                let mode = engine.permissions().mode();
                 let tools = engine.permissions().confirmable_tools();
+                let mut lines = vec![
+                    format!("Permission mode: {}", mode),
+                ];
                 if tools.is_empty() {
-                    Ok(CommandOutput::Message("All tools are auto-allowed (no confirmations required).".into()))
+                    lines.push("All tools are auto-allowed (no confirmations required).".into());
                 } else {
-                    let mut lines = vec!["Tools requiring confirmation:".to_string()];
+                    lines.push("Tools requiring confirmation:".into());
                     for t in tools {
                         lines.push(format!("  {t}"));
                     }
-                    Ok(CommandOutput::Messages(lines))
+                }
+                Ok(CommandOutput::Messages(lines))
+            }
+            // /permissions mode — show current mode
+            ["mode"] => {
+                let mode = engine.permissions().mode();
+                Ok(CommandOutput::Message(format!(
+                    "Current permission mode: {}\n\
+                     Available modes: default, plan, auto, accept-edits, bypass\n\
+                     Usage: /permissions mode <mode-name>",
+                    mode
+                )))
+            }
+            // /permissions mode <mode-name>
+            ["mode", mode_str] => {
+                match mode_str.parse::<yode_core::PermissionMode>() {
+                    Ok(mode) => {
+                        engine.permissions_mut().set_mode(mode);
+                        Ok(CommandOutput::Message(format!("Permission mode set to: {}", mode)))
+                    }
+                    Err(e) => Err(e),
                 }
             }
             // Reset
@@ -83,7 +112,7 @@ impl Command for PermissionsCommand {
                 engine.permissions_mut().deny(tool);
                 Ok(CommandOutput::Message(format!("Tool '{tool}' now requires confirmation.")))
             }
-            _ => Err("Usage: /permissions [tool] [allow|deny] or /permissions reset".into()),
+            _ => Err("Usage: /permissions [mode <mode>] | [tool allow|deny] | [reset]".into()),
         }
     }
 }
