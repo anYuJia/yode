@@ -19,3 +19,6 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 dirs = { workspace = true }
 cron = "0.15"
+
+[dev-dependencies]
+tempfile = "3"
