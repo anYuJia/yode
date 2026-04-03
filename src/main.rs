@@ -15,6 +15,7 @@ use yode_core::session::Session;
 use yode_core::setup::{has_api_keys_configured, run_setup_interactive};
 use yode_core::skills::SkillRegistry;
 use yode_llm::providers::anthropic::AnthropicProvider;
+use yode_llm::providers::gemini::GeminiProvider;
 use yode_llm::providers::openai::OpenAiProvider;
 use yode_llm::registry::ProviderRegistry;
 use yode_llm::types::{Message, Role, ToolCall};
@@ -217,25 +218,38 @@ async fn main() -> Result<()> {
             .ok()
             .or_else(|| p_config.api_key.clone())
             .or_else(|| {
-                // Fallback to legacy global env vars if none found for custom provider
-                if p_config.format == "openai" {
+                // Fallback: check known provider env keys
+                if let Some(info) = yode_llm::find_provider_info(name) {
+                    info.env_keys.iter().find_map(|k| env::var(k).ok())
+                } else if p_config.format == "openai" {
                     env::var("OPENAI_API_KEY").ok()
-                } else {
+                } else if p_config.format == "anthropic" {
                     env::var("ANTHROPIC_API_KEY").or_else(|_| env::var("ANTHROPIC_AUTH_TOKEN")).ok()
+                } else if p_config.format == "gemini" {
+                    env::var("GOOGLE_API_KEY").or_else(|_| env::var("GEMINI_API_KEY")).ok()
+                } else {
+                    None
                 }
             }) {
             Some(k) => k,
             None => {
-                warn!("Provider '{}' is configured but missing an API key, skipping.", name);
-                continue;
+                // Ollama doesn't need an API key
+                if name == "ollama" || p_config.format == "ollama" {
+                    String::new()
+                } else {
+                    warn!("Provider '{}' is configured but missing an API key, skipping.", name);
+                    continue;
+                }
             }
         };
 
-        let default_base = if p_config.format == "openai" {
-            "https://api.openai.com/v1"
-        } else {
-            "https://api.anthropic.com"
-        };
+        let known = yode_llm::find_provider_info(name);
+        let default_base = known.map(|k| k.default_base_url).unwrap_or(match p_config.format.as_str() {
+            "openai" => "https://api.openai.com/v1",
+            "anthropic" => "https://api.anthropic.com",
+            "gemini" => "https://generativelanguage.googleapis.com/v1beta",
+            _ => "https://api.openai.com/v1",
+        });
 
         let base_url = match env::var(format!("{}_BASE_URL", env_prefix))
             .ok()
@@ -244,10 +258,40 @@ async fn main() -> Result<()> {
             None => default_base.to_string(),
         };
 
-        if p_config.format == "openai" {
-            provider_registry.register(Arc::new(OpenAiProvider::new(name, api_key, base_url)));
-        } else {
-            provider_registry.register(Arc::new(AnthropicProvider::new(name, api_key, base_url)));
+        match p_config.format.as_str() {
+            "anthropic" => {
+                provider_registry.register(Arc::new(AnthropicProvider::new(name, &api_key, &base_url)));
+            }
+            "gemini" => {
+                let mut p = GeminiProvider::new(&api_key);
+                if base_url != "https://generativelanguage.googleapis.com/v1beta" {
+                    p = p.with_base_url(&base_url);
+                }
+                provider_registry.register(Arc::new(p));
+            }
+            _ => {
+                // OpenAI-compatible (openai, ollama, groq, mistral, deepseek, xai, etc.)
+                provider_registry.register(Arc::new(OpenAiProvider::new(name, &api_key, &base_url)));
+            }
+        }
+    }
+
+    // Auto-detect providers from environment if not explicitly configured
+    for info in yode_llm::detect_available_providers() {
+        if provider_registry.contains(info.name) {
+            continue;
+        }
+        let api_key = info.env_keys.iter().find_map(|k| env::var(k).ok()).unwrap_or_default();
+        match info.format {
+            "anthropic" => {
+                provider_registry.register(Arc::new(AnthropicProvider::new(info.name, &api_key, info.default_base_url)));
+            }
+            "gemini" => {
+                provider_registry.register(Arc::new(GeminiProvider::new(&api_key)));
+            }
+            _ => {
+                provider_registry.register(Arc::new(OpenAiProvider::new(info.name, &api_key, info.default_base_url)));
+            }
         }
     }
 
@@ -289,8 +333,34 @@ async fn main() -> Result<()> {
         provider_name
     ))?;
 
-    // Setup permissions
-    let permissions = PermissionManager::new(config.tools.require_confirmation.clone());
+    // Setup permissions from config
+    let mut permissions = PermissionManager::from_confirmation_list(config.tools.require_confirmation.clone());
+
+    // Apply permission mode from config
+    if let Some(ref mode_str) = config.permissions.default_mode {
+        if let Ok(mode) = mode_str.parse::<yode_core::PermissionMode>() {
+            permissions.set_mode(mode);
+        }
+    }
+
+    // Load permission rules from config
+    use yode_core::permission::{PermissionRule, RuleBehavior, RuleSource};
+    for entry in &config.permissions.always_allow {
+        permissions.add_rule(PermissionRule {
+            source: RuleSource::UserConfig,
+            behavior: RuleBehavior::Allow,
+            tool_name: entry.tool.clone(),
+            pattern: entry.pattern.clone(),
+        });
+    }
+    for entry in &config.permissions.always_deny {
+        permissions.add_rule(PermissionRule {
+            source: RuleSource::UserConfig,
+            behavior: RuleBehavior::Deny,
+            tool_name: entry.tool.clone(),
+            pattern: entry.pattern.clone(),
+        });
+    }
 
     // Create or resume context
     let (context, restored_messages) = if let Some(ref resume_id) = cli.resume {
@@ -362,6 +432,30 @@ async fn main() -> Result<()> {
             context,
         );
         engine.set_database(db);
+
+        // Apply cost budget from config
+        if let Some(budget) = config.cost.max_budget_usd {
+            if budget > 0.0 {
+                engine.cost_tracker_mut().set_budget_limit(budget);
+            }
+        }
+
+        // Setup hook manager from config
+        if !config.hooks.hooks.is_empty() {
+            use yode_core::hooks::{HookDefinition, HookManager};
+            let mut hook_mgr = HookManager::new(std::env::current_dir().unwrap_or_default());
+            for h in &config.hooks.hooks {
+                hook_mgr.register(HookDefinition {
+                    command: h.command.clone(),
+                    events: h.events.clone(),
+                    tool_filter: h.tool_filter.clone(),
+                    timeout_secs: h.timeout_secs,
+                    can_block: h.can_block,
+                });
+            }
+            engine.set_hook_manager(hook_mgr);
+        }
+
         if let Some(msgs) = restored_messages {
             engine.restore_messages(msgs);
         }

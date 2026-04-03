@@ -132,8 +132,8 @@ impl Command for ProviderCommand {
                     if ctx.all_provider_models.contains_key(name) {
                         return Err(format!("Provider '{}' already exists.", name));
                     }
-                    if format != "openai" && format != "anthropic" {
-                        return Err("Format must be 'openai' or 'anthropic'.".into());
+                    if format != "openai" && format != "anthropic" && format != "gemini" {
+                        return Err("Format must be 'openai', 'anthropic', or 'gemini'.".into());
                     }
                     let models_owned: Vec<String> = if parts.len() > 4 {
                         parts[4..].join(" ").split(',').map(|s| s.trim().to_string())
@@ -174,9 +174,29 @@ impl Command for ProviderCommand {
                             options: vec![
                                 "Anthropic (Claude)".into(),
                                 "OpenAI (GPT)".into(),
-                                "Kimi (Moonshot)".into(),
-                                "DeepSeek".into(),
                                 "Google Gemini".into(),
+                                "DeepSeek".into(),
+                                "通义千问 Qwen (阿里)".into(),
+                                "智谱 GLM (Zhipu)".into(),
+                                "Kimi (月之暗面)".into(),
+                                "豆包 Doubao (字节)".into(),
+                                "硅基流动 SiliconFlow".into(),
+                                "Groq".into(),
+                                "Mistral".into(),
+                                "xAI (Grok)".into(),
+                                "Ollama (本地)".into(),
+                                "OpenRouter".into(),
+                                "零一万物 Yi".into(),
+                                "百川 Baichuan".into(),
+                                "讯飞星火 Spark".into(),
+                                "MiniMax".into(),
+                                "阶跃星辰 StepFun".into(),
+                                "文心一言 ERNIE (百度)".into(),
+                                "腾讯混元 Hunyuan".into(),
+                                "阿里 Coding Plan (聚合)".into(),
+                                "腾讯 Coding Plan (聚合)".into(),
+                                "百灵 Bailing".into(),
+                                "iFlow (聚合)".into(),
                                 "自定义 (Custom)".into(),
                             ],
                             default: 0,
@@ -212,6 +232,8 @@ impl Command for ProviderCommand {
 
                         let format = if provider_type.contains("Anthropic") {
                             "anthropic"
+                        } else if provider_type.contains("Gemini") {
+                            "gemini"
                         } else {
                             "openai"
                         };
@@ -237,9 +259,31 @@ impl Command for ProviderCommand {
                     let (default_url, name_hint, model_hint) = match value {
                         v if v.contains("Anthropic") => ("https://api.anthropic.com", "anthropic", "claude-sonnet-4-20250514"),
                         v if v.contains("OpenAI") => ("https://api.openai.com/v1", "openai", "gpt-4o"),
-                        v if v.contains("Kimi") => ("https://api.moonshot.cn/v1", "kimi", "moonshot-v1-auto"),
-                        v if v.contains("DeepSeek") => ("https://api.deepseek.com", "deepseek", "deepseek-chat"),
-                        v if v.contains("Gemini") => ("https://generativelanguage.googleapis.com/v1beta/openai/", "gemini", "gemini-2.5-flash"),
+                        v if v.contains("Gemini") => ("https://generativelanguage.googleapis.com/v1beta", "google", "gemini-2.5-flash"),
+                        v if v.contains("DeepSeek") => ("https://api.deepseek.com/v1", "deepseek", "deepseek-chat"),
+                        // 国内
+                        v if v.contains("Qwen") || v.contains("千问") => ("https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen", "qwen-max"),
+                        v if v.contains("Zhipu") || v.contains("智谱") => ("https://open.bigmodel.cn/api/paas/v4", "zhipu", "glm-4-plus"),
+                        v if v.contains("Kimi") || v.contains("月之暗面") => ("https://api.moonshot.cn/v1", "moonshot", "moonshot-v1-auto"),
+                        v if v.contains("Doubao") || v.contains("豆包") => ("https://ark.cn-beijing.volces.com/api/v3", "doubao", "doubao-pro-256k"),
+                        v if v.contains("SiliconFlow") || v.contains("硅基") => ("https://api.siliconflow.cn/v1", "siliconflow", "deepseek-ai/DeepSeek-V3"),
+                        v if v.contains("Yi") || v.contains("零一") => ("https://api.lingyiwanwu.com/v1", "yi", "yi-lightning"),
+                        v if v.contains("Baichuan") || v.contains("百川") => ("https://api.baichuan-ai.com/v1", "baichuan", "Baichuan4"),
+                        v if v.contains("Spark") || v.contains("星火") => ("https://spark-api-open.xf-yun.com/v1", "spark", "generalv3.5"),
+                        v if v.contains("MiniMax") => ("https://api.minimax.chat/v1", "minimax", "MiniMax-Text-01"),
+                        v if v.contains("StepFun") || v.contains("阶跃") => ("https://api.stepfun.com/v1", "stepfun", "step-2-16k"),
+                        v if v.contains("ERNIE") || v.contains("文心") => ("https://qianfan.baidubce.com/v2", "ernie", "ernie-4.0-8k"),
+                        v if v.contains("Hunyuan") || v.contains("混元") => ("https://api.hunyuan.cloud.tencent.com/v1", "hunyuan", "hunyuan-pro"),
+                        v if v.contains("阿里 Coding") => ("https://coding.dashscope.aliyuncs.com/v1", "alibaba-coding", "qwen3.5-plus"),
+                        v if v.contains("腾讯 Coding") => ("https://api.lkeap.cloud.tencent.com/coding/v3", "tencent-coding", "hunyuan-2.0-instruct"),
+                        v if v.contains("Bailing") || v.contains("百灵") => ("https://api.tbox.cn/api/llm/v1/chat/completions", "bailing", "Ling-1T"),
+                        v if v.contains("iFlow") => ("https://apis.iflow.cn/v1", "iflow", "deepseek-r1"),
+                        // 海外
+                        v if v.contains("Groq") => ("https://api.groq.com/openai/v1", "groq", "llama-3.3-70b-versatile"),
+                        v if v.contains("Mistral") => ("https://api.mistral.ai/v1", "mistral", "mistral-large-latest"),
+                        v if v.contains("xAI") => ("https://api.x.ai/v1", "xai", "grok-3"),
+                        v if v.contains("Ollama") => ("http://localhost:11434/v1", "ollama", "llama3.1"),
+                        v if v.contains("OpenRouter") => ("https://openrouter.ai/api/v1", "openrouter", "anthropic/claude-sonnet-4"),
                         _ => return,
                     };
                     if let Some(WizardStep::Input { default, .. }) = steps.get_mut(1) {
@@ -287,7 +331,11 @@ impl Command for ProviderCommand {
                 let current_models = if p.models.is_empty() { String::new() } else { p.models.join(", ") };
                 let provider_name = name.to_string();
 
-                let format_default = if current_format == "anthropic" { 1 } else { 0 };
+                let format_default = match current_format.as_str() {
+                    "anthropic" => 1,
+                    "gemini" => 2,
+                    _ => 0,
+                };
 
                 // Mask the current API key for display: show first 4 and last 4 chars
                 let masked_key = if current_api_key.len() > 8 {
@@ -303,7 +351,7 @@ impl Command for ProviderCommand {
                     vec![
                         WizardStep::Select {
                             prompt: "API format:".into(),
-                            options: vec!["openai".into(), "anthropic".into()],
+                            options: vec!["openai".into(), "anthropic".into(), "gemini".into()],
                             default: format_default,
                             key: "format".into(),
                         },
