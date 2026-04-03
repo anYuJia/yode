@@ -115,8 +115,33 @@ impl Command for ProviderCommand {
                 }
             }
 
-            // /provider add <name> <format> <base_url>
-            // /provider add <name> <format> <base_url> <models>
+            // /provider add <name> <format> <base_url> — step 4: optional models
+            ["add", name, format, base_url] => {
+                if ctx.all_provider_models.contains_key(*name) {
+                    return Err(format!("Provider '{}' already exists. Use /provider edit {}.", name, name));
+                }
+                if *format != "openai" && *format != "anthropic" {
+                    return Err("Format must be 'openai' or 'anthropic'.".into());
+                }
+                // Save without models, prompt for optional models
+                match add_provider_to_config(name, format, Some(base_url), &[]) {
+                    Ok(_) => Ok(CommandOutput::Messages(vec![
+                        format!("Provider '{}' added!", name),
+                        format!("  format:   {}", format),
+                        format!("  base_url: {}", base_url),
+                        format!("  models:   (unrestricted)"),
+                        String::new(),
+                        format!("Optional — add models to restrict available models:"),
+                        format!("  /provider edit {} models model1,model2,model3", name),
+                        String::new(),
+                        format!("Set API key: export {}_API_KEY=<your-key>", name.to_uppercase().replace("-", "_")),
+                        "Restart yode to activate.".into(),
+                    ])),
+                    Err(e) => Err(format!("Failed to add provider: {}", e)),
+                }
+            }
+
+            // /provider add <name> <format> <base_url> <models,...>
             ["add", name, format, base_url, ..] => {
                 if ctx.all_provider_models.contains_key(*name) {
                     return Err(format!("Provider '{}' already exists. Use /provider edit {}.", name, name));
@@ -124,24 +149,16 @@ impl Command for ProviderCommand {
                 if *format != "openai" && *format != "anthropic" {
                     return Err("Format must be 'openai' or 'anthropic'.".into());
                 }
-                let models_owned: Vec<String> = if parts.len() > 4 {
-                    parts[4..].join(" ").split(',').map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty()).collect()
-                } else {
-                    vec![]
-                };
+                let models_owned: Vec<String> = parts[4..].join(" ")
+                    .split(',').map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty()).collect();
                 match add_provider_to_config(name, format, Some(base_url), &models_owned) {
                     Ok(_) => {
-                        let model_info = if models_owned.is_empty() {
-                            "(unrestricted)".to_string()
-                        } else {
-                            models_owned.join(", ")
-                        };
                         Ok(CommandOutput::Messages(vec![
-                            format!("Provider '{}' added.", name),
+                            format!("Provider '{}' added!", name),
                             format!("  format:   {}", format),
                             format!("  base_url: {}", base_url),
-                            format!("  models:   {}", model_info),
+                            format!("  models:   {}", models_owned.join(", ")),
                             String::new(),
                             format!("Set API key: export {}_API_KEY=<your-key>", name.to_uppercase().replace("-", "_")),
                             "Restart yode to activate.".into(),
@@ -151,9 +168,42 @@ impl Command for ProviderCommand {
                 }
             }
 
-            // /provider add — missing required params
-            ["add"] | ["add", _] | ["add", _, _] => {
-                Err("Usage: /provider add <name> <openai|anthropic> <base_url> [model1,model2,...]".into())
+            // /provider add — step-by-step guidance
+            ["add"] => {
+                Ok(CommandOutput::Messages(vec![
+                    "Add a new provider — step 1/4: choose a name".into(),
+                    String::new(),
+                    "  /provider add <name>".into(),
+                    String::new(),
+                    "Example: /provider add deepseek".into(),
+                ]))
+            }
+
+            ["add", name] => {
+                if ctx.all_provider_models.contains_key(*name) {
+                    return Err(format!("Provider '{}' already exists. Use /provider edit {}.", name, name));
+                }
+                Ok(CommandOutput::Messages(vec![
+                    format!("Add provider '{}' — step 2/4: choose API format", name),
+                    String::new(),
+                    format!("  /provider add {} <openai|anthropic>", name),
+                    String::new(),
+                    "Most providers use OpenAI-compatible API.".into(),
+                ]))
+            }
+
+            ["add", name, format] => {
+                if *format != "openai" && *format != "anthropic" {
+                    return Err("Format must be 'openai' or 'anthropic'.".into());
+                }
+                let default_url = if *format == "openai" { "https://api.openai.com/v1" } else { "https://api.anthropic.com" };
+                Ok(CommandOutput::Messages(vec![
+                    format!("Add provider '{}' — step 3/4: enter base URL", name),
+                    String::new(),
+                    format!("  /provider add {} {} <base_url>", name, format),
+                    String::new(),
+                    format!("Default for {}: {}", format, default_url),
+                ]))
             }
 
             // /provider remove <name>
