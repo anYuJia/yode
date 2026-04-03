@@ -70,16 +70,12 @@ impl Wizard {
             Some(WizardStep::Select { default, .. }) => *default,
             _ => 0,
         };
-        let input_buf = match steps.first() {
-            Some(WizardStep::Input { default: Some(d), .. }) => d.clone(),
-            _ => String::new(),
-        };
         Self {
             title,
             steps,
             current: 0,
             select_index,
-            input_buf,
+            input_buf: String::new(),
             answers: HashMap::new(),
             on_complete: Some(on_complete),
             on_step: None,
@@ -173,9 +169,9 @@ impl Wizard {
                     self.select_index = *default;
                     self.input_buf.clear();
                 }
-                WizardStep::Input { default, .. } => {
+                WizardStep::Input { .. } => {
                     self.select_index = 0;
-                    self.input_buf = default.clone().unwrap_or_default();
+                    self.input_buf.clear(); // Keep empty — default shown as placeholder
                 }
             }
         }
