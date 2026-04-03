@@ -688,9 +688,15 @@ async fn run_app(
                     handle_key_event(app, key, &engine, &tools, &engine_event_tx);
                 }
                 AppEvent::Paste(text) => {
-                    // Normalize line endings: \r\n → \n, bare \r → \n
                     let text = text.replace("\r\n", "\n").replace('\r', "\n");
-                    if input::should_fold_paste(&text) {
+                    // Wizard paste: insert text into wizard input buffer
+                    if let Some(ref mut wiz) = app.wizard {
+                        for c in text.chars() {
+                            if c != '\n' && c != '\r' {
+                                wiz.input_char(c);
+                            }
+                        }
+                    } else if input::should_fold_paste(&text) {
                         app.input.insert_attachment(text);
                     } else {
                         for line in text.split_inclusive('\n') {
@@ -743,7 +749,10 @@ fn handle_key_event(
                 }
             }
             KeyCode::Char(c) => {
-                if let Some(ref mut wiz) = app.wizard {
+                if key.modifiers.contains(KeyModifiers::CONTROL) && c == 'c' {
+                    app.wizard = None;
+                    app.chat_entries.push(ChatEntry::new(ChatRole::System, "Wizard cancelled.".into()));
+                } else if let Some(ref mut wiz) = app.wizard {
                     if matches!(wiz.current_step(), Some(WizardStep::Input { .. })) {
                         wiz.input_char(c);
                     }
@@ -757,22 +766,18 @@ fn handle_key_event(
                 }
             }
             KeyCode::Enter => {
-                if let Some(ref mut wiz) = app.wizard {
-                    match wiz.submit() {
-                        Ok(None) => {} // More steps, keep going
-                        Ok(Some(messages)) => {
-                            // Wizard complete
-                            for msg in messages {
-                                app.chat_entries.push(ChatEntry::new(ChatRole::System, msg));
-                            }
-                            app.wizard = None;
+                let result = app.wizard.as_mut().unwrap().submit();
+                match result {
+                    Ok(None) => {} // More steps
+                    Ok(Some(messages)) => {
+                        for msg in messages {
+                            app.chat_entries.push(ChatEntry::new(ChatRole::System, msg));
                         }
-                        Err(e) => {
-                            // Error stays on wizard (wizard.error is set internally)
-                            // Also show as chat entry for scrollback
-                            app.chat_entries.push(ChatEntry::new(ChatRole::Error, e));
-                            app.wizard = None;
-                        }
+                        app.wizard = None;
+                    }
+                    Err(e) => {
+                        app.chat_entries.push(ChatEntry::new(ChatRole::Error, e));
+                        app.wizard = None;
                     }
                 }
             }

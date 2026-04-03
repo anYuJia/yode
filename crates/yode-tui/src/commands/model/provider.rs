@@ -115,7 +115,7 @@ impl Command for ProviderCommand {
                 }
             }
 
-            // /provider add — start interactive wizard
+            // /provider add — start interactive wizard (matches setup.rs flow)
             ["add"] | ["add", ..] => {
                 // If full args provided, do it directly
                 if parts.len() >= 4 {
@@ -134,11 +134,11 @@ impl Command for ProviderCommand {
                     } else {
                         vec![]
                     };
-                    match add_provider_to_config(name, format, Some(base_url), &models_owned) {
+                    match add_provider_to_config(name, format, Some(base_url), &models_owned, None) {
                         Ok(_) => {
                             let model_info = if models_owned.is_empty() { "(unrestricted)".into() } else { models_owned.join(", ") };
                             return Ok(CommandOutput::Messages(vec![
-                                format!("Provider '{}' added!", name),
+                                format!("✓ Provider '{}' added!", name),
                                 format!("  format:   {}", format),
                                 format!("  base_url: {}", base_url),
                                 format!("  models:   {}", model_info),
@@ -151,59 +151,100 @@ impl Command for ProviderCommand {
                     }
                 }
 
-                // Otherwise start wizard
+                // Interactive wizard — matches setup.rs flow:
+                // 1. Select provider type (preset or custom)
+                // 2. Base URL (with smart default)
+                // 3. API Key (required)
+                // 4. Provider name (with suggestion)
+                // 5. Default model (with recommendation)
                 use crate::app::wizard::{Wizard, WizardStep};
 
                 let wizard = Wizard::new(
-                    "Add a new provider".into(),
+                    "添加 LLM 提供商".into(),
                     vec![
-                        WizardStep::Input {
-                            prompt: "Provider name:".into(),
-                            default: None,
-                            key: "name".into(),
-                        },
                         WizardStep::Select {
-                            prompt: "API format:".into(),
-                            options: vec!["openai".into(), "anthropic".into()],
+                            prompt: "选择提供商类型:".into(),
+                            options: vec![
+                                "Anthropic (Claude)".into(),
+                                "OpenAI (GPT)".into(),
+                                "Kimi (Moonshot)".into(),
+                                "DeepSeek".into(),
+                                "Google Gemini".into(),
+                                "自定义 (Custom)".into(),
+                            ],
                             default: 0,
-                            key: "format".into(),
+                            key: "provider_type".into(),
                         },
                         WizardStep::Input {
                             prompt: "Base URL:".into(),
-                            default: Some("https://api.openai.com/v1".into()),
+                            default: Some("https://api.anthropic.com".into()),
                             key: "base_url".into(),
                         },
                         WizardStep::Input {
-                            prompt: "Models (comma-separated, empty for unrestricted):".into(),
-                            default: Some(String::new()),
-                            key: "models".into(),
+                            prompt: "API Key:".into(),
+                            default: None,
+                            key: "api_key".into(),
+                        },
+                        WizardStep::Input {
+                            prompt: "Provider 名称:".into(),
+                            default: Some("anthropic".into()),
+                            key: "name".into(),
+                        },
+                        WizardStep::Input {
+                            prompt: "默认模型:".into(),
+                            default: Some("claude-sonnet-4-20250514".into()),
+                            key: "model".into(),
                         },
                     ],
                     Box::new(|answers| {
+                        let provider_type = answers.get("provider_type").ok_or("Missing type")?;
                         let name = answers.get("name").ok_or("Missing name")?;
-                        let format = answers.get("format").ok_or("Missing format")?;
                         let base_url = answers.get("base_url").ok_or("Missing base_url")?;
-                        let models_str = answers.get("models").cloned().unwrap_or_default();
-                        let models: Vec<String> = models_str.split(',')
-                            .map(|s| s.trim().to_string())
-                            .filter(|s| !s.is_empty())
-                            .collect();
+                        let api_key = answers.get("api_key").ok_or("Missing api_key")?;
+                        let model = answers.get("model").cloned().unwrap_or_default();
 
-                        add_provider_to_config(name, format, Some(base_url.as_str()), &models)?;
+                        let format = if provider_type.contains("Anthropic") {
+                            "anthropic"
+                        } else {
+                            "openai"
+                        };
 
-                        let model_info = if models.is_empty() { "(unrestricted)".into() } else { models.join(", ") };
-                        let env_key = name.to_uppercase().replace("-", "_");
+                        let models = if model.is_empty() { vec![] } else {
+                            model.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+                        };
+
+                        add_provider_to_config(name, format, Some(base_url.as_str()), &models, Some(api_key))?;
+
                         Ok(vec![
-                            format!("Provider '{}' added!", name),
+                            format!("✓ Provider '{}' 已添加!", name),
                             format!("  format:   {}", format),
                             format!("  base_url: {}", base_url),
-                            format!("  models:   {}", model_info),
+                            format!("  model:    {}", if model.is_empty() { "(unrestricted)" } else { &model }),
+                            format!("  api_key:  {}...{}", &api_key[..4.min(api_key.len())], &api_key[api_key.len().saturating_sub(4)..]),
                             String::new(),
-                            format!("Set API key: export {}_API_KEY=<your-key>", env_key),
-                            "Restart yode to activate.".into(),
+                            "重启 yode 以激活新提供商。".into(),
                         ])
                     }),
-                );
+                ).with_step_callback(Box::new(|value, steps| {
+                    // After selecting provider type, update defaults for remaining steps
+                    let (default_url, name_hint, model_hint) = match value {
+                        v if v.contains("Anthropic") => ("https://api.anthropic.com", "anthropic", "claude-sonnet-4-20250514"),
+                        v if v.contains("OpenAI") => ("https://api.openai.com/v1", "openai", "gpt-4o"),
+                        v if v.contains("Kimi") => ("https://api.moonshot.cn/v1", "kimi", "moonshot-v1-auto"),
+                        v if v.contains("DeepSeek") => ("https://api.deepseek.com", "deepseek", "deepseek-chat"),
+                        v if v.contains("Gemini") => ("https://generativelanguage.googleapis.com/v1beta/openai/", "gemini", "gemini-2.5-flash"),
+                        _ => return,
+                    };
+                    if let Some(WizardStep::Input { default, .. }) = steps.get_mut(1) {
+                        *default = Some(default_url.into());
+                    }
+                    if let Some(WizardStep::Input { default, .. }) = steps.get_mut(3) {
+                        *default = Some(name_hint.into());
+                    }
+                    if let Some(WizardStep::Input { default, .. }) = steps.get_mut(4) {
+                        *default = Some(model_hint.into());
+                    }
+                }));
 
                 Ok(CommandOutput::StartWizard(wizard))
             }
@@ -356,14 +397,18 @@ fn edit_provider_field(name: &str, field: &str, value: &str) -> CommandResult {
 }
 
 /// Add a provider to ~/.yode/config.toml
-fn add_provider_to_config(name: &str, format: &str, base_url: Option<&str>, models: &[String]) -> Result<(), String> {
+fn add_provider_to_config(name: &str, format: &str, base_url: Option<&str>, models: &[String], api_key: Option<&str>) -> Result<(), String> {
     let mut config = yode_core::config::Config::load().map_err(|e| e.to_string())?;
     config.llm.providers.insert(name.to_string(), yode_core::config::ProviderConfig {
         format: format.to_string(),
         base_url: base_url.map(|u| u.to_string()),
-        api_key: None,
+        api_key: api_key.map(|k| k.to_string()),
         models: models.to_vec(),
     });
+    config.llm.default_provider = name.to_string();
+    if let Some(first_model) = models.first() {
+        config.llm.default_model = first_model.clone();
+    }
     config.save().map_err(|e| e.to_string())
 }
 

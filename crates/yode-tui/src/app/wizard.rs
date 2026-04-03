@@ -39,6 +39,9 @@ impl WizardStep {
 /// Callback type for when a wizard completes.
 pub type WizardCallback = Box<dyn FnOnce(&HashMap<String, String>) -> Result<Vec<String>, String> + Send>;
 
+/// Callback type for when a step completes — can modify subsequent steps' defaults.
+pub type StepCallback = Box<dyn Fn(&str, &mut Vec<WizardStep>) + Send>;
+
 /// Interactive wizard state.
 pub struct Wizard {
     /// Title shown at the top
@@ -55,6 +58,8 @@ pub struct Wizard {
     pub answers: HashMap<String, String>,
     /// Callback to execute when all steps are done
     on_complete: Option<WizardCallback>,
+    /// Called after each step to update subsequent steps' defaults
+    on_step: Option<StepCallback>,
     /// Error message to display (from validation)
     pub error: Option<String>,
 }
@@ -77,8 +82,15 @@ impl Wizard {
             input_buf,
             answers: HashMap::new(),
             on_complete: Some(on_complete),
+            on_step: None,
             error: None,
         }
+    }
+
+    /// Set a callback that fires after each step, allowing dynamic default updates.
+    pub fn with_step_callback(mut self, cb: StepCallback) -> Self {
+        self.on_step = Some(cb);
+        self
     }
 
     pub fn is_active(&self) -> bool {
@@ -146,8 +158,13 @@ impl Wizard {
         };
 
         let key = step.key().to_string();
-        self.answers.insert(key, value);
+        self.answers.insert(key.clone(), value.clone());
         self.current += 1;
+
+        // Call step callback to update subsequent steps' defaults
+        if let Some(ref cb) = self.on_step {
+            cb(&value, &mut self.steps);
+        }
 
         // Prepare next step state
         if let Some(next) = self.steps.get(self.current) {
