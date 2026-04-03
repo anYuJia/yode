@@ -58,18 +58,24 @@ impl Command for ProviderCommand {
         match parts.as_slice() {
             // /provider — show current
             [] => {
-                let lines = vec![
+                let models = if ctx.provider_models.is_empty() {
+                    "(unrestricted)".to_string()
+                } else {
+                    ctx.provider_models.join(", ")
+                };
+                Ok(CommandOutput::Messages(vec![
                     format!("Current provider: {}", ctx.provider_name),
-                    format!("Current model: {}", ctx.session.model),
+                    format!("Current model:    {}", ctx.session.model),
+                    format!("Available models: {}", models),
                     String::new(),
                     "Subcommands:".into(),
-                    "  /provider list               — List all providers".into(),
-                    "  /provider switch <name>       — Switch to a provider".into(),
-                    "  /provider add <name>          — Add a new provider".into(),
-                    "  /provider remove <name>       — Remove a provider".into(),
-                    "  /provider edit <name>         — Edit provider config".into(),
-                ];
-                Ok(CommandOutput::Messages(lines))
+                    "  /provider list                                — List all providers".into(),
+                    "  /provider switch <name>                       — Switch provider".into(),
+                    "  /provider add <name> <format> <url> [models]  — Add provider".into(),
+                    "  /provider remove <name>                       — Remove provider".into(),
+                    "  /provider edit <name>                         — Show config for editing".into(),
+                    "  /provider edit <name> <field> <value>         — Edit a field".into(),
+                ]))
             }
 
             // /provider list
@@ -90,14 +96,9 @@ impl Command for ProviderCommand {
             // /provider switch <name>
             ["switch", name] => {
                 if let Some(provider) = ctx.provider_registry.get(name) {
-                    let new_models = ctx
-                        .all_provider_models
-                        .get(*name)
-                        .cloned()
-                        .unwrap_or_default();
-                    let new_model = new_models
-                        .first()
-                        .cloned()
+                    let new_models = ctx.all_provider_models
+                        .get(*name).cloned().unwrap_or_default();
+                    let new_model = new_models.first().cloned()
                         .unwrap_or_else(|| ctx.session.model.clone());
                     if let Ok(mut eng) = ctx.engine.try_lock() {
                         eng.set_provider(provider, name.to_string());
@@ -106,82 +107,53 @@ impl Command for ProviderCommand {
                     *ctx.provider_name = name.to_string();
                     *ctx.provider_models = new_models;
                     Ok(CommandOutput::Message(format!(
-                        "Switched to provider: {}, model: {}",
-                        name, new_model
+                        "Switched to provider: {}, model: {}", name, new_model
                     )))
                 } else {
-                    let available: Vec<String> =
-                        ctx.all_provider_models.keys().cloned().collect();
-                    Err(format!(
-                        "Provider '{}' not found. Available: {}",
-                        name,
-                        available.join(", ")
-                    ))
-                }
-            }
-
-            // /provider add <name>
-            ["add", name] => {
-                // Check if already exists
-                if ctx.all_provider_models.contains_key(*name) {
-                    return Err(format!("Provider '{}' already exists. Use /provider edit {} to modify.", name, name));
-                }
-
-                // Add to config with openai format as default
-                match add_provider_to_config(name, "openai", None, &[]) {
-                    Ok(_) => Ok(CommandOutput::Messages(vec![
-                        format!("Provider '{}' added to config.", name),
-                        format!("Config saved to ~/.yode/config.toml"),
-                        String::new(),
-                        format!("Next steps:"),
-                        format!("  1. Set API key: export {}_API_KEY=<your-key>", name.to_uppercase().replace("-", "_")),
-                        format!("  2. Optionally edit: /provider edit {}", name),
-                        format!("  3. Restart yode to activate"),
-                    ])),
-                    Err(e) => Err(format!("Failed to add provider: {}", e)),
-                }
-            }
-
-            // /provider add <name> <format>
-            ["add", name, format] => {
-                if ctx.all_provider_models.contains_key(*name) {
-                    return Err(format!("Provider '{}' already exists.", name));
-                }
-                if *format != "openai" && *format != "anthropic" {
-                    return Err("Format must be 'openai' or 'anthropic'.".into());
-                }
-
-                match add_provider_to_config(name, format, None, &[]) {
-                    Ok(_) => Ok(CommandOutput::Messages(vec![
-                        format!("Provider '{}' added (format: {}).", name, format),
-                        format!("Config saved to ~/.yode/config.toml"),
-                        String::new(),
-                        format!("Set API key: export {}_API_KEY=<your-key>", name.to_uppercase().replace("-", "_")),
-                        format!("Restart yode to activate."),
-                    ])),
-                    Err(e) => Err(format!("Failed to add provider: {}", e)),
+                    let available: Vec<String> = ctx.all_provider_models.keys().cloned().collect();
+                    Err(format!("Provider '{}' not found. Available: {}", name, available.join(", ")))
                 }
             }
 
             // /provider add <name> <format> <base_url>
-            ["add", name, format, base_url] => {
+            // /provider add <name> <format> <base_url> <models>
+            ["add", name, format, base_url, ..] => {
                 if ctx.all_provider_models.contains_key(*name) {
-                    return Err(format!("Provider '{}' already exists.", name));
+                    return Err(format!("Provider '{}' already exists. Use /provider edit {}.", name, name));
                 }
                 if *format != "openai" && *format != "anthropic" {
                     return Err("Format must be 'openai' or 'anthropic'.".into());
                 }
-
-                match add_provider_to_config(name, format, Some(base_url), &[]) {
-                    Ok(_) => Ok(CommandOutput::Messages(vec![
-                        format!("Provider '{}' added (format: {}, url: {}).", name, format, base_url),
-                        format!("Config saved to ~/.yode/config.toml"),
-                        String::new(),
-                        format!("Set API key: export {}_API_KEY=<your-key>", name.to_uppercase().replace("-", "_")),
-                        format!("Restart yode to activate."),
-                    ])),
+                let models_owned: Vec<String> = if parts.len() > 4 {
+                    parts[4..].join(" ").split(',').map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty()).collect()
+                } else {
+                    vec![]
+                };
+                match add_provider_to_config(name, format, Some(base_url), &models_owned) {
+                    Ok(_) => {
+                        let model_info = if models_owned.is_empty() {
+                            "(unrestricted)".to_string()
+                        } else {
+                            models_owned.join(", ")
+                        };
+                        Ok(CommandOutput::Messages(vec![
+                            format!("Provider '{}' added.", name),
+                            format!("  format:   {}", format),
+                            format!("  base_url: {}", base_url),
+                            format!("  models:   {}", model_info),
+                            String::new(),
+                            format!("Set API key: export {}_API_KEY=<your-key>", name.to_uppercase().replace("-", "_")),
+                            "Restart yode to activate.".into(),
+                        ]))
+                    }
                     Err(e) => Err(format!("Failed to add provider: {}", e)),
                 }
+            }
+
+            // /provider add — missing required params
+            ["add"] | ["add", _] | ["add", _, _] => {
+                Err("Usage: /provider add <name> <openai|anthropic> <base_url> [model1,model2,...]".into())
             }
 
             // /provider remove <name>
@@ -190,85 +162,122 @@ impl Command for ProviderCommand {
                     return Err(format!("Provider '{}' not found.", name));
                 }
                 if *name == ctx.provider_name.as_str() {
-                    return Err(format!("Cannot remove the active provider '{}'. Switch first.", name));
+                    return Err(format!("Cannot remove active provider '{}'. Switch first.", name));
                 }
-
                 match remove_provider_from_config(name) {
                     Ok(_) => Ok(CommandOutput::Messages(vec![
                         format!("Provider '{}' removed from config.", name),
-                        format!("Restart yode to take effect."),
+                        "Restart yode to take effect.".into(),
                     ])),
-                    Err(e) => Err(format!("Failed to remove provider: {}", e)),
+                    Err(e) => Err(format!("Failed to remove: {}", e)),
                 }
             }
 
-            // /provider edit <name>
+            // /provider edit <name> — show current config
             ["edit", name] => {
-                if !ctx.all_provider_models.contains_key(*name) {
-                    return Err(format!("Provider '{}' not found.", name));
-                }
-
-                let config_path = dirs::home_dir()
-                    .map(|h| h.join(".yode").join("config.toml"))
-                    .unwrap_or_default();
-
-                if !config_path.exists() {
-                    return Err("Config file not found at ~/.yode/config.toml".into());
-                }
-
-                // Try to open in $EDITOR
-                let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".into());
-                match std::process::Command::new(&editor).arg(&config_path).status() {
-                    Ok(status) if status.success() => {
-                        Ok(CommandOutput::Messages(vec![
-                            format!("Config edited. Restart yode to apply changes."),
-                            format!("Provider section: [llm.providers.{}]", name),
-                        ]))
-                    }
-                    Ok(_) => Err("Editor exited with error.".into()),
-                    Err(e) => {
-                        // Fallback: show current config for the provider
-                        match yode_core::config::Config::load() {
-                            Ok(config) => {
-                                if let Some(p) = config.llm.providers.get(*name) {
-                                    Ok(CommandOutput::Messages(vec![
-                                        format!("Could not open editor ({}). Current config for '{}':", e, name),
-                                        format!("  format:   {}", p.format),
-                                        format!("  base_url: {}", p.base_url.as_deref().unwrap_or("(default)")),
-                                        format!("  api_key:  {}", if p.api_key.is_some() { "(set in config)" } else { "(from env)" }),
-                                        format!("  models:   {}", if p.models.is_empty() { "(unrestricted)".into() } else { p.models.join(", ") }),
-                                        String::new(),
-                                        format!("Edit manually: ~/.yode/config.toml → [llm.providers.{}]", name),
-                                    ]))
-                                } else {
-                                    Err(format!("Provider '{}' not found in config.", name))
-                                }
-                            }
-                            Err(e) => Err(format!("Failed to load config: {}", e)),
-                        }
-                    }
-                }
+                show_provider_config(name)
             }
 
-            _ => Err(format!(
-                "Unknown subcommand. Usage:\n  /provider list\n  /provider switch <name>\n  /provider add <name> [format] [base_url]\n  /provider remove <name>\n  /provider edit <name>"
-            )),
+            // /provider edit <name> format <value>
+            ["edit", name, "format", value] => {
+                if *value != "openai" && *value != "anthropic" {
+                    return Err("Format must be 'openai' or 'anthropic'.".into());
+                }
+                edit_provider_field(name, "format", value)
+            }
+
+            // /provider edit <name> base_url <value>
+            ["edit", name, "base_url", value] => {
+                edit_provider_field(name, "base_url", value)
+            }
+
+            // /provider edit <name> api_key <value>
+            ["edit", name, "api_key", value] => {
+                edit_provider_field(name, "api_key", value)
+            }
+
+            // /provider edit <name> models <model1,model2,...>
+            ["edit", name, "models", ..] => {
+                let models_str = parts[3..].join(" ");
+                edit_provider_field(name, "models", &models_str)
+            }
+
+            _ => Err(
+                "Unknown subcommand. Use /provider for help.".into()
+            ),
         }
     }
 }
 
-/// Add a provider to ~/.yode/config.toml
-fn add_provider_to_config(name: &str, format: &str, base_url: Option<&str>, models: &[&str]) -> Result<(), String> {
-    let mut config = yode_core::config::Config::load().map_err(|e| e.to_string())?;
+/// Show current config for a provider
+fn show_provider_config(name: &str) -> CommandResult {
+    let config = yode_core::config::Config::load().map_err(|e| e.to_string())?;
+    let p = config.llm.providers.get(name)
+        .ok_or_else(|| format!("Provider '{}' not found in config.", name))?;
 
-    let provider_config = yode_core::config::ProviderConfig {
+    let models_str = if p.models.is_empty() {
+        "(unrestricted)".to_string()
+    } else {
+        p.models.join(", ")
+    };
+
+    Ok(CommandOutput::Messages(vec![
+        format!("Provider '{}' config:", name),
+        format!("  format:   {}", p.format),
+        format!("  base_url: {}", p.base_url.as_deref().unwrap_or("(default)")),
+        format!("  api_key:  {}", if p.api_key.is_some() { "(set in config)" } else { "(from env)" }),
+        format!("  models:   {}", models_str),
+        String::new(),
+        "Edit fields:".into(),
+        format!("  /provider edit {} format <openai|anthropic>", name),
+        format!("  /provider edit {} base_url <url>", name),
+        format!("  /provider edit {} api_key <key>", name),
+        format!("  /provider edit {} models <model1,model2,...>", name),
+    ]))
+}
+
+/// Edit a single field of a provider config
+fn edit_provider_field(name: &str, field: &str, value: &str) -> CommandResult {
+    let mut config = yode_core::config::Config::load().map_err(|e| e.to_string())?;
+    let p = config.llm.providers.get_mut(name)
+        .ok_or_else(|| format!("Provider '{}' not found in config.", name))?;
+
+    match field {
+        "format" => {
+            p.format = value.to_string();
+        }
+        "base_url" => {
+            p.base_url = Some(value.to_string());
+        }
+        "api_key" => {
+            p.api_key = Some(value.to_string());
+        }
+        "models" => {
+            p.models = value.split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+        }
+        _ => return Err(format!("Unknown field '{}'. Valid: format, base_url, api_key, models", field)),
+    }
+
+    config.save().map_err(|e| e.to_string())?;
+
+    Ok(CommandOutput::Messages(vec![
+        format!("Updated {}.{} = {}", name, field, value),
+        "Config saved. Restart yode to apply.".into(),
+    ]))
+}
+
+/// Add a provider to ~/.yode/config.toml
+fn add_provider_to_config(name: &str, format: &str, base_url: Option<&str>, models: &[String]) -> Result<(), String> {
+    let mut config = yode_core::config::Config::load().map_err(|e| e.to_string())?;
+    config.llm.providers.insert(name.to_string(), yode_core::config::ProviderConfig {
         format: format.to_string(),
         base_url: base_url.map(|u| u.to_string()),
         api_key: None,
-        models: models.iter().map(|m| m.to_string()).collect(),
-    };
-
-    config.llm.providers.insert(name.to_string(), provider_config);
+        models: models.to_vec(),
+    });
     config.save().map_err(|e| e.to_string())
 }
 

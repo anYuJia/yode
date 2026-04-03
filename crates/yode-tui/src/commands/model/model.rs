@@ -61,12 +61,11 @@ impl Command for ModelCommand {
             // Switch model
             let new_model = args.to_string();
             if !ctx.provider_models.is_empty() && !ctx.provider_models.contains(&new_model) {
-                Ok(CommandOutput::Message(format!(
-                    "Model '{}' is not available for provider '{}'. Available models:\n  {}",
-                    new_model,
-                    ctx.provider_name,
+                Err(format!(
+                    "Model '{}' not available for provider '{}'. Available:\n  {}",
+                    new_model, ctx.provider_name,
                     ctx.provider_models.join("\n  ")
-                )))
+                ))
             } else {
                 if let Ok(mut eng) = ctx.engine.try_lock() {
                     eng.set_model(new_model.clone());
