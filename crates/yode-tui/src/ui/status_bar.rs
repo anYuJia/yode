@@ -6,9 +6,9 @@ use ratatui::Frame;
 
 use crate::app::App;
 
-const SEP: Color = Color::Indexed(245);    // #8a8a8a
-const MUTED: Color = Color::Indexed(249);   // #b2b2b2
-const LIGHT: Color = Color::Indexed(252);   // #d0d0d0
+const SEP: Color = Color::DarkGray;         // ANSI 8
+const MUTED: Color = Color::Gray;            // ANSI 7
+const LIGHT: Color = Color::White;           // ANSI 15 — bright
 
 /// Top separator line: ────────────────────────────
 pub fn render_separator(frame: &mut Frame, area: Rect) {
@@ -31,9 +31,9 @@ pub fn render_info_line(frame: &mut Frame, area: Rect, app: &App) {
     // Permission mode badge
     let mode = app.session.permission_mode.label();
     let (mode_icon, mode_color) = match app.session.permission_mode {
-        crate::app::PermissionMode::Normal => ("●", Color::Rgb(80, 200, 120)),
-        crate::app::PermissionMode::AutoAccept => ("⚡", Color::Rgb(240, 180, 50)),
-        crate::app::PermissionMode::Plan => ("📋", Color::Rgb(100, 180, 255)),
+        crate::app::PermissionMode::Normal => ("●", Color::LightGreen),
+        crate::app::PermissionMode::AutoAccept => ("⚡", Color::Yellow),
+        crate::app::PermissionMode::Plan => ("📋", Color::LightBlue),
     };
     parts.push(Span::styled(
         format!("{} {} ", mode_icon, mode.to_lowercase()),
@@ -68,9 +68,9 @@ pub fn render_info_line(frame: &mut Frame, area: Rect, app: &App) {
         0.0
     };
     let ctx_color = if ctx_pct > 80.0 {
-        Color::Rgb(240, 80, 80) // red when high
+        Color::LightRed // red when high
     } else if ctx_pct > 50.0 {
-        Color::Rgb(240, 180, 50) // yellow
+        Color::Yellow // yellow
     } else {
         LIGHT
     };
@@ -86,7 +86,7 @@ pub fn render_info_line(frame: &mut Frame, area: Rect, app: &App) {
     if !app.pending_inputs.is_empty() {
         parts.push(Span::styled(
             format!("{} queued ", app.pending_inputs.len()),
-            Style::default().fg(Color::Rgb(200, 140, 255)),
+            Style::default().fg(Color::LightMagenta),
         ));
         parts.push(Span::styled("· ", Style::default().fg(SEP)));
     }

@@ -6,12 +6,12 @@ use ratatui::Frame;
 
 use crate::app::wizard::{Wizard, WizardStep};
 
-const TITLE_COLOR: Color = Color::Rgb(240, 180, 50);
+const TITLE_COLOR: Color = Color::Yellow;
 const PROMPT_COLOR: Color = Color::White;
-const SEL_COLOR: Color = Color::Rgb(80, 200, 120);
-const DIM: Color = Color::Rgb(110, 110, 120);
-const INPUT_BG: Color = Color::Rgb(40, 40, 50);
-const ERROR_COLOR: Color = Color::Rgb(220, 80, 80);
+const SEL_COLOR: Color = Color::LightGreen;
+const DIM: Color = Color::Gray;
+const INPUT_BG: Color = Color::Indexed(236);
+const ERROR_COLOR: Color = Color::LightRed;
 
 /// Render the wizard in the viewport.
 pub fn render_wizard(frame: &mut Frame, area: Rect, wizard: &Wizard) {
@@ -111,7 +111,7 @@ pub fn render_wizard(frame: &mut Frame, area: Rect, wizard: &Wizard) {
     lines.push(Line::from(vec![
         Span::styled(
             format!("  {}", hint),
-            Style::default().fg(Color::Rgb(60, 60, 70)),
+            Style::default().fg(Color::DarkGray),
         ),
     ]));
 

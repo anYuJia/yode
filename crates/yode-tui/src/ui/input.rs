@@ -7,10 +7,10 @@ use unicode_width::UnicodeWidthChar;
 
 use crate::app::App;
 
-const PROMPT_COLOR: Color = Color::Rgb(78, 186, 101);
-const PROMPT_DIM: Color = Color::Indexed(245);  // #8a8a8a
-const TEXT_COLOR: Color = Color::Indexed(255);   // #eeeeee
-const HINT_COLOR: Color = Color::Indexed(249);   // #b2b2b2
+const PROMPT_COLOR: Color = Color::LightGreen;
+const PROMPT_DIM: Color = Color::DarkGray;    // ANSI 8
+const TEXT_COLOR: Color = Color::White;        // ANSI 15
+const HINT_COLOR: Color = Color::Gray;         // ANSI 7
 
 pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
     if area.height == 0 { return; }
@@ -44,7 +44,7 @@ pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
         let paragraph = Paragraph::new(Line::from(vec![
             Span::styled(
                 format!("{} ", spinner),
-                Style::default().fg(Color::Rgb(230, 190, 60)),
+                Style::default().fg(Color::Yellow),
             ),
             Span::styled(
                 format!("Working… {}{}", elapsed_str, queue_info),
@@ -83,7 +83,7 @@ pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
                     }
                     let pill_text = app.input.pill_display_text(att_idx);
                     let w = pill_text.len();
-                    items.push((pill_text, Style::default().fg(Color::Rgb(150, 200, 255)).add_modifier(Modifier::BOLD), w));
+                    items.push((pill_text, Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD), w));
                     att_idx += 1;
                 } else {
                     buf.push(ch);
@@ -229,7 +229,7 @@ pub fn render_attachments(frame: &mut Frame, area: Rect, app: &App) {
     for att in &app.input.attachments {
         spans.push(Span::styled(
             format!("[{} +{} lines] ", att.name, att.line_count),
-            Style::default().fg(Color::Rgb(150, 200, 255)).add_modifier(Modifier::BOLD),
+            Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD),
         ));
     }
     if !spans.is_empty() {
@@ -241,8 +241,8 @@ pub fn render_attachments(frame: &mut Frame, area: Rect, app: &App) {
 pub fn render_command_inline(frame: &mut Frame, area: Rect, app: &App) {
     if area.height == 0 || area.width == 0 { return; }
 
-    let bg = Color::Rgb(35, 35, 40);
-    let sel_bg = Color::Rgb(60, 130, 180);
+    let bg = Color::Indexed(235);
+    let sel_bg = Color::Indexed(67);
     let sep = "│";
 
     let show_candidates = &app.cmd_completion.candidates;
@@ -251,7 +251,7 @@ pub fn render_command_inline(frame: &mut Frame, area: Rect, app: &App) {
     if let Some(hint) = app.cmd_completion.args_hint.as_deref() {
         let items = vec![Line::from(Span::styled(
             format!("  {} ", hint),
-            Style::default().fg(Color::Rgb(140, 140, 160)).bg(bg),
+            Style::default().fg(Color::Gray).bg(bg),
         ))];
         frame.render_widget(Paragraph::new(items).style(Style::default().bg(bg)), area);
         return;
@@ -290,26 +290,26 @@ pub fn render_command_inline(frame: &mut Frame, area: Rect, app: &App) {
                     ),
                     Span::styled(
                         format!(" {} ", sep),
-                        Style::default().fg(Color::Rgb(80, 80, 90)).bg(sel_bg),
+                        Style::default().fg(Color::DarkGray).bg(sel_bg),
                     ),
                     Span::styled(
                         format!("{} ", desc_truncated),
-                        Style::default().fg(Color::Rgb(200, 200, 210)).bg(sel_bg),
+                        Style::default().fg(Color::White).bg(sel_bg),
                     ),
                 ])
             } else {
                 Line::from(vec![
                     Span::styled(
                         format!(" {:<width$}", cmd, width = cmd_col_width),
-                        Style::default().fg(Color::Rgb(180, 180, 190)).bg(bg),
+                        Style::default().fg(Color::Gray).bg(bg),
                     ),
                     Span::styled(
                         format!(" {} ", sep),
-                        Style::default().fg(Color::Rgb(60, 60, 70)).bg(bg),
+                        Style::default().fg(Color::DarkGray).bg(bg),
                     ),
                     Span::styled(
                         format!("{} ", desc_truncated),
-                        Style::default().fg(Color::Rgb(100, 100, 110)).bg(bg),
+                        Style::default().fg(Color::DarkGray).bg(bg),
                     ),
                 ])
             }
@@ -335,8 +335,8 @@ fn render_file_popup(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(Clear, popup_area);
 
     let selected = app.file_completion.selected.unwrap_or(0);
-    let bg = Color::Rgb(35, 35, 40);
-    let sel_bg = Color::Rgb(60, 130, 180);
+    let bg = Color::Indexed(235);
+    let sel_bg = Color::Indexed(67);
 
     let items: Vec<Line> = app.file_completion.candidates
         .iter()
@@ -346,7 +346,7 @@ fn render_file_popup(frame: &mut Frame, area: Rect, app: &App) {
             if i == selected {
                 Line::from(Span::styled(format!(" @{} ", path), Style::default().fg(Color::White).bg(sel_bg).add_modifier(Modifier::BOLD)))
             } else {
-                Line::from(Span::styled(format!(" @{} ", path), Style::default().fg(Color::Rgb(180, 180, 190)).bg(bg)))
+                Line::from(Span::styled(format!(" @{} ", path), Style::default().fg(Color::Gray).bg(bg)))
             }
         })
         .collect();
@@ -365,7 +365,7 @@ fn render_history_search(frame: &mut Frame, area: Rect, app: &App) {
     let line = if let Some(idx) = app.history.search_index {
         if let Some(result) = app.history.search_results.get(idx) {
             Line::from(vec![
-                Span::styled("bck: ", Style::default().fg(Color::Rgb(100, 180, 255))),
+                Span::styled("bck: ", Style::default().fg(Color::LightBlue)),
                 Span::styled(format!("({}) ", match_info), Style::default().fg(HINT_COLOR)),
                 Span::styled(result.as_str(), Style::default().fg(TEXT_COLOR)),
             ])
@@ -374,9 +374,9 @@ fn render_history_search(frame: &mut Frame, area: Rect, app: &App) {
         }
     } else {
         Line::from(vec![
-            Span::styled("bck: ", Style::default().fg(Color::Rgb(100, 180, 255))),
+            Span::styled("bck: ", Style::default().fg(Color::LightBlue)),
             Span::styled(&app.history.search_query, Style::default().fg(TEXT_COLOR)),
-            Span::styled("█", Style::default().fg(Color::Rgb(100, 180, 255))),
+            Span::styled("█", Style::default().fg(Color::LightBlue)),
         ])
     };
 

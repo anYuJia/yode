@@ -8,18 +8,19 @@ use unicode_width::UnicodeWidthStr;
 use crate::app::{App, ChatEntry, ChatRole};
 
 // ── Colors ──────────────────────────────────────────────────────────
-// Use AnsiValue for grays — universally supported (Terminal.app ignores RGB escapes)
-// Grayscale ramp: 232(#080808) … 249(#b2b2b2) … 252(#d0d0d0) … 255(#eeeeee)
-pub const GREEN: Color = Color::Rgb(78, 186, 101);
-pub const RED: Color = Color::Rgb(255, 107, 128);
-pub const YELLOW: Color = Color::Rgb(255, 193, 7);
-pub const CYAN: Color = Color::Rgb(100, 200, 220);
-pub const BLUE: Color = Color::Rgb(147, 165, 255);
-pub const DIM: Color = Color::Indexed(250);        // #bcbcbc
-pub const WHITE: Color = Color::Indexed(255);       // #eeeeee
-pub const CODE_BG: Color = Color::Indexed(234);     // #1c1c1c
+// Use standard ANSI colors for grays — adapts to user's terminal color scheme.
+// Color::White = ANSI 15 (bright white, usually #ffffff)
+// Color::Gray = ANSI 7 (silver, usually #c0c0c0-#d0d0d0)
+pub const GREEN: Color = Color::LightGreen;
+pub const RED: Color = Color::LightRed;
+pub const YELLOW: Color = Color::LightYellow;
+pub const CYAN: Color = Color::LightCyan;
+pub const BLUE: Color = Color::LightBlue;
+pub const DIM: Color = Color::Gray;               // ANSI 7 — adapts to terminal theme
+pub const WHITE: Color = Color::White;             // ANSI 15 — bright white
+pub const CODE_BG: Color = Color::Indexed(234);    // #1c1c1c
 pub const INLINE_CODE_BG: Color = Color::Indexed(236); // #303030
-pub const ACCENT: Color = Color::Rgb(175, 135, 255); // purple for ⏺
+pub const ACCENT: Color = Color::LightMagenta;     // ANSI 13 — bright purple // purple for ⏺
 
 // ── Main Render ─────────────────────────────────────────────────────
 pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
@@ -275,7 +276,7 @@ fn render_bash_content(
         for line in cmd.lines().take(4) {
             lines.push(Line::from(Span::styled(
                 format!("     {}", line),
-                Style::default().fg(Color::Rgb(160, 160, 170)),
+                Style::default().fg(Color::Gray),
             )));
         }
     }
@@ -427,18 +428,16 @@ pub fn manual_wrap(lines: Vec<Line<'static>>, width: u16) -> Vec<Line<'static>> 
     result
 }
 
-// ── Header (two-column: info left, gradient logo right) ─────────────
+// ── Header (info left, YODE logo right) ───────────────────────────
 pub fn render_header(app: &App, width: usize) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
-    let border = Style::default().fg(DIM);
-    let title_style = Style::default().fg(WHITE).add_modifier(Modifier::BOLD);
-    let info = Style::default().fg(Color::Rgb(180, 210, 255)); // light blue for info
+    let title_style = Style::default().fg(ACCENT).add_modifier(Modifier::BOLD);
+    let ver_style = Style::default().fg(DIM);
+    let model_style = Style::default().fg(WHITE).add_modifier(Modifier::BOLD);
+    let path_style = Style::default().fg(GREEN);
     let dim = Style::default().fg(DIM);
-    let accent = Style::default().fg(ACCENT);
-    let green = Style::default().fg(GREEN);
-
-    let box_w = width.saturating_sub(4).min(100);
-    let inner_w = box_w.saturating_sub(3); // "│ " ... "│"
+    let hint_style = Style::default().fg(DIM);
+    let sep = Style::default().fg(Color::Indexed(240));
 
     let session_short = if app.session.session_id.len() >= 8 {
         app.session.session_id[..8].to_string()
@@ -448,7 +447,7 @@ pub fn render_header(app: &App, width: usize) -> Vec<Line<'static>> {
     let model = app.session.model.clone();
     let workdir = app.session.working_dir.clone();
 
-    // Logo lines (each exactly 34 display cols)
+    // YODE logo (34 display cols) — uses Indexed colors for Terminal.app compat
     let logo = [
         "██╗   ██╗ ██████╗ ██████╗ ███████╗",
         "╚██╗ ██╔╝██╔═══██╗██╔══██╗██╔════╝",
@@ -458,25 +457,26 @@ pub fn render_header(app: &App, width: usize) -> Vec<Line<'static>> {
         "   ╚═╝    ╚═════╝ ╚═════╝ ╚══════╝",
     ];
     let logo_w = 34usize;
-    // Gradient purple colors for each logo row
-    let logo_colors = [
-        Color::Rgb(120, 80, 255),
-        Color::Rgb(140, 100, 255),
-        Color::Rgb(155, 115, 255),
-        Color::Rgb(170, 130, 255),
-        Color::Rgb(185, 150, 255),
-        Color::Rgb(200, 170, 255),
+    // Gradient using ANSI 256-color (purple range: 57→141)
+    let logo_colors: [Color; 6] = [
+        Color::Indexed(57),   // purple
+        Color::Indexed(99),
+        Color::Indexed(135),
+        Color::Indexed(141),
+        Color::Indexed(177),
+        Color::Indexed(183),  // light lavender
     ];
 
-    let show_logo = inner_w > logo_w + 30; // need at least 30 cols for left side
+    let inner_w = width.saturating_sub(4); // "│ " ... padding
+    let show_logo = inner_w > logo_w + 25;
 
-    // Helper: build a row with left content + right logo (or just left if narrow)
+    // Helper: build a row with left content + optional right-aligned logo
     let make_row = |left_spans: Vec<Span<'static>>, logo_idx: Option<usize>| -> Line<'static> {
         let left_w: usize = left_spans.iter()
             .map(|s| UnicodeWidthStr::width(s.content.as_ref()))
             .sum();
 
-        let mut spans = vec![Span::styled("│ ", border)];
+        let mut spans = vec![Span::styled("│ ", sep)];
         spans.extend(left_spans);
 
         if show_logo {
@@ -487,28 +487,22 @@ pub fn render_header(app: &App, width: usize) -> Vec<Line<'static>> {
                     logo[idx].to_string(),
                     Style::default().fg(logo_colors[idx]).add_modifier(Modifier::BOLD),
                 ));
-            } else {
-                let pad = inner_w.saturating_sub(left_w);
-                spans.push(Span::raw(" ".repeat(pad)));
             }
-        } else {
-            let pad = inner_w.saturating_sub(left_w);
-            spans.push(Span::raw(" ".repeat(pad)));
         }
 
-        spans.push(Span::raw(" "));
-        spans.push(Span::styled("│", border));
         Line::from(spans)
     };
 
-    // ╭─── Yode v0.1 ─────...──╮
-    let title = " Yode v0.1 ";
-    let rule_right = box_w.saturating_sub(title.len() + 3); // 3 for "╭──"
+    // ── Title line: ╭ Yode v0.1 ─────────╮
+    let title_text = " Yode ";
+    let ver_text = "v0.1 ";
+    let rule_len = width.saturating_sub(title_text.len() + ver_text.len() + 2);
     lines.push(Line::from(vec![
-        Span::styled("╭──", border),
-        Span::styled(title, title_style),
-        Span::styled("─".repeat(rule_right), border),
-        Span::styled("╮", border),
+        Span::styled("╭", sep),
+        Span::styled(title_text, title_style),
+        Span::styled(ver_text, ver_style),
+        Span::styled("─".repeat(rule_len), sep),
+        Span::styled("╮", sep),
     ]));
 
     // Row 0: empty + logo[0]
@@ -516,19 +510,19 @@ pub fn render_header(app: &App, width: usize) -> Vec<Line<'static>> {
 
     // Row 1: model + logo[1]
     lines.push(make_row(vec![
-        Span::styled("  ", Style::default()),
-        Span::styled(model, info),
+        Span::styled(" ", Style::default()),
+        Span::styled(model, model_style),
     ], Some(1)));
 
     // Row 2: workdir + logo[2]
     lines.push(make_row(vec![
-        Span::styled("  ", Style::default()),
-        Span::styled(workdir, green),
+        Span::styled(" ", Style::default()),
+        Span::styled(workdir, path_style),
     ], Some(2)));
 
     // Row 3: session + logo[3]
     lines.push(make_row(vec![
-        Span::styled("  ", Style::default()),
+        Span::styled(" ", Style::default()),
         Span::styled(format!("session {}", session_short), dim),
     ], Some(3)));
 
@@ -537,16 +531,22 @@ pub fn render_header(app: &App, width: usize) -> Vec<Line<'static>> {
 
     // Row 5: tips + logo[5]
     lines.push(make_row(vec![
-        Span::styled("  ", Style::default()),
-        Span::styled("? ", accent),
-        Span::styled("/help · /keys · Shift+Tab mode · Ctrl+C×2 quit", dim),
+        Span::styled(" ", Style::default()),
+        Span::styled("? ", Style::default().fg(ACCENT)),
+        Span::styled("/help", hint_style),
+        Span::styled(" · ", Style::default().fg(Color::Indexed(240))),
+        Span::styled("/keys", hint_style),
+        Span::styled(" · ", Style::default().fg(Color::Indexed(240))),
+        Span::styled("Shift+Tab mode", hint_style),
+        Span::styled(" · ", Style::default().fg(Color::Indexed(240))),
+        Span::styled("Ctrl+C×2 quit", hint_style),
     ], Some(5)));
 
-    // ╰─────...─╯
+    // ── Bottom rule: ╰─────────────────────╯
     lines.push(Line::from(vec![
-        Span::styled("╰", border),
-        Span::styled("─".repeat(box_w.saturating_sub(2)), border),
-        Span::styled("╯", border),
+        Span::styled("╰", sep),
+        Span::styled("─".repeat(width.saturating_sub(2)), sep),
+        Span::styled("╯", sep),
     ]));
 
     lines
@@ -681,7 +681,7 @@ pub fn render_markdown(text: &str) -> Vec<Line<'static>> {
         if raw.starts_with("> ") || raw == ">" {
             let content = if raw.len() > 2 { &raw[2..] } else { "" };
             let mut spans = vec![
-                Span::styled("  ▎ ", Style::default().fg(Color::Rgb(100, 100, 100))),
+                Span::styled("  ▎ ", Style::default().fg(Color::DarkGray)),
             ];
             spans.extend(parse_inline(content.to_string()));
             lines.push(Line::from(spans));

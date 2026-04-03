@@ -6,10 +6,10 @@ use ratatui::Frame;
 
 use crate::app::App;
 
-const SEL_COLOR: Color = Color::Rgb(78, 186, 101);
-const DIM: Color = Color::Indexed(249);     // #b2b2b2
-const LIGHT: Color = Color::Indexed(253);   // #dadada
-const ACCENT: Color = Color::Rgb(255, 193, 7);
+const SEL_COLOR: Color = Color::LightGreen;
+const DIM: Color = Color::Gray;            // ANSI 7
+const LIGHT: Color = Color::White;          // ANSI 15
+const ACCENT: Color = Color::Yellow;
 
 /// Render inline vertical confirmation selector across 4 viewport lines.
 ///
