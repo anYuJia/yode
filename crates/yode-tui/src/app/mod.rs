@@ -77,8 +77,6 @@ pub enum ChatRole {
     ToolResult { name: String, is_error: bool },
     Error,
     System,
-    /// Transient retry status — replaced on each retry, removed on success
-    Retrying,
     SubAgentCall { description: String },
     SubAgentToolCall { name: String },
     SubAgentResult,
@@ -128,6 +126,28 @@ pub struct SessionState {
     pub input_estimated: bool,
 }
 
+// ── Turn Status Line ───────────────────────────────────────────────
+// Unified status: Idle → Working → Done (or Retrying → Working → Done)
+// Rendered in a fixed viewport slot above the input separator.
+
+#[derive(Debug, Clone)]
+pub enum TurnStatus {
+    /// No active turn — status line hidden
+    Idle,
+    /// LLM is working: `✶ Cogitating… (5s · ↑2539 ↓29 tok)`
+    Working { verb: &'static str },
+    /// Turn completed: `⚡ Done · 13s · 3 tool calls`
+    Done { elapsed: Duration, tools: u32 },
+    /// Retrying after error: `⎿ error · Retrying in 3s (2/10)`
+    Retrying { error: String, attempt: u32, max_attempts: u32, delay_secs: u64 },
+}
+
+impl TurnStatus {
+    pub fn is_visible(&self) -> bool {
+        !matches!(self, TurnStatus::Idle)
+    }
+}
+
 // ── Thinking / Spinner ──────────────────────────────────────────────
 
 const SPINNER_FRAMES: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -139,8 +159,6 @@ pub struct ThinkingState {
     pub cancel_token: Option<CancellationToken>,
     /// Tick counter to slow down the spinner (advance every N ticks)
     tick_count: usize,
-    /// Random verb for the spinner display
-    pub verb: &'static str,
 }
 
 /// Fun spinner verbs (inspired by Claude Code)
@@ -165,7 +183,6 @@ impl ThinkingState {
             started_at: None,
             cancel_token: None,
             tick_count: 0,
-            verb: "Thinking",
         }
     }
 
@@ -173,13 +190,6 @@ impl ThinkingState {
         self.active = true;
         self.started_at = Some(Instant::now());
         self.cancel_token = Some(token);
-        // Pick a random verb
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-        let mut hasher = DefaultHasher::new();
-        Instant::now().hash(&mut hasher);
-        let idx = hasher.finish() as usize % SPINNER_VERBS.len();
-        self.verb = SPINNER_VERBS[idx];
     }
 
     pub fn stop(&mut self) {
@@ -264,6 +274,9 @@ pub struct App {
     // Tool calls in current turn (reset each turn)
     pub turn_tool_count: u32,
 
+    // Unified turn status line (Working/Done/Retrying)
+    pub turn_status: TurnStatus,
+
     // Confirmation selection index (0=Yes, 1=Always, 2=No)
     pub confirm_selected: usize,
 
@@ -341,6 +354,7 @@ impl App {
             session_start: Instant::now(),
             turn_started_at: None,
             turn_tool_count: 0,
+            turn_status: TurnStatus::Idle,
             confirm_selected: 0,
             in_sub_agent: false,
             sub_agent_tool_count: 0,
@@ -646,8 +660,8 @@ async fn run_app(
                 } else {
                     0
                 };
-                let thinking_line: u16 = if app.is_thinking { 1 } else { 0 };
-                visual_lines.clamp(1, 5) + completion_lines + thinking_line + 3 // +thinking +separator +status_separator +status
+                let thinking_line: u16 = if app.turn_status.is_visible() { 1 } else { 0 };
+                visual_lines.clamp(1, 5) + completion_lines + thinking_line + 3 // +status_line +separator +status_bar_separator +status_bar
             };
             let area = terminal.get_frame().area();
             if area.height != needed {
@@ -1312,8 +1326,16 @@ fn send_input(
 fn handle_engine_event(app: &mut App, event: EngineEvent) {
     match event {
         EngineEvent::Thinking => {
-            // Clear retry messages — LLM connected successfully
-            app.chat_entries.retain(|e| !matches!(e.role, ChatRole::Retrying));
+            // Pick random verb and set Working status
+            let verb = {
+                use std::collections::hash_map::DefaultHasher;
+                use std::hash::{Hash, Hasher};
+                let mut hasher = DefaultHasher::new();
+                Instant::now().hash(&mut hasher);
+                let idx = hasher.finish() as usize % SPINNER_VERBS.len();
+                SPINNER_VERBS[idx]
+            };
+            app.turn_status = TurnStatus::Working { verb };
             app.thinking.active = true;
             app.sync_thinking();
         }
@@ -1441,12 +1463,12 @@ fn handle_engine_event(app: &mut App, event: EngineEvent) {
         EngineEvent::Retrying { error_message, attempt, max_attempts, delay_secs } => {
             finalize_streaming(app);
             app.thinking_printed = false;
-            // Remove previous Retrying entries — keep only the latest
-            app.chat_entries.retain(|e| !matches!(e.role, ChatRole::Retrying));
-            app.chat_entries.push(ChatEntry::new(
-                ChatRole::Retrying,
-                format!("⎿  {}\n   Retrying in {} seconds… (attempt {}/{})", error_message, delay_secs, attempt, max_attempts),
-            ));
+            app.turn_status = TurnStatus::Retrying {
+                error: error_message,
+                attempt,
+                max_attempts,
+                delay_secs,
+            };
         }
         EngineEvent::AskUser { id: _, question } => {
             finalize_streaming(app);
@@ -1461,18 +1483,11 @@ fn handle_engine_event(app: &mut App, event: EngineEvent) {
         EngineEvent::Done => {
             finalize_streaming(app);
 
-            // Print turn completion summary with timing
+            // Set Done status (displayed in viewport status line)
             if let Some(started) = app.turn_started_at.take() {
                 let elapsed = started.elapsed();
                 let tools = app.turn_tool_count;
-                let summary = if tools > 0 {
-                    format!("⚡ Done · {} · {} tool calls", format_duration(elapsed), tools)
-                } else {
-                    format!("⚡ Done · {}", format_duration(elapsed))
-                };
-                app.chat_entries.push(ChatEntry::new(ChatRole::System, String::new()));
-                app.chat_entries.push(ChatEntry::new(ChatRole::System, summary));
-                app.chat_entries.push(ChatEntry::new(ChatRole::System, String::new()));
+                app.turn_status = TurnStatus::Done { elapsed, tools };
             }
 
             app.thinking.stop();
@@ -1793,7 +1808,7 @@ fn print_entries_to_stdout(app: &mut App) -> Result<()> {
 
 /// Flush new chat entries and streaming lines to the terminal scrollback.
 /// Format a duration as human-readable string.
-fn format_duration(d: Duration) -> String {
+pub fn format_duration(d: Duration) -> String {
     let total_secs = d.as_secs();
     if total_secs >= 60 {
         let mins = total_secs / 60;
@@ -2174,12 +2189,6 @@ fn format_entry_as_strings(
                 result.push((format!("│ {}", line), red));
             }
             result.push(("╰──────────────────────────────────".to_string(), err_style));
-        }
-        ChatRole::Retrying => {
-            let yellow = ratatui::style::Style::default().fg(Color::Yellow);
-            for line in entry.content.lines() {
-                result.push((format!("  {}", line), yellow));
-            }
         }
         ChatRole::System => {
             if entry.content.is_empty() {
