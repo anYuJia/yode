@@ -62,6 +62,8 @@ pub enum CommandOutput {
     Silent,
     /// Start an interactive wizard (multi-step input flow)
     StartWizard(crate::app::wizard::Wizard),
+    /// Provider config changed — hot-reload this provider from disk
+    ReloadProvider { name: String, messages: Vec<String> },
 }
 
 pub type CommandResult = Result<CommandOutput, String>;

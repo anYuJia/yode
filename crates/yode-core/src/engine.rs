@@ -27,8 +27,70 @@ const MAX_TOOL_RESULT_SIZE: usize = 50 * 1024;
 /// LLM call timeout in seconds
 const LLM_TIMEOUT_SECS: u64 = 120;
 
-/// Maximum retry count for network errors
-const MAX_RETRIES: u32 = 3;
+/// Maximum retry count for retryable errors
+const MAX_RETRIES: u32 = 5;
+
+/// Maximum retry count for rate-limit (429) errors
+const MAX_RATE_LIMIT_RETRIES: u32 = 10;
+
+/// Classify an error to determine retry strategy.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum ErrorKind {
+    /// 429 Too Many Requests — retry with long backoff
+    RateLimit,
+    /// 500/502/503/504, timeout, network — retry with standard backoff
+    Transient,
+    /// 400/401/403/404 etc. — do not retry
+    Fatal,
+}
+
+fn classify_error(err: &anyhow::Error) -> ErrorKind {
+    let msg = format!("{:#}", err);
+    if msg.contains("429") || msg.contains("rate_limit") || msg.contains("Too Many Requests") {
+        ErrorKind::RateLimit
+    } else if msg.contains("500") || msg.contains("502") || msg.contains("503") || msg.contains("504")
+        || msg.contains("timeout") || msg.contains("超时")
+        || msg.contains("connection") || msg.contains("Connection")
+        || msg.contains("Broken pipe") || msg.contains("reset by peer")
+        || msg.contains("timed out")
+    {
+        ErrorKind::Transient
+    } else {
+        ErrorKind::Fatal
+    }
+}
+
+/// Compute retry delay based on error kind and attempt number.
+fn retry_delay(kind: ErrorKind, attempt: u32) -> std::time::Duration {
+    match kind {
+        // 429: 5s, 10s, 15s, 20s, 30s, 30s, …
+        ErrorKind::RateLimit => {
+            let secs = match attempt {
+                0 => 5,
+                1 => 10,
+                2 => 15,
+                3 => 20,
+                _ => 30,
+            };
+            std::time::Duration::from_secs(secs)
+        }
+        // Transient: exponential backoff 2s, 4s, 8s, 16s, 16s
+        ErrorKind::Transient => {
+            let secs = 2u64.pow(attempt.min(4) + 1);
+            std::time::Duration::from_secs(secs)
+        }
+        ErrorKind::Fatal => std::time::Duration::from_secs(0),
+    }
+}
+
+/// Max retries for a given error kind.
+fn max_retries_for(kind: ErrorKind) -> u32 {
+    match kind {
+        ErrorKind::RateLimit => MAX_RATE_LIMIT_RETRIES,
+        ErrorKind::Transient => MAX_RETRIES,
+        ErrorKind::Fatal => 0,
+    }
+}
 
 /// Per-tool timeout for parallel execution (30 seconds)
 const PARALLEL_TOOL_TIMEOUT_SECS: u64 = 30;
@@ -64,6 +126,13 @@ pub enum EngineEvent {
     TurnComplete(ChatResponse),
     /// Error occurred
     Error(String),
+    /// Retrying after a transient/rate-limit error
+    Retrying {
+        error_message: String,
+        attempt: u32,
+        max_attempts: u32,
+        delay_secs: u64,
+    },
     /// Tool is asking user a question
     AskUser {
         id: String,
@@ -247,12 +316,63 @@ impl AgentEngine {
     /// Switch the model at runtime.
     pub fn set_model(&mut self, model: String) {
         self.context.model = model;
+        self.context_manager = ContextManager::new(&self.context.model);
+        self.rebuild_system_prompt();
     }
 
     /// Switch the provider at runtime.
     pub fn set_provider(&mut self, provider: Arc<dyn LlmProvider>, name: String) {
         self.provider = provider;
         self.context.provider = name;
+        self.rebuild_system_prompt();
+    }
+
+    /// Rebuild the system prompt with current context (model, provider, etc.)
+    /// and update the first message in the conversation history.
+    fn rebuild_system_prompt(&mut self) {
+        let mut system_prompt = include_str!("../../../prompts/system.md").to_string();
+
+        system_prompt.push_str("\n\n# Environment\n\n");
+        system_prompt.push_str(&format!(
+            "- Working directory: {}\n- Platform: {} ({})\n- Date: {}\n- Model: {}\n- Provider: {}\n",
+            self.context.working_dir.display(),
+            std::env::consts::OS,
+            std::env::consts::ARCH,
+            chrono::Local::now().format("%Y-%m-%d"),
+            self.context.model,
+            self.context.provider,
+        ));
+
+        if self.context.working_dir.join(".git").exists() {
+            system_prompt.push_str("- Git repo: yes\n");
+            if let Ok(output) = std::process::Command::new("git")
+                .args(["branch", "--show-current"])
+                .current_dir(&self.context.working_dir)
+                .output()
+            {
+                let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !branch.is_empty() {
+                    system_prompt.push_str(&format!("- Branch: {}\n", branch));
+                }
+            }
+        }
+
+        let yode_md = self.context.working_dir.join("YODE.md");
+        if yode_md.exists() {
+            if let Ok(override_prompt) = std::fs::read_to_string(&yode_md) {
+                system_prompt.push_str("\n\n# Project-specific instructions\n\n");
+                system_prompt.push_str(&override_prompt);
+            }
+        }
+
+        self.system_prompt = system_prompt.clone();
+
+        // Update the system message in conversation history
+        if let Some(first) = self.messages.first_mut() {
+            if matches!(first.role, Role::System) {
+                first.content = Some(system_prompt);
+            }
+        }
     }
 
     pub fn set_effort(&mut self, level: EffortLevel) { self.context.effort = level; }
@@ -559,47 +679,150 @@ impl AgentEngine {
             // Wait for stream task and check for errors
             if !cancelled {
                 let stream_result = stream_handle.await;
-                let stream_failed = match stream_result {
-                    Ok(Ok(())) => false,
+                let stream_err = match stream_result {
+                    Ok(Ok(())) => None,
                     Ok(Err(e)) => {
                         warn!("Stream failed: {}", e);
-                        let _ = event_tx.send(EngineEvent::Error(format!("Stream error: {}", e)));
-                        true
+                        Some(e)
                     }
                     Err(e) => {
                         warn!("Stream task panicked: {}", e);
-                        let _ = event_tx.send(EngineEvent::Error(format!("Stream task error: {}", e)));
-                        true
+                        Some(anyhow::anyhow!("Stream task error: {}", e))
                     }
                 };
 
-                // Fallback: if stream failed with no content, retry non-streaming
-                if stream_failed && full_text.is_empty() && tool_calls.is_empty() {
-                    info!("Falling back to non-streaming LLM call");
-                    let fallback_request = ChatRequest {
-                        model: self.context.model.clone(),
-                        messages: self.messages.clone(),
-                        tools: convert_tool_definitions(&self.tools),
-                        temperature: Some(0.7),
-                        max_tokens: Some(4096),
-                    };
-                    match self.call_llm_with_retry(fallback_request).await {
-                        Ok(response) => {
-                            if let Some(ref text) = response.message.content {
-                                full_text = text.clone();
+                // If stream failed with no content, retry with backoff
+                if let Some(err) = stream_err {
+                    if full_text.is_empty() && tool_calls.is_empty() {
+                        let kind = classify_error(&err);
+                        if kind != ErrorKind::Fatal {
+                            let max_attempts = max_retries_for(kind);
+                            let mut retry_succeeded = false;
+
+                            for attempt in 0..max_attempts {
+                                let delay = retry_delay(kind, attempt);
+                                let _ = event_tx.send(EngineEvent::Retrying {
+                                    error_message: format!("{}", err),
+                                    attempt: attempt + 1,
+                                    max_attempts,
+                                    delay_secs: delay.as_secs(),
+                                });
+                                info!("Retrying stream (attempt {}/{}), waiting {:?}", attempt + 1, max_attempts, delay);
+                                tokio::time::sleep(delay).await;
+
+                                // Check cancellation before retry
+                                if let Some(ref token) = cancel_token {
+                                    if token.is_cancelled() {
+                                        let _ = event_tx.send(EngineEvent::Done);
+                                        return Ok(());
+                                    }
+                                }
+
+                                let retry_request = ChatRequest {
+                                    model: self.context.model.clone(),
+                                    messages: self.messages.clone(),
+                                    tools: convert_tool_definitions(&self.tools),
+                                    temperature: Some(0.7),
+                                    max_tokens: Some(4096),
+                                };
+
+                                // Retry streaming
+                                let (retry_tx, mut retry_rx) = mpsc::channel::<StreamEvent>(256);
+                                let retry_provider = self.provider.clone();
+                                let retry_handle = tokio::spawn(async move {
+                                    let result = tokio::time::timeout(
+                                        std::time::Duration::from_secs(LLM_TIMEOUT_SECS),
+                                        retry_provider.chat_stream(retry_request, retry_tx),
+                                    ).await;
+                                    match result {
+                                        Ok(inner) => inner,
+                                        Err(_) => Err(anyhow::anyhow!("LLM 调用超时 ({}秒)", LLM_TIMEOUT_SECS)),
+                                    }
+                                });
+
+                                // Consume retry stream
+                                let mut retry_cancelled = false;
+                                loop {
+                                    if let Some(ref token) = cancel_token {
+                                        tokio::select! {
+                                            event = retry_rx.recv() => {
+                                                match event {
+                                                    Some(ev) => {
+                                                        let is_done = matches!(ev, StreamEvent::Done(_));
+                                                        Self::process_stream_event(ev, &mut full_text, &mut tool_calls, &mut final_response, &event_tx);
+                                                        if is_done { break; }
+                                                    }
+                                                    None => break,
+                                                }
+                                            }
+                                            _ = token.cancelled() => {
+                                                retry_cancelled = true;
+                                                retry_handle.abort();
+                                                break;
+                                            }
+                                        }
+                                    } else {
+                                        match retry_rx.recv().await {
+                                            Some(ev) => {
+                                                let is_done = matches!(ev, StreamEvent::Done(_));
+                                                Self::process_stream_event(ev, &mut full_text, &mut tool_calls, &mut final_response, &event_tx);
+                                                if is_done { break; }
+                                            }
+                                            None => break,
+                                        }
+                                    }
+                                }
+
+                                if retry_cancelled {
+                                    if !full_text.is_empty() {
+                                        let assistant_msg = Message {
+                                            role: Role::Assistant,
+                                            content: Some(full_text.clone()),
+                                            tool_calls: vec![],
+                                            tool_call_id: None,
+                                            images: Vec::new(),
+                                        };
+                                        self.messages.push(assistant_msg);
+                                        self.persist_message("assistant", Some(&full_text), None, None);
+                                    }
+                                    let _ = event_tx.send(EngineEvent::Done);
+                                    return Ok(());
+                                }
+
+                                match retry_handle.await {
+                                    Ok(Ok(())) => {
+                                        retry_succeeded = true;
+                                        break;
+                                    }
+                                    Ok(Err(e2)) => {
+                                        warn!("Stream retry {}/{} failed: {}", attempt + 1, max_attempts, e2);
+                                    }
+                                    Err(e2) => {
+                                        warn!("Stream retry {}/{} panicked: {}", attempt + 1, max_attempts, e2);
+                                    }
+                                }
+
+                                // If we got content during retry, count as success
+                                if !full_text.is_empty() || !tool_calls.is_empty() {
+                                    retry_succeeded = true;
+                                    break;
+                                }
                             }
-                            tool_calls = response.message.tool_calls.clone();
-                            final_response = Some(response);
-                        }
-                        Err(e) => {
-                            error!("Non-streaming fallback also failed: {}", e);
-                            let _ = event_tx.send(EngineEvent::Error(format!("LLM call failed: {}", e)));
+
+                            if !retry_succeeded {
+                                let _ = event_tx.send(EngineEvent::Error(format!("{}", err)));
+                                let _ = event_tx.send(EngineEvent::Done);
+                                return Err(err).context("LLM chat request failed");
+                            }
+                        } else {
+                            // Fatal error — no retry
+                            let _ = event_tx.send(EngineEvent::Error(format!("{}", err)));
                             let _ = event_tx.send(EngineEvent::Done);
-                            return Err(e);
+                            return Err(err).context("LLM chat request failed");
                         }
                     }
+                    // else: stream failed but we have partial content, keep it
                 }
-                // If stream failed but we have partial content, keep it and continue
             }
 
             // Check if context window needs compression based on final response usage
@@ -761,14 +984,39 @@ impl AgentEngine {
         }
     }
 
-    /// Call LLM with retry logic for network errors (non-streaming).
+    /// Call LLM with retry logic (non-streaming). Classifies errors and uses appropriate backoff.
     async fn call_llm_with_retry(&self, request: ChatRequest) -> Result<ChatResponse> {
+        self.call_llm_with_retry_notify(request, None).await
+    }
+
+    /// Call LLM with retry logic, optionally notifying the UI about retries.
+    async fn call_llm_with_retry_notify(
+        &self,
+        request: ChatRequest,
+        event_tx: Option<&mpsc::UnboundedSender<EngineEvent>>,
+    ) -> Result<ChatResponse> {
         let mut last_err = None;
-        for attempt in 0..MAX_RETRIES {
-            if attempt > 0 {
-                let delay = std::time::Duration::from_millis(1000 * 2u64.pow(attempt - 1));
-                info!("Retrying LLM call (attempt {}/{}), waiting {:?}", attempt + 1, MAX_RETRIES, delay);
+        let mut attempt: u32 = 0;
+        let mut max_attempts = MAX_RETRIES; // will be adjusted on first error
+
+        loop {
+            if attempt > 0 && attempt <= max_attempts {
+                let kind = last_err.as_ref().map(classify_error).unwrap_or(ErrorKind::Transient);
+                let delay = retry_delay(kind, attempt - 1);
+                if let Some(tx) = event_tx {
+                    let _ = tx.send(EngineEvent::Retrying {
+                        error_message: format!("{}", last_err.as_ref().unwrap()),
+                        attempt,
+                        max_attempts,
+                        delay_secs: delay.as_secs(),
+                    });
+                }
+                info!("Retrying LLM call (attempt {}/{}), waiting {:?}", attempt, max_attempts, delay);
                 tokio::time::sleep(delay).await;
+            }
+
+            if attempt > max_attempts {
+                break;
             }
 
             let result = tokio::time::timeout(
@@ -779,18 +1027,25 @@ impl AgentEngine {
             match result {
                 Ok(Ok(response)) => return Ok(response),
                 Ok(Err(e)) => {
-                    warn!("LLM call failed (attempt {}): {}", attempt + 1, e);
+                    let kind = classify_error(&e);
+                    if kind == ErrorKind::Fatal {
+                        return Err(e).context("LLM chat request failed");
+                    }
+                    max_attempts = max_retries_for(kind);
+                    warn!("LLM call failed (attempt {}/{}): {}", attempt + 1, max_attempts, e);
                     last_err = Some(e);
                 }
                 Err(_) => {
                     let err = anyhow::anyhow!("LLM 调用超时 ({}秒)", LLM_TIMEOUT_SECS);
-                    warn!("LLM call timed out (attempt {})", attempt + 1);
+                    max_attempts = max_retries_for(ErrorKind::Transient);
+                    warn!("LLM call timed out (attempt {}/{})", attempt + 1, max_attempts);
                     last_err = Some(err);
                 }
             }
+            attempt += 1;
         }
 
-        Err(last_err.unwrap_or_else(|| anyhow::anyhow!("LLM call failed after {} retries", MAX_RETRIES)))
+        Err(last_err.unwrap_or_else(|| anyhow::anyhow!("LLM call failed after {} retries", max_attempts)))
             .context("LLM chat request failed")
     }
 

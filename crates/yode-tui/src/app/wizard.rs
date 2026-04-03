@@ -60,6 +60,8 @@ pub struct Wizard {
     on_complete: Option<WizardCallback>,
     /// Called after each step to update subsequent steps' defaults
     on_step: Option<StepCallback>,
+    /// Provider name to hot-reload after wizard completes (set by provider edit/add)
+    pub reload_provider: Option<String>,
     /// Error message to display (from validation)
     pub error: Option<String>,
 }
@@ -79,6 +81,7 @@ impl Wizard {
             answers: HashMap::new(),
             on_complete: Some(on_complete),
             on_step: None,
+            reload_provider: None,
             error: None,
         }
     }
@@ -86,6 +89,12 @@ impl Wizard {
     /// Set a callback that fires after each step, allowing dynamic default updates.
     pub fn with_step_callback(mut self, cb: StepCallback) -> Self {
         self.on_step = Some(cb);
+        self
+    }
+
+    /// Set a provider name to hot-reload after wizard completes.
+    pub fn with_reload_provider(mut self, name: String) -> Self {
+        self.reload_provider = Some(name);
         self
     }
 
@@ -178,6 +187,12 @@ impl Wizard {
         self.error = None;
 
         if self.current >= self.steps.len() {
+            // Auto-set reload_provider from answers if not explicitly set
+            if self.reload_provider.is_none() {
+                if let Some(name) = self.answers.get("name") {
+                    self.reload_provider = Some(name.clone());
+                }
+            }
             if let Some(callback) = self.on_complete.take() {
                 let result = callback(&self.answers)?;
                 Ok(Some(result))

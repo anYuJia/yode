@@ -208,7 +208,7 @@ async fn main() -> Result<()> {
     let db = Database::open(&db_path).context("Failed to open session database")?;
 
     // Setup LLM provider registry
-    let mut provider_registry = ProviderRegistry::new();
+    let provider_registry = ProviderRegistry::new();
 
     // Register all configured providers
     for (name, p_config) in &config.llm.providers {
@@ -402,6 +402,10 @@ async fn main() -> Result<()> {
                 }
                 EngineEvent::Error(e) => {
                     eprintln!("\x1b[31m错误: {}\x1b[0m", e);
+                }
+                EngineEvent::Retrying { error_message, attempt, max_attempts, delay_secs } => {
+                    eprintln!("\x1b[31m⎿  {}\x1b[0m", error_message);
+                    eprintln!("\x1b[33m   Retrying in {} seconds… (attempt {}/{})\x1b[0m", delay_secs, attempt, max_attempts);
                 }
                 EngineEvent::Done => break,
                 _ => {}

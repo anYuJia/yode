@@ -260,6 +260,9 @@ pub struct App {
     /// Provider registry for runtime switching
     pub provider_registry: Arc<ProviderRegistry>,
 
+    /// Engine reference for hot-reload
+    pub engine: Option<Arc<Mutex<AgentEngine>>>,
+
     /// Tool registry (for completion context)
     pub tools: Arc<ToolRegistry>,
 
@@ -324,6 +327,7 @@ impl App {
             provider_models,
             all_provider_models,
             provider_registry,
+            engine: None,
             tools,
             cmd_registry: crate::commands::registry::CommandRegistry::new(),
             wizard: None,
@@ -485,6 +489,7 @@ pub async fn run(
     }
 
     let engine = Arc::new(Mutex::new(engine_inner));
+    app.engine = Some(engine.clone());
     let (engine_event_tx, mut engine_event_rx) = mpsc::unbounded_channel::<EngineEvent>();
 
     let backend = CrosstermBackend::new(stdout);
@@ -770,8 +775,14 @@ fn handle_key_event(
                 match result {
                     Ok(None) => {} // More steps
                     Ok(Some(messages)) => {
+                        // Check if wizard wants to hot-reload a provider
+                        let reload_name = app.wizard.as_ref()
+                            .and_then(|w| w.reload_provider.clone());
                         for msg in messages {
                             app.chat_entries.push(ChatEntry::new(ChatRole::System, msg));
+                        }
+                        if let Some(name) = reload_name {
+                            reload_provider_from_config(&name, app);
                         }
                         app.wizard = None;
                     }
@@ -1093,6 +1104,12 @@ fn handle_enter(
             Some(Ok(CommandOutput::StartWizard(wizard))) => {
                 app.wizard = Some(wizard);
             }
+            Some(Ok(CommandOutput::ReloadProvider { name, messages })) => {
+                for msg in messages {
+                    app.chat_entries.push(ChatEntry::new(ChatRole::System, msg));
+                }
+                reload_provider_from_config(&name, app);
+            }
             Some(Err(e)) => {
                 app.chat_entries.push(ChatEntry::new(ChatRole::Error, e));
             }
@@ -1396,6 +1413,18 @@ fn handle_engine_event(app: &mut App, event: EngineEvent) {
             app.thinking_printed = false;
             app.chat_entries.push(ChatEntry::new(ChatRole::Error, e));
         }
+        EngineEvent::Retrying { error_message, attempt, max_attempts, delay_secs } => {
+            finalize_streaming(app);
+            app.thinking_printed = false;
+            app.chat_entries.push(ChatEntry::new(
+                ChatRole::Error,
+                error_message,
+            ));
+            app.chat_entries.push(ChatEntry::new(
+                ChatRole::System,
+                format!("Retrying in {} seconds… (attempt {}/{})", delay_secs, attempt, max_attempts),
+            ));
+        }
         EngineEvent::AskUser { id: _, question } => {
             finalize_streaming(app);
             app.chat_entries.push(ChatEntry::new(
@@ -1477,6 +1506,71 @@ fn handle_engine_event(app: &mut App, event: EngineEvent) {
                 ChatRole::System,
                 format!("Context compressed: removed {} messages to fit window.", removed),
             ));
+        }
+    }
+}
+
+/// Rebuild a provider from disk config and hot-reload it into the registry + engine.
+fn reload_provider_from_config(name: &str, app: &mut App) {
+    let config = match yode_core::config::Config::load() {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+    let p_config = match config.llm.providers.get(name) {
+        Some(c) => c,
+        None => return,
+    };
+
+    let env_prefix = name.to_uppercase().replace("-", "_");
+    let api_key = std::env::var(format!("{}_API_KEY", env_prefix))
+        .ok()
+        .or_else(|| p_config.api_key.clone())
+        .or_else(|| {
+            if p_config.format == "openai" {
+                std::env::var("OPENAI_API_KEY").ok()
+            } else {
+                std::env::var("ANTHROPIC_API_KEY")
+                    .or_else(|_| std::env::var("ANTHROPIC_AUTH_TOKEN"))
+                    .ok()
+            }
+        });
+
+    let api_key = match api_key {
+        Some(k) if !k.is_empty() => k,
+        _ => return,
+    };
+
+    let default_base = if p_config.format == "openai" {
+        "https://api.openai.com/v1"
+    } else {
+        "https://api.anthropic.com"
+    };
+    let base_url = std::env::var(format!("{}_BASE_URL", env_prefix))
+        .ok()
+        .or_else(|| p_config.base_url.clone())
+        .unwrap_or_else(|| default_base.to_string());
+
+    let provider: std::sync::Arc<dyn yode_llm::provider::LlmProvider> = if p_config.format == "openai" {
+        std::sync::Arc::new(yode_llm::providers::openai::OpenAiProvider::new(name, api_key, base_url))
+    } else {
+        std::sync::Arc::new(yode_llm::providers::anthropic::AnthropicProvider::new(name, api_key, base_url))
+    };
+
+    // Register (replaces old entry)
+    app.provider_registry.register(provider.clone());
+
+    // Update models list
+    if let Some(p_cfg) = config.llm.providers.get(name) {
+        app.all_provider_models.insert(name.to_string(), p_cfg.models.clone());
+    }
+
+    // If this is the active provider, also update the engine
+    if app.provider_name == name {
+        app.provider_models = p_config.models.clone();
+        if let Some(ref engine) = app.engine {
+            if let Ok(mut eng) = engine.try_lock() {
+                eng.set_provider(provider, name.to_string());
+            }
         }
     }
 }

@@ -283,10 +283,20 @@ impl Command for ProviderCommand {
 
                 let current_format = p.format.clone();
                 let current_url = p.base_url.clone().unwrap_or_default();
+                let current_api_key = p.api_key.clone().unwrap_or_default();
                 let current_models = if p.models.is_empty() { String::new() } else { p.models.join(", ") };
                 let provider_name = name.to_string();
 
                 let format_default = if current_format == "anthropic" { 1 } else { 0 };
+
+                // Mask the current API key for display: show first 4 and last 4 chars
+                let masked_key = if current_api_key.len() > 8 {
+                    format!("{}...{}", &current_api_key[..4], &current_api_key[current_api_key.len()-4..])
+                } else if !current_api_key.is_empty() {
+                    "****".to_string()
+                } else {
+                    String::new()
+                };
 
                 let wizard = Wizard::new(
                     format!("Editing provider '{}' (Enter to keep current)", name),
@@ -303,6 +313,11 @@ impl Command for ProviderCommand {
                             key: "base_url".into(),
                         },
                         WizardStep::Input {
+                            prompt: format!("API Key (current: {}): ", if masked_key.is_empty() { "not set" } else { &masked_key }),
+                            default: Some(current_api_key),
+                            key: "api_key".into(),
+                        },
+                        WizardStep::Input {
                             prompt: "Models (comma-separated, empty for unrestricted):".into(),
                             default: Some(current_models),
                             key: "models".into(),
@@ -311,6 +326,7 @@ impl Command for ProviderCommand {
                     Box::new(move |answers| {
                         let format = answers.get("format").ok_or("Missing format")?;
                         let base_url = answers.get("base_url").ok_or("Missing base_url")?;
+                        let api_key = answers.get("api_key").cloned().unwrap_or_default();
                         let models_str = answers.get("models").cloned().unwrap_or_default();
 
                         let mut config = yode_core::config::Config::load().map_err(|e| e.to_string())?;
@@ -319,22 +335,31 @@ impl Command for ProviderCommand {
 
                         p.format = format.clone();
                         p.base_url = if base_url.is_empty() { None } else { Some(base_url.clone()) };
+                        p.api_key = if api_key.is_empty() { None } else { Some(api_key.clone()) };
                         p.models = models_str.split(',')
                             .map(|s| s.trim().to_string())
                             .filter(|s| !s.is_empty())
                             .collect();
                         let model_info: String = if p.models.is_empty() { "(unrestricted)".into() } else { p.models.join(", ") };
+                        let key_display = if api_key.is_empty() {
+                            "(not set)".to_string()
+                        } else if api_key.len() > 8 {
+                            format!("{}...{}", &api_key[..4], &api_key[api_key.len()-4..])
+                        } else {
+                            "****".to_string()
+                        };
 
                         config.save().map_err(|e| e.to_string())?;
                         Ok(vec![
                             format!("Provider '{}' updated!", provider_name),
                             format!("  format:   {}", format),
                             format!("  base_url: {}", if base_url.is_empty() { "(default)" } else { base_url.as_str() }),
+                            format!("  api_key:  {}", key_display),
                             format!("  models:   {}", model_info),
-                            "Config saved. Restart yode to apply.".into(),
+                            "✓ Applied immediately.".into(),
                         ])
                     }),
-                );
+                ).with_reload_provider(name.to_string());
 
                 Ok(CommandOutput::StartWizard(wizard))
             }
@@ -344,23 +369,27 @@ impl Command for ProviderCommand {
                 if *value != "openai" && *value != "anthropic" {
                     return Err("Format must be 'openai' or 'anthropic'.".into());
                 }
-                edit_provider_field(name, "format", value)
+                let msgs = edit_provider_field(name, "format", value)?;
+                Ok(CommandOutput::ReloadProvider { name: name.to_string(), messages: msgs })
             }
 
             // /provider edit <name> base_url <value>
             ["edit", name, "base_url", value] => {
-                edit_provider_field(name, "base_url", value)
+                let msgs = edit_provider_field(name, "base_url", value)?;
+                Ok(CommandOutput::ReloadProvider { name: name.to_string(), messages: msgs })
             }
 
             // /provider edit <name> api_key <value>
             ["edit", name, "api_key", value] => {
-                edit_provider_field(name, "api_key", value)
+                let msgs = edit_provider_field(name, "api_key", value)?;
+                Ok(CommandOutput::ReloadProvider { name: name.to_string(), messages: msgs })
             }
 
             // /provider edit <name> models <model1,model2,...>
             ["edit", name, "models", ..] => {
                 let models_str = parts[3..].join(" ");
-                edit_provider_field(name, "models", &models_str)
+                let msgs = edit_provider_field(name, "models", &models_str)?;
+                Ok(CommandOutput::ReloadProvider { name: name.to_string(), messages: msgs })
             }
 
             _ => Err(
@@ -370,8 +399,8 @@ impl Command for ProviderCommand {
     }
 }
 
-/// Edit a single field of a provider config
-fn edit_provider_field(name: &str, field: &str, value: &str) -> CommandResult {
+/// Edit a single field of a provider config. Returns display messages.
+fn edit_provider_field(name: &str, field: &str, value: &str) -> Result<Vec<String>, String> {
     let mut config = yode_core::config::Config::load().map_err(|e| e.to_string())?;
     let p = config.llm.providers.get_mut(name)
         .ok_or_else(|| format!("Provider '{}' not found in config.", name))?;
@@ -397,10 +426,10 @@ fn edit_provider_field(name: &str, field: &str, value: &str) -> CommandResult {
 
     config.save().map_err(|e| e.to_string())?;
 
-    Ok(CommandOutput::Messages(vec![
+    Ok(vec![
         format!("Updated {}.{} = {}", name, field, value),
-        "Config saved. Restart yode to apply.".into(),
-    ]))
+        "✓ Applied immediately.".into(),
+    ])
 }
 
 /// Add a provider to ~/.yode/config.toml

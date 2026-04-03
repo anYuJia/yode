@@ -13,7 +13,7 @@ async fn test_anthropic_chat() {
     let model = std::env::var("ANTHROPIC_MODEL")
         .unwrap_or_else(|_| "claude-sonnet-4-20250514".to_string());
 
-    let provider = AnthropicProvider::new(api_key, base_url);
+    let provider = AnthropicProvider::new("anthropic", api_key, base_url);
     assert_eq!(provider.name(), "anthropic");
 
     // Test non-streaming chat
@@ -46,7 +46,7 @@ async fn test_anthropic_stream() {
     let model = std::env::var("ANTHROPIC_MODEL")
         .unwrap_or_else(|_| "claude-sonnet-4-20250514".to_string());
 
-    let provider = AnthropicProvider::new(api_key, base_url);
+    let provider = AnthropicProvider::new("anthropic", api_key, base_url);
 
     let request = ChatRequest {
         model,
@@ -92,7 +92,7 @@ async fn test_anthropic_tool_call() {
     let model = std::env::var("ANTHROPIC_MODEL")
         .unwrap_or_else(|_| "claude-sonnet-4-20250514".to_string());
 
-    let provider = AnthropicProvider::new(api_key, base_url);
+    let provider = AnthropicProvider::new("anthropic", api_key, base_url);
 
     let tools = vec![ToolDefinition {
         name: "read_file".to_string(),
