@@ -60,6 +60,8 @@ pub enum CommandOutput {
     Message(String),
     Messages(Vec<String>),
     Silent,
+    /// Start an interactive wizard (multi-step input flow)
+    StartWizard(crate::app::wizard::Wizard),
 }
 
 pub type CommandResult = Result<CommandOutput, String>;

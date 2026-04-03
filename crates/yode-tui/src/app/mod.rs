@@ -2,6 +2,7 @@ pub mod commands;
 pub mod completion;
 pub mod history;
 pub mod input;
+pub mod wizard;
 
 use std::collections::HashMap;
 use std::io::{self, Write as IoWrite};
@@ -264,6 +265,9 @@ pub struct App {
 
     /// Command registry for slash commands
     pub cmd_registry: crate::commands::registry::CommandRegistry,
+
+    /// Active interactive wizard (multi-step input flow)
+    pub wizard: Option<wizard::Wizard>,
 }
 
 impl App {
@@ -322,6 +326,7 @@ impl App {
             provider_registry,
             tools,
             cmd_registry: crate::commands::registry::CommandRegistry::new(),
+            wizard: None,
         }
     }
 
@@ -952,6 +957,42 @@ fn handle_enter(
     app.cmd_completion.close();
     app.file_completion.close();
 
+    // Wizard mode — feed input to active wizard
+    if app.wizard.is_some() {
+        let input = raw_typed.trim().to_string();
+        // Handle Esc/cancel
+        if input == "/cancel" || input == "q" || input == "quit" {
+            app.wizard = None;
+            app.chat_entries.push(ChatEntry::new(ChatRole::System, "Wizard cancelled.".into()));
+            return;
+        }
+
+        let wizard = app.wizard.as_mut().unwrap();
+        match wizard.submit(&input) {
+            Ok(None) => {
+                // More steps — show next prompt
+                if let Some(prompt) = wizard.prompt_text() {
+                    app.chat_entries.push(ChatEntry::new(ChatRole::System, prompt));
+                }
+            }
+            Ok(Some(messages)) => {
+                // Wizard complete
+                for msg in messages {
+                    app.chat_entries.push(ChatEntry::new(ChatRole::System, msg));
+                }
+                app.wizard = None;
+            }
+            Err(e) => {
+                // Invalid input — show error and re-prompt
+                app.chat_entries.push(ChatEntry::new(ChatRole::Error, e));
+                if let Some(prompt) = wizard.prompt_text() {
+                    app.chat_entries.push(ChatEntry::new(ChatRole::System, prompt));
+                }
+            }
+        }
+        return;
+    }
+
     // Shell command
     if app.handle_shell_command(&raw_typed) {
         return;
@@ -1015,6 +1056,14 @@ fn handle_enter(
                 }
             }
             Some(Ok(CommandOutput::Silent)) => {}
+            Some(Ok(CommandOutput::StartWizard(wizard))) => {
+                // Show wizard title and first prompt
+                app.chat_entries.push(ChatEntry::new(ChatRole::System, wizard.title.clone()));
+                if let Some(prompt) = wizard.prompt_text() {
+                    app.chat_entries.push(ChatEntry::new(ChatRole::System, prompt));
+                }
+                app.wizard = Some(wizard);
+            }
             Some(Err(e)) => {
                 app.chat_entries.push(ChatEntry::new(ChatRole::Error, e));
             }
