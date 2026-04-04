@@ -45,8 +45,14 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         let input_height = visual_lines.clamp(1, 5);
         let status_height: u16 = if app.turn_status.is_visible() { 1 } else { 0 };
 
-        let completion_height = if app.cmd_completion.is_active() && !app.cmd_completion.candidates.is_empty() {
-            (app.cmd_completion.candidates.len() as u16).min(5)
+        let completion_height = if app.cmd_completion.is_active() {
+            if app.cmd_completion.args_hint.is_some() {
+                1
+            } else if !app.cmd_completion.candidates.is_empty() {
+                5
+            } else {
+                0
+            }
         } else {
             0
         };

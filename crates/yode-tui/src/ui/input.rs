@@ -245,6 +245,7 @@ pub fn render_attachments(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 /// Render command completions as an inline list below the input area.
+/// Grows from bottom to top, with the best match at the bottom.
 pub fn render_command_inline(frame: &mut Frame, area: Rect, app: &App) {
     if area.height == 0 || area.width == 0 { return; }
 
@@ -277,10 +278,19 @@ pub fn render_command_inline(frame: &mut Frame, area: Rect, app: &App) {
     let cmd_col_width = max_cmd_len + 1;
     let available_width = area.width as usize;
 
-    let items: Vec<Line> = show_candidates
+    // We want the most relevant items (first in list) to be at the BOTTOM.
+    // So we take the first `max_show` items and reverse them for rendering.
+    let mut render_items: Vec<(usize, &(String, String))> = show_candidates
         .iter()
         .take(max_show)
         .enumerate()
+        .collect();
+    
+    // Reverse so index 0 (best match) is the last element in the Vec (rendered at bottom)
+    render_items.reverse();
+
+    let mut lines: Vec<Line> = render_items
+        .into_iter()
         .map(|(i, (cmd, desc))| {
             let desc_max = available_width.saturating_sub(cmd_col_width + 5);
             let desc_truncated: String = if desc.len() > desc_max {
@@ -323,7 +333,18 @@ pub fn render_command_inline(frame: &mut Frame, area: Rect, app: &App) {
         })
         .collect();
 
-    frame.render_widget(Paragraph::new(items).style(Style::default().bg(bg)), area);
+    // If we have fewer candidates than area.height, we need to push them to the bottom.
+    if lines.len() < area.height as usize {
+        let diff = area.height as usize - lines.len();
+        let mut padded = Vec::with_capacity(area.height as usize);
+        for _ in 0..diff {
+            padded.push(Line::from(Span::styled(" ".repeat(area.width as usize), Style::default().bg(bg))));
+        }
+        padded.extend(lines);
+        lines = padded;
+    }
+
+    frame.render_widget(Paragraph::new(lines).style(Style::default().bg(bg)), area);
 }
 
 fn render_file_popup(frame: &mut Frame, area: Rect, app: &App) {

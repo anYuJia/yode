@@ -723,8 +723,14 @@ async fn run_app(
             } else {
                 let term_width = terminal.get_frame().area().width;
                 let visual_lines = app.input.visual_line_count(term_width) as u16;
-                let completion_lines = if app.cmd_completion.is_active() && !app.cmd_completion.candidates.is_empty() {
-                    (app.cmd_completion.candidates.len() as u16).min(5)
+                let completion_lines = if app.cmd_completion.is_active() {
+                    if app.cmd_completion.args_hint.is_some() {
+                        1
+                    } else if !app.cmd_completion.candidates.is_empty() {
+                        5 // Stable height to avoid bouncing during filtering
+                    } else {
+                        0
+                    }
                 } else {
                     0
                 };
@@ -750,8 +756,12 @@ async fn run_app(
                     terminal.viewport = ratatui::Viewport::Inline(needed);
                     terminal.set_viewport_area(new_area);
                 } else {
-                    // Shrinking: clear freed rows, then resize
+                    // Shrinking: scroll down to pull history back, then resize
+                    let shrink_by = area.height - needed;
                     let new_y = area.bottom().saturating_sub(needed);
+
+                    // Clear the rows that were part of the TUI but are now going to be history.
+                    // This avoids flickering old TUI content before history is pulled back.
                     for row in area.y..new_y {
                         crossterm::execute!(
                             terminal.backend_mut(),
@@ -759,6 +769,12 @@ async fn run_app(
                             crossterm::terminal::Clear(crossterm::terminal::ClearType::CurrentLine)
                         )?;
                     }
+
+                    crossterm::execute!(
+                        terminal.backend_mut(),
+                        crossterm::terminal::ScrollDown(shrink_by)
+                    )?;
+
                     let new_area = ratatui::layout::Rect {
                         x: area.x,
                         y: new_y,
