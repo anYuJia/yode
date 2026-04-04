@@ -303,7 +303,8 @@ fn parse_response(resp: &GeminiResponse, _model: &str) -> (Message, Usage) {
 
     let message = Message {
         role: Role::Assistant,
-        content: if text.is_empty() { None } else { Some(text) },
+        content: if text.is_empty() { None } else { Some(text.clone()) },
+        content_blocks: if text.is_empty() { vec![] } else { vec![crate::types::ContentBlock::Text { text }] },
         reasoning: None,
         tool_calls,
         tool_call_id: None,
@@ -476,7 +477,8 @@ impl LlmProvider for GeminiProvider {
 
         let message = Message {
             role: Role::Assistant,
-            content: if full_text.is_empty() { None } else { Some(full_text) },
+            content: if full_text.is_empty() { None } else { Some(full_text.clone()) },
+            content_blocks: if full_text.is_empty() { vec![] } else { vec![crate::types::ContentBlock::Text { text: full_text }] },
             reasoning: None,
             tool_calls: all_tool_calls,
             tool_call_id: None,

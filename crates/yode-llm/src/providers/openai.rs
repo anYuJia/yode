@@ -228,9 +228,18 @@ fn openai_message_to_internal(msg: &OpenAiMessage) -> Message {
         })
         .unwrap_or_default();
 
+    let mut blocks = Vec::new();
+    if let Some(ref r) = msg.reasoning_content {
+        blocks.push(crate::types::ContentBlock::Thinking { thinking: r.clone(), signature: None });
+    }
+    if let Some(ref t) = msg.content {
+        blocks.push(crate::types::ContentBlock::Text { text: t.clone() });
+    }
+
     Message {
         role: string_to_role(&msg.role),
         content: msg.content.clone(),
+        content_blocks: blocks,
         reasoning: msg.reasoning_content.clone(),
         tool_calls,
         tool_call_id: msg.tool_call_id.clone(),
@@ -585,10 +594,19 @@ impl LlmProvider for OpenAiProvider {
             Some(full_reasoning)
         };
 
+        let mut blocks = Vec::new();
+        if let Some(ref r) = reasoning {
+            blocks.push(crate::types::ContentBlock::Thinking { thinking: r.clone(), signature: None });
+        }
+        if let Some(ref t) = content {
+            blocks.push(crate::types::ContentBlock::Text { text: t.clone() });
+        }
+
         let final_message = Message {
             role: Role::Assistant,
             content,
             reasoning,
+            content_blocks: blocks,
             tool_calls: final_tool_calls,
             tool_call_id: None,
             images: Vec::new(),

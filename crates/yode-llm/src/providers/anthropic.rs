@@ -26,7 +26,16 @@ struct AnthropicRequest {
     tools: Vec<AnthropicTool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thinking: Option<AnthropicThinkingConfig>,
     stream: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct AnthropicThinkingConfig {
+    #[serde(rename = "type")]
+    thinking_type: String,
+    budget_tokens: u32,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -50,8 +59,8 @@ enum ContentBlock {
     #[serde(rename = "thinking")]
     Thinking {
         thinking: String,
-        #[serde(default)]
-        signature: Option<String>,
+        #[serde(default, rename = "signature")]
+        _signature: Option<String>,
     },
     #[serde(rename = "image")]
     Image {
@@ -68,6 +77,8 @@ enum ContentBlock {
         tool_use_id: String,
         content: String,
     },
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -166,15 +177,15 @@ struct AnthropicMessageStart {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ContentBlockStart {
-    #[serde(rename = "text")]
+    #[serde(rename = "text", alias = "text_start")]
     Text { text: String },
-    #[serde(rename = "thinking")]
+    #[serde(rename = "thinking", alias = "thinking_start")]
     Thinking {
         thinking: String,
-        #[serde(default)]
-        signature: Option<String>,
+        #[serde(default, rename = "signature")]
+        _signature: Option<String>,
     },
-    #[serde(rename = "tool_use")]
+    #[serde(rename = "tool_use", alias = "tool_use_start")]
     ToolUse { id: String, name: String },
     #[serde(other)]
     Unknown,
@@ -183,15 +194,15 @@ enum ContentBlockStart {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ContentBlockDelta {
-    #[serde(rename = "text_delta")]
+    #[serde(rename = "text_delta", alias = "text")]
     TextDelta { text: String },
-    #[serde(rename = "thinking_delta")]
+    #[serde(rename = "thinking_delta", alias = "thinking")]
     ThinkingDelta {
         thinking: String,
-        #[serde(default)]
-        signature: Option<String>,
+        #[serde(default, rename = "signature")]
+        _signature: Option<String>,
     },
-    #[serde(rename = "input_json_delta")]
+    #[serde(rename = "input_json_delta", alias = "input_json")]
     InputJsonDelta { partial_json: String },
     #[serde(other)]
     Unknown,
@@ -361,14 +372,26 @@ impl LlmProvider for AnthropicProvider {
     async fn chat(&self, request: ChatRequest) -> Result<ChatResponse> {
         let (system, messages) = Self::convert_messages(&request.messages);
         let tools = Self::convert_tools(&request.tools);
+        let max_tokens = request.max_tokens.unwrap_or(4096);
+
+        // Automatically enable thinking if max_tokens is high enough (Claude-style)
+        let thinking = if max_tokens >= 2048 {
+            Some(AnthropicThinkingConfig {
+                thinking_type: "enabled".to_string(),
+                budget_tokens: 1024.min(max_tokens - 1024),
+            })
+        } else {
+            None
+        };
 
         let body = AnthropicRequest {
             model: request.model.clone(),
-            max_tokens: request.max_tokens.unwrap_or(4096),
+            max_tokens,
             messages,
             system,
             tools,
-            temperature: request.temperature,
+            temperature: if thinking.is_some() { None } else { request.temperature },
+            thinking,
             stream: false,
         };
 
@@ -407,14 +430,17 @@ impl LlmProvider for AnthropicProvider {
         let mut text_content = String::new();
         let mut reasoning_content = String::new();
         let mut tool_calls = Vec::new();
+        let mut content_blocks = Vec::new();
 
         for block in &api_resp.content {
             match block {
                 ContentBlock::Text { text } => {
                     text_content.push_str(text);
+                    content_blocks.push(crate::types::ContentBlock::Text { text: text.clone() });
                 }
                 ContentBlock::Thinking { thinking, .. } => {
                     reasoning_content.push_str(thinking);
+                    content_blocks.push(crate::types::ContentBlock::Thinking { thinking: thinking.clone(), signature: None });
                 }
                 ContentBlock::ToolUse { id, name, input } => {
                     tool_calls.push(ToolCall {
@@ -448,6 +474,7 @@ impl LlmProvider for AnthropicProvider {
             } else {
                 Some(reasoning_content)
             },
+            content_blocks,
             tool_calls,
             tool_call_id: None,
             images: Vec::new(),
@@ -467,14 +494,26 @@ impl LlmProvider for AnthropicProvider {
     ) -> Result<()> {
         let (system, messages) = Self::convert_messages(&request.messages);
         let tools = Self::convert_tools(&request.tools);
+        let max_tokens = request.max_tokens.unwrap_or(4096);
+
+        // Automatically enable thinking if max_tokens is high enough (Claude-style)
+        let thinking = if max_tokens >= 2048 {
+            Some(AnthropicThinkingConfig {
+                thinking_type: "enabled".to_string(),
+                budget_tokens: 1024.min(max_tokens - 1024),
+            })
+        } else {
+            None
+        };
 
         let body = AnthropicRequest {
             model: request.model.clone(),
-            max_tokens: request.max_tokens.unwrap_or(4096),
+            max_tokens,
             messages,
             system,
             tools,
-            temperature: request.temperature,
+            temperature: if thinking.is_some() { None } else { request.temperature },
+            thinking,
             stream: true,
         };
 
@@ -511,8 +550,8 @@ impl LlmProvider for AnthropicProvider {
 
         let mut event_stream = resp.bytes_stream().eventsource();
 
-        let mut full_content = String::new();
-        let mut full_reasoning = String::new();
+        // Accumulated state for building the final ChatResponse (Claude-style)
+        let mut content_blocks: std::collections::BTreeMap<u32, crate::types::ContentBlock> = std::collections::BTreeMap::new();
         let mut tool_calls: Vec<ToolCall> = Vec::new();
         let mut current_tool_args = String::new();
         let mut model = request.model.clone();
@@ -544,21 +583,26 @@ impl LlmProvider for AnthropicProvider {
                     model = message.model;
                     if let Some(u) = message.usage {
                         final_usage.prompt_tokens = u.input_tokens;
+                        let _ = tx.send(StreamEvent::UsageUpdate(Usage {
+                            prompt_tokens: u.input_tokens,
+                            completion_tokens: 0,
+                            total_tokens: u.input_tokens,
+                        })).await;
                     }
                 }
                 AnthropicStreamEvent::ContentBlockStart {
-                    index: _,
+                    index,
                     content_block,
                 } => match content_block {
                     ContentBlockStart::Text { text } => {
+                        content_blocks.insert(index, crate::types::ContentBlock::Text { text: text.clone() });
                         if !text.is_empty() {
-                            full_content.push_str(&text);
                             let _ = tx.send(StreamEvent::TextDelta(text)).await;
                         }
                     }
                     ContentBlockStart::Thinking { thinking, .. } => {
+                        content_blocks.insert(index, crate::types::ContentBlock::Thinking { thinking: thinking.clone(), signature: None });
                         if !thinking.is_empty() {
-                            full_reasoning.push_str(&thinking);
                             let _ = tx.send(StreamEvent::ReasoningDelta(thinking)).await;
                         }
                     }
@@ -573,15 +617,19 @@ impl LlmProvider for AnthropicProvider {
                     }
                     ContentBlockStart::Unknown => {}
                 },
-                AnthropicStreamEvent::ContentBlockDelta { index: _, delta } => match delta {
+                AnthropicStreamEvent::ContentBlockDelta { index, delta } => match delta {
                     ContentBlockDelta::TextDelta { text } => {
-                        full_content.push_str(&text);
+                        if let Some(crate::types::ContentBlock::Text { text: t }) = content_blocks.get_mut(&index) {
+                            t.push_str(&text);
+                        }
                         if tx.send(StreamEvent::TextDelta(text)).await.is_err() {
                             return Ok(());
                         }
                     }
                     ContentBlockDelta::ThinkingDelta { thinking, .. } => {
-                        full_reasoning.push_str(&thinking);
+                        if let Some(crate::types::ContentBlock::Thinking { thinking: t, .. }) = content_blocks.get_mut(&index) {
+                            t.push_str(&thinking);
+                        }
                         if tx.send(StreamEvent::ReasoningDelta(thinking)).await.is_err() {
                             return Ok(());
                         }
@@ -630,16 +678,23 @@ impl LlmProvider for AnthropicProvider {
             }
         }
 
-        let content = if full_content.is_empty() {
-            None
-        } else {
-            Some(full_content)
-        };
+        // Finalize final message using accumulated blocks (Claude-style)
+        let final_content_blocks: Vec<crate::types::ContentBlock> = content_blocks.into_values().collect();
+        let mut full_text = String::new();
+        let mut full_reasoning = String::new();
+        
+        for block in &final_content_blocks {
+            match block {
+                crate::types::ContentBlock::Text { text } => full_text.push_str(text),
+                crate::types::ContentBlock::Thinking { thinking, .. } => full_reasoning.push_str(thinking),
+            }
+        }
 
         let final_message = Message {
             role: Role::Assistant,
-            content,
+            content: if full_text.is_empty() { None } else { Some(full_text) },
             reasoning: if full_reasoning.is_empty() { None } else { Some(full_reasoning) },
+            content_blocks: final_content_blocks,
             tool_calls,
             tool_call_id: None,
             images: Vec::new(),
