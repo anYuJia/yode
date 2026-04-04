@@ -316,6 +316,11 @@ pub struct App {
     pub update_downloading: bool,
     /// Downloaded update path (ready to install)
     pub update_downloaded: Option<String>,
+
+    /// Prompt suggestion (ghost text shown at cursor end when input is empty)
+    pub prompt_suggestion: Option<String>,
+    /// Whether prompt suggestion is enabled
+    pub prompt_suggestion_enabled: bool,
 }
 
 impl App {
@@ -382,6 +387,8 @@ impl App {
             update_available: None,
             update_downloading: false,
             update_downloaded: None,
+            prompt_suggestion: None,
+            prompt_suggestion_enabled: true,
         }
     }
 
@@ -1238,6 +1245,9 @@ fn handle_enter(
 }
 
 fn handle_char(app: &mut App, key: crossterm::event::KeyEvent, c: char) {
+    // Clear suggestion when user starts typing
+    app.input.clear_ghost_text();
+
     if key.modifiers.contains(KeyModifiers::CONTROL) {
         match c {
             'a' => app.input.move_home(),
@@ -1313,6 +1323,13 @@ fn browse_history_next(app: &mut App) {
 }
 
 fn handle_tab(app: &mut App) {
+    // First: accept suggestion if available (ghost text at cursor end)
+    if let Some(suggestion) = app.prompt_suggestion.take() {
+        app.input.set_text(&suggestion);
+        app.input.clear_ghost_text();
+        return;
+    }
+
     if app.file_completion.is_active() {
         if app.file_completion.candidates.len() == 1 {
             if let Some(path) = app.file_completion.accept() {
@@ -1559,6 +1576,12 @@ fn handle_engine_event(app: &mut App, event: EngineEvent) {
             app.thinking_printed = false;
             app.sync_thinking();
             app.tool_call_starts.clear();
+
+            // Generate prompt suggestion (ghost text) when input is empty
+            if app.prompt_suggestion_enabled && app.input.is_empty() {
+                app.prompt_suggestion = generate_prompt_suggestion(&app.chat_entries);
+                app.input.set_ghost_text(app.prompt_suggestion.clone());
+            }
         }
         EngineEvent::SubAgentStart { description } => {
             finalize_streaming(app);
@@ -2913,4 +2936,50 @@ fn render_inline_md(text: &str, ansi: bool) -> String {
         }
     }
     result
+}
+
+/// Generate prompt suggestion based on conversation context.
+/// This is a simple rule-based implementation for now.
+/// Can be extended to call LLM for smarter suggestions (like Claude Code does).
+fn generate_prompt_suggestion(chat_entries: &[ChatEntry]) -> Option<String> {
+    // Need at least one user message and one assistant response
+    if chat_entries.len() < 2 {
+        return None;
+    }
+
+    // Find the last assistant message
+    let last_assistant_idx = chat_entries.iter().rposition(|e| matches!(e.role, ChatRole::Assistant))?;
+
+    // Get the last assistant message content
+    let last_assistant = &chat_entries[last_assistant_idx];
+
+    // Analyze the message to generate suggestion
+    let content = last_assistant.content.to_lowercase();
+
+    // Common follow-up suggestions based on context
+    let suggestions: Vec<(&str, Vec<&str>)> = vec![
+        ("code", vec!["run the code", "test it", "explain the code"]),
+        ("test", vec!["run the tests", "show test results"]),
+        ("file", vec!["show me the file", "read the file"]),
+        ("search", vec!["search for more", "grep the codebase"]),
+        ("build", vec!["build the project", "compile it"]),
+        ("error", vec!["fix the error", "what went wrong?"]),
+        ("done", vec!["what's next?", "summarize the changes"]),
+        ("commit", vec!["commit the changes", "show git status"]),
+    ];
+
+    for (keyword, suggestion_list) in suggestions {
+        if content.contains(keyword) {
+            // Pick the first suggestion for now
+            return Some(suggestion_list.first()?.to_string());
+        }
+    }
+
+    // Default suggestions for common scenarios
+    if content.contains("?") {
+        return Some("thank you".to_string());
+    }
+
+    // No specific suggestion
+    None
 }

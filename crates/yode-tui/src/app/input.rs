@@ -9,6 +9,8 @@ pub struct InputState {
     /// Attachments (e.g. folded pasted text).
     /// Inline placeholder \u{FFFC} in `lines` marks where each attachment belongs.
     pub attachments: Vec<InputAttachment>,
+    /// Ghost text (system suggestion shown in gray at cursor end)
+    pub ghost_text: Option<String>,
 }
 
 /// Placeholder character inserted into the text buffer to mark attachment position.
@@ -28,6 +30,7 @@ impl InputState {
             cursor_line: 0,
             cursor_col: 0,
             attachments: Vec::new(),
+            ghost_text: None,
         }
     }
 
@@ -154,6 +157,12 @@ impl InputState {
         self.cursor_line = 0;
         self.cursor_col = 0;
         self.attachments.clear();
+        self.ghost_text = None;
+    }
+
+    /// Clear ghost text only.
+    pub fn clear_ghost_text(&mut self) {
+        self.ghost_text = None;
     }
 
     /// Set input to given text (single line).
@@ -161,6 +170,12 @@ impl InputState {
         self.lines = vec![text.to_string()];
         self.cursor_line = 0;
         self.cursor_col = text.chars().count();
+        self.ghost_text = None;
+    }
+
+    /// Set ghost text (shown in gray at cursor end when cursor is at end of input).
+    pub fn set_ghost_text(&mut self, text: Option<String>) {
+        self.ghost_text = text;
     }
 
     // ── Character operations ────────────────────────────────────────
@@ -315,7 +330,7 @@ impl InputState {
     // ── Internal helpers ────────────────────────────────────────────
 
     /// Current line's char count.
-    fn char_count(&self) -> usize {
+    pub fn char_count(&self) -> usize {
         self.lines[self.cursor_line].chars().count()
     }
 

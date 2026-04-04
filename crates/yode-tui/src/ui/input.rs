@@ -11,6 +11,7 @@ const PROMPT_COLOR: Color = Color::LightGreen;
 const PROMPT_DIM: Color = Color::DarkGray;    // ANSI 8
 const TEXT_COLOR: Color = Color::White;        // ANSI 15
 const HINT_COLOR: Color = Color::Gray;         // ANSI 7
+const GHOST_COLOR: Color = Color::DarkGray;    // ANSI 8 - for ghost text
 
 pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
     if area.height == 0 { return; }
@@ -150,6 +151,16 @@ pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
                     col += item_w;
                 }
             }
+
+            // Add ghost text if cursor is at end of last line
+            let is_last_line = i == app.input.lines.len() - 1;
+            let cursor_at_end = app.input.cursor_col == app.input.char_count();
+            if is_last_line && cursor_at_end && app.input.cursor_line == app.input.lines.len() - 1 {
+                if let Some(ref ghost) = app.input.ghost_text {
+                    row_spans.push(Span::styled(ghost.clone(), Style::default().fg(GHOST_COLOR)));
+                }
+            }
+
             if !row_spans.is_empty() {
                 visual_lines.push(Line::from(row_spans));
             }
