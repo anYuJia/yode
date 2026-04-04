@@ -43,7 +43,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         let term_width = frame.area().width;
         let visual_lines = app.input.visual_line_count(term_width) as u16;
         let input_height = visual_lines.clamp(1, 5);
-        let status_height: u16 = if app.turn_status.is_visible() { 1 } else { 0 };
+        let status_height_raw: u16 = if app.turn_status.is_visible() { 1 } else { 0 };
 
         let completion_height = if app.cmd_completion.is_active() {
             if app.cmd_completion.args_hint.is_some() {
@@ -57,12 +57,21 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             0
         };
 
+        // If completion is active, we hide the turn status to save space and avoid clutter.
+        // Otherwise, if status is visible, we give it 3 lines (blank + status + blank).
+        let status_area_height = if completion_height > 0 {
+            0
+        } else if status_height_raw > 0 {
+            3
+        } else {
+            0
+        };
+
         if completion_height > 0 {
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
                     Constraint::Length(completion_height),
-                    Constraint::Length(status_height),
                     Constraint::Length(1), // separator above input
                     Constraint::Length(input_height),
                     Constraint::Length(1), // separator above status bar
@@ -72,17 +81,16 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                 .split(frame.area());
 
             input::render_command_inline(frame, chunks[0], app);
-            render_turn_status(frame, chunks[1], app);
-            status_bar::render_separator(frame, chunks[2]);
-            input::render_input(frame, chunks[3], app);
-            status_bar::render_separator(frame, chunks[4]);
-            status_bar::render_info_line(frame, chunks[5], app);
-            status_bar::render_blank_line(frame, chunks[6]);
+            status_bar::render_separator(frame, chunks[1]);
+            input::render_input(frame, chunks[2], app);
+            status_bar::render_separator(frame, chunks[3]);
+            status_bar::render_info_line(frame, chunks[4], app);
+            status_bar::render_blank_line(frame, chunks[5]);
         } else {
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Length(status_height),
+                    Constraint::Length(status_area_height),
                     Constraint::Length(1), // separator above input
                     Constraint::Length(input_height),
                     Constraint::Length(1), // separator above status bar
@@ -91,7 +99,9 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                 ])
                 .split(frame.area());
 
-            render_turn_status(frame, chunks[0], app);
+            if status_area_height > 0 {
+                render_turn_status(frame, chunks[0], app);
+            }
             status_bar::render_separator(frame, chunks[1]);
             input::render_input(frame, chunks[2], app);
             status_bar::render_separator(frame, chunks[3]);
@@ -168,8 +178,12 @@ fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &App)
         }
     };
 
-    // Render status line directly (no blank line padding — viewport is tight)
-    let lines = vec![status_line];
+    // Render status line with blank lines for padding if height allows
+    let lines = if area.height >= 3 {
+        vec![Line::from(""), status_line, Line::from("")]
+    } else {
+        vec![status_line]
+    };
     frame.render_widget(Paragraph::new(lines), area);
 }
 
