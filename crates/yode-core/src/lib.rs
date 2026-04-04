@@ -9,6 +9,7 @@ pub mod permission;
 pub mod session;
 pub mod setup;
 pub mod skills;
+pub mod updater;
 
 pub use context::EffortLevel;
 pub use permission::PermissionMode;

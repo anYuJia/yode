@@ -28,3 +28,12 @@ db_path = ""
 language = "zh-CN"
 # 主题：dark, light
 theme = "dark"
+
+[update]
+# 是否自动检查更新 (true=启用，false=禁用)
+# 禁用后启动时不会检测新版本，也不会提示更新
+auto_check = true
+# 是否自动后台下载更新 (true=启用，false=禁用)
+# 启用后检测到新版本会自动下载安装包
+# 禁用后仅提示有新版本，需要手动下载
+auto_download = false

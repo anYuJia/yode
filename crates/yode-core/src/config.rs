@@ -18,6 +18,8 @@ pub struct Config {
     pub hooks: HooksConfig,
     #[serde(default)]
     pub cost: CostConfig,
+    #[serde(default)]
+    pub update: UpdateConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -115,6 +117,28 @@ pub struct CostConfig {
     /// Whether to show cost summary after each turn
     #[serde(default)]
     pub show_cost_per_turn: bool,
+}
+
+// ─── Update Config ────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct UpdateConfig {
+    /// Whether to automatically check for updates on startup
+    #[serde(default = "default_true")]
+    pub auto_check: bool,
+    /// Whether to automatically download updates in background
+    #[serde(default)]
+    pub auto_download: bool,
+    /// Last checked timestamp (ISO 8601)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_checked: Option<String>,
+    /// Last downloaded version
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_downloaded_version: Option<String>,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 // ─── Config Loading ─────────────────────────────────────────────────────────

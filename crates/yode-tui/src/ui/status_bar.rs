@@ -96,5 +96,26 @@ pub fn render_info_line(frame: &mut Frame, area: Rect, app: &App) {
     parts.push(Span::styled(" · ", Style::default().fg(SEP)));
     parts.push(Span::styled("/help", Style::default().fg(MUTED)));
 
+    // Update notification (right-aligned)
+    if let Some(ref version) = app.update_available {
+        parts.push(Span::styled(" · ", Style::default().fg(SEP)));
+        parts.push(Span::styled(
+            format!("✨ Update available: {} (restart to apply)", version),
+            Style::default().fg(Color::LightCyan),
+        ));
+    } else if app.update_downloading {
+        parts.push(Span::styled(" · ", Style::default().fg(SEP)));
+        parts.push(Span::styled(
+            "⏳ Downloading update...",
+            Style::default().fg(Color::Yellow),
+        ));
+    } else if let Some(ref version) = app.update_downloaded {
+        parts.push(Span::styled(" · ", Style::default().fg(SEP)));
+        parts.push(Span::styled(
+            format!("✅ Update v{} ready (restart to apply)", version),
+            Style::default().fg(Color::LightGreen),
+        ));
+    }
+
     frame.render_widget(Paragraph::new(Line::from(parts)), area);
 }

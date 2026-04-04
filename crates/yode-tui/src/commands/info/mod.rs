@@ -5,6 +5,7 @@ mod version;
 mod config;
 mod context_cmd;
 mod doctor;
+mod update;
 
 pub use help::HelpCommand;
 pub use status::StatusCommand;
@@ -13,3 +14,4 @@ pub use version::VersionCommand;
 pub use config::ConfigCommand;
 pub use context_cmd::ContextCommand;
 pub use doctor::DoctorCommand;
+pub use update::UpdateCommand;

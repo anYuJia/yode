@@ -10,7 +10,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.0.1"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 
@@ -30,6 +30,9 @@ toml = "0.8"
 reqwest = { version = "0.12", features = ["json", "stream"] }
 eventsource-stream = "0.2"
 html2text = "0.14"
+
+# Checksum
+sha2 = "0.10"
 
 # MCP
 rmcp = { version = "1", features = ["client", "server", "transport-child-process", "transport-io"] }

@@ -309,6 +309,13 @@ pub struct App {
 
     /// Active interactive wizard (multi-step input flow)
     pub wizard: Option<wizard::Wizard>,
+
+    /// Update check result (new version available)
+    pub update_available: Option<String>,
+    /// Whether update is being downloaded
+    pub update_downloading: bool,
+    /// Downloaded update path (ready to install)
+    pub update_downloaded: Option<String>,
 }
 
 impl App {
@@ -372,6 +379,9 @@ impl App {
             tools,
             cmd_registry: crate::commands::registry::CommandRegistry::new(),
             wizard: None,
+            update_available: None,
+            update_downloading: false,
+            update_downloaded: None,
         }
     }
 
@@ -532,6 +542,49 @@ pub async fn run(
     let engine = Arc::new(Mutex::new(engine_inner));
     app.engine = Some(engine.clone());
     let (engine_event_tx, mut engine_event_rx) = mpsc::unbounded_channel::<EngineEvent>();
+
+    // Check for updates on startup (in background, don't block)
+    tokio::spawn(async {
+        let config = match yode_core::config::Config::load() {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+
+        if !config.update.auto_check {
+            return;
+        }
+
+        let config_dir = dirs::home_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join(".yode");
+        let updater = yode_core::updater::Updater::new(
+            config_dir,
+            config.update.auto_check,
+            config.update.auto_download,
+        );
+
+        match updater.check_for_updates().await {
+            Ok(Some(result)) => {
+                let latest = result.latest_version.clone();
+                // Auto-download if enabled
+                if config.update.auto_download {
+                    match updater.download_update(&result).await {
+                        Ok(path) => {
+                            tracing::info!("Update downloaded to: {:?}", path);
+                        }
+                        Err(e) => {
+                            tracing::warn!("Update download failed: {}", e);
+                        }
+                    }
+                }
+                tracing::info!("New version available: {}", latest);
+            }
+            Ok(None) => {}
+            Err(e) => {
+                tracing::warn!("Update check failed: {}", e);
+            }
+        }
+    });
 
     let backend = CrosstermBackend::new(stdout);
     // Start with minimal 3-line inline viewport (1 input + 1 status + 1 padding).
