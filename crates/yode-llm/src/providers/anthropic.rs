@@ -401,12 +401,16 @@ impl LlmProvider for AnthropicProvider {
 
         // Convert response
         let mut text_content = String::new();
+        let mut reasoning_content = String::new();
         let mut tool_calls = Vec::new();
 
         for block in &api_resp.content {
             match block {
                 ContentBlock::Text { text } => {
                     text_content.push_str(text);
+                }
+                ContentBlock::Thinking { thinking } => {
+                    reasoning_content.push_str(thinking);
                 }
                 ContentBlock::ToolUse { id, name, input } => {
                     tool_calls.push(ToolCall {
@@ -435,7 +439,11 @@ impl LlmProvider for AnthropicProvider {
             } else {
                 Some(text_content)
             },
-            reasoning: None,
+            reasoning: if reasoning_content.is_empty() {
+                None
+            } else {
+                Some(reasoning_content)
+            },
             tool_calls,
             tool_call_id: None,
             images: Vec::new(),
@@ -500,6 +508,7 @@ impl LlmProvider for AnthropicProvider {
         let mut event_stream = resp.bytes_stream().eventsource();
 
         let mut full_content = String::new();
+        let mut full_reasoning = String::new();
         let mut tool_calls: Vec<ToolCall> = Vec::new();
         let mut current_tool_args = String::new();
         let mut model = request.model.clone();
@@ -543,8 +552,11 @@ impl LlmProvider for AnthropicProvider {
                             let _ = tx.send(StreamEvent::TextDelta(text)).await;
                         }
                     }
-                    ContentBlockStart::Thinking { .. } => {
-                        // Skip thinking blocks for now
+                    ContentBlockStart::Thinking { thinking } => {
+                        if !thinking.is_empty() {
+                            full_reasoning.push_str(&thinking);
+                            let _ = tx.send(StreamEvent::ReasoningDelta(thinking)).await;
+                        }
                     }
                     ContentBlockStart::ToolUse { id, name } => {
                         current_tool_args.clear();
@@ -564,8 +576,11 @@ impl LlmProvider for AnthropicProvider {
                             return Ok(());
                         }
                     }
-                    ContentBlockDelta::ThinkingDelta { .. } => {
-                        // Skip thinking deltas
+                    ContentBlockDelta::ThinkingDelta { thinking } => {
+                        full_reasoning.push_str(&thinking);
+                        if tx.send(StreamEvent::ReasoningDelta(thinking)).await.is_err() {
+                            return Ok(());
+                        }
                     }
                     ContentBlockDelta::InputJsonDelta { partial_json } => {
                         current_tool_args.push_str(&partial_json);
@@ -620,7 +635,7 @@ impl LlmProvider for AnthropicProvider {
         let final_message = Message {
             role: Role::Assistant,
             content,
-            reasoning: None,
+            reasoning: if full_reasoning.is_empty() { None } else { Some(full_reasoning) },
             tool_calls,
             tool_call_id: None,
             images: Vec::new(),
