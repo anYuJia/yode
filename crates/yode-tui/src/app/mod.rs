@@ -271,6 +271,10 @@ pub struct App {
     pub streaming_remainder: Option<(Vec<String>, bool)>,
     /// Whether we've printed the "Thinking..." indicator to scrollback
     pub thinking_printed: bool,
+    /// Whether we are currently skipping a reasoning line or block in the stream
+    pub skipping_reasoning: bool,
+    /// Whether we are inside an XML-like thought tag in the stream
+    pub inside_thought_tag: bool,
 
     // Engine communication
     pub pending_confirmation: Option<PendingConfirmation>,
@@ -384,6 +388,8 @@ impl App {
             streaming_in_code_block: false,
             streaming_remainder: None,
             thinking_printed: false,
+            skipping_reasoning: false,
+            inside_thought_tag: false,
             pending_confirmation: None,
             confirm_tx: None,
             pending_inputs: Vec::new(),
@@ -1565,15 +1571,48 @@ fn handle_engine_event(
             app.sync_thinking();
         }
         EngineEvent::TextDelta(delta) => {
-            // Proactively clean deltas to avoid flickering reasoning process on screen
-            let cleaned = clean_content(&delta);
-            if !cleaned.is_empty() {
-                app.streaming_buf.push_str(&cleaned);
+            // Stateful streaming filter:
+            // We process the delta character by character to handle markers that might span packages.
+            for c in delta.chars() {
+                // Check for line-based reasoning marker at start of line
+                if !app.skipping_reasoning && !app.inside_thought_tag {
+                    let at_start_of_line = app.streaming_buf.is_empty() || app.streaming_buf.ends_with('\n');
+                    if at_start_of_line && (c == '⏺' || c == '>') {
+                        // Potential start of reasoning line (⏺ is Qwen, > might be part of <thought>)
+                        // We'll peek or just start skipping if it's the exact marker.
+                        if c == '⏺' {
+                            app.skipping_reasoning = true;
+                        }
+                    }
+                }
+
+                // Check for XML tag start (simplified heuristic for streaming)
+                if !app.inside_thought_tag && c == '<' {
+                    // Check if the current buffer tail + this char looks like a tag start
+                    // For now, let's keep it simple: if we see <thought, we might want to skip.
+                    // But to be robust across packages, we'll use clean_content as fallback
+                    // and here just handle the most common line-based cases.
+                }
+
+                if app.skipping_reasoning {
+                    app.streaming_reasoning.push(c);
+                    if c == '\n' {
+                        app.skipping_reasoning = false;
+                    }
+                } else {
+                    app.streaming_buf.push(c);
+                }
             }
-            
-            // If the original delta had reasoning content, move it to reasoning buffer
-            if cleaned.len() < delta.len() {
-                app.streaming_reasoning.push_str(&delta);
+
+            // Still run a quick clean on the buffer to catch tags that were already fully formed
+            // but might have slipped through the char loop logic.
+            if app.streaming_buf.contains("<thought") || app.streaming_buf.contains("<reasoning") {
+                let cleaned = clean_content(&app.streaming_buf);
+                if cleaned.len() < app.streaming_buf.len() {
+                    // Move the stripped part to reasoning
+                    app.streaming_reasoning.push_str(&app.streaming_buf[cleaned.len()..]);
+                    app.streaming_buf = cleaned;
+                }
             }
         }
         EngineEvent::ReasoningDelta(delta) => {
@@ -1944,6 +1983,8 @@ fn finalize_streaming(app: &mut App) {
         }
         app.streaming_printed_lines = 0;
         app.streaming_in_code_block = false;
+        app.skipping_reasoning = false;
+        app.inside_thought_tag = false;
     }
 }
 
