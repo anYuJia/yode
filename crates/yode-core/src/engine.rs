@@ -461,6 +461,19 @@ impl AgentEngine {
         info!("Restored {} messages from database", self.messages.len() - 1);
     }
 
+    /// Clear conversation history, keeping only the system prompt.
+    pub fn clear_conversation(&mut self) {
+        // Keep only the system prompt (first message)
+        if self.messages.len() > 1 {
+            let system_msg = self.messages.first().cloned();
+            self.messages.clear();
+            if let Some(sys) = system_msg {
+                self.messages.push(sys);
+            }
+            info!("Cleared conversation, kept system prompt");
+        }
+    }
+
     /// Save a message to the database if available.
     fn persist_message(&self, role: &str, content: Option<&str>, tool_calls_json: Option<&str>, tool_call_id: Option<&str>) {
         if let Some(ref db) = self.db {

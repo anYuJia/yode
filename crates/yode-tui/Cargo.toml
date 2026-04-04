@@ -18,3 +18,4 @@ unicode-width = "0.2"
 arboard = "3.4"
 dirs = { workspace = true }
 chrono = { workspace = true }
+uuid = { workspace = true }
