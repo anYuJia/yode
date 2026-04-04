@@ -107,4 +107,5 @@ pub fn register_all(registry: &mut CommandRegistry) {
     registry.register(Box::new(utility::KeysCommand::new()));
     registry.register(Box::new(utility::HistoryCommand::new()));
     registry.register(Box::new(utility::TimeCommand::new()));
+    registry.register(Box::new(utility::ThemeCommand::new()));
 }
