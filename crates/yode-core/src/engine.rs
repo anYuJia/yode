@@ -108,6 +108,8 @@ const PARALLEL_TOOL_TIMEOUT_SECS: u64 = 30;
 pub enum EngineEvent {
     /// LLM is thinking (stream started)
     Thinking,
+    /// Real-time usage update (e.g. prompt tokens known at start)
+    UsageUpdate(yode_llm::types::Usage),
     /// Incremental text from LLM
     TextDelta(String),
     /// Incremental reasoning/thought from LLM
@@ -499,9 +501,11 @@ impl AgentEngine {
         user_input: &str,
         event_tx: mpsc::UnboundedSender<EngineEvent>,
         mut confirm_rx: mpsc::UnboundedReceiver<ConfirmResponse>,
-    ) -> Result<()> {
+        ) -> Result<()> {
+        let _ = event_tx.send(EngineEvent::Thinking);
+
         // Add user message
-        self.messages.push(Message::user(user_input));
+        self.messages.push(Message::user(user_input.clone()));
         self.persist_message("user", Some(user_input), None, None, None);
 
         // Reset tool call budget counter for this turn
@@ -735,10 +739,19 @@ impl AgentEngine {
             if cancelled {
                 // Save partial text if any
                 if !full_text.is_empty() || !full_reasoning.is_empty() {
+                    let mut blocks = Vec::new();
+                    if !full_reasoning.is_empty() {
+                        blocks.push(yode_llm::types::ContentBlock::Thinking { thinking: full_reasoning.clone(), signature: None });
+                    }
+                    if !full_text.is_empty() {
+                        blocks.push(yode_llm::types::ContentBlock::Text { text: full_text.clone() });
+                    }
+
                     let assistant_msg = Message {
                         role: Role::Assistant,
                         content: if full_text.is_empty() { None } else { Some(full_text.clone()) },
                         reasoning: if full_reasoning.is_empty() { None } else { Some(full_reasoning.clone()) },
+                        content_blocks: blocks,
                         tool_calls: vec![],
                         tool_call_id: None,
                         images: Vec::new(),
@@ -869,10 +882,19 @@ impl AgentEngine {
 
                                 if retry_cancelled {
                                     if !full_text.is_empty() || !full_reasoning.is_empty() {
+                                        let mut blocks = Vec::new();
+                                        if !full_reasoning.is_empty() {
+                                            blocks.push(yode_llm::types::ContentBlock::Thinking { thinking: full_reasoning.clone(), signature: None });
+                                        }
+                                        if !full_text.is_empty() {
+                                            blocks.push(yode_llm::types::ContentBlock::Text { text: full_text.clone() });
+                                        }
+
                                         let assistant_msg = Message {
                                             role: Role::Assistant,
                                             content: if full_text.is_empty() { None } else { Some(full_text.clone()) },
                                             reasoning: if full_reasoning.is_empty() { None } else { Some(full_reasoning.clone()) },
+                                            content_blocks: blocks,
                                             tool_calls: vec![],
                                             tool_call_id: None,
                                             images: Vec::new(),
@@ -937,6 +959,14 @@ impl AgentEngine {
             }
 
             // Build assistant message from stream
+            let mut blocks = Vec::new();
+            if !full_reasoning.is_empty() {
+                blocks.push(yode_llm::types::ContentBlock::Thinking { thinking: full_reasoning.clone(), signature: None });
+            }
+            if !full_text.is_empty() {
+                blocks.push(yode_llm::types::ContentBlock::Text { text: full_text.clone() });
+            }
+
             let assistant_msg = Message {
                 role: Role::Assistant,
                 content: if full_text.is_empty() {
@@ -949,6 +979,7 @@ impl AgentEngine {
                 } else {
                     Some(full_reasoning.clone())
                 },
+                content_blocks: blocks,
                 tool_calls: tool_calls.clone(),
                 tool_call_id: None,
                 images: Vec::new(),
@@ -1094,6 +1125,9 @@ impl AgentEngine {
             StreamEvent::TextDelta(delta) => {
                 full_text.push_str(&delta);
                 let _ = event_tx.send(EngineEvent::TextDelta(delta));
+            }
+            StreamEvent::UsageUpdate(usage) => {
+                let _ = event_tx.send(EngineEvent::UsageUpdate(usage));
             }
             StreamEvent::ReasoningDelta(delta) => {
                 full_reasoning.push_str(&delta);
