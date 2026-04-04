@@ -275,6 +275,8 @@ pub struct App {
     pub skipping_reasoning: bool,
     /// Whether we are inside an XML-like thought tag in the stream
     pub inside_thought_tag: bool,
+    /// Whether we are probing the initial characters of a response to detect hidden reasoning
+    pub is_probing_content: bool,
 
     // Engine communication
     pub pending_confirmation: Option<PendingConfirmation>,
@@ -390,6 +392,7 @@ impl App {
             thinking_printed: false,
             skipping_reasoning: false,
             inside_thought_tag: false,
+            is_probing_content: false,
             pending_confirmation: None,
             confirm_tx: None,
             pending_inputs: Vec::new(),
@@ -1504,11 +1507,12 @@ fn send_input(
     });
 }
 
-/// Strip XML-like thinking/reasoning tags and special markers from content.
+/// Robustly strip XML tags, emoji markers, and semantic reasoning sentences.
+/// Example: "⏺ 用户在打招呼，我应该回应。你好！" -> "你好！"
 fn clean_content(s: &str) -> String {
     let mut result = s.to_string();
     
-    // 1. Strip common XML tags
+    // 1. Strip XML-like tags (e.g. <thought>...</thought>)
     let tags = [
         ("<thought>", "</thought>"),
         ("<reasoning>", "</reasoning>"),
@@ -1530,13 +1534,41 @@ fn clean_content(s: &str) -> String {
         }
     }
 
-    // 2. Heuristic: Strip Qwen-style reasoning lines (starting with specific emoji or patterns)
-    let lines: Vec<&str> = result.lines()
-        .filter(|line| {
+    // 2. Semantic Filtering: Identify and remove reasoning sentences
+    // Reasoning often starts with markers and ends with punctuation.
+    let lines: Vec<String> = result.lines()
+        .map(|line| {
             let trimmed = line.trim();
-            // Ignore lines starting with reasoning emoji or typical "Thinking" indicators
-            !trimmed.starts_with('⏺') && !trimmed.starts_with("Thinking:")
+            if trimmed.is_empty() { return String::new(); }
+
+            // Common reasoning start markers (emoji or punctuation)
+            let markers = ['⏺', '●', '•', '·', '>', '»'];
+            let starts_with_marker = markers.iter().any(|&m| trimmed.starts_with(m));
+            
+            // Heuristic for Chinese reasoning (e.g. "用户问... 我应该...")
+            let is_chinese_reasoning = (trimmed.contains("用户") || trimmed.contains("模型") || trimmed.contains("应该")) 
+                && (trimmed.contains("回应") || trimmed.contains("回复") || trimmed.contains("介绍"));
+
+            if starts_with_marker || is_chinese_reasoning {
+                // Check if the line also contains actual response content after the reasoning
+                // Reasoning usually ends with a full stop '。' or '.'
+                let sentence_ends = ["。", "！", "？", ".", "!", "?"];
+                for end in sentence_ends {
+                    if let Some(pos) = trimmed.find(end) {
+                        let after = &trimmed[pos + end.len()..].trim();
+                        if !after.is_empty() {
+                            // Found content after reasoning! Return only the content.
+                            return after.to_string();
+                        }
+                    }
+                }
+                // Whole line is reasoning, strip it
+                String::new()
+            } else {
+                line.to_string()
+            }
         })
+        .filter(|l| !l.is_empty())
         .collect();
     
     let mut cleaned = lines.join("\n");
@@ -1554,9 +1586,6 @@ fn handle_engine_event(
 ) {
     match event {
         EngineEvent::Thinking => {
-            // Reset per-turn token counters
-            app.session.turn_input_tokens = 0;
-            app.session.turn_output_tokens = 0;
             // Pick random verb and set Working status
             let verb = {
                 use std::collections::hash_map::DefaultHasher;
@@ -1568,50 +1597,36 @@ fn handle_engine_event(
             };
             app.turn_status = TurnStatus::Working { verb };
             app.thinking.active = true;
+            app.is_probing_content = true; // Start probing for hidden reasoning
             app.sync_thinking();
         }
+        EngineEvent::UsageUpdate(usage) => {
+            if usage.prompt_tokens > 0 {
+                app.session.turn_input_tokens = usage.prompt_tokens;
+            }
+        }
         EngineEvent::TextDelta(delta) => {
-            // Stateful streaming filter:
-            // We process the delta character by character to handle markers that might span packages.
             for c in delta.chars() {
-                // Check for line-based reasoning marker at start of line
-                if !app.skipping_reasoning && !app.inside_thought_tag {
-                    let at_start_of_line = app.streaming_buf.is_empty() || app.streaming_buf.ends_with('\n');
-                    if at_start_of_line && (c == '⏺' || c == '>') {
-                        // Potential start of reasoning line (⏺ is Qwen, > might be part of <thought>)
-                        // We'll peek or just start skipping if it's the exact marker.
-                        if c == '⏺' {
-                            app.skipping_reasoning = true;
-                        }
+                let at_start_of_line = app.streaming_buf.is_empty() || app.streaming_buf.ends_with('\n');
+                
+                // If we are at start of a response and see reasoning indicators, enter skip mode
+                if at_start_of_line {
+                    let markers = ['⏺', '●', '•', '·', '<', '>', '用', '我', '该'];
+                    if markers.contains(&c) {
+                        app.skipping_reasoning = true;
                     }
-                }
-
-                // Check for XML tag start (simplified heuristic for streaming)
-                if !app.inside_thought_tag && c == '<' {
-                    // Check if the current buffer tail + this char looks like a tag start
-                    // For now, let's keep it simple: if we see <thought, we might want to skip.
-                    // But to be robust across packages, we'll use clean_content as fallback
-                    // and here just handle the most common line-based cases.
                 }
 
                 if app.skipping_reasoning {
                     app.streaming_reasoning.push(c);
-                    if c == '\n' {
+                    // End skipping on newline or sentence end
+                    if c == '\n' || c == '。' || c == '！' || c == '？' {
                         app.skipping_reasoning = false;
+                        app.is_probing_content = false; // Once a reasoning sentence ends, we stop initial probing
                     }
                 } else {
                     app.streaming_buf.push(c);
-                }
-            }
-
-            // Still run a quick clean on the buffer to catch tags that were already fully formed
-            // but might have slipped through the char loop logic.
-            if app.streaming_buf.contains("<thought") || app.streaming_buf.contains("<reasoning") {
-                let cleaned = clean_content(&app.streaming_buf);
-                if cleaned.len() < app.streaming_buf.len() {
-                    // Move the stripped part to reasoning
-                    app.streaming_reasoning.push_str(&app.streaming_buf[cleaned.len()..]);
-                    app.streaming_buf = cleaned;
+                    app.is_probing_content = false; // We found real content, stop probing
                 }
             }
         }
@@ -1738,7 +1753,13 @@ fn handle_engine_event(
             app.session.total_tokens = app.session.input_tokens + app.session.output_tokens;
 
             // Update per-turn counters
-            app.session.turn_input_tokens = if prompt > 0 { prompt } else if total > completion { total - completion } else { 0 };
+            if prompt > 0 {
+                app.session.turn_input_tokens = prompt;
+            } else if total > completion {
+                app.session.turn_input_tokens = total - completion;
+            }
+            // If both are 0, keep current turn_input_tokens (don't overwrite with 0)
+
             app.session.turn_output_tokens = completion;
             app.thinking.stop();
             app.thinking_printed = false;
@@ -2212,6 +2233,12 @@ fn flush_entries_to_scrollback(
             let needs_spacer = app.streaming_printed_lines == 0;
             let mut first_printed = app.streaming_printed_lines > 0;
             for raw_text in to_print.iter() {
+                // Proactively clean line again to be absolutely sure no reasoning leaks
+                let cleaned_raw = clean_content(raw_text);
+                if cleaned_raw.is_empty() {
+                    continue;
+                }
+
                 // Skip leading whitespace-only lines (before first real content)
                 if !first_printed && raw_text.trim().is_empty() {
                     continue;
@@ -2222,7 +2249,7 @@ fn flush_entries_to_scrollback(
                     all_output.push((String::new(), None, false));
                 }
                 // Process markdown on each complete line
-                let text = process_md_line(raw_text, &mut app.streaming_in_code_block);
+                let text = process_md_line(&cleaned_raw, &mut app.streaming_in_code_block);
                 let prefix = if is_first { "⏺ " } else { "  " };
                 if is_first {
                     let color = crossterm::style::Color::Magenta;

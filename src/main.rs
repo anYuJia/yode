@@ -390,9 +390,18 @@ async fn main() -> Result<()> {
                         .as_deref()
                         .and_then(|json| serde_json::from_str(json).ok())
                         .unwrap_or_default();
+                    let mut blocks = Vec::new();
+                    if let Some(ref r) = m.reasoning {
+                        blocks.push(yode_llm::types::ContentBlock::Thinking { thinking: r.clone(), signature: None });
+                    }
+                    if let Some(ref t) = m.content {
+                        blocks.push(yode_llm::types::ContentBlock::Text { text: t.clone() });
+                    }
+
                     Some(Message {
                         role,
                         content: m.content,
+                        content_blocks: blocks,
                         reasoning: m.reasoning,
                         tool_calls,
                         tool_call_id: m.tool_call_id,
