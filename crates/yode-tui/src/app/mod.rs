@@ -734,8 +734,14 @@ async fn run_app(
                 } else {
                     0
                 };
-                let thinking_line: u16 = if app.turn_status.is_visible() { 1 } else { 0 };
-                visual_lines.clamp(1, 5) + completion_lines + thinking_line + 4 // +status_line +separator +status_bar_separator +status_bar +blank_line
+                let thinking_line: u16 = if completion_lines > 0 {
+                    0 // Hide status when completion is active
+                } else if app.turn_status.is_visible() {
+                    3 // Blank + Status + Blank
+                } else {
+                    0
+                };
+                visual_lines.clamp(1, 5) + completion_lines + thinking_line + 4 // +separator +status_bar_separator +status_bar +blank_line
             };
             let area = terminal.get_frame().area();
             if area.height != needed {
