@@ -321,6 +321,8 @@ pub struct App {
     pub prompt_suggestion: Option<String>,
     /// Whether prompt suggestion is enabled
     pub prompt_suggestion_enabled: bool,
+    /// Whether a suggestion is currently being generated (to avoid duplicate requests)
+    pub suggestion_generating: bool,
 }
 
 impl App {
@@ -389,6 +391,7 @@ impl App {
             update_downloaded: None,
             prompt_suggestion: None,
             prompt_suggestion_enabled: true,
+            suggestion_generating: false,
         }
     }
 
@@ -1580,7 +1583,7 @@ fn handle_engine_event(app: &mut App, event: EngineEvent) {
             // Generate prompt suggestion (ghost text) when input is empty
             // For now use simple rule-based suggestion
             // LLM-based suggestion would require async call to engine
-            if app.prompt_suggestion_enabled && app.input.is_empty() {
+            if app.prompt_suggestion_enabled && app.input.is_empty() && !app.suggestion_generating {
                 app.prompt_suggestion = generate_prompt_suggestion(&app.chat_entries);
                 app.input.set_ghost_text(app.prompt_suggestion.clone());
             }
