@@ -20,6 +20,7 @@ pub struct StoredMessage {
     pub session_id: String,
     pub role: String,
     pub content: Option<String>,
+    pub reasoning: Option<String>,
     pub tool_calls_json: Option<String>,
     pub tool_call_id: Option<String>,
     pub created_at: DateTime<Utc>,
@@ -58,6 +59,7 @@ impl Database {
                 session_id TEXT NOT NULL,
                 role TEXT NOT NULL,
                 content TEXT,
+                reasoning TEXT,
                 tool_calls_json TEXT,
                 tool_call_id TEXT,
                 created_at TEXT NOT NULL,
@@ -65,6 +67,11 @@ impl Database {
             );
             CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);",
         )?;
+
+        // Migration: add reasoning column if it doesn't exist.
+        // We reuse the 'conn' guard acquired above to avoid deadlocks.
+        let _ = conn.execute("ALTER TABLE messages ADD COLUMN reasoning TEXT", []);
+
         Ok(())
     }
 
@@ -153,14 +160,15 @@ impl Database {
         session_id: &str,
         role: &str,
         content: Option<&str>,
+        reasoning: Option<&str>,
         tool_calls_json: Option<&str>,
         tool_call_id: Option<&str>,
     ) -> Result<i64> {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().to_rfc3339();
         conn.execute(
-            "INSERT INTO messages (session_id, role, content, tool_calls_json, tool_call_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![session_id, role, content, tool_calls_json, tool_call_id, now],
+            "INSERT INTO messages (session_id, role, content, reasoning, tool_calls_json, tool_call_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![session_id, role, content, reasoning, tool_calls_json, tool_call_id, now],
         )?;
         Ok(conn.last_insert_rowid())
     }
@@ -168,7 +176,7 @@ impl Database {
     pub fn load_messages(&self, session_id: &str) -> Result<Vec<StoredMessage>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, session_id, role, content, tool_calls_json, tool_call_id, created_at FROM messages WHERE session_id = ?1 ORDER BY id ASC",
+            "SELECT id, session_id, role, content, reasoning, tool_calls_json, tool_call_id, created_at FROM messages WHERE session_id = ?1 ORDER BY id ASC",
         )?;
 
         let messages = stmt
@@ -178,10 +186,11 @@ impl Database {
                     session_id: row.get(1)?,
                     role: row.get(2)?,
                     content: row.get(3)?,
-                    tool_calls_json: row.get(4)?,
-                    tool_call_id: row.get(5)?,
+                    reasoning: row.get(4)?,
+                    tool_calls_json: row.get(5)?,
+                    tool_call_id: row.get(6)?,
                     created_at: DateTime::parse_from_rfc3339(
-                        &row.get::<_, String>(6).unwrap_or_default(),
+                        &row.get::<_, String>(7).unwrap_or_default(),
                     )
                     .map(|dt| dt.with_timezone(&Utc))
                     .unwrap_or_else(|_| Utc::now()),

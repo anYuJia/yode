@@ -393,11 +393,11 @@ async fn main() -> Result<()> {
                     Some(Message {
                         role,
                         content: m.content,
+                        reasoning: m.reasoning,
                         tool_calls,
                         tool_call_id: m.tool_call_id,
                         images: Vec::new(),
-                    })
-                })
+                    })                })
                 .collect();
             (ctx, Some(messages))
         } else {

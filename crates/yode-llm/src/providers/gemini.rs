@@ -304,6 +304,7 @@ fn parse_response(resp: &GeminiResponse, _model: &str) -> (Message, Usage) {
     let message = Message {
         role: Role::Assistant,
         content: if text.is_empty() { None } else { Some(text) },
+        reasoning: None,
         tool_calls,
         tool_call_id: None,
         images: Vec::new(),
@@ -476,6 +477,7 @@ impl LlmProvider for GeminiProvider {
         let message = Message {
             role: Role::Assistant,
             content: if full_text.is_empty() { None } else { Some(full_text) },
+            reasoning: None,
             tool_calls: all_tool_calls,
             tool_call_id: None,
             images: Vec::new(),

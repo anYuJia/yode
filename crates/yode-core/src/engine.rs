@@ -110,8 +110,12 @@ pub enum EngineEvent {
     Thinking,
     /// Incremental text from LLM
     TextDelta(String),
+    /// Incremental reasoning/thought from LLM
+    ReasoningDelta(String),
     /// LLM produced a complete text response
     TextComplete(String),
+    /// LLM finished reasoning
+    ReasoningComplete(String),
     /// Tool call initiated
     ToolCallStart {
         id: String,
@@ -478,9 +482,9 @@ impl AgentEngine {
     }
 
     /// Save a message to the database if available.
-    fn persist_message(&self, role: &str, content: Option<&str>, tool_calls_json: Option<&str>, tool_call_id: Option<&str>) {
+    fn persist_message(&self, role: &str, content: Option<&str>, reasoning: Option<&str>, tool_calls_json: Option<&str>, tool_call_id: Option<&str>) {
         if let Some(ref db) = self.db {
-            if let Err(e) = db.save_message(&self.context.session_id, role, content, tool_calls_json, tool_call_id) {
+            if let Err(e) = db.save_message(&self.context.session_id, role, content, reasoning, tool_calls_json, tool_call_id) {
                 warn!("Failed to persist message: {}", e);
             }
             if let Err(e) = db.touch_session(&self.context.session_id) {
@@ -498,7 +502,7 @@ impl AgentEngine {
     ) -> Result<()> {
         // Add user message
         self.messages.push(Message::user(user_input));
-        self.persist_message("user", Some(user_input), None, None);
+        self.persist_message("user", Some(user_input), None, None, None);
 
         // Reset tool call budget counter for this turn
         self.tool_call_count = 0;
@@ -569,6 +573,7 @@ impl AgentEngine {
             self.persist_message(
                 "assistant",
                 response.message.content.as_deref(),
+                response.message.reasoning.as_deref(),
                 tc_json.as_deref(),
                 None,
             );
@@ -592,7 +597,7 @@ impl AgentEngine {
                     self.inject_intelligence(&mut result, &tc.name, &tc.arguments);
 
                     self.messages.push(Message::tool_result(&tc.id, &result.content));
-                    self.persist_message("tool", Some(&result.content), None, Some(&tc.id));
+                    self.persist_message("tool", Some(&result.content), None, None, Some(&tc.id));
 
                     let _ = event_tx.send(EngineEvent::ToolResult {
                         id: tc.id.clone(),
@@ -612,7 +617,7 @@ impl AgentEngine {
                     self.inject_intelligence(&mut result, &tool_call.name, &tool_call.arguments);
 
                     self.messages.push(Message::tool_result(&tool_call.id, &result.content));
-                    self.persist_message("tool", Some(&result.content), None, Some(&tool_call.id));
+                    self.persist_message("tool", Some(&result.content), None, None, Some(&tool_call.id));
 
                     let _ = event_tx.send(EngineEvent::ToolResult {
                         id: tool_call.id.clone(),
@@ -647,7 +652,7 @@ impl AgentEngine {
         cancel_token: Option<CancellationToken>,
     ) -> Result<()> {
         self.messages.push(Message::user(user_input));
-        self.persist_message("user", Some(user_input), None, None);
+        self.persist_message("user", Some(user_input), None, None, None);
 
         // Reset tool call budget counter for this turn
         self.tool_call_count = 0;
@@ -691,6 +696,7 @@ impl AgentEngine {
             });
 
             let mut full_text = String::new();
+            let mut full_reasoning = String::new();
             let mut tool_calls: Vec<ToolCall> = Vec::new();
             let mut final_response: Option<ChatResponse> = None;
             let mut cancelled = false;
@@ -702,7 +708,7 @@ impl AgentEngine {
                             match event {
                                 Some(ev) => {
                                     let is_done = matches!(ev, StreamEvent::Done(_));
-                                    Self::process_stream_event(ev, &mut full_text, &mut tool_calls, &mut final_response, &event_tx);
+                                    Self::process_stream_event(ev, &mut full_text, &mut full_reasoning, &mut tool_calls, &mut final_response, &event_tx);
                                     if is_done { break; }
                                 }
                                 None => break,
@@ -718,7 +724,7 @@ impl AgentEngine {
                     match stream_rx.recv().await {
                         Some(ev) => {
                             let is_done = matches!(ev, StreamEvent::Done(_));
-                            Self::process_stream_event(ev, &mut full_text, &mut tool_calls, &mut final_response, &event_tx);
+                            Self::process_stream_event(ev, &mut full_text, &mut full_reasoning, &mut tool_calls, &mut final_response, &event_tx);
                             if is_done { break; }
                         }
                         None => break,
@@ -728,16 +734,23 @@ impl AgentEngine {
 
             if cancelled {
                 // Save partial text if any
-                if !full_text.is_empty() {
+                if !full_text.is_empty() || !full_reasoning.is_empty() {
                     let assistant_msg = Message {
                         role: Role::Assistant,
-                        content: Some(full_text.clone()),
+                        content: if full_text.is_empty() { None } else { Some(full_text.clone()) },
+                        reasoning: if full_reasoning.is_empty() { None } else { Some(full_reasoning.clone()) },
                         tool_calls: vec![],
                         tool_call_id: None,
                         images: Vec::new(),
                     };
                     self.messages.push(assistant_msg);
-                    self.persist_message("assistant", Some(&full_text), None, None);
+                    self.persist_message(
+                        "assistant",
+                        if full_text.is_empty() { None } else { Some(&full_text) },
+                        if full_reasoning.is_empty() { None } else { Some(&full_reasoning) },
+                        None,
+                        None
+                    );
                 }
                 let _ = event_tx.send(EngineEvent::Done);
                 return Ok(());
@@ -830,7 +843,7 @@ impl AgentEngine {
                                                 match event {
                                                     Some(ev) => {
                                                         let is_done = matches!(ev, StreamEvent::Done(_));
-                                                        Self::process_stream_event(ev, &mut full_text, &mut tool_calls, &mut final_response, &event_tx);
+                                                        Self::process_stream_event(ev, &mut full_text, &mut full_reasoning, &mut tool_calls, &mut final_response, &event_tx);
                                                         if is_done { break; }
                                                     }
                                                     None => break,
@@ -846,7 +859,7 @@ impl AgentEngine {
                                         match retry_rx.recv().await {
                                             Some(ev) => {
                                                 let is_done = matches!(ev, StreamEvent::Done(_));
-                                                Self::process_stream_event(ev, &mut full_text, &mut tool_calls, &mut final_response, &event_tx);
+                                                Self::process_stream_event(ev, &mut full_text, &mut full_reasoning, &mut tool_calls, &mut final_response, &event_tx);
                                                 if is_done { break; }
                                             }
                                             None => break,
@@ -855,16 +868,23 @@ impl AgentEngine {
                                 }
 
                                 if retry_cancelled {
-                                    if !full_text.is_empty() {
+                                    if !full_text.is_empty() || !full_reasoning.is_empty() {
                                         let assistant_msg = Message {
                                             role: Role::Assistant,
-                                            content: Some(full_text.clone()),
+                                            content: if full_text.is_empty() { None } else { Some(full_text.clone()) },
+                                            reasoning: if full_reasoning.is_empty() { None } else { Some(full_reasoning.clone()) },
                                             tool_calls: vec![],
                                             tool_call_id: None,
                                             images: Vec::new(),
                                         };
                                         self.messages.push(assistant_msg);
-                                        self.persist_message("assistant", Some(&full_text), None, None);
+                                        self.persist_message(
+                                            "assistant",
+                                            if full_text.is_empty() { None } else { Some(&full_text) },
+                                            if full_reasoning.is_empty() { None } else { Some(&full_reasoning) },
+                                            None,
+                                            None
+                                        );
                                     }
                                     let _ = event_tx.send(EngineEvent::Done);
                                     return Ok(());
@@ -924,6 +944,11 @@ impl AgentEngine {
                 } else {
                     Some(full_text.clone())
                 },
+                reasoning: if full_reasoning.is_empty() {
+                    None
+                } else {
+                    Some(full_reasoning.clone())
+                },
                 tool_calls: tool_calls.clone(),
                 tool_call_id: None,
                 images: Vec::new(),
@@ -939,6 +964,7 @@ impl AgentEngine {
             self.persist_message(
                 "assistant",
                 if full_text.is_empty() { None } else { Some(&full_text) },
+                if full_reasoning.is_empty() { None } else { Some(&full_reasoning) },
                 tc_json.as_deref(),
                 None,
             );
@@ -971,7 +997,7 @@ impl AgentEngine {
                         }
 
                         self.messages.push(Message::tool_result(&tc.id, &result.content));
-                        self.persist_message("tool", Some(&result.content), None, Some(&tc.id));
+                        self.persist_message("tool", Some(&result.content), None, None, Some(&tc.id));
 
                         let _ = event_tx.send(EngineEvent::ToolResult {
                             id: tc.id.clone(),
@@ -1000,7 +1026,7 @@ impl AgentEngine {
 
                     self.messages
                         .push(Message::tool_result(&tool_call.id, &result.content));
-                    self.persist_message("tool", Some(&result.content), None, Some(&tool_call.id));
+                    self.persist_message("tool", Some(&result.content), None, None, Some(&tool_call.id));
 
                     let _ = event_tx.send(EngineEvent::ToolResult {
                         id: tool_call.id.clone(),
@@ -1012,14 +1038,44 @@ impl AgentEngine {
             }
 
             // Done
-            if !full_text.is_empty() {
-                let _ = event_tx.send(EngineEvent::TextComplete(full_text));
+            if let Some(mut resp) = final_response {
+                // Ensure the final message in the response has all the text/reasoning we accumulated
+                // (OpenAI Done event sometimes has empty content if it was all in deltas)
+                if resp.message.content.is_none() && !full_text.is_empty() {
+                    resp.message.content = Some(full_text.clone());
+                }
+                if resp.message.reasoning.is_none() && !full_reasoning.is_empty() {
+                    resp.message.reasoning = Some(full_reasoning.clone());
+                }
+
+                self.messages.push(resp.message.clone());
+
+                let tc_json = if !resp.message.tool_calls.is_empty() {
+                    serde_json::to_string(&resp.message.tool_calls).ok()
+                } else {
+                    None
+                };
+                self.persist_message(
+                    "assistant",
+                    resp.message.content.as_deref(),
+                    resp.message.reasoning.as_deref(),
+                    tc_json.as_deref(),
+                    None,
+                );
+
+                if resp.message.tool_calls.is_empty() {
+                    let _ = event_tx.send(EngineEvent::TurnComplete(resp));
+                    let _ = event_tx.send(EngineEvent::Done);
+                    break;
+                } else {
+                    // Tool calls present, emit TurnComplete but continue the loop
+                    let _ = event_tx.send(EngineEvent::TurnComplete(resp));
+                }
+            } else {
+                // Should not happen if stream completed normally
+                let _ = event_tx.send(EngineEvent::Done);
+                break;
             }
-            if let Some(resp) = final_response {
-                let _ = event_tx.send(EngineEvent::TurnComplete(resp));
-            }
-            let _ = event_tx.send(EngineEvent::Done);
-            break;
         }
 
         Ok(())
@@ -1029,6 +1085,7 @@ impl AgentEngine {
     fn process_stream_event(
         event: StreamEvent,
         full_text: &mut String,
+        full_reasoning: &mut String,
         tool_calls: &mut Vec<ToolCall>,
         final_response: &mut Option<ChatResponse>,
         event_tx: &mpsc::UnboundedSender<EngineEvent>,
@@ -1037,6 +1094,10 @@ impl AgentEngine {
             StreamEvent::TextDelta(delta) => {
                 full_text.push_str(&delta);
                 let _ = event_tx.send(EngineEvent::TextDelta(delta));
+            }
+            StreamEvent::ReasoningDelta(delta) => {
+                full_reasoning.push_str(&delta);
+                let _ = event_tx.send(EngineEvent::ReasoningDelta(delta));
             }
             StreamEvent::ToolCallStart { id, name } => {
                 tool_calls.push(ToolCall {
@@ -1057,6 +1118,9 @@ impl AgentEngine {
             }
             StreamEvent::ToolCallEnd { id: _ } => {}
             StreamEvent::Done(resp) => {
+                if !full_reasoning.is_empty() {
+                    let _ = event_tx.send(EngineEvent::ReasoningComplete(full_reasoning.clone()));
+                }
                 *final_response = Some(resp);
             }
             StreamEvent::Error(e) => {

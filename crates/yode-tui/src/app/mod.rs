@@ -54,6 +54,7 @@ pub struct PendingConfirmation {
 pub struct ChatEntry {
     pub role: ChatRole,
     pub content: String,
+    pub reasoning: Option<String>,
     /// When this entry was created.
     pub timestamp: Instant,
     /// If true, this entry was already printed to scrollback via streaming.
@@ -64,7 +65,25 @@ pub struct ChatEntry {
 
 impl ChatEntry {
     pub fn new(role: ChatRole, content: String) -> Self {
-        Self { role, content, timestamp: Instant::now(), already_printed: false, duration: None }
+        Self {
+            role,
+            content,
+            reasoning: None,
+            timestamp: Instant::now(),
+            already_printed: false,
+            duration: None,
+        }
+    }
+
+    pub fn new_with_reasoning(role: ChatRole, content: String, reasoning: Option<String>) -> Self {
+        Self {
+            role,
+            content,
+            reasoning,
+            timestamp: Instant::now(),
+            already_printed: false,
+            duration: None,
+        }
     }
 }
 
@@ -243,6 +262,7 @@ pub struct App {
     pub printed_count: usize,
     /// Current streaming text buffer (assistant response being streamed).
     pub streaming_buf: String,
+    pub streaming_reasoning: String,
     /// How many lines of streaming_buf have already been printed to scrollback.
     pub streaming_printed_lines: usize,
     /// Whether we're inside a code block during streaming.
@@ -359,6 +379,7 @@ impl App {
             chat_entries: Vec::new(),
             printed_count: 0,
             streaming_buf: String::new(),
+            streaming_reasoning: String::new(),
             streaming_printed_lines: 0,
             streaming_in_code_block: false,
             streaming_remainder: None,
@@ -1477,6 +1498,36 @@ fn send_input(
     });
 }
 
+/// Strip XML-like thinking/reasoning tags from content.
+/// Some models leak their thought process even if we try to capture it.
+fn clean_content(s: &str) -> String {
+    // Common tags used by various models
+    let tags = [
+        ("<thought>", "</thought>"),
+        ("<reasoning>", "</reasoning>"),
+        ("<thinking>", "</thinking>"),
+    ];
+
+    let mut result = s.to_string();
+    for (start_tag, end_tag) in tags {
+        while let Some(start_idx) = result.find(start_tag) {
+            if let Some(end_idx) = result.find(end_tag) {
+                if end_idx > start_idx {
+                    result.drain(start_idx..end_idx + end_tag.len());
+                    continue;
+                }
+            }
+            // If no end tag found, or malformed, just strip the start tag to be safe
+            result.drain(start_idx..start_idx + start_tag.len());
+        }
+        // Also strip stray end tags
+        while let Some(end_idx) = result.find(end_tag) {
+            result.drain(end_idx..end_idx + end_tag.len());
+        }
+    }
+    result.trim_start().to_string()
+}
+
 fn handle_engine_event(
     app: &mut App,
     event: EngineEvent,
@@ -1506,11 +1557,20 @@ fn handle_engine_event(
             // flush_entries_to_scrollback will print new lines.
             app.streaming_buf.push_str(&delta);
         }
+        EngineEvent::ReasoningDelta(delta) => {
+            // Append to reasoning buffer (not printed to scrollback)
+            app.streaming_reasoning.push_str(&delta);
+        }
         EngineEvent::TextComplete(text) => {
             // If we already have streaming content, it contains the full text.
             // If not, set it now.
             if app.streaming_buf.is_empty() {
-                app.streaming_buf = text;
+                app.streaming_buf = clean_content(&text);
+            }
+        }
+        EngineEvent::ReasoningComplete(text) => {
+            if app.streaming_reasoning.is_empty() {
+                app.streaming_reasoning = text;
             }
         }
         EngineEvent::ToolCallStart { id, name, arguments } => {
@@ -1589,8 +1649,13 @@ fn handle_engine_event(
             entry.duration = duration;
             app.chat_entries.push(entry);
         }
-        EngineEvent::TurnComplete(response) => {
+        EngineEvent::TurnComplete(mut response) => {
             finalize_streaming(app);
+
+            // Clean content in final response too
+            if let Some(content) = response.message.content.as_mut() {
+                *content = clean_content(content);
+            }
 
             // Determine input tokens: use reported value, infer from total, or estimate
             let prompt = response.usage.prompt_tokens;
@@ -1836,8 +1901,13 @@ fn reload_provider_from_config(name: &str, app: &mut App) {
 /// Move streaming_buf content into a ChatEntry and reset streaming state.
 /// Save any unprinted remainder for flush to output.
 fn finalize_streaming(app: &mut App) {
-    if !app.streaming_buf.is_empty() {
+    if !app.streaming_buf.is_empty() || !app.streaming_reasoning.is_empty() {
         let content = std::mem::take(&mut app.streaming_buf);
+        let reasoning = if app.streaming_reasoning.is_empty() {
+            None
+        } else {
+            Some(std::mem::take(&mut app.streaming_reasoning))
+        };
         let all_lines: Vec<&str> = content.lines().collect();
         let printed = app.streaming_printed_lines;
 
@@ -1847,10 +1917,10 @@ fn finalize_streaming(app: &mut App) {
             app.streaming_remainder = Some((remainder, printed == 0));
         }
 
-        let mut entry = ChatEntry::new(ChatRole::Assistant, content.clone());
+        let mut entry = ChatEntry::new_with_reasoning(ChatRole::Assistant, content.clone(), reasoning);
         entry.already_printed = true; // always true — remainder handled separately
-        // Don't push empty/whitespace-only assistant entries
-        if !content.trim().is_empty() {
+        // Don't push empty/whitespace-only assistant entries (unless they have reasoning)
+        if !content.trim().is_empty() || entry.reasoning.is_some() {
             app.chat_entries.push(entry);
         }
         app.streaming_printed_lines = 0;

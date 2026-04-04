@@ -43,6 +43,8 @@ struct OpenAiMessage {
     role: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     content: Option<String>,
+    #[serde(alias = "thought", alias = "reasoning", skip_serializing_if = "Option::is_none")]
+    reasoning_content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_calls: Option<Vec<OpenAiToolCall>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -138,6 +140,8 @@ struct OpenAiStreamDelta {
     role: Option<String>,
     #[serde(default)]
     content: Option<String>,
+    #[serde(alias = "thought", alias = "reasoning", default)]
+    reasoning_content: Option<String>,
     #[serde(default)]
     tool_calls: Option<Vec<OpenAiToolCall>>,
 }
@@ -203,6 +207,7 @@ fn message_to_openai(msg: &Message) -> OpenAiMessage {
     OpenAiMessage {
         role: role_to_string(&msg.role),
         content: msg.content.clone(),
+        reasoning_content: msg.reasoning.clone(),
         tool_calls,
         tool_call_id: msg.tool_call_id.clone(),
     }
@@ -226,6 +231,7 @@ fn openai_message_to_internal(msg: &OpenAiMessage) -> Message {
     Message {
         role: string_to_role(&msg.role),
         content: msg.content.clone(),
+        reasoning: msg.reasoning_content.clone(),
         tool_calls,
         tool_call_id: msg.tool_call_id.clone(),
         images: Vec::new(),
@@ -333,13 +339,13 @@ impl LlmProvider for OpenAiProvider {
             .next()
             .ok_or_else(|| anyhow!("OpenAI returned no choices"))?;
 
+        let message = openai_message_to_internal(&choice.message);
+
         let usage = api_resp.usage.map(|u| Usage {
             prompt_tokens: u.prompt_tokens,
             completion_tokens: u.completion_tokens,
             total_tokens: u.total_tokens,
         }).unwrap_or_default();
-
-        let message = openai_message_to_internal(&choice.message);
 
         debug!(
             "Chat response received: {} prompt tokens, {} completion tokens",
@@ -406,6 +412,7 @@ impl LlmProvider for OpenAiProvider {
 
         // Accumulated state for building the final ChatResponse
         let mut full_content = String::new();
+        let mut full_reasoning = String::new();
         let mut accumulated_tool_calls: HashMap<u32, ToolCall> = HashMap::new();
         let mut active_tool_indices: HashMap<u32, bool> = HashMap::new();
         let mut model = request.model.clone();
@@ -457,6 +464,17 @@ impl LlmProvider for OpenAiProvider {
 
             for choice in &chunk.choices {
                 let delta = &choice.delta;
+
+                // Handle reasoning content (e.g. DeepSeek-R1)
+                if let Some(reasoning) = &delta.reasoning_content {
+                    if !reasoning.is_empty() {
+                        full_reasoning.push_str(reasoning);
+                        if tx.send(StreamEvent::ReasoningDelta(reasoning.clone())).await.is_err() {
+                            debug!("Stream receiver dropped, stopping");
+                            return Ok(());
+                        }
+                    }
+                }
 
                 // Handle text content
                 if let Some(content) = &delta.content {
@@ -561,9 +579,16 @@ impl LlmProvider for OpenAiProvider {
             Some(full_content)
         };
 
+        let reasoning = if full_reasoning.is_empty() {
+            None
+        } else {
+            Some(full_reasoning)
+        };
+
         let final_message = Message {
             role: Role::Assistant,
             content,
+            reasoning,
             tool_calls: final_tool_calls,
             tool_call_id: None,
             images: Vec::new(),

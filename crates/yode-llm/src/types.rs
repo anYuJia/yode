@@ -21,6 +21,8 @@ pub struct ImageData {
 pub struct Message {
     pub role: Role,
     pub content: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<String>,
     pub tool_calls: Vec<ToolCall>,
     pub tool_call_id: Option<String>,
     /// Images attached to this message (for multimodal support).
@@ -33,6 +35,7 @@ impl Message {
         Self {
             role: Role::System,
             content: Some(content.into()),
+            reasoning: None,
             tool_calls: Vec::new(),
             tool_call_id: None,
             images: Vec::new(),
@@ -43,6 +46,7 @@ impl Message {
         Self {
             role: Role::User,
             content: Some(content.into()),
+            reasoning: None,
             tool_calls: Vec::new(),
             tool_call_id: None,
             images: Vec::new(),
@@ -54,6 +58,7 @@ impl Message {
         Self {
             role: Role::User,
             content: Some(content.into()),
+            reasoning: None,
             tool_calls: Vec::new(),
             tool_call_id: None,
             images,
@@ -64,6 +69,19 @@ impl Message {
         Self {
             role: Role::Assistant,
             content: Some(content.into()),
+            reasoning: None,
+            tool_calls: Vec::new(),
+            tool_call_id: None,
+            images: Vec::new(),
+        }
+    }
+
+    /// Create an assistant message with reasoning.
+    pub fn assistant_with_reasoning(content: Option<String>, reasoning: Option<String>) -> Self {
+        Self {
+            role: Role::Assistant,
+            content,
+            reasoning,
             tool_calls: Vec::new(),
             tool_call_id: None,
             images: Vec::new(),
@@ -74,6 +92,7 @@ impl Message {
         Self {
             role: Role::Tool,
             content: Some(content.into()),
+            reasoning: None,
             tool_calls: Vec::new(),
             tool_call_id: Some(tool_call_id.into()),
             images: Vec::new(),
@@ -89,6 +108,7 @@ impl Message {
         Self {
             role: Role::Tool,
             content: Some(content.into()),
+            reasoning: None,
             tool_calls: Vec::new(),
             tool_call_id: Some(tool_call_id.into()),
             images: vec![image],
@@ -136,6 +156,7 @@ pub struct Usage {
 #[derive(Debug, Clone)]
 pub enum StreamEvent {
     TextDelta(String),
+    ReasoningDelta(String),
     ToolCallStart { id: String, name: String },
     ToolCallDelta { id: String, arguments: String },
     ToolCallEnd { id: String },

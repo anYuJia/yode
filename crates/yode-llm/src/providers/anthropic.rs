@@ -435,6 +435,7 @@ impl LlmProvider for AnthropicProvider {
             } else {
                 Some(text_content)
             },
+            reasoning: None,
             tool_calls,
             tool_call_id: None,
             images: Vec::new(),
@@ -619,6 +620,7 @@ impl LlmProvider for AnthropicProvider {
         let final_message = Message {
             role: Role::Assistant,
             content,
+            reasoning: None,
             tool_calls,
             tool_call_id: None,
             images: Vec::new(),
