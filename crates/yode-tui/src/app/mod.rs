@@ -1578,6 +1578,8 @@ fn handle_engine_event(app: &mut App, event: EngineEvent) {
             app.tool_call_starts.clear();
 
             // Generate prompt suggestion (ghost text) when input is empty
+            // For now use simple rule-based suggestion
+            // LLM-based suggestion would require async call to engine
             if app.prompt_suggestion_enabled && app.input.is_empty() {
                 app.prompt_suggestion = generate_prompt_suggestion(&app.chat_entries);
                 app.input.set_ghost_text(app.prompt_suggestion.clone());

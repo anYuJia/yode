@@ -1543,6 +1543,93 @@ impl AgentEngine {
 
         Ok(result)
     }
+
+    /// Generate a prompt suggestion using LLM.
+    /// This is a lightweight call that suggests what the user might type next.
+    pub async fn generate_prompt_suggestion(&self, recent_messages: &[Message]) -> Option<String> {
+        // Suggestion prompt based on Claude Code's implementation
+        let suggestion_prompt = r#"[SUGGESTION MODE: Suggest what the user might naturally type next.]
+
+FIRST: Look at the user's recent messages and original request.
+
+Your job is to predict what THEY would type - not what you think they should do.
+
+THE TEST: Would they think "I was just about to type that"?
+
+EXAMPLES:
+- User asked "fix the bug and run tests", bug is fixed -> "run the tests"
+- After code written -> "try it out"
+- Claude offers options -> suggest the one the user would likely pick
+- Claude asks to continue -> "yes" or "go ahead"
+- Task complete, obvious follow-up -> "commit this" or "push it"
+
+Be specific: "run the tests" beats "continue".
+
+NEVER SUGGEST:
+- Evaluative ("looks good", "thanks")
+- Questions ("what about...?")
+- Claude-voice ("Let me...", "I'll...", "Here's...")
+- New ideas they didn't ask about
+- Multiple sentences
+
+Stay silent if the next step isn't obvious from what the user said.
+
+Format: 2-12 words, match the user's style. Or nothing.
+
+Reply with ONLY the suggestion, no quotes or explanation."#;
+
+        // Build messages for suggestion generation
+        let mut messages = vec![Message::system(suggestion_prompt)];
+
+        // Add recent conversation context (last 6 messages for context)
+        let context_start = recent_messages.len().saturating_sub(6);
+        for msg in &recent_messages[context_start..] {
+            if let Some(ref content) = msg.content {
+                if !content.trim().is_empty() {
+                    messages.push(msg.clone());
+                }
+            }
+        }
+
+        // Create a lightweight request with no tools
+        let request = ChatRequest {
+            model: self.context.model.clone(),
+            messages,
+            tools: vec![],
+            temperature: Some(0.7),
+            max_tokens: Some(50),
+        };
+
+        // Make the LLM call with timeout
+        let provider = Arc::clone(&self.provider);
+
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            provider.chat(request)
+        ).await {
+            Ok(Ok(response)) => {
+                if let Some(content) = response.message.content {
+                    let suggestion = content.trim().to_string();
+                    // Filter out empty or meta suggestions
+                    if !suggestion.is_empty()
+                        && suggestion.len() <= 100
+                        && !suggestion.starts_with('[')
+                        && !suggestion.contains("silence")
+                    {
+                        return Some(suggestion);
+                    }
+                }
+            }
+            Ok(Err(e)) => {
+                debug!("Prompt suggestion generation failed: {}", e);
+            }
+            Err(_) => {
+                debug!("Prompt suggestion generation timed out");
+            }
+        }
+
+        None
+    }
 }
 
 #[cfg(test)]
