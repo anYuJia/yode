@@ -694,7 +694,7 @@ async fn run_app(
 
         // Process engine events (non-blocking)
         while let Ok(event) = engine_event_rx.try_recv() {
-            handle_engine_event(app, event);
+            handle_engine_event(app, event, &engine, &engine_event_tx);
         }
 
         // Begin synchronized update — terminal buffers ALL output until
@@ -1250,6 +1250,7 @@ fn handle_enter(
 fn handle_char(app: &mut App, key: crossterm::event::KeyEvent, c: char) {
     // Clear suggestion when user starts typing
     app.input.clear_ghost_text();
+    app.suggestion_generating = false; // Reset for next generation
 
     if key.modifiers.contains(KeyModifiers::CONTROL) {
         match c {
@@ -1401,7 +1402,12 @@ fn send_input(
     });
 }
 
-fn handle_engine_event(app: &mut App, event: EngineEvent) {
+fn handle_engine_event(
+    app: &mut App,
+    event: EngineEvent,
+    engine: &Arc<Mutex<AgentEngine>>,
+    engine_event_tx: &mpsc::UnboundedSender<EngineEvent>,
+) {
     match event {
         EngineEvent::Thinking => {
             // Reset per-turn token counters
@@ -1580,11 +1586,36 @@ fn handle_engine_event(app: &mut App, event: EngineEvent) {
             app.sync_thinking();
             app.tool_call_starts.clear();
 
-            // Generate prompt suggestion (ghost text) when input is empty
-            // For now use simple rule-based suggestion
-            // LLM-based suggestion would require async call to engine
+            // Generate prompt suggestion using LLM when input is empty
             if app.prompt_suggestion_enabled && app.input.is_empty() && !app.suggestion_generating {
-                app.prompt_suggestion = generate_prompt_suggestion(&app.chat_entries);
+                app.suggestion_generating = true;
+
+                // Build messages for suggestion generation
+                let messages: Vec<yode_llm::types::Message> = app.chat_entries.iter()
+                    .filter_map(|e| match e.role {
+                        ChatRole::User => Some(yode_llm::types::Message::user(&e.content)),
+                        ChatRole::Assistant => Some(yode_llm::types::Message::assistant(&e.content)),
+                        _ => None,
+                    })
+                    .collect();
+
+                // Spawn async task to generate suggestion
+                let engine_clone = Arc::clone(&engine);
+                let event_tx_clone = engine_event_tx.clone();
+
+                tokio::spawn(async move {
+                    let engine_guard = engine_clone.lock().await;
+                    if let Some(suggestion) = engine_guard.generate_prompt_suggestion(&messages).await {
+                        let _ = event_tx_clone.send(EngineEvent::SuggestionReady { suggestion });
+                    }
+                });
+            }
+        }
+        EngineEvent::SuggestionReady { suggestion } => {
+            // LLM-generated suggestion arrived
+            app.suggestion_generating = false;
+            if app.prompt_suggestion_enabled && app.input.is_empty() {
+                app.prompt_suggestion = Some(suggestion);
                 app.input.set_ghost_text(app.prompt_suggestion.clone());
             }
         }
@@ -2941,50 +2972,4 @@ fn render_inline_md(text: &str, ansi: bool) -> String {
         }
     }
     result
-}
-
-/// Generate prompt suggestion based on conversation context.
-/// This is a simple rule-based implementation for now.
-/// Can be extended to call LLM for smarter suggestions (like Claude Code does).
-fn generate_prompt_suggestion(chat_entries: &[ChatEntry]) -> Option<String> {
-    // Need at least one user message and one assistant response
-    if chat_entries.len() < 2 {
-        return None;
-    }
-
-    // Find the last assistant message
-    let last_assistant_idx = chat_entries.iter().rposition(|e| matches!(e.role, ChatRole::Assistant))?;
-
-    // Get the last assistant message content
-    let last_assistant = &chat_entries[last_assistant_idx];
-
-    // Analyze the message to generate suggestion
-    let content = last_assistant.content.to_lowercase();
-
-    // Common follow-up suggestions based on context
-    let suggestions: Vec<(&str, Vec<&str>)> = vec![
-        ("code", vec!["run the code", "test it", "explain the code"]),
-        ("test", vec!["run the tests", "show test results"]),
-        ("file", vec!["show me the file", "read the file"]),
-        ("search", vec!["search for more", "grep the codebase"]),
-        ("build", vec!["build the project", "compile it"]),
-        ("error", vec!["fix the error", "what went wrong?"]),
-        ("done", vec!["what's next?", "summarize the changes"]),
-        ("commit", vec!["commit the changes", "show git status"]),
-    ];
-
-    for (keyword, suggestion_list) in suggestions {
-        if content.contains(keyword) {
-            // Pick the first suggestion for now
-            return Some(suggestion_list.first()?.to_string());
-        }
-    }
-
-    // Default suggestions for common scenarios
-    if content.contains("?") {
-        return Some("thank you".to_string());
-    }
-
-    // No specific suggestion
-    None
 }

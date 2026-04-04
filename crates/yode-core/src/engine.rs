@@ -168,6 +168,8 @@ pub enum EngineEvent {
     },
     /// Budget limit exceeded
     BudgetExceeded { cost: f64, limit: f64 },
+    /// Suggestion generated (async LLM call completed)
+    SuggestionReady { suggestion: String },
 }
 
 /// Response to a confirmation request.
