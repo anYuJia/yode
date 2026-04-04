@@ -6,3 +6,5 @@ Cargo.lock
 .env
 *.log
 ~/.yode/
+claude/
+claude-code-rev/

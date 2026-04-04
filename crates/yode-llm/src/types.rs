@@ -18,8 +18,25 @@ pub struct ImageData {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ContentBlock {
+    Text {
+        text: String,
+    },
+    Thinking {
+        thinking: String,
+        #[serde(default)]
+        signature: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub role: Role,
+    /// Standardized content blocks (preferred for modern models)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub content_blocks: Vec<ContentBlock>,
+    /// Legacy flat content string (for backward compatibility)
     pub content: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<String>,
@@ -29,12 +46,13 @@ pub struct Message {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub images: Vec<ImageData>,
 }
-
 impl Message {
     pub fn system(content: impl Into<String>) -> Self {
+        let text = content.into();
         Self {
             role: Role::System,
-            content: Some(content.into()),
+            content: Some(text.clone()),
+            content_blocks: vec![ContentBlock::Text { text }],
             reasoning: None,
             tool_calls: Vec::new(),
             tool_call_id: None,
@@ -43,9 +61,11 @@ impl Message {
     }
 
     pub fn user(content: impl Into<String>) -> Self {
+        let text = content.into();
         Self {
             role: Role::User,
-            content: Some(content.into()),
+            content: Some(text.clone()),
+            content_blocks: vec![ContentBlock::Text { text }],
             reasoning: None,
             tool_calls: Vec::new(),
             tool_call_id: None,
@@ -55,9 +75,11 @@ impl Message {
 
     /// Create a user message with images.
     pub fn user_with_images(content: impl Into<String>, images: Vec<ImageData>) -> Self {
+        let text = content.into();
         Self {
             role: Role::User,
-            content: Some(content.into()),
+            content: Some(text.clone()),
+            content_blocks: vec![ContentBlock::Text { text }],
             reasoning: None,
             tool_calls: Vec::new(),
             tool_call_id: None,
@@ -66,9 +88,11 @@ impl Message {
     }
 
     pub fn assistant(content: impl Into<String>) -> Self {
+        let text = content.into();
         Self {
             role: Role::Assistant,
-            content: Some(content.into()),
+            content: Some(text.clone()),
+            content_blocks: vec![ContentBlock::Text { text }],
             reasoning: None,
             tool_calls: Vec::new(),
             tool_call_id: None,
@@ -78,9 +102,18 @@ impl Message {
 
     /// Create an assistant message with reasoning.
     pub fn assistant_with_reasoning(content: Option<String>, reasoning: Option<String>) -> Self {
+        let mut blocks = Vec::new();
+        if let Some(ref r) = reasoning {
+            blocks.push(ContentBlock::Thinking { thinking: r.clone(), signature: None });
+        }
+        if let Some(ref t) = content {
+            blocks.push(ContentBlock::Text { text: t.clone() });
+        }
+        
         Self {
             role: Role::Assistant,
             content,
+            content_blocks: blocks,
             reasoning,
             tool_calls: Vec::new(),
             tool_call_id: None,
@@ -89,9 +122,11 @@ impl Message {
     }
 
     pub fn tool_result(tool_call_id: impl Into<String>, content: impl Into<String>) -> Self {
+        let text = content.into();
         Self {
             role: Role::Tool,
-            content: Some(content.into()),
+            content: Some(text.clone()),
+            content_blocks: vec![ContentBlock::Text { text }],
             reasoning: None,
             tool_calls: Vec::new(),
             tool_call_id: Some(tool_call_id.into()),
@@ -105,9 +140,11 @@ impl Message {
         content: impl Into<String>,
         image: ImageData,
     ) -> Self {
+        let text = content.into();
         Self {
             role: Role::Tool,
-            content: Some(content.into()),
+            content: Some(text.clone()),
+            content_blocks: vec![ContentBlock::Text { text }],
             reasoning: None,
             tool_calls: Vec::new(),
             tool_call_id: Some(tool_call_id.into()),
@@ -157,6 +194,8 @@ pub struct Usage {
 pub enum StreamEvent {
     TextDelta(String),
     ReasoningDelta(String),
+    /// Real-time usage information (e.g. prompt tokens known at start)
+    UsageUpdate(Usage),
     ToolCallStart { id: String, name: String },
     ToolCallDelta { id: String, arguments: String },
     ToolCallEnd { id: String },
