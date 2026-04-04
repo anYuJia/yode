@@ -60,7 +60,8 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                     Constraint::Length(1), // separator above input
                     Constraint::Length(input_height),
                     Constraint::Length(1), // separator above status bar
-                    Constraint::Length(1),
+                    Constraint::Length(1), // status bar
+                    Constraint::Length(1), // blank line
                 ])
                 .split(frame.area());
 
@@ -70,6 +71,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             input::render_input(frame, chunks[3], app);
             status_bar::render_separator(frame, chunks[4]);
             status_bar::render_info_line(frame, chunks[5], app);
+            status_bar::render_blank_line(frame, chunks[6]);
         } else {
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
@@ -78,7 +80,8 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                     Constraint::Length(1), // separator above input
                     Constraint::Length(input_height),
                     Constraint::Length(1), // separator above status bar
-                    Constraint::Length(1),
+                    Constraint::Length(1), // status bar
+                    Constraint::Length(1), // blank line
                 ])
                 .split(frame.area());
 
@@ -87,6 +90,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             input::render_input(frame, chunks[2], app);
             status_bar::render_separator(frame, chunks[3]);
             status_bar::render_info_line(frame, chunks[4], app);
+            status_bar::render_blank_line(frame, chunks[5]);
         }
     }
 }

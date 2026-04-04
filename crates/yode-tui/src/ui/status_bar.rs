@@ -119,3 +119,11 @@ pub fn render_info_line(frame: &mut Frame, area: Rect, app: &App) {
 
     frame.render_widget(Paragraph::new(Line::from(parts)), area);
 }
+
+/// Bottom blank line: renders a row of space characters
+/// This keeps the line visually present (not collapsed) while appearing empty.
+pub fn render_blank_line(frame: &mut Frame, area: Rect) {
+    if area.height == 0 || area.width == 0 { return; }
+    let blank = " ".repeat(area.width as usize);
+    frame.render_widget(Paragraph::new(Line::from(Span::styled(blank, Style::default()))), area);
+}
