@@ -729,7 +729,7 @@ async fn run_app(
                     0
                 };
                 let thinking_line: u16 = if app.turn_status.is_visible() { 1 } else { 0 };
-                visual_lines.clamp(1, 5) + completion_lines + thinking_line + 3 // +status_line +separator +status_bar_separator +status_bar
+                visual_lines.clamp(1, 5) + completion_lines + thinking_line + 4 // +status_line +separator +status_bar_separator +status_bar +blank_line
             };
             let area = terminal.get_frame().area();
             if area.height != needed {
@@ -1599,14 +1599,22 @@ fn handle_engine_event(
                     })
                     .collect();
 
+                tracing::debug!("Generating suggestion with {} messages", messages.len());
+
                 // Spawn async task to generate suggestion
                 let engine_clone = Arc::clone(&engine);
                 let event_tx_clone = engine_event_tx.clone();
 
                 tokio::spawn(async move {
                     let engine_guard = engine_clone.lock().await;
-                    if let Some(suggestion) = engine_guard.generate_prompt_suggestion(&messages).await {
-                        let _ = event_tx_clone.send(EngineEvent::SuggestionReady { suggestion });
+                    match engine_guard.generate_prompt_suggestion(&messages).await {
+                        Some(suggestion) => {
+                            tracing::debug!("Suggestion generated: {}", suggestion);
+                            let _ = event_tx_clone.send(EngineEvent::SuggestionReady { suggestion });
+                        }
+                        None => {
+                            tracing::debug!("No suggestion generated");
+                        }
                     }
                 });
             }
@@ -1614,6 +1622,7 @@ fn handle_engine_event(
         EngineEvent::SuggestionReady { suggestion } => {
             // LLM-generated suggestion arrived
             app.suggestion_generating = false;
+            tracing::debug!("Suggestion received: {}", suggestion);
             if app.prompt_suggestion_enabled && app.input.is_empty() {
                 app.prompt_suggestion = Some(suggestion);
                 app.input.set_ghost_text(app.prompt_suggestion.clone());

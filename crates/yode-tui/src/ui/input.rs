@@ -28,11 +28,20 @@ pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
     let is_empty = app.input.is_empty() && app.input.attachments.is_empty();
 
     if is_empty && !app.is_thinking {
-        let paragraph = Paragraph::new(Line::from(vec![
-            prompt,
-            Span::styled("Ask anything…", Style::default().fg(HINT_COLOR)),
-        ]));
-        frame.render_widget(paragraph, area);
+        // Show ghost text suggestion if available, otherwise show placeholder
+        if let Some(ref ghost) = app.input.ghost_text {
+            let paragraph = Paragraph::new(Line::from(vec![
+                prompt,
+                Span::styled(ghost.clone(), Style::default().fg(GHOST_COLOR)),
+            ]));
+            frame.render_widget(paragraph, area);
+        } else {
+            let paragraph = Paragraph::new(Line::from(vec![
+                prompt,
+                Span::styled("Ask anything…", Style::default().fg(HINT_COLOR)),
+            ]));
+            frame.render_widget(paragraph, area);
+        }
     } else if app.is_thinking && is_empty {
         // Thinking state: show normal prompt (Working indicator is rendered separately above)
         let paragraph = Paragraph::new(Line::from(vec![
