@@ -10,7 +10,7 @@ use crate::app::App;
 const PROMPT_COLOR: Color = Color::LightGreen;
 const PROMPT_DIM: Color = Color::DarkGray;    // ANSI 8
 const TEXT_COLOR: Color = Color::White;        // ANSI 15
-const HINT_COLOR: Color = Color::Gray;         // ANSI 7
+const HINT_COLOR: Color = Color::DarkGray;     // ANSI 8 - same as "Done" line
 const GHOST_COLOR: Color = Color::DarkGray;    // ANSI 8 - for ghost text
 
 pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
