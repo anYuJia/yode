@@ -36,6 +36,10 @@ impl Command for ClearCommand {
 
         // Clear chat entries
         ctx.chat_entries.clear();
+        *ctx.printed_count = 0;
+        ctx.streaming_buf.clear();
+        *ctx.streaming_printed_lines = 0;
+        *ctx.streaming_in_code_block = false;
 
         // Reset turn tokens
         ctx.session.turn_input_tokens = 0;
@@ -54,14 +58,6 @@ impl Command for ClearCommand {
             ctx.session.tool_call_count = 0;
         }
 
-        // Generate new session ID for clean break
-        ctx.session.session_id = uuid::Uuid::new_v4().to_string();
-
-        let mut message = String::from("Conversation cleared. Starting fresh session.");
-        if reset_stats {
-            message.push_str(" Token stats reset.");
-        }
-
-        Ok(CommandOutput::Message(message))
+        Ok(CommandOutput::Silent)
     }
 }

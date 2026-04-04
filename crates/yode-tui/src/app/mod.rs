@@ -817,7 +817,7 @@ async fn run_app(
                     // Key events are handled directly — paste detection relies on
                     // bracketed paste mode (AppEvent::Paste) and Ctrl+V/Cmd+V
                     // reading from the system clipboard via pbpaste.
-                    handle_key_event(app, key, &engine, &tools, &engine_event_tx);
+                    handle_key_event(terminal, app, key, &engine, &tools, &engine_event_tx);
                 }
                 AppEvent::Paste(text) => {
                     let text = text.replace("\r\n", "\n").replace('\r', "\n");
@@ -856,6 +856,7 @@ async fn run_app(
 
 /// Centralized key event handler.
 fn handle_key_event(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
     key: crossterm::event::KeyEvent,
     engine: &Arc<Mutex<AgentEngine>>,
@@ -1059,7 +1060,7 @@ fn handle_key_event(
 
     // ── Main key handling ───────────────────────────────────
     match key.code {
-        KeyCode::Enter => handle_enter(app, key, engine, tools, engine_event_tx),
+        KeyCode::Enter => handle_enter(terminal, app, key, engine, tools, engine_event_tx),
         KeyCode::Char(c) if (key.modifiers.contains(KeyModifiers::CONTROL) || key.modifiers.contains(KeyModifiers::SUPER)) && c == 'v' => {
             // Ctrl+V: read from system clipboard directly (works even without BracketedPaste)
             if let Ok(output) = std::process::Command::new("pbpaste").output() {
@@ -1117,6 +1118,7 @@ fn handle_key_event(
 }
 
 fn handle_enter(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
     key: crossterm::event::KeyEvent,
     engine: &Arc<Mutex<AgentEngine>>,
@@ -1207,6 +1209,11 @@ fn handle_enter(
             return;
         }
 
+        // Add user message to scrollback (except for /clear which is handled below)
+        if cmd_name != "clear" {
+            app.chat_entries.push(ChatEntry::new(ChatRole::User, raw_typed.clone()));
+        }
+
         // Execute in a block so ctx is dropped before we handle result
         let result = {
             let mut ctx = crate::commands::context::CommandContext {
@@ -1216,6 +1223,10 @@ fn handle_enter(
                 provider_models: &mut app.provider_models,
                 all_provider_models: &app.all_provider_models,
                 chat_entries: &mut app.chat_entries,
+                printed_count: &mut app.printed_count,
+                streaming_buf: &mut app.streaming_buf,
+                streaming_printed_lines: &mut app.streaming_printed_lines,
+                streaming_in_code_block: &mut app.streaming_in_code_block,
                 tools,
                 session: &mut app.session,
                 terminal_caps: &app.terminal_caps,
@@ -1227,6 +1238,36 @@ fn handle_enter(
             };
             app.cmd_registry.execute_command(cmd_name, cmd_args, &mut ctx)
         };
+
+        // Special handling for /clear to ensure UI reset
+        if cmd_name == "clear" {
+            // 1. Clear terminal screen completely
+            let mut stdout = io::stdout();
+            let _ = stdout.execute(crossterm::terminal::Clear(crossterm::terminal::ClearType::All));
+            let _ = stdout.execute(crossterm::cursor::MoveTo(0, 0));
+
+            // 2. Print welcome header
+            let _ = print_header_to_stdout(app);
+
+            // 3. Reset TUI viewport position to just below the header
+            if let Ok((_cols, rows)) = crossterm::cursor::position() {
+                let area = terminal.get_frame().area();
+                let new_area = ratatui::layout::Rect {
+                    x: area.x,
+                    y: rows, // Current cursor row after header
+                    width: area.width,
+                    height: area.height,
+                };
+                terminal.set_viewport_area(new_area);
+            }
+
+            // 4. Force Ratatui to redraw everything immediately
+            let _ = terminal.clear();
+            let _ = terminal.draw(|f| {
+                ui::render(f, app);
+            });
+            return;
+        }
 
         // ctx is dropped; we can use app.chat_entries again
         use crate::commands::CommandOutput;
@@ -1932,7 +1973,6 @@ fn print_header_to_stdout(app: &App) -> Result<()> {
     let mut stdout = io::stdout();
     // Clear any residual cargo output (progress bars may leave escape sequences)
     stdout.execute(Clear(ClearType::CurrentLine))?;
-    stdout.execute(crossterm::style::Print("\r\n"))?;
 
     for line in header_lines {
         // Convert ratatui Line to colored strings for raw stdout
@@ -1949,6 +1989,8 @@ fn print_header_to_stdout(app: &App) -> Result<()> {
         }
         stdout.execute(crossterm::style::Print("\r\n"))?;
     }
+    stdout.execute(crossterm::style::SetAttribute(crossterm::style::Attribute::Reset))?;
+    stdout.execute(crossterm::style::ResetColor)?;
     stdout.flush()?;
     Ok(())
 }
