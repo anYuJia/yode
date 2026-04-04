@@ -103,6 +103,36 @@ yode (main)
 | Dev | `/diff`, `/bug` |
 | Utility | `/copy`, `/keys`, `/history`, `/time`, `/theme`, `/export` |
 
+### 快捷键（TUI）
+
+| 快捷键 | 功能 |
+|--------|------|
+| `Enter` | 发送消息 |
+| `Ctrl+Enter` / `Shift+Enter` | 插入换行 |
+| `Ctrl+C` | 停止生成（按两次退出） |
+| `Esc` | 停止生成 |
+| `↑` / `↓` | 滚动聊天 |
+| `Ctrl+P` / `Ctrl+N` | 浏览输入历史 |
+| `Ctrl+R` | 反向搜索历史 |
+| `Ctrl+L` | 清屏 |
+| `Ctrl+K` | 删除到行尾 |
+| `Ctrl+W` | 删除前一个单词 |
+| `PageUp` / `PageDown` | 滚动聊天（10 行） |
+| `Shift+Tab` | 切换权限模式 |
+| `Tab` | 自动完成命令 |
+
+### 权限模式
+
+- **Normal** - 每个工具调用都需要确认
+- **Auto-Accept** - 自动接受安全工具
+- **Plan** - 只读模式，不允许修改
+- **Bypass** - 无限制（仅调试用）
+
+### 文件附件
+
+- `@file` - 附加文件到消息
+- `!command` - Shell 快捷命令
+
 ## 配置
 
 配置文件位于 `~/.yode/config.toml`，运行时加载：
