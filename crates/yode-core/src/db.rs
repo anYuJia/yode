@@ -191,4 +191,14 @@ impl Database {
 
         Ok(messages)
     }
+
+    /// Update session name
+    pub fn update_session_name(&self, session_id: &str, name: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE sessions SET name = ?1, updated_at = ?2 WHERE id = ?3",
+            params![name, Utc::now().to_rfc3339(), session_id],
+        )?;
+        Ok(())
+    }
 }

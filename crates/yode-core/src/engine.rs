@@ -406,6 +406,7 @@ impl AgentEngine {
     pub fn permissions_mut(&mut self) -> &mut PermissionManager { &mut self.permissions }
     pub fn cost_tracker(&self) -> &CostTracker { &self.cost_tracker }
     pub fn cost_tracker_mut(&mut self) -> &mut CostTracker { &mut self.cost_tracker }
+    pub fn get_database(&self) -> Option<&Database> { self.db.as_ref() }
 
     /// Set hook manager.
     pub fn set_hook_manager(&mut self, mgr: HookManager) {

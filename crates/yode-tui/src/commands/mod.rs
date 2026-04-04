@@ -83,6 +83,7 @@ pub fn register_all(registry: &mut CommandRegistry) {
     registry.register(Box::new(session::CompactCommand::new()));
     registry.register(Box::new(session::SessionsCommand::new()));
     registry.register(Box::new(session::ExitCommand::new()));
+    registry.register(Box::new(session::RenameCommand::new()));
     // Model
     registry.register(Box::new(model::ModelCommand::new()));
     registry.register(Box::new(model::ProviderCommand::new()));
@@ -108,4 +109,5 @@ pub fn register_all(registry: &mut CommandRegistry) {
     registry.register(Box::new(utility::HistoryCommand::new()));
     registry.register(Box::new(utility::TimeCommand::new()));
     registry.register(Box::new(utility::ThemeCommand::new()));
+    registry.register(Box::new(utility::ExportCommand::new()));
 }
