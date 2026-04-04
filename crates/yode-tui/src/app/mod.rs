@@ -1498,17 +1498,17 @@ fn send_input(
     });
 }
 
-/// Strip XML-like thinking/reasoning tags from content.
-/// Some models leak their thought process even if we try to capture it.
+/// Strip XML-like thinking/reasoning tags and special markers from content.
 fn clean_content(s: &str) -> String {
-    // Common tags used by various models
+    let mut result = s.to_string();
+    
+    // 1. Strip common XML tags
     let tags = [
         ("<thought>", "</thought>"),
         ("<reasoning>", "</reasoning>"),
         ("<thinking>", "</thinking>"),
     ];
 
-    let mut result = s.to_string();
     for (start_tag, end_tag) in tags {
         while let Some(start_idx) = result.find(start_tag) {
             if let Some(end_idx) = result.find(end_tag) {
@@ -1517,15 +1517,27 @@ fn clean_content(s: &str) -> String {
                     continue;
                 }
             }
-            // If no end tag found, or malformed, just strip the start tag to be safe
             result.drain(start_idx..start_idx + start_tag.len());
         }
-        // Also strip stray end tags
         while let Some(end_idx) = result.find(end_tag) {
             result.drain(end_idx..end_idx + end_tag.len());
         }
     }
-    result.trim_start().to_string()
+
+    // 2. Heuristic: Strip Qwen-style reasoning lines (starting with specific emoji or patterns)
+    let lines: Vec<&str> = result.lines()
+        .filter(|line| {
+            let trimmed = line.trim();
+            // Ignore lines starting with reasoning emoji or typical "Thinking" indicators
+            !trimmed.starts_with('⏺') && !trimmed.starts_with("Thinking:")
+        })
+        .collect();
+    
+    let mut cleaned = lines.join("\n");
+    if result.ends_with('\n') && !cleaned.is_empty() {
+        cleaned.push('\n');
+    }
+    cleaned.trim_start().to_string()
 }
 
 fn handle_engine_event(
@@ -1553,9 +1565,16 @@ fn handle_engine_event(
             app.sync_thinking();
         }
         EngineEvent::TextDelta(delta) => {
-            // Append to streaming buffer instead of creating/appending ChatEntry.
-            // flush_entries_to_scrollback will print new lines.
-            app.streaming_buf.push_str(&delta);
+            // Proactively clean deltas to avoid flickering reasoning process on screen
+            let cleaned = clean_content(&delta);
+            if !cleaned.is_empty() {
+                app.streaming_buf.push_str(&cleaned);
+            }
+            
+            // If the original delta had reasoning content, move it to reasoning buffer
+            if cleaned.len() < delta.len() {
+                app.streaming_reasoning.push_str(&delta);
+            }
         }
         EngineEvent::ReasoningDelta(delta) => {
             // Append to reasoning buffer (not printed to scrollback)

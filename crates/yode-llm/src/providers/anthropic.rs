@@ -43,13 +43,15 @@ enum AnthropicContent {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(tag = "type")]
+#[serde(tag = "type", rename_all = "snake_case")]
 enum ContentBlock {
     #[serde(rename = "text")]
     Text { text: String },
     #[serde(rename = "thinking")]
     Thinking {
         thinking: String,
+        #[serde(default)]
+        signature: Option<String>,
     },
     #[serde(rename = "image")]
     Image {
@@ -162,14 +164,15 @@ struct AnthropicMessageStart {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(tag = "type")]
+#[serde(tag = "type", rename_all = "snake_case")]
 enum ContentBlockStart {
     #[serde(rename = "text")]
     Text { text: String },
     #[serde(rename = "thinking")]
     Thinking {
-        #[allow(dead_code)]
         thinking: String,
+        #[serde(default)]
+        signature: Option<String>,
     },
     #[serde(rename = "tool_use")]
     ToolUse { id: String, name: String },
@@ -178,14 +181,15 @@ enum ContentBlockStart {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(tag = "type")]
+#[serde(tag = "type", rename_all = "snake_case")]
 enum ContentBlockDelta {
     #[serde(rename = "text_delta")]
     TextDelta { text: String },
     #[serde(rename = "thinking_delta")]
     ThinkingDelta {
-        #[allow(dead_code)]
         thinking: String,
+        #[serde(default)]
+        signature: Option<String>,
     },
     #[serde(rename = "input_json_delta")]
     InputJsonDelta { partial_json: String },
@@ -409,7 +413,7 @@ impl LlmProvider for AnthropicProvider {
                 ContentBlock::Text { text } => {
                     text_content.push_str(text);
                 }
-                ContentBlock::Thinking { thinking } => {
+                ContentBlock::Thinking { thinking, .. } => {
                     reasoning_content.push_str(thinking);
                 }
                 ContentBlock::ToolUse { id, name, input } => {
@@ -552,7 +556,7 @@ impl LlmProvider for AnthropicProvider {
                             let _ = tx.send(StreamEvent::TextDelta(text)).await;
                         }
                     }
-                    ContentBlockStart::Thinking { thinking } => {
+                    ContentBlockStart::Thinking { thinking, .. } => {
                         if !thinking.is_empty() {
                             full_reasoning.push_str(&thinking);
                             let _ = tx.send(StreamEvent::ReasoningDelta(thinking)).await;
@@ -576,7 +580,7 @@ impl LlmProvider for AnthropicProvider {
                             return Ok(());
                         }
                     }
-                    ContentBlockDelta::ThinkingDelta { thinking } => {
+                    ContentBlockDelta::ThinkingDelta { thinking, .. } => {
                         full_reasoning.push_str(&thinking);
                         if tx.send(StreamEvent::ReasoningDelta(thinking)).await.is_err() {
                             return Ok(());
