@@ -1150,6 +1150,18 @@ fn handle_enter(
     }
 
     // Submit input
+    let is_empty = app.input.text().trim().is_empty();
+
+    // If empty but we have ghost text, use the ghost text as payload
+    if is_empty {
+        if let Some(ghost) = app.input.ghost_text.take() {
+            app.input.set_text(&ghost);
+        } else {
+            // Truly empty and no ghost text — do nothing
+            return;
+        }
+    }
+
     let (display, payload, raw_typed) = app.input.take();
     if payload.trim().is_empty() {
         return;
