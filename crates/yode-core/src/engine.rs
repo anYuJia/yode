@@ -505,7 +505,7 @@ impl AgentEngine {
         let _ = event_tx.send(EngineEvent::Thinking);
 
         // Add user message
-        self.messages.push(Message::user(user_input.clone()));
+        self.messages.push(Message::user(user_input));
         self.persist_message("user", Some(user_input), None, None, None);
 
         // Reset tool call budget counter for this turn
