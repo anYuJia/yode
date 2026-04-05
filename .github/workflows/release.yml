@@ -22,27 +22,27 @@ jobs:
           # Linux x86_64
           - target: x86_64-unknown-linux-gnu
             runner: ubuntu-latest
-            use_cross: false
+            cross: ''
           # Linux ARM64 (cross-compile)
           - target: aarch64-unknown-linux-gnu
             runner: ubuntu-latest
-            use_cross: true
+            cross: '--cross'
           # macOS x86_64
           - target: x86_64-apple-darwin
             runner: macos-latest
-            use_cross: false
+            cross: ''
           # macOS ARM64 (M1/M2/M3)
           - target: aarch64-apple-darwin
             runner: macos-latest
-            use_cross: false
+            cross: ''
           # Windows x86_64
           - target: x86_64-pc-windows-msvc
             runner: windows-latest
-            use_cross: false
+            cross: ''
           # Windows ARM64 (cross-compile)
           - target: aarch64-pc-windows-msvc
             runner: ubuntu-latest
-            use_cross: true
+            cross: '--cross'
 
     steps:
       - name: Checkout
@@ -54,27 +54,23 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Install cross (for cross-compilation)
-        if: matrix.use_cross
+        if: matrix.cross != ''
         run: cargo install cross --git https://github.com/cross-rs/cross
 
       - name: Install OpenSSL dev (Linux native)
-        if: runner.os == 'Linux' && !matrix.use_cross
+        if: runner.os == 'Linux' && matrix.cross == ''
         run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config
 
       - name: Build (native)
-        if: !matrix.use_cross
+        if: matrix.cross == ''
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Build (cross)
-        if: matrix.use_cross
+        if: matrix.cross != ''
         run: cross build --release --target ${{ matrix.target }}
 
-      - name: Strip binary (Unix native)
-        if: runner.os != 'Windows' && !matrix.use_cross
-        run: strip "target/${{ matrix.target }}/release/yode" || true
-
-      - name: Strip binary (Unix cross)
-        if: runner.os != 'Windows' && matrix.use_cross
+      - name: Strip binary (Unix)
+        if: runner.os != 'Windows'
         run: strip "target/${{ matrix.target }}/release/yode" || true
 
       - name: Package (Unix)
