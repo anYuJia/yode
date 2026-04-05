@@ -125,10 +125,11 @@ fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &App)
         TurnStatus::Working { verb } => {
             let spinner = app.spinner_char();
             let elapsed = app.thinking_elapsed_str();
-            let input_tok = app.session.input_tokens;
-            // Estimate output tokens from streaming buffer (real-time)
+            // Use per-turn tokens (real-time for current turn only)
+            let input_tok = app.session.turn_input_tokens;
+            // Add streaming buffer estimate to turn output tokens
             let stream_chars = app.streaming_buf.len() as u32;
-            let output_tok = app.session.output_tokens + stream_chars / 4;
+            let output_tok = app.session.turn_output_tokens + stream_chars / 4;
 
             Line::from(vec![
                 Span::styled(
