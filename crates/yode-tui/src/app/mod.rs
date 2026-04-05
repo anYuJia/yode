@@ -743,12 +743,6 @@ async fn run_app(
         // 1. Flush entries to scrollback FIRST (pushes terminal up)
         flush_entries_to_scrollback(terminal, app)?;
 
-        // Send queued inputs
-        if !app.is_thinking && !app.pending_inputs.is_empty() {
-            let (display, payload) = app.pending_inputs.remove(0);
-            send_input(app, &display, &payload, &engine, &engine_event_tx);
-        }
-
         // 2. Resize viewport to match content height (grows up, shrinks down)
         {
             let needed = if app.wizard.is_some() {
@@ -776,7 +770,8 @@ async fn run_app(
                 } else {
                     0
                 };
-                visual_lines.clamp(1, 5) + completion_lines + thinking_line + 4 // +separator +status_bar_separator +status_bar +blank_line
+                let pending_line = app.pending_inputs.len() as u16;
+                visual_lines.clamp(1, 5) + completion_lines + thinking_line + pending_line + 4 // +separator +status_bar_separator +status_bar +blank_line
             };
             let area = terminal.get_frame().area();
             if area.height != needed {
@@ -1343,10 +1338,7 @@ fn handle_enter(
     let processed_payload = app.process_file_references(&payload);
     let processed_display = app.process_file_references(&display);
 
-    if app.is_thinking {
-        app.chat_entries.push(ChatEntry::new(ChatRole::User, processed_display.clone()));
-        app.pending_inputs.push((processed_display, processed_payload));
-    } else if app.session.permission_mode == PermissionMode::Plan {
+    if app.session.permission_mode == PermissionMode::Plan {
         app.chat_entries.push(ChatEntry::new(ChatRole::User, processed_display.clone()));
         app.chat_entries.push(ChatEntry::new(
             ChatRole::System,
@@ -1480,9 +1472,6 @@ fn send_input(
     engine: &Arc<Mutex<AgentEngine>>,
     engine_event_tx: &mpsc::UnboundedSender<EngineEvent>,
 ) {
-    // Add user message to UI immediately
-    app.chat_entries.push(ChatEntry::new(ChatRole::User, display.to_string()));
-    
     // Add to internal sequential queue
     app.pending_inputs.push((display.to_string(), payload.to_string()));
     
@@ -1499,8 +1488,11 @@ fn try_process_next(
         return;
     }
 
-    let (_display, payload) = app.pending_inputs.remove(0);
+    let (display, payload) = app.pending_inputs.remove(0);
     app.is_processing = true;
+
+    // Add user message to UI scrollback only when it starts processing
+    app.chat_entries.push(ChatEntry::new(ChatRole::User, display));
 
     // Reset turn state synchronously (Claude-style)
     let cancel_token = CancellationToken::new();

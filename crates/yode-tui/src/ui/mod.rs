@@ -45,6 +45,8 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         let input_height = visual_lines.clamp(1, 5);
         let status_height_raw: u16 = if app.turn_status.is_visible() { 1 } else { 0 };
 
+        let pending_height = app.pending_inputs.len() as u16;
+
         let completion_height = if app.cmd_completion.is_active() {
             if app.cmd_completion.args_hint.is_some() {
                 1
@@ -72,6 +74,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                 .direction(Direction::Vertical)
                 .constraints([
                     Constraint::Length(completion_height),
+                    Constraint::Length(pending_height), // Queued inputs
                     Constraint::Length(1), // separator above input
                     Constraint::Length(input_height),
                     Constraint::Length(1), // separator above status bar
@@ -81,16 +84,18 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                 .split(frame.area());
 
             input::render_command_inline(frame, chunks[0], app);
-            status_bar::render_separator(frame, chunks[1]);
-            input::render_input(frame, chunks[2], app);
-            status_bar::render_separator(frame, chunks[3]);
-            status_bar::render_info_line(frame, chunks[4], app);
-            status_bar::render_blank_line(frame, chunks[5]);
+            render_pending_inputs(frame, chunks[1], app);
+            status_bar::render_separator(frame, chunks[2]);
+            input::render_input(frame, chunks[3], app);
+            status_bar::render_separator(frame, chunks[4]);
+            status_bar::render_info_line(frame, chunks[5], app);
+            status_bar::render_blank_line(frame, chunks[6]);
         } else {
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
                     Constraint::Length(status_area_height),
+                    Constraint::Length(pending_height), // Queued inputs
                     Constraint::Length(1), // separator above input
                     Constraint::Length(input_height),
                     Constraint::Length(1), // separator above status bar
@@ -102,13 +107,38 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             if status_area_height > 0 {
                 render_turn_status(frame, chunks[0], app);
             }
-            status_bar::render_separator(frame, chunks[1]);
-            input::render_input(frame, chunks[2], app);
-            status_bar::render_separator(frame, chunks[3]);
-            status_bar::render_info_line(frame, chunks[4], app);
-            status_bar::render_blank_line(frame, chunks[5]);
+            render_pending_inputs(frame, chunks[1], app);
+            status_bar::render_separator(frame, chunks[2]);
+            input::render_input(frame, chunks[3], app);
+            status_bar::render_separator(frame, chunks[4]);
+            status_bar::render_info_line(frame, chunks[5], app);
+            status_bar::render_blank_line(frame, chunks[6]);
         }
     }
+}
+
+fn render_pending_inputs(frame: &mut Frame, area: ratatui::layout::Rect, app: &App) {
+    if area.height == 0 || app.pending_inputs.is_empty() { return; }
+    use ratatui::style::{Color, Style};
+    use ratatui::text::{Line, Span};
+    use ratatui::widgets::Paragraph;
+
+    let mut lines = Vec::new();
+    for (display, _) in &app.pending_inputs {
+        // Truncate long queued inputs to 1 line for preview
+        let text = display.lines().next().unwrap_or("").to_string();
+        let display_text = if text.len() > 80 {
+            format!("{}...", &text[..80])
+        } else {
+            text
+        };
+        lines.push(Line::from(vec![
+            Span::styled("  > ", Style::default().fg(Color::DarkGray)),
+            Span::styled(display_text, Style::default().fg(Color::DarkGray)),
+            Span::styled(" (queued)", Style::default().fg(Color::DarkGray)),
+        ]));
+    }
+    frame.render_widget(Paragraph::new(lines), area);
 }
 
 /// Render the unified turn status line with blank lines above/below.
