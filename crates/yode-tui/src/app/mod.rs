@@ -282,6 +282,8 @@ pub struct App {
     pub pending_confirmation: Option<PendingConfirmation>,
     pub confirm_tx: Option<mpsc::UnboundedSender<ConfirmResponse>>,
     pub pending_inputs: Vec<(String, String)>,
+    /// Whether we are currently executing a turn via the engine
+    pub is_processing: bool,
 
     // Control
     pub should_quit: bool,
@@ -396,6 +398,7 @@ impl App {
             pending_confirmation: None,
             confirm_tx: None,
             pending_inputs: Vec::new(),
+            is_processing: false,
             should_quit: false,
             is_thinking: false,
             last_ctrl_c: None,
@@ -1475,17 +1478,50 @@ fn send_input(
     engine: &Arc<Mutex<AgentEngine>>,
     engine_event_tx: &mpsc::UnboundedSender<EngineEvent>,
 ) {
-    // Add user message (if not already queued)
-    let already_added = app.chat_entries.last()
-        .map_or(false, |e| matches!(e.role, ChatRole::User) && e.content == display);
-    if !already_added {
-        app.chat_entries.push(ChatEntry::new(ChatRole::User, display.to_string()));
+    // Add user message to UI immediately
+    app.chat_entries.push(ChatEntry::new(ChatRole::User, display.to_string()));
+    
+    // Add to internal sequential queue
+    app.pending_inputs.push((display.to_string(), payload.to_string()));
+    
+    // Attempt to start processing if idle
+    try_process_next(app, engine, engine_event_tx);
+}
+
+fn try_process_next(
+    app: &mut App,
+    engine: &Arc<Mutex<AgentEngine>>,
+    engine_event_tx: &mpsc::UnboundedSender<EngineEvent>,
+) {
+    if app.is_processing || app.pending_inputs.is_empty() {
+        return;
     }
 
+    let (_display, payload) = app.pending_inputs.remove(0);
+    app.is_processing = true;
+
+    // Reset turn state synchronously (Claude-style)
     let cancel_token = CancellationToken::new();
     app.thinking.start(cancel_token.clone());
     app.turn_started_at = Some(Instant::now());
     app.turn_tool_count = 0;
+    
+    // Estimate input tokens to be just the new user message
+    let new_chars = payload.len();
+    app.session.turn_input_tokens = (new_chars as u32) / 3;
+    app.session.turn_output_tokens = 0;
+    
+    // Set Working status immediately
+    let verb = {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut hasher = DefaultHasher::new();
+        Instant::now().hash(&mut hasher);
+        let idx = hasher.finish() as usize % crate::app::SPINNER_VERBS.len();
+        crate::app::SPINNER_VERBS[idx]
+    };
+    app.turn_status = TurnStatus::Working { verb };
+    app.is_probing_content = true; // Start probing for hidden reasoning
     app.sync_thinking();
 
     let (confirm_tx, confirm_rx) = mpsc::unbounded_channel();
@@ -1493,11 +1529,11 @@ fn send_input(
 
     let engine = engine.clone();
     let event_tx = engine_event_tx.clone();
-    let input_owned = payload.to_string();
+    
     tokio::spawn(async move {
         let mut engine = engine.lock().await;
         let result = engine
-            .run_turn_streaming(&input_owned, event_tx.clone(), confirm_rx, Some(cancel_token))
+            .run_turn_streaming(&payload, event_tx.clone(), confirm_rx, Some(cancel_token))
             .await;
         if let Err(e) = result {
             error!("Engine turn error: {}", e);
@@ -1586,23 +1622,14 @@ fn handle_engine_event(
 ) {
     match event {
         EngineEvent::Thinking => {
-            // Pick random verb and set Working status
-            let verb = {
-                use std::collections::hash_map::DefaultHasher;
-                use std::hash::{Hash, Hasher};
-                let mut hasher = DefaultHasher::new();
-                Instant::now().hash(&mut hasher);
-                let idx = hasher.finish() as usize % SPINNER_VERBS.len();
-                SPINNER_VERBS[idx]
-            };
-            app.turn_status = TurnStatus::Working { verb };
-            app.thinking.active = true;
-            app.is_probing_content = true; // Start probing for hidden reasoning
-            app.sync_thinking();
+            // Turn status and token estimates are now initialized synchronously
+            // in try_process_next to prevent UI lag. This event is a no-op.
         }
         EngineEvent::UsageUpdate(usage) => {
-            if usage.prompt_tokens > 0 {
-                app.session.turn_input_tokens = usage.prompt_tokens;
+            // Only update output tokens (input tokens are estimated for the current turn only
+            // to avoid showing the massive total context length)
+            if usage.completion_tokens > 0 {
+                app.session.turn_output_tokens = usage.completion_tokens;
             }
         }
         EngineEvent::TextDelta(delta) => {
@@ -1752,15 +1779,9 @@ fn handle_engine_event(
             app.session.output_tokens += completion;
             app.session.total_tokens = app.session.input_tokens + app.session.output_tokens;
 
-            // Update per-turn counters
-            if prompt > 0 {
-                app.session.turn_input_tokens = prompt;
-            } else if total > completion {
-                app.session.turn_input_tokens = total - completion;
-            }
-            // If both are 0, keep current turn_input_tokens (don't overwrite with 0)
-
+            // Output tokens for this turn are precise
             app.session.turn_output_tokens = completion;
+            
             app.thinking.stop();
             app.thinking_printed = false;
             app.sync_thinking();
@@ -1804,6 +1825,10 @@ fn handle_engine_event(
             app.thinking_printed = false;
             app.sync_thinking();
             app.tool_call_starts.clear();
+
+            // Release processing lock and try next queued input
+            app.is_processing = false;
+            try_process_next(app, engine, engine_event_tx);
 
             // Generate prompt suggestion using LLM when input is empty
             if app.prompt_suggestion_enabled && app.input.is_empty() && !app.suggestion_generating {
