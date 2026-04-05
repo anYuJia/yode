@@ -487,9 +487,9 @@ pub fn render_header(app: &App, width: usize) -> Vec<Line<'static>> {
         Line::from(spans)
     };
 
-    // ── Title line: ╭ Yode v0.1 ─────────╮
+    // ── Title line: ╭ Yode vX.Y.Z ────────╮
     let title_text = " Yode ";
-    let ver_text = "v0.1 ";
+    let ver_text = concat!("v", env!("CARGO_PKG_VERSION"), " ");
     let rule_len = width.saturating_sub(title_text.len() + ver_text.len() + 2);
     let top_color = Style::default().fg(gradient[0]);
     lines.push(Line::from(vec![

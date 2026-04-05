@@ -38,6 +38,8 @@ detect_platform() {
     arm64|aarch64)
       if [ "$os" = "apple-darwin" ]; then
         arch="aarch64"
+      elif [ "$os" = "unknown-linux-gnu" ]; then
+        arch="aarch64"
       else
         error "Linux ARM64 builds are not yet available. Only x86_64 is supported on Linux."
       fi
