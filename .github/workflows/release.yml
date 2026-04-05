@@ -22,27 +22,27 @@ jobs:
           # Linux x86_64
           - target: x86_64-unknown-linux-gnu
             runner: ubuntu-latest
-            cross: ''
+            use_cross: false
           # Linux ARM64 (cross-compile)
           - target: aarch64-unknown-linux-gnu
             runner: ubuntu-latest
-            cross: '--cross'
+            use_cross: true
           # macOS x86_64
           - target: x86_64-apple-darwin
             runner: macos-latest
-            cross: ''
+            use_cross: false
           # macOS ARM64 (M1/M2/M3)
           - target: aarch64-apple-darwin
             runner: macos-latest
-            cross: ''
+            use_cross: false
           # Windows x86_64
           - target: x86_64-pc-windows-msvc
             runner: windows-latest
-            cross: ''
-          # Windows ARM64 (cross-compile)
-          - target: aarch64-pc-windows-msvc
-            runner: ubuntu-latest
-            cross: '--cross'
+            use_cross: false
+          # Windows ARM64 (NOT SUPPORTED by cross - requires custom image)
+          # - target: aarch64-pc-windows-msvc
+          #   runner: ubuntu-latest
+          #   use_cross: true
 
     steps:
       - name: Checkout
@@ -54,19 +54,19 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Install cross (for cross-compilation)
-        if: matrix.cross != ''
+        if: matrix.use_cross
         run: cargo install cross --git https://github.com/cross-rs/cross
 
       - name: Install OpenSSL dev (Linux native)
-        if: runner.os == 'Linux' && matrix.cross == ''
+        if: runner.os == 'Linux' && !matrix.use_cross
         run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config
 
       - name: Build (native)
-        if: matrix.cross == ''
+        if: !matrix.use_cross
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Build (cross)
-        if: matrix.cross != ''
+        if: matrix.use_cross
         run: cross build --release --target ${{ matrix.target }}
 
       - name: Strip binary (Unix)
