@@ -49,35 +49,58 @@ impl CommandRegistry {
     /// Command name completion: prefix match, then substring fallback.
     pub fn complete_command(&self, prefix: &str) -> Vec<CommandSuggestion> {
         let prefix_lower = prefix.to_lowercase();
-        let mut results: Vec<CommandSuggestion> = Vec::new();
+        let mut scored_results: Vec<(usize, CommandSuggestion)> = Vec::new();
 
-        // Phase 1: prefix match on names and aliases
-        for cmd in &self.commands {
-            let meta = cmd.meta();
-            if meta.hidden { continue; }
-            if meta.name.starts_with(&prefix_lower) {
-                results.push(CommandSuggestion { name: meta.name.to_string(), description: meta.description.to_string(), is_alias: false });
-            }
-            for alias in meta.aliases {
-                if alias.starts_with(&prefix_lower) {
-                    results.push(CommandSuggestion { name: alias.to_string(), description: meta.description.to_string(), is_alias: true });
+        if prefix_lower.is_empty() {
+            // If empty, just return all non-hidden commands sorted by name length
+            for cmd in &self.commands {
+                let meta = cmd.meta();
+                if !meta.hidden {
+                    scored_results.push((0, CommandSuggestion { name: meta.name.to_string(), description: meta.description.to_string(), is_alias: false }));
                 }
             }
-        }
-
-        // Phase 2: substring fallback
-        if results.is_empty() {
+        } else {
             for cmd in &self.commands {
                 let meta = cmd.meta();
                 if meta.hidden { continue; }
-                if meta.name.contains(&prefix_lower) {
-                    results.push(CommandSuggestion { name: meta.name.to_string(), description: meta.description.to_string(), is_alias: false });
+                let name_lower = meta.name.to_lowercase();
+                
+                // Score 0: exact prefix
+                if name_lower.starts_with(&prefix_lower) {
+                    scored_results.push((0, CommandSuggestion { name: meta.name.to_string(), description: meta.description.to_string(), is_alias: false }));
+                    continue;
+                }
+                
+                // Score 1: alias prefix
+                let mut alias_matched = false;
+                for alias in meta.aliases {
+                    if alias.to_lowercase().starts_with(&prefix_lower) {
+                        scored_results.push((1, CommandSuggestion { name: alias.to_string(), description: meta.description.to_string(), is_alias: true }));
+                        alias_matched = true;
+                        break;
+                    }
+                }
+                if alias_matched { continue; }
+
+                // Score 2: substring
+                if name_lower.contains(&prefix_lower) {
+                    scored_results.push((2, CommandSuggestion { name: meta.name.to_string(), description: meta.description.to_string(), is_alias: false }));
+                    continue;
+                }
+
+                // Score 3: fuzzy (levenshtein <= 2) if prefix is long enough
+                if prefix_lower.len() >= 2 {
+                    let dist = levenshtein(&prefix_lower, &name_lower);
+                    if dist <= 2 {
+                        scored_results.push((3 + dist, CommandSuggestion { name: meta.name.to_string(), description: meta.description.to_string(), is_alias: false }));
+                    }
                 }
             }
         }
 
-        results.sort_by_key(|s| s.name.len());
-        results
+        // Sort by score first, then by name length to prefer shorter/exact commands
+        scored_results.sort_by_key(|(score, s)| (*score, s.name.len()));
+        scored_results.into_iter().map(|(_, s)| s).collect()
     }
 
     /// Argument completion: determine position from args_so_far, delegate to ArgDef.

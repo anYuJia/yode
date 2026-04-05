@@ -1381,8 +1381,10 @@ fn handle_char(app: &mut App, key: crossterm::event::KeyEvent, c: char) {
 }
 
 fn handle_up(app: &mut App) {
-    if app.cmd_completion.is_active() && !app.input.is_multiline() {
-        app.cmd_completion.cycle_back();
+    if app.file_completion.is_active() {
+        app.file_completion.cycle_back();
+    } else if app.cmd_completion.is_active() && !app.input.is_multiline() {
+        app.cmd_completion.cycle();
     } else if app.input.is_multiline() {
         app.input.move_up();
     } else {
@@ -1391,8 +1393,10 @@ fn handle_up(app: &mut App) {
 }
 
 fn handle_down(app: &mut App) {
-    if app.cmd_completion.is_active() && !app.input.is_multiline() {
-        app.cmd_completion.cycle();
+    if app.file_completion.is_active() {
+        app.file_completion.cycle();
+    } else if app.cmd_completion.is_active() && !app.input.is_multiline() {
+        app.cmd_completion.cycle_back();
     } else if app.input.is_multiline() {
         app.input.move_down();
     } else {

@@ -250,7 +250,7 @@ pub fn render_command_inline(frame: &mut Frame, area: Rect, app: &App) {
     if area.height == 0 || area.width == 0 { return; }
 
     let bg = Color::Indexed(235);
-    let sel_bg = Color::Indexed(67);
+    let sel_fg = Color::LightMagenta; // Claude-like selection color
     let sep = "│";
 
     let show_candidates = &app.cmd_completion.candidates;
@@ -292,7 +292,7 @@ pub fn render_command_inline(frame: &mut Frame, area: Rect, app: &App) {
     let mut lines: Vec<Line> = render_items
         .into_iter()
         .map(|(i, (cmd, desc))| {
-            let desc_max = available_width.saturating_sub(cmd_col_width + 5);
+            let desc_max = available_width.saturating_sub(cmd_col_width + 7);
             let desc_truncated: String = if desc.len() > desc_max {
                 format!("{}…", &desc[..desc_max.saturating_sub(1)])
             } else {
@@ -302,22 +302,30 @@ pub fn render_command_inline(frame: &mut Frame, area: Rect, app: &App) {
             if i == selected {
                 Line::from(vec![
                     Span::styled(
-                        format!(" {:<width$}", cmd, width = cmd_col_width),
-                        Style::default().fg(Color::White).bg(sel_bg).add_modifier(Modifier::BOLD),
+                        " ❯",
+                        Style::default().fg(sel_fg).bg(bg).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        format!("{:<width$}", cmd, width = cmd_col_width),
+                        Style::default().fg(sel_fg).bg(bg).add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(
                         format!(" {} ", sep),
-                        Style::default().fg(Color::DarkGray).bg(sel_bg),
+                        Style::default().fg(Color::DarkGray).bg(bg),
                     ),
                     Span::styled(
                         format!("{} ", desc_truncated),
-                        Style::default().fg(Color::White).bg(sel_bg),
+                        Style::default().fg(sel_fg).bg(bg),
                     ),
                 ])
             } else {
                 Line::from(vec![
                     Span::styled(
-                        format!(" {:<width$}", cmd, width = cmd_col_width),
+                        "  ",
+                        Style::default().bg(bg),
+                    ),
+                    Span::styled(
+                        format!("{:<width$}", cmd, width = cmd_col_width),
                         Style::default().fg(Color::Gray).bg(bg),
                     ),
                     Span::styled(
@@ -364,7 +372,7 @@ fn render_file_popup(frame: &mut Frame, area: Rect, app: &App) {
 
     let selected = app.file_completion.selected.unwrap_or(0);
     let bg = Color::Indexed(235);
-    let sel_bg = Color::Indexed(67);
+    let sel_fg = Color::LightMagenta;
 
     let items: Vec<Line> = app.file_completion.candidates
         .iter()
@@ -372,9 +380,15 @@ fn render_file_popup(frame: &mut Frame, area: Rect, app: &App) {
         .enumerate()
         .map(|(i, path)| {
             if i == selected {
-                Line::from(Span::styled(format!(" @{} ", path), Style::default().fg(Color::White).bg(sel_bg).add_modifier(Modifier::BOLD)))
+                Line::from(vec![
+                    Span::styled(" ❯ ", Style::default().fg(sel_fg).bg(bg).add_modifier(Modifier::BOLD)),
+                    Span::styled(format!("@{} ", path), Style::default().fg(sel_fg).bg(bg).add_modifier(Modifier::BOLD)),
+                ])
             } else {
-                Line::from(Span::styled(format!(" @{} ", path), Style::default().fg(Color::Gray).bg(bg)))
+                Line::from(vec![
+                    Span::styled("   ", Style::default().bg(bg)),
+                    Span::styled(format!("@{} ", path), Style::default().fg(Color::Gray).bg(bg)),
+                ])
             }
         })
         .collect();
