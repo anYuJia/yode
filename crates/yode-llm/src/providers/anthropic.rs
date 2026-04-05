@@ -60,6 +60,7 @@ enum ContentBlock {
     Thinking {
         thinking: String,
         #[serde(default, rename = "signature")]
+        #[allow(dead_code)]
         _signature: Option<String>,
     },
     #[serde(rename = "image")]
@@ -183,6 +184,7 @@ enum ContentBlockStart {
     Thinking {
         thinking: String,
         #[serde(default, rename = "signature")]
+        #[allow(dead_code)]
         _signature: Option<String>,
     },
     #[serde(rename = "tool_use", alias = "tool_use_start")]
@@ -200,6 +202,7 @@ enum ContentBlockDelta {
     ThinkingDelta {
         thinking: String,
         #[serde(default, rename = "signature")]
+        #[allow(dead_code)]
         _signature: Option<String>,
     },
     #[serde(rename = "input_json_delta", alias = "input_json")]
@@ -663,8 +666,17 @@ impl LlmProvider for AnthropicProvider {
                 AnthropicStreamEvent::MessageDelta { delta: _, usage } => {
                     if let Some(u) = usage {
                         final_usage.completion_tokens = u.output_tokens;
+                        if u.input_tokens > 0 {
+                            final_usage.prompt_tokens = u.input_tokens;
+                        }
                         final_usage.total_tokens =
                             final_usage.prompt_tokens + final_usage.completion_tokens;
+                        
+                        let _ = tx.send(StreamEvent::UsageUpdate(Usage {
+                            prompt_tokens: final_usage.prompt_tokens,
+                            completion_tokens: final_usage.completion_tokens,
+                            total_tokens: final_usage.total_tokens,
+                        })).await;
                     }
                 }
                 AnthropicStreamEvent::MessageStop {} => {}
