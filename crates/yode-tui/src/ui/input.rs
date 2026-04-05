@@ -269,9 +269,17 @@ pub fn render_command_inline(frame: &mut Frame, area: Rect, app: &App) {
     if show_candidates.is_empty() || max_show == 0 { return; }
 
     let selected = app.cmd_completion.selected.unwrap_or(0);
+    let total = show_candidates.len();
 
-    // Compute column widths
-    let max_cmd_len = show_candidates.iter().take(max_show)
+    // Use window_start from state, but ensure it's valid
+    let window_start = if total <= max_show {
+        0
+    } else {
+        app.cmd_completion.window_start.min(total - max_show)
+    };
+
+    // Compute column widths for the visible items
+    let max_cmd_len = show_candidates.iter().skip(window_start).take(max_show)
         .map(|(cmd, _)| cmd.len())
         .max()
         .unwrap_or(8);
@@ -279,14 +287,15 @@ pub fn render_command_inline(frame: &mut Frame, area: Rect, app: &App) {
     let available_width = area.width as usize;
 
     // We want the most relevant items (first in list) to be at the BOTTOM.
-    // So we take the first `max_show` items and reverse them for rendering.
+    // So we take the visible window and reverse them for rendering.
     let mut render_items: Vec<(usize, &(String, String))> = show_candidates
         .iter()
-        .take(max_show)
         .enumerate()
+        .skip(window_start)
+        .take(max_show)
         .collect();
     
-    // Reverse so index 0 (best match) is the last element in the Vec (rendered at bottom)
+    // Reverse so the lowest index (best match) is at the bottom
     render_items.reverse();
 
     let mut lines: Vec<Line> = render_items
@@ -356,14 +365,13 @@ pub fn render_command_inline(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_file_popup(frame: &mut Frame, area: Rect, app: &App) {
-    let max_show = 10usize;
     let viewport_top = frame.area().top();
-    let max_avail = area.y.saturating_sub(viewport_top);
-    
-    let count = app.file_completion.candidates.len().min(max_show);
-    let popup_height = (count as u16).min(max_avail);
-    if popup_height == 0 { return; }
+    let max_avail = area.y.saturating_sub(viewport_top) as usize;
+    let max_show = 10usize.min(max_avail);
+    if max_show == 0 { return; }
 
+    let total = app.file_completion.candidates.len();
+    let popup_height = total.min(max_show) as u16;
     let popup_y = area.y.saturating_sub(popup_height);
     let popup_width = 50u16.min(area.width.saturating_sub(area.x + 2));
     let popup_area = Rect::new(area.x + 2, popup_y, popup_width, popup_height);
@@ -374,10 +382,18 @@ fn render_file_popup(frame: &mut Frame, area: Rect, app: &App) {
     let bg = Color::Indexed(235);
     let sel_fg = Color::LightMagenta;
 
+    // Use window_start from state
+    let window_start = if total <= max_show {
+        0
+    } else {
+        app.file_completion.window_start.min(total - max_show)
+    };
+
     let items: Vec<Line> = app.file_completion.candidates
         .iter()
-        .take(max_show)
         .enumerate()
+        .skip(window_start)
+        .take(max_show)
         .map(|(i, path)| {
             if i == selected {
                 Line::from(vec![

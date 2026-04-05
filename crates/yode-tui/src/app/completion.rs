@@ -9,6 +9,8 @@ pub struct CommandCompletion {
     pub candidates: Vec<(String, String)>,
     /// Currently selected index
     pub selected: Option<usize>,
+    /// Index of the first visible item in the list
+    pub window_start: usize,
     /// Additional dynamic commands (e.g., from skills)
     pub dynamic_commands: Vec<(String, String)>,
     /// Args hint to display when a known command + space is typed (no arg completions available)
@@ -24,6 +26,7 @@ impl CommandCompletion {
         Self {
             candidates: Vec::new(),
             selected: None,
+            window_start: 0,
             dynamic_commands: Vec::new(),
             args_hint: None,
             completing_args: false,
@@ -40,6 +43,7 @@ impl CommandCompletion {
         self.args_hint = None;
         self.completing_args = false;
         self.arg_prefix = None;
+        self.window_start = 0;
 
         if !is_single_line || !input_text.starts_with('/') {
             self.close();
@@ -115,6 +119,7 @@ impl CommandCompletion {
         }
 
         matches.sort_by_key(|(cmd, _)| cmd.len());
+        
         self.candidates = matches;
 
         if self.candidates.is_empty() {
@@ -127,6 +132,7 @@ impl CommandCompletion {
     pub fn close(&mut self) {
         self.candidates.clear();
         self.selected = None;
+        self.window_start = 0;
         self.args_hint = None;
         self.completing_args = false;
         self.arg_prefix = None;
@@ -154,8 +160,29 @@ impl CommandCompletion {
         if self.candidates.is_empty() {
             return;
         }
-        let idx = self.selected.unwrap_or(0);
-        self.selected = Some((idx + 1) % self.candidates.len());
+        let current = self.selected.unwrap_or(0);
+        let total = self.candidates.len();
+        let max_visible = 5;
+
+        // Ensure window_start is valid
+        if self.window_start >= total {
+            self.window_start = 0;
+        }
+
+        let visible_end = self.window_start + max_visible;
+
+        if current + 1 >= total {
+            // Wrap to top
+            self.window_start = 0;
+            self.selected = Some(0);
+        } else if self.selected.map_or(false, |s| s >= visible_end - 1) && visible_end < total {
+            // At bottom edge and can scroll down
+            self.window_start = self.window_start + 1;
+            self.selected = Some(current + 1);
+        } else {
+            // Move cursor down
+            self.selected = Some(current + 1);
+        }
     }
 
     /// Cycle to previous candidate.
@@ -163,8 +190,27 @@ impl CommandCompletion {
         if self.candidates.is_empty() {
             return;
         }
-        let idx = self.selected.unwrap_or(0);
-        self.selected = Some(if idx == 0 { self.candidates.len() - 1 } else { idx - 1 });
+        let current = self.selected.unwrap_or(0);
+        let total = self.candidates.len();
+        let max_visible = 5;
+
+        // Ensure window_start is valid
+        if self.window_start >= total {
+            self.window_start = 0;
+        }
+
+        if current == 0 {
+            // Wrap to bottom
+            self.window_start = if total > max_visible { total - max_visible } else { 0 };
+            self.selected = Some(total - 1);
+        } else if self.selected.map_or(false, |s| s == self.window_start) && self.window_start > 0 {
+            // At top edge and can scroll up
+            self.window_start = self.window_start - 1;
+            self.selected = Some(current - 1);
+        } else {
+            // Move cursor up
+            self.selected = Some(current - 1);
+        }
     }
 }
 
@@ -172,6 +218,7 @@ impl CommandCompletion {
 pub struct FileCompletion {
     pub candidates: Vec<String>,
     pub selected: Option<usize>,
+    pub window_start: usize,
 }
 
 impl FileCompletion {
@@ -179,6 +226,7 @@ impl FileCompletion {
         Self {
             candidates: Vec::new(),
             selected: None,
+            window_start: 0,
         }
     }
 
@@ -188,6 +236,7 @@ impl FileCompletion {
 
     /// Update file completions based on text after the last @.
     pub fn update(&mut self, full_text: &str) {
+        self.window_start = 0;
         if let Some(at_pos) = full_text.rfind('@') {
             let after_at = &full_text[at_pos + 1..];
             if !after_at.contains(' ') && after_at.len() < 200 {
@@ -229,6 +278,7 @@ impl FileCompletion {
     pub fn close(&mut self) {
         self.candidates.clear();
         self.selected = None;
+        self.window_start = 0;
     }
 
     /// Accept selected file path. Returns the file path to insert.
@@ -243,15 +293,55 @@ impl FileCompletion {
         if self.candidates.is_empty() {
             return;
         }
-        let idx = self.selected.unwrap_or(0);
-        self.selected = Some((idx + 1) % self.candidates.len());
+        let current = self.selected.unwrap_or(0);
+        let total = self.candidates.len();
+        let max_visible = 10;
+
+        // Ensure window_start is valid
+        if self.window_start >= total {
+            self.window_start = 0;
+        }
+
+        let visible_end = self.window_start + max_visible;
+
+        if current + 1 >= total {
+            // Wrap to top
+            self.window_start = 0;
+            self.selected = Some(0);
+        } else if self.selected.map_or(false, |s| s >= visible_end - 1) && visible_end < total {
+            // At bottom edge and can scroll down
+            self.window_start = self.window_start + 1;
+            self.selected = Some(current + 1);
+        } else {
+            // Move cursor down
+            self.selected = Some(current + 1);
+        }
     }
 
     pub fn cycle_back(&mut self) {
         if self.candidates.is_empty() {
             return;
         }
-        let idx = self.selected.unwrap_or(0);
-        self.selected = Some(if idx == 0 { self.candidates.len() - 1 } else { idx - 1 });
+        let current = self.selected.unwrap_or(0);
+        let total = self.candidates.len();
+        let max_visible = 10;
+
+        // Ensure window_start is valid
+        if self.window_start >= total {
+            self.window_start = 0;
+        }
+
+        if current == 0 {
+            // Wrap to bottom
+            self.window_start = if total > max_visible { total - max_visible } else { 0 };
+            self.selected = Some(total - 1);
+        } else if self.selected.map_or(false, |s| s == self.window_start) && self.window_start > 0 {
+            // At top edge and can scroll up
+            self.window_start = self.window_start - 1;
+            self.selected = Some(current - 1);
+        } else {
+            // Move cursor up
+            self.selected = Some(current - 1);
+        }
     }
 }
