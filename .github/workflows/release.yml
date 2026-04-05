@@ -10,6 +10,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build:
@@ -34,9 +35,9 @@ jobs:
             display_name: macOS Intel
             runner: macos-latest
             use_cross: false
-          # macOS ARM64 (M1/M2/M3)
+          # macOS ARM64 
           - target: aarch64-apple-darwin
-            display_name: macOS ARM (M1/M2/M3)
+            display_name: macOS ARM 
             runner: macos-latest
             use_cross: false
           # Windows x86_64
