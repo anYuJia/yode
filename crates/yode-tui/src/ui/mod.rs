@@ -125,8 +125,6 @@ fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &App)
         TurnStatus::Working { verb } => {
             let spinner = app.spinner_char();
             let elapsed = app.thinking_elapsed_str();
-            // Use per-turn tokens (real-time for current turn only)
-            let input_tok = app.session.turn_input_tokens;
             // Add streaming buffer estimate to turn output tokens
             let stream_chars = app.streaming_buf.len() as u32;
             let output_tok = app.session.turn_output_tokens + stream_chars / 4;
@@ -141,7 +139,7 @@ fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &App)
                     Style::default().fg(Color::LightMagenta),
                 ),
                 Span::styled(
-                    format!(" ({} · ↑{} ↓{} tok)", elapsed, format_tok(input_tok), format_tok(output_tok)),
+                    format!(" ({} · ↓{} tokens)", elapsed, format_tok(output_tok)),
                     Style::default().fg(Color::DarkGray),
                 ),
             ])
@@ -154,12 +152,11 @@ fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &App)
             } else {
                 String::new()
             };
-            // Show per-turn tokens
-            let turn_in = app.session.turn_input_tokens;
+            // Show per-turn output tokens only (Claude-style)
             let turn_out = app.session.turn_output_tokens;
             Line::from(vec![
                 Span::styled(
-                    format!("  ⚡ Done · {}{} (↑{} ↓{} tok)", elapsed_str, tools_str, format_tok(turn_in), format_tok(turn_out)),
+                    format!("  ⚡ Done · {}{} (↓{} tokens)", elapsed_str, tools_str, format_tok(turn_out)),
                     Style::default().fg(Color::DarkGray),
                 ),
             ])

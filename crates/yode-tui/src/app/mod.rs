@@ -138,6 +138,7 @@ pub struct SessionState {
     pub input_tokens: u32,
     pub output_tokens: u32,
     pub total_tokens: u32,
+    pub previous_prompt_tokens: u32,
     pub tool_call_count: u32,
     pub permission_mode: PermissionMode,
     pub always_allow_tools: Vec<String>,
@@ -377,6 +378,7 @@ impl App {
                 input_tokens: 0,
                 output_tokens: 0,
                 total_tokens: 0,
+                previous_prompt_tokens: 0,
                 tool_call_count: 0,
                 permission_mode: PermissionMode::Normal,
                 always_allow_tools: Vec::new(),
@@ -1507,8 +1509,9 @@ fn try_process_next(
     app.turn_tool_count = 0;
     
     // Estimate input tokens to be just the new user message
-    let new_chars = payload.len();
-    app.session.turn_input_tokens = (new_chars as u32) / 3;
+    // 1 token per 3 bytes is a rough heuristic. Ensure it's at least 1 for short messages.
+    let new_bytes = payload.len();
+    app.session.turn_input_tokens = (new_bytes as u32 / 3).max(1);
     app.session.turn_output_tokens = 0;
     
     // Set Working status immediately
@@ -1626,8 +1629,20 @@ fn handle_engine_event(
             // in try_process_next to prevent UI lag. This event is a no-op.
         }
         EngineEvent::UsageUpdate(usage) => {
-            // Only update output tokens (input tokens are estimated for the current turn only
-            // to avoid showing the massive total context length)
+            if usage.prompt_tokens > 0 {
+                // Determine the true incremental tokens for this turn
+                let new_tokens = if usage.prompt_tokens > app.session.previous_prompt_tokens {
+                    usage.prompt_tokens - app.session.previous_prompt_tokens
+                } else {
+                    usage.prompt_tokens
+                };
+                
+                // If it's 0 (because the prompt didn't grow, e.g., due to caching or 
+                // missing context), fallback to the estimate we made, or at least 1.
+                if new_tokens > 0 {
+                    app.session.turn_input_tokens = new_tokens;
+                }
+            }
             if usage.completion_tokens > 0 {
                 app.session.turn_output_tokens = usage.completion_tokens;
             }
@@ -1763,14 +1778,27 @@ fn handle_engine_event(
             let total = response.usage.total_tokens;
 
             if prompt > 0 {
-                // Provider reports input tokens — accumulate
-                app.session.input_tokens += prompt;
+                // Determine the true incremental tokens for this turn
+                let new_tokens = if prompt > app.session.previous_prompt_tokens {
+                    prompt - app.session.previous_prompt_tokens
+                } else {
+                    prompt
+                };
+                
+                app.session.input_tokens += new_tokens;
+                app.session.previous_prompt_tokens = prompt;
             } else if total > completion {
                 // Infer from total - completion
-                app.session.input_tokens += total - completion;
+                let inferred_prompt = total - completion;
+                let new_tokens = if inferred_prompt > app.session.previous_prompt_tokens {
+                    inferred_prompt - app.session.previous_prompt_tokens
+                } else {
+                    inferred_prompt
+                };
+                app.session.input_tokens += new_tokens;
+                app.session.previous_prompt_tokens = inferred_prompt;
             } else {
                 // Provider doesn't report input tokens at all — estimate from content.
-                // All chat content is sent as context each turn; ~3 chars per token.
                 let chars: usize = app.chat_entries.iter().map(|e| e.content.len()).sum();
                 app.session.input_tokens = (chars as u32) / 3;
                 app.session.input_estimated = true;
