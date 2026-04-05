@@ -27,7 +27,7 @@ serde_json = "1"
 toml = "0.8"
 
 # HTTP
-reqwest = { version = "0.12", features = ["json", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 eventsource-stream = "0.2"
 html2text = "0.14"
 
