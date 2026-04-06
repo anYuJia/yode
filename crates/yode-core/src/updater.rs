@@ -18,7 +18,7 @@ use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::fs;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use tempfile;
 use tar;
 use flate2;
@@ -284,53 +284,76 @@ impl Updater {
         info!("Applying update from: {:?}", update_path);
 
         // 1. Unpack to temporary directory
-        let temp_dir = tempfile::tempdir()?;
-        let file = std::fs::File::open(&update_path)?;
-        let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(file));
-        archive.unpack(temp_dir.path())?;
+        let temp_dir = tempfile::Builder::new()
+            .prefix("yode-update")
+            .tempdir()
+            .context("Failed to create temporary directory for update")?;
+            
+        let file = std::fs::File::open(&update_path)
+            .context(format!("Failed to open update file: {:?}", update_path))?;
+            
+        let gz = flate2::read::GzDecoder::new(file);
+        let mut archive = tar::Archive::new(gz);
+        
+        // Disable xattrs as they often cause failures on macOS/Linux due to security or filesystem limits
+        archive.set_unpack_xattrs(false);
+        archive.set_preserve_permissions(true);
+
+        if let Err(e) = archive.unpack(temp_dir.path()) {
+            anyhow::bail!("Failed to unpack update archive to {:?}: {}", temp_dir.path(), e);
+        }
 
         // 2. Find the yode binary in the extracted contents
         let mut new_bin_path = None;
+        
+        // First look in the root of the temp dir
         for entry in std::fs::read_dir(temp_dir.path())? {
             let entry = entry?;
-            if entry.file_name() == "yode" {
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            if name_str == "yode" || name_str == "yode.exe" {
                 new_bin_path = Some(entry.path());
                 break;
             }
         }
 
-        let new_bin_path = match new_bin_path {
-            Some(path) => path,
-            None => {
-                // Try searching recursively if not at root (some tarballs have subdirs)
-                let mut found = None;
-                for entry in walkdir::WalkDir::new(temp_dir.path()) {
-                    let entry = entry?;
-                    if entry.file_name() == "yode" && entry.file_type().is_file() {
-                        found = Some(entry.path().to_path_buf());
-                        break;
-                    }
+        // If not found, look deeper (some archives might have a subdirectory)
+        let new_bin_path = if let Some(path) = new_bin_path {
+            path
+        } else {
+            let mut found = None;
+            for entry in walkdir::WalkDir::new(temp_dir.path()) {
+                let entry = entry.context("Failed to traverse update contents")?;
+                let name = entry.file_name().to_string_lossy();
+                if (name == "yode" || name == "yode.exe") && entry.file_type().is_file() {
+                    found = Some(entry.path().to_path_buf());
+                    break;
                 }
-                match found {
-                    Some(p) => p,
-                    None => anyhow::bail!("Could not find 'yode' binary in update archive"),
-                }
+            }
+            match found {
+                Some(p) => p,
+                None => anyhow::bail!("Could not find 'yode' binary in update archive"),
             }
         };
 
+        info!("Found new binary at: {:?}", new_bin_path);
+
         // 3. Get current executable path
-        let current_exe = std::env::current_exe()?;
+        let current_exe = std::env::current_exe().context("Failed to get current executable path")?;
         let old_exe = current_exe.with_extension("old");
 
-        // 4. Atomic replacement on Unix: move new over current
-        // On Unix, we can rename the current file away even if it's running
+        // 4. Atomic replacement
         if old_exe.exists() {
             let _ = std::fs::remove_file(&old_exe);
         }
         
-        std::fs::rename(&current_exe, &old_exe)?;
+        // On Unix, we can rename the current file even if it's running
+        std::fs::rename(&current_exe, &old_exe)
+            .context("Failed to move current binary to backup path")?;
+            
         if let Err(e) = std::fs::copy(&new_bin_path, &current_exe) {
             // Rollback if copy fails
+            error!("Failed to copy new binary: {}. Rolling back...", e);
             let _ = std::fs::rename(&old_exe, &current_exe);
             return Err(e.into());
         }
@@ -339,16 +362,18 @@ impl Updater {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let mut perms = std::fs::metadata(&current_exe)?.permissions();
-            perms.set_mode(0o755);
-            std::fs::set_permissions(&current_exe, perms)?;
+            if let Ok(metadata) = std::fs::metadata(&current_exe) {
+                let mut perms = metadata.permissions();
+                perms.set_mode(0o755);
+                let _ = std::fs::set_permissions(&current_exe, perms);
+            }
         }
 
         // 5. Cleanup
         let _ = std::fs::remove_file(&old_exe);
         let _ = std::fs::remove_file(&update_path);
         
-        info!("Update applied successfully. Please restart to run the new version.");
+        info!("Update applied successfully. Version updated to latest.");
         Ok(true)
     }
 
