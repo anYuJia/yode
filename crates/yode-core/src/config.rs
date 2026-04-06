@@ -127,7 +127,7 @@ pub struct UpdateConfig {
     #[serde(default = "default_true")]
     pub auto_check: bool,
     /// Whether to automatically download updates in background
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub auto_download: bool,
     /// Last checked timestamp (ISO 8601)
     #[serde(skip_serializing_if = "Option::is_none")]
