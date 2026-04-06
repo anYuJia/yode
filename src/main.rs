@@ -64,6 +64,19 @@ enum Commands {
         #[command(subcommand)]
         action: ProviderAction,
     },
+    /// 检查并安装更新
+    Update {
+        #[command(subcommand)]
+        action: Option<UpdateAction>,
+    },
+}
+
+#[derive(clap::Subcommand)]
+enum UpdateAction {
+    /// 检查并下载更新
+    Check,
+    /// 查看更新配置状态
+    Status,
 }
 
 #[derive(clap::Subcommand)]
@@ -179,6 +192,56 @@ async fn main() -> Result<()> {
                         } else {
                             println!("未找到名为 '{}' 的提供商", name);
                         }
+                    }
+                }
+                return Ok(());
+            }
+            Commands::Update { action } => {
+                let action = action.unwrap_or(UpdateAction::Check);
+                match action {
+                    UpdateAction::Check => {
+                        println!("正在检查更新...");
+                        let config_dir = dirs::home_dir()
+                            .unwrap_or_else(|| PathBuf::from("."))
+                            .join(".yode");
+                        let updater = yode_core::updater::Updater::new(
+                            config_dir,
+                            true,
+                            config.update.auto_download,
+                        );
+                        match updater.check_for_updates().await {
+                            Ok(Some(result)) => {
+                                println!("✨ 发现新版本: {}", result.latest_version);
+                                println!("   当前版本: {}", yode_core::updater::CURRENT_VERSION);
+                                println!("\n发布日志:\n{}", result.release_notes);
+                                
+                                if config.update.auto_download {
+                                    println!("\n正在下载更新...");
+                                    match updater.download_update(&result).await {
+                                        Ok(_) => {
+                                            println!("✓ 更新已下载。请重启 yode 以完成安装。");
+                                        }
+                                        Err(e) => {
+                                            println!("✗ 下载失败: {}", e);
+                                        }
+                                    }
+                                } else {
+                                    println!("\n你可以运行以下命令更新:");
+                                    println!("  curl -fsSL https://raw.githubusercontent.com/anYuJia/yode/main/install.sh | bash");
+                                }
+                            }
+                            Ok(None) => {
+                                println!("✓ 当前已是最新版本 ({})", yode_core::updater::CURRENT_VERSION);
+                            }
+                            Err(e) => {
+                                println!("✗ 检查更新失败: {}", e);
+                            }
+                        }
+                    }
+                    UpdateAction::Status => {
+                        println!("更新配置状态:");
+                        println!("  自动检查: {}", config.update.auto_check);
+                        println!("  自动下载: {}", config.update.auto_download);
                     }
                 }
                 return Ok(());
