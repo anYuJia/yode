@@ -31,7 +31,7 @@ struct AnthropicRequest {
     stream: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 struct AnthropicThinkingConfig {
     #[serde(rename = "type")]
     thinking_type: String,
@@ -55,9 +55,13 @@ enum AnthropicContent {
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ContentBlock {
     #[serde(rename = "text")]
-    Text { text: String },
+    Text {
+        #[serde(default)]
+        text: String
+    },
     #[serde(rename = "thinking")]
     Thinking {
+        #[serde(default)]
         thinking: String,
         #[serde(default, rename = "signature")]
         #[allow(dead_code)]
@@ -179,16 +183,23 @@ struct AnthropicMessageStart {
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ContentBlockStart {
     #[serde(rename = "text", alias = "text_start")]
-    Text { text: String },
+    Text {
+        #[serde(default)]
+        text: String
+    },
     #[serde(rename = "thinking", alias = "thinking_start")]
     Thinking {
+        #[serde(default)]
         thinking: String,
         #[serde(default, rename = "signature")]
         #[allow(dead_code)]
         _signature: Option<String>,
     },
     #[serde(rename = "tool_use", alias = "tool_use_start")]
-    ToolUse { id: String, name: String },
+    ToolUse {
+        id: String,
+        name: String
+    },
     #[serde(other)]
     Unknown,
 }
@@ -224,6 +235,61 @@ struct AnthropicErrorDetail {
     #[serde(default)]
     #[allow(dead_code)]
     r#type: Option<String>,
+}
+
+/// Check if text looks like thinking/reasoning content (for DashScope fallback)
+fn looks_like_thinking_text(text: &str) -> bool {
+    let trimmed = text.trim();
+    // Common thinking patterns in Chinese
+    trimmed.starts_with("用户") ||
+    trimmed.starts_with("我应该") ||
+    trimmed.starts_with("我需要") ||
+    trimmed.starts_with("让我") ||
+    trimmed.starts_with("首先") ||
+    trimmed.starts_with("分析") ||
+    trimmed.starts_with("思考") ||
+    // Common thinking patterns in English
+    trimmed.starts_with("Thinking") ||
+    trimmed.starts_with("Let me") ||
+    trimmed.starts_with("I should") ||
+    trimmed.starts_with("I need to") ||
+    trimmed.starts_with("First") ||
+    trimmed.starts_with("Analyze") ||
+    // Common phrases in thinking content
+    trimmed.contains("这不是一个明确的请求") ||
+    trimmed.contains("这是一个测试") ||
+    trimmed.contains("误操作")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_looks_like_thinking_text() {
+        // Chinese thinking patterns
+        assert!(looks_like_thinking_text("用户发送了一串看起来像密码的内容"));
+        assert!(looks_like_thinking_text("我应该简单询问用户"));
+        assert!(looks_like_thinking_text("我需要一个文件"));
+        assert!(looks_like_thinking_text("让我想一想"));
+        assert!(looks_like_thinking_text("首先分析这个问题"));
+        assert!(looks_like_thinking_text("分析一下代码"));
+        assert!(looks_like_thinking_text("思考这个问题"));
+
+        // English thinking patterns
+        assert!(looks_like_thinking_text("Thinking about this problem"));
+        assert!(looks_like_thinking_text("Let me help you"));
+        assert!(looks_like_thinking_text("I should check the code"));
+        assert!(looks_like_thinking_text("I need to read the file"));
+        assert!(looks_like_thinking_text("First, I'll analyze the code"));
+        assert!(looks_like_thinking_text("Analyze the structure"));
+
+        // Non-thinking content
+        assert!(!looks_like_thinking_text("你好！有什么我可以帮助你的吗？"));
+        assert!(!looks_like_thinking_text("这是一个简单的回答"));
+        assert!(!looks_like_thinking_text(""));
+        assert!(!looks_like_thinking_text("   "));
+    }
 }
 
 // ── Provider implementation ─────────────────────────────────────────────────
@@ -377,15 +443,12 @@ impl LlmProvider for AnthropicProvider {
         let tools = Self::convert_tools(&request.tools);
         let max_tokens = request.max_tokens.unwrap_or(4096);
 
-        // Automatically enable thinking if max_tokens is high enough (Claude-style)
-        let thinking = if max_tokens >= 2048 {
-            Some(AnthropicThinkingConfig {
-                thinking_type: "enabled".to_string(),
-                budget_tokens: 1024.min(max_tokens - 1024),
-            })
-        } else {
-            None
-        };
+        // Enable thinking support - required for proper reasoning separation
+        // Some APIs (like DashScope) may not support it, but we try anyway
+        let thinking = Some(AnthropicThinkingConfig {
+            thinking_type: "enabled".to_string(),
+            budget_tokens: 1024,
+        });
 
         let body = AnthropicRequest {
             model: request.model.clone(),
@@ -394,7 +457,7 @@ impl LlmProvider for AnthropicProvider {
             system,
             tools,
             temperature: if thinking.is_some() { None } else { request.temperature },
-            thinking,
+            thinking: thinking.clone(),
             stream: false,
         };
 
@@ -499,15 +562,12 @@ impl LlmProvider for AnthropicProvider {
         let tools = Self::convert_tools(&request.tools);
         let max_tokens = request.max_tokens.unwrap_or(4096);
 
-        // Automatically enable thinking if max_tokens is high enough (Claude-style)
-        let thinking = if max_tokens >= 2048 {
-            Some(AnthropicThinkingConfig {
-                thinking_type: "enabled".to_string(),
-                budget_tokens: 1024.min(max_tokens - 1024),
-            })
-        } else {
-            None
-        };
+        // Enable thinking support - required for proper reasoning separation
+        // Some APIs (like DashScope) may not support it, but we try anyway
+        let thinking = Some(AnthropicThinkingConfig {
+            thinking_type: "enabled".to_string(),
+            budget_tokens: 1024,
+        });
 
         let body = AnthropicRequest {
             model: request.model.clone(),
@@ -516,7 +576,7 @@ impl LlmProvider for AnthropicProvider {
             system,
             tools,
             temperature: if thinking.is_some() { None } else { request.temperature },
-            thinking,
+            thinking: thinking.clone(),
             stream: true,
         };
 
@@ -559,6 +619,13 @@ impl LlmProvider for AnthropicProvider {
         let mut current_tool_args = String::new();
         let mut model = request.model.clone();
         let mut final_usage = Usage::default();
+
+        // Track if we received any Thinking blocks (for DashScope fallback)
+        let mut received_thinking_block = false;
+        // Track if index=0 text looks like thinking content (DashScope non-standard format)
+        let mut index_zero_is_thinking = false;
+        // Track if we've checked index=0's first delta (for DashScope fallback)
+        let mut checked_index_zero_first_delta = false;
 
         while let Some(event_result) = event_stream.next().await {
             let event = match event_result {
@@ -604,6 +671,7 @@ impl LlmProvider for AnthropicProvider {
                         }
                     }
                     ContentBlockStart::Thinking { thinking, .. } => {
+                        received_thinking_block = true;
                         content_blocks.insert(index, crate::types::ContentBlock::Thinking { thinking: thinking.clone(), signature: None });
                         if !thinking.is_empty() {
                             let _ = tx.send(StreamEvent::ReasoningDelta(thinking)).await;
@@ -619,17 +687,44 @@ impl LlmProvider for AnthropicProvider {
                         let _ = tx.send(StreamEvent::ToolCallStart { id, name }).await;
                     }
                     ContentBlockStart::Unknown => {}
-                },
+                }
                 AnthropicStreamEvent::ContentBlockDelta { index, delta } => match delta {
                     ContentBlockDelta::TextDelta { text } => {
-                        if let Some(crate::types::ContentBlock::Text { text: t }) = content_blocks.get_mut(&index) {
-                            t.push_str(&text);
+                        // DashScope fallback: Check if index=0's first delta looks like thinking content
+                        // DashScope returns thinking as text block type instead of thinking block type
+                        if index == 0 && !checked_index_zero_first_delta && !received_thinking_block {
+                            checked_index_zero_first_delta = true;
+                            if looks_like_thinking_text(&text) {
+                                index_zero_is_thinking = true;
+                                received_thinking_block = true;
+                                content_blocks.insert(index, crate::types::ContentBlock::Thinking { thinking: text.clone(), signature: None });
+                                if tx.send(StreamEvent::ReasoningDelta(text)).await.is_err() {
+                                    return Ok(());
+                                }
+                                continue;
+                            }
                         }
-                        if tx.send(StreamEvent::TextDelta(text)).await.is_err() {
-                            return Ok(());
+
+                        // DashScope fallback: If index=0 was detected as thinking, send as ReasoningDelta
+                        if index_zero_is_thinking && index == 0 {
+                            if let Some(crate::types::ContentBlock::Thinking { thinking: t, .. }) = content_blocks.get_mut(&index) {
+                                t.push_str(&text);
+                            }
+                            if tx.send(StreamEvent::ReasoningDelta(text)).await.is_err() {
+                                return Ok(());
+                            }
+                        } else {
+                            if let Some(crate::types::ContentBlock::Text { text: t }) = content_blocks.get_mut(&index) {
+                                t.push_str(&text);
+                            }
+                            if tx.send(StreamEvent::TextDelta(text)).await.is_err() {
+                                return Ok(());
+                            }
                         }
                     }
                     ContentBlockDelta::ThinkingDelta { thinking, .. } => {
+                        tracing::debug!("[anthropic] ContentBlockDelta::ThinkingDelta index={}: {:?}", index, thinking);
+                        received_thinking_block = true;
                         if let Some(crate::types::ContentBlock::Thinking { thinking: t, .. }) = content_blocks.get_mut(&index) {
                             t.push_str(&thinking);
                         }
@@ -651,7 +746,7 @@ impl LlmProvider for AnthropicProvider {
                         }
                     }
                     ContentBlockDelta::Unknown => {}
-                },
+                }
                 AnthropicStreamEvent::ContentBlockStop { index: _ } => {
                     if let Some(tc) = tool_calls.last() {
                         if !tc.arguments.is_empty() || !current_tool_args.is_empty() {
@@ -694,7 +789,7 @@ impl LlmProvider for AnthropicProvider {
         let final_content_blocks: Vec<crate::types::ContentBlock> = content_blocks.into_values().collect();
         let mut full_text = String::new();
         let mut full_reasoning = String::new();
-        
+
         for block in &final_content_blocks {
             match block {
                 crate::types::ContentBlock::Text { text } => full_text.push_str(text),
