@@ -145,6 +145,24 @@ pub fn render_user(lines: &mut Vec<Line<'static>>, entry: &ChatEntry) {
 // ── Assistant Message ───────────────────────────────────────────────
 // Claude Code style: ⏺ prefix on first line, indented continuation
 pub fn render_assistant(lines: &mut Vec<Line<'static>>, entry: &ChatEntry) {
+    // 1. Render reasoning (thinking) if present
+    if let Some(ref reasoning) = entry.reasoning {
+        if !reasoning.trim().is_empty() {
+            lines.push(Line::from(vec![
+                Span::styled("  💭 Thinking…", Style::default().fg(YELLOW).add_modifier(Modifier::ITALIC)),
+            ]));
+            
+            for line in reasoning.trim().lines() {
+                lines.push(Line::from(vec![
+                    Span::styled("  │ ", Style::default().fg(YELLOW).add_modifier(Modifier::DIM)),
+                    Span::styled(line.to_string(), Style::default().fg(DIM).add_modifier(Modifier::ITALIC)),
+                ]));
+            }
+            lines.push(Line::from("")); // Space after thinking
+        }
+    }
+
+    // 2. Render main content
     let md = render_markdown(&entry.content);
     for (i, line) in md.into_iter().enumerate() {
         let mut spans = Vec::new();

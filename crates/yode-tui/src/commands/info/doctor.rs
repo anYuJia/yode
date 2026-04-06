@@ -28,53 +28,73 @@ impl Command for DoctorCommand {
     fn execute(&self, _args: &str, ctx: &mut CommandContext) -> CommandResult {
         let mut checks = Vec::new();
 
-        // Check API key
-        let has_api_key =
-            std::env::var("ANTHROPIC_API_KEY").is_ok() || std::env::var("OPENAI_API_KEY").is_ok();
-        checks.push(if has_api_key {
-            "  [ok] API key configured"
+        // 1. Check providers
+        if ctx.all_provider_models.is_empty() {
+            checks.push("  [!!] No LLM providers configured. Run /provider add to set one up.".to_string());
         } else {
-            "  [!!] No API key found (ANTHROPIC_API_KEY or OPENAI_API_KEY)"
-        });
+            let names: Vec<_> = ctx.all_provider_models.keys().cloned().collect();
+            checks.push(format!("  [ok] LLM providers configured: {}", names.join(", ")));
+        }
 
-        // Check git
-        let git_ok = std::process::Command::new("git")
-            .arg("--version")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
-        checks.push(if git_ok {
-            "  [ok] git available"
-        } else {
-            "  [!!] git not found"
-        });
+        // 2. Check git
+        let git_v = std::process::Command::new("git").arg("--version").output();
+        match git_v {
+            Ok(o) if o.status.success() => {
+                let v = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                checks.push(format!("  [ok] git available: {}", v));
+            }
+            _ => checks.push("  [!!] git not found or failed".to_string()),
+        }
 
-        // Check terminal capabilities
+        // 3. Check optional runtimes (Node, Python, Go, Rust)
+        let runtimes = [
+            ("node", "--version"),
+            ("python3", "--version"),
+            ("go", "version"),
+            ("cargo", "--version"),
+        ];
+
+        for (cmd, arg) in runtimes {
+            let output = std::process::Command::new(cmd).arg(arg).output();
+            match output {
+                Ok(o) if o.status.success() => {
+                    let v = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                    checks.push(format!("  [ok] {} available: {}", cmd, v));
+                }
+                _ => checks.push(format!("  [--] {} not found (optional)", cmd)),
+            }
+        }
+
+        // 4. Check terminal capabilities
         checks.push(if ctx.terminal_caps.truecolor {
-            "  [ok] Truecolor support"
+            "  [ok] Truecolor support enabled".to_string()
         } else {
-            "  [--] No truecolor (using 256 colors)"
+            "  [--] No truecolor (using 256 colors)".to_string()
         });
-        if ctx.terminal_caps.in_tmux {
-            checks.push("  [--] Running inside tmux");
-        }
-        if ctx.terminal_caps.in_ssh {
-            checks.push("  [--] Running over SSH");
-        }
+        
+        if ctx.terminal_caps.in_tmux { checks.push("  [--] Running inside tmux".to_string()); }
+        if ctx.terminal_caps.in_ssh { checks.push("  [--] Running over SSH".to_string()); }
 
-        // Check tools
+        // 5. Check Yode internals
         let tool_count = ctx.tools.definitions().len();
-        checks.push(if tool_count > 0 {
-            "  [ok] Tools registered"
-        } else {
-            "  [!!] No tools registered"
-        });
+        checks.push(format!("  [ok] {} tools registered", tool_count));
+        
+        let config_path = dirs::home_dir().map(|h| h.join(".yode/config.toml"));
+        if let Some(p) = config_path {
+            if p.exists() {
+                checks.push(format!("  [ok] Config file: {:?}", p));
+            } else {
+                checks.push("  [!!] Config file missing".to_string());
+            }
+        }
 
         Ok(CommandOutput::Message(format!(
-            "Environment check:\n{}\n\n  Terminal: {}\n  Tools:    {} registered",
+            "Yode Environment Health Check:\n\n{}\n\n  Platform: {} {}\n  Version:  v{}\n  Session:  {}",
             checks.join("\n"),
-            ctx.terminal_caps.summary(),
-            tool_count,
+            std::env::consts::OS,
+            std::env::consts::ARCH,
+            env!("CARGO_PKG_VERSION"),
+            &ctx.session.session_id[..8],
         )))
     }
 }

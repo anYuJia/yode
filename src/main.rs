@@ -69,6 +69,13 @@ enum Commands {
         #[command(subcommand)]
         action: Option<UpdateAction>,
     },
+    /// 生成 Shell 补全脚本
+    Completions {
+        /// Shell 类型 (bash, zsh, fish, powershell)
+        shell: clap_complete::Shell,
+    },
+    /// 运行环境健康检查
+    Doctor,
 }
 
 #[derive(clap::Subcommand)]
@@ -244,6 +251,43 @@ async fn main() -> Result<()> {
                         println!("  自动下载: {}", config.update.auto_download);
                     }
                 }
+                return Ok(());
+            }
+            Commands::Completions { shell } => {
+                use clap::CommandFactory;
+                let mut cmd = Cli::command();
+                let bin_name = cmd.get_name().to_string();
+                clap_complete::generate(shell, &mut cmd, bin_name, &mut std::io::stdout());
+                return Ok(());
+            }
+            Commands::Doctor => {
+                println!("正在进行环境健康检查...");
+                // Note: CLI doctor uses simplified logic or we can bridge to command
+                let git_v = std::process::Command::new("git").arg("--version").output();
+                match git_v {
+                    Ok(o) if o.status.success() => {
+                        println!("  [ok] git available: {}", String::from_utf8_lossy(&o.stdout).trim());
+                    }
+                    _ => println!("  [!!] git not found"),
+                }
+                
+                for runtime in ["node", "python3", "go", "cargo"] {
+                    let out = std::process::Command::new(runtime).arg("--version").output();
+                    if let Ok(o) = out {
+                        println!("  [ok] {} available: {}", runtime, String::from_utf8_lossy(&o.stdout).trim());
+                    } else {
+                        println!("  [--] {} not found", runtime);
+                    }
+                }
+                
+                if config.llm.providers.is_empty() {
+                    println!("  [!!] No LLM providers configured.");
+                } else {
+                    println!("  [ok] {} providers configured", config.llm.providers.len());
+                }
+                
+                println!("\nPlatform: {} {}", std::env::consts::OS, std::env::consts::ARCH);
+                println!("Version:  v{}", env!("CARGO_PKG_VERSION"));
                 return Ok(());
             }
         }

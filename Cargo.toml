@@ -10,7 +10,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.0.2"
+version = "0.0.3"
 edition = "2021"
 license = "MIT"
 
@@ -93,3 +93,4 @@ anyhow = { workspace = true }
 dirs = { workspace = true }
 serde_json = { workspace = true }
 chrono = { workspace = true }
+clap_complete = "4.6.0"
