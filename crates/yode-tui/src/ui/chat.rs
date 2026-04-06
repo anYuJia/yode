@@ -95,6 +95,11 @@ pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
 
     // Thinking indicator at the bottom of chat
     if app.is_thinking {
+        // Add spacing before thinking if there are previous entries
+        if !entries.is_empty() && !lines.is_empty() {
+            lines.push(Line::from(""));
+        }
+
         let spinner = app.spinner_char();
         let elapsed_str = app.thinking_elapsed_str();
         lines.push(Line::from(vec![
@@ -127,16 +132,17 @@ pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
 // ── User Message ────────────────────────────────────────────────────
 // Claude Code style: just bold white text, no heavy decoration
 pub fn render_user(lines: &mut Vec<Line<'static>>, entry: &ChatEntry) {
+    let user_style = Style::default().fg(CYAN);
     for (i, line) in entry.content.lines().enumerate() {
         if i == 0 {
             lines.push(Line::from(vec![
                 Span::styled("> ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
-                Span::styled(line.to_string(), Style::default().fg(WHITE).add_modifier(Modifier::BOLD)),
+                Span::styled(line.to_string(), user_style.clone().add_modifier(Modifier::BOLD)),
             ]));
         } else {
             lines.push(Line::from(Span::styled(
                 format!("  {}", line),
-                Style::default().fg(WHITE),
+                user_style.clone(),
             )));
         }
     }
