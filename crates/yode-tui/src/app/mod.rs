@@ -589,7 +589,8 @@ pub async fn run(
     let (engine_event_tx, mut engine_event_rx) = mpsc::unbounded_channel::<EngineEvent>();
 
     // Check for updates on startup (in background, don't block)
-    tokio::spawn(async {
+    let update_event_tx = engine_event_tx.clone();
+    tokio::spawn(async move {
         let config = match yode_core::config::Config::load() {
             Ok(c) => c,
             Err(_) => return,
@@ -611,11 +612,14 @@ pub async fn run(
         match updater.check_for_updates().await {
             Ok(Some(result)) => {
                 let latest = result.latest_version.clone();
+                let _ = update_event_tx.send(EngineEvent::UpdateAvailable(latest.clone()));
                 // Auto-download if enabled
                 if config.update.auto_download {
+                    let _ = update_event_tx.send(EngineEvent::UpdateDownloading);
                     match updater.download_update(&result).await {
                         Ok(path) => {
                             tracing::info!("Update downloaded to: {:?}", path);
+                            let _ = update_event_tx.send(EngineEvent::UpdateDownloaded(latest.clone()));
                         }
                         Err(e) => {
                             tracing::warn!("Update download failed: {}", e);
@@ -1895,6 +1899,17 @@ fn handle_engine_event(
                 app.prompt_suggestion = Some(suggestion);
                 app.input.set_ghost_text(app.prompt_suggestion.clone());
             }
+        }
+        EngineEvent::UpdateAvailable(version) => {
+            app.update_available = Some(version);
+        }
+        EngineEvent::UpdateDownloading => {
+            app.update_downloading = true;
+        }
+        EngineEvent::UpdateDownloaded(version) => {
+            app.update_downloading = false;
+            app.update_downloaded = Some(version);
+            app.update_available = None; // clear available state since it's now downloaded
         }
         EngineEvent::SubAgentStart { description } => {
             finalize_streaming(app);

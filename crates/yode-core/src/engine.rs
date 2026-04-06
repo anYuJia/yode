@@ -176,6 +176,12 @@ pub enum EngineEvent {
     BudgetExceeded { cost: f64, limit: f64 },
     /// Suggestion generated (async LLM call completed)
     SuggestionReady { suggestion: String },
+    /// App update is available
+    UpdateAvailable(String),
+    /// App update is downloading
+    UpdateDownloading,
+    /// App update is downloaded
+    UpdateDownloaded(String),
 }
 
 /// Response to a confirmation request.
