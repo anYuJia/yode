@@ -96,6 +96,48 @@ async fn main() -> Result<()> {
 
     info!("Yode starting...");
 
+    // Check for pending updates and apply them before doing anything else
+    let config_dir = dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".yode");
+    let updater = yode_core::updater::Updater::new(
+        config_dir.clone(),
+        true, // auto_check doesn't matter for apply
+        false, // auto_download doesn't matter for apply
+    );
+
+    if updater.has_pending_update() {
+        match updater.apply_downloaded_update() {
+            Ok(true) => {
+                info!("Update applied, restarting...");
+                let args: Vec<String> = std::env::args().collect();
+                let exe = std::env::current_exe()?;
+                
+                #[cfg(unix)]
+                {
+                    use std::os::unix::process::CommandExt;
+                    let mut cmd = std::process::Command::new(exe);
+                    cmd.args(&args[1..]);
+                    let err = cmd.exec();
+                    return Err(anyhow::anyhow!("Failed to restart after update: {}", err));
+                }
+                
+                #[cfg(not(unix))]
+                {
+                    std::process::Command::new(exe)
+                        .args(&args[1..])
+                        .spawn()?;
+                    std::process::exit(0);
+                }
+            }
+            Ok(false) => {}
+            Err(e) => {
+                warn!("Failed to apply update: {}", e);
+                eprintln!("⚠ Failed to apply update: {}", e);
+            }
+        }
+    }
+
     let cli = Cli::parse();
 
     // Check if API keys are configured, if not run setup

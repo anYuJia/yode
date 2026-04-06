@@ -24,6 +24,10 @@ rusqlite = { workspace = true }
 serde_yaml_ng = { workspace = true }
 reqwest = { workspace = true }
 sha2 = { workspace = true }
+tar = "0.4.45"
+flate2 = "1.1.9"
+tempfile = "3.27.0"
+walkdir = "2.5.0"
 
 [dev-dependencies]
 tempfile = "3.27.0"

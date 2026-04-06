@@ -19,6 +19,10 @@ use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::fs;
 use tracing::{info, warn};
+use tempfile;
+use tar;
+use flate2;
+use walkdir;
 
 /// Current version from Cargo.toml
 pub const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -267,6 +271,85 @@ impl Updater {
     /// Check if there's a pending update to install
     pub fn has_pending_update(&self) -> bool {
         self.get_downloaded_update_path().is_some()
+    }
+
+    /// Apply the downloaded update by replacing the current executable.
+    /// This should be called during startup if has_pending_update() is true.
+    pub fn apply_downloaded_update(&self) -> Result<bool> {
+        let update_path = match self.get_downloaded_update_path() {
+            Some(path) => path,
+            None => return Ok(false),
+        };
+
+        info!("Applying update from: {:?}", update_path);
+
+        // 1. Unpack to temporary directory
+        let temp_dir = tempfile::tempdir()?;
+        let file = std::fs::File::open(&update_path)?;
+        let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(file));
+        archive.unpack(temp_dir.path())?;
+
+        // 2. Find the yode binary in the extracted contents
+        let mut new_bin_path = None;
+        for entry in std::fs::read_dir(temp_dir.path())? {
+            let entry = entry?;
+            if entry.file_name() == "yode" {
+                new_bin_path = Some(entry.path());
+                break;
+            }
+        }
+
+        let new_bin_path = match new_bin_path {
+            Some(path) => path,
+            None => {
+                // Try searching recursively if not at root (some tarballs have subdirs)
+                let mut found = None;
+                for entry in walkdir::WalkDir::new(temp_dir.path()) {
+                    let entry = entry?;
+                    if entry.file_name() == "yode" && entry.file_type().is_file() {
+                        found = Some(entry.path().to_path_buf());
+                        break;
+                    }
+                }
+                match found {
+                    Some(p) => p,
+                    None => anyhow::bail!("Could not find 'yode' binary in update archive"),
+                }
+            }
+        };
+
+        // 3. Get current executable path
+        let current_exe = std::env::current_exe()?;
+        let old_exe = current_exe.with_extension("old");
+
+        // 4. Atomic replacement on Unix: move new over current
+        // On Unix, we can rename the current file away even if it's running
+        if old_exe.exists() {
+            let _ = std::fs::remove_file(&old_exe);
+        }
+        
+        std::fs::rename(&current_exe, &old_exe)?;
+        if let Err(e) = std::fs::copy(&new_bin_path, &current_exe) {
+            // Rollback if copy fails
+            let _ = std::fs::rename(&old_exe, &current_exe);
+            return Err(e.into());
+        }
+        
+        // Ensure the new binary is executable
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&current_exe)?.permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&current_exe, perms)?;
+        }
+
+        // 5. Cleanup
+        let _ = std::fs::remove_file(&old_exe);
+        let _ = std::fs::remove_file(&update_path);
+        
+        info!("Update applied successfully. Please restart to run the new version.");
+        Ok(true)
     }
 
     // ── Config persistence ─────────────────────────────────────
