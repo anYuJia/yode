@@ -89,7 +89,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             input::render_input(frame, chunks[3], app);
             status_bar::render_separator(frame, chunks[4]);
             status_bar::render_info_line(frame, chunks[5], app);
-            status_bar::render_blank_line(frame, chunks[6]);
+            status_bar::render_blank_line(frame, chunks[6], app);
         } else {
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
@@ -112,7 +112,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             input::render_input(frame, chunks[3], app);
             status_bar::render_separator(frame, chunks[4]);
             status_bar::render_info_line(frame, chunks[5], app);
-            status_bar::render_blank_line(frame, chunks[6]);
+            status_bar::render_blank_line(frame, chunks[6], app);
         }
     }
 }

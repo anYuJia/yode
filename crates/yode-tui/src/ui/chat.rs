@@ -539,36 +539,11 @@ pub fn render_header(app: &App, width: usize) -> Vec<Line<'static>> {
 
     // ── Bottom rule: ╰─────────────────────╯
     let bot_color = Style::default().fg(gradient[7]);
-
-    let mut update_text = String::new();
-    let mut update_style = Style::default();
-    
-    if let Some(ref version) = app.update_available {
-        update_text = format!(" ✨ Update available: {} (restart to apply) ", version);
-        update_style = Style::default().fg(Color::LightCyan);
-    } else if app.update_downloading {
-        update_text = " ⏳ Downloading update... ".to_string();
-        update_style = Style::default().fg(Color::Yellow);
-    } else if let Some(ref version) = app.update_downloaded {
-        update_text = format!(" ✅ Update v{} ready (restart to apply) ", version);
-        update_style = Style::default().fg(Color::LightGreen);
-    }
-
-    let update_len = update_text.chars().count();
-    let left_dash_len = width.saturating_sub(2 + update_len);
-
-    let mut bot_spans = vec![
+    lines.push(Line::from(vec![
         Span::styled("╰", bot_color),
-        Span::styled("─".repeat(left_dash_len), bot_color),
-    ];
-
-    if update_len > 0 {
-        bot_spans.push(Span::styled(update_text, update_style));
-    }
-    
-    bot_spans.push(Span::styled("╯", bot_color));
-
-    lines.push(Line::from(bot_spans));
+        Span::styled("─".repeat(width.saturating_sub(2)), bot_color),
+        Span::styled("╯", bot_color),
+    ]));
 
     lines
 }

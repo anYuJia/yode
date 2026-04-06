@@ -101,9 +101,33 @@ pub fn render_info_line(frame: &mut Frame, area: Rect, app: &App) {
 
 /// Bottom blank line: renders a row of space characters
 /// This keeps the line visually present (not collapsed) while appearing empty.
-pub fn render_blank_line(frame: &mut Frame, area: Rect) {
+pub fn render_blank_line(frame: &mut Frame, area: Rect, app: &App) {
     if area.height == 0 || area.width == 0 { return; }
-    // Use a visible but subtle placeholder character instead of pure spaces
-    let blank = "·".repeat(area.width as usize);
-    frame.render_widget(Paragraph::new(Line::from(Span::styled(blank, Style::default().fg(SEP)))), area);
+
+    let mut update_text = String::new();
+    let mut update_style = Style::default();
+    
+    if let Some(ref version) = app.update_available {
+        update_text = format!(" ✨ Update available: {} (restart to apply) ", version);
+        update_style = Style::default().fg(Color::LightCyan);
+    } else if app.update_downloading {
+        update_text = " ⏳ Downloading update... ".to_string();
+        update_style = Style::default().fg(Color::Yellow);
+    } else if let Some(ref version) = app.update_downloaded {
+        update_text = format!(" ✅ Update v{} ready (restart to apply) ", version);
+        update_style = Style::default().fg(Color::LightGreen);
+    }
+
+    let update_len = update_text.chars().count();
+    let left_dots_len = area.width.saturating_sub(update_len as u16) as usize;
+
+    let mut parts = vec![
+        Span::styled("·".repeat(left_dots_len), Style::default().fg(SEP)),
+    ];
+
+    if update_len > 0 {
+        parts.push(Span::styled(update_text, update_style));
+    }
+
+    frame.render_widget(Paragraph::new(Line::from(parts)), area);
 }
