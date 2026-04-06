@@ -14,10 +14,10 @@ use crate::app::{App, ChatEntry, ChatRole};
 pub const GREEN: Color = Color::LightGreen;
 pub const RED: Color = Color::LightRed;
 pub const YELLOW: Color = Color::LightYellow;
-pub const CYAN: Color = Color::LightCyan;
+pub const CYAN: Color = Color::Indexed(51);       // RGB #00FFFF - pure cyan (most visible)
 pub const BLUE: Color = Color::LightBlue;
 pub const DIM: Color = Color::Gray;               // ANSI 7 — adapts to terminal theme
-pub const WHITE: Color = Color::White;             // ANSI 15 — bright white
+pub const WHITE: Color = Color::Indexed(231);     // RGB #FFFFFF - pure white
 pub const CODE_BG: Color = Color::Indexed(234);    // #1c1c1c
 pub const INLINE_CODE_BG: Color = Color::Indexed(236); // #303030
 pub const ACCENT: Color = Color::LightMagenta;     // ANSI 13 — bright purple // purple for ⏺
@@ -44,8 +44,8 @@ pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
             continue;
         }
 
-        // Add separator between entries (only a single blank line, not after last)
-        if i > 0 && !lines.is_empty() {
+        // Add separator between entries (blank line before each entry except the first)
+        if i > 0 {
             lines.push(Line::from(""));
         }
 
@@ -157,7 +157,7 @@ pub fn render_assistant(lines: &mut Vec<Line<'static>>, entry: &ChatEntry) {
             lines.push(Line::from(vec![
                 Span::styled("  💭 Thinking…", Style::default().fg(YELLOW).add_modifier(Modifier::ITALIC)),
             ]));
-            
+
             for line in reasoning.trim().lines() {
                 lines.push(Line::from(vec![
                     Span::styled("  │ ", Style::default().fg(YELLOW).add_modifier(Modifier::DIM)),
@@ -168,8 +168,8 @@ pub fn render_assistant(lines: &mut Vec<Line<'static>>, entry: &ChatEntry) {
         }
     }
 
-    // 2. Render main content
-    let md = render_markdown(&entry.content);
+    // 2. Render main content with WHITE color
+    let md = render_markdown_white(&entry.content);
     for (i, line) in md.into_iter().enumerate() {
         let mut spans = Vec::new();
         if i == 0 {
@@ -574,6 +574,15 @@ pub fn render_header(app: &App, width: usize) -> Vec<Line<'static>> {
 
 // ── Markdown Renderer ───────────────────────────────────────────────
 pub fn render_markdown(text: &str) -> Vec<Line<'static>> {
+    render_markdown_impl(text, None)
+}
+
+/// Render markdown with white foreground color (for assistant messages).
+pub fn render_markdown_white(text: &str) -> Vec<Line<'static>> {
+    render_markdown_impl(text, Some(WHITE))
+}
+
+fn render_markdown_impl(text: &str, default_fg: Option<Color>) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     let mut in_code_block = false;
     let mut code_block_lines: Vec<String> = Vec::new();
@@ -703,7 +712,7 @@ pub fn render_markdown(text: &str) -> Vec<Line<'static>> {
             let mut spans = vec![
                 Span::styled("  ▎ ", Style::default().fg(Color::DarkGray)),
             ];
-            spans.extend(parse_inline(content.to_string()));
+            spans.extend(parse_inline(content.to_string(), default_fg));
             lines.push(Line::from(spans));
             i += 1;
             continue;
@@ -715,7 +724,7 @@ pub fn render_markdown(text: &str) -> Vec<Line<'static>> {
             let mut spans = vec![
                 Span::styled("  ☑ ", Style::default().fg(GREEN)),
             ];
-            spans.extend(parse_inline(content.to_string()));
+            spans.extend(parse_inline(content.to_string(), default_fg));
             lines.push(Line::from(spans));
             i += 1;
             continue;
@@ -725,7 +734,7 @@ pub fn render_markdown(text: &str) -> Vec<Line<'static>> {
             let mut spans = vec![
                 Span::styled("  ☐ ", Style::default().fg(DIM)),
             ];
-            spans.extend(parse_inline(content.to_string()));
+            spans.extend(parse_inline(content.to_string(), default_fg));
             lines.push(Line::from(spans));
             i += 1;
             continue;
@@ -734,7 +743,7 @@ pub fn render_markdown(text: &str) -> Vec<Line<'static>> {
         // Unordered lists (with indentation support)
         if raw.starts_with("- ") || raw.starts_with("* ") {
             let mut spans = vec![Span::styled("  • ", Style::default().fg(DIM))];
-            spans.extend(parse_inline(raw[2..].to_string()));
+            spans.extend(parse_inline(raw[2..].to_string(), default_fg));
             lines.push(Line::from(spans));
             i += 1;
             continue;
@@ -742,14 +751,14 @@ pub fn render_markdown(text: &str) -> Vec<Line<'static>> {
         // Indented sub-items
         if raw.starts_with("  - ") || raw.starts_with("  * ") {
             let mut spans = vec![Span::styled("    ◦ ", Style::default().fg(DIM))];
-            spans.extend(parse_inline(raw.trim_start()[2..].to_string()));
+            spans.extend(parse_inline(raw.trim_start()[2..].to_string(), default_fg));
             lines.push(Line::from(spans));
             i += 1;
             continue;
         }
         if raw.starts_with("    - ") || raw.starts_with("    * ") {
             let mut spans = vec![Span::styled("      ▪ ", Style::default().fg(DIM))];
-            spans.extend(parse_inline(raw.trim_start()[2..].to_string()));
+            spans.extend(parse_inline(raw.trim_start()[2..].to_string(), default_fg));
             lines.push(Line::from(spans));
             i += 1;
             continue;
@@ -758,14 +767,14 @@ pub fn render_markdown(text: &str) -> Vec<Line<'static>> {
         // Numbered lists
         if let Some((num, rest)) = try_numbered_list(raw) {
             let mut spans = vec![Span::styled(format!("  {}. ", num), Style::default().fg(DIM))];
-            spans.extend(parse_inline(rest.to_string()));
+            spans.extend(parse_inline(rest.to_string(), default_fg));
             lines.push(Line::from(spans));
             i += 1;
             continue;
         }
 
         // Regular paragraph
-        lines.push(Line::from(parse_inline(raw.to_string())));
+        lines.push(Line::from(parse_inline(raw.to_string(), default_fg)));
         i += 1;
     }
 
@@ -856,37 +865,44 @@ fn try_numbered_list(line: &str) -> Option<(&str, &str)> {
     }
 }
 
-fn parse_inline(text: String) -> Vec<Span<'static>> {
+fn parse_inline(text: String, default_fg: Option<Color>) -> Vec<Span<'static>> {
     let mut spans = Vec::new();
     let mut remaining: &str = &text;
+    let default_style = default_fg.map(|fg| Style::default().fg(fg)).unwrap_or_default();
 
     while !remaining.is_empty() {
         if let Some(pos) = remaining.find("**") {
-            if pos > 0 { spans.push(Span::raw(remaining[..pos].to_string())); }
+            if pos > 0 {
+                spans.push(Span::styled(remaining[..pos].to_string(), default_style));
+            }
             remaining = &remaining[pos + 2..];
             if let Some(end) = remaining.find("**") {
                 spans.push(Span::styled(remaining[..end].to_string(),
-                    Style::default().add_modifier(Modifier::BOLD)));
+                    default_style.add_modifier(Modifier::BOLD)));
                 remaining = &remaining[end + 2..];
             } else {
-                spans.push(Span::raw("**".to_string()));
+                spans.push(Span::styled("**".to_string(), default_style));
             }
         } else if let Some(pos) = remaining.find('`') {
-            if pos > 0 { spans.push(Span::raw(remaining[..pos].to_string())); }
+            if pos > 0 {
+                spans.push(Span::styled(remaining[..pos].to_string(), default_style));
+            }
             remaining = &remaining[pos + 1..];
             if let Some(end) = remaining.find('`') {
                 spans.push(Span::styled(remaining[..end].to_string(),
                     Style::default().fg(YELLOW).bg(INLINE_CODE_BG)));
                 remaining = &remaining[end + 1..];
             } else {
-                spans.push(Span::raw("`".to_string()));
+                spans.push(Span::styled("`".to_string(), default_style));
             }
         } else {
-            spans.push(Span::raw(remaining.to_string()));
+            spans.push(Span::styled(remaining.to_string(), default_style));
             break;
         }
     }
-    if spans.is_empty() { spans.push(Span::raw(String::new())); }
+    if spans.is_empty() {
+        spans.push(Span::styled(String::new(), default_style));
+    }
     spans
 }
 

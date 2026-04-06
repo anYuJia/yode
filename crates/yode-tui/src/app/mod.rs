@@ -272,12 +272,8 @@ pub struct App {
     pub streaming_remainder: Option<(Vec<String>, bool)>,
     /// Whether we've printed the "Thinking..." indicator to scrollback
     pub thinking_printed: bool,
-    /// Whether we are currently skipping a reasoning line or block in the stream
-    pub skipping_reasoning: bool,
-    /// Whether we are inside an XML-like thought tag in the stream
-    pub inside_thought_tag: bool,
-    /// Whether we are probing the initial characters of a response to detect hidden reasoning
-    pub is_probing_content: bool,
+    /// Whether we've received any ReasoningDelta events (for fallback detection)
+    pub received_reasoning_delta: bool,
 
     // Engine communication
     pub pending_confirmation: Option<PendingConfirmation>,
@@ -394,9 +390,7 @@ impl App {
             streaming_in_code_block: false,
             streaming_remainder: None,
             thinking_printed: false,
-            skipping_reasoning: false,
-            inside_thought_tag: false,
-            is_probing_content: false,
+            received_reasoning_delta: false,
             pending_confirmation: None,
             confirm_tx: None,
             pending_inputs: Vec::new(),
@@ -1524,7 +1518,6 @@ fn try_process_next(
         crate::app::SPINNER_VERBS[idx]
     };
     app.turn_status = TurnStatus::Working { verb };
-    app.is_probing_content = true; // Start probing for hidden reasoning
     app.sync_thinking();
 
     let (confirm_tx, confirm_rx) = mpsc::unbounded_channel();
@@ -1546,75 +1539,9 @@ fn try_process_next(
     });
 }
 
-/// Robustly strip XML tags, emoji markers, and semantic reasoning sentences.
-/// Example: "⏺ 用户在打招呼，我应该回应。你好！" -> "你好！"
-fn clean_content(s: &str) -> String {
-    let mut result = s.to_string();
-    
-    // 1. Strip XML-like tags (e.g. <thought>...</thought>)
-    let tags = [
-        ("<thought>", "</thought>"),
-        ("<reasoning>", "</reasoning>"),
-        ("<thinking>", "</thinking>"),
-    ];
-
-    for (start_tag, end_tag) in tags {
-        while let Some(start_idx) = result.find(start_tag) {
-            if let Some(end_idx) = result.find(end_tag) {
-                if end_idx > start_idx {
-                    result.drain(start_idx..end_idx + end_tag.len());
-                    continue;
-                }
-            }
-            result.drain(start_idx..start_idx + start_tag.len());
-        }
-        while let Some(end_idx) = result.find(end_tag) {
-            result.drain(end_idx..end_idx + end_tag.len());
-        }
-    }
-
-    // 2. Semantic Filtering: Identify and remove reasoning sentences
-    // Reasoning often starts with markers and ends with punctuation.
-    let lines: Vec<String> = result.lines()
-        .map(|line| {
-            let trimmed = line.trim();
-            if trimmed.is_empty() { return String::new(); }
-
-            // Common reasoning start markers (emoji or punctuation)
-            let markers = ['⏺', '●', '•', '·', '>', '»'];
-            let starts_with_marker = markers.iter().any(|&m| trimmed.starts_with(m));
-            
-            // Heuristic for Chinese reasoning (e.g. "用户问... 我应该...")
-            let is_chinese_reasoning = (trimmed.contains("用户") || trimmed.contains("模型") || trimmed.contains("应该")) 
-                && (trimmed.contains("回应") || trimmed.contains("回复") || trimmed.contains("介绍"));
-
-            if starts_with_marker || is_chinese_reasoning {
-                // Check if the line also contains actual response content after the reasoning
-                // Reasoning usually ends with a full stop '。' or '.'
-                let sentence_ends = ["。", "！", "？", ".", "!", "?"];
-                for end in sentence_ends {
-                    if let Some(pos) = trimmed.find(end) {
-                        let after = &trimmed[pos + end.len()..].trim();
-                        if !after.is_empty() {
-                            // Found content after reasoning! Return only the content.
-                            return after.to_string();
-                        }
-                    }
-                }
-                // Whole line is reasoning, strip it
-                String::new()
-            } else {
-                line.to_string()
-            }
-        })
-        .filter(|l| !l.is_empty())
-        .collect();
-    
-    let mut cleaned = lines.join("\n");
-    if result.ends_with('\n') && !cleaned.is_empty() {
-        cleaned.push('\n');
-    }
-    cleaned.trim_start().to_string()
+/// Find substring case-insensitively, return byte offset
+fn find_case_insensitive(haystack: &str, needle: &str) -> Option<usize> {
+    haystack.to_lowercase().find(&needle.to_lowercase())
 }
 
 fn handle_engine_event(
@@ -1648,39 +1575,49 @@ fn handle_engine_event(
             }
         }
         EngineEvent::TextDelta(delta) => {
-            for c in delta.chars() {
-                let at_start_of_line = app.streaming_buf.is_empty() || app.streaming_buf.ends_with('\n');
-                
-                // If we are at start of a response and see reasoning indicators, enter skip mode
-                if at_start_of_line {
-                    let markers = ['⏺', '●', '•', '·', '<', '>', '用', '我', '该'];
-                    if markers.contains(&c) {
-                        app.skipping_reasoning = true;
-                    }
+            // TextDelta goes directly to streaming buffer.
+            // Fallback: Some APIs (like DashScope) may return thinking content
+            // inside <thinking> tags in text instead of separate ReasoningDelta.
+            // We detect and extract these tags for proper separation.
+            let mut s = delta.as_str();
+
+            // Check for thinking tags (case-insensitive)
+            while let Some(start) = find_case_insensitive(s, "<thinking>") {
+                // Push text before thinking tag
+                if start > 0 {
+                    app.streaming_buf.push_str(&s[..start]);
                 }
 
-                if app.skipping_reasoning {
-                    app.streaming_reasoning.push(c);
-                    // End skipping on newline or sentence end
-                    if c == '\n' || c == '。' || c == '！' || c == '？' {
-                        app.skipping_reasoning = false;
-                        app.is_probing_content = false; // Once a reasoning sentence ends, we stop initial probing
-                    }
+                // Find the end of the opening tag
+                let tag_end = start + 10; // len of "<thinking>"
+                if let Some(end) = find_case_insensitive(&s[tag_end..], "</thinking>") {
+                    // Extract thinking content between tags
+                    let thinking_content = &s[tag_end..tag_end + end];
+                    app.streaming_reasoning.push_str(thinking_content);
+                    // Continue with remaining text after closing tag
+                    s = &s[tag_end + end + 11..]; // 11 = len of "</thinking>"
                 } else {
-                    app.streaming_buf.push(c);
-                    app.is_probing_content = false; // We found real content, stop probing
+                    // No closing tag found, rest is thinking content
+                    app.streaming_reasoning.push_str(&s[tag_end..]);
+                    s = "";
                 }
+            }
+
+            // Push any remaining text
+            if !s.is_empty() {
+                app.streaming_buf.push_str(s);
             }
         }
         EngineEvent::ReasoningDelta(delta) => {
             // Append to reasoning buffer (not printed to scrollback)
+            app.received_reasoning_delta = true;
             app.streaming_reasoning.push_str(&delta);
         }
         EngineEvent::TextComplete(text) => {
             // If we already have streaming content, it contains the full text.
             // If not, set it now.
             if app.streaming_buf.is_empty() {
-                app.streaming_buf = clean_content(&text);
+                app.streaming_buf = text;
             }
         }
         EngineEvent::ReasoningComplete(text) => {
@@ -1764,13 +1701,10 @@ fn handle_engine_event(
             entry.duration = duration;
             app.chat_entries.push(entry);
         }
-        EngineEvent::TurnComplete(mut response) => {
+        EngineEvent::TurnComplete(response) => {
             finalize_streaming(app);
 
-            // Clean content in final response too
-            if let Some(content) = response.message.content.as_mut() {
-                *content = clean_content(content);
-            }
+            // Content is already clean via separate ReasoningDelta events
 
             // Determine input tokens: use reported value, infer from total, or estimate
             let prompt = response.usage.prompt_tokens;
@@ -2068,8 +2002,6 @@ fn finalize_streaming(app: &mut App) {
         }
         app.streaming_printed_lines = 0;
         app.streaming_in_code_block = false;
-        app.skipping_reasoning = false;
-        app.inside_thought_tag = false;
     }
 }
 
@@ -2152,31 +2084,6 @@ fn to_crossterm_color(color: Color) -> crossterm::style::Color {
         Color::LightCyan => crossterm::style::Color::DarkCyan,
         Color::White => crossterm::style::Color::White,
         _ => crossterm::style::Color::White,
-    }
-}
-
-/// Convert crossterm Color to ratatui Color (reverse of to_crossterm_color).
-fn from_crossterm_color(color: crossterm::style::Color) -> Color {
-    match color {
-        crossterm::style::Color::Rgb { r, g, b } => Color::Rgb(r, g, b),
-        crossterm::style::Color::AnsiValue(i) => Color::Indexed(i),
-        crossterm::style::Color::Black => Color::Black,
-        crossterm::style::Color::Red => Color::Red,
-        crossterm::style::Color::Green => Color::Green,
-        crossterm::style::Color::Yellow => Color::Yellow,
-        crossterm::style::Color::Blue => Color::Blue,
-        crossterm::style::Color::Magenta => Color::Magenta,
-        crossterm::style::Color::Cyan => Color::Cyan,
-        crossterm::style::Color::Grey => Color::Gray,
-        crossterm::style::Color::DarkGrey => Color::DarkGray,
-        crossterm::style::Color::DarkRed => Color::LightRed,
-        crossterm::style::Color::DarkGreen => Color::LightGreen,
-        crossterm::style::Color::DarkBlue => Color::LightBlue,
-        crossterm::style::Color::DarkYellow => Color::LightYellow,
-        crossterm::style::Color::DarkMagenta => Color::LightMagenta,
-        crossterm::style::Color::DarkCyan => Color::LightCyan,
-        crossterm::style::Color::White => Color::White,
-        crossterm::style::Color::Reset => Color::Reset,
     }
 }
 
@@ -2296,15 +2203,16 @@ fn flush_entries_to_scrollback(
 
             let needs_spacer = app.streaming_printed_lines == 0;
             let mut first_printed = app.streaming_printed_lines > 0;
+            let mut lines_printed_in_this_batch = 0;
             for raw_text in to_print.iter() {
-                // Proactively clean line again to be absolutely sure no reasoning leaks
-                let cleaned_raw = clean_content(raw_text);
-                if cleaned_raw.is_empty() {
+                if raw_text.trim().is_empty() {
+                    lines_printed_in_this_batch += 1; // Count skipped lines too
                     continue;
                 }
 
                 // Skip leading whitespace-only lines (before first real content)
                 if !first_printed && raw_text.trim().is_empty() {
+                    lines_printed_in_this_batch += 1;
                     continue;
                 }
                 let is_first = !first_printed;
@@ -2313,10 +2221,10 @@ fn flush_entries_to_scrollback(
                     all_output.push((String::new(), None, false));
                 }
                 // Process markdown on each complete line
-                let text = process_md_line(&cleaned_raw, &mut app.streaming_in_code_block);
+                let text = process_md_line(raw_text, &mut app.streaming_in_code_block);
                 let prefix = if is_first { "⏺ " } else { "  " };
                 if is_first {
-                    let color = crossterm::style::Color::Magenta;
+                    let color = crossterm::style::Color::White;
                     all_output.push((format!("{}{}", prefix, text), Some(color), false));
                     first_printed = true;
                 } else if is_code_block_line(&text) {
@@ -2329,8 +2237,9 @@ fn flush_entries_to_scrollback(
                     let color_opt = if matches!(color, crossterm::style::Color::Reset) { None } else { Some(color) };
                     all_output.push((format!("{}{}", prefix, text), color_opt, bold));
                 }
+                lines_printed_in_this_batch += 1;
             }
-            app.streaming_printed_lines = complete_count;
+            app.streaming_printed_lines += lines_printed_in_this_batch;
         }
     }
 
@@ -2338,7 +2247,7 @@ fn flush_entries_to_scrollback(
     if let Some((remainder, is_first)) = app.streaming_remainder.take() {
         let has_content = remainder.iter().any(|l| !l.trim().is_empty());
         if has_content {
-            let accent = crossterm::style::Color::Magenta;
+            let white = crossterm::style::Color::White;
             let mut first_done = !is_first;
             for line in remainder.iter() {
                 // Skip leading empty lines only
@@ -2348,7 +2257,7 @@ fn flush_entries_to_scrollback(
                 let text = process_md_line(line, &mut app.streaming_in_code_block);
                 if !first_done {
                     all_output.push((String::new(), None, false));
-                    all_output.push((format!("⏺ {}", text), Some(accent), false));
+                    all_output.push((format!("⏺ {}", text), Some(white), false));
                     first_done = true;
                 } else if is_code_block_line(&text) {
                     let highlighted = highlight_code_line(&text);
@@ -2407,15 +2316,7 @@ fn flush_entries_to_scrollback(
             all_output.push((String::new(), None, false));
         }
         for (text, style) in &text_lines {
-            let color = style.fg.and_then(|c| {
-                let ct = to_crossterm_color(c);
-                // White/Reset → use terminal default foreground (None)
-                if matches!(ct, crossterm::style::Color::White | crossterm::style::Color::Reset) {
-                    None
-                } else {
-                    Some(ct)
-                }
-            });
+            let color = style.fg.map(to_crossterm_color);
             let bold = style.add_modifier.contains(Modifier::BOLD);
             all_output.push((text.clone(), color, bold));
         }
@@ -2438,10 +2339,10 @@ fn format_entry_as_strings(
     index: usize,
 ) -> Vec<(String, ratatui::style::Style)> {
     let mut result: Vec<(String, ratatui::style::Style)> = Vec::new();
-    let default = ratatui::style::Style::default(); // terminal default foreground
     let dim = ratatui::style::Style::default().fg(Color::Gray);
-    let accent = ratatui::style::Style::default().fg(Color::LightMagenta);
-    let bold_white = default.add_modifier(Modifier::BOLD);
+    let accent = ratatui::style::Style::default().fg(Color::LightMagenta); // For tool calls
+    let cyan = ratatui::style::Style::default().fg(Color::Indexed(51)); // User input - pure cyan #00FFFF
+    let white = ratatui::style::Style::default().fg(Color::Indexed(231)); // AI response - pure white #FFFFFF
     let red = ratatui::style::Style::default().fg(Color::LightRed);
 
     match &entry.role {
@@ -2449,15 +2350,15 @@ fn format_entry_as_strings(
             let mut first = true;
             for line in entry.content.lines() {
                 if first {
-                    result.push((format!("> {}", line), bold_white));
+                    result.push((format!("> {}", line), cyan.add_modifier(Modifier::BOLD)));
                     first = false;
                 } else {
-                    result.push((format!("  {}", line), bold_white));
+                    result.push((format!("  {}", line), cyan));
                 }
             }
             if first {
                 // Empty content
-                result.push(("> ".to_string(), bold_white));
+                result.push(("> ".to_string(), cyan.add_modifier(Modifier::BOLD)));
             }
         }
         ChatRole::Assistant => {
@@ -2475,20 +2376,15 @@ fn format_entry_as_strings(
                     continue;
                 }
                 if first {
-                    result.push((format!("⏺ {}", line), accent));
+                    result.push((format!("⏺ {}", line), white));
                     first = false;
                 } else if is_code_block_line(&line) {
                     // Code line — embed ANSI highlighting, no ratatui fg color
                     let highlighted = highlight_code_line(&line);
                     result.push((format!("  {}", highlighted), ratatui::style::Style::default()));
                 } else {
-                    let (ct_color, bold) = md_line_color(&line);
-                    let color = from_crossterm_color(ct_color);
-                    let mut style = ratatui::style::Style::default().fg(color);
-                    if bold {
-                        style = style.add_modifier(Modifier::BOLD);
-                    }
-                    result.push((format!("  {}", line), style));
+                    // Use white color for all assistant response lines
+                    result.push((format!("  {}", line), white));
                 }
             }
         }
