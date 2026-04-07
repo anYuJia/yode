@@ -1,60 +1,57 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
-pub struct CronTool;
+pub struct CronCreateTool;
+pub struct CronListTool;
+pub struct CronDeleteTool;
 
 #[async_trait]
-impl Tool for CronTool {
+impl Tool for CronCreateTool {
     fn name(&self) -> &str {
-        "cron"
+        "cron_create"
+    }
+
+    fn aliases(&self) -> Vec<String> {
+        vec!["CronCreate".to_string()]
     }
 
     fn user_facing_name(&self) -> &str {
-        "Cron"
+        "" 
     }
 
     fn activity_description(&self, params: &Value) -> String {
-        let action = params.get("action").and_then(|v| v.as_str()).unwrap_or("manage");
-        format!("Cron: {} action", action)
+        let cron = params.get("cron").and_then(|v| v.as_str()).unwrap_or("");
+        format!("Scheduling cron job: {}", cron)
     }
 
     fn description(&self) -> &str {
-        "Schedule, list, or delete cron jobs that fire prompts on a schedule. \
-         Jobs are session-scoped (not persisted) and auto-expire after 3 days. \
-         Use standard 5-field cron expressions (minute hour day-of-month month day-of-week)."
+        "Schedule a new cron job that will trigger a prompt on a specified schedule. \
+         Jobs are session-scoped and auto-expire after 3 days. \
+         Use standard 5-field cron syntax."
     }
 
     fn parameters_schema(&self) -> Value {
-        serde_json::json!({
+        json!({
             "type": "object",
             "properties": {
-                "action": {
-                    "type": "string",
-                    "enum": ["create", "delete", "list"],
-                    "description": "Action to perform"
-                },
                 "cron": {
                     "type": "string",
-                    "description": "5-field cron expression (for create). E.g. '*/5 * * * *' = every 5 min"
+                    "description": "5-field cron expression. E.g. '*/5 * * * *' for every 5 minutes."
                 },
                 "prompt": {
                     "type": "string",
-                    "description": "Prompt to enqueue at each fire time (for create)"
+                    "description": "The prompt to trigger when the cron fires."
                 },
                 "recurring": {
                     "type": "boolean",
                     "default": true,
-                    "description": "true=fire repeatedly, false=fire once then delete"
-                },
-                "id": {
-                    "type": "string",
-                    "description": "Job ID to delete (for delete action)"
+                    "description": "Whether the job should fire repeatedly or just once."
                 }
             },
-            "required": ["action"]
+            "required": ["cron", "prompt"]
         })
     }
 
@@ -67,76 +64,124 @@ impl Tool for CronTool {
     }
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
-        let action = params.get("action").and_then(|v| v.as_str()).unwrap_or("");
+        let cron_mgr = ctx.cron_manager.as_ref().ok_or_else(|| anyhow::anyhow!("Cron manager not available"))?;
+        let cron_expr = params.get("cron").and_then(|v| v.as_str()).unwrap_or("");
+        let prompt = params.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
+        let recurring = params.get("recurring").and_then(|v| v.as_bool()).unwrap_or(true);
 
-        let cron_mgr = ctx
-            .cron_manager
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Cron manager not available"))?;
+        let mut mgr = cron_mgr.lock().await;
+        let id = mgr.create(cron_expr.to_string(), prompt.to_string(), recurring)?;
+        Ok(ToolResult::success(format!("Cron job created with ID: {}. Note: recurring jobs expire after 3 days.", id)))
+    }
+}
 
-        match action {
-            "create" => {
-                let cron_expr = params
-                    .get("cron")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| anyhow::anyhow!("'cron' parameter is required for create"))?;
-                let prompt = params
-                    .get("prompt")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| anyhow::anyhow!("'prompt' parameter is required for create"))?;
-                let recurring = params
-                    .get("recurring")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(true);
+#[async_trait]
+impl Tool for CronListTool {
+    fn name(&self) -> &str {
+        "cron_list"
+    }
 
-                let mut mgr = cron_mgr.lock().await;
-                match mgr.create(cron_expr.to_string(), prompt.to_string(), recurring) {
-                    Ok(id) => Ok(ToolResult::success(format!(
-                        "Cron job created with ID: {}. {}. Note: recurring jobs auto-expire after 3 days.",
-                        id,
-                        if recurring { "Fires repeatedly" } else { "Fires once" }
-                    ))),
-                    Err(e) => Ok(ToolResult::error(format!("Failed to create cron job: {}", e))),
+    fn aliases(&self) -> Vec<String> {
+        vec!["CronList".to_string()]
+    }
+
+    fn user_facing_name(&self) -> &str {
+        ""
+    }
+
+    fn activity_description(&self, _params: &Value) -> String {
+        "Listing scheduled cron jobs".to_string()
+    }
+
+    fn description(&self) -> &str {
+        "List all currently scheduled cron jobs."
+    }
+
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {}
+        })
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            requires_confirmation: false,
+            supports_auto_execution: true,
+            read_only: true,
+        }
+    }
+
+    async fn execute(&self, _params: Value, ctx: &ToolContext) -> Result<ToolResult> {
+        let cron_mgr = ctx.cron_manager.as_ref().ok_or_else(|| anyhow::anyhow!("Cron manager not available"))?;
+        let mgr = cron_mgr.lock().await;
+        let jobs = mgr.list();
+        
+        if jobs.is_empty() {
+            return Ok(ToolResult::success("No cron jobs scheduled.".to_string()));
+        }
+
+        let mut output = String::from("Current cron jobs:\n\n");
+        for job in jobs {
+            output.push_str(&format!("- ID: {}, cron: '{}', next_fire: {}\n", job.id, job.cron_expr, job.next_fire.format("%Y-%m-%d %H:%M:%S")));
+        }
+        Ok(ToolResult::success(output))
+    }
+}
+
+#[async_trait]
+impl Tool for CronDeleteTool {
+    fn name(&self) -> &str {
+        "cron_delete"
+    }
+
+    fn aliases(&self) -> Vec<String> {
+        vec!["CronDelete".to_string()]
+    }
+
+    fn user_facing_name(&self) -> &str {
+        ""
+    }
+
+    fn activity_description(&self, params: &Value) -> String {
+        let id = params.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+        format!("Deleting cron job: {}", id)
+    }
+
+    fn description(&self) -> &str {
+        "Delete a scheduled cron job by its ID."
+    }
+
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "The ID of the cron job to delete"
                 }
-            }
-            "delete" => {
-                let id = params
-                    .get("id")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| anyhow::anyhow!("'id' parameter is required for delete"))?;
-                let mut mgr = cron_mgr.lock().await;
-                if mgr.delete(id) {
-                    Ok(ToolResult::success(format!("Cron job {} deleted", id)))
-                } else {
-                    Ok(ToolResult::error(format!("Cron job {} not found", id)))
-                }
-            }
-            "list" => {
-                let mgr = cron_mgr.lock().await;
-                let jobs = mgr.list();
-                if jobs.is_empty() {
-                    Ok(ToolResult::success("No cron jobs scheduled.".to_string()))
-                } else {
-                    let mut output = String::new();
-                    for job in jobs {
-                        output.push_str(&format!(
-                            "- ID: {}, cron: '{}', recurring: {}, next_fire: {}, prompt: '{}'\n",
-                            job.id, job.cron_expr, job.recurring,
-                            job.next_fire.format("%Y-%m-%d %H:%M:%S"),
-                            if job.prompt.len() > 50 {
-                                format!("{}...", &job.prompt[..50])
-                            } else {
-                                job.prompt.clone()
-                            }
-                        ));
-                    }
-                    Ok(ToolResult::success(output))
-                }
-            }
-            _ => Ok(ToolResult::error(format!(
-                "Unknown action: '{}'. Use create/delete/list.",
-                action
-            ))),
+            },
+            "required": ["id"]
+        })
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            requires_confirmation: false,
+            supports_auto_execution: true,
+            read_only: false,
+        }
+    }
+
+    async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
+        let cron_mgr = ctx.cron_manager.as_ref().ok_or_else(|| anyhow::anyhow!("Cron manager not available"))?;
+        let id = params.get("id").and_then(|v| v.as_str()).ok_or_else(|| anyhow::anyhow!("Missing job ID"))?;
+        
+        let mut mgr = cron_mgr.lock().await;
+        if mgr.delete(id) {
+            Ok(ToolResult::success(format!("Cron job {} deleted.", id)))
+        } else {
+            Ok(ToolResult::error(format!("Cron job {} not found.", id)))
         }
     }
 }
