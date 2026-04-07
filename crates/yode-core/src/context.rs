@@ -1,5 +1,28 @@
 use std::path::PathBuf;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use uuid::Uuid;
+
+/// Controlled session runtime state (on-the-fly updates).
+#[derive(Debug)]
+pub struct SessionRuntime {
+    /// Current working directory, can be changed via tools like bash (cd).
+    pub cwd: PathBuf,
+    /// Immutable root of the project/workspace.
+    pub project_root: PathBuf,
+    /// Last known good directory to fall back to.
+    pub last_success_cwd: PathBuf,
+}
+
+impl SessionRuntime {
+    pub fn new(root: PathBuf) -> Self {
+        Self {
+            cwd: root.clone(),
+            project_root: root.clone(),
+            last_success_cwd: root,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EffortLevel {
@@ -37,8 +60,8 @@ impl std::str::FromStr for EffortLevel {
 pub struct AgentContext {
     /// Unique session identifier
     pub session_id: String,
-    /// Current working directory
-    pub working_dir: PathBuf,
+    /// Managed session runtime state
+    pub runtime: Arc<Mutex<SessionRuntime>>,
     /// Model being used
     pub model: String,
     /// Provider name
@@ -55,7 +78,7 @@ impl AgentContext {
     pub fn new(working_dir: PathBuf, provider: String, model: String) -> Self {
         Self {
             session_id: Uuid::new_v4().to_string(),
-            working_dir,
+            runtime: Arc::new(Mutex::new(SessionRuntime::new(working_dir))),
             model,
             provider,
             is_resumed: false,
@@ -68,12 +91,19 @@ impl AgentContext {
     pub fn resume(session_id: String, working_dir: PathBuf, provider: String, model: String) -> Self {
         Self {
             session_id,
-            working_dir,
+            runtime: Arc::new(Mutex::new(SessionRuntime::new(working_dir))),
             model,
             provider,
             is_resumed: true,
             effort: EffortLevel::Medium,
             output_style: "default".to_string(),
         }
+    }
+
+    /// Synchronously get the root directory (only for initialization or compat).
+    pub fn working_dir_compat(&self) -> PathBuf {
+        futures::executor::block_on(async {
+            self.runtime.lock().await.project_root.clone()
+        })
     }
 }

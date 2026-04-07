@@ -27,6 +27,9 @@ use crate::permission::{CommandClassifier, CommandRiskLevel, PermissionAction, P
 /// Maximum size for tool results (50KB)
 const MAX_TOOL_RESULT_SIZE: usize = 50 * 1024;
 
+/// Maximum total size for all tool results in a single turn (200KB)
+const MAX_TOTAL_TOOL_RESULTS_SIZE: usize = 200 * 1024;
+
 /// LLM call timeout in seconds
 const LLM_TIMEOUT_SECS: u64 = 120;
 
@@ -228,6 +231,8 @@ pub struct AgentEngine {
     recent_tool_calls: Vec<(String, String)>,
     /// Consecutive tool call failure counter.
     consecutive_failures: u32,
+    /// Total bytes of tool results in the current turn.
+    total_tool_results_bytes: usize,
     /// Context window manager for automatic compression.
     context_manager: ContextManager,
     /// Cost tracker for token usage and estimated cost.
@@ -238,6 +243,10 @@ pub struct AgentEngine {
     files_read: std::collections::HashMap<String, usize>,
     /// Files the agent has modified in this turn.
     files_modified: Vec<String>,
+    /// Error buckets for state-machine recovery (Type -> Count).
+    error_buckets: std::collections::HashMap<ToolErrorType, u32>,
+    /// Last failed path/command to detect identical retry loops.
+    last_failed_signature: Option<String>,
     /// Whether the engine is in plan mode.
     plan_mode: Arc<Mutex<bool>>,
 }
@@ -292,9 +301,18 @@ impl AgentEngine {
 
         // Inject runtime environment info
         system_prompt.push_str("\n\n# Environment\n\n");
+        
+        // Block to safely get initial runtime state
+        let (cwd, project_root) = {
+            // We use a sync-friendly way here for initial prompt or just use the root
+            // Since rt is new, we know it matches the root
+            (context.working_dir_compat(), context.working_dir_compat())
+        };
+
         system_prompt.push_str(&format!(
-            "- Working directory: {}\n- Platform: {} ({})\n- Date: {}\n- Model: {}\n- Provider: {}\n",
-            context.working_dir.display(),
+            "- Working directory: {}\n- Project root: {}\n- Platform: {} ({})\n- Date: {}\n- Model: {}\n- Provider: {}\n",
+            cwd.display(),
+            project_root.display(),
             std::env::consts::OS,
             std::env::consts::ARCH,
             chrono::Local::now().format("%Y-%m-%d"),
@@ -303,11 +321,11 @@ impl AgentEngine {
         ));
 
         // Inject git status if in a git repo
-        if context.working_dir.join(".git").exists() {
+        if cwd.join(".git").exists() {
             system_prompt.push_str("- Git repo: yes\n");
             if let Ok(output) = std::process::Command::new("git")
                 .args(["branch", "--show-current"])
-                .current_dir(&context.working_dir)
+                .current_dir(&cwd)
                 .output()
             {
                 let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -317,11 +335,12 @@ impl AgentEngine {
             }
         }
 
+        let cwd = context.working_dir_compat();
         // Try to load project-level documentation (YODE.md, CLAUDE.md, etc.)
-        system_prompt.push_str(&AgentEngine::get_project_docs_static(&context.working_dir));
+        system_prompt.push_str(&AgentEngine::get_project_docs_static(&cwd));
 
         // Inject memory files if they exist
-        if let Some(memory_content) = AgentEngine::get_memory_files_static(&context.working_dir) {
+        if let Some(memory_content) = AgentEngine::get_memory_files_static(&cwd) {
             system_prompt.push_str("\n\n");
             system_prompt.push_str(&memory_content);
         }
@@ -366,11 +385,14 @@ impl AgentEngine {
             tool_call_count: 0,
             recent_tool_calls: Vec::new(),
             consecutive_failures: 0,
+            total_tool_results_bytes: 0,
             context_manager,
             cost_tracker,
             hook_manager: None,
             files_read: std::collections::HashMap::new(),
             files_modified: Vec::new(),
+            error_buckets: std::collections::HashMap::new(),
+            last_failed_signature: None,
             plan_mode: Arc::new(Mutex::new(false)),
         }
     }
@@ -398,11 +420,13 @@ impl AgentEngine {
     /// and update the first message in the conversation history.
     fn rebuild_system_prompt(&mut self) {
         let mut system_prompt = include_str!("../../../prompts/system.md").to_string();
+        let cwd = self.context.working_dir_compat();
 
         system_prompt.push_str("\n\n# Environment\n\n");
         system_prompt.push_str(&format!(
-            "- Working directory: {}\n- Platform: {} ({})\n- Date: {}\n- Model: {}\n- Provider: {}\n",
-            self.context.working_dir.display(),
+            "- Working directory: {}\n- Project root: {}\n- Platform: {} ({})\n- Date: {}\n- Model: {}\n- Provider: {}\n",
+            cwd.display(),
+            cwd.display(), // For now project root is same as initial cwd
             std::env::consts::OS,
             std::env::consts::ARCH,
             chrono::Local::now().format("%Y-%m-%d"),
@@ -410,11 +434,11 @@ impl AgentEngine {
             self.context.provider,
         ));
 
-        if self.context.working_dir.join(".git").exists() {
+        if cwd.join(".git").exists() {
             system_prompt.push_str("- Git repo: yes\n");
             if let Ok(output) = std::process::Command::new("git")
                 .args(["branch", "--show-current"])
-                .current_dir(&self.context.working_dir)
+                .current_dir(&cwd)
                 .output()
             {
                 let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -424,7 +448,7 @@ impl AgentEngine {
             }
         }
 
-        let yode_md = self.context.working_dir.join("YODE.md");
+        let yode_md = cwd.join("YODE.md");
         if yode_md.exists() {
             if let Ok(override_prompt) = std::fs::read_to_string(&yode_md) {
                 system_prompt.push_str("\n\n# Project-specific instructions\n\n");
@@ -433,10 +457,10 @@ impl AgentEngine {
         }
 
         // Inject project-level documentation (YODE.md, CLAUDE.md, etc.)
-        system_prompt.push_str(&AgentEngine::get_project_docs_static(&self.context.working_dir));
+        system_prompt.push_str(&AgentEngine::get_project_docs_static(&cwd));
 
         // Inject memory files if they exist
-        if let Some(memory_content) = AgentEngine::get_memory_files_static(&self.context.working_dir) {
+        if let Some(memory_content) = AgentEngine::get_memory_files_static(&cwd) {
             system_prompt.push_str("\n\n");
             system_prompt.push_str(&memory_content);
         }
@@ -497,17 +521,19 @@ impl AgentEngine {
     }
 
     /// Build a ToolContext with access to shared resources.
-    fn build_tool_context(
+    async fn build_tool_context(
         &self,
         progress_tx: Option<mpsc::UnboundedSender<yode_tools::tool::ToolProgress>>,
     ) -> ToolContext {
+        let cwd = self.context.runtime.lock().await.cwd.clone();
+        
         ToolContext {
             registry: Some(Arc::clone(&self.tools)),
             tasks: Some(Arc::clone(&self.task_store)),
             user_input_tx: self.ask_user_tx.clone(),
             user_input_rx: self.ask_user_rx.clone(),
             progress_tx,
-            working_dir: Some(self.context.working_dir.clone()),
+            working_dir: Some(cwd),
             sub_agent_runner: None,
             mcp_resources: None,
             cron_manager: None,
@@ -652,6 +678,7 @@ impl AgentEngine {
         self.tool_call_count = 0;
         self.recent_tool_calls.clear();
         self.consecutive_failures = 0;
+        self.total_tool_results_bytes = 0;
         self.files_read.clear();
         self.files_modified.clear();
 
@@ -742,8 +769,10 @@ impl AgentEngine {
 
                 // Process parallel results
                 for (tc, result) in &parallel_results {
-                    self.track_file_access(&tc.name, result);
-                    let mut result = truncate_tool_result(result.clone());
+                    let mut result = result.clone();
+                    self.track_file_access(&tc.name, &result);
+                    result = truncate_tool_result(result);
+                    self.enforce_tool_budget(&mut result);
 
                     self.inject_intelligence(&mut result, &tc.name, &tc.arguments);
 
@@ -759,12 +788,13 @@ impl AgentEngine {
 
                 // Execute sequential tools one by one
                 for tool_call in &sequential {
-                    let result = self
+                    let mut result = self
                         .handle_tool_call(tool_call, &event_tx, &mut confirm_rx)
                         .await?;
 
                     self.track_file_access(&tool_call.name, &result);
-                    let mut result = truncate_tool_result(result);
+                    result = truncate_tool_result(result);
+                    self.enforce_tool_budget(&mut result);
 
                     self.inject_intelligence(&mut result, &tool_call.name, &tool_call.arguments);
 
@@ -810,6 +840,7 @@ impl AgentEngine {
         self.tool_call_count = 0;
         self.recent_tool_calls.clear();
         self.consecutive_failures = 0;
+        self.total_tool_results_bytes = 0;
         self.files_read.clear();
         self.files_modified.clear();
 
@@ -1166,8 +1197,10 @@ impl AgentEngine {
                     let parallel_results = self.execute_tools_parallel(&parallel, &event_tx).await;
 
                     for (tc, result) in parallel_results {
+                        let mut result = result;
                         self.track_file_access(&tc.name, &result);
-                        let mut result = truncate_tool_result(result);
+                        result = truncate_tool_result(result);
+                        self.enforce_tool_budget(&mut result);
 
                         self.tool_call_count += 1;
                         if self.tool_call_count == TOOL_BUDGET_WARNING {
@@ -1229,9 +1262,19 @@ impl AgentEngine {
                 }
 
                 // Clean tags from final message before history/persistence
-                if let Some(ref content) = resp.message.content {
+                let content_for_analysis = resp.message.content.clone();
+                if let Some(content) = content_for_analysis {
                     if content.contains("[tool_use") || content.contains("[DUMMY_TOOL") {
-                        resp.message.content = Some(self.clean_assistant_response(content));
+                        resp.message.content = Some(self.clean_assistant_response(&content));
+                    }
+                    
+                    // --- RECOVERY: Check for leaked tool calls in text if none in metadata ---
+                    if resp.message.tool_calls.is_empty() {
+                        let recovered = self.recover_leaked_tool_calls(&content);
+                        if !recovered.is_empty() {
+                            info!("Recovered {} leaked tool calls from text", recovered.len());
+                            resp.message.tool_calls = recovered;
+                        }
                     }
                 }
 
@@ -1392,19 +1435,53 @@ impl AgentEngine {
             .context("LLM chat request failed")
     }
 
-    /// Inject intelligence into tool results based on accumulated state.
-    /// This is the core "thinking aid" — it gives the LLM the right context at the right time.
     fn inject_intelligence(&mut self, result: &mut ToolResult, tool_name: &str, tool_args: &str) {
         self.tool_call_count += 1;
 
-        // Track consecutive failures
+        // --- PR-1: Recovery FSM Logic ---
         if result.is_error {
             self.consecutive_failures += 1;
+            
+            if let Some(err_type) = &result.error_type {
+                let err_type_val = *err_type;
+                let count = self.error_buckets.entry(err_type_val).or_insert(0);
+                *count += 1;
+
+                let current_sig = format!("{}:{}", tool_name, tool_args);
+                let is_exact_retry = self.last_failed_signature.as_ref() == Some(&current_sig);
+                self.last_failed_signature = Some(current_sig);
+
+                // Strategy Enforcement based on bucket count
+                match (err_type_val, *count) {
+                    (ToolErrorType::NotFound, c) if c >= 2 => {
+                        result.content.push_str("\n\n[CRITICAL STRATEGY CHANGE: You have failed to find paths multiple times. STOP assuming paths. You MUST run `ls` on the parent directory or use `glob` to re-anchor your workspace understanding before trying this path again.]");
+                    }
+                    (ToolErrorType::Validation, c) if c >= 2 || is_exact_retry => {
+                        result.content.push_str("\n\n[CRITICAL STRATEGY CHANGE: Your tool parameters are repeatedly invalid. Read the tool definition carefully and check for typos in file names or JSON structure. Do NOT repeat the same parameters.]");
+                    }
+                    (ToolErrorType::Timeout, c) if c >= 2 => {
+                        result.content.push_str("\n\n[CRITICAL STRATEGY CHANGE: Operations are timing out. The scope is too large. Break your task into much smaller steps or use more specific search patterns.]");
+                    }
+                    _ => {
+                        // For first failure, provide a gentle hint if not already present
+                        if result.suggestion.is_none() && *count == 1 {
+                            let hint = match err_type_val {
+                                ToolErrorType::NotFound => "Hint: Use `glob` or `ls` to verify the path exists.",
+                                ToolErrorType::Validation => "Hint: Check the required parameters and types in the tool schema.",
+                                _ => "Hint: Try a different approach or tool.",
+                            };
+                            result.content.push_str(&format!("\n\n{}", hint));
+                        }
+                    }
+                }
+            }
         } else {
             self.consecutive_failures = 0;
+            self.error_buckets.clear(); // Reset on success
+            self.last_failed_signature = None;
         }
 
-        // === State tracking: remember what files we've seen/changed ===
+        // === Existing State tracking ===
 
         // Extract file_path from tool arguments if present
         let file_path = serde_json::from_str::<serde_json::Value>(tool_args)
@@ -1591,7 +1668,7 @@ impl AgentEngine {
                 }
             });
 
-            let ctx = self.build_tool_context(Some(p_tx));
+            let ctx = self.build_tool_context(Some(p_tx)).await;
             let tool_name = tc.name.clone();
             let tc_clone = tc.clone();
 
@@ -1627,7 +1704,22 @@ impl AgentEngine {
         if result.is_error {
             return;
         }
+
+        // --- PR-2: Dynamic CWD Synchronization ---
         if let Some(ref metadata) = result.metadata {
+            if let Some(new_cwd) = metadata.get("cwd").and_then(|v| v.as_str()) {
+                let runtime = self.context.runtime.clone();
+                let new_path = std::path::PathBuf::from(new_cwd);
+                tokio::spawn(async move {
+                    let mut rt = runtime.lock().await;
+                    if rt.cwd != new_path {
+                        debug!("Syncing session CWD to: {}", new_path.display());
+                        rt.cwd = new_path.clone();
+                        rt.last_success_cwd = new_path;
+                    }
+                });
+            }
+
             if let Some(file_path) = metadata.get("file_path").and_then(|v| v.as_str()) {
                 match tool_name {
                     "read_file" => {
@@ -1649,7 +1741,78 @@ impl AgentEngine {
         re.replace_all(text, "").to_string()
     }
 
-    /// Handle a single tool call, including permission checks, dedup detection, and timing.
+    /// Attempts to recover tool calls leaked into the text response.
+    /// This happens with some providers like DashScope/Aliyun.
+    fn recover_leaked_tool_calls(&self, text: &str) -> Vec<ToolCall> {
+        let mut recovered = Vec::new();
+        
+        // Pattern 1: Look for [tool_use id=... name=...] { ... }
+        let tag_re = Regex::new(r"(?s)\[tool_use\s+id=([^\s\]>]+)\s+name=([^\s\]>]+)[\]>]\s*(\{.*?\})").unwrap();
+        for cap in tag_re.captures_iter(text) {
+            recovered.push(ToolCall {
+                id: cap[1].to_string(),
+                name: cap[2].to_string(),
+                arguments: cap[3].to_string(),
+            });
+        }
+
+        // Pattern 2: Look for raw JSON blocks that look like tool params if we found NO other tool calls
+        if recovered.is_empty() {
+            // Regex to match a basic JSON object starting with { and containing key tool-like fields
+            let json_re = Regex::new(r#"(?s)\{\s*"(?:command|file_path|pattern|query)"\s*:.*?\}"#).unwrap();
+            for (i, m) in json_re.find_iter(text).enumerate() {
+                let json_str = m.as_str();
+                // Heuristically determine tool name based on keys
+                let name = if json_str.contains("\"command\"") { "bash" }
+                    else if json_str.contains("\"file_path\"") && json_str.contains("\"old_string\"") { "edit_file" }
+                    else if json_str.contains("\"file_path\"") { "read_file" }
+                    else if json_str.contains("\"pattern\"") { "glob" }
+                    else { "unknown" };
+                
+                if name != "unknown" {
+                    recovered.push(ToolCall {
+                        id: format!("recovered_{}", i),
+                        name: name.to_string(),
+                        arguments: json_str.to_string(),
+                    });
+                }
+            }
+        }
+
+        recovered
+    }
+
+    /// Enforces per-turn aggregate tool result size limits.
+    fn enforce_tool_budget(&mut self, result: &mut ToolResult) {
+        let size = result.content.len();
+        self.total_tool_results_bytes += size;
+
+        if self.total_tool_results_bytes > MAX_TOTAL_TOOL_RESULTS_SIZE {
+            let over_limit = self.total_tool_results_bytes - MAX_TOTAL_TOOL_RESULTS_SIZE;
+            if size > over_limit {
+                // This result pushed us over the limit. Truncate it heavily.
+                let allowed = size.saturating_sub(over_limit);
+                let preview_len = allowed.min(1000); // Give at least some preview
+                let preview: String = result.content.chars().take(preview_len).collect();
+                
+                result.content = format!(
+                    "{}\n\n[AGGREGATE BUDGET EXCEEDED: Remaining {} bytes of this result omitted. \
+                     STOP requesting large outputs in this turn to avoid context overflow.]",
+                    preview,
+                    size - preview_len
+                );
+            } else {
+                // We were already over the limit
+                result.content = format!(
+                    "[AGGREGATE BUDGET EXCEEDED: Full result ({} bytes) omitted to prevent context overflow. \
+                     Summarize your current findings instead.]",
+                    size
+                );
+            }
+        }
+    }
+
+    /// Handle a single tool call...
     async fn handle_tool_call(
         &mut self,
         tool_call: &ToolCall,
@@ -1679,6 +1842,27 @@ impl AgentEngine {
                 true,
                 Some(format!("Fix the parameters and retry. Schema: {}", schema)),
             ));
+        }
+
+        // --- PR-3: Deep Path Security Validation ---
+        if let Some(file_path) = params.get("file_path").and_then(|v| v.as_str()) {
+            let mut reason = None;
+            if file_path.contains("..") {
+                reason = Some("Path traversal (..) is strictly forbidden for security reasons.");
+            } else if file_path.contains('$') || file_path.contains('%') {
+                reason = Some("Unexpanded shell variables ($VAR, %VAR%) are not allowed in paths. Use absolute or relative literal paths.");
+            } else if file_path.starts_with('~') {
+                reason = Some("Tilde (~) is not expanded. Use the full absolute path or a path relative to the current working directory.");
+            }
+
+            if let Some(r) = reason {
+                return Ok(ToolResult::error_typed(
+                    format!("Security Block: '{}' is an invalid path. {}", file_path, r),
+                    ToolErrorType::Validation,
+                    true,
+                    Some("Correct the path to a literal, normalized format and try again.".to_string()),
+                ));
+            }
         }
 
         // Check permissions (with content matching for bash commands)
@@ -1833,8 +2017,9 @@ impl AgentEngine {
             let hook_ctx = HookContext {
                 event: "pre_tool_use".into(),
                 session_id: self.context.session_id.clone(),
-                working_dir: self.context.working_dir.display().to_string(),
+                working_dir: self.context.working_dir_compat().display().to_string(),
                 tool_name: Some(tool_call.name.clone()),
+
                 tool_input: Some(serde_json::from_str(&tool_call.arguments).unwrap_or_default()),
                 tool_output: None,
                 error: None,
@@ -1864,7 +2049,30 @@ impl AgentEngine {
             }
         });
 
-        let ctx = self.build_tool_context(Some(p_tx));
+        let ctx = self.build_tool_context(Some(p_tx)).await;
+
+        // Pre-tool-use hook
+        if let Some(ref hook_mgr) = self.hook_manager {
+            let hook_ctx = HookContext {
+                event: "pre_tool_use".into(),
+                session_id: self.context.session_id.clone(),
+                working_dir: ctx.working_dir.as_ref().map(|p| p.display().to_string()).unwrap_or_default(),
+                tool_name: Some(tool_call.name.clone()),
+                tool_input: Some(serde_json::from_str(&tool_call.arguments).unwrap_or_default()),
+                tool_output: None,
+                error: None,
+                user_prompt: None,
+            };
+            if let Some(blocked) = hook_mgr.check_blocked(HookEvent::PreToolUse, &hook_ctx).await {
+                return Ok(ToolResult::error_typed(
+                    format!("Blocked by hook: {}", blocked.reason.unwrap_or_default()),
+                    ToolErrorType::PermissionDeny,
+                    false,
+                    None,
+                ));
+            }
+        }
+
         let mut result = match tool.execute(params, &ctx).await {
             Ok(result) => result,
             Err(e) => {
@@ -1876,6 +2084,7 @@ impl AgentEngine {
         debug!(tool = %tool_call.name, elapsed_ms = elapsed.as_millis() as u64, "Tool execution completed");
 
         self.track_file_access(&tool_call.name, &result);
+        self.enforce_tool_budget(&mut result);
 
         // Append recovery suggestion to content so LLM can see it
         if result.is_error {

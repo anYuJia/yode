@@ -116,7 +116,7 @@ impl ToolContext {
 }
 
 /// Tool execution result
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolResult {
     pub content: String,
     pub is_error: bool,
@@ -126,9 +126,10 @@ pub struct ToolResult {
     pub metadata: Option<Value>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum ToolErrorType {
     Validation,
+    Protocol,
     NotFound,
     PermissionDeny,
     Permission,

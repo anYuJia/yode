@@ -43,9 +43,8 @@ use crate::app::input::InputState;
 // ── Content Filtering ───────────────────────────────────────────────
 
 static TAG_RE: LazyLock<Regex> = LazyLock::new(|| {
-    // Aggressive catch-all for anything looking like tool usage: [tool_use ... { ... }] or similar variations.
-    // Handles malformed JSON, extra quotes, colons, or different bracket types used by DashScope.
-    Regex::new(r"(?s)\[DUMMY_TOOL_RESULT\]|\[tool_use\s+[^\]>]+[\]>](?:\s*[:]\s*)?\{.*?\}[\s\]>]*|\[tool_result\s+[^\]>]+[\]>](?:\s*[:]\s*)?\{.*?\}[\s\]>]*|\[tool_(?:use|result)\s+[^\]>]+[\]>]").unwrap()
+    // Catch everything from standard tags to malformed snippets and partial results
+    Regex::new(r"(?s)\[DUMMY_TOOL_RESULT\]?|\[tool_use\s+[^\]>]+[\]>](?:\s*[:]\s*)?\{.*?\}[\s\]>]*|\[tool_result\s+[^\]>]+[\]>](?:\s*[:]\s*)?\{.*?\}[\s\]>]*|\[tool_(?:use|result)\s+[^\]>]+[\]>]?").unwrap()
 });
 
 /// Strips internal protocol tags from assistant text output.
@@ -475,7 +474,7 @@ impl App {
     }
 
     pub fn thinking_elapsed_str(&self) -> String {
-        let d = self.thinking.started_at.map(|s| s.elapsed()).unwrap_or_default();
+        let d = self.turn_started_at.map(|s| s.elapsed()).unwrap_or_default();
         format_duration(d)
     }
 
@@ -532,7 +531,7 @@ pub async fn run(
     stdout.execute(EnableBracketedPaste)?;
     // Add blank line to separate from cargo build output
     stdout.execute(crossterm::style::Print("\n"))?;
-    let working_dir = context.working_dir.display().to_string();
+    let working_dir = context.working_dir_compat().display().to_string();
     let is_resumed = context.is_resumed;
     let provider_name = context.provider.clone();
     let provider_models = all_provider_models.get(&provider_name).cloned().unwrap_or_default();
@@ -1575,8 +1574,7 @@ fn handle_engine_event(
 ) {
     match event {
         EngineEvent::Thinking => {
-            // Turn status and token estimates are now initialized synchronously
-            // in try_process_next to prevent UI lag. This event is a no-op.
+            // Handled synchronously in try_process_next
         }
         EngineEvent::UsageUpdate(usage) => {
             if usage.prompt_tokens > 0 {
@@ -1601,60 +1599,39 @@ fn handle_engine_event(
             // 1. Combine with any partial tags
             app.streaming_tag_buf.push_str(&delta);
             
-            // 2. Heuristic Check: Are we currently inside a tag?
-            // Aggressively trigger on anything looking like a tool usage protocol.
-            let triggers = ["[tool_use", "[tool_result", "[DUMMY_TOOL", "tool_use id=", "name=bash"];
-            
-            loop {
-                let current = app.streaming_tag_buf.clone();
-                let mut found_trigger = false;
-                let mut trigger_pos = 0;
-
+            // 2. Heuristic Check: Only buffer if it REALLY looks like an incomplete tag
+            // If the buffer is getting too long, it's definitely not a tag protocol.
+            if app.streaming_tag_buf.len() > 500 {
+                app.streaming_buf.push_str(&std::mem::take(&mut app.streaming_tag_buf));
+            } else {
+                let triggers = ["[tool_use", "[tool_result", "[DUMMY_TOOL", "name=bash"];
+                let mut has_trigger = false;
                 for &t in &triggers {
-                    if let Some(pos) = current.find(t) {
-                        if !found_trigger || pos < trigger_pos {
-                            found_trigger = true;
-                            trigger_pos = pos;
+                    if let Some(pos) = app.streaming_tag_buf.find(t) {
+                        // If we have a trigger, check if there's a complete tag
+                        if let Some(m) = TAG_RE.find(&app.streaming_tag_buf) {
+                            let end = m.end();
+                            // Found a complete tag! Strip it and keep searching the rest.
+                            let _tag_content = app.streaming_tag_buf[..end].to_string();
+                            app.streaming_tag_buf = app.streaming_tag_buf[end..].to_string();
+                            // Recursively call or just allow next chunks to handle it.
+                            // For simplicity, we just stop buffering and release what's left.
+                        } else {
+                            // Trigger found but NO complete tag.
+                            // CRITICAL: Only stay in buffer if the trigger is near the end or followed by JSON-like chars.
+                            let after_trigger = &app.streaming_tag_buf[pos + t.len()..];
+                            if after_trigger.trim().is_empty() || after_trigger.contains('{') || after_trigger.contains('i') {
+                                // Potential incomplete tag — wait.
+                                has_trigger = true;
+                                break;
+                            }
                         }
                     }
                 }
 
-                if found_trigger {
-                    // We found a tag start. Move everything before it to the streaming buffer.
-                    if trigger_pos > 0 {
-                        app.streaming_buf.push_str(&current[..trigger_pos]);
-                        app.streaming_tag_buf = current[trigger_pos..].to_string();
-                    }
-                    
-                    // Now try to see if the tag is complete in the buffer
-                    if let Some(m) = TAG_RE.find(&app.streaming_tag_buf) {
-                        // Complete tag found! Remove it and continue searching the rest of the buffer.
-                        let tag_len = m.end();
-                        app.streaming_tag_buf = app.streaming_tag_buf[tag_len..].to_string();
-                        // Continue loop to check for more tags in the remaining buffer
-                        continue;
-                    } else {
-                        // Tag is incomplete — STOP processing and wait for more deltas
-                        return;
-                    }
-                } else {
-                    // No triggers found. BUT the buffer might end with a partial trigger (e.g. "[tool_")
-                    // We check if the last few characters could be the start of a trigger.
-                    let last_bracket = current.rfind('[');
-                    if let Some(pos) = last_bracket {
-                        let potential = &current[pos..];
-                        if triggers.iter().any(|&t| t.starts_with(potential)) {
-                            // Possible partial trigger at the end — wait.
-                            app.streaming_buf.push_str(&current[..pos]);
-                            app.streaming_tag_buf = potential.to_string();
-                            break;
-                        }
-                    }
-                    
-                    // Safe to release the whole buffer
-                    app.streaming_buf.push_str(&current);
-                    app.streaming_tag_buf.clear();
-                    break;
+                if !has_trigger {
+                    // No active incomplete tag — release the buffer
+                    app.streaming_buf.push_str(&std::mem::take(&mut app.streaming_tag_buf));
                 }
             }
 
@@ -1662,7 +1639,7 @@ fn handle_engine_event(
                 return;
             }
 
-            // --- Existing Thinking Tag Logic ---
+            // --- Thinking Tag Extraction ---
             let s_content = std::mem::take(&mut app.streaming_buf);
             let mut s = s_content.as_str();
 

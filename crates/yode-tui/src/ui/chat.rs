@@ -57,7 +57,14 @@ pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
                 let result_entry = entries[i + 1..].iter().find(|e| {
                     matches!(&e.role, ChatRole::ToolResult { id: eid, .. } if eid == id)
                 });
-                render_tool_call(&mut lines, name, &entry.content, result_entry);
+                render_tool_call(
+                    &mut lines,
+                    name,
+                    &entry.content,
+                    result_entry,
+                    entry.progress.as_ref(),
+                    entry.timestamp,
+                );
             }
             ChatRole::ToolResult { id, .. } => {
                 // Already rendered as part of ToolCall above — skip standalone
@@ -181,35 +188,69 @@ pub fn render_assistant(lines: &mut Vec<Line<'static>>, entry: &ChatEntry) {
 }
 
 // ── Tool Call + Result (combined) ───────────────────────────────────
-// Claude Code style: ⏺ ToolName(description) then ⎿ result
+// Claude Code style: ⏺ ToolName(summary) [duration] then ⎿ result
 pub fn render_tool_call(
     lines: &mut Vec<Line<'static>>,
     name: &str,
     args_json: &str,
     result: Option<&ChatEntry>,
+    progress: Option<&yode_tools::tool::ToolProgress>,
+    timestamp: std::time::Instant,
 ) {
     let args: serde_json::Value = serde_json::from_str(args_json).unwrap_or_default();
     let is_error = result.map_or(false, |r| matches!(r.role, ChatRole::ToolResult { is_error, .. } if is_error));
     let result_content = result.map(|r| r.content.as_str()).unwrap_or("");
+    let duration = result.and_then(|r| r.duration);
 
     // ⏺ ToolName(summary)
     let summary = tool_summary(name, &args);
     let tool_display = capitalize_tool(name);
 
-    lines.push(Line::from(vec![
+    let mut title_spans = vec![
         Span::styled("⏺ ", Style::default().fg(ACCENT)),
         Span::styled(
             format!("{}(", tool_display),
             Style::default().fg(WHITE).add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            truncate_str(&summary, 80),
+            truncate_str(&summary, 60),
             Style::default().fg(DIM),
         ),
         Span::styled(")", Style::default().fg(WHITE).add_modifier(Modifier::BOLD)),
-    ]));
+    ];
 
-    // Tool-specific content rendering
+    // Add duration if available, or current elapsed time if still running
+    if let Some(d) = duration {
+        title_spans.push(Span::styled(
+            format!(" [{:.1}s]", d.as_secs_f32()),
+            Style::default().fg(DIM),
+        ));
+    } else if result.is_none() {
+        let elapsed = timestamp.elapsed();
+        title_spans.push(Span::styled(
+            format!(" [{:.1}s]", elapsed.as_secs_f32()),
+            Style::default().fg(YELLOW).add_modifier(Modifier::ITALIC),
+        ));
+    }
+
+    lines.push(Line::from(title_spans));
+
+    // Render progress if active
+    if let Some(p) = progress {
+        let mut progress_spans = vec![
+            Span::styled("  │ ", Style::default().fg(YELLOW)),
+            Span::styled(p.message.clone(), Style::default().fg(YELLOW).add_modifier(Modifier::ITALIC)),
+        ];
+        if let Some(pct) = p.percent {
+            progress_spans.push(Span::styled(
+                format!(" {}%", pct),
+                Style::default().fg(YELLOW).add_modifier(Modifier::BOLD),
+            ));
+        }
+        lines.push(Line::from(progress_spans));
+    }
+
+    // Tool-specific content rendering (if multiline or special)
     match name {
         "bash" => render_bash_content(lines, &args, result_content, is_error),
         "write_file" => render_write_content(lines, &args, is_error),
