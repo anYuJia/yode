@@ -14,7 +14,7 @@ use yode_llm::types::{
 };
 use yode_tools::registry::ToolRegistry;
 use yode_tools::state::TaskStore;
-use yode_tools::tool::{SubAgentRunner, ToolContext, ToolErrorType, ToolResult, UserQuery};
+use yode_tools::tool::{SubAgentRunner, ToolContext, ToolErrorType, ToolResult, UserQuery, SubAgentOptions};
 use yode_tools::validation;
 
 use crate::context::{AgentContext, EffortLevel};
@@ -623,6 +623,7 @@ impl AgentEngine {
             cron_manager: None,
             lsp_manager: None,
             worktree_state: None,
+            read_file_history: Some(Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new()))),
             plan_mode: Some(Arc::clone(&self.plan_mode)),
         }
     }
@@ -2790,8 +2791,11 @@ impl SubAgentRunner for SubAgentRunnerImpl {
     fn run_sub_agent(
         &self,
         prompt: String,
-        allowed_tools: Vec<String>,
+        options: SubAgentOptions,
     ) -> Pin<Box<dyn std::future::Future<Output = Result<String>> + Send + '_>> {
+        let allowed_tools = options.allowed_tools.clone();
+        let subagent_model = options.model.clone();
+        
         Box::pin(async move {
             // Create a filtered tool registry for the sub-agent
             let mut sub_registry = ToolRegistry::new();
@@ -2813,27 +2817,43 @@ impl SubAgentRunner for SubAgentRunnerImpl {
             // Create a permissive permission manager for sub-agents
             let permissions = PermissionManager::permissive(); // auto-allow all
 
+            // Model override for sub-agent
+            let mut sub_context = self.context.clone();
+            if let Some(m) = subagent_model {
+                sub_context.model = m;
+            }
+
             // Create sub-agent engine
             let mut engine = AgentEngine::new(
                 Arc::clone(&self.provider),
                 sub_registry,
                 permissions,
-                self.context.clone(),
+                sub_context,
             );
 
             // Run non-streaming turn
-            let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+            let (event_tx, mut _event_rx) = mpsc::unbounded_channel::<EngineEvent>();
             let (_confirm_tx, confirm_rx) = mpsc::unbounded_channel();
 
-            engine.run_turn(&prompt, event_tx, confirm_rx).await?;
+            // Handle description in system prompt or similar if needed
+            let turn_prompt = format!("[Sub-task: {}]\n\n{}", options.description, prompt);
 
-            // Collect final text from events
+            let (result_tx, mut result_rx) = mpsc::unbounded_channel();
+            
+            // Note: We currently don't have a clean way to get the final text from run_turn
+            // easily without streaming, but we can capture the TextComplete event.
+            let engine_handle = tokio::spawn(async move {
+                engine.run_turn(&turn_prompt, result_tx, confirm_rx).await
+            });
+
             let mut result_text = String::new();
-            while let Ok(event) = event_rx.try_recv() {
+            while let Some(event) = result_rx.recv().await {
                 if let EngineEvent::TextComplete(text) = event {
                     result_text = text;
                 }
             }
+
+            engine_handle.await??;
 
             if result_text.is_empty() {
                 result_text = "Sub-agent completed without text output.".to_string();
