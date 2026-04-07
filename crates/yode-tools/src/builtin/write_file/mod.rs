@@ -56,7 +56,7 @@ Usage:
         true
     }
 
-    async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<ToolResult> {
+    async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
         let file_path = params
             .get("file_path")
             .and_then(|v| v.as_str())
@@ -67,9 +67,24 @@ Usage:
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing required parameter: content"))?;
 
-        tracing::debug!(file_path = %file_path, "Writing file");
-
         let path = std::path::Path::new(file_path);
+
+        // --- Mandatory Pre-read Check for Existing Files ---
+        if path.exists() {
+            if let Some(history) = &ctx.read_file_history {
+                let h = history.lock().await;
+                if !h.contains(&std::path::PathBuf::from(file_path)) {
+                    return Ok(ToolResult::error_typed(
+                        format!("File '{}' exists but has not been read yet. You must use 'read_file' before overwriting an existing file.", file_path),
+                        crate::tool::ToolErrorType::Validation,
+                        true,
+                        Some(format!("Call read_file(file_path=\"{}\") first.", file_path)),
+                    ));
+                }
+            }
+        }
+
+        tracing::debug!(file_path = %file_path, "Writing file");
 
         // Create parent directories if they don't exist
         if let Some(parent) = path.parent() {

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
@@ -13,48 +13,50 @@ impl Tool for NotebookEditTool {
     }
 
     fn user_facing_name(&self) -> &str {
-        "Notebook Edit"
+        "" 
     }
 
     fn activity_description(&self, params: &Value) -> String {
         let path = params.get("notebook_path").and_then(|v| v.as_str()).unwrap_or("");
         let mode = params.get("edit_mode").and_then(|v| v.as_str()).unwrap_or("edit");
-        format!("Jupyter {}: {}", mode, path)
+        format!("Editing notebook {}: {}", mode, path)
     }
 
     fn description(&self) -> &str {
-        "Edit a Jupyter notebook (.ipynb) cell. Supports replacing, inserting, or deleting cells."
+        "Completely replaces the contents of a specific cell in a Jupyter notebook (.ipynb file) with new source. \
+         The notebook_path parameter must be an absolute path. The cell_id can be an actual cell ID or a numeric index (e.g. 'cell-0'). \
+         Use edit_mode=insert to add a new cell, or edit_mode=delete to remove one."
     }
 
     fn parameters_schema(&self) -> Value {
-        serde_json::json!({
+        json!({
             "type": "object",
             "properties": {
                 "notebook_path": {
                     "type": "string",
-                    "description": "Absolute path to the .ipynb file"
+                    "description": "The absolute path to the Jupyter notebook file to edit"
                 },
-                "cell_number": {
-                    "type": "integer",
-                    "description": "0-based cell index to operate on"
+                "cell_id": {
+                    "type": "string",
+                    "description": "The ID of the cell to edit (e.g. 'cell-0', 'cell-1' or a UUID). Required unless inserting at the start."
+                },
+                "new_source": {
+                    "type": "string",
+                    "description": "The new source for the cell"
+                },
+                "cell_type": {
+                    "type": "string",
+                    "enum": ["code", "markdown"],
+                    "description": "The type of the cell (code or markdown). Required for insert mode."
                 },
                 "edit_mode": {
                     "type": "string",
                     "enum": ["replace", "insert", "delete"],
                     "default": "replace",
-                    "description": "replace: overwrite cell, insert: add new cell at index, delete: remove cell"
-                },
-                "cell_type": {
-                    "type": "string",
-                    "enum": ["code", "markdown"],
-                    "description": "Cell type. Required for insert mode."
-                },
-                "new_source": {
-                    "type": "string",
-                    "description": "New cell content. Required for replace/insert."
+                    "description": "The type of edit to make (replace, insert, delete). Defaults to replace."
                 }
             },
-            "required": ["notebook_path", "cell_number", "new_source"]
+            "required": ["notebook_path", "new_source"]
         })
     }
 
@@ -66,113 +68,101 @@ impl Tool for NotebookEditTool {
         }
     }
 
-    async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<ToolResult> {
-        let path = params.get("notebook_path").and_then(|v| v.as_str()).unwrap_or("");
-        let cell_number = params.get("cell_number").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-        let edit_mode = params.get("edit_mode").and_then(|v| v.as_str()).unwrap_or("replace");
-        let cell_type = params.get("cell_type").and_then(|v| v.as_str()).unwrap_or("code");
-        let new_source = params.get("new_source").and_then(|v| v.as_str()).unwrap_or("");
+    async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
+        let notebook_path = params
+            .get("notebook_path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("'notebook_path' is required"))?;
 
-        if path.is_empty() {
-            return Ok(ToolResult::error("notebook_path is required".to_string()));
+        // --- Mandatory Pre-read Check ---
+        if let Some(history) = &ctx.read_file_history {
+            let h = history.lock().await;
+            if !h.contains(&std::path::PathBuf::from(notebook_path)) {
+                return Ok(ToolResult::error_typed(
+                    format!("Notebook '{}' has not been read yet. Read it first before editing.", notebook_path),
+                    crate::tool::ToolErrorType::Validation,
+                    true,
+                    Some(format!("Call read_file(file_path=\"{}\") first.", notebook_path)),
+                ));
+            }
         }
 
-        // Read notebook
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| anyhow::anyhow!("Failed to read notebook: {}", e))?;
-        let mut notebook: Value = serde_json::from_str(&content)
-            .map_err(|e| anyhow::anyhow!("Failed to parse notebook JSON: {}", e))?;
+        let edit_mode = params.get("edit_mode").and_then(|v| v.as_str()).unwrap_or("replace");
+        let cell_id = params.get("cell_id").and_then(|v| v.as_str());
+        let new_source = params.get("new_source").and_then(|v| v.as_str()).unwrap_or("");
+        let cell_type = params.get("cell_type").and_then(|v| v.as_str());
+
+        // Read and parse
+        let content = std::fs::read_to_string(notebook_path)?;
+        let mut notebook: Value = serde_json::from_str(&content)?;
 
         let cells = notebook
             .get_mut("cells")
             .and_then(|v| v.as_array_mut())
             .ok_or_else(|| anyhow::anyhow!("Notebook has no 'cells' array"))?;
 
+        // Resolve cell index from cell_id
+        let cell_index = match cell_id {
+            Some(id) if id.starts_with("cell-") => {
+                id.strip_prefix("cell-")
+                    .and_then(|s| s.parse::<usize>().ok())
+                    .unwrap_or(0)
+            }
+            Some(id) => {
+                cells.iter().position(|c| c.get("id").and_then(|v| v.as_str()) == Some(id)).unwrap_or(0)
+            }
+            None => 0,
+        };
+
         match edit_mode {
             "replace" => {
-                if cell_number >= cells.len() {
-                    return Ok(ToolResult::error(format!(
-                        "Cell {} does not exist (notebook has {} cells)",
-                        cell_number,
-                        cells.len()
-                    )));
+                if cell_index >= cells.len() {
+                    return Ok(ToolResult::error(format!("Cell index {} out of range.", cell_index)));
                 }
-                // Split source into lines for ipynb format
-                let source_lines = source_to_lines(new_source);
-                cells[cell_number]["source"] = source_lines;
-                if !cell_type.is_empty() {
-                    cells[cell_number]["cell_type"] = Value::String(cell_type.to_string());
+                let cell = &mut cells[cell_index];
+                cell["source"] = source_to_lines(new_source);
+                if let Some(ct) = cell_type {
+                    cell["cell_type"] = json!(ct);
+                }
+                if cell["cell_type"] == "code" {
+                    cell["outputs"] = json!([]);
+                    cell["execution_count"] = json!(null);
                 }
             }
             "insert" => {
-                if cell_number > cells.len() {
-                    return Ok(ToolResult::error(format!(
-                        "Insert position {} is out of range (notebook has {} cells)",
-                        cell_number,
-                        cells.len()
-                    )));
-                }
-                let source_lines = source_to_lines(new_source);
-                let new_cell = serde_json::json!({
-                    "cell_type": cell_type,
+                let ct = cell_type.unwrap_or("code");
+                let mut new_cell = json!({
+                    "cell_type": ct,
                     "metadata": {},
-                    "source": source_lines,
-                    "outputs": if cell_type == "code" { Value::Array(vec![]) } else { Value::Null }
+                    "source": source_to_lines(new_source),
                 });
-                // Remove null outputs for markdown cells
-                let mut new_cell_map = new_cell;
-                if cell_type != "code" {
-                    if let Some(obj) = new_cell_map.as_object_mut() {
-                        obj.remove("outputs");
-                    }
+                if ct == "code" {
+                    new_cell["outputs"] = json!([]);
+                    new_cell["execution_count"] = json!(null);
                 }
-                cells.insert(cell_number, new_cell_map);
+                let insert_pos = if cell_id.is_some() { cell_index + 1 } else { 0 };
+                cells.insert(insert_pos.min(cells.len()), new_cell);
             }
             "delete" => {
-                if cell_number >= cells.len() {
-                    return Ok(ToolResult::error(format!(
-                        "Cell {} does not exist (notebook has {} cells)",
-                        cell_number,
-                        cells.len()
-                    )));
+                if cell_index < cells.len() {
+                    cells.remove(cell_index);
                 }
-                cells.remove(cell_number);
             }
-            _ => {
-                return Ok(ToolResult::error(format!("Unknown edit_mode: '{}'", edit_mode)));
-            }
+            _ => return Ok(ToolResult::error(format!("Unknown edit_mode: {}", edit_mode))),
         }
 
         // Write back
-        let output = serde_json::to_string_pretty(&notebook)?;
-        std::fs::write(path, output)?;
+        let updated_content = serde_json::to_string_pretty(&notebook)?;
+        std::fs::write(notebook_path, &updated_content)?;
 
-        let metadata = serde_json::json!({
-            "notebook_path": path,
-            "edit_mode": edit_mode,
-            "cell_number": cell_number,
-        });
-
-        Ok(ToolResult::success_with_metadata(
-            format!("Notebook {} updated: {} cell at index {}", path, edit_mode, cell_number),
-            metadata
-        ))
+        Ok(ToolResult::success(format!("Notebook {} updated successfully ({}).", notebook_path, edit_mode)))
     }
 }
 
-/// Convert a source string to the ipynb line-array format.
 fn source_to_lines(source: &str) -> Value {
     let lines: Vec<String> = source
-        .split('\n')
-        .enumerate()
-        .map(|(i, line)| {
-            // All lines except the last get a trailing newline
-            if i < source.split('\n').count() - 1 {
-                format!("{}\n", line)
-            } else {
-                line.to_string()
-            }
-        })
+        .lines()
+        .map(|l| format!("{}\n", l))
         .collect();
-    serde_json::json!(lines)
+    json!(lines)
 }

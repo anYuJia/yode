@@ -22,7 +22,7 @@ impl Tool for WebSearchTool {
     }
 
     fn description(&self) -> &str {
-        "Search the web using the Tavily API. Requires TAVILY_API_KEY environment variable."
+        "Search the web for current information. Returns titles, URLs, and snippets of matching pages."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -31,11 +31,17 @@ impl Tool for WebSearchTool {
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Search query"
+                    "description": "The search query to use"
                 },
-                "max_results": {
-                    "type": "integer",
-                    "description": "Maximum number of results to return. Default 5."
+                "allowed_domains": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Only include search results from these domains"
+                },
+                "blocked_domains": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Never include search results from these domains"
                 }
             },
             "required": ["query"]

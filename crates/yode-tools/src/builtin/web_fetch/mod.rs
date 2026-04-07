@@ -22,7 +22,9 @@ impl Tool for WebFetchTool {
     }
 
     fn description(&self) -> &str {
-        "Fetch content from a URL and return it as text. HTML pages are converted to readable text."
+        r#"Fetch content from a URL.
+        
+IMPORTANT: WebFetch WILL FAIL for authenticated or private URLs. Before using this tool, check if the URL points to an authenticated service (e.g. Google Docs, Confluence, Jira, GitHub). If so, look for a specialized MCP tool that provides authenticated access."#
     }
 
     fn parameters_schema(&self) -> Value {
@@ -31,14 +33,14 @@ impl Tool for WebFetchTool {
             "properties": {
                 "url": {
                     "type": "string",
-                    "description": "The URL to fetch"
+                    "description": "The URL to fetch content from"
                 },
-                "max_length": {
-                    "type": "integer",
-                    "description": "Maximum number of characters to return. Default 50000."
+                "prompt": {
+                    "type": "string",
+                    "description": "The prompt to run on the fetched content"
                 }
             },
-            "required": ["url"]
+            "required": ["url", "prompt"]
         })
     }
 

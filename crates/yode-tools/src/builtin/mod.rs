@@ -64,6 +64,9 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     registry.register(Arc::new(web_fetch::WebFetchTool));
     registry.register(Arc::new(web_search::WebSearchTool));
     registry.register(Arc::new(todo::TodoTool));
+    registry.register(Arc::new(todo::TaskCreateTool));
+    registry.register(Arc::new(todo::TaskListTool));
+    registry.register(Arc::new(todo::TaskGetTool));
     registry.register(Arc::new(batch::BatchTool));
     registry.register(Arc::new(ask_user::AskUserTool));
     registry.register(Arc::new(memory::MemoryTool));
@@ -85,9 +88,12 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     registry.register(Arc::new(git_diff::GitDiffTool));
     registry.register(Arc::new(git_log::GitLogTool));
     registry.register(Arc::new(git_status::GitStatusTool));
+    registry.register(Arc::new(common::SendUserMessageTool));
+    registry.register(Arc::new(common::ConfigTool));
 }
 
 /// Register the skill tool with the given skill store.
 pub fn register_skill_tool(registry: &mut ToolRegistry, store: Arc<Mutex<skill::SkillStore>>) {
-    registry.register(Arc::new(skill::SkillTool { store }));
+    registry.register(Arc::new(skill::SkillTool { store: store.clone() }));
+    registry.register(Arc::new(skill::discover::DiscoverSkillsTool { store }));
 }

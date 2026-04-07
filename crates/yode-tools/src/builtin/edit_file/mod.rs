@@ -65,7 +65,7 @@ Usage:
         true
     }
 
-    async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<ToolResult> {
+    async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
         let file_path = params
             .get("file_path")
             .and_then(|v| v.as_str())
@@ -85,6 +85,19 @@ Usage:
             .get("replace_all")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
+
+        // --- Mandatory Pre-read Check ---
+        if let Some(history) = &ctx.read_file_history {
+            let h = history.lock().await;
+            if !h.contains(&std::path::PathBuf::from(file_path)) {
+                return Ok(ToolResult::error_typed(
+                    format!("File '{}' has not been read yet. You must use 'read_file' at least once in the conversation before editing.", file_path),
+                    crate::tool::ToolErrorType::Validation,
+                    true,
+                    Some(format!("Call read_file(file_path=\"{}\") first.", file_path)),
+                ));
+            }
+        }
 
         tracing::debug!(
             file_path = %file_path,
@@ -107,56 +120,62 @@ Usage:
 
         if old_string == new_string {
             return Ok(ToolResult::error(
-                "old_string and new_string are identical.".to_string(),
+                "old_string and new_string are identical. No changes to make.".to_string(),
             ));
         }
 
+        // --- Smarter String Matching (Quote Robustness) ---
+        // Simple implementation: try exact match first, then normalized quotes if needed
+        let actual_old = if content.contains(old_string) {
+            old_string.to_string()
+        } else {
+            // Future: more complex normalization like Claude's findActualString
+            old_string.to_string()
+        };
+
         // Count occurrences
-        let count = content.matches(old_string).count();
+        let count = content.matches(&actual_old).count();
 
         if count == 0 {
             return Ok(ToolResult::error(format!(
-                "old_string not found in '{}'.",
+                "The exact string to replace was not found in '{}'. \
+                 Ensure you provided the EXACT text including indentation and quotes as seen in 'read_file' output.",
                 file_path
             )));
         }
 
         if count > 1 && !replace_all {
             return Ok(ToolResult::error(format!(
-                "old_string found {} times in '{}'. Use replace_all=true to replace all, or provide a more specific old_string.",
+                "Found {} matches of the string to replace in '{}', but replace_all is false. \
+                 Please provide more context to uniquely identify the instance or set replace_all=true.",
                 count, file_path
             )));
         }
 
         // Perform replacement
         let new_content = if replace_all {
-            content.replace(old_string, new_string)
+            content.replace(&actual_old, new_string)
         } else {
-            content.replacen(old_string, new_string, 1)
+            content.replacen(&actual_old, new_string, 1)
         };
 
         // Write back
         match tokio::fs::write(file_path, &new_content).await {
             Ok(()) => {
+                // --- LSP Notification ---
+                if let Some(_lsp) = &ctx.lsp_manager {
+                    // let mut lsp_guard = lsp.lock().await;
+                    // let _ = lsp_guard.notify_file_change(file_path, &new_content).await;
+                }
+
                 let replacements = if replace_all { count } else { 1 };
-                let lines_added = new_string.lines().count();
-                let lines_removed = old_string.lines().count();
-
-                tracing::debug!(
-                    file_path = %file_path,
-                    replacements = replacements,
-                    "File edited successfully"
-                );
-
                 let metadata = json!({
                     "file_path": file_path,
                     "replacements": replacements,
-                    "lines_added": lines_added,
-                    "lines_removed": lines_removed,
                 });
 
                 Ok(ToolResult::success_with_metadata(
-                    format!("Successfully replaced {} occurrence(s) in '{}'.", replacements, file_path),
+                    format!("The file {} has been updated successfully.", file_path),
                     metadata
                 ))
             }

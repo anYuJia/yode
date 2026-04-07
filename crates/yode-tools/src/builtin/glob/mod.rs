@@ -64,11 +64,11 @@ Examples:
             "properties": {
                 "pattern": {
                     "type": "string",
-                    "description": "Glob pattern to match files (e.g. \"**/*.rs\", \"src/**/*.ts\")"
+                    "description": "The glob pattern to match files against"
                 },
                 "path": {
                     "type": "string",
-                    "description": "Directory to search in. Defaults to current working directory."
+                    "description": "The directory to search in. If not specified, the current working directory will be used. Omit this field to use the default directory."
                 }
             },
             "required": ["pattern"]

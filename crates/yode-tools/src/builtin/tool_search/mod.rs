@@ -22,9 +22,7 @@ impl Tool for ToolSearchTool {
     }
 
     fn description(&self) -> &str {
-        "Search for available tools by name or description keyword. \
-         Use this when you need a tool but aren't sure of its exact name. \
-         Returns matching tool names and descriptions."
+        "Search for deferred tools by keyword or select them directly. Use 'select:<tool_name>' to forcefully load a tool."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -33,7 +31,11 @@ impl Tool for ToolSearchTool {
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Search query to match against tool names and descriptions"
+                    "description": "Query to find deferred tools. Use 'select:<tool_name>' for direct selection, or keywords to search."
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of results to return (default: 5)"
                 }
             },
             "required": ["query"]
@@ -54,6 +56,11 @@ impl Tool for ToolSearchTool {
             .and_then(|v| v.as_str())
             .unwrap_or("");
 
+        let max_results = params
+            .get("max_results")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(5) as usize;
+
         if query.is_empty() {
             return Ok(ToolResult::error("'query' parameter is required".to_string()));
         }
@@ -66,23 +73,45 @@ impl Tool for ToolSearchTool {
         let query_lower = query.to_lowercase();
         let mut matches = Vec::new();
 
-        // Search active tools
-        for tool in registry.list() {
-            let name = tool.name().to_lowercase();
-            let desc = tool.description().to_lowercase();
-            if name.contains(&query_lower) || desc.contains(&query_lower) {
-                matches.push(format!("- **{}**: {}", tool.name(), tool.description()));
+        // Handle "select:" prefix
+        if let Some(tool_name) = query_lower.strip_prefix("select:") {
+            let req_name = tool_name.trim();
+            let mut found = false;
+            for tool in registry.list() {
+                if tool.name().to_lowercase() == req_name {
+                    matches.push(format!("- **{}**: {}", tool.name(), tool.description()));
+                    found = true;
+                    break;
+                }
             }
-        }
+            if !found {
+                for (name, tool) in registry.list_deferred() {
+                    if name.to_lowercase() == req_name {
+                        matches.push(format!("- **{}** (deferred): {}", name, tool.description()));
+                        break;
+                    }
+                }
+            }
+        } else {
+            // Keyword search
+            for tool in registry.list() {
+                let name = tool.name().to_lowercase();
+                let desc = tool.description().to_lowercase();
+                if name.contains(&query_lower) || desc.contains(&query_lower) {
+                    matches.push(format!("- **{}**: {}", tool.name(), tool.description()));
+                }
+            }
 
-        // Search deferred tools
-        for (name, tool) in registry.list_deferred() {
-            let name_lower = name.to_lowercase();
-            let desc = tool.description().to_lowercase();
-            if name_lower.contains(&query_lower) || desc.contains(&query_lower) {
-                matches.push(format!("- **{}** (deferred): {}", name, tool.description()));
+            for (name, tool) in registry.list_deferred() {
+                let name_lower = name.to_lowercase();
+                let desc = tool.description().to_lowercase();
+                if name_lower.contains(&query_lower) || desc.contains(&query_lower) {
+                    matches.push(format!("- **{}** (deferred): {}", name, tool.description()));
+                }
             }
         }
+        
+        matches.truncate(max_results);
 
         if matches.is_empty() {
             let metadata = serde_json::json!({ "query": query, "count": 0 });
@@ -93,8 +122,7 @@ impl Tool for ToolSearchTool {
         } else {
             let metadata = serde_json::json!({ "query": query, "count": matches.len() });
             Ok(ToolResult::success_with_metadata(format!(
-                "Found {} tool(s) matching '{}':\n{}",
-                matches.len(),
+                "Found tool(s) matching '{}':\n{}",
                 query,
                 matches.join("\n")
             ), metadata))

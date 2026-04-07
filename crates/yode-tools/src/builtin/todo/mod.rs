@@ -5,6 +5,9 @@ use serde_json::{json, Value};
 use crate::state::TaskStatus;
 use crate::tool::{Tool, ToolContext, ToolResult};
 
+pub mod tasks;
+pub use tasks::{TaskCreateTool, TaskGetTool, TaskListTool};
+
 pub struct TodoTool;
 
 #[async_trait]

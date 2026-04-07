@@ -1,6 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
@@ -14,7 +14,7 @@ impl Tool for EnterPlanModeTool {
     }
 
     fn user_facing_name(&self) -> &str {
-        "Enter Plan Mode"
+        "" // Matches Claude's empty user facing name for this tool
     }
 
     fn activity_description(&self, _params: &Value) -> String {
@@ -22,13 +22,11 @@ impl Tool for EnterPlanModeTool {
     }
 
     fn description(&self) -> &str {
-        "Enter plan mode to design an implementation approach before writing code. \
-         In plan mode, only read-only tools are available. Use this proactively when \
-         about to start a non-trivial implementation task."
+        "Requests permission to enter plan mode for complex tasks requiring exploration and design."
     }
 
     fn parameters_schema(&self) -> Value {
-        serde_json::json!({
+        json!({
             "type": "object",
             "properties": {}
         })
@@ -49,15 +47,22 @@ impl Tool for EnterPlanModeTool {
                 return Ok(ToolResult::error("Already in plan mode.".to_string()));
             }
             *mode = true;
-            Ok(ToolResult::success(
-                "Entered plan mode. Only read-only tools are available. \
-                 Use exit_plan_mode when your plan is ready for approval."
-                    .to_string(),
-            ))
+            
+            let instructions = r#"Entered plan mode. You should now focus on exploring the codebase and designing an implementation approach.
+
+In plan mode, you should:
+1. Thoroughly explore the codebase to understand existing patterns
+2. Identify similar features and architectural approaches
+3. Consider multiple approaches and their trade-offs
+4. Use ask_user if you need to clarify the approach
+5. Design a concrete implementation strategy
+6. When ready, use exit_plan_mode to present your plan for approval
+
+Remember: DO NOT write or edit any files yet. This is a read-only exploration and planning phase."#;
+
+            Ok(ToolResult::success(instructions.to_string()))
         } else {
-            Ok(ToolResult::error(
-                "Plan mode is not supported in this context.".to_string(),
-            ))
+            Ok(ToolResult::error("Plan mode is not supported in this context.".to_string()))
         }
     }
 }
@@ -69,7 +74,7 @@ impl Tool for ExitPlanModeTool {
     }
 
     fn user_facing_name(&self) -> &str {
-        "Exit Plan Mode"
+        ""
     }
 
     fn activity_description(&self, _params: &Value) -> String {
@@ -77,22 +82,41 @@ impl Tool for ExitPlanModeTool {
     }
 
     fn description(&self) -> &str {
-        "Exit plan mode and signal that the plan is ready for user approval. \
-         The plan should have been written to a plan file before calling this."
+        "Prompts the user to exit plan mode and start coding."
     }
 
     fn parameters_schema(&self) -> Value {
-        serde_json::json!({
+        json!({
             "type": "object",
-            "properties": {}
+            "properties": {
+                "allowedPrompts": {
+                    "type": "array",
+                    "description": "Prompt-based permissions needed to implement the plan. These describe categories of actions rather than specific commands.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "tool": {
+                                "type": "string",
+                                "enum": ["bash"],
+                                "description": "The tool this prompt applies to"
+                            },
+                            "prompt": {
+                                "type": "string",
+                                "description": "Semantic description of the action, e.g. 'run tests', 'install dependencies'"
+                            }
+                        },
+                        "required": ["tool", "prompt"]
+                    }
+                }
+            }
         })
     }
 
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities {
-            requires_confirmation: false,
-            supports_auto_execution: true,
-            read_only: true,
+            requires_confirmation: true, // Exiting plan mode requires user approval
+            supports_auto_execution: false,
+            read_only: false,
         }
     }
 
@@ -100,16 +124,17 @@ impl Tool for ExitPlanModeTool {
         if let Some(plan_mode) = &ctx.plan_mode {
             let mut mode = plan_mode.lock().await;
             if !*mode {
-                return Ok(ToolResult::error("Not in plan mode.".to_string()));
+                return Ok(ToolResult::error("You are not in plan mode. This tool is only for exiting plan mode after writing a plan.".to_string()));
             }
             *mode = false;
-            Ok(ToolResult::success(
-                "Exited plan mode. Ready for implementation.".to_string(),
-            ))
+            
+            let output = r#"User has approved your plan. You can now start coding. Start with updating your todo list if applicable.
+
+You can refer back to your plan if needed during implementation. Good luck!"#;
+
+            Ok(ToolResult::success(output.to_string()))
         } else {
-            Ok(ToolResult::error(
-                "Plan mode is not supported in this context.".to_string(),
-            ))
+            Ok(ToolResult::error("Plan mode is not supported in this context.".to_string()))
         }
     }
 }

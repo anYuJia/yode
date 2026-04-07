@@ -1,6 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
@@ -14,7 +14,7 @@ impl Tool for ListMcpResourcesTool {
     }
 
     fn user_facing_name(&self) -> &str {
-        "List MCP Resources"
+        "" 
     }
 
     fn activity_description(&self, params: &Value) -> String {
@@ -23,16 +23,16 @@ impl Tool for ListMcpResourcesTool {
     }
 
     fn description(&self) -> &str {
-        "List available resources from configured MCP servers. Each resource includes the server name, URI, name, and description."
+        "List available resources from configured MCP servers. Use this to find shared context or data provided by servers."
     }
 
     fn parameters_schema(&self) -> Value {
-        serde_json::json!({
+        json!({
             "type": "object",
             "properties": {
                 "server": {
                     "type": "string",
-                    "description": "Optional server name to filter resources by. If omitted, lists resources from all servers."
+                    "description": "Optional server name to filter resources by. Omit to list all."
                 }
             }
         })
@@ -56,11 +56,10 @@ impl Tool for ListMcpResourcesTool {
         let resources = provider.list_resources(server).await?;
 
         if resources.is_empty() {
-            let metadata = serde_json::json!({ "count": 0, "server": server });
-            return Ok(ToolResult::success_with_metadata("No MCP resources found.".to_string(), metadata));
+            return Ok(ToolResult::success("No MCP resources found.".to_string()));
         }
 
-        let mut output = String::new();
+        let mut output = String::from("Available MCP resources:\n\n");
         for resource in &resources {
             output.push_str(&format!(
                 "- [{}] {}: {}{}\n",
@@ -75,11 +74,7 @@ impl Tool for ListMcpResourcesTool {
             ));
         }
 
-        let metadata = serde_json::json!({
-            "count": resources.len(),
-            "server": server,
-        });
-        Ok(ToolResult::success_with_metadata(output, metadata))
+        Ok(ToolResult::success(output))
     }
 }
 
@@ -90,7 +85,11 @@ impl Tool for ReadMcpResourceTool {
     }
 
     fn user_facing_name(&self) -> &str {
-        "Read MCP Resource"
+        ""
+    }
+
+    fn aliases(&self) -> Vec<String> {
+        vec!["ReadMcpResource".to_string()]
     }
 
     fn activity_description(&self, params: &Value) -> String {
@@ -99,11 +98,11 @@ impl Tool for ReadMcpResourceTool {
     }
 
     fn description(&self) -> &str {
-        "Read a specific resource from an MCP server by server name and URI."
+        "Read a specific resource from an MCP server."
     }
 
     fn parameters_schema(&self) -> Value {
-        serde_json::json!({
+        json!({
             "type": "object",
             "properties": {
                 "server": {
@@ -143,11 +142,6 @@ impl Tool for ReadMcpResourceTool {
             .ok_or_else(|| anyhow::anyhow!("'uri' parameter is required"))?;
 
         let content = provider.read_resource(server, uri).await?;
-        let metadata = serde_json::json!({
-            "server": server,
-            "uri": uri,
-            "length": content.len(),
-        });
-        Ok(ToolResult::success_with_metadata(content, metadata))
+        Ok(ToolResult::success(content))
     }
 }

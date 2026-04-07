@@ -7,6 +7,8 @@ use tokio::sync::Mutex;
 
 use crate::tool::{Tool, ToolContext, ToolResult};
 
+pub mod discover;
+
 /// A lightweight store for skill content, populated at startup.
 pub struct SkillStore {
     skills: Vec<SkillEntry>,

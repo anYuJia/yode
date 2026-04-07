@@ -11,11 +11,40 @@ use tokio::sync::{mpsc, Mutex};
 use crate::registry::ToolRegistry;
 use crate::state::TaskStore;
 
+/// A query option for multiple choice questions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserQueryOption {
+    pub label: String,
+    pub description: String,
+    pub preview: Option<String>,
+}
+
+/// A structured question for the user.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserQuestion {
+    pub question: String,
+    pub header: String,
+    pub options: Vec<UserQueryOption>,
+    pub multi_select: bool,
+}
+
 /// A query sent to the user via the TUI.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserQuery {
     pub id: String,
-    pub question: String,
+    pub questions: Vec<UserQuestion>,
+}
+
+/// Options for sub-agent execution.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SubAgentOptions {
+    pub description: String,
+    pub subagent_type: Option<String>,
+    pub model: Option<String>,
+    pub run_in_background: bool,
+    pub isolation: Option<String>,
+    pub cwd: Option<PathBuf>,
+    pub allowed_tools: Vec<String>,
 }
 
 /// Sub-agent runner trait (implemented by yode-core).
@@ -23,7 +52,7 @@ pub trait SubAgentRunner: Send + Sync {
     fn run_sub_agent(
         &self,
         prompt: String,
-        allowed_tools: Vec<String>,
+        options: SubAgentOptions,
     ) -> Pin<Box<dyn std::future::Future<Output = Result<String>> + Send + '_>>;
 }
 
@@ -91,6 +120,8 @@ pub struct ToolContext {
     pub lsp_manager: Option<Arc<Mutex<crate::lsp_manager::LspManager>>>,
     /// Git worktree state.
     pub worktree_state: Option<Arc<Mutex<WorktreeState>>>,
+    /// Files that have been read in the current session.
+    pub read_file_history: Option<Arc<Mutex<std::collections::HashSet<PathBuf>>>>,
     /// Whether engine is in plan mode (read-only tools only).
     pub plan_mode: Option<Arc<Mutex<bool>>>,
 }
@@ -110,6 +141,7 @@ impl ToolContext {
             cron_manager: None,
             lsp_manager: None,
             worktree_state: None,
+            read_file_history: None,
             plan_mode: None,
         }
     }
@@ -219,6 +251,11 @@ pub trait Tool: Send + Sync {
     /// User-facing name for the tool (e.g. "Bash" for "bash").
     fn user_facing_name(&self) -> &str {
         self.name()
+    }
+
+    /// Aliases for the tool name.
+    fn aliases(&self) -> Vec<String> {
+        vec![]
     }
 
     /// Short description of what the tool is doing with the given params.

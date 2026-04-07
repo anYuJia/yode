@@ -34,21 +34,38 @@ impl Tool for AgentTool {
         serde_json::json!({
             "type": "object",
             "properties": {
-                "prompt": {
-                    "type": "string",
-                    "description": "The task for the sub-agent to perform"
-                },
                 "description": {
                     "type": "string",
                     "description": "A short (3-5 word) description of the task"
                 },
-                "allowed_tools": {
-                    "type": "array",
-                    "items": { "type": "string" },
-                    "description": "List of tool names the sub-agent is allowed to use. If empty, all tools are available."
+                "prompt": {
+                    "type": "string",
+                    "description": "The task for the agent to perform"
+                },
+                "subagent_type": {
+                    "type": "string",
+                    "description": "The type of specialized agent to use for this task (e.g. 'plan', 'explore', 'verification')"
+                },
+                "model": {
+                    "type": "string",
+                    "enum": ["sonnet", "opus", "haiku"],
+                    "description": "Optional model override for this agent. If omitted, inherits from the parent."
+                },
+                "run_in_background": {
+                    "type": "boolean",
+                    "description": "Set to true to run this agent in the background. You will be notified when it completes."
+                },
+                "isolation": {
+                    "type": "string",
+                    "enum": ["worktree"],
+                    "description": "Isolation mode. 'worktree' creates a temporary git worktree so the agent works on an isolated copy of the repo."
+                },
+                "cwd": {
+                    "type": "string",
+                    "description": "Absolute path to run the agent in. Overrides the working directory for all operations within this agent."
                 }
             },
-            "required": ["prompt"]
+            "required": ["prompt", "description"]
         })
     }
 
@@ -64,10 +81,42 @@ impl Tool for AgentTool {
         let prompt = params
             .get("prompt")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("'prompt' parameter is required"))?;
+            .ok_or_else(|| anyhow::anyhow!("'prompt' parameter is required"))?
+            .to_string();
+
+        let description = params
+            .get("description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("complex task")
+            .to_string();
+
+        let subagent_type = params
+            .get("subagent_type")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let model = params
+            .get("model")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let run_in_background = params
+            .get("run_in_background")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        let isolation = params
+            .get("isolation")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let cwd = params
+            .get("cwd")
+            .and_then(|v| v.as_str())
+            .map(|s| std::path::PathBuf::from(s));
 
         let allowed_tools: Vec<String> = params
-            .get("allowed_tools")
+            .get("allowed_tools") // Backward compatibility for any internal calls
             .and_then(|v| v.as_array())
             .map(|arr| {
                 arr.iter()
@@ -81,7 +130,17 @@ impl Tool for AgentTool {
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Sub-agent runner not available"))?;
 
-        match runner.run_sub_agent(prompt.to_string(), allowed_tools).await {
+        let options = crate::tool::SubAgentOptions {
+            description,
+            subagent_type,
+            model,
+            run_in_background,
+            isolation,
+            cwd,
+            allowed_tools,
+        };
+
+        match runner.run_sub_agent(prompt, options).await {
             Ok(result) => Ok(ToolResult::success(result)),
             Err(e) => Ok(ToolResult::error(format!("Sub-agent failed: {}", e))),
         }

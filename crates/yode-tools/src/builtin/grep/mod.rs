@@ -1,33 +1,11 @@
 use std::path::Path;
+use std::process::Command;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use regex::Regex;
 use serde_json::{json, Value};
 
-use crate::tool::{Tool, ToolContext, ToolResult};
-
-/// Directories to skip when traversing.
-const SKIP_DIRS: &[&str] = &[
-    ".git",
-    "node_modules",
-    "target",
-    ".next",
-    "__pycache__",
-    ".venv",
-    "venv",
-    "dist",
-    "build",
-    ".cache",
-];
-
-/// File extensions considered binary (skip).
-const BINARY_EXTENSIONS: &[&str] = &[
-    "png", "jpg", "jpeg", "gif", "bmp", "ico", "svg", "woff", "woff2", "ttf", "eot", "otf",
-    "mp3", "mp4", "avi", "mov", "zip", "tar", "gz", "bz2", "7z", "rar", "pdf", "doc", "docx",
-    "xls", "xlsx", "ppt", "pptx", "exe", "dll", "so", "dylib", "o", "a", "class", "jar", "war",
-    "pyc", "pyo", "wasm",
-];
+use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
 pub struct GrepTool;
 
@@ -38,14 +16,11 @@ impl Tool for GrepTool {
     }
 
     fn user_facing_name(&self) -> &str {
-        "Grep"
+        "Search" 
     }
 
     fn activity_description(&self, params: &Value) -> String {
-        let pattern = params
-            .get("pattern")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let pattern = params.get("pattern").and_then(|v| v.as_str()).unwrap_or("");
         format!("Searching for: {}", pattern)
     }
 
@@ -53,17 +28,11 @@ impl Tool for GrepTool {
         r#"A powerful search tool built on ripgrep.
 
 Usage:
-- ALWAYS use Grep for search tasks. NEVER invoke `grep` or `rg` as a Bash command. The Grep tool has been optimized for correct permissions and access.
-- Supports full regex syntax (e.g., "log.*Error", "function\s+\w+")
-- Filter files with glob parameter (e.g., "*.js", "*.{ts,tsx}") or type parameter
-- Output modes: "content" shows matching lines, "files_with_matches" shows only file paths, "count" shows match counts
-- Use Agent tool for open-ended searches requiring multiple rounds
-
-Examples:
-- Pattern: "fn\s+\w+" to find function definitions
-- Pattern: "impl\s+\w+" to find implementations
-- Glob: "*.rs" to search only Rust files
-- Context: Set to 2 to show 2 lines before and after each match"#
+- ALWAYS use Grep for search tasks. NEVER invoke `grep` or `rg` as a Bash command.
+- Supports full regex syntax (e.g., "log.*Error", "function\s+\w+").
+- Output modes: "content" (matching lines), "files_with_matches" (paths only), "count" (match counts).
+- Supports multiline matching with multiline: true.
+- Use Agent tool for open-ended searches requiring multiple rounds."#
     }
 
     fn parameters_schema(&self) -> Value {
@@ -76,220 +45,153 @@ Examples:
                 },
                 "path": {
                     "type": "string",
-                    "description": "Directory or file to search in. Defaults to current working directory."
+                    "description": "File or directory to search in. Defaults to current working directory."
                 },
                 "glob": {
                     "type": "string",
-                    "description": "Optional glob pattern to filter files (e.g. \"*.rs\", \"*.{ts,tsx}\")"
+                    "description": "Glob pattern to filter files (e.g. '*.js', '*.{ts,tsx}') - maps to rg --glob"
+                },
+                "output_mode": {
+                    "type": "string",
+                    "enum": ["content", "files_with_matches", "count"],
+                    "default": "files_with_matches",
+                    "description": "Output mode: 'content' (matching lines), 'files_with_matches' (paths only), 'count' (match counts)."
                 },
                 "context": {
                     "type": "integer",
-                    "description": "Number of context lines before and after each match. Default 0."
+                    "description": "Number of lines to show before and after each match (rg -C)."
+                },
+                "context_before": {
+                    "type": "integer",
+                    "description": "Number of lines to show before each match (rg -B)."
+                },
+                "context_after": {
+                    "type": "integer",
+                    "description": "Number of lines to show after each match (rg -A)."
+                },
+                "case_insensitive": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Case insensitive search (rg -i)."
+                },
+                "multiline": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Enable multiline mode (rg -U)."
+                },
+                "head_limit": {
+                    "type": "integer",
+                    "default": 250,
+                    "description": "Limit output to first N lines/entries. Pass 0 for unlimited."
+                },
+                "offset": {
+                    "type": "integer",
+                    "default": 0,
+                    "description": "Skip first N lines/entries before applying head_limit."
                 }
             },
             "required": ["pattern"]
         })
     }
 
-    fn requires_confirmation(&self) -> bool {
-        false
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            requires_confirmation: false,
+            supports_auto_execution: true,
+            read_only: true,
+        }
     }
 
-    async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<ToolResult> {
-        let pattern = params
-            .get("pattern")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("Missing required parameter: pattern"))?;
+    async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
+        let pattern = params.get("pattern").and_then(|v| v.as_str()).unwrap_or("");
+        let path = params.get("path").and_then(|v| v.as_str()).unwrap_or(".");
+        let output_mode = params.get("output_mode").and_then(|v| v.as_str()).unwrap_or("files_with_matches");
+        
+        let mut args = vec!["--hidden".to_string()];
+        
+        // Output mode
+        match output_mode {
+            "files_with_matches" => args.push("-l".to_string()),
+            "count" => args.push("-c".to_string()),
+            _ => args.push("-n".to_string()), // content mode includes line numbers
+        }
 
-        let base_path = params
-            .get("path")
-            .and_then(|v| v.as_str())
-            .unwrap_or(".");
+        // Context
+        if let Some(c) = params.get("context").and_then(|v| v.as_u64()) {
+            args.push("-C".to_string());
+            args.push(c.to_string());
+        } else {
+            if let Some(b) = params.get("context_before").and_then(|v| v.as_u64()) {
+                args.push("-B".to_string());
+                args.push(b.to_string());
+            }
+            if let Some(a) = params.get("context_after").and_then(|v| v.as_u64()) {
+                args.push("-A".to_string());
+                args.push(a.to_string());
+            }
+        }
 
-        let file_glob = params.get("glob").and_then(|v| v.as_str());
+        if params.get("case_insensitive").and_then(|v| v.as_bool()).unwrap_or(false) {
+            args.push("-i".to_string());
+        }
 
-        let context_lines = params
-            .get("context")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0) as usize;
+        if params.get("multiline").and_then(|v| v.as_bool()).unwrap_or(false) {
+            args.push("-U".to_string());
+            args.push("--multiline-dotall".to_string());
+        }
 
-        tracing::debug!(
-            pattern = %pattern,
-            path = %base_path,
-            glob = ?file_glob,
-            context = context_lines,
-            "Grep search"
-        );
+        if let Some(glob) = params.get("glob").and_then(|v| v.as_str()) {
+            args.push("--glob".to_string());
+            args.push(glob.to_string());
+        }
 
-        let re = match Regex::new(pattern) {
-            Ok(r) => r,
-            Err(e) => {
-                return Ok(ToolResult::error(format!(
-                    "Invalid regex pattern: {}",
-                    e
-                )));
+        // Limit column length to avoid base64 noise
+        args.push("--max-columns".to_string());
+        args.push("500".to_string());
+
+        // Pattern and Path
+        args.push(pattern.to_string());
+        args.push(path.to_string());
+
+        let working_dir = ctx.working_dir.as_deref().unwrap_or_else(|| Path::new("."));
+
+        // Execute ripgrep
+        let output = match Command::new("rg").args(&args).current_dir(working_dir).output() {
+            Ok(o) => o,
+            Err(_) => {
+                // Fallback to internal implementation if rg is not installed
+                return Ok(ToolResult::error("ripgrep (rg) is not installed in the system path.".to_string()));
             }
         };
 
-        let glob_set = if let Some(glob_pat) = file_glob {
-            match globset::Glob::new(glob_pat) {
-                Ok(g) => {
-                    let mut builder = globset::GlobSetBuilder::new();
-                    builder.add(g);
-                    builder.build().ok()
-                }
-                Err(e) => {
-                    return Ok(ToolResult::error(format!(
-                        "Invalid glob filter: {}",
-                        e
-                    )));
-                }
-            }
-        } else {
-            None
-        };
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
 
-        let base = Path::new(base_path);
-        if !base.exists() {
-            return Ok(ToolResult::error(format!(
-                "Path '{}' does not exist.",
-                base_path
-            )));
+        if !output.status.success() && stderr.len() > 0 {
+            return Ok(ToolResult::error(format!("rg error: {}", stderr)));
         }
 
-        let mut results = Vec::new();
-        let mut file_count = 0u32;
-        let max_results = 200;
-
-        search_dir(
-            base,
-            base,
-            &re,
-            glob_set.as_ref(),
-            context_lines,
-            &mut results,
-            &mut file_count,
-            max_results,
-        );
-
-        if results.is_empty() {
-            return Ok(ToolResult::success(format!(
-                "No matches found for '{}' in '{}'.",
-                pattern, base_path
-            )));
+        if stdout.is_empty() {
+            return Ok(ToolResult::success("No matches found.".to_string()));
         }
 
-        let output = results.join("\n");
+        // Apply head_limit and offset
+        let head_limit = params.get("head_limit").and_then(|v| v.as_u64()).unwrap_or(250) as usize;
+        let offset = params.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
 
-        let metadata = json!({
-            "pattern": pattern,
-            "path": base_path,
-            "glob": file_glob,
-            "file_count": file_count,
-            "total_matches": results.len(),
-        });
+        let lines: Vec<&str> = stdout.lines().collect();
+        let total_count = lines.len();
+        
+        let start = offset.min(total_count);
+        let end = if head_limit == 0 { total_count } else { (start + head_limit).min(total_count) };
+        
+        let result_lines = &lines[start..end];
+        let mut final_output = result_lines.join("\n");
 
-        // Truncate if too long
-        if output.len() > 50_000 {
-            let truncated: String = output.chars().take(50_000).collect();
-            Ok(ToolResult::success_with_metadata(
-                format!("{}\n\n...(results truncated, {} files matched)", truncated, file_count),
-                metadata
-            ))
-        } else {
-            Ok(ToolResult::success_with_metadata(
-                format!("{}\n\n{} file(s) matched.", output, file_count),
-                metadata
-            ))
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn search_dir(
-    base: &Path,
-    dir: &Path,
-    re: &Regex,
-    glob_set: Option<&globset::GlobSet>,
-    context_lines: usize,
-    results: &mut Vec<String>,
-    file_count: &mut u32,
-    max_results: usize,
-) {
-    if results.len() >= max_results {
-        return;
-    }
-
-    let entries = match std::fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
-
-    for entry in entries.flatten() {
-        if results.len() >= max_results {
-            return;
+        if end < total_count {
+            final_output.push_str(&format!("\n\n[Showing results with pagination = limit: {}, offset: {}]", head_limit, offset));
         }
 
-        let path = entry.path();
-        let file_name = entry.file_name();
-        let name = file_name.to_string_lossy();
-
-        if path.is_dir() {
-            if SKIP_DIRS.contains(&name.as_ref()) {
-                continue;
-            }
-            search_dir(base, &path, re, glob_set, context_lines, results, file_count, max_results);
-        } else {
-            // Skip binary files
-            if let Some(ext) = path.extension() {
-                if BINARY_EXTENSIONS.contains(&ext.to_string_lossy().to_lowercase().as_str()) {
-                    continue;
-                }
-            }
-
-            let rel = path.strip_prefix(base).unwrap_or(&path);
-            let rel_str = rel.to_string_lossy();
-
-            // Apply glob filter
-            if let Some(gs) = glob_set {
-                if !gs.is_match(rel_str.as_ref()) {
-                    // Also try matching just the filename
-                    if !gs.is_match(name.as_ref()) {
-                        continue;
-                    }
-                }
-            }
-
-            // Read and search file
-            let content = match std::fs::read_to_string(&path) {
-                Ok(c) => c,
-                Err(_) => continue, // Skip files that can't be read as UTF-8
-            };
-
-            let lines: Vec<&str> = content.lines().collect();
-            let mut file_matches = Vec::new();
-
-            for (i, line) in lines.iter().enumerate() {
-                if re.is_match(line) {
-                    let start = i.saturating_sub(context_lines);
-                    let end = (i + context_lines + 1).min(lines.len());
-
-                    for j in start..end {
-                        let prefix = if j == i { ">" } else { " " };
-                        file_matches.push(format!(
-                            "{}{}:{}", prefix, j + 1, lines[j]
-                        ));
-                    }
-                    if context_lines > 0 && end < lines.len() {
-                        file_matches.push("---".to_string());
-                    }
-                }
-            }
-
-            if !file_matches.is_empty() {
-                *file_count += 1;
-                results.push(format!("{}:\n{}", rel_str, file_matches.join("\n")));
-            }
-        }
+        Ok(ToolResult::success(final_output))
     }
 }

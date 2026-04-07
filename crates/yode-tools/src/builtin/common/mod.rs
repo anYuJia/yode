@@ -1,81 +1,101 @@
-use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::Command;
-use tokio::sync::mpsc;
-use crate::tool::ToolProgress;
+use anyhow::Result;
+use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 
-/// Helper to run a command and stream its output as tool progress.
-pub async fn run_command_with_progress(
-    mut cmd: Command,
-    timeout: Duration,
-    progress_tx: Option<mpsc::UnboundedSender<ToolProgress>>,
-) -> Result<(std::process::ExitStatus, String, String), String> {
-    cmd.stdout(std::process::Stdio::piped());
-    cmd.stderr(std::process::Stdio::piped());
+use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
-    let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn process: {}", e))?;
-    
-    let stdout = child.stdout.take().unwrap();
-    let stderr = child.stderr.take().unwrap();
+pub mod config;
+pub use config::ConfigTool;
 
-    let mut stdout_reader = BufReader::new(stdout).lines();
-    let mut stderr_reader = BufReader::new(stderr).lines();
+pub struct SendUserMessageTool;
 
-    let mut out_stdout = Vec::new();
-    let mut out_stderr = Vec::new();
+#[derive(Debug, Serialize, Deserialize)]
+struct SendUserMessageParams {
+    message: String,
+    attachments: Option<Vec<String>>,
+    status: MessageStatus,
+}
 
-    let timeout_fut = tokio::time::sleep(timeout);
-    tokio::pin!(timeout_fut);
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum MessageStatus {
+    Normal,
+    Proactive,
+}
 
-    loop {
-        tokio::select! {
-            line = stdout_reader.next_line() => {
-                match line {
-                    Ok(Some(l)) => {
-                        if let Some(ref tx) = progress_tx {
-                            let _ = tx.send(ToolProgress {
-                                message: l.clone(),
-                                percent: None,
-                            });
-                        }
-                        out_stdout.push(l);
-                    }
-                    Ok(None) => {}
-                    Err(_) => break Err("Failed to read stdout".to_string()),
+#[async_trait]
+impl Tool for SendUserMessageTool {
+    fn name(&self) -> &str {
+        "send_user_message"
+    }
+
+    fn user_facing_name(&self) -> &str {
+        "" 
+    }
+
+    fn aliases(&self) -> Vec<String> {
+        vec!["brief".to_string(), "Brief".to_string(), "SendUserMessage".to_string()]
+    }
+
+    fn activity_description(&self, params: &Value) -> String {
+        let msg = params
+            .get("message")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let truncated = if msg.len() > 30 {
+            format!("{}...", &msg[..30])
+        } else {
+            msg.to_string()
+        };
+        format!("Sending message: {}", truncated)
+    }
+
+    fn description(&self) -> &str {
+        "Send a message to the user - your primary visible output channel."
+    }
+
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string",
+                    "description": "The message for the user. Supports markdown formatting."
+                },
+                "attachments": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Optional file paths (absolute or relative to cwd) to attach. Use for photos, screenshots, diffs, logs."
+                },
+                "status": {
+                    "type": "string",
+                    "enum": ["normal", "proactive"],
+                    "description": "Use 'proactive' when surfacing unsolicited updates; 'normal' for direct replies."
                 }
-            }
-            line = stderr_reader.next_line() => {
-                match line {
-                    Ok(Some(l)) => {
-                        if let Some(ref tx) = progress_tx {
-                            let _ = tx.send(ToolProgress {
-                                message: format!("[stderr] {}", l),
-                                percent: None,
-                            });
-                        }
-                        out_stderr.push(l);
-                    }
-                    Ok(None) => {}
-                    Err(_) => break Err("Failed to read stderr".to_string()),
-                }
-            }
-            _ = &mut timeout_fut => {
-                let _ = child.kill().await;
-                return Err(format!("Command timed out after {} seconds", timeout.as_secs()));
-            }
-            status = child.wait() => {
-                let status = status.map_err(|e| format!("Process wait failed: {}", e))?;
-                
-                // Read remaining output
-                while let Ok(Some(l)) = stdout_reader.next_line().await {
-                    out_stdout.push(l);
-                }
-                while let Ok(Some(l)) = stderr_reader.next_line().await {
-                    out_stderr.push(l);
-                }
+            },
+            "required": ["message", "status"]
+        })
+    }
 
-                return Ok((status, out_stdout.join("\n"), out_stderr.join("\n")));
-            }
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            requires_confirmation: false,
+            supports_auto_execution: true,
+            read_only: true,
         }
+    }
+
+    async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<ToolResult> {
+        let params: SendUserMessageParams = serde_json::from_value(params)?;
+        
+        let attachment_count = params.attachments.as_ref().map(|a| a.len()).unwrap_or(0);
+        let suffix = if attachment_count > 0 {
+            format!(" ({} attachment(s) included)", attachment_count)
+        } else {
+            "".to_string()
+        };
+
+        Ok(ToolResult::success(format!("Message delivered to user.{}", suffix)))
     }
 }

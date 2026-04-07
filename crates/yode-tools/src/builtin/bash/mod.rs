@@ -73,6 +73,7 @@ While the bash tool can do similar things, it's better to use the built-in tools
 - Always quote file paths that contain spaces with double quotes in your command (e.g., cd "path with spaces/file.txt")
 - Try to maintain your current working directory throughout the session by using absolute paths and avoiding usage of `cd`. You may use `cd` if the User explicitly requests it.
 - You may specify an optional timeout in milliseconds (up to 600000ms / 10 minutes). By default, your command will timeout after 120000ms (2 minutes).
+- You can use the `run_in_background` parameter to run the command in the background. Only use this if you don't need the result immediately and are OK being notified when the command completes later. You do not need to use '&' at the end of the command when using this parameter.
 - When issuing multiple commands:
   - If the commands are independent and can run in parallel, make multiple bash tool calls in a single message. Example: if you need to run "git status" and "git diff", send a single message with two bash tool calls in parallel.
   - If the commands depend on each other and must run sequentially, use a single bash call with '&&' to chain them together.
@@ -83,6 +84,11 @@ While the bash tool can do similar things, it's better to use the built-in tools
 - Prefer to create a new commit rather than amending an existing commit.
 - Before running destructive operations (e.g., git reset --hard, git push --force, git checkout --), consider whether there is a safer alternative that achieves the same goal. Only use destructive operations when they are truly the best approach.
 - Never skip hooks (--no-verify) or bypass signing (--no-gpg-sign, -c commit.gpgsign=false) unless the user has explicitly asked for it. If a hook fails, investigate and fix the underlying issue.
+- In order to ensure good formatting, ALWAYS pass the commit message via a HEREDOC, e.g.:
+  git commit -m "$(cat <<'EOF'
+  Commit message here.
+  EOF
+  )"
 
 # Avoid unnecessary `sleep` commands:
 - Do not sleep between commands that can run immediately — just run them.
@@ -90,10 +96,7 @@ While the bash tool can do similar things, it's better to use the built-in tools
 - Do not retry failing commands in a sleep loop — diagnose the root cause.
 - If waiting for a background task you started with `run_in_background`, you will be notified when it completes — do not poll.
 - If you must poll an external process, use a check command (e.g. `gh run view`) rather than sleeping first.
-- If you must sleep, keep the duration short (1-5 seconds) to avoid blocking the user.
-
-# run_in_background parameter
-Set to true to run this command in the background. Only use this if you don't need the result immediately and are OK being notified when the command completes later. You do not need to check the output right away - you'll be notified when it finishes. You do not need to use '&' at the end of the command when using this parameter."#
+- If you must sleep, keep the duration short (1-5 seconds) to avoid blocking the user."#
     }
 
     fn parameters_schema(&self) -> Value {
@@ -102,19 +105,25 @@ Set to true to run this command in the background. Only use this if you don't ne
             "properties": {
                 "command": {
                     "type": "string",
-                    "description": "Shell command to execute"
-                },
-                "timeout": {
-                    "type": "integer",
-                    "description": format!("Timeout in milliseconds (max {}ms). Default: {}ms", MAX_TIMEOUT_SECS * 1000, DEFAULT_TIMEOUT_SECS * 1000)
+                    "description": "The bash command to execute"
                 },
                 "description": {
                     "type": "string",
-                    "description": "Clear, concise description of what this command does"
+                    "description": "A short (3-5 word) description of the task being performed by the command"
                 },
                 "run_in_background": {
                     "type": "boolean",
-                    "description": "Run command in background (default: false)"
+                    "default": false,
+                    "description": "Whether to run the command in the background."
+                },
+                "timeout_ms": {
+                    "type": "integer",
+                    "description": format!("Optional timeout in milliseconds (max {}ms). Default: {}ms.", MAX_TIMEOUT_SECS * 1000, DEFAULT_TIMEOUT_SECS * 1000)
+                },
+                "dangerously_disable_sandbox": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Whether to disable the command sandbox. Only use this if the command fails due to sandbox restrictions."
                 }
             },
             "required": ["command"]
@@ -140,11 +149,13 @@ Set to true to run this command in the background. Only use this if you don't ne
             .as_deref()
             .unwrap_or_else(|| Path::new("."));
 
-        // Parse timeout: accept both seconds (< 1000) and milliseconds
-        let timeout_raw = params.get("timeout").and_then(|v| v.as_u64());
-        let timeout_secs = match timeout_raw {
-            Some(t) if t > 1000 => (t / 1000).min(MAX_TIMEOUT_SECS),
-            Some(t) => t.min(MAX_TIMEOUT_SECS),
+        // Parse timeout: prioritize timeout_ms, fallback to legacy 'timeout'
+        let timeout_ms = params.get("timeout_ms").and_then(|v| v.as_u64())
+            .or_else(|| params.get("timeout").and_then(|v| v.as_u64()));
+            
+        let timeout_secs = match timeout_ms {
+            Some(t) if t >= 1000 => (t / 1000).min(MAX_TIMEOUT_SECS),
+            Some(t) => t.min(MAX_TIMEOUT_SECS), // handle legacy seconds if passed to timeout_ms
             None => DEFAULT_TIMEOUT_SECS,
         };
 
