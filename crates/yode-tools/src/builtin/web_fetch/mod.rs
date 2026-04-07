@@ -4,6 +4,9 @@ use serde_json::{json, Value};
 
 use crate::tool::{Tool, ToolContext, ToolResult};
 
+pub mod browser;
+pub use browser::WebBrowserTool;
+
 pub struct WebFetchTool;
 
 #[async_trait]
@@ -54,12 +57,9 @@ IMPORTANT: WebFetch WILL FAIL for authenticated or private URLs. Before using th
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing required parameter: url"))?;
 
-        let max_length = params
-            .get("max_length")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(50_000) as usize;
+        let _prompt = params.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
 
-        tracing::debug!(url = %url, max_length = max_length, "Fetching URL");
+        tracing::debug!(url = %url, "Fetching URL");
 
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
@@ -119,15 +119,6 @@ IMPORTANT: WebFetch WILL FAIL for authenticated or private URLs. Before using th
             "original_length": text.len(),
         });
 
-        if text.len() > max_length {
-            let truncated: String = text.chars().take(max_length).collect();
-            Ok(ToolResult::success_with_metadata(format!(
-                "{}\n\n...(truncated, original size: {} chars)",
-                truncated,
-                text.len()
-            ), metadata))
-        } else {
-            Ok(ToolResult::success_with_metadata(text, metadata))
-        }
+        Ok(ToolResult::success_with_metadata(text, metadata))
     }
 }

@@ -4,6 +4,9 @@ use serde_json::{json, Value};
 
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
+pub mod auth;
+pub use auth::McpAuthTool;
+
 pub struct ListMcpResourcesTool;
 pub struct ReadMcpResourceTool;
 
