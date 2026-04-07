@@ -6,7 +6,14 @@ use serde_json::{json, Value};
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
 pub mod config;
+pub mod sleep;
+pub mod send_file;
+pub mod repl;
+
 pub use config::ConfigTool;
+pub use sleep::SleepTool;
+pub use send_file::SendUserFileTool;
+pub use repl::REPLTool;
 
 pub struct SendUserMessageTool;
 
