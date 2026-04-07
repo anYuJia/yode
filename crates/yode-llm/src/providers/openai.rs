@@ -426,23 +426,32 @@ impl LlmProvider for OpenAiProvider {
         let mut active_tool_indices: HashMap<u32, bool> = HashMap::new();
         let mut model = request.model.clone();
         let mut final_usage = Usage::default();
+        let mut saw_done_sentinel = false;
+        let mut saw_finish_reason = false;
+        let mut finalize_reason = "stream_eof";
+        let mut chunk_count: u64 = 0;
 
-        while let Some(event_result) = event_stream.next().await {
+        'stream_loop: while let Some(event_result) = event_stream.next().await {
             let event = match event_result {
                 Ok(ev) => ev,
                 Err(e) => {
                     let msg = format!("SSE stream error: {}", e);
                     error!("{}", msg);
                     let _ = tx.send(StreamEvent::Error(msg)).await;
-                    continue;
+                    // Stream error — finalize with what we have and break
+                    finalize_reason = "sse_error";
+                    break;
                 }
             };
 
             let data = event.data;
+            chunk_count += 1;
 
             // Check for the stream termination sentinel
             if data.trim() == "[DONE]" {
                 debug!("Stream completed with [DONE]");
+                saw_done_sentinel = true;
+                finalize_reason = "done_sentinel";
                 break;
             }
 
@@ -453,6 +462,9 @@ impl LlmProvider for OpenAiProvider {
                     continue;
                 }
             };
+
+            // Log chunk for debugging (trace level)
+            trace!("Received chunk: choices={}, has_usage={}", chunk.choices.len(), chunk.usage.is_some());
 
             if let Some(m) = &chunk.model {
                 model = m.clone();
@@ -552,8 +564,11 @@ impl LlmProvider for OpenAiProvider {
                     }
                 }
 
-                // If there's a finish_reason, end any active tool calls
+                // If there's a finish_reason, end any active tool calls and exit loop
                 if choice.finish_reason.is_some() {
+                    saw_finish_reason = true;
+                    finalize_reason = "finish_reason";
+                    debug!("Received finish_reason: {}", choice.finish_reason.as_ref().unwrap());
                     for (&index, active) in &active_tool_indices {
                         if *active {
                             if let Some(tc) = accumulated_tool_calls.get(&index) {
@@ -571,9 +586,32 @@ impl LlmProvider for OpenAiProvider {
                         }
                     }
                     active_tool_indices.clear();
+                    // API signaled completion via finish_reason - break the stream loop to avoid waiting for [DONE]
+                    // This handles APIs like DashScope/Aliyun that don't send the [DONE] sentinel
+                    break 'stream_loop;
                 }
             }
         }
+
+        if !saw_done_sentinel && !saw_finish_reason {
+            warn!(
+                "OpenAI stream ended without [DONE] or finish_reason; finalizing from partial state (reason={}, chunks={})",
+                finalize_reason,
+                chunk_count
+            );
+        }
+
+        // Ensure any still-active tool calls are ended before finalization.
+        for (&index, active) in &active_tool_indices {
+            if *active {
+                if let Some(tc) = accumulated_tool_calls.get(&index) {
+                    let _ = tx
+                        .send(StreamEvent::ToolCallEnd { id: tc.id.clone() })
+                        .await;
+                }
+            }
+        }
+        active_tool_indices.clear();
 
         // Build the final tool_calls list sorted by index
         let mut tool_calls_sorted: Vec<(u32, ToolCall)> =
@@ -619,6 +657,13 @@ impl LlmProvider for OpenAiProvider {
         };
 
         let _ = tx.send(StreamEvent::Done(response)).await;
+        debug!(
+            "OpenAI stream finalized (reason={}, saw_done_sentinel={}, saw_finish_reason={}, chunks={})",
+            finalize_reason,
+            saw_done_sentinel,
+            saw_finish_reason,
+            chunk_count
+        );
 
         Ok(())
     }
