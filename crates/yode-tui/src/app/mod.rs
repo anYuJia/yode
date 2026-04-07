@@ -348,6 +348,8 @@ pub struct App {
     pub prompt_suggestion_enabled: bool,
     /// Whether a suggestion is currently being generated (to avoid duplicate requests)
     pub suggestion_generating: bool,
+    /// Last time a suggestion was generated (for cooldown)
+    pub last_suggestion_time: Instant,
 }
 
 impl App {
@@ -421,6 +423,7 @@ impl App {
             prompt_suggestion: None,
             prompt_suggestion_enabled: true,
             suggestion_generating: false,
+            last_suggestion_time: Instant::now(),
         }
     }
 
@@ -1793,7 +1796,12 @@ fn handle_engine_event(
             try_process_next(app, engine, engine_event_tx);
 
             // Generate prompt suggestion using LLM when input is empty
-            if app.prompt_suggestion_enabled && app.input.is_empty() && !app.suggestion_generating {
+            // Only trigger if not already generating and cooldown period has passed
+            if app.prompt_suggestion_enabled
+                && app.input.is_empty()
+                && !app.suggestion_generating
+                && app.last_suggestion_time.elapsed() >= std::time::Duration::from_secs(30)
+            {
                 app.suggestion_generating = true;
 
                 // Build messages for suggestion generation
@@ -1828,6 +1836,7 @@ fn handle_engine_event(
         EngineEvent::SuggestionReady { suggestion } => {
             // LLM-generated suggestion arrived
             app.suggestion_generating = false;
+            app.last_suggestion_time = Instant::now(); // Update cooldown timer
             tracing::debug!("Suggestion received: {}", suggestion);
             if app.prompt_suggestion_enabled && app.input.is_empty() {
                 app.prompt_suggestion = Some(suggestion);

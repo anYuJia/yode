@@ -1828,8 +1828,9 @@ Reply with ONLY the suggestion, no quotes or explanation."#;
         // Make the LLM call with timeout
         let provider = Arc::clone(&self.provider);
 
+        // Reduced timeout to 5 seconds for suggestion (should be fast)
         match tokio::time::timeout(
-            std::time::Duration::from_secs(10),
+            std::time::Duration::from_secs(5),
             provider.chat(request)
         ).await {
             Ok(Ok(response)) => {
@@ -1849,7 +1850,8 @@ Reply with ONLY the suggestion, no quotes or explanation."#;
                 debug!("Prompt suggestion generation failed: {}", e);
             }
             Err(_) => {
-                debug!("Prompt suggestion generation timed out");
+                // Timeout is expected for slow APIs - log at trace level
+                tracing::trace!("Prompt suggestion generation timed out (expected for slow APIs)");
             }
         }
 
