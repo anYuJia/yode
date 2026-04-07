@@ -170,6 +170,23 @@ enum AnthropicStreamEvent {
     Unknown,
 }
 
+impl AnthropicStreamEvent {
+    /// Get the event type name for logging
+    fn event_type(&self) -> &str {
+        match self {
+            AnthropicStreamEvent::MessageStart { .. } => "message_start",
+            AnthropicStreamEvent::ContentBlockStart { .. } => "content_block_start",
+            AnthropicStreamEvent::ContentBlockDelta { .. } => "content_block_delta",
+            AnthropicStreamEvent::ContentBlockStop { .. } => "content_block_stop",
+            AnthropicStreamEvent::MessageDelta { .. } => "message_delta",
+            AnthropicStreamEvent::MessageStop { .. } => "message_stop",
+            AnthropicStreamEvent::Ping { .. } => "ping",
+            AnthropicStreamEvent::Error { .. } => "error",
+            AnthropicStreamEvent::Unknown => "unknown",
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct AnthropicMessageStart {
     model: String,
@@ -561,9 +578,13 @@ impl LlmProvider for AnthropicProvider {
         // Accumulated state for building the final ChatResponse (Claude-style)
         let mut content_blocks: std::collections::BTreeMap<u32, crate::types::ContentBlock> = std::collections::BTreeMap::new();
         let mut tool_calls: Vec<ToolCall> = Vec::new();
-        let mut current_tool_args = String::new();
+        // Map content block index -> tool_use id for robust tool delta/end routing
+        let mut tool_ids_by_index: std::collections::HashMap<u32, String> = std::collections::HashMap::new();
         let mut model = request.model.clone();
         let mut final_usage = Usage::default();
+        let mut saw_message_stop = false;
+        let mut finalize_reason = "stream_eof";
+        let mut event_count: u64 = 0;
 
         // Track state for DashScope non-standard streaming format
         // DashScope returns thinking as type: "text" instead of type: "thinking" in streaming
@@ -577,7 +598,10 @@ impl LlmProvider for AnthropicProvider {
                     let msg = format!("SSE stream error: {}", e);
                     error!("{}", msg);
                     let _ = tx.send(StreamEvent::Error(msg)).await;
-                    continue;
+                    // Stream error — finalize with what we have and break.
+                    // If message_stop was not seen, caller can still receive partial output.
+                    finalize_reason = "sse_error";
+                    break;
                 }
             };
 
@@ -590,6 +614,10 @@ impl LlmProvider for AnthropicProvider {
                     continue;
                 }
             };
+
+            event_count += 1;
+            // Log event type for debugging (trace level to avoid spam)
+            tracing::trace!("Received SSE event: {}", stream_event.event_type());
 
             match stream_event {
                 AnthropicStreamEvent::MessageStart { message } => {
@@ -626,7 +654,7 @@ impl LlmProvider for AnthropicProvider {
                         }
                     }
                     ContentBlockStart::ToolUse { id, name } => {
-                        current_tool_args.clear();
+                        tool_ids_by_index.insert(index, id.clone());
                         tool_calls.push(ToolCall {
                             id: id.clone(),
                             name: name.clone(),
@@ -696,29 +724,36 @@ impl LlmProvider for AnthropicProvider {
                         }
                     }
                     ContentBlockDelta::InputJsonDelta { partial_json } => {
-                        current_tool_args.push_str(&partial_json);
-                        if let Some(tc) = tool_calls.last_mut() {
-                            tc.arguments.push_str(&partial_json);
-                            let id = tc.id.clone();
-                            let _ = tx
-                                .send(StreamEvent::ToolCallDelta {
-                                    id,
-                                    arguments: partial_json,
-                                })
-                                .await;
+                        if let Some(tool_id) = tool_ids_by_index.get(&index) {
+                            if let Some(tc) = tool_calls.iter_mut().find(|t| t.id == *tool_id) {
+                                tc.arguments.push_str(&partial_json);
+                                let _ = tx
+                                    .send(StreamEvent::ToolCallDelta {
+                                        id: tc.id.clone(),
+                                        arguments: partial_json,
+                                    })
+                                    .await;
+                            }
+                        } else {
+                            // Fallback for non-standard providers that omit/shift indices.
+                            if let Some(tc) = tool_calls.last_mut() {
+                                tc.arguments.push_str(&partial_json);
+                                let _ = tx
+                                    .send(StreamEvent::ToolCallDelta {
+                                        id: tc.id.clone(),
+                                        arguments: partial_json,
+                                    })
+                                    .await;
+                            }
                         }
                     }
                     ContentBlockDelta::Unknown => {}
                 }
-                AnthropicStreamEvent::ContentBlockStop { index: _ } => {
-                    if let Some(tc) = tool_calls.last() {
-                        if !tc.arguments.is_empty() || !current_tool_args.is_empty() {
-                            let _ = tx
-                                .send(StreamEvent::ToolCallEnd {
-                                    id: tc.id.clone(),
-                                })
-                                .await;
-                        }
+                AnthropicStreamEvent::ContentBlockStop { index } => {
+                    if let Some(tool_id) = tool_ids_by_index.remove(&index) {
+                        let _ = tx
+                            .send(StreamEvent::ToolCallEnd { id: tool_id })
+                            .await;
                     }
                 }
                 AnthropicStreamEvent::MessageDelta { delta: _, usage } => {
@@ -737,15 +772,50 @@ impl LlmProvider for AnthropicProvider {
                         })).await;
                     }
                 }
-                AnthropicStreamEvent::MessageStop {} => {}
+                AnthropicStreamEvent::MessageStop {} => {
+                    // Canonical completion point (Anthropic protocol).
+                    // We only finalize StreamEvent::Done after message_stop.
+                    debug!("Received message_stop - finalizing stream");
+                    saw_message_stop = true;
+                    finalize_reason = "message_stop";
+                    break;
+                }
                 AnthropicStreamEvent::Ping {} => {}
                 AnthropicStreamEvent::Error { error } => {
                     let msg = format!("Anthropic stream error: {}", error.message);
                     error!("{}", msg);
                     let _ = tx.send(StreamEvent::Error(msg)).await;
+                    // Protocol-level error should terminate stream processing.
+                    finalize_reason = "stream_error_event";
+                    break;
                 }
-                AnthropicStreamEvent::Unknown => {}
+                AnthropicStreamEvent::Unknown => {
+                    // Log unknown event types for debugging API compatibility
+                    tracing::debug!("Received unknown SSE event type from API - data: {}", data);
+                }
             }
+        }
+
+        // Some compatible providers may terminate stream without message_stop.
+        // Keep behavior robust, but surface it for diagnostics.
+        if !saw_message_stop {
+            warn!(
+                "Anthropic stream ended without message_stop; finalizing from partial state (reason={}, events={})",
+                finalize_reason,
+                event_count
+            );
+        }
+
+        // Ensure any still-open tool blocks are closed.
+        let dangling_tool_count = tool_ids_by_index.len();
+        for (_, tool_id) in tool_ids_by_index.drain() {
+            let _ = tx.send(StreamEvent::ToolCallEnd { id: tool_id }).await;
+        }
+        if dangling_tool_count > 0 {
+            debug!(
+                "Closed {} dangling Anthropic tool blocks during finalization",
+                dangling_tool_count
+            );
         }
 
         // Finalize final message using accumulated blocks (Claude-style)
@@ -777,6 +847,12 @@ impl LlmProvider for AnthropicProvider {
         };
 
         let _ = tx.send(StreamEvent::Done(response)).await;
+        debug!(
+            "Sent StreamEvent::Done - stream complete (reason={}, saw_message_stop={}, events={})",
+            finalize_reason,
+            saw_message_stop,
+            event_count
+        );
 
         Ok(())
     }
