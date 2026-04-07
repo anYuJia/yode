@@ -87,6 +87,17 @@ impl AgentContext {
         }
     }
 
+    /// 根据 EffortLevel 获取最大输出 Token 预算
+    pub fn get_max_tokens(&self) -> u32 {
+        match self.effort {
+            EffortLevel::Min => 1024,
+            EffortLevel::Low => 2048,
+            EffortLevel::Medium => 4096,
+            EffortLevel::High => 8192,
+            EffortLevel::Max => 16384,
+        }
+    }
+
     /// Create a context that resumes an existing session.
     pub fn resume(session_id: String, working_dir: PathBuf, provider: String, model: String) -> Self {
         Self {

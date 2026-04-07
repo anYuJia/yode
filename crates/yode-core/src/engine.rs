@@ -783,7 +783,7 @@ impl AgentEngine {
                 messages: self.messages.clone(),
                 tools: convert_tool_definitions(&self.tools),
                 temperature: Some(0.7),
-                max_tokens: Some(4096),
+                max_tokens: Some(self.context.get_max_tokens()),
             };
 
             // Call LLM with timeout and retry
@@ -989,7 +989,7 @@ impl AgentEngine {
                 messages: self.messages.clone(),
                 tools: convert_tool_definitions(&self.tools),
                 temperature: Some(0.7),
-                max_tokens: Some(4096),
+                max_tokens: Some(self.context.get_max_tokens()),
             };
 
             // Stream LLM response with timeout
