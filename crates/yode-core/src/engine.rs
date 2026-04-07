@@ -107,6 +107,23 @@ fn max_retries_for(kind: ErrorKind) -> u32 {
 /// Per-tool timeout for parallel execution (30 seconds)
 const PARALLEL_TOOL_TIMEOUT_SECS: u64 = 30;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProjectKind {
+    Rust,
+    Node,
+    Python,
+    Mixed,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RecoveryState {
+    Normal,
+    ReanchorRequired,
+    SingleStepMode,
+    NeedUserGuidance,
+}
+
 /// Events emitted by the engine for the UI to consume.
 #[derive(Debug, Clone)]
 pub enum EngineEvent {
@@ -233,6 +250,8 @@ pub struct AgentEngine {
     consecutive_failures: u32,
     /// Total bytes of tool results in the current turn.
     total_tool_results_bytes: usize,
+    /// Counter for protocol violation retries.
+    violation_retries: u32,
     /// Context window manager for automatic compression.
     context_manager: ContextManager,
     /// Cost tracker for token usage and estimated cost.
@@ -249,6 +268,10 @@ pub struct AgentEngine {
     last_failed_signature: Option<String>,
     /// Whether the engine is in plan mode.
     plan_mode: Arc<Mutex<bool>>,
+    /// Detected project kind for current session root.
+    project_kind: ProjectKind,
+    /// Unified recovery state for tool-call orchestration.
+    recovery_state: RecoveryState,
 }
 
 /// Convert yode-tools ToolDefinition to yode-llm ToolDefinition.
@@ -291,6 +314,62 @@ fn truncate_tool_result(result: ToolResult) -> ToolResult {
 }
 
 impl AgentEngine {
+    fn detect_project_kind(root: &std::path::Path) -> ProjectKind {
+        let has_cargo = root.join("Cargo.toml").exists();
+        let has_node = root.join("package.json").exists();
+        let has_python = root.join("pyproject.toml").exists() || root.join("requirements.txt").exists();
+
+        match (has_cargo, has_node, has_python) {
+            (true, false, false) => ProjectKind::Rust,
+            (false, true, false) => ProjectKind::Node,
+            (false, false, true) => ProjectKind::Python,
+            (false, false, false) => ProjectKind::Unknown,
+            _ => ProjectKind::Mixed,
+        }
+    }
+
+    fn update_recovery_state(&mut self) {
+        let not_found = *self.error_buckets.get(&ToolErrorType::NotFound).unwrap_or(&0);
+        let validation = *self.error_buckets.get(&ToolErrorType::Validation).unwrap_or(&0);
+        let timeout = *self.error_buckets.get(&ToolErrorType::Timeout).unwrap_or(&0);
+
+        self.recovery_state = if self.consecutive_failures >= 3 {
+            RecoveryState::NeedUserGuidance
+        } else if validation >= 2 || timeout >= 2 || self.consecutive_failures >= 2 {
+            RecoveryState::SingleStepMode
+        } else if not_found >= 2 {
+            RecoveryState::ReanchorRequired
+        } else {
+            RecoveryState::Normal
+        };
+    }
+
+    fn language_command_mismatch(&self, tool_name: &str, params: &serde_json::Value) -> Option<String> {
+        if tool_name != "bash" {
+            return None;
+        }
+
+        let cmd = params
+            .get("command")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_lowercase();
+
+        if cmd.is_empty() {
+            return None;
+        }
+
+        let starts_with_cargo = cmd.starts_with("cargo ");
+        let starts_with_npm = cmd.starts_with("npm ") || cmd.starts_with("pnpm ") || cmd.starts_with("yarn ") || cmd.starts_with("bun ");
+
+        match self.project_kind {
+            ProjectKind::Node if starts_with_cargo => Some("Project appears to be Node/TypeScript. Avoid cargo commands until Rust root is verified.".to_string()),
+            ProjectKind::Rust if starts_with_npm => Some("Project appears to be Rust. Avoid npm/pnpm/yarn commands until Node root is verified.".to_string()),
+            _ => None,
+        }
+    }
+
     pub fn new(
         provider: Arc<dyn LlmProvider>,
         tools: Arc<ToolRegistry>,
@@ -371,6 +450,8 @@ impl AgentEngine {
         let context_manager = ContextManager::new(&context.model);
         let cost_tracker = CostTracker::new(&context.model);
 
+        let detected_project_kind = Self::detect_project_kind(&context.working_dir_compat());
+
         Self {
             provider,
             tools,
@@ -386,6 +467,7 @@ impl AgentEngine {
             recent_tool_calls: Vec::new(),
             consecutive_failures: 0,
             total_tool_results_bytes: 0,
+            violation_retries: 0,
             context_manager,
             cost_tracker,
             hook_manager: None,
@@ -394,6 +476,8 @@ impl AgentEngine {
             error_buckets: std::collections::HashMap::new(),
             last_failed_signature: None,
             plan_mode: Arc::new(Mutex::new(false)),
+            project_kind: detected_project_kind,
+            recovery_state: RecoveryState::Normal,
         }
     }
 
@@ -679,8 +763,15 @@ impl AgentEngine {
         self.recent_tool_calls.clear();
         self.consecutive_failures = 0;
         self.total_tool_results_bytes = 0;
+        self.violation_retries = 0;
         self.files_read.clear();
         self.files_modified.clear();
+        self.error_buckets.clear();
+        self.last_failed_signature = None;
+        self.update_recovery_state();
+        self.error_buckets.clear();
+        self.last_failed_signature = None;
+        self.update_recovery_state();
 
         loop {
             let _ = event_tx.send(EngineEvent::Thinking);
@@ -739,11 +830,31 @@ impl AgentEngine {
                     assistant_msg.content = Some(self.clean_assistant_response(content));
                 }
             }
+
+            // Safety gate: prevent malformed assistant history growth when model emits
+            // pseudo tool calls in text but no structured tool_calls metadata.
+            if assistant_msg.tool_calls.is_empty() {
+                if let Some(content) = assistant_msg.content.clone() {
+                    let recovered = self.recover_leaked_tool_calls(&content);
+                    if !recovered.is_empty() {
+                        info!("Recovered {} leaked tool calls from text response (non-streaming).", recovered.len());
+                        assistant_msg.tool_calls = recovered;
+                        self.violation_retries = 0;
+                    } else if self.is_protocol_violation(&content) {
+                        self.consecutive_failures = self.consecutive_failures.saturating_add(1);
+                        let bucket = self.error_buckets.entry(ToolErrorType::Protocol).or_insert(0);
+                        *bucket += 1;
+                    }
+                }
+            } else {
+                self.violation_retries = 0;
+            }
+
             self.messages.push(assistant_msg.clone());
 
             // Persist assistant message
-            let tc_json = if !response.message.tool_calls.is_empty() {
-                serde_json::to_string(&response.message.tool_calls).ok()
+            let tc_json = if !assistant_msg.tool_calls.is_empty() {
+                serde_json::to_string(&assistant_msg.tool_calls).ok()
             } else {
                 None
             };
@@ -756,8 +867,14 @@ impl AgentEngine {
             );
 
             // If there are tool calls, execute them (parallel where possible)
-            if !response.message.tool_calls.is_empty() {
-                let (parallel, sequential) = self.partition_tool_calls(&response.message.tool_calls);
+            if !assistant_msg.tool_calls.is_empty() {
+                debug!(
+                    "Tool batch incoming: total={}, consecutive_failures={}, recent_calls={}",
+                    assistant_msg.tool_calls.len(),
+                    self.consecutive_failures,
+                    self.recent_tool_calls.len()
+                );
+                let (parallel, sequential) = self.partition_tool_calls(&assistant_msg.tool_calls);
 
                 // Execute parallel tools concurrently
                 let parallel_results = if !parallel.is_empty() {
@@ -789,7 +906,7 @@ impl AgentEngine {
                 // Execute sequential tools one by one
                 for tool_call in &sequential {
                     let mut result = self
-                        .handle_tool_call(tool_call, &event_tx, &mut confirm_rx)
+                        .handle_tool_call(tool_call, &event_tx, &mut confirm_rx, None)
                         .await?;
 
                     self.track_file_access(&tool_call.name, &result);
@@ -813,7 +930,17 @@ impl AgentEngine {
 
             // No tool calls — this is a text response, we're done
             if let Some(text) = &response.message.content {
-                let _ = event_tx.send(EngineEvent::TextComplete(text.clone()));
+                // Evidence gate: when we had repeated failures and no successful reads,
+                // avoid overconfident finalization without grounding.
+                if self.consecutive_failures >= 2 && self.files_read.is_empty() {
+                    let guarded = format!(
+                        "{}\n\n[EVIDENCE GATE: Multiple failures occurred and no successful file reads were recorded in this turn. Summarize verified facts only and ask for directory/path confirmation before concluding.]",
+                        text
+                    );
+                    let _ = event_tx.send(EngineEvent::TextComplete(guarded));
+                } else {
+                    let _ = event_tx.send(EngineEvent::TextComplete(text.clone()));
+                }
             }
 
             let _ = event_tx.send(EngineEvent::TurnComplete(response));
@@ -841,6 +968,7 @@ impl AgentEngine {
         self.recent_tool_calls.clear();
         self.consecutive_failures = 0;
         self.total_tool_results_bytes = 0;
+        self.violation_retries = 0;
         self.files_read.clear();
         self.files_modified.clear();
 
@@ -866,6 +994,10 @@ impl AgentEngine {
             // Stream LLM response with timeout
             let (stream_tx, mut stream_rx) = mpsc::channel::<StreamEvent>(256);
 
+            let turn_start = std::time::Instant::now();
+            // Hard guard for "ruminating" stalls in streaming mode.
+            let hard_turn_timeout = std::time::Duration::from_secs(90);
+
             let provider = self.provider.clone();
             let stream_handle = tokio::spawn(async move {
                 let result = tokio::time::timeout(
@@ -883,13 +1015,33 @@ impl AgentEngine {
             let mut tool_calls: Vec<ToolCall> = Vec::new();
             let mut final_response: Option<ChatResponse> = None;
             let mut cancelled = false;
+            let mut stalled = false;
+            let mut last_progress_at = std::time::Instant::now();
+            let stall_timeout = std::time::Duration::from_secs(60);
 
             loop {
+                // Global per-turn timeout guard: stop endless streaming/ruminating.
+                if turn_start.elapsed() > hard_turn_timeout {
+                    warn!("Streaming turn timed out after {:?}; forcing completion", hard_turn_timeout);
+                    stream_handle.abort();
+                    stalled = true;
+                    break;
+                }
+
+                // Watchdog: no progress events for too long => force break.
+                if last_progress_at.elapsed() > stall_timeout {
+                    warn!("Streaming stalled for {:?} without progress; forcing completion", stall_timeout);
+                    stream_handle.abort();
+                    stalled = true;
+                    break;
+                }
+
                 if let Some(ref token) = cancel_token {
                     tokio::select! {
                         event = stream_rx.recv() => {
                             match event {
                                 Some(ev) => {
+                                    last_progress_at = std::time::Instant::now();
                                     let is_done = matches!(ev, StreamEvent::Done(_));
                                     Self::process_stream_event(ev, &mut full_text, &mut full_reasoning, &mut tool_calls, &mut final_response, &event_tx);
                                     if is_done { break; }
@@ -904,18 +1056,22 @@ impl AgentEngine {
                         }
                     }
                 } else {
-                    match stream_rx.recv().await {
-                        Some(ev) => {
+                    match tokio::time::timeout(std::time::Duration::from_secs(2), stream_rx.recv()).await {
+                        Ok(Some(ev)) => {
+                            last_progress_at = std::time::Instant::now();
                             let is_done = matches!(ev, StreamEvent::Done(_));
                             Self::process_stream_event(ev, &mut full_text, &mut full_reasoning, &mut tool_calls, &mut final_response, &event_tx);
                             if is_done { break; }
                         }
-                        None => break,
+                        Ok(None) => break,
+                        Err(_) => {
+                            // periodic wake-up to re-check hard timeout
+                        }
                     }
                 }
             }
 
-            if cancelled {
+            if cancelled || stalled {
                 // Save partial text if any
                 if !full_text.is_empty() || !full_reasoning.is_empty() {
                     let mut blocks = Vec::new();
@@ -943,6 +1099,11 @@ impl AgentEngine {
                         None,
                         None
                     );
+                }
+                if stalled {
+                    let _ = event_tx.send(EngineEvent::TextComplete(
+                        "[Watchdog] Streaming stalled; forcing graceful stop. Please retry with narrower scope.".to_string(),
+                    ));
                 }
                 let _ = event_tx.send(EngineEvent::Done);
                 return Ok(());
@@ -1138,32 +1299,64 @@ impl AgentEngine {
             }
 
             // Build assistant message from stream
-            let mut blocks = Vec::new();
-            if !full_reasoning.is_empty() {
-                blocks.push(yode_llm::types::ContentBlock::Thinking { thinking: full_reasoning.clone(), signature: None });
-            }
-            if !full_text.is_empty() {
-                blocks.push(yode_llm::types::ContentBlock::Text { text: full_text.clone() });
-            }
-
-            let assistant_msg = Message {
+            let mut assistant_msg = Message {
                 role: Role::Assistant,
-                content: if full_text.is_empty() {
-                    None
-                } else {
-                    Some(full_text.clone())
-                },
-                reasoning: if full_reasoning.is_empty() {
-                    None
-                } else {
-                    Some(full_reasoning.clone())
-                },
-                content_blocks: blocks,
+                content: if full_text.is_empty() { None } else { Some(full_text.clone()) },
+                reasoning: if full_reasoning.is_empty() { None } else { Some(full_reasoning.clone()) },
+                content_blocks: Vec::new(), 
                 tool_calls: tool_calls.clone(),
                 tool_call_id: None,
                 images: Vec::new(),
             };
-            self.messages.push(assistant_msg);
+
+            // --- PR-1: Strict Protocol Gate & Auto Recovery/Retry ---
+            if assistant_msg.tool_calls.is_empty() && !full_text.is_empty() && self.is_protocol_violation(&full_text) {
+                // Try recovery first (Repair instead of Fail)
+                let recovered = self.recover_leaked_tool_calls(&full_text);
+                if !recovered.is_empty() {
+                    info!("Recovered {} leaked tool calls from text response. Proceeding with execution.", recovered.len());
+                    assistant_msg.tool_calls = recovered;
+                    tool_calls = assistant_msg.tool_calls.clone(); // Sync local variable
+                    self.violation_retries = 0; // Success, reset violation counter
+                } else if self.violation_retries < 2 {
+                    self.violation_retries += 1;
+                    warn!("Protocol violation detected (attempt {}). Retrying with strict constraints...", self.violation_retries);
+                    let _ = event_tx.send(EngineEvent::Thinking);
+                    
+                    self.messages.push(Message::user(
+                        "STRICT PROTOCOL VIOLATION: You outputted internal tool tags ([tool_use], [DUMMY_TOOL], etc.) in your text response. \
+                         This is forbidden. Please respond again using ONLY natural language. Do NOT use tool tags or JSON in this response."
+                    ));
+                    continue;
+                } else {
+                    let err_msg = "Critical protocol failure: Model repeatedly outputted internal tool tags in text field. Aborting to prevent loop.";
+                    error!("{}", err_msg);
+                    let _ = event_tx.send(EngineEvent::Error(err_msg.to_string()));
+                    let _ = event_tx.send(EngineEvent::Done);
+                    return Ok(());
+                }
+            } else {
+                // Successful response or recovered, reset violation counter
+                self.violation_retries = 0;
+            }
+
+            // Clean leaked tags from content before storing in history
+            if let Some(ref text) = assistant_msg.content {
+                if self.is_protocol_violation(text) {
+                    assistant_msg.content = Some(self.clean_assistant_response(text));
+                    full_text = assistant_msg.content.as_ref().unwrap().clone();
+                }
+            }
+
+            // Build content blocks for history
+            if !full_reasoning.is_empty() {
+                assistant_msg.content_blocks.push(yode_llm::types::ContentBlock::Thinking { thinking: full_reasoning.clone(), signature: None });
+            }
+            if !full_text.is_empty() {
+                assistant_msg.content_blocks.push(yode_llm::types::ContentBlock::Text { text: full_text.clone() });
+            }
+            
+            self.messages.push(assistant_msg.clone());
 
             // Persist assistant message
             let tc_json = if !tool_calls.is_empty() {
@@ -1173,8 +1366,8 @@ impl AgentEngine {
             };
             self.persist_message(
                 "assistant",
-                if full_text.is_empty() { None } else { Some(&full_text) },
-                if full_reasoning.is_empty() { None } else { Some(&full_reasoning) },
+                assistant_msg.content.as_deref(),
+                assistant_msg.reasoning.as_deref(),
                 tc_json.as_deref(),
                 None,
             );
@@ -1230,7 +1423,7 @@ impl AgentEngine {
                     }
 
                     let result = self
-                        .handle_tool_call(tool_call, &event_tx, &mut confirm_rx)
+                        .handle_tool_call(tool_call, &event_tx, &mut confirm_rx, cancel_token.as_ref())
                         .await?;
 
                     let mut result = truncate_tool_result(result);
@@ -1252,6 +1445,19 @@ impl AgentEngine {
 
             // Done
             if let Some(mut resp) = final_response {
+                // If model returned no tool calls and an excessively long narrative,
+                // enforce concise completion to avoid apparent "hang" in UI.
+                if resp.message.tool_calls.is_empty() {
+                    if let Some(content) = resp.message.content.clone() {
+                        if content.len() > 3000 {
+                            let trimmed: String = content.chars().take(1800).collect();
+                            resp.message.content = Some(format!(
+                                "{}\n\n[Output truncated by runtime guard to keep response responsive. Ask to continue if you want more details.]",
+                                trimmed
+                            ));
+                        }
+                    }
+                }
                 // Ensure the final message in the response has all the text/reasoning we accumulated
                 // (OpenAI Done event sometimes has empty content if it was all in deltas)
                 if resp.message.content.is_none() && !full_text.is_empty() {
@@ -1268,13 +1474,11 @@ impl AgentEngine {
                         resp.message.content = Some(self.clean_assistant_response(&content));
                     }
                     
-                    // --- RECOVERY: Check for leaked tool calls in text if none in metadata ---
-                    if resp.message.tool_calls.is_empty() {
-                        let recovered = self.recover_leaked_tool_calls(&content);
-                        if !recovered.is_empty() {
-                            info!("Recovered {} leaked tool calls from text", recovered.len());
-                            resp.message.tool_calls = recovered;
-                        }
+                    // Strict mode: do NOT recover leaked tool calls from plain text.
+                    // Claude-style stability favors schema-valid metadata only.
+                    // Text pseudo-calls frequently cause malformed histories and API 400s.
+                    if resp.message.tool_calls.is_empty() && content.contains("[tool_use") {
+                        warn!("Detected leaked tool-use text; skipping text-recovery to avoid invalid tool schema propagation");
                     }
                 }
 
@@ -1294,11 +1498,16 @@ impl AgentEngine {
                 );
 
                 if resp.message.tool_calls.is_empty() {
+                    debug!("Streaming turn complete with no tool calls; finishing turn.");
                     let _ = event_tx.send(EngineEvent::TurnComplete(resp));
                     let _ = event_tx.send(EngineEvent::Done);
                     break;
                 } else {
                     // Tool calls present, emit TurnComplete but continue the loop
+                    debug!(
+                        "Streaming turn produced {} tool calls; continuing loop.",
+                        resp.message.tool_calls.len()
+                    );
                     let _ = event_tx.send(EngineEvent::TurnComplete(resp));
                 }
             } else {
@@ -1444,27 +1653,34 @@ impl AgentEngine {
             
             if let Some(err_type) = &result.error_type {
                 let err_type_val = *err_type;
-                let count = self.error_buckets.entry(err_type_val).or_insert(0);
-                *count += 1;
+                {
+                    let count = self.error_buckets.entry(err_type_val).or_insert(0);
+                    *count += 1;
+                }
+                let bucket_count = *self.error_buckets.get(&err_type_val).unwrap_or(&0);
 
                 let current_sig = format!("{}:{}", tool_name, tool_args);
                 let is_exact_retry = self.last_failed_signature.as_ref() == Some(&current_sig);
                 self.last_failed_signature = Some(current_sig);
 
                 // Strategy Enforcement based on bucket count
-                match (err_type_val, *count) {
+                self.update_recovery_state();
+                match (err_type_val, bucket_count) {
                     (ToolErrorType::NotFound, c) if c >= 2 => {
                         result.content.push_str("\n\n[CRITICAL STRATEGY CHANGE: You have failed to find paths multiple times. STOP assuming paths. You MUST run `ls` on the parent directory or use `glob` to re-anchor your workspace understanding before trying this path again.]");
                     }
                     (ToolErrorType::Validation, c) if c >= 2 || is_exact_retry => {
                         result.content.push_str("\n\n[CRITICAL STRATEGY CHANGE: Your tool parameters are repeatedly invalid. Read the tool definition carefully and check for typos in file names or JSON structure. Do NOT repeat the same parameters.]");
                     }
+                    (ToolErrorType::Protocol, c) if c >= 2 => {
+                        result.content.push_str("\n\n[CRITICAL STRATEGY CHANGE: You are repeatedly outputting internal tool tags in your text. This is a protocol violation. STOP using square brackets or tags like `[tool_use]` in your text response. Use ONLY natural language for text and the structured tool calling interface for tools.]");
+                    }
                     (ToolErrorType::Timeout, c) if c >= 2 => {
                         result.content.push_str("\n\n[CRITICAL STRATEGY CHANGE: Operations are timing out. The scope is too large. Break your task into much smaller steps or use more specific search patterns.]");
                     }
                     _ => {
                         // For first failure, provide a gentle hint if not already present
-                        if result.suggestion.is_none() && *count == 1 {
+                        if result.suggestion.is_none() && bucket_count == 1 {
                             let hint = match err_type_val {
                                 ToolErrorType::NotFound => "Hint: Use `glob` or `ls` to verify the path exists.",
                                 ToolErrorType::Validation => "Hint: Check the required parameters and types in the tool schema.",
@@ -1476,9 +1692,29 @@ impl AgentEngine {
                 }
             }
         } else {
+            // Successful tool result, reset recovery state
             self.consecutive_failures = 0;
-            self.error_buckets.clear(); // Reset on success
+            self.error_buckets.clear();
             self.last_failed_signature = None;
+            self.violation_retries = 0;
+
+            // Auto-exit re-anchor mode after a successful lightweight discovery action.
+            // This mirrors Claude-style recovery flow: re-anchor first, then resume normal execution.
+            let is_discovery_tool = matches!(tool_name, "ls" | "glob" | "read_file" | "project_map");
+            if self.recovery_state == RecoveryState::ReanchorRequired && is_discovery_tool {
+                self.consecutive_failures = 0;
+                self.error_buckets.clear();
+                self.last_failed_signature = None;
+                self.recovery_state = RecoveryState::Normal;
+                result.content.push_str(
+                    "\n\n[Recovery: Workspace re-anchored successfully. Normal tool execution is now resumed.]",
+                );
+            } else {
+                self.consecutive_failures = 0;
+                self.error_buckets.clear(); // Reset on success
+                self.last_failed_signature = None;
+                self.update_recovery_state();
+            }
         }
 
         // === Existing State tracking ===
@@ -1594,6 +1830,12 @@ impl AgentEngine {
     fn partition_tool_calls(&self, tool_calls: &[ToolCall]) -> (Vec<ToolCall>, Vec<ToolCall>) {
         let mut parallel = Vec::new();
         let mut sequential = Vec::new();
+
+        // Unified recovery-state gate (Claude-style): in degraded states we force
+        // single-step execution to avoid amplifying invalid calls in parallel.
+        if self.recovery_state != RecoveryState::Normal {
+            return (parallel, tool_calls.to_vec());
+        }
 
         for tc in tool_calls {
             let can_parallel = if let Some(tool) = self.tools.get(&tc.name) {
@@ -1741,14 +1983,31 @@ impl AgentEngine {
         re.replace_all(text, "").to_string()
     }
 
+    /// Detects if the assistant response contains forbidden internal protocol patterns.
+    fn is_protocol_violation(&self, text: &str) -> bool {
+        // Look for tool use fingerprints that leaked into text
+        text.contains("[tool_use") || 
+        text.contains("[DUMMY_TOOL") || 
+        text.contains("[tool_result") ||
+        (text.contains("<tool_code>") && text.contains("</tool_code>")) // Some models use XML tags
+    }
+
     /// Attempts to recover tool calls leaked into the text response.
     /// This happens with some providers like DashScope/Aliyun.
     fn recover_leaked_tool_calls(&self, text: &str) -> Vec<ToolCall> {
         let mut recovered = Vec::new();
-        
+
+        // Safety/perf guards: avoid expensive broad regex recovery on very large texts.
+        // We only attempt recovery when explicit tool marker exists and within size budget.
+        const RECOVERY_TEXT_MAX_CHARS: usize = 20_000;
+        const RECOVERY_MAX_CALLS: usize = 8;
+        if text.len() > RECOVERY_TEXT_MAX_CHARS || (!text.contains("[tool_use") && !text.contains("[DUMMY_TOOL")) {
+            return recovered;
+        }
+
         // Pattern 1: Look for [tool_use id=... name=...] { ... }
         let tag_re = Regex::new(r"(?s)\[tool_use\s+id=([^\s\]>]+)\s+name=([^\s\]>]+)[\]>]\s*(\{.*?\})").unwrap();
-        for cap in tag_re.captures_iter(text) {
+        for cap in tag_re.captures_iter(text).take(RECOVERY_MAX_CALLS) {
             recovered.push(ToolCall {
                 id: cap[1].to_string(),
                 name: cap[2].to_string(),
@@ -1756,19 +2015,23 @@ impl AgentEngine {
             });
         }
 
-        // Pattern 2: Look for raw JSON blocks that look like tool params if we found NO other tool calls
+        // Pattern 2: Look for raw JSON blocks only in small texts and only if no explicit tags found.
         if recovered.is_empty() {
-            // Regex to match a basic JSON object starting with { and containing key tool-like fields
             let json_re = Regex::new(r#"(?s)\{\s*"(?:command|file_path|pattern|query)"\s*:.*?\}"#).unwrap();
-            for (i, m) in json_re.find_iter(text).enumerate() {
+            for (i, m) in json_re.find_iter(text).take(RECOVERY_MAX_CALLS).enumerate() {
                 let json_str = m.as_str();
-                // Heuristically determine tool name based on keys
-                let name = if json_str.contains("\"command\"") { "bash" }
-                    else if json_str.contains("\"file_path\"") && json_str.contains("\"old_string\"") { "edit_file" }
-                    else if json_str.contains("\"file_path\"") { "read_file" }
-                    else if json_str.contains("\"pattern\"") { "glob" }
-                    else { "unknown" };
-                
+                let name = if json_str.contains("\"command\"") {
+                    "bash"
+                } else if json_str.contains("\"file_path\"") && json_str.contains("\"old_string\"") {
+                    "edit_file"
+                } else if json_str.contains("\"file_path\"") {
+                    "read_file"
+                } else if json_str.contains("\"pattern\"") {
+                    "glob"
+                } else {
+                    "unknown"
+                };
+
                 if name != "unknown" {
                     recovered.push(ToolCall {
                         id: format!("recovered_{}", i),
@@ -1818,6 +2081,7 @@ impl AgentEngine {
         tool_call: &ToolCall,
         event_tx: &mpsc::UnboundedSender<EngineEvent>,
         confirm_rx: &mut mpsc::UnboundedReceiver<ConfirmResponse>,
+        cancel_token: Option<&CancellationToken>,
     ) -> Result<ToolResult> {
         let tool = match self.tools.get(&tool_call.name) {
             Some(t) => t,
@@ -1842,6 +2106,29 @@ impl AgentEngine {
                 true,
                 Some(format!("Fix the parameters and retry. Schema: {}", schema)),
             ));
+        }
+
+        // Claude-style unified recovery gate:
+        // when re-anchor is required, only allow lightweight discovery tools.
+        if self.recovery_state == RecoveryState::ReanchorRequired {
+            let allow_reanchor_tool = matches!(
+                tool_call.name.as_str(),
+                "ls" | "glob" | "read_file" | "project_map"
+            );
+            if !allow_reanchor_tool {
+                return Ok(ToolResult::error_typed(
+                    format!(
+                        "Recovery gate active: '{}' is temporarily blocked until workspace is re-anchored.",
+                        tool_call.name
+                    ),
+                    ToolErrorType::Validation,
+                    true,
+                    Some(
+                        "Run a lightweight discovery step first (ls/glob/read_file/project_map), then continue with execution tools."
+                            .to_string(),
+                    ),
+                ));
+            }
         }
 
         // --- PR-3: Deep Path Security Validation ---
@@ -1871,6 +2158,17 @@ impl AgentEngine {
         } else {
             None
         };
+
+        // Unified project/command gate (Claude-style preflight): block mismatched
+        // language-specific commands until project root assumptions are corrected.
+        if let Some(reason) = self.language_command_mismatch(&tool_call.name, &params) {
+            return Ok(ToolResult::error_typed(
+                format!("Command blocked by project gate: {}", reason),
+                ToolErrorType::Validation,
+                true,
+                Some("Re-anchor with ls/glob/read on the target project root, then run matching build tooling.".to_string()),
+            ));
+        }
 
         // --- Tool Chain Validation ---
         if tool_call.name == "edit_file" || tool_call.name == "write_file" {
@@ -1958,21 +2256,53 @@ impl AgentEngine {
                     arguments: tool_call.arguments.clone(),
                 });
 
-                match confirm_rx.recv().await {
-                    Some(ConfirmResponse::Allow) => {
-                        info!("Tool {} confirmed by user", tool_call.name);
-                    }
-                    Some(ConfirmResponse::Deny) => {
-                        info!("Tool {} denied by user", tool_call.name);
-                        self.permissions.record_denial(&tool_call.name);
-                        return Ok(ToolResult::error(
-                            "Tool execution denied by user.".to_string(),
+                debug!("Waiting for user confirmation: tool={}", tool_call.name);
+                let confirm_start = std::time::Instant::now();
+                let confirm_timeout = std::time::Duration::from_secs(90);
+                loop {
+                    if confirm_start.elapsed() > confirm_timeout {
+                        return Ok(ToolResult::error_typed(
+                            format!("Confirmation timed out for tool '{}'", tool_call.name),
+                            ToolErrorType::Timeout,
+                            true,
+                            Some("No confirmation was received within 90s. Re-run or switch to a read-only alternative.".to_string()),
                         ));
                     }
-                    None => {
-                        return Ok(ToolResult::error(
-                            "Confirmation channel closed.".to_string(),
-                        ));
+
+                    if let Some(token) = cancel_token {
+                        if token.is_cancelled() {
+                            return Ok(ToolResult::error_typed(
+                                format!("Tool confirmation cancelled: {}", tool_call.name),
+                                ToolErrorType::Timeout,
+                                true,
+                                Some("User cancelled while waiting for confirmation.".to_string()),
+                            ));
+                        }
+                    }
+
+                    match tokio::time::timeout(std::time::Duration::from_millis(500), confirm_rx.recv()).await {
+                        Ok(Some(ConfirmResponse::Allow)) => {
+                            info!("Tool {} confirmed by user", tool_call.name);
+                            break;
+                        }
+                        Ok(Some(ConfirmResponse::Deny)) => {
+                            info!("Tool {} denied by user", tool_call.name);
+                            self.permissions.record_denial(&tool_call.name);
+                            return Ok(ToolResult::error(
+                                "Tool execution denied by user.".to_string(),
+                            ));
+                        }
+                        Ok(None) => {
+                            return Ok(ToolResult::error_typed(
+                                "Confirmation channel closed.".to_string(),
+                                ToolErrorType::Execution,
+                                true,
+                                Some("Please retry the action. If this repeats, check TUI confirmation event handling.".to_string()),
+                            ));
+                        }
+                        Err(_) => {
+                            // periodic wakeup for cancellation and timeout checks
+                        }
                     }
                 }
             }
@@ -1986,9 +2316,38 @@ impl AgentEngine {
 
         // Dedup detection: warn if same tool+args was called recently
         let call_sig = (tool_call.name.clone(), tool_call.arguments.clone());
-        
+        let current_sig_text = format!("{}:{}", tool_call.name, tool_call.arguments);
+
         // Allow repetition for observer tools (ls, git_status, etc.)
-        let is_observer_tool = ["ls", "git_status", "git_diff", "git_log", "project_map", "todo"].contains(&tool_call.name.as_str());
+        let is_observer_tool = [
+            "ls",
+            "glob",
+            "grep",
+            "git_status",
+            "git_diff",
+            "git_log",
+            "project_map",
+            "todo",
+            "read_file",
+        ]
+        .contains(&tool_call.name.as_str());
+
+        // Hard strategy gate: if the exact failed signature keeps repeating after
+        // multiple failures, reject early and force a strategy switch.
+        if !is_observer_tool
+            && self.consecutive_failures >= 2
+            && self.last_failed_signature.as_ref() == Some(&current_sig_text)
+        {
+            return Ok(ToolResult::error_typed(
+                format!(
+                    "Blocked repeated failing call: {} is being retried with identical arguments after multiple failures.",
+                    tool_call.name
+                ),
+                ToolErrorType::Validation,
+                true,
+                Some("Do not retry the same call. Re-anchor first (ls/glob/read), then change tool arguments.".to_string()),
+            ));
+        }
 
         if self.recent_tool_calls.contains(&call_sig) && !is_observer_tool {
             return Ok(ToolResult::error_typed(
@@ -1999,7 +2358,7 @@ impl AgentEngine {
                 ),
                 ToolErrorType::Validation,
                 true,
-                None,
+                Some("Do NOT resend identical tool parameters. Re-anchor with a lightweight read/list action, then adjust arguments.".to_string()),
             ));
         }
         self.recent_tool_calls.push(call_sig);
@@ -2010,6 +2369,7 @@ impl AgentEngine {
 
         // Execute the tool with timing
         self.cost_tracker.record_tool_call();
+        debug!("Tool execute start: tool={} args={}", tool_call.name, tool_call.arguments);
         let start_time = std::time::Instant::now();
 
         // Pre-tool-use hook
@@ -2073,12 +2433,23 @@ impl AgentEngine {
             }
         }
 
-        let mut result = match tool.execute(params, &ctx).await {
-            Ok(result) => result,
-            Err(e) => {
+        let mut result = match tokio::time::timeout(
+            std::time::Duration::from_secs(120),
+            tool.execute(params, &ctx),
+        )
+        .await
+        {
+            Ok(Ok(result)) => result,
+            Ok(Err(e)) => {
                 error!("Tool {} failed: {}", tool_call.name, e);
                 ToolResult::error(format!("Tool execution failed: {}", e))
             }
+            Err(_) => ToolResult::error_typed(
+                format!("Tool execution timed out after 120s: {}", tool_call.name),
+                ToolErrorType::Timeout,
+                true,
+                Some("Narrow the command scope or run a lighter probe first.".to_string()),
+            ),
         };
         let elapsed = start_time.elapsed();
         debug!(tool = %tool_call.name, elapsed_ms = elapsed.as_millis() as u64, "Tool execution completed");
