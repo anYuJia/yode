@@ -14,7 +14,26 @@ impl Tool for GitStatusTool {
     }
 
     fn description(&self) -> &str {
-        "Show the working tree status including staged, unstaged, and untracked files. Use this BEFORE git_commit to verify what will be committed. Use --short for a compact summary."
+        r#"Shows the working tree status including staged, unstaged, and untracked files.
+
+Use this tool:
+- BEFORE git_commit to verify what will be committed
+- AFTER git operations to check the result
+- To understand the current Git state
+
+Output format:
+- Green files (staged): Ready to be committed
+- Red files (unstaged): Modified but not staged
+- Red "?" (untracked): New files not yet staged
+
+Usage:
+- Use `short: true` for compact output (one line per file)
+- Without short flag, shows detailed diff with full status messages
+
+Git workflow reminder:
+1. git_status - Check current state
+2. git_diff - Review changes in detail
+3. git_commit - Commit with message"#
     }
 
     fn parameters_schema(&self) -> Value {

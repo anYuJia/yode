@@ -31,7 +31,19 @@ impl Tool for GlobTool {
     }
 
     fn description(&self) -> &str {
-        "Find files matching a glob pattern. Supports patterns like \"**/*.rs\", \"src/**/*.ts\". Returns matching file paths sorted by modification time."
+        r#"Fast file pattern matching tool that works with any codebase size.
+
+Supports glob patterns like "**/*.js" or "src/**/*.ts".
+Returns matching file paths sorted by modification time.
+Use this tool when you need to find files by name patterns.
+
+When you are doing an open ended search that may require multiple rounds of globbing and grepping, use the Agent tool instead.
+
+Examples:
+- "**/*.rs" - Find all Rust files
+- "src/**/*.ts" - Find TypeScript files in src
+- "Cargo.toml" - Find Cargo.toml files
+- "**/*.md" - Find all Markdown files"#
     }
 
     fn parameters_schema(&self) -> Value {

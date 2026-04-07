@@ -38,7 +38,20 @@ impl Tool for GrepTool {
     }
 
     fn description(&self) -> &str {
-        "Search file contents using regex patterns. Returns matching file paths and lines with line numbers. Supports file filtering with glob patterns."
+        r#"A powerful search tool built on ripgrep.
+
+Usage:
+- ALWAYS use Grep for search tasks. NEVER invoke `grep` or `rg` as a Bash command. The Grep tool has been optimized for correct permissions and access.
+- Supports full regex syntax (e.g., "log.*Error", "function\s+\w+")
+- Filter files with glob parameter (e.g., "*.js", "*.{ts,tsx}") or type parameter
+- Output modes: "content" shows matching lines, "files_with_matches" shows only file paths, "count" shows match counts
+- Use Agent tool for open-ended searches requiring multiple rounds
+
+Examples:
+- Pattern: "fn\s+\w+" to find function definitions
+- Pattern: "impl\s+\w+" to find implementations
+- Glob: "*.rs" to search only Rust files
+- Context: Set to 2 to show 2 lines before and after each match"#
     }
 
     fn parameters_schema(&self) -> Value {

@@ -14,7 +14,31 @@ impl Tool for GitLogTool {
     }
 
     fn description(&self) -> &str {
-        "Show git commit history. Use to understand recent changes, find commit hashes for git_diff, or check who changed a specific file. Supports filtering by count, path, and author."
+        r#"Shows git commit history.
+
+Use this tool:
+- To understand recent changes in the codebase
+- To find commit hashes for git_diff
+- To check who changed a specific file
+- To understand the commit message style of the repository
+
+Parameters:
+- `count`: Number of commits to show (default 10, max 50)
+- `oneline`: Use compact one-line format (default false, shows full commit info)
+- `path`: Filter to commits that touched this file
+- `author`: Filter by author name or email
+
+Output format (default):
+- Commit hash, author, date
+- Commit message
+
+Output format (oneline):
+- Short hash Commit message
+
+Common patterns:
+- Recent commits: {count: 5}
+- File history: {path: "src/main.rs", count: 10}
+- Quick overview: {oneline: true, count: 20}"#
     }
 
     fn parameters_schema(&self) -> Value {

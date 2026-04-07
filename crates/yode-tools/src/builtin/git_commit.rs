@@ -14,7 +14,31 @@ impl Tool for GitCommitTool {
     }
 
     fn description(&self) -> &str {
-        "Create a git commit. Workflow: use git_status first to check state, then git_commit with specific files or --all. Always provide a clear, descriptive commit message. Requires user confirmation."
+        r#"Creates a git commit with staged changes.
+
+Before using this tool:
+1. Use git_status to check the current state
+2. Use git_diff to review changes
+3. Ensure you understand what will be committed
+
+Usage:
+- Provide a clear, descriptive commit message that explains the "why" not just the "what"
+- Use the `files` parameter to stage specific files before committing
+- Use `all: true` to stage all tracked modified files (like git commit -a)
+- Untracked files must be explicitly staged using the `files` parameter
+
+Commit message guidelines:
+- Start with a verb in present tense (e.g., "Add", "Fix", "Update", "Refactor")
+- Keep the first line under 50 characters
+- Add a body if more detail is needed, separated by a blank line
+- Reference issue numbers when applicable (e.g., "Fix login bug (#123)")
+
+Git safety:
+- NEVER skip hooks (--no-verify, --no-gpg-sign) unless explicitly requested
+- NEVER amend commits (--amend) unless specifically asked
+- Always verify the commit was successful using git_status
+
+After committing, the tool returns the commit output. Use git_status to verify the commit state."#
     }
 
     fn parameters_schema(&self) -> Value {

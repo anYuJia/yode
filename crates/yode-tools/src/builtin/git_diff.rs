@@ -14,7 +14,25 @@ impl Tool for GitDiffTool {
     }
 
     fn description(&self) -> &str {
-        "Show git diff for staged changes, unstaged changes, or a specific commit. Returns unified diff output."
+        r#"Shows git diff for staged changes, unstaged changes, or a specific commit.
+
+Use this tool:
+- To review changes before committing
+- To understand what a previous commit changed
+- To check specific file modifications
+
+Parameters:
+- `target`: "staged" (cached changes), "unstaged" (working tree changes), or "commit" (compare to specific commit)
+- `commit`: Required when target is "commit". Use hashes like "HEAD", "HEAD~1", "abc1234"
+- `path`: Optional filter to limit diff to specific files
+
+Common patterns:
+- Unstaged changes: {target: "unstaged"}
+- Staged changes: {target: "staged"}
+- Compare to last commit: {target: "commit", commit: "HEAD"}
+- Specific file: {target: "unstaged", path: "src/lib.rs"}
+
+Output: Unified diff format showing added (+) and removed (-) lines."#
     }
 
     fn parameters_schema(&self) -> Value {
