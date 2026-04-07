@@ -1,7 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use std::path::Path;
 
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 

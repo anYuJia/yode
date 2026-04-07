@@ -2832,7 +2832,7 @@ impl SubAgentRunner for SubAgentRunnerImpl {
             );
 
             // Run non-streaming turn
-            let (event_tx, mut _event_rx) = mpsc::unbounded_channel::<EngineEvent>();
+            let (_event_tx, mut _event_rx) = mpsc::unbounded_channel::<EngineEvent>();
             let (_confirm_tx, confirm_rx) = mpsc::unbounded_channel();
 
             // Handle description in system prompt or similar if needed

@@ -4,6 +4,9 @@ use serde_json::{json, Value};
 
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
+pub mod verify;
+
+pub use verify::VerifyPlanExecutionTool;
 pub struct EnterPlanModeTool;
 pub struct ExitPlanModeTool;
 

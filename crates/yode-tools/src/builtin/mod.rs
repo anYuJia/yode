@@ -56,12 +56,14 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     registry.register(Arc::new(read_file::ReadFileTool));
     registry.register(Arc::new(write_file::WriteFileTool));
     registry.register(Arc::new(edit_file::EditFileTool));
+    registry.register(Arc::new(edit_file::SnipTool));
     registry.register(Arc::new(bash::BashTool));
     registry.register(Arc::new(glob::GlobTool));
     registry.register(Arc::new(grep::GrepTool));
     registry.register(Arc::new(ls::LsTool));
     registry.register(Arc::new(multi_edit::MultiEditTool));
     registry.register(Arc::new(web_fetch::WebFetchTool));
+    registry.register(Arc::new(web_fetch::WebBrowserTool));
     registry.register(Arc::new(web_search::WebSearchTool));
     registry.register(Arc::new(todo::TodoTool));
     registry.register(Arc::new(todo::TaskCreateTool));
@@ -75,12 +77,16 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     registry.register(Arc::new(worktree::ExitWorktreeTool));
     registry.register(Arc::new(mcp_resources::ListMcpResourcesTool));
     registry.register(Arc::new(mcp_resources::ReadMcpResourceTool));
+    registry.register(Arc::new(mcp_resources::McpAuthTool));
     registry.register(Arc::new(tool_search::ToolSearchTool));
-    registry.register(Arc::new(cron::CronTool));
+    registry.register(Arc::new(cron::CronCreateTool));
+    registry.register(Arc::new(cron::CronListTool));
+    registry.register(Arc::new(cron::CronDeleteTool));
     registry.register(Arc::new(lsp::LspTool));
     registry.register(Arc::new(agent::AgentTool));
     registry.register(Arc::new(plan_mode::EnterPlanModeTool));
     registry.register(Arc::new(plan_mode::ExitPlanModeTool));
+    registry.register(Arc::new(plan_mode::VerifyPlanExecutionTool));
     registry.register(Arc::new(project_map::ProjectMapTool));
     registry.register(Arc::new(hypothesis::HypothesisTool));
     registry.register(Arc::new(file_diff::FileDiffTool));
@@ -90,6 +96,9 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     registry.register(Arc::new(git_status::GitStatusTool));
     registry.register(Arc::new(common::SendUserMessageTool));
     registry.register(Arc::new(common::ConfigTool));
+    registry.register(Arc::new(common::SleepTool));
+    registry.register(Arc::new(common::SendUserFileTool));
+    registry.register(Arc::new(common::REPLTool));
 }
 
 /// Register the skill tool with the given skill store.
