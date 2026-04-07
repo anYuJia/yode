@@ -58,6 +58,15 @@ pub struct WorktreeState {
     pub branch_name: Option<String>,
 }
 
+/// Progress update from a tool execution.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolProgress {
+    /// Message describing current activity (e.g. "Building 3/10...").
+    pub message: String,
+    /// Completion percentage (0-100), if known.
+    pub percent: Option<u8>,
+}
+
 /// Context passed to every tool execution, providing access to shared resources.
 pub struct ToolContext {
     /// Access to the full tool registry (needed by `batch`).
@@ -68,6 +77,8 @@ pub struct ToolContext {
     pub user_input_tx: Option<mpsc::UnboundedSender<UserQuery>>,
     /// Channel to receive answers from the user (needed by `ask_user`).
     pub user_input_rx: Option<Arc<Mutex<mpsc::UnboundedReceiver<String>>>>,
+    /// Channel to send progress updates back to the engine.
+    pub progress_tx: Option<mpsc::UnboundedSender<ToolProgress>>,
     /// Current working directory.
     pub working_dir: Option<PathBuf>,
     /// Sub-agent runner for the `agent` tool.
@@ -81,7 +92,7 @@ pub struct ToolContext {
     /// Git worktree state.
     pub worktree_state: Option<Arc<Mutex<WorktreeState>>>,
     /// Whether engine is in plan mode (read-only tools only).
-    pub plan_mode: Option<Arc<std::sync::atomic::AtomicBool>>,
+    pub plan_mode: Option<Arc<Mutex<bool>>>,
 }
 
 impl ToolContext {
@@ -92,6 +103,7 @@ impl ToolContext {
             tasks: None,
             user_input_tx: None,
             user_input_rx: None,
+            progress_tx: None,
             working_dir: None,
             sub_agent_runner: None,
             mcp_resources: None,
@@ -111,6 +123,7 @@ pub struct ToolResult {
     pub error_type: Option<ToolErrorType>,
     pub recoverable: bool,
     pub suggestion: Option<String>,
+    pub metadata: Option<Value>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -133,6 +146,18 @@ impl ToolResult {
             error_type: None,
             recoverable: false,
             suggestion: None,
+            metadata: None,
+        }
+    }
+
+    pub fn success_with_metadata(content: String, metadata: Value) -> Self {
+        Self {
+            content,
+            is_error: false,
+            error_type: None,
+            recoverable: false,
+            suggestion: None,
+            metadata: Some(metadata),
         }
     }
 
@@ -143,6 +168,7 @@ impl ToolResult {
             error_type: Some(ToolErrorType::Execution),
             recoverable: false,
             suggestion: None,
+            metadata: None,
         }
     }
 
@@ -158,6 +184,7 @@ impl ToolResult {
             error_type: Some(error_type),
             recoverable,
             suggestion,
+            metadata: None,
         }
     }
 }
@@ -188,6 +215,17 @@ pub trait Tool: Send + Sync {
     fn description(&self) -> &str;
     fn parameters_schema(&self) -> Value;
     
+    /// User-facing name for the tool (e.g. "Bash" for "bash").
+    fn user_facing_name(&self) -> &str {
+        self.name()
+    }
+
+    /// Short description of what the tool is doing with the given params.
+    /// Used for progress display (e.g. "Reading Cargo.toml").
+    fn activity_description(&self, _params: &Value) -> String {
+        format!("Executing {}", self.name())
+    }
+
     /// Get tool capabilities
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities::default()

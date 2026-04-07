@@ -2,33 +2,34 @@ pub mod agent;
 pub mod ask_user;
 pub mod bash;
 pub mod batch;
+pub mod common;
 pub mod cron;
 pub mod edit_file;
 pub mod file_diff;
 pub mod git_commit;
-mod git_diff;
-mod git_log;
-mod git_status;
-mod glob;
-mod grep;
-mod hypothesis;
-mod ls;
+pub mod git_diff;
+pub mod git_log;
+pub mod git_status;
+pub mod glob;
+pub mod grep;
+pub mod hypothesis;
+pub mod ls;
 pub mod lsp;
 pub mod mcp_resources;
 pub mod memory;
 pub mod multi_edit;
 pub mod notebook_edit;
 pub mod plan_mode;
-mod project_map;
-mod read_file;
+pub mod project_map;
+pub mod read_file;
 pub mod skill;
-mod test_runner;
+pub mod test_runner;
 pub mod todo;
 pub mod tool_search;
 pub mod web_fetch;
 pub mod web_search;
 pub mod worktree;
-mod write_file;
+pub mod write_file;
 
 pub use bash::BashTool;
 pub use edit_file::EditFileTool;
@@ -47,7 +48,6 @@ pub use test_runner::TestRunnerTool;
 pub use write_file::WriteFileTool;
 
 use std::sync::Arc;
-
 use tokio::sync::Mutex;
 
 use crate::registry::ToolRegistry;
@@ -78,6 +78,13 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     registry.register(Arc::new(agent::AgentTool));
     registry.register(Arc::new(plan_mode::EnterPlanModeTool));
     registry.register(Arc::new(plan_mode::ExitPlanModeTool));
+    registry.register(Arc::new(project_map::ProjectMapTool));
+    registry.register(Arc::new(hypothesis::HypothesisTool));
+    registry.register(Arc::new(file_diff::FileDiffTool));
+    registry.register(Arc::new(git_commit::GitCommitTool));
+    registry.register(Arc::new(git_diff::GitDiffTool));
+    registry.register(Arc::new(git_log::GitLogTool));
+    registry.register(Arc::new(git_status::GitStatusTool));
 }
 
 /// Register the skill tool with the given skill store.
