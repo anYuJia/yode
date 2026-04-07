@@ -110,8 +110,8 @@ fn render_conversation(ctx: &CommandContext) -> String {
         let role_label = match &entry.role {
             ChatRole::User => "User",
             ChatRole::Assistant => "Assistant",
-            ChatRole::ToolCall { name } => &format!("[Tool: {}]", name),
-            ChatRole::ToolResult { name, is_error } => {
+            ChatRole::ToolCall { name, .. } => &format!("[Tool: {}]", name),
+            ChatRole::ToolResult { name, is_error, .. } => {
                 if *is_error {
                     &format!("[Tool Error: {}]", name)
                 } else {

@@ -40,7 +40,7 @@ impl Command for BugCommand {
                     ChatRole::User => "User",
                     ChatRole::Assistant => "Assistant",
                     ChatRole::System => "System",
-                    ChatRole::ToolCall { name } => {
+                    ChatRole::ToolCall { name, .. } => {
                         return format!("  ToolCall({}): ...", name)
                     }
                     ChatRole::ToolResult { name, .. } => {

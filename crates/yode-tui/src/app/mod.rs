@@ -6,8 +6,9 @@ pub mod wizard;
 
 use std::collections::HashMap;
 use std::io::{self, Write as IoWrite};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
+use regex::Regex;
 
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyModifiers, EnableBracketedPaste, DisableBracketedPaste};
@@ -39,6 +40,19 @@ use self::completion::{CommandCompletion, FileCompletion};
 use self::history::{BrowseResult, HistoryState};
 use crate::app::input::InputState;
 
+// ── Content Filtering ───────────────────────────────────────────────
+
+static TAG_RE: LazyLock<Regex> = LazyLock::new(|| {
+    // Aggressive catch-all for anything looking like tool usage: [tool_use ... { ... }] or similar variations.
+    // Handles malformed JSON, extra quotes, colons, or different bracket types used by DashScope.
+    Regex::new(r"(?s)\[DUMMY_TOOL_RESULT\]|\[tool_use\s+[^\]>]+[\]>](?:\s*[:]\s*)?\{.*?\}[\s\]>]*|\[tool_result\s+[^\]>]+[\]>](?:\s*[:]\s*)?\{.*?\}[\s\]>]*|\[tool_(?:use|result)\s+[^\]>]+[\]>]").unwrap()
+});
+
+/// Strips internal protocol tags from assistant text output.
+fn strip_internal_tags(text: &str) -> String {
+    TAG_RE.replace_all(text, "").to_string()
+}
+
 // ── Types ───────────────────────────────────────────────────────────
 
 /// A pending tool confirmation.
@@ -61,6 +75,8 @@ pub struct ChatEntry {
     pub already_printed: bool,
     /// Elapsed time for tool calls (set on ToolResult when matched to ToolCallStart).
     pub duration: Option<Duration>,
+    /// Tool execution progress (optional).
+    pub progress: Option<yode_tools::tool::ToolProgress>,
 }
 
 impl ChatEntry {
@@ -72,6 +88,7 @@ impl ChatEntry {
             timestamp: Instant::now(),
             already_printed: false,
             duration: None,
+            progress: None,
         }
     }
 
@@ -83,17 +100,17 @@ impl ChatEntry {
             timestamp: Instant::now(),
             already_printed: false,
             duration: None,
+            progress: None,
         }
     }
 }
-
 /// Role for display purposes.
 #[derive(Debug, Clone)]
 pub enum ChatRole {
     User,
     Assistant,
-    ToolCall { name: String },
-    ToolResult { name: String, is_error: bool },
+    ToolCall { id: String, name: String },
+    ToolResult { id: String, name: String, is_error: bool },
     Error,
     System,
     SubAgentCall { description: String },
@@ -264,6 +281,8 @@ pub struct App {
     /// Current streaming text buffer (assistant response being streamed).
     pub streaming_buf: String,
     pub streaming_reasoning: String,
+    /// Partial tag buffer to handle split SSE chunks (e.g. "[tool_u" ... "se]")
+    pub streaming_tag_buf: String,
     /// How many lines of streaming_buf have already been printed to scrollback.
     pub streaming_printed_lines: usize,
     /// Whether we're inside a code block during streaming.
@@ -388,6 +407,7 @@ impl App {
             printed_count: 0,
             streaming_buf: String::new(),
             streaming_reasoning: String::new(),
+            streaming_tag_buf: String::new(),
             streaming_printed_lines: 0,
             streaming_in_code_block: false,
             streaming_remainder: None,
@@ -1578,11 +1598,73 @@ fn handle_engine_event(
             }
         }
         EngineEvent::TextDelta(delta) => {
-            // TextDelta goes directly to streaming buffer.
-            // Fallback: Some APIs (like DashScope) may return thinking content
-            // inside <thinking> tags in text instead of separate ReasoningDelta.
-            // We detect and extract these tags for proper separation.
-            let mut s = delta.as_str();
+            // 1. Combine with any partial tags
+            app.streaming_tag_buf.push_str(&delta);
+            
+            // 2. Heuristic Check: Are we currently inside a tag?
+            // Aggressively trigger on anything looking like a tool usage protocol.
+            let triggers = ["[tool_use", "[tool_result", "[DUMMY_TOOL", "tool_use id=", "name=bash"];
+            
+            loop {
+                let current = app.streaming_tag_buf.clone();
+                let mut found_trigger = false;
+                let mut trigger_pos = 0;
+
+                for &t in &triggers {
+                    if let Some(pos) = current.find(t) {
+                        if !found_trigger || pos < trigger_pos {
+                            found_trigger = true;
+                            trigger_pos = pos;
+                        }
+                    }
+                }
+
+                if found_trigger {
+                    // We found a tag start. Move everything before it to the streaming buffer.
+                    if trigger_pos > 0 {
+                        app.streaming_buf.push_str(&current[..trigger_pos]);
+                        app.streaming_tag_buf = current[trigger_pos..].to_string();
+                    }
+                    
+                    // Now try to see if the tag is complete in the buffer
+                    if let Some(m) = TAG_RE.find(&app.streaming_tag_buf) {
+                        // Complete tag found! Remove it and continue searching the rest of the buffer.
+                        let tag_len = m.end();
+                        app.streaming_tag_buf = app.streaming_tag_buf[tag_len..].to_string();
+                        // Continue loop to check for more tags in the remaining buffer
+                        continue;
+                    } else {
+                        // Tag is incomplete — STOP processing and wait for more deltas
+                        return;
+                    }
+                } else {
+                    // No triggers found. BUT the buffer might end with a partial trigger (e.g. "[tool_")
+                    // We check if the last few characters could be the start of a trigger.
+                    let last_bracket = current.rfind('[');
+                    if let Some(pos) = last_bracket {
+                        let potential = &current[pos..];
+                        if triggers.iter().any(|&t| t.starts_with(potential)) {
+                            // Possible partial trigger at the end — wait.
+                            app.streaming_buf.push_str(&current[..pos]);
+                            app.streaming_tag_buf = potential.to_string();
+                            break;
+                        }
+                    }
+                    
+                    // Safe to release the whole buffer
+                    app.streaming_buf.push_str(&current);
+                    app.streaming_tag_buf.clear();
+                    break;
+                }
+            }
+
+            if app.streaming_buf.is_empty() {
+                return;
+            }
+
+            // --- Existing Thinking Tag Logic ---
+            let s_content = std::mem::take(&mut app.streaming_buf);
+            let mut s = s_content.as_str();
 
             // Check for thinking tags (case-insensitive)
             while let Some(start) = find_case_insensitive(s, "<thinking>") {
@@ -1605,8 +1687,6 @@ fn handle_engine_event(
                     s = "";
                 }
             }
-
-            // Push any remaining text
             if !s.is_empty() {
                 app.streaming_buf.push_str(s);
             }
@@ -1645,41 +1725,37 @@ fn handle_engine_event(
                 return;
             }
 
-            // Check if this is a re-send with full args (engine sends again
-            // for auto-allowed tools after args are accumulated in streaming).
-            let existing = app.chat_entries.iter_mut().rev().take(5).find(|e| {
-                matches!(&e.role, ChatRole::ToolCall { name: n } if n == &name)
-                    && e.content.is_empty()
+            // --- Fix Duplicates via ID Matching ---
+            let existing = app.chat_entries.iter_mut().rev().take(10).find(|e| {
+                matches!(&e.role, ChatRole::ToolCall { id: ref eid, .. } if eid == &id)
             });
+
             if let Some(entry) = existing {
                 // Update existing entry with full arguments
                 entry.content = arguments;
-            } else if !app.chat_entries.iter().rev().take(3).any(|e| {
-                matches!(&e.role, ChatRole::ToolCall { name: n } if n == &name)
-                    && !e.content.is_empty()
-            }) {
+            } else {
                 // New tool call — create entry
                 app.session.tool_call_count += 1;
-                app.tool_call_starts.insert(id, Instant::now());
+                app.tool_call_starts.insert(id.clone(), Instant::now());
                 app.chat_entries.push(ChatEntry::new(
-                    ChatRole::ToolCall { name },
+                    ChatRole::ToolCall { id, name },
                     arguments,
                 ));
             }
         }
         EngineEvent::ToolConfirmRequired { id, name, arguments } => {
-            // Update the existing ToolCall entry with full arguments (streaming
-            // initially sends empty args), or create if somehow missing.
-            let existing = app.chat_entries.iter_mut().rev().take(5).find(|e| {
-                matches!(&e.role, ChatRole::ToolCall { name: n } if n == &name)
+            // Update the existing ToolCall entry with full arguments
+            let existing = app.chat_entries.iter_mut().rev().take(10).find(|e| {
+                matches!(&e.role, ChatRole::ToolCall { id: ref eid, .. } if eid == &id)
             });
+
             if let Some(entry) = existing {
                 if entry.content.is_empty() {
                     entry.content = arguments.clone();
                 }
             } else {
                 app.chat_entries.push(ChatEntry::new(
-                    ChatRole::ToolCall { name: name.clone() },
+                    ChatRole::ToolCall { id: id.clone(), name: name.clone() },
                     arguments.clone(),
                 ));
             }
@@ -1695,10 +1771,19 @@ fn handle_engine_event(
                 app.confirm_selected = 0;
             }
         }
+        EngineEvent::ToolProgress { id, name: _, progress } => {
+            // Find the exact ToolCall entry by ID
+            let existing = app.chat_entries.iter_mut().rev().take(15).find(|e| {
+                matches!(&e.role, ChatRole::ToolCall { id: ref eid, .. } if eid == &id)
+            });
+            if let Some(entry) = existing {
+                entry.progress = Some(progress);
+            }
+        }
         EngineEvent::ToolResult { id, name, result } => {
             let duration = app.tool_call_starts.remove(&id).map(|start| start.elapsed());
             let mut entry = ChatEntry::new(
-                ChatRole::ToolResult { name, is_error: result.is_error },
+                ChatRole::ToolResult { id, name, is_error: result.is_error },
                 result.content,
             );
             entry.duration = duration;
@@ -1766,10 +1851,10 @@ fn handle_engine_event(
                 delay_secs,
             };
         }
-        EngineEvent::AskUser { id: _, question } => {
+        EngineEvent::AskUser { id, question } => {
             finalize_streaming(app);
             app.chat_entries.push(ChatEntry::new(
-                ChatRole::System,
+                ChatRole::AskUser { id },
                 format!("❓ {}", question),
             ));
             // The ask_user tool will block waiting for a response via the
@@ -1987,8 +2072,12 @@ fn reload_provider_from_config(name: &str, app: &mut App) {
 /// Move streaming_buf content into a ChatEntry and reset streaming state.
 /// Save any unprinted remainder for flush to output.
 fn finalize_streaming(app: &mut App) {
-    if !app.streaming_buf.is_empty() || !app.streaming_reasoning.is_empty() {
-        let content = std::mem::take(&mut app.streaming_buf);
+    if !app.streaming_buf.is_empty() || !app.streaming_reasoning.is_empty() || !app.streaming_tag_buf.is_empty() {
+        let mut content_raw = std::mem::take(&mut app.streaming_buf);
+        // Combine with any remaining partial tags
+        content_raw.push_str(&std::mem::take(&mut app.streaming_tag_buf));
+        
+        let content = strip_internal_tags(&content_raw);
         let reasoning = if app.streaming_reasoning.is_empty() {
             None
         } else {
@@ -2291,10 +2380,10 @@ fn flush_entries_to_scrollback(
 
         // Defer ToolCall until its ToolResult is available, so the inline
         // result + timing display works correctly in scrollback.
-        if let ChatRole::ToolCall { ref name } = entry.role {
-            let tool_name = name.clone();
+        if let ChatRole::ToolCall { id: ref tid, .. } = entry.role {
+            let tool_id = tid.clone();
             let has_result = app.chat_entries[app.printed_count + 1..].iter().any(|e| {
-                matches!(&e.role, ChatRole::ToolResult { name: ref n, .. } if *n == tool_name)
+                matches!(&e.role, ChatRole::ToolResult { id: ref eid, .. } if eid == &tool_id)
             });
             if !has_result {
                 break; // Wait for result before printing
@@ -2397,11 +2486,11 @@ fn format_entry_as_strings(
                 }
             }
         }
-        ChatRole::ToolCall { name } => {
+        ChatRole::ToolCall { id: ref tid, ref name } => {
             let args: serde_json::Value = serde_json::from_str(&entry.content).unwrap_or_default();
 
             let tool_result = all_entries[index + 1..].iter().find(|e| {
-                matches!(&e.role, ChatRole::ToolResult { name: n, .. } if n == name)
+                matches!(&e.role, ChatRole::ToolResult { id: ref eid, .. } if eid == tid)
             });
 
             // Format timing suffix from the matching ToolResult's duration
@@ -2515,11 +2604,9 @@ fn format_entry_as_strings(
                 }
             }
         }
-        ChatRole::ToolResult { .. } => {
+        ChatRole::ToolResult { id: ref rid, .. } => {
             let has_preceding = index > 0 && all_entries[..index].iter().rev().any(|e| {
-                matches!(&e.role, ChatRole::ToolCall { name: n } if {
-                    if let ChatRole::ToolResult { name: rn, .. } = &entry.role { n == rn } else { false }
-                })
+                matches!(&e.role, ChatRole::ToolCall { id: ref tid, .. } if tid == rid)
             });
             if !has_preceding {
                 result.push((format!("  ⎿ {}", entry.content.lines().next().unwrap_or("")), dim));

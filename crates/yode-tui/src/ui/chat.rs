@@ -52,20 +52,18 @@ pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
         match &entry.role {
             ChatRole::User => render_user(&mut lines, entry),
             ChatRole::Assistant => render_assistant(&mut lines, entry),
-            ChatRole::ToolCall { name } => {
-                // Find matching ToolResult (next entry with same tool name)
+            ChatRole::ToolCall { id, name } => {
+                // Find matching ToolResult (next entry with same ID)
                 let result_entry = entries[i + 1..].iter().find(|e| {
-                    matches!(&e.role, ChatRole::ToolResult { name: n, .. } if n == name)
+                    matches!(&e.role, ChatRole::ToolResult { id: eid, .. } if eid == id)
                 });
                 render_tool_call(&mut lines, name, &entry.content, result_entry);
             }
-            ChatRole::ToolResult { .. } => {
+            ChatRole::ToolResult { id, .. } => {
                 // Already rendered as part of ToolCall above — skip standalone
                 // But if there was no preceding ToolCall, render it
                 let has_preceding_call = i > 0 && entries[..i].iter().rev().any(|e| {
-                    matches!(&e.role, ChatRole::ToolCall { name: n } if {
-                        if let ChatRole::ToolResult { name: rn, .. } = &entry.role { n == rn } else { false }
-                    })
+                    matches!(&e.role, ChatRole::ToolCall { id: tid, .. } if tid == id)
                 });
                 if !has_preceding_call {
                     render_standalone_result(&mut lines, entry);
@@ -362,7 +360,7 @@ fn render_edit_content(
 
 // ── Standalone tool result (no preceding ToolCall) ──────────────────
 pub fn render_standalone_result(lines: &mut Vec<Line<'static>>, entry: &ChatEntry) {
-    if let ChatRole::ToolResult { name, is_error } = &entry.role {
+    if let ChatRole::ToolResult { name, is_error, .. } = &entry.role {
         let color = if *is_error { RED } else { DIM };
         lines.push(Line::from(vec![
             Span::styled("  ⎿ ", Style::default().fg(ACCENT)),
