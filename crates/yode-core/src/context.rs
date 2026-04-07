@@ -47,6 +47,8 @@ pub struct AgentContext {
     pub is_resumed: bool,
     /// Effort level for the session
     pub effort: EffortLevel,
+    /// Output style: "default", "explanatory", "learning"
+    pub output_style: String,
 }
 
 impl AgentContext {
@@ -58,6 +60,7 @@ impl AgentContext {
             provider,
             is_resumed: false,
             effort: EffortLevel::Medium,
+            output_style: "default".to_string(),
         }
     }
 
@@ -70,6 +73,7 @@ impl AgentContext {
             provider,
             is_resumed: true,
             effort: EffortLevel::Medium,
+            output_style: "default".to_string(),
         }
     }
 }

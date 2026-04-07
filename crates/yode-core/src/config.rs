@@ -57,6 +57,13 @@ pub struct SessionConfig {
 pub struct UiConfig {
     pub language: String,
     pub theme: String,
+    /// Output style for AI responses: "default", "explanatory", "learning"
+    #[serde(default = "default_output_style")]
+    pub output_style: String,
+}
+
+fn default_output_style() -> String {
+    "default".to_string()
 }
 
 // ─── Permission Config ──────────────────────────────────────────────────────

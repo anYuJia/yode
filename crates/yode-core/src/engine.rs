@@ -307,13 +307,32 @@ impl AgentEngine {
             }
         }
 
-        // Try to load project-level YODE.md override
-        let yode_md = context.working_dir.join("YODE.md");
-        if yode_md.exists() {
-            if let Ok(override_prompt) = std::fs::read_to_string(&yode_md) {
-                system_prompt.push_str("\n\n# Project-specific instructions\n\n");
-                system_prompt.push_str(&override_prompt);
-                info!("Loaded project YODE.md from {}", yode_md.display());
+        // Try to load project-level documentation (YODE.md, CLAUDE.md, etc.)
+        system_prompt.push_str(&AgentEngine::get_project_docs_static(&context.working_dir));
+
+        // Inject memory files if they exist
+        if let Some(memory_content) = AgentEngine::get_memory_files_static(&context.working_dir) {
+            system_prompt.push_str("\n\n");
+            system_prompt.push_str(&memory_content);
+        }
+
+        // Inject output style instructions if not default
+        if context.output_style != "default" {
+            system_prompt.push_str("\n\n# Output Style\n\n");
+            match context.output_style.as_str() {
+                "explanatory" => {
+                    system_prompt.push_str("You are in **Explanatory Mode**. Before and after writing code, provide brief educational insights about implementation choices.\n");
+                    system_prompt.push_str("Include 2-3 key educational points explaining WHY you chose this approach.\n");
+                    system_prompt.push_str("These insights should be in the conversation, not in the codebase.\n");
+                }
+                "learning" => {
+                    system_prompt.push_str("You are in **Learning Mode**. Help the user learn through hands-on practice.\n");
+                    system_prompt.push_str("- Request user input for meaningful design decisions\n");
+                    system_prompt.push_str("- Ask the user to write small code pieces (2-10 lines) for key decisions\n");
+                    system_prompt.push_str("- Frame contributions as valuable design decisions, not busy work\n");
+                    system_prompt.push_str("- Wait for user implementation before proceeding\n");
+                }
+                _ => {}
             }
         }
 
@@ -402,6 +421,35 @@ impl AgentEngine {
             }
         }
 
+        // Inject project-level documentation (YODE.md, CLAUDE.md, etc.)
+        system_prompt.push_str(&AgentEngine::get_project_docs_static(&self.context.working_dir));
+
+        // Inject memory files if they exist
+        if let Some(memory_content) = AgentEngine::get_memory_files_static(&self.context.working_dir) {
+            system_prompt.push_str("\n\n");
+            system_prompt.push_str(&memory_content);
+        }
+
+        // Inject output style instructions if not default
+        if self.context.output_style != "default" {
+            system_prompt.push_str("\n\n# Output Style\n\n");
+            match self.context.output_style.as_str() {
+                "explanatory" => {
+                    system_prompt.push_str("You are in **Explanatory Mode**. Before and after writing code, provide brief educational insights about implementation choices.\n");
+                    system_prompt.push_str("Include 2-3 key educational points explaining WHY you chose this approach.\n");
+                    system_prompt.push_str("These insights should be in the conversation, not in the codebase.\n");
+                }
+                "learning" => {
+                    system_prompt.push_str("You are in **Learning Mode**. Help the user learn through hands-on practice.\n");
+                    system_prompt.push_str("- Request user input for meaningful design decisions\n");
+                    system_prompt.push_str("- Ask the user to write small code pieces (2-10 lines) for key decisions\n");
+                    system_prompt.push_str("- Frame contributions as valuable design decisions, not busy work\n");
+                    system_prompt.push_str("- Wait for user implementation before proceeding\n");
+                }
+                _ => {}
+            }
+        }
+
         self.system_prompt = system_prompt.clone();
 
         // Update the system message in conversation history
@@ -452,6 +500,77 @@ impl AgentEngine {
             worktree_state: None,
             plan_mode: None,
         }
+    }
+
+    /// Get project documentation (YODE.md, CLAUDE.md, etc.)
+    fn get_project_docs_static(project_root: &std::path::Path) -> String {
+        let mut docs = Vec::new();
+
+        // Check for project-specific instruction files in priority order
+        let doc_patterns = [
+            "YODE.md",
+            "CLAUDE.md",
+            "GEMINI.md",
+            "AGENTS.md",
+            ".yode/instructions.md",
+            "docs/YODE.md",
+            "docs/CLAUDE.md",
+        ];
+
+        for pattern in &doc_patterns {
+            let path = project_root.join(pattern);
+            if path.exists() {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    docs.push(format!("## From: {}\n\n{}", pattern, content));
+                    info!("Loaded project documentation: {}", path.display());
+                }
+            }
+        }
+
+        if docs.is_empty() {
+            return String::new();
+        }
+
+        let mut result = String::new();
+        result.push_str("\n\n# Project Documentation\n\n");
+        result.push_str("The following instructions are from project documentation files.\n\n");
+        result.push_str(&docs.join("\n\n"));
+        result
+    }
+
+    /// Get memory files content if they exist
+    fn get_memory_files_static(project_root: &std::path::Path) -> Option<String> {
+        let memory_dir = project_root.join("memory");
+        if !memory_dir.exists() {
+            return None;
+        }
+
+        let mut memory_contents = Vec::new();
+
+        if let Ok(entries) = std::fs::read_dir(&memory_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|s| s.to_str()) == Some("md") {
+                    if let Ok(content) = std::fs::read_to_string(&path) {
+                        let file_name = path.file_name()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("unknown");
+                        memory_contents.push(format!("## {}\n\n{}", file_name, content));
+                        info!("Loaded memory file: {}", path.display());
+                    }
+                }
+            }
+        }
+
+        if memory_contents.is_empty() {
+            return None;
+        }
+
+        let mut result = String::new();
+        result.push_str("# User Memory\n\n");
+        result.push_str("The following are user memory notes for this project.\n\n");
+        result.push_str(&memory_contents.join("\n\n"));
+        Some(result)
     }
 
     /// Get the current message history.
