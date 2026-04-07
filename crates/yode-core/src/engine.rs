@@ -1,3 +1,4 @@
+use regex::Regex;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -130,6 +131,12 @@ pub enum EngineEvent {
         name: String,
         arguments: String,
     },
+    /// Progress update from a tool
+    ToolProgress {
+        id: String,
+        name: String,
+        progress: yode_tools::tool::ToolProgress,
+    },
     /// Tool execution result
     ToolResult {
         id: String,
@@ -231,6 +238,8 @@ pub struct AgentEngine {
     files_read: std::collections::HashMap<String, usize>,
     /// Files the agent has modified in this turn.
     files_modified: Vec<String>,
+    /// Whether the engine is in plan mode.
+    plan_mode: Arc<Mutex<bool>>,
 }
 
 /// Convert yode-tools ToolDefinition to yode-llm ToolDefinition.
@@ -265,6 +274,7 @@ fn truncate_tool_result(result: ToolResult) -> ToolResult {
             error_type: result.error_type,
             recoverable: result.recoverable,
             suggestion: result.suggestion,
+            metadata: result.metadata,
         }
     } else {
         result
@@ -361,6 +371,7 @@ impl AgentEngine {
             hook_manager: None,
             files_read: std::collections::HashMap::new(),
             files_modified: Vec::new(),
+            plan_mode: Arc::new(Mutex::new(false)),
         }
     }
 
@@ -486,19 +497,23 @@ impl AgentEngine {
     }
 
     /// Build a ToolContext with access to shared resources.
-    fn build_tool_context(&self) -> ToolContext {
+    fn build_tool_context(
+        &self,
+        progress_tx: Option<mpsc::UnboundedSender<yode_tools::tool::ToolProgress>>,
+    ) -> ToolContext {
         ToolContext {
             registry: Some(Arc::clone(&self.tools)),
             tasks: Some(Arc::clone(&self.task_store)),
             user_input_tx: self.ask_user_tx.clone(),
             user_input_rx: self.ask_user_rx.clone(),
+            progress_tx,
             working_dir: Some(self.context.working_dir.clone()),
             sub_agent_runner: None,
             mcp_resources: None,
             cron_manager: None,
             lsp_manager: None,
             worktree_state: None,
-            plan_mode: None,
+            plan_mode: Some(Arc::clone(&self.plan_mode)),
         }
     }
 
@@ -690,8 +705,14 @@ impl AgentEngine {
                 response.message.tool_calls.len()
             );
 
-            // Add assistant message to history
-            self.messages.push(response.message.clone());
+            // Add assistant message to history (with tag cleaning)
+            let mut assistant_msg = response.message.clone();
+            if let Some(ref content) = assistant_msg.content {
+                if content.contains("[tool_use") || content.contains("[DUMMY_TOOL") {
+                    assistant_msg.content = Some(self.clean_assistant_response(content));
+                }
+            }
+            self.messages.push(assistant_msg.clone());
 
             // Persist assistant message
             let tc_json = if !response.message.tool_calls.is_empty() {
@@ -701,8 +722,8 @@ impl AgentEngine {
             };
             self.persist_message(
                 "assistant",
-                response.message.content.as_deref(),
-                response.message.reasoning.as_deref(),
+                assistant_msg.content.as_deref(),
+                assistant_msg.reasoning.as_deref(),
                 tc_json.as_deref(),
                 None,
             );
@@ -721,6 +742,7 @@ impl AgentEngine {
 
                 // Process parallel results
                 for (tc, result) in &parallel_results {
+                    self.track_file_access(&tc.name, result);
                     let mut result = truncate_tool_result(result.clone());
 
                     self.inject_intelligence(&mut result, &tc.name, &tc.arguments);
@@ -741,6 +763,7 @@ impl AgentEngine {
                         .handle_tool_call(tool_call, &event_tx, &mut confirm_rx)
                         .await?;
 
+                    self.track_file_access(&tool_call.name, &result);
                     let mut result = truncate_tool_result(result);
 
                     self.inject_intelligence(&mut result, &tool_call.name, &tool_call.arguments);
@@ -1143,6 +1166,7 @@ impl AgentEngine {
                     let parallel_results = self.execute_tools_parallel(&parallel, &event_tx).await;
 
                     for (tc, result) in parallel_results {
+                        self.track_file_access(&tc.name, &result);
                         let mut result = truncate_tool_result(result);
 
                         self.tool_call_count += 1;
@@ -1202,6 +1226,13 @@ impl AgentEngine {
                 }
                 if resp.message.reasoning.is_none() && !full_reasoning.is_empty() {
                     resp.message.reasoning = Some(full_reasoning.clone());
+                }
+
+                // Clean tags from final message before history/persistence
+                if let Some(ref content) = resp.message.content {
+                    if content.contains("[tool_use") || content.contains("[DUMMY_TOOL") {
+                        resp.message.content = Some(self.clean_assistant_response(content));
+                    }
                 }
 
                 self.messages.push(resp.message.clone());
@@ -1546,7 +1577,21 @@ impl AgentEngine {
 
             info!("Executing tool in parallel: {} (auto-allowed, read-only)", tc.name);
 
-            let ctx = self.build_tool_context();
+            let (p_tx, mut p_rx) = mpsc::unbounded_channel::<yode_tools::tool::ToolProgress>();
+            let event_tx_inner = event_tx.clone();
+            let tc_id = tc.id.clone();
+            let tc_name = tc.name.clone();
+            tokio::spawn(async move {
+                while let Some(progress) = p_rx.recv().await {
+                    let _ = event_tx_inner.send(EngineEvent::ToolProgress {
+                        id: tc_id.clone(),
+                        name: tc_name.clone(),
+                        progress,
+                    });
+                }
+            });
+
+            let ctx = self.build_tool_context(Some(p_tx));
             let tool_name = tc.name.clone();
             let tc_clone = tc.clone();
 
@@ -1575,6 +1620,33 @@ impl AgentEngine {
         }
 
         join_all(futures).await
+    }
+
+    /// Tracks file read/modified status from tool results.
+    fn track_file_access(&mut self, tool_name: &str, result: &ToolResult) {
+        if result.is_error {
+            return;
+        }
+        if let Some(ref metadata) = result.metadata {
+            if let Some(file_path) = metadata.get("file_path").and_then(|v| v.as_str()) {
+                match tool_name {
+                    "read_file" => {
+                        let lines = metadata.get("total_lines").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                        self.files_read.insert(file_path.to_string(), lines);
+                    }
+                    "edit_file" | "write_file" | "multi_edit" | "notebook_edit" => {
+                        self.files_modified.push(file_path.to_string());
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    /// Cleans hallucinated protocol tags from LLM text response.
+    fn clean_assistant_response(&self, text: &str) -> String {
+        let re = Regex::new(r"(?s)\[DUMMY_TOOL_RESULT\]|\[tool_use\s+[^\]>]+[\]>](?:\s*[:]\s*)?\{.*?\}[\s\]>]*|\[tool_result\s+[^\]>]+[\]>](?:\s*[:]\s*)?\{.*?\}[\s\]>]*|\[tool_(?:use|result)\s+[^\]>]+[\]>]").unwrap();
+        re.replace_all(text, "").to_string()
     }
 
     /// Handle a single tool call, including permission checks, dedup detection, and timing.
@@ -1615,11 +1687,61 @@ impl AgentEngine {
         } else {
             None
         };
+
+        // --- Tool Chain Validation ---
+        if tool_call.name == "edit_file" || tool_call.name == "write_file" {
+            if let Some(file_path) = params.get("file_path").and_then(|v| v.as_str()) {
+                if !self.files_read.contains_key(file_path) {
+                    return Ok(ToolResult::error_typed(
+                        format!("You must read the file '{}' with read_file before editing or overwriting it.", file_path),
+                        ToolErrorType::Validation,
+                        true,
+                        Some(format!("Call read_file(file_path=\"{}\") first.", file_path)),
+                    ));
+                }
+            }
+        }
+
         let action = self.permissions.check_with_content(&tool_call.name, command_content.as_deref());
 
         // For bash: additional security check via command classifier
         if tool_call.name == "bash" {
             if let Some(ref cmd) = command_content {
+                // --- Deep Strategy Enforcement: Prefer dedicated tools over bash ---
+                let cmd_lower = cmd.to_lowercase();
+                // Check for forbidden commands even if they are part of a chain (e.g. cd .. && find)
+                let forbidden_binaries = ["find", "grep", "rg", "ag", "ack"];
+                let is_forbidden = forbidden_binaries.iter().any(|&bin| {
+                    // Match word boundary: find, /usr/bin/find, etc. but not "find_me"
+                    let pattern = format!(r"(\s|^|&&|;|\|){}(\s|$)", bin);
+                    if let Ok(re) = Regex::new(&pattern) {
+                        re.is_match(&cmd_lower)
+                    } else {
+                        false
+                    }
+                });
+
+                let is_recursive_ls = cmd_lower.contains("ls ") && (cmd_lower.contains("-r") || cmd_lower.contains("-lar"));
+
+                if is_forbidden || is_recursive_ls {
+                    let (cmd_name, alternative) = if is_forbidden {
+                        let matched = forbidden_binaries.iter().find(|&&b| cmd_lower.contains(b)).unwrap_or(&"search");
+                        (*matched, match *matched {
+                            "find" => "glob",
+                            _ => "grep",
+                        })
+                    } else {
+                        ("ls -R", "ls (without -R) or project_map")
+                    };
+
+                    return Ok(ToolResult::error_typed(
+                        format!("Command blocked: Use the dedicated '{}' tool instead of running '{}' via bash.", alternative, cmd_name),
+                        ToolErrorType::Validation,
+                        true,
+                        Some(format!("Running search/discovery via bash is inefficient. Use the '{}' tool for better results and TUI display.", alternative)),
+                    ));
+                }
+
                 match CommandClassifier::classify(cmd) {
                     CommandRiskLevel::Destructive => {
                         return Ok(ToolResult::error_typed(
@@ -1680,15 +1802,20 @@ impl AgentEngine {
 
         // Dedup detection: warn if same tool+args was called recently
         let call_sig = (tool_call.name.clone(), tool_call.arguments.clone());
-        if self.recent_tool_calls.contains(&call_sig) {
+        
+        // Allow repetition for observer tools (ls, git_status, etc.)
+        let is_observer_tool = ["ls", "git_status", "git_diff", "git_log", "project_map", "todo"].contains(&tool_call.name.as_str());
+
+        if self.recent_tool_calls.contains(&call_sig) && !is_observer_tool {
             return Ok(ToolResult::error_typed(
                 format!(
-                    "Duplicate tool call detected: {} was called with identical arguments. Change your approach instead of repeating the same call.",
+                    "Duplicate tool call detected: {} was called with identical arguments recently. \
+                     If you are stuck, try a different approach, search for more information, or summarize your progress.",
                     tool_call.name
                 ),
                 ToolErrorType::Validation,
                 true,
-                Some("Try different parameters, a different tool, or summarize what you know so far.".to_string()),
+                None,
             ));
         }
         self.recent_tool_calls.push(call_sig);
@@ -1723,7 +1850,21 @@ impl AgentEngine {
             }
         }
 
-        let ctx = self.build_tool_context();
+        let (p_tx, mut p_rx) = mpsc::unbounded_channel::<yode_tools::tool::ToolProgress>();
+        let event_tx_inner = event_tx.clone();
+        let tc_id = tool_call.id.clone();
+        let tc_name = tool_call.name.clone();
+        tokio::spawn(async move {
+            while let Some(progress) = p_rx.recv().await {
+                let _ = event_tx_inner.send(EngineEvent::ToolProgress {
+                    id: tc_id.clone(),
+                    name: tc_name.clone(),
+                    progress,
+                });
+            }
+        });
+
+        let ctx = self.build_tool_context(Some(p_tx));
         let mut result = match tool.execute(params, &ctx).await {
             Ok(result) => result,
             Err(e) => {
@@ -1733,6 +1874,8 @@ impl AgentEngine {
         };
         let elapsed = start_time.elapsed();
         debug!(tool = %tool_call.name, elapsed_ms = elapsed.as_millis() as u64, "Tool execution completed");
+
+        self.track_file_access(&tool_call.name, &result);
 
         // Append recovery suggestion to content so LLM can see it
         if result.is_error {
