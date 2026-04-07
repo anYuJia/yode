@@ -565,6 +565,11 @@ impl LlmProvider for AnthropicProvider {
         let mut model = request.model.clone();
         let mut final_usage = Usage::default();
 
+        // Track state for DashScope non-standard streaming format
+        // DashScope returns thinking as type: "text" instead of type: "thinking" in streaming
+        let mut first_block_text = String::new();
+        let mut first_block_is_thinking = false;
+
         while let Some(event_result) = event_stream.next().await {
             let event = match event_result {
                 Ok(ev) => ev,
@@ -603,12 +608,18 @@ impl LlmProvider for AnthropicProvider {
                     content_block,
                 } => match content_block {
                     ContentBlockStart::Text { text } => {
+                        // Track first block text for DashScope thinking detection
+                        if index == 0 {
+                            first_block_text = text.clone();
+                        }
+
                         content_blocks.insert(index, crate::types::ContentBlock::Text { text: text.clone() });
                         if !text.is_empty() {
                             let _ = tx.send(StreamEvent::TextDelta(text)).await;
                         }
                     }
                     ContentBlockStart::Thinking { thinking, .. } => {
+                        first_block_is_thinking = true;
                         content_blocks.insert(index, crate::types::ContentBlock::Thinking { thinking: thinking.clone(), signature: None });
                         if !thinking.is_empty() {
                             let _ = tx.send(StreamEvent::ReasoningDelta(thinking)).await;
@@ -627,14 +638,56 @@ impl LlmProvider for AnthropicProvider {
                 }
                 AnthropicStreamEvent::ContentBlockDelta { index, delta } => match delta {
                     ContentBlockDelta::TextDelta { text } => {
-                        if let Some(crate::types::ContentBlock::Text { text: t }) = content_blocks.get_mut(&index) {
-                            t.push_str(&text);
+                        // Track first block text for DashScope thinking detection
+                        if index == 0 {
+                            first_block_text.push_str(&text);
                         }
-                        if tx.send(StreamEvent::TextDelta(text)).await.is_err() {
-                            return Ok(());
+
+                        // DashScope non-standard format: Check if first block should be thinking
+                        // DashScope streaming returns type: "text" for thinking content
+                        if index == 0 && !first_block_is_thinking {
+                            // Check if text looks like thinking content
+                            let trimmed = first_block_text.trim();
+                            let is_thinking = trimmed.starts_with("用户")
+                                || trimmed.starts_with("我应该")
+                                || trimmed.starts_with("Thinking")
+                                || trimmed.starts_with("Let me");
+
+                            if is_thinking {
+                                first_block_is_thinking = true;
+                                // Update content block type
+                                content_blocks.insert(index, crate::types::ContentBlock::Thinking {
+                                    thinking: first_block_text.clone(),
+                                    signature: None
+                                });
+                                // Send as ReasoningDelta instead
+                                if tx.send(StreamEvent::ReasoningDelta(text)).await.is_err() {
+                                    return Ok(());
+                                }
+                                continue;
+                            }
+                        }
+
+                        // Normal text delta
+                        if first_block_is_thinking && index == 0 {
+                            // This shouldn't happen, but handle it
+                            if let Some(crate::types::ContentBlock::Thinking { thinking: t, .. }) = content_blocks.get_mut(&index) {
+                                t.push_str(&text);
+                            }
+                            if tx.send(StreamEvent::ReasoningDelta(text)).await.is_err() {
+                                return Ok(());
+                            }
+                        } else {
+                            if let Some(crate::types::ContentBlock::Text { text: t }) = content_blocks.get_mut(&index) {
+                                t.push_str(&text);
+                            }
+                            if tx.send(StreamEvent::TextDelta(text)).await.is_err() {
+                                return Ok(());
+                            }
                         }
                     }
                     ContentBlockDelta::ThinkingDelta { thinking, .. } => {
+                        first_block_is_thinking = true;
                         if let Some(crate::types::ContentBlock::Thinking { thinking: t, .. }) = content_blocks.get_mut(&index) {
                             t.push_str(&thinking);
                         }
