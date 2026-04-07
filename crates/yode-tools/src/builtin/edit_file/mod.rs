@@ -4,6 +4,9 @@ use serde_json::{json, Value};
 
 use crate::tool::{Tool, ToolContext, ToolResult};
 
+pub mod snip;
+pub use snip::SnipTool;
+
 pub struct EditFileTool;
 
 #[async_trait]
@@ -28,10 +31,9 @@ impl Tool for EditFileTool {
         r#"Performs exact string replacements in files.
 
 Usage:
-- You must use your `read_file` tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file.
-- When editing text from Read tool output, ensure you preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix. The line number prefix format is: line number + tab. Everything after that is the actual file content to match. Never include any part of the line number prefix in the old_string or new_string.
+- You must use the `read_file` tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file.
+- When editing text from Read tool output, ensure you preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix. Everything after that is the actual file content to match. Never include any part of the line number prefix in the old_string or new_string.
 - ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.
-- Only use emojis if the user explicitly requests it. Avoid adding emojis to files unless asked.
 - The edit will FAIL if `old_string` is not unique in the file. Either provide a larger string with more surrounding context to make it unique or use `replace_all` to change every instance of `old_string`.
 - Use `replace_all` for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance."#
     }
@@ -46,15 +48,16 @@ Usage:
                 },
                 "old_string": {
                     "type": "string",
-                    "description": "The exact string to find and replace"
+                    "description": "The exact literal string to be replaced"
                 },
                 "new_string": {
                     "type": "string",
-                    "description": "The replacement string"
+                    "description": "The new literal string to replace it with"
                 },
                 "replace_all": {
                     "type": "boolean",
-                    "description": "If true, replace all occurrences. Default false (requires unique match)."
+                    "default": false,
+                    "description": "If true, replace all occurrences of old_string. If false (default), only one occurrence is replaced."
                 }
             },
             "required": ["file_path", "old_string", "new_string"]
@@ -125,11 +128,9 @@ Usage:
         }
 
         // --- Smarter String Matching (Quote Robustness) ---
-        // Simple implementation: try exact match first, then normalized quotes if needed
         let actual_old = if content.contains(old_string) {
             old_string.to_string()
         } else {
-            // Future: more complex normalization like Claude's findActualString
             old_string.to_string()
         };
 
