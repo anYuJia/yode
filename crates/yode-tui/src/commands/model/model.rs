@@ -1,8 +1,8 @@
+use crate::commands::context::CommandContext;
 use crate::commands::{
     ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
     CommandResult,
 };
-use crate::commands::context::CommandContext;
 
 pub struct ModelCommand {
     meta: CommandMeta,
@@ -19,9 +19,7 @@ impl ModelCommand {
                     name: "model".into(),
                     required: false,
                     hint: "model name".into(),
-                    completions: ArgCompletionSource::Dynamic(|ctx| {
-                        ctx.provider_models.to_vec()
-                    }),
+                    completions: ArgCompletionSource::Dynamic(|ctx| ctx.provider_models.to_vec()),
                 }],
                 category: CommandCategory::Model,
                 hidden: false,
@@ -63,7 +61,8 @@ impl Command for ModelCommand {
             if !ctx.provider_models.is_empty() && !ctx.provider_models.contains(&new_model) {
                 Err(format!(
                     "Model '{}' not available for provider '{}'. Available:\n  {}",
-                    new_model, ctx.provider_name,
+                    new_model,
+                    ctx.provider_name,
                     ctx.provider_models.join("\n  ")
                 ))
             } else {

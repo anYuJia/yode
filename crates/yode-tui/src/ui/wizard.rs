@@ -15,7 +15,9 @@ const ERROR_COLOR: Color = Color::LightRed;
 
 /// Render the wizard in the viewport.
 pub fn render_wizard(frame: &mut Frame, area: Rect, wizard: &Wizard) {
-    if area.height == 0 { return; }
+    if area.height == 0 {
+        return;
+    }
 
     let step = match wizard.current_step() {
         Some(s) => s,
@@ -25,12 +27,12 @@ pub fn render_wizard(frame: &mut Frame, area: Rect, wizard: &Wizard) {
     let mut lines: Vec<Line> = Vec::new();
 
     // Title line
-    lines.push(Line::from(vec![
-        Span::styled(
-            format!("  {} ", wizard.title),
-            Style::default().fg(TITLE_COLOR).add_modifier(Modifier::BOLD),
-        ),
-    ]));
+    lines.push(Line::from(vec![Span::styled(
+        format!("  {} ", wizard.title),
+        Style::default()
+            .fg(TITLE_COLOR)
+            .add_modifier(Modifier::BOLD),
+    )]));
 
     // Step prompt
     lines.push(Line::from(vec![
@@ -38,10 +40,7 @@ pub fn render_wizard(frame: &mut Frame, area: Rect, wizard: &Wizard) {
             format!("  {} ", wizard.step_label()),
             Style::default().fg(DIM),
         ),
-        Span::styled(
-            step.prompt().to_string(),
-            Style::default().fg(PROMPT_COLOR),
-        ),
+        Span::styled(step.prompt().to_string(), Style::default().fg(PROMPT_COLOR)),
     ]));
 
     // Step-specific content
@@ -50,10 +49,15 @@ pub fn render_wizard(frame: &mut Frame, area: Rect, wizard: &Wizard) {
             for (i, option) in options.iter().enumerate() {
                 if i == wizard.select_index {
                     lines.push(Line::from(vec![
-                        Span::styled("  ❯ ", Style::default().fg(SEL_COLOR).add_modifier(Modifier::BOLD)),
+                        Span::styled(
+                            "  ❯ ",
+                            Style::default().fg(SEL_COLOR).add_modifier(Modifier::BOLD),
+                        ),
                         Span::styled(
                             option.clone(),
-                            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                            Style::default()
+                                .fg(Color::White)
+                                .add_modifier(Modifier::BOLD),
                         ),
                     ]));
                 } else {
@@ -90,7 +94,10 @@ pub fn render_wizard(frame: &mut Frame, area: Rect, wizard: &Wizard) {
                 ),
             ];
             if !is_placeholder {
-                spans.push(Span::styled("█", Style::default().fg(Color::White).bg(INPUT_BG)));
+                spans.push(Span::styled(
+                    "█",
+                    Style::default().fg(Color::White).bg(INPUT_BG),
+                ));
             }
             lines.push(Line::from(spans));
         }
@@ -98,9 +105,10 @@ pub fn render_wizard(frame: &mut Frame, area: Rect, wizard: &Wizard) {
 
     // Error message
     if let Some(ref err) = wizard.error {
-        lines.push(Line::from(vec![
-            Span::styled(format!("  ✘ {}", err), Style::default().fg(ERROR_COLOR)),
-        ]));
+        lines.push(Line::from(vec![Span::styled(
+            format!("  ✘ {}", err),
+            Style::default().fg(ERROR_COLOR),
+        )]));
     }
 
     // Hint line
@@ -108,15 +116,10 @@ pub fn render_wizard(frame: &mut Frame, area: Rect, wizard: &Wizard) {
         WizardStep::Select { .. } => "↑↓ select · Enter confirm · Esc cancel",
         WizardStep::Input { .. } => "Enter confirm · Esc cancel",
     };
-    lines.push(Line::from(vec![
-        Span::styled(
-            format!("  {}", hint),
-            Style::default().fg(Color::DarkGray),
-        ),
-    ]));
+    lines.push(Line::from(vec![Span::styled(
+        format!("  {}", hint),
+        Style::default().fg(Color::DarkGray),
+    )]));
 
-    frame.render_widget(
-        Paragraph::new(lines),
-        area,
-    );
+    frame.render_widget(Paragraph::new(lines), area);
 }

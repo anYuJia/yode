@@ -1,8 +1,8 @@
+use crate::commands::context::CommandContext;
 use crate::commands::{
     ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
     CommandResult,
 };
-use crate::commands::context::CommandContext;
 
 pub struct ProviderCommand {
     meta: CommandMeta,
@@ -70,10 +70,12 @@ impl Command for ProviderCommand {
                     String::new(),
                     "Subcommands:".into(),
                     "  /provider list                                — List all providers".into(),
-                    "  /provider switch <name>                       — Switch provider (persisted)".into(),
+                    "  /provider switch <name>                       — Switch provider (persisted)"
+                        .into(),
                     "  /provider add <name> <format> <url> [models]  — Add provider".into(),
                     "  /provider remove <name>                       — Remove provider".into(),
-                    "  /provider edit <name>                         — Show config for editing".into(),
+                    "  /provider edit <name>                         — Show config for editing"
+                        .into(),
                     "  /provider edit <name> <field> <value>         — Edit a field".into(),
                 ]))
             }
@@ -82,7 +84,11 @@ impl Command for ProviderCommand {
             ["list"] => {
                 let mut lines = vec!["Available providers:".to_string()];
                 for (name, models) in ctx.all_provider_models.iter() {
-                    let marker = if *name == *ctx.provider_name { "*" } else { " " };
+                    let marker = if *name == *ctx.provider_name {
+                        "*"
+                    } else {
+                        " "
+                    };
                     let model_str = if models.is_empty() {
                         "(unrestricted)".to_string()
                     } else {
@@ -96,10 +102,12 @@ impl Command for ProviderCommand {
             // /provider switch <name>
             ["switch", name] => {
                 if let Some(provider) = ctx.provider_registry.get(name) {
-                    let new_models = ctx.all_provider_models
-                        .get(*name).cloned().unwrap_or_default();
-                    let new_model = new_models.first().cloned()
-                        .unwrap_or_default(); // empty if unrestricted
+                    let new_models = ctx
+                        .all_provider_models
+                        .get(*name)
+                        .cloned()
+                        .unwrap_or_default();
+                    let new_model = new_models.first().cloned().unwrap_or_default(); // empty if unrestricted
                     if let Ok(mut eng) = ctx.engine.try_lock() {
                         eng.set_provider(provider, name.to_string());
                         if !new_model.is_empty() {
@@ -118,7 +126,11 @@ impl Command for ProviderCommand {
                     let mut messages = vec![format!(
                         "Switched to provider: {}, model: {}",
                         name,
-                        if new_model.is_empty() { &ctx.session.model } else { &new_model }
+                        if new_model.is_empty() {
+                            &ctx.session.model
+                        } else {
+                            &new_model
+                        }
                     )];
                     if let Ok(msg) = persist_result {
                         messages.push(msg);
@@ -127,7 +139,11 @@ impl Command for ProviderCommand {
                     Ok(CommandOutput::Messages(messages))
                 } else {
                     let available: Vec<String> = ctx.all_provider_models.keys().cloned().collect();
-                    Err(format!("Provider '{}' not found. Available: {}", name, available.join(", ")))
+                    Err(format!(
+                        "Provider '{}' not found. Available: {}",
+                        name,
+                        available.join(", ")
+                    ))
                 }
             }
 
@@ -145,21 +161,33 @@ impl Command for ProviderCommand {
                         return Err("Format must be 'openai', 'anthropic', or 'gemini'.".into());
                     }
                     let models_owned: Vec<String> = if parts.len() > 4 {
-                        parts[4..].join(" ").split(',').map(|s| s.trim().to_string())
-                            .filter(|s| !s.is_empty()).collect()
+                        parts[4..]
+                            .join(" ")
+                            .split(',')
+                            .map(|s| s.trim().to_string())
+                            .filter(|s| !s.is_empty())
+                            .collect()
                     } else {
                         vec![]
                     };
-                    match add_provider_to_config(name, format, Some(base_url), &models_owned, None) {
+                    match add_provider_to_config(name, format, Some(base_url), &models_owned, None)
+                    {
                         Ok(_) => {
-                            let model_info = if models_owned.is_empty() { "(unrestricted)".into() } else { models_owned.join(", ") };
+                            let model_info = if models_owned.is_empty() {
+                                "(unrestricted)".into()
+                            } else {
+                                models_owned.join(", ")
+                            };
                             return Ok(CommandOutput::Messages(vec![
                                 format!("✓ Provider '{}' added!", name),
                                 format!("  format:   {}", format),
                                 format!("  base_url: {}", base_url),
                                 format!("  models:   {}", model_info),
                                 String::new(),
-                                format!("Set API key: export {}_API_KEY=<your-key>", name.to_uppercase().replace("-", "_")),
+                                format!(
+                                    "Set API key: export {}_API_KEY=<your-key>",
+                                    name.to_uppercase().replace("-", "_")
+                                ),
                                 "Restart yode to activate.".into(),
                             ]));
                         }
@@ -247,52 +275,152 @@ impl Command for ProviderCommand {
                             "openai"
                         };
 
-                        let models = if model.is_empty() { vec![] } else {
-                            model.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+                        let models = if model.is_empty() {
+                            vec![]
+                        } else {
+                            model
+                                .split(',')
+                                .map(|s| s.trim().to_string())
+                                .filter(|s| !s.is_empty())
+                                .collect()
                         };
 
-                        add_provider_to_config(name, format, Some(base_url.as_str()), &models, Some(api_key))?;
+                        add_provider_to_config(
+                            name,
+                            format,
+                            Some(base_url.as_str()),
+                            &models,
+                            Some(api_key),
+                        )?;
 
                         Ok(vec![
                             format!("✓ Provider '{}' 已添加!", name),
                             format!("  format:   {}", format),
                             format!("  base_url: {}", base_url),
-                            format!("  model:    {}", if model.is_empty() { "(unrestricted)" } else { &model }),
-                            format!("  api_key:  {}...{}", &api_key[..4.min(api_key.len())], &api_key[api_key.len().saturating_sub(4)..]),
+                            format!(
+                                "  model:    {}",
+                                if model.is_empty() {
+                                    "(unrestricted)"
+                                } else {
+                                    &model
+                                }
+                            ),
+                            format!(
+                                "  api_key:  {}...{}",
+                                &api_key[..4.min(api_key.len())],
+                                &api_key[api_key.len().saturating_sub(4)..]
+                            ),
                             String::new(),
                             "重启 yode 以激活新提供商。".into(),
                         ])
                     }),
-                ).with_step_callback(Box::new(|value, steps| {
+                )
+                .with_step_callback(Box::new(|value, steps| {
                     // After selecting provider type, update defaults for remaining steps
                     let (default_url, name_hint, model_hint) = match value {
-                        v if v.contains("Anthropic") => ("https://api.anthropic.com", "anthropic", "claude-sonnet-4-20250514"),
-                        v if v.contains("OpenAI") => ("https://api.openai.com/v1", "openai", "gpt-4o"),
-                        v if v.contains("Gemini") => ("https://generativelanguage.googleapis.com/v1beta", "google", "gemini-2.5-flash"),
-                        v if v.contains("DeepSeek") => ("https://api.deepseek.com/v1", "deepseek", "deepseek-chat"),
+                        v if v.contains("Anthropic") => (
+                            "https://api.anthropic.com",
+                            "anthropic",
+                            "claude-sonnet-4-20250514",
+                        ),
+                        v if v.contains("OpenAI") => {
+                            ("https://api.openai.com/v1", "openai", "gpt-4o")
+                        }
+                        v if v.contains("Gemini") => (
+                            "https://generativelanguage.googleapis.com/v1beta",
+                            "google",
+                            "gemini-2.5-flash",
+                        ),
+                        v if v.contains("DeepSeek") => {
+                            ("https://api.deepseek.com/v1", "deepseek", "deepseek-chat")
+                        }
                         // 国内
-                        v if v.contains("Qwen") || v.contains("千问") => ("https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen", "qwen-max"),
-                        v if v.contains("Zhipu") || v.contains("智谱") => ("https://open.bigmodel.cn/api/paas/v4", "zhipu", "glm-4-plus"),
-                        v if v.contains("Kimi") || v.contains("月之暗面") => ("https://api.moonshot.cn/v1", "moonshot", "moonshot-v1-auto"),
-                        v if v.contains("Doubao") || v.contains("豆包") => ("https://ark.cn-beijing.volces.com/api/v3", "doubao", "doubao-pro-256k"),
-                        v if v.contains("SiliconFlow") || v.contains("硅基") => ("https://api.siliconflow.cn/v1", "siliconflow", "deepseek-ai/DeepSeek-V3"),
-                        v if v.contains("Yi") || v.contains("零一") => ("https://api.lingyiwanwu.com/v1", "yi", "yi-lightning"),
-                        v if v.contains("Baichuan") || v.contains("百川") => ("https://api.baichuan-ai.com/v1", "baichuan", "Baichuan4"),
-                        v if v.contains("Spark") || v.contains("星火") => ("https://spark-api-open.xf-yun.com/v1", "spark", "generalv3.5"),
-                        v if v.contains("MiniMax") => ("https://api.minimax.chat/v1", "minimax", "MiniMax-Text-01"),
-                        v if v.contains("StepFun") || v.contains("阶跃") => ("https://api.stepfun.com/v1", "stepfun", "step-2-16k"),
-                        v if v.contains("ERNIE") || v.contains("文心") => ("https://qianfan.baidubce.com/v2", "ernie", "ernie-4.0-8k"),
-                        v if v.contains("Hunyuan") || v.contains("混元") => ("https://api.hunyuan.cloud.tencent.com/v1", "hunyuan", "hunyuan-pro"),
-                        v if v.contains("阿里 Coding") => ("https://coding.dashscope.aliyuncs.com/v1", "alibaba-coding", "qwen3.5-plus"),
-                        v if v.contains("腾讯 Coding") => ("https://api.lkeap.cloud.tencent.com/coding/v3", "tencent-coding", "hunyuan-2.0-instruct"),
-                        v if v.contains("Bailing") || v.contains("百灵") => ("https://api.tbox.cn/api/llm/v1/chat/completions", "bailing", "Ling-1T"),
-                        v if v.contains("iFlow") => ("https://apis.iflow.cn/v1", "iflow", "deepseek-r1"),
+                        v if v.contains("Qwen") || v.contains("千问") => (
+                            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                            "qwen",
+                            "qwen-max",
+                        ),
+                        v if v.contains("Zhipu") || v.contains("智谱") => (
+                            "https://open.bigmodel.cn/api/paas/v4",
+                            "zhipu",
+                            "glm-4-plus",
+                        ),
+                        v if v.contains("Kimi") || v.contains("月之暗面") => {
+                            ("https://api.moonshot.cn/v1", "moonshot", "moonshot-v1-auto")
+                        }
+                        v if v.contains("Doubao") || v.contains("豆包") => (
+                            "https://ark.cn-beijing.volces.com/api/v3",
+                            "doubao",
+                            "doubao-pro-256k",
+                        ),
+                        v if v.contains("SiliconFlow") || v.contains("硅基") => (
+                            "https://api.siliconflow.cn/v1",
+                            "siliconflow",
+                            "deepseek-ai/DeepSeek-V3",
+                        ),
+                        v if v.contains("Yi") || v.contains("零一") => {
+                            ("https://api.lingyiwanwu.com/v1", "yi", "yi-lightning")
+                        }
+                        v if v.contains("Baichuan") || v.contains("百川") => {
+                            ("https://api.baichuan-ai.com/v1", "baichuan", "Baichuan4")
+                        }
+                        v if v.contains("Spark") || v.contains("星火") => (
+                            "https://spark-api-open.xf-yun.com/v1",
+                            "spark",
+                            "generalv3.5",
+                        ),
+                        v if v.contains("MiniMax") => {
+                            ("https://api.minimax.chat/v1", "minimax", "MiniMax-Text-01")
+                        }
+                        v if v.contains("StepFun") || v.contains("阶跃") => {
+                            ("https://api.stepfun.com/v1", "stepfun", "step-2-16k")
+                        }
+                        v if v.contains("ERNIE") || v.contains("文心") => {
+                            ("https://qianfan.baidubce.com/v2", "ernie", "ernie-4.0-8k")
+                        }
+                        v if v.contains("Hunyuan") || v.contains("混元") => (
+                            "https://api.hunyuan.cloud.tencent.com/v1",
+                            "hunyuan",
+                            "hunyuan-pro",
+                        ),
+                        v if v.contains("阿里 Coding") => (
+                            "https://coding.dashscope.aliyuncs.com/v1",
+                            "alibaba-coding",
+                            "qwen3.5-plus",
+                        ),
+                        v if v.contains("腾讯 Coding") => (
+                            "https://api.lkeap.cloud.tencent.com/coding/v3",
+                            "tencent-coding",
+                            "hunyuan-2.0-instruct",
+                        ),
+                        v if v.contains("Bailing") || v.contains("百灵") => (
+                            "https://api.tbox.cn/api/llm/v1/chat/completions",
+                            "bailing",
+                            "Ling-1T",
+                        ),
+                        v if v.contains("iFlow") => {
+                            ("https://apis.iflow.cn/v1", "iflow", "deepseek-r1")
+                        }
                         // 海外
-                        v if v.contains("Groq") => ("https://api.groq.com/openai/v1", "groq", "llama-3.3-70b-versatile"),
-                        v if v.contains("Mistral") => ("https://api.mistral.ai/v1", "mistral", "mistral-large-latest"),
+                        v if v.contains("Groq") => (
+                            "https://api.groq.com/openai/v1",
+                            "groq",
+                            "llama-3.3-70b-versatile",
+                        ),
+                        v if v.contains("Mistral") => (
+                            "https://api.mistral.ai/v1",
+                            "mistral",
+                            "mistral-large-latest",
+                        ),
                         v if v.contains("xAI") => ("https://api.x.ai/v1", "xai", "grok-3"),
-                        v if v.contains("Ollama") => ("http://localhost:11434/v1", "ollama", "llama3.1"),
-                        v if v.contains("OpenRouter") => ("https://openrouter.ai/api/v1", "openrouter", "anthropic/claude-sonnet-4"),
+                        v if v.contains("Ollama") => {
+                            ("http://localhost:11434/v1", "ollama", "llama3.1")
+                        }
+                        v if v.contains("OpenRouter") => (
+                            "https://openrouter.ai/api/v1",
+                            "openrouter",
+                            "anthropic/claude-sonnet-4",
+                        ),
                         _ => return,
                     };
                     if let Some(WizardStep::Input { default, .. }) = steps.get_mut(1) {
@@ -315,7 +443,10 @@ impl Command for ProviderCommand {
                     return Err(format!("Provider '{}' not found.", name));
                 }
                 if *name == ctx.provider_name.as_str() {
-                    return Err(format!("Cannot remove active provider '{}'. Switch first.", name));
+                    return Err(format!(
+                        "Cannot remove active provider '{}'. Switch first.",
+                        name
+                    ));
                 }
                 match remove_provider_from_config(name) {
                     Ok(_) => Ok(CommandOutput::Messages(vec![
@@ -329,7 +460,10 @@ impl Command for ProviderCommand {
             // /provider edit <name> — interactive edit wizard with current values as defaults
             ["edit", name] => {
                 let config = yode_core::config::Config::load().map_err(|e| e.to_string())?;
-                let p = config.llm.providers.get(*name)
+                let p = config
+                    .llm
+                    .providers
+                    .get(*name)
                     .ok_or_else(|| format!("Provider '{}' not found in config.", name))?;
 
                 use crate::app::wizard::{Wizard, WizardStep};
@@ -337,7 +471,11 @@ impl Command for ProviderCommand {
                 let current_format = p.format.clone();
                 let current_url = p.base_url.clone().unwrap_or_default();
                 let current_api_key = p.api_key.clone().unwrap_or_default();
-                let current_models = if p.models.is_empty() { String::new() } else { p.models.join(", ") };
+                let current_models = if p.models.is_empty() {
+                    String::new()
+                } else {
+                    p.models.join(", ")
+                };
                 let provider_name = name.to_string();
 
                 let format_default = match current_format.as_str() {
@@ -348,7 +486,11 @@ impl Command for ProviderCommand {
 
                 // Mask the current API key for display: show first 4 and last 4 chars
                 let masked_key = if current_api_key.len() > 8 {
-                    format!("{}...{}", &current_api_key[..4], &current_api_key[current_api_key.len()-4..])
+                    format!(
+                        "{}...{}",
+                        &current_api_key[..4],
+                        &current_api_key[current_api_key.len() - 4..]
+                    )
                 } else if !current_api_key.is_empty() {
                     "****".to_string()
                 } else {
@@ -370,7 +512,14 @@ impl Command for ProviderCommand {
                             key: "base_url".into(),
                         },
                         WizardStep::Input {
-                            prompt: format!("API Key (current: {}): ", if masked_key.is_empty() { "not set" } else { &masked_key }),
+                            prompt: format!(
+                                "API Key (current: {}): ",
+                                if masked_key.is_empty() {
+                                    "not set"
+                                } else {
+                                    &masked_key
+                                }
+                            ),
                             default: Some(current_api_key),
                             key: "api_key".into(),
                         },
@@ -386,22 +535,39 @@ impl Command for ProviderCommand {
                         let api_key = answers.get("api_key").cloned().unwrap_or_default();
                         let models_str = answers.get("models").cloned().unwrap_or_default();
 
-                        let mut config = yode_core::config::Config::load().map_err(|e| e.to_string())?;
-                        let p = config.llm.providers.get_mut(&provider_name)
+                        let mut config =
+                            yode_core::config::Config::load().map_err(|e| e.to_string())?;
+                        let p = config
+                            .llm
+                            .providers
+                            .get_mut(&provider_name)
                             .ok_or_else(|| format!("Provider '{}' not found.", provider_name))?;
 
                         p.format = format.clone();
-                        p.base_url = if base_url.is_empty() { None } else { Some(base_url.clone()) };
-                        p.api_key = if api_key.is_empty() { None } else { Some(api_key.clone()) };
-                        p.models = models_str.split(',')
+                        p.base_url = if base_url.is_empty() {
+                            None
+                        } else {
+                            Some(base_url.clone())
+                        };
+                        p.api_key = if api_key.is_empty() {
+                            None
+                        } else {
+                            Some(api_key.clone())
+                        };
+                        p.models = models_str
+                            .split(',')
                             .map(|s| s.trim().to_string())
                             .filter(|s| !s.is_empty())
                             .collect();
-                        let model_info: String = if p.models.is_empty() { "(unrestricted)".into() } else { p.models.join(", ") };
+                        let model_info: String = if p.models.is_empty() {
+                            "(unrestricted)".into()
+                        } else {
+                            p.models.join(", ")
+                        };
                         let key_display = if api_key.is_empty() {
                             "(not set)".to_string()
                         } else if api_key.len() > 8 {
-                            format!("{}...{}", &api_key[..4], &api_key[api_key.len()-4..])
+                            format!("{}...{}", &api_key[..4], &api_key[api_key.len() - 4..])
                         } else {
                             "****".to_string()
                         };
@@ -410,13 +576,21 @@ impl Command for ProviderCommand {
                         Ok(vec![
                             format!("Provider '{}' updated!", provider_name),
                             format!("  format:   {}", format),
-                            format!("  base_url: {}", if base_url.is_empty() { "(default)" } else { base_url.as_str() }),
+                            format!(
+                                "  base_url: {}",
+                                if base_url.is_empty() {
+                                    "(default)"
+                                } else {
+                                    base_url.as_str()
+                                }
+                            ),
                             format!("  api_key:  {}", key_display),
                             format!("  models:   {}", model_info),
                             "✓ Applied immediately.".into(),
                         ])
                     }),
-                ).with_reload_provider(name.to_string());
+                )
+                .with_reload_provider(name.to_string());
 
                 Ok(CommandOutput::StartWizard(wizard))
             }
@@ -427,31 +601,41 @@ impl Command for ProviderCommand {
                     return Err("Format must be 'openai' or 'anthropic'.".into());
                 }
                 let msgs = edit_provider_field(name, "format", value)?;
-                Ok(CommandOutput::ReloadProvider { name: name.to_string(), messages: msgs })
+                Ok(CommandOutput::ReloadProvider {
+                    name: name.to_string(),
+                    messages: msgs,
+                })
             }
 
             // /provider edit <name> base_url <value>
             ["edit", name, "base_url", value] => {
                 let msgs = edit_provider_field(name, "base_url", value)?;
-                Ok(CommandOutput::ReloadProvider { name: name.to_string(), messages: msgs })
+                Ok(CommandOutput::ReloadProvider {
+                    name: name.to_string(),
+                    messages: msgs,
+                })
             }
 
             // /provider edit <name> api_key <value>
             ["edit", name, "api_key", value] => {
                 let msgs = edit_provider_field(name, "api_key", value)?;
-                Ok(CommandOutput::ReloadProvider { name: name.to_string(), messages: msgs })
+                Ok(CommandOutput::ReloadProvider {
+                    name: name.to_string(),
+                    messages: msgs,
+                })
             }
 
             // /provider edit <name> models <model1,model2,...>
             ["edit", name, "models", ..] => {
                 let models_str = parts[3..].join(" ");
                 let msgs = edit_provider_field(name, "models", &models_str)?;
-                Ok(CommandOutput::ReloadProvider { name: name.to_string(), messages: msgs })
+                Ok(CommandOutput::ReloadProvider {
+                    name: name.to_string(),
+                    messages: msgs,
+                })
             }
 
-            _ => Err(
-                "Unknown subcommand. Use /provider for help.".into()
-            ),
+            _ => Err("Unknown subcommand. Use /provider for help.".into()),
         }
     }
 }
@@ -459,7 +643,10 @@ impl Command for ProviderCommand {
 /// Edit a single field of a provider config. Returns display messages.
 fn edit_provider_field(name: &str, field: &str, value: &str) -> Result<Vec<String>, String> {
     let mut config = yode_core::config::Config::load().map_err(|e| e.to_string())?;
-    let p = config.llm.providers.get_mut(name)
+    let p = config
+        .llm
+        .providers
+        .get_mut(name)
         .ok_or_else(|| format!("Provider '{}' not found in config.", name))?;
 
     match field {
@@ -473,12 +660,18 @@ fn edit_provider_field(name: &str, field: &str, value: &str) -> Result<Vec<Strin
             p.api_key = Some(value.to_string());
         }
         "models" => {
-            p.models = value.split(',')
+            p.models = value
+                .split(',')
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .collect();
         }
-        _ => return Err(format!("Unknown field '{}'. Valid: format, base_url, api_key, models", field)),
+        _ => {
+            return Err(format!(
+                "Unknown field '{}'. Valid: format, base_url, api_key, models",
+                field
+            ))
+        }
     }
 
     config.save().map_err(|e| e.to_string())?;
@@ -490,14 +683,23 @@ fn edit_provider_field(name: &str, field: &str, value: &str) -> Result<Vec<Strin
 }
 
 /// Add a provider to ~/.yode/config.toml
-fn add_provider_to_config(name: &str, format: &str, base_url: Option<&str>, models: &[String], api_key: Option<&str>) -> Result<(), String> {
+fn add_provider_to_config(
+    name: &str,
+    format: &str,
+    base_url: Option<&str>,
+    models: &[String],
+    api_key: Option<&str>,
+) -> Result<(), String> {
     let mut config = yode_core::config::Config::load().map_err(|e| e.to_string())?;
-    config.llm.providers.insert(name.to_string(), yode_core::config::ProviderConfig {
-        format: format.to_string(),
-        base_url: base_url.map(|u| u.to_string()),
-        api_key: api_key.map(|k| k.to_string()),
-        models: models.to_vec(),
-    });
+    config.llm.providers.insert(
+        name.to_string(),
+        yode_core::config::ProviderConfig {
+            format: format.to_string(),
+            base_url: base_url.map(|u| u.to_string()),
+            api_key: api_key.map(|k| k.to_string()),
+            models: models.to_vec(),
+        },
+    );
     config.llm.default_provider = name.to_string();
     if let Some(first_model) = models.first() {
         config.llm.default_model = first_model.clone();

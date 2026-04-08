@@ -1,5 +1,8 @@
 use crate::commands::context::CommandContext;
-use crate::commands::{ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
+use crate::commands::{
+    ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
+    CommandResult,
+};
 
 pub struct HistoryCommand {
     meta: CommandMeta,
@@ -35,9 +38,7 @@ impl Command for HistoryCommand {
         let count = args.trim().parse::<usize>().unwrap_or(10).min(50);
         let start = entries.len().saturating_sub(count);
         if entries.is_empty() {
-            Ok(CommandOutput::Message(
-                "No input history yet.".to_string(),
-            ))
+            Ok(CommandOutput::Message("No input history yet.".to_string()))
         } else {
             let mut lines = String::from("Recent input history:\n");
             for (i, entry) in entries[start..].iter().enumerate() {

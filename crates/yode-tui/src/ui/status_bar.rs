@@ -6,9 +6,9 @@ use ratatui::Frame;
 
 use crate::app::App;
 
-const SEP: Color = Color::DarkGray;         // ANSI 8
-const MUTED: Color = Color::Gray;            // ANSI 7
-const LIGHT: Color = Color::White;           // ANSI 15 — bright
+const SEP: Color = Color::DarkGray; // ANSI 8
+const MUTED: Color = Color::Gray; // ANSI 7
+const LIGHT: Color = Color::White; // ANSI 15 — bright
 
 /// Top separator line: ────────────────────────────
 pub fn render_separator(frame: &mut Frame, area: Rect) {
@@ -22,7 +22,6 @@ pub fn render_separator(frame: &mut Frame, area: Rect) {
 /// Bottom info line with session details:
 ///   ⚡ mode · 120↑ 437↓ tok · 1 call · ctx 2% · /help
 pub fn render_info_line(frame: &mut Frame, area: Rect, app: &App) {
-
     let mut parts: Vec<Span> = Vec::new();
 
     // Prefix
@@ -44,14 +43,21 @@ pub fn render_info_line(frame: &mut Frame, area: Rect, app: &App) {
     // Token count (input↑ output↓)
     let input_prefix = if app.session.input_estimated { "~" } else { "" };
     parts.push(Span::styled(
-        format!("{}{}↑ {}↓ tok ", input_prefix, app.session.input_tokens, app.session.output_tokens),
+        format!(
+            "{}{}↑ {}↓ tok ",
+            input_prefix, app.session.input_tokens, app.session.output_tokens
+        ),
         Style::default().fg(LIGHT),
     ));
     parts.push(Span::styled("· ", Style::default().fg(SEP)));
 
     // Tool calls (with correct pluralization)
     if app.session.tool_call_count > 0 {
-        let label = if app.session.tool_call_count == 1 { "call" } else { "calls" };
+        let label = if app.session.tool_call_count == 1 {
+            "call"
+        } else {
+            "calls"
+        };
         parts.push(Span::styled(
             format!("{} {} ", app.session.tool_call_count, label),
             Style::default().fg(LIGHT),
@@ -102,11 +108,13 @@ pub fn render_info_line(frame: &mut Frame, area: Rect, app: &App) {
 /// Bottom blank line: renders a row of space characters
 /// This keeps the line visually present (not collapsed) while appearing empty.
 pub fn render_blank_line(frame: &mut Frame, area: Rect, app: &App) {
-    if area.height == 0 || area.width == 0 { return; }
+    if area.height == 0 || area.width == 0 {
+        return;
+    }
 
     let mut update_text = String::new();
     let mut update_style = Style::default();
-    
+
     if let Some(ref version) = app.update_available {
         update_text = format!(" ✨ Update available: {} (restart to apply) ", version);
         update_style = Style::default().fg(Color::LightCyan);
@@ -121,9 +129,10 @@ pub fn render_blank_line(frame: &mut Frame, area: Rect, app: &App) {
     let update_len = update_text.chars().count();
     let left_dots_len = area.width.saturating_sub(update_len as u16) as usize;
 
-    let mut parts = vec![
-        Span::styled("·".repeat(left_dots_len), Style::default().fg(SEP)),
-    ];
+    let mut parts = vec![Span::styled(
+        "·".repeat(left_dots_len),
+        Style::default().fg(SEP),
+    )];
 
     if update_len > 0 {
         parts.push(Span::styled(update_text, update_style));

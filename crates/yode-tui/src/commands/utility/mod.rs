@@ -1,13 +1,13 @@
 mod copy;
-mod keys;
-mod history;
-mod time;
-mod theme;
 mod export;
+mod history;
+mod keys;
+mod theme;
+mod time;
 
 pub use copy::CopyCommand;
-pub use keys::KeysCommand;
-pub use history::HistoryCommand;
-pub use time::TimeCommand;
-pub use theme::ThemeCommand;
 pub use export::ExportCommand;
+pub use history::HistoryCommand;
+pub use keys::KeysCommand;
+pub use theme::ThemeCommand;
+pub use time::TimeCommand;

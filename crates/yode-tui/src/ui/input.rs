@@ -8,13 +8,15 @@ use unicode_width::UnicodeWidthChar;
 use crate::app::App;
 
 const PROMPT_COLOR: Color = Color::LightGreen;
-const PROMPT_DIM: Color = Color::DarkGray;    // ANSI 8
-const TEXT_COLOR: Color = Color::White;        // ANSI 15
-const HINT_COLOR: Color = Color::DarkGray;     // ANSI 8 - same as "Done" line
-const GHOST_COLOR: Color = Color::DarkGray;    // ANSI 8 - for ghost text
+const PROMPT_DIM: Color = Color::DarkGray; // ANSI 8
+const TEXT_COLOR: Color = Color::White; // ANSI 15
+const HINT_COLOR: Color = Color::DarkGray; // ANSI 8 - same as "Done" line
+const GHOST_COLOR: Color = Color::DarkGray; // ANSI 8 - for ghost text
 
 pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
-    if area.height == 0 { return; }
+    if area.height == 0 {
+        return;
+    }
 
     // History search mode
     if app.history.search_mode {
@@ -22,8 +24,17 @@ pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
         return;
     }
 
-    let prompt_color = if app.is_thinking { PROMPT_DIM } else { PROMPT_COLOR };
-    let prompt = Span::styled("❯ ", Style::default().fg(prompt_color).add_modifier(Modifier::BOLD));
+    let prompt_color = if app.is_thinking {
+        PROMPT_DIM
+    } else {
+        PROMPT_COLOR
+    };
+    let prompt = Span::styled(
+        "❯ ",
+        Style::default()
+            .fg(prompt_color)
+            .add_modifier(Modifier::BOLD),
+    );
 
     let is_empty = app.input.is_empty() && app.input.attachments.is_empty();
 
@@ -68,7 +79,13 @@ pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
 
             // Build (text, style, width) for each item in this logical line
             let mut items: Vec<(String, Style, usize)> = Vec::new();
-            items.push((prefix_str.to_string(), Style::default().fg(prompt_color).add_modifier(Modifier::BOLD), prefix_w));
+            items.push((
+                prefix_str.to_string(),
+                Style::default()
+                    .fg(prompt_color)
+                    .add_modifier(Modifier::BOLD),
+                prefix_w,
+            ));
 
             let mut buf = String::new();
             for ch in logical_line.chars() {
@@ -80,7 +97,13 @@ pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
                     }
                     let pill_text = app.input.pill_display_text(att_idx);
                     let w = pill_text.len();
-                    items.push((pill_text, Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD), w));
+                    items.push((
+                        pill_text,
+                        Style::default()
+                            .fg(Color::LightCyan)
+                            .add_modifier(Modifier::BOLD),
+                        w,
+                    ));
                     att_idx += 1;
                 } else {
                     buf.push(ch);
@@ -166,7 +189,10 @@ pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
             let cursor_at_end = app.input.cursor_col == app.input.char_count();
             if is_last_line && cursor_at_end && app.input.cursor_line == app.input.lines.len() - 1 {
                 if let Some(ref ghost) = app.input.ghost_text {
-                    row_spans.push(Span::styled(ghost.clone(), Style::default().fg(GHOST_COLOR)));
+                    row_spans.push(Span::styled(
+                        ghost.clone(),
+                        Style::default().fg(GHOST_COLOR),
+                    ));
                 }
             }
 
@@ -207,7 +233,11 @@ pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
         // Take only the visible portion
         let total = visual_lines.len();
         let skip = total.saturating_sub(max_visible);
-        let visible: Vec<Line> = visual_lines.into_iter().skip(skip).take(max_visible).collect();
+        let visible: Vec<Line> = visual_lines
+            .into_iter()
+            .skip(skip)
+            .take(max_visible)
+            .collect();
         frame.render_widget(Paragraph::new(visible), area);
 
         // Adjust cursor_visual_y for scroll offset
@@ -217,10 +247,7 @@ pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
         if !app.is_thinking && app.pending_confirmation.is_none() {
             let cursor_y = area.y + cursor_visual_y as u16;
             let max_y = area.y + area.height.saturating_sub(1);
-            frame.set_cursor_position((
-                area.x + cursor_col_x as u16,
-                cursor_y.min(max_y),
-            ));
+            frame.set_cursor_position((area.x + cursor_col_x as u16, cursor_y.min(max_y)));
         }
     }
 
@@ -236,7 +263,9 @@ pub fn render_attachments(frame: &mut Frame, area: Rect, app: &App) {
     for att in &app.input.attachments {
         spans.push(Span::styled(
             format!("[{} +{} lines] ", att.name, att.line_count),
-            Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::LightCyan)
+                .add_modifier(Modifier::BOLD),
         ));
     }
     if !spans.is_empty() {
@@ -247,7 +276,9 @@ pub fn render_attachments(frame: &mut Frame, area: Rect, app: &App) {
 /// Render command completions as an inline list below the input area.
 /// Grows from bottom to top, with the best match at the bottom.
 pub fn render_command_inline(frame: &mut Frame, area: Rect, app: &App) {
-    if area.height == 0 || area.width == 0 { return; }
+    if area.height == 0 || area.width == 0 {
+        return;
+    }
 
     let bg = Color::Indexed(235);
     let sel_fg = Color::LightMagenta; // Claude-like selection color
@@ -266,7 +297,9 @@ pub fn render_command_inline(frame: &mut Frame, area: Rect, app: &App) {
     }
 
     let max_show = (area.height as usize).min(5);
-    if show_candidates.is_empty() || max_show == 0 { return; }
+    if show_candidates.is_empty() || max_show == 0 {
+        return;
+    }
 
     let selected = app.cmd_completion.selected.unwrap_or(0);
     let total = show_candidates.len();
@@ -279,7 +312,10 @@ pub fn render_command_inline(frame: &mut Frame, area: Rect, app: &App) {
     };
 
     // Compute column widths for the visible items
-    let max_cmd_len = show_candidates.iter().skip(window_start).take(max_show)
+    let max_cmd_len = show_candidates
+        .iter()
+        .skip(window_start)
+        .take(max_show)
         .map(|(cmd, _)| cmd.len())
         .max()
         .unwrap_or(8);
@@ -294,7 +330,7 @@ pub fn render_command_inline(frame: &mut Frame, area: Rect, app: &App) {
         .skip(window_start)
         .take(max_show)
         .collect();
-    
+
     // Reverse so the lowest index (best match) is at the bottom
     render_items.reverse();
 
@@ -312,11 +348,17 @@ pub fn render_command_inline(frame: &mut Frame, area: Rect, app: &App) {
                 Line::from(vec![
                     Span::styled(
                         " ❯",
-                        Style::default().fg(sel_fg).bg(bg).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(sel_fg)
+                            .bg(bg)
+                            .add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(
                         format!("{:<width$}", cmd, width = cmd_col_width),
-                        Style::default().fg(sel_fg).bg(bg).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(sel_fg)
+                            .bg(bg)
+                            .add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(
                         format!(" {} ", sep),
@@ -329,10 +371,7 @@ pub fn render_command_inline(frame: &mut Frame, area: Rect, app: &App) {
                 ])
             } else {
                 Line::from(vec![
-                    Span::styled(
-                        "  ",
-                        Style::default().bg(bg),
-                    ),
+                    Span::styled("  ", Style::default().bg(bg)),
                     Span::styled(
                         format!("{:<width$}", cmd, width = cmd_col_width),
                         Style::default().fg(Color::Gray).bg(bg),
@@ -355,7 +394,10 @@ pub fn render_command_inline(frame: &mut Frame, area: Rect, app: &App) {
         let diff = area.height as usize - lines.len();
         let mut padded = Vec::with_capacity(area.height as usize);
         for _ in 0..diff {
-            padded.push(Line::from(Span::styled(" ".repeat(area.width as usize), Style::default().bg(bg))));
+            padded.push(Line::from(Span::styled(
+                " ".repeat(area.width as usize),
+                Style::default().bg(bg),
+            )));
         }
         padded.extend(lines);
         lines = padded;
@@ -368,7 +410,9 @@ fn render_file_popup(frame: &mut Frame, area: Rect, app: &App) {
     let viewport_top = frame.area().top();
     let max_avail = area.y.saturating_sub(viewport_top) as usize;
     let max_show = 10usize.min(max_avail);
-    if max_show == 0 { return; }
+    if max_show == 0 {
+        return;
+    }
 
     let total = app.file_completion.candidates.len();
     let popup_height = total.min(max_show) as u16;
@@ -389,7 +433,9 @@ fn render_file_popup(frame: &mut Frame, area: Rect, app: &App) {
         app.file_completion.window_start.min(total - max_show)
     };
 
-    let items: Vec<Line> = app.file_completion.candidates
+    let items: Vec<Line> = app
+        .file_completion
+        .candidates
         .iter()
         .enumerate()
         .skip(window_start)
@@ -397,19 +443,37 @@ fn render_file_popup(frame: &mut Frame, area: Rect, app: &App) {
         .map(|(i, path)| {
             if i == selected {
                 Line::from(vec![
-                    Span::styled(" ❯ ", Style::default().fg(sel_fg).bg(bg).add_modifier(Modifier::BOLD)),
-                    Span::styled(format!("@{} ", path), Style::default().fg(sel_fg).bg(bg).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        " ❯ ",
+                        Style::default()
+                            .fg(sel_fg)
+                            .bg(bg)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        format!("@{} ", path),
+                        Style::default()
+                            .fg(sel_fg)
+                            .bg(bg)
+                            .add_modifier(Modifier::BOLD),
+                    ),
                 ])
             } else {
                 Line::from(vec![
                     Span::styled("   ", Style::default().bg(bg)),
-                    Span::styled(format!("@{} ", path), Style::default().fg(Color::Gray).bg(bg)),
+                    Span::styled(
+                        format!("@{} ", path),
+                        Style::default().fg(Color::Gray).bg(bg),
+                    ),
                 ])
             }
         })
         .collect();
 
-    frame.render_widget(Paragraph::new(items).style(Style::default().bg(bg)), popup_area);
+    frame.render_widget(
+        Paragraph::new(items).style(Style::default().bg(bg)),
+        popup_area,
+    );
 }
 
 fn render_history_search(frame: &mut Frame, area: Rect, app: &App) {
@@ -424,11 +488,17 @@ fn render_history_search(frame: &mut Frame, area: Rect, app: &App) {
         if let Some(result) = app.history.search_results.get(idx) {
             Line::from(vec![
                 Span::styled("bck: ", Style::default().fg(Color::LightBlue)),
-                Span::styled(format!("({}) ", match_info), Style::default().fg(HINT_COLOR)),
+                Span::styled(
+                    format!("({}) ", match_info),
+                    Style::default().fg(HINT_COLOR),
+                ),
                 Span::styled(result.as_str(), Style::default().fg(TEXT_COLOR)),
             ])
         } else {
-            Line::from(Span::styled("bck: (no match)", Style::default().fg(HINT_COLOR)))
+            Line::from(Span::styled(
+                "bck: (no match)",
+                Style::default().fg(HINT_COLOR),
+            ))
         }
     } else {
         Line::from(vec![

@@ -1,5 +1,5 @@
-mod diff;
 mod bug;
+mod diff;
 
-pub use diff::DiffCommand;
 pub use bug::BugCommand;
+pub use diff::DiffCommand;

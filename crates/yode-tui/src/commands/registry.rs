@@ -16,7 +16,10 @@ pub struct CommandRegistry {
 
 impl CommandRegistry {
     pub fn new() -> Self {
-        Self { commands: Vec::new(), name_index: HashMap::new() }
+        Self {
+            commands: Vec::new(),
+            name_index: HashMap::new(),
+        }
     }
 
     pub fn register(&mut self, cmd: Box<dyn Command>) {
@@ -30,18 +33,28 @@ impl CommandRegistry {
     }
 
     pub fn find(&self, name: &str) -> Option<&dyn Command> {
-        self.name_index.get(name).map(|&idx| self.commands[idx].as_ref())
+        self.name_index
+            .get(name)
+            .map(|&idx| self.commands[idx].as_ref())
     }
 
     pub fn visible_commands(&self) -> Vec<&dyn Command> {
-        self.commands.iter().map(|c| c.as_ref()).filter(|c| !c.meta().hidden).collect()
+        self.commands
+            .iter()
+            .map(|c| c.as_ref())
+            .filter(|c| !c.meta().hidden)
+            .collect()
     }
 
     pub fn by_category(&self) -> BTreeMap<CommandCategory, Vec<&dyn Command>> {
         let mut map = BTreeMap::new();
         for cmd in &self.commands {
-            if cmd.meta().hidden { continue; }
-            map.entry(cmd.meta().category).or_insert_with(Vec::new).push(cmd.as_ref());
+            if cmd.meta().hidden {
+                continue;
+            }
+            map.entry(cmd.meta().category)
+                .or_insert_with(Vec::new)
+                .push(cmd.as_ref());
         }
         map
     }
@@ -56,35 +69,67 @@ impl CommandRegistry {
             for cmd in &self.commands {
                 let meta = cmd.meta();
                 if !meta.hidden {
-                    scored_results.push((0, CommandSuggestion { name: meta.name.to_string(), description: meta.description.to_string(), is_alias: false }));
+                    scored_results.push((
+                        0,
+                        CommandSuggestion {
+                            name: meta.name.to_string(),
+                            description: meta.description.to_string(),
+                            is_alias: false,
+                        },
+                    ));
                 }
             }
         } else {
             for cmd in &self.commands {
                 let meta = cmd.meta();
-                if meta.hidden { continue; }
-                let name_lower = meta.name.to_lowercase();
-                
-                // Score 0: exact prefix
-                if name_lower.starts_with(&prefix_lower) {
-                    scored_results.push((0, CommandSuggestion { name: meta.name.to_string(), description: meta.description.to_string(), is_alias: false }));
+                if meta.hidden {
                     continue;
                 }
-                
+                let name_lower = meta.name.to_lowercase();
+
+                // Score 0: exact prefix
+                if name_lower.starts_with(&prefix_lower) {
+                    scored_results.push((
+                        0,
+                        CommandSuggestion {
+                            name: meta.name.to_string(),
+                            description: meta.description.to_string(),
+                            is_alias: false,
+                        },
+                    ));
+                    continue;
+                }
+
                 // Score 1: alias prefix
                 let mut alias_matched = false;
                 for alias in meta.aliases {
                     if alias.to_lowercase().starts_with(&prefix_lower) {
-                        scored_results.push((1, CommandSuggestion { name: alias.to_string(), description: meta.description.to_string(), is_alias: true }));
+                        scored_results.push((
+                            1,
+                            CommandSuggestion {
+                                name: alias.to_string(),
+                                description: meta.description.to_string(),
+                                is_alias: true,
+                            },
+                        ));
                         alias_matched = true;
                         break;
                     }
                 }
-                if alias_matched { continue; }
+                if alias_matched {
+                    continue;
+                }
 
                 // Score 2: substring
                 if name_lower.contains(&prefix_lower) {
-                    scored_results.push((2, CommandSuggestion { name: meta.name.to_string(), description: meta.description.to_string(), is_alias: false }));
+                    scored_results.push((
+                        2,
+                        CommandSuggestion {
+                            name: meta.name.to_string(),
+                            description: meta.description.to_string(),
+                            is_alias: false,
+                        },
+                    ));
                     continue;
                 }
 
@@ -92,7 +137,14 @@ impl CommandRegistry {
                 if prefix_lower.len() >= 2 {
                     let dist = levenshtein(&prefix_lower, &name_lower);
                     if dist <= 2 {
-                        scored_results.push((3 + dist, CommandSuggestion { name: meta.name.to_string(), description: meta.description.to_string(), is_alias: false }));
+                        scored_results.push((
+                            3 + dist,
+                            CommandSuggestion {
+                                name: meta.name.to_string(),
+                                description: meta.description.to_string(),
+                                is_alias: false,
+                            },
+                        ));
                     }
                 }
             }
@@ -104,11 +156,22 @@ impl CommandRegistry {
     }
 
     /// Argument completion: determine position from args_so_far, delegate to ArgDef.
-    pub fn complete_args(&self, cmd_name: &str, args_so_far: &[&str], partial: &str, ctx: &CompletionContext) -> Vec<String> {
-        let cmd = match self.find(cmd_name) { Some(c) => c, None => return Vec::new() };
+    pub fn complete_args(
+        &self,
+        cmd_name: &str,
+        args_so_far: &[&str],
+        partial: &str,
+        ctx: &CompletionContext,
+    ) -> Vec<String> {
+        let cmd = match self.find(cmd_name) {
+            Some(c) => c,
+            None => return Vec::new(),
+        };
         let meta = cmd.meta();
         let arg_index = args_so_far.len();
-        if arg_index >= meta.args.len() { return Vec::new(); }
+        if arg_index >= meta.args.len() {
+            return Vec::new();
+        }
 
         let arg_def = &meta.args[arg_index];
         let all_values = match &arg_def.completions {
@@ -121,7 +184,10 @@ impl CommandRegistry {
             all_values
         } else {
             let partial_lower = partial.to_lowercase();
-            all_values.into_iter().filter(|v| v.to_lowercase().starts_with(&partial_lower)).collect()
+            all_values
+                .into_iter()
+                .filter(|v| v.to_lowercase().starts_with(&partial_lower))
+                .collect()
         }
     }
 
@@ -129,12 +195,25 @@ impl CommandRegistry {
     pub fn args_hint(&self, cmd_name: &str) -> Option<String> {
         let cmd = self.find(cmd_name)?;
         let meta = cmd.meta();
-        if meta.args.is_empty() { return None; }
-        Some(meta.args.iter().map(|a| a.hint.as_str()).collect::<Vec<_>>().join(" "))
+        if meta.args.is_empty() {
+            return None;
+        }
+        Some(
+            meta.args
+                .iter()
+                .map(|a| a.hint.as_str())
+                .collect::<Vec<_>>()
+                .join(" "),
+        )
     }
 
     /// Execute a command by name, returning None if the command is not found.
-    pub fn execute_command(&self, name: &str, args: &str, ctx: &mut CommandContext) -> Option<CommandResult> {
+    pub fn execute_command(
+        &self,
+        name: &str,
+        args: &str,
+        ctx: &mut CommandContext,
+    ) -> Option<CommandResult> {
         let cmd = self.find(name)?;
         Some(cmd.execute(args, ctx))
     }
@@ -160,12 +239,18 @@ fn levenshtein(a: &str, b: &str) -> usize {
     let a = a.as_bytes();
     let b = b.as_bytes();
     let mut dp = vec![vec![0usize; b.len() + 1]; a.len() + 1];
-    for i in 0..=a.len() { dp[i][0] = i; }
-    for j in 0..=b.len() { dp[0][j] = j; }
+    for i in 0..=a.len() {
+        dp[i][0] = i;
+    }
+    for j in 0..=b.len() {
+        dp[0][j] = j;
+    }
     for i in 1..=a.len() {
         for j in 1..=b.len() {
-            let cost = if a[i-1] == b[j-1] { 0 } else { 1 };
-            dp[i][j] = (dp[i-1][j] + 1).min(dp[i][j-1] + 1).min(dp[i-1][j-1] + cost);
+            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            dp[i][j] = (dp[i - 1][j] + 1)
+                .min(dp[i][j - 1] + 1)
+                .min(dp[i - 1][j - 1] + cost);
         }
     }
     dp[a.len()][b.len()]
@@ -174,15 +259,20 @@ fn levenshtein(a: &str, b: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::commands::{CommandMeta, CommandOutput, CommandResult, Command, CommandCategory};
     use crate::commands::context::CommandContext;
+    use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
 
     struct DummyCommand {
         meta: CommandMeta,
     }
 
     impl DummyCommand {
-        fn new(name: &'static str, description: &'static str, aliases: &'static [&'static str], category: CommandCategory) -> Self {
+        fn new(
+            name: &'static str,
+            description: &'static str,
+            aliases: &'static [&'static str],
+            category: CommandCategory,
+        ) -> Self {
             Self {
                 meta: CommandMeta {
                     name,
@@ -222,7 +312,12 @@ mod tests {
     #[test]
     fn test_register_and_find() {
         let mut reg = CommandRegistry::new();
-        reg.register(Box::new(DummyCommand::new("model", "Switch model", &["m"], CommandCategory::Model)));
+        reg.register(Box::new(DummyCommand::new(
+            "model",
+            "Switch model",
+            &["m"],
+            CommandCategory::Model,
+        )));
 
         assert!(reg.find("model").is_some());
         assert!(reg.find("m").is_some());
@@ -232,8 +327,18 @@ mod tests {
     #[test]
     fn test_complete_command_prefix() {
         let mut reg = CommandRegistry::new();
-        reg.register(Box::new(DummyCommand::new("model", "Switch model", &[], CommandCategory::Model)));
-        reg.register(Box::new(DummyCommand::new("memory", "Memory info", &[], CommandCategory::Info)));
+        reg.register(Box::new(DummyCommand::new(
+            "model",
+            "Switch model",
+            &[],
+            CommandCategory::Model,
+        )));
+        reg.register(Box::new(DummyCommand::new(
+            "memory",
+            "Memory info",
+            &[],
+            CommandCategory::Info,
+        )));
 
         let results = reg.complete_command("mo");
         assert_eq!(results.len(), 1);
@@ -243,7 +348,12 @@ mod tests {
     #[test]
     fn test_complete_command_substring_fallback() {
         let mut reg = CommandRegistry::new();
-        reg.register(Box::new(DummyCommand::new("compact", "Compact history", &[], CommandCategory::Utility)));
+        reg.register(Box::new(DummyCommand::new(
+            "compact",
+            "Compact history",
+            &[],
+            CommandCategory::Utility,
+        )));
 
         let results = reg.complete_command("pac");
         assert_eq!(results.len(), 1);
@@ -253,7 +363,12 @@ mod tests {
     #[test]
     fn test_suggest_similar_typo() {
         let mut reg = CommandRegistry::new();
-        reg.register(Box::new(DummyCommand::new("model", "Switch model", &[], CommandCategory::Model)));
+        reg.register(Box::new(DummyCommand::new(
+            "model",
+            "Switch model",
+            &[],
+            CommandCategory::Model,
+        )));
 
         assert_eq!(reg.suggest_similar("modle"), Some("model".to_string()));
         assert_eq!(reg.suggest_similar("zzzzz"), None);
@@ -262,9 +377,24 @@ mod tests {
     #[test]
     fn test_by_category() {
         let mut reg = CommandRegistry::new();
-        reg.register(Box::new(DummyCommand::new("model", "Switch model", &[], CommandCategory::Model)));
-        reg.register(Box::new(DummyCommand::new("info", "Show info", &[], CommandCategory::Info)));
-        reg.register(Box::new(DummyCommand::new("provider", "Switch provider", &[], CommandCategory::Model)));
+        reg.register(Box::new(DummyCommand::new(
+            "model",
+            "Switch model",
+            &[],
+            CommandCategory::Model,
+        )));
+        reg.register(Box::new(DummyCommand::new(
+            "info",
+            "Show info",
+            &[],
+            CommandCategory::Info,
+        )));
+        reg.register(Box::new(DummyCommand::new(
+            "provider",
+            "Switch provider",
+            &[],
+            CommandCategory::Model,
+        )));
         reg.register(Box::new(DummyCommand::hidden("debug")));
 
         let cats = reg.by_category();

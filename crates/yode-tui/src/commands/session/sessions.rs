@@ -36,9 +36,9 @@ impl Command for SessionsCommand {
             .join("sessions.db");
         match Database::open(&db_path) {
             Ok(db) => match db.list_sessions(10) {
-                Ok(sessions) if sessions.is_empty() => {
-                    Ok(CommandOutput::Message("No saved sessions found.".to_string()))
-                }
+                Ok(sessions) if sessions.is_empty() => Ok(CommandOutput::Message(
+                    "No saved sessions found.".to_string(),
+                )),
                 Ok(sessions) => {
                     let mut lines = String::from("Recent sessions:\n");
                     for s in &sessions {

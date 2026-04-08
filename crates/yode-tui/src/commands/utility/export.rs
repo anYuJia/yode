@@ -99,10 +99,7 @@ fn render_conversation(ctx: &CommandContext) -> String {
         "Date: {}\n",
         chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
     ));
-    output.push_str(&format!(
-        "Model: {}\n\n",
-        ctx.session.model
-    ));
+    output.push_str(&format!("Model: {}\n\n", ctx.session.model));
     output.push_str(&"=".repeat(60));
     output.push_str("\n\n");
 
@@ -138,7 +135,10 @@ fn render_conversation(ctx: &CommandContext) -> String {
     output.push_str(&format!("  Input tokens:  {}\n", ctx.session.input_tokens));
     output.push_str(&format!("  Output tokens: {}\n", ctx.session.output_tokens));
     output.push_str(&format!("  Total tokens:  {}\n", ctx.session.total_tokens));
-    output.push_str(&format!("  Tool calls:    {}\n", ctx.session.tool_call_count));
+    output.push_str(&format!(
+        "  Tool calls:    {}\n",
+        ctx.session.tool_call_count
+    ));
 
     output
 }

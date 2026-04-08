@@ -1,17 +1,17 @@
-mod help;
-mod status;
-pub mod cost;
-mod version;
 mod config;
 mod context_cmd;
+pub mod cost;
 mod doctor;
+mod help;
+mod status;
 mod update;
+mod version;
 
-pub use help::HelpCommand;
-pub use status::StatusCommand;
-pub use cost::CostCommand;
-pub use version::VersionCommand;
 pub use config::ConfigCommand;
 pub use context_cmd::ContextCommand;
+pub use cost::CostCommand;
 pub use doctor::DoctorCommand;
+pub use help::HelpCommand;
+pub use status::StatusCommand;
 pub use update::UpdateCommand;
+pub use version::VersionCommand;

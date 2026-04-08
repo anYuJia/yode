@@ -1,5 +1,5 @@
-mod tools;
 mod permissions;
+mod tools;
 
-pub use tools::ToolsCommand;
 pub use permissions::PermissionsCommand;
+pub use tools::ToolsCommand;

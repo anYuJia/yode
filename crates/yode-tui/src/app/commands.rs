@@ -1,5 +1,4 @@
 /// Shell command handling and file references.
-
 use super::{App, ChatEntry, ChatRole};
 
 /// Dangerous command patterns for safety warnings.
@@ -9,7 +8,7 @@ const DANGEROUS_PATTERNS: &[&str] = &[
     "rmdir /",
     "mkfs",
     "dd if=",
-    ":(){",           // fork bomb
+    ":(){", // fork bomb
     "chmod -R 777",
     "chmod -R 000",
     "chown -R",
@@ -52,10 +51,8 @@ impl App {
 
         // Safety check for dangerous commands
         if let Some(pattern) = is_dangerous_command(cmd) {
-            self.chat_entries.push(ChatEntry::new(
-                ChatRole::User,
-                format!("!{}", cmd),
-            ));
+            self.chat_entries
+                .push(ChatEntry::new(ChatRole::User, format!("!{}", cmd)));
             self.add_system_message(format!(
                 "⚠ Dangerous command detected: '{}'\nCommand blocked for safety. Use the LLM to execute if intended.",
                 pattern
@@ -63,15 +60,10 @@ impl App {
             return true;
         }
 
-        self.chat_entries.push(ChatEntry::new(
-            ChatRole::User,
-            format!("!{}", cmd),
-        ));
+        self.chat_entries
+            .push(ChatEntry::new(ChatRole::User, format!("!{}", cmd)));
 
-        let output = std::process::Command::new("sh")
-            .arg("-c")
-            .arg(cmd)
-            .output();
+        let output = std::process::Command::new("sh").arg("-c").arg(cmd).output();
 
         let content = match output {
             Ok(o) => {
@@ -93,7 +85,11 @@ impl App {
                     // Truncate very long outputs
                     if result.len() > 10000 {
                         let truncated: String = result.chars().take(10000).collect();
-                        format!("{}...\n\n(output truncated, {} total bytes)", truncated, result.len())
+                        format!(
+                            "{}...\n\n(output truncated, {} total bytes)",
+                            truncated,
+                            result.len()
+                        )
                     } else {
                         result
                     }
@@ -143,29 +139,34 @@ impl App {
 
     /// Helper to add a system message.
     pub(crate) fn add_system_message(&mut self, content: String) {
-        self.chat_entries.push(ChatEntry::new(ChatRole::System, content));
+        self.chat_entries
+            .push(ChatEntry::new(ChatRole::System, content));
     }
 }
 
 /// Estimate cost based on model with separate input/output pricing (per Mtok).
 pub(crate) fn estimate_cost(model: &str, input_tokens: u32, output_tokens: u32) -> f64 {
-    let (input_per_mtok, output_per_mtok) = if model.contains("claude-3-opus") || model.contains("claude-opus") {
-        (15.0, 75.0)
-    } else if model.contains("claude-3-sonnet") || model.contains("claude-3.5") || model.contains("claude-sonnet") {
-        (3.0, 15.0)
-    } else if model.contains("claude-3-haiku") || model.contains("claude-haiku") {
-        (0.25, 1.25)
-    } else if model.contains("gpt-4o") {
-        (2.5, 10.0)
-    } else if model.contains("gpt-4") {
-        (30.0, 60.0)
-    } else if model.contains("gpt-3.5") {
-        (0.5, 1.5)
-    } else if model.contains("deepseek") {
-        (0.14, 0.28)
-    } else {
-        (5.0, 15.0)
-    };
+    let (input_per_mtok, output_per_mtok) =
+        if model.contains("claude-3-opus") || model.contains("claude-opus") {
+            (15.0, 75.0)
+        } else if model.contains("claude-3-sonnet")
+            || model.contains("claude-3.5")
+            || model.contains("claude-sonnet")
+        {
+            (3.0, 15.0)
+        } else if model.contains("claude-3-haiku") || model.contains("claude-haiku") {
+            (0.25, 1.25)
+        } else if model.contains("gpt-4o") {
+            (2.5, 10.0)
+        } else if model.contains("gpt-4") {
+            (30.0, 60.0)
+        } else if model.contains("gpt-3.5") {
+            (0.5, 1.5)
+        } else if model.contains("deepseek") {
+            (0.14, 0.28)
+        } else {
+            (5.0, 15.0)
+        };
     (input_tokens as f64 / 1_000_000.0) * input_per_mtok
         + (output_tokens as f64 / 1_000_000.0) * output_per_mtok
 }

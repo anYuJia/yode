@@ -1,5 +1,8 @@
 use crate::commands::context::CommandContext;
-use crate::commands::{ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
+use crate::commands::{
+    ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
+    CommandResult,
+};
 
 pub struct ClearCommand {
     meta: CommandMeta,

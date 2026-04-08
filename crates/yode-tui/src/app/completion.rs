@@ -1,5 +1,4 @@
 /// Completion state for slash commands and @file references.
-
 use crate::commands::context::CompletionContext;
 use crate::commands::registry::CommandRegistry;
 
@@ -39,7 +38,13 @@ impl CommandCompletion {
     }
 
     /// Update completions based on current input text, sourcing from the CommandRegistry.
-    pub fn update(&mut self, input_text: &str, is_single_line: bool, registry: &CommandRegistry, completion_ctx: &CompletionContext) {
+    pub fn update(
+        &mut self,
+        input_text: &str,
+        is_single_line: bool,
+        registry: &CommandRegistry,
+        completion_ctx: &CompletionContext,
+    ) {
         self.args_hint = None;
         self.completing_args = false;
         self.arg_prefix = None;
@@ -68,18 +73,24 @@ impl CommandCompletion {
                 (completed, last.first().copied().unwrap_or(""))
             };
 
-            let arg_candidates = registry.complete_args(cmd_name, args_so_far, partial, completion_ctx);
+            let arg_candidates =
+                registry.complete_args(cmd_name, args_so_far, partial, completion_ctx);
 
             if !arg_candidates.is_empty() {
                 // Build prefix: everything before the partial being completed
                 let prefix = if partial.is_empty() {
-                    format!("{} {}", cmd_part, if after_cmd.is_empty() { "" } else { after_cmd })
+                    format!(
+                        "{} {}",
+                        cmd_part,
+                        if after_cmd.is_empty() { "" } else { after_cmd }
+                    )
                 } else {
                     let prefix_end = input_text.len() - partial.len();
                     input_text[..prefix_end].to_string()
                 };
 
-                self.candidates = arg_candidates.into_iter()
+                self.candidates = arg_candidates
+                    .into_iter()
                     .map(|val| (val.clone(), String::new()))
                     .collect();
                 self.completing_args = true;
@@ -119,7 +130,7 @@ impl CommandCompletion {
         }
 
         matches.sort_by_key(|(cmd, _)| cmd.len());
-        
+
         self.candidates = matches;
 
         if self.candidates.is_empty() {
@@ -140,7 +151,8 @@ impl CommandCompletion {
 
     /// Accept the currently selected completion. Returns the full text to set in input.
     pub fn accept(&mut self) -> Option<String> {
-        let result = self.selected
+        let result = self
+            .selected
             .and_then(|idx| self.candidates.get(idx))
             .map(|(val, _)| {
                 if self.completing_args {
@@ -201,7 +213,11 @@ impl CommandCompletion {
 
         if current == 0 {
             // Wrap to bottom
-            self.window_start = if total > max_visible { total - max_visible } else { 0 };
+            self.window_start = if total > max_visible {
+                total - max_visible
+            } else {
+                0
+            };
             self.selected = Some(total - 1);
         } else if self.selected.map_or(false, |s| s == self.window_start) && self.window_start > 0 {
             // At top edge and can scroll up
@@ -268,7 +284,11 @@ impl FileCompletion {
                     }
                 }
                 self.candidates.sort();
-                self.selected = if self.candidates.is_empty() { None } else { Some(0) };
+                self.selected = if self.candidates.is_empty() {
+                    None
+                } else {
+                    Some(0)
+                };
                 return;
             }
         }
@@ -283,7 +303,8 @@ impl FileCompletion {
 
     /// Accept selected file path. Returns the file path to insert.
     pub fn accept(&mut self) -> Option<String> {
-        let result = self.selected
+        let result = self
+            .selected
             .and_then(|idx| self.candidates.get(idx).cloned());
         self.close();
         result
@@ -333,7 +354,11 @@ impl FileCompletion {
 
         if current == 0 {
             // Wrap to bottom
-            self.window_start = if total > max_visible { total - max_visible } else { 0 };
+            self.window_start = if total > max_visible {
+                total - max_visible
+            } else {
+                0
+            };
             self.selected = Some(total - 1);
         } else if self.selected.map_or(false, |s| s == self.window_start) && self.window_start > 0 {
             // At top edge and can scroll up

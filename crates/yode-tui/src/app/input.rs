@@ -57,7 +57,9 @@ impl InputState {
     /// Calculate the visual line count considering line wrapping at the given terminal width.
     /// Simulates ratatui's character-level wrapping.
     pub fn visual_line_count(&self, term_width: u16) -> usize {
-        if term_width == 0 { return self.lines.len(); }
+        if term_width == 0 {
+            return self.lines.len();
+        }
         let w = term_width as usize;
         let mut total_rows = 0usize;
         let mut pill_idx = 0usize;

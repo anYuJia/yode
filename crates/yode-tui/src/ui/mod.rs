@@ -19,10 +19,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         let wiz_height = wiz.viewport_height();
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(wiz_height),
-                Constraint::Length(1),
-            ])
+            .constraints([Constraint::Length(wiz_height), Constraint::Length(1)])
             .split(frame.area());
 
         wizard::render_wizard(frame, chunks[0], wiz);
@@ -75,7 +72,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                 .constraints([
                     Constraint::Length(completion_height),
                     Constraint::Length(pending_height), // Queued inputs
-                    Constraint::Length(1), // separator above input
+                    Constraint::Length(1),              // separator above input
                     Constraint::Length(input_height),
                     Constraint::Length(1), // separator above status bar
                     Constraint::Length(1), // status bar
@@ -96,7 +93,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                 .constraints([
                     Constraint::Length(status_area_height),
                     Constraint::Length(pending_height), // Queued inputs
-                    Constraint::Length(1), // separator above input
+                    Constraint::Length(1),              // separator above input
                     Constraint::Length(input_height),
                     Constraint::Length(1), // separator above status bar
                     Constraint::Length(1), // status bar
@@ -118,7 +115,9 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 }
 
 fn render_pending_inputs(frame: &mut Frame, area: ratatui::layout::Rect, app: &App) {
-    if area.height == 0 || app.pending_inputs.is_empty() { return; }
+    if area.height == 0 || app.pending_inputs.is_empty() {
+        return;
+    }
     use ratatui::style::{Color, Style};
     use ratatui::text::{Line, Span};
     use ratatui::widgets::Paragraph;
@@ -143,11 +142,13 @@ fn render_pending_inputs(frame: &mut Frame, area: ratatui::layout::Rect, app: &A
 
 /// Render the unified turn status line with blank lines above/below.
 fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &App) {
-    if area.height == 0 { return; }
+    if area.height == 0 {
+        return;
+    }
+    use crate::app::TurnStatus;
     use ratatui::style::{Color, Style};
     use ratatui::text::{Line, Span};
     use ratatui::widgets::Paragraph;
-    use crate::app::TurnStatus;
 
     let status_line = match &app.turn_status {
         TurnStatus::Idle => return,
@@ -184,26 +185,35 @@ fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &App)
             };
             // Show per-turn output tokens only (Claude-style)
             let turn_out = app.session.turn_output_tokens;
-            Line::from(vec![
-                Span::styled(
-                    format!("  ⚡ Done · {}{} (↓{} tokens)", elapsed_str, tools_str, format_tok(turn_out)),
-                    Style::default().fg(Color::DarkGray),
+            Line::from(vec![Span::styled(
+                format!(
+                    "  ⚡ Done · {}{} (↓{} tokens)",
+                    elapsed_str,
+                    tools_str,
+                    format_tok(turn_out)
                 ),
-            ])
+                Style::default().fg(Color::DarkGray),
+            )])
         }
 
-        TurnStatus::Retrying { error, attempt, max_attempts, delay_secs } => {
-            Line::from(vec![
-                Span::styled(
-                    format!("  ⎿ {}", error),
-                    Style::default().fg(Color::LightRed),
+        TurnStatus::Retrying {
+            error,
+            attempt,
+            max_attempts,
+            delay_secs,
+        } => Line::from(vec![
+            Span::styled(
+                format!("  ⎿ {}", error),
+                Style::default().fg(Color::LightRed),
+            ),
+            Span::styled(
+                format!(
+                    " · Retrying in {}s ({}/{})",
+                    delay_secs, attempt, max_attempts
                 ),
-                Span::styled(
-                    format!(" · Retrying in {}s ({}/{})", delay_secs, attempt, max_attempts),
-                    Style::default().fg(Color::Yellow),
-                ),
-            ])
-        }
+                Style::default().fg(Color::Yellow),
+            ),
+        ]),
     };
 
     // Render status line with blank lines for padding if height allows

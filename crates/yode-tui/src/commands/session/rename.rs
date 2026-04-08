@@ -29,9 +29,7 @@ impl Command for RenameCommand {
         let new_name = args.trim();
 
         if new_name.is_empty() {
-            return Ok(CommandOutput::Message(
-                "Usage: /rename <name>".to_string(),
-            ));
+            return Ok(CommandOutput::Message("Usage: /rename <name>".to_string()));
         }
 
         // Update session name in memory

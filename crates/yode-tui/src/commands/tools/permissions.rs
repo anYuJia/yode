@@ -1,5 +1,8 @@
-use crate::commands::{Command, CommandMeta, CommandCategory, CommandOutput, CommandResult, ArgDef, ArgCompletionSource};
 use crate::commands::context::CommandContext;
+use crate::commands::{
+    ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
+    CommandResult,
+};
 
 pub struct PermissionsCommand {
     meta: CommandMeta,
@@ -19,11 +22,7 @@ impl PermissionsCommand {
                         hint: "<mode|tool-name|reset>".into(),
                         completions: ArgCompletionSource::Dynamic(|ctx| {
                             let mut names: Vec<String> = vec!["mode".into(), "reset".into()];
-                            names.extend(
-                                ctx.tools.definitions()
-                                    .iter()
-                                    .map(|d| d.name.clone())
-                            );
+                            names.extend(ctx.tools.definitions().iter().map(|d| d.name.clone()));
                             names.sort();
                             names
                         }),
@@ -33,9 +32,13 @@ impl PermissionsCommand {
                         required: false,
                         hint: "<allow|deny|default|plan|auto|accept-edits|bypass>".into(),
                         completions: ArgCompletionSource::Static(vec![
-                            "allow".into(), "deny".into(),
-                            "default".into(), "plan".into(), "auto".into(),
-                            "accept-edits".into(), "bypass".into(),
+                            "allow".into(),
+                            "deny".into(),
+                            "default".into(),
+                            "plan".into(),
+                            "auto".into(),
+                            "accept-edits".into(),
+                            "bypass".into(),
                         ]),
                     },
                 ],
@@ -46,7 +49,9 @@ impl PermissionsCommand {
     }
 }
 impl Command for PermissionsCommand {
-    fn meta(&self) -> &CommandMeta { &self.meta }
+    fn meta(&self) -> &CommandMeta {
+        &self.meta
+    }
 
     fn execute(&self, args: &str, ctx: &mut CommandContext<'_>) -> CommandResult {
         let parts: Vec<&str> = args.trim().split_whitespace().collect();
@@ -60,9 +65,7 @@ impl Command for PermissionsCommand {
             [] => {
                 let mode = engine.permissions().mode();
                 let tools = engine.permissions().confirmable_tools();
-                let mut lines = vec![
-                    format!("Permission mode: {}", mode),
-                ];
+                let mut lines = vec![format!("Permission mode: {}", mode)];
                 if tools.is_empty() {
                     lines.push("All tools are auto-allowed (no confirmations required).".into());
                 } else {
@@ -84,15 +87,16 @@ impl Command for PermissionsCommand {
                 )))
             }
             // /permissions mode <mode-name>
-            ["mode", mode_str] => {
-                match mode_str.parse::<yode_core::PermissionMode>() {
-                    Ok(mode) => {
-                        engine.permissions_mut().set_mode(mode);
-                        Ok(CommandOutput::Message(format!("Permission mode set to: {}", mode)))
-                    }
-                    Err(e) => Err(e),
+            ["mode", mode_str] => match mode_str.parse::<yode_core::PermissionMode>() {
+                Ok(mode) => {
+                    engine.permissions_mut().set_mode(mode);
+                    Ok(CommandOutput::Message(format!(
+                        "Permission mode set to: {}",
+                        mode
+                    )))
                 }
-            }
+                Err(e) => Err(e),
+            },
             // Reset
             ["reset"] => {
                 engine.permissions_mut().reset(vec![
@@ -100,17 +104,23 @@ impl Command for PermissionsCommand {
                     "write_file".into(),
                     "edit_file".into(),
                 ]);
-                Ok(CommandOutput::Message("Permissions reset to defaults.".into()))
+                Ok(CommandOutput::Message(
+                    "Permissions reset to defaults.".into(),
+                ))
             }
             // /permissions <tool> allow
             [tool, "allow"] => {
                 engine.permissions_mut().allow(tool);
-                Ok(CommandOutput::Message(format!("Tool '{tool}' set to auto-allow.")))
+                Ok(CommandOutput::Message(format!(
+                    "Tool '{tool}' set to auto-allow."
+                )))
             }
             // /permissions <tool> deny
             [tool, "deny"] => {
                 engine.permissions_mut().deny(tool);
-                Ok(CommandOutput::Message(format!("Tool '{tool}' now requires confirmation.")))
+                Ok(CommandOutput::Message(format!(
+                    "Tool '{tool}' now requires confirmation."
+                )))
             }
             _ => Err("Usage: /permissions [mode <mode>] | [tool allow|deny] | [reset]".into()),
         }

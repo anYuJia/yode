@@ -1,8 +1,8 @@
 use crate::commands::context::CommandContext;
 use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
-use yode_core::updater::{Updater, CURRENT_VERSION};
-use yode_core::config::Config;
 use std::path::PathBuf;
+use yode_core::config::Config;
+use yode_core::updater::{Updater, CURRENT_VERSION};
 
 pub struct UpdateCommand {
     meta: CommandMeta,
@@ -68,8 +68,10 @@ impl Command for UpdateCommand {
             // /update set — show help
             ["set"] => Ok(CommandOutput::Messages(vec![
                 "Update configuration options:".into(),
-                "  /update set auto_check <true|false>    — Enable/disable automatic update checks".into(),
-                "  /update set auto_download <true|false> — Enable/disable automatic downloads".into(),
+                "  /update set auto_check <true|false>    — Enable/disable automatic update checks"
+                    .into(),
+                "  /update set auto_download <true|false> — Enable/disable automatic downloads"
+                    .into(),
                 String::new(),
                 "Current settings:".into(),
             ])),
@@ -86,7 +88,8 @@ impl UpdateCommand {
 
         if !config.update.auto_check {
             return Ok(CommandOutput::Message(
-                "Automatic update check is disabled. Enable with: /update set auto_check true".into()
+                "Automatic update check is disabled. Enable with: /update set auto_check true"
+                    .into(),
             ));
         }
 
@@ -134,7 +137,10 @@ impl UpdateCommand {
                         Err(e) => {
                             messages.push(format!("✗ Download failed: {}", e));
                             messages.push(String::new());
-                            messages.push(format!("Manual update: Download from {}", update.download_url));
+                            messages.push(format!(
+                                "Manual update: Download from {}",
+                                update.download_url
+                            ));
                         }
                     }
                 } else {
@@ -152,18 +158,14 @@ impl UpdateCommand {
 
                 Ok(CommandOutput::Messages(messages))
             }
-            Ok(None) => {
-                Ok(CommandOutput::Message(format!(
-                    "✓ You are on the latest version: {}",
-                    CURRENT_VERSION
-                )))
-            }
-            Err(e) => {
-                Ok(CommandOutput::Message(format!(
-                    "✗ Failed to check for updates: {}",
-                    e
-                )))
-            }
+            Ok(None) => Ok(CommandOutput::Message(format!(
+                "✓ You are on the latest version: {}",
+                CURRENT_VERSION
+            ))),
+            Err(e) => Ok(CommandOutput::Message(format!(
+                "✗ Failed to check for updates: {}",
+                e
+            ))),
         }
     }
 

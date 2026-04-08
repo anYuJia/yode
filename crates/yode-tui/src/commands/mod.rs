@@ -1,11 +1,11 @@
 pub mod context;
 pub mod registry;
 
-pub mod session;
-pub mod model;
-pub mod tools;
-pub mod info;
 pub mod dev;
+pub mod info;
+pub mod model;
+pub mod session;
+pub mod tools;
 pub mod utility;
 
 use context::{CommandContext, CompletionContext};
@@ -63,7 +63,10 @@ pub enum CommandOutput {
     /// Start an interactive wizard (multi-step input flow)
     StartWizard(crate::app::wizard::Wizard),
     /// Provider config changed — hot-reload this provider from disk
-    ReloadProvider { name: String, messages: Vec<String> },
+    ReloadProvider {
+        name: String,
+        messages: Vec<String>,
+    },
 }
 
 pub type CommandResult = Result<CommandOutput, String>;

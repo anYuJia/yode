@@ -44,28 +44,27 @@ impl Command for CostCommand {
 
 /// Estimate cost based on model with separate input/output pricing (per Mtok).
 pub(crate) fn estimate_cost(model: &str, input_tokens: u32, output_tokens: u32) -> f64 {
-    let (input_per_mtok, output_per_mtok) = if model.contains("claude-3-opus")
-        || model.contains("claude-opus")
-    {
-        (15.0, 75.0)
-    } else if model.contains("claude-3-sonnet")
-        || model.contains("claude-3.5")
-        || model.contains("claude-sonnet")
-    {
-        (3.0, 15.0)
-    } else if model.contains("claude-3-haiku") || model.contains("claude-haiku") {
-        (0.25, 1.25)
-    } else if model.contains("gpt-4o") {
-        (2.5, 10.0)
-    } else if model.contains("gpt-4") {
-        (30.0, 60.0)
-    } else if model.contains("gpt-3.5") {
-        (0.5, 1.5)
-    } else if model.contains("deepseek") {
-        (0.14, 0.28)
-    } else {
-        (5.0, 15.0)
-    };
+    let (input_per_mtok, output_per_mtok) =
+        if model.contains("claude-3-opus") || model.contains("claude-opus") {
+            (15.0, 75.0)
+        } else if model.contains("claude-3-sonnet")
+            || model.contains("claude-3.5")
+            || model.contains("claude-sonnet")
+        {
+            (3.0, 15.0)
+        } else if model.contains("claude-3-haiku") || model.contains("claude-haiku") {
+            (0.25, 1.25)
+        } else if model.contains("gpt-4o") {
+            (2.5, 10.0)
+        } else if model.contains("gpt-4") {
+            (30.0, 60.0)
+        } else if model.contains("gpt-3.5") {
+            (0.5, 1.5)
+        } else if model.contains("deepseek") {
+            (0.14, 0.28)
+        } else {
+            (5.0, 15.0)
+        };
     (input_tokens as f64 / 1_000_000.0) * input_per_mtok
         + (output_tokens as f64 / 1_000_000.0) * output_per_mtok
 }

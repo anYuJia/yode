@@ -2,7 +2,10 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::commands::context::CommandContext;
-use crate::commands::{ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
+use crate::commands::{
+    ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
+    CommandResult,
+};
 
 pub struct ThemeCommand {
     meta: CommandMeta,
@@ -42,10 +45,7 @@ impl Command for ThemeCommand {
         if args.is_empty() {
             // Show current theme - read from config file
             let theme = read_current_theme().unwrap_or_else(|_| "dark".to_string());
-            Ok(CommandOutput::Message(format!(
-                "Current theme: {}",
-                theme
-            )))
+            Ok(CommandOutput::Message(format!("Current theme: {}", theme)))
         } else {
             // Set theme
             let new_theme = args.to_lowercase();
@@ -74,8 +74,8 @@ impl Command for ThemeCommand {
 /// Read current theme from config.toml
 fn read_current_theme() -> Result<String, String> {
     let config_path = get_config_path()?;
-    let content = fs::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read config: {}", e))?;
+    let content =
+        fs::read_to_string(&config_path).map_err(|e| format!("Failed to read config: {}", e))?;
 
     // Simple parse: look for theme = "..." under [ui] section
     let mut in_ui_section = false;
@@ -104,8 +104,8 @@ fn persist_theme_to_config(theme: &str) -> Result<(), String> {
     let config_path = get_config_path()?;
 
     // Read existing config
-    let content = fs::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read config: {}", e))?;
+    let content =
+        fs::read_to_string(&config_path).map_err(|e| format!("Failed to read config: {}", e))?;
 
     // Check if [ui] section and theme key exist
     let mut lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
@@ -163,8 +163,7 @@ fn persist_theme_to_config(theme: &str) -> Result<(), String> {
 
     // Write back
     let new_content = lines.join("\n");
-    fs::write(&config_path, new_content)
-        .map_err(|e| format!("Failed to write config: {}", e))?;
+    fs::write(&config_path, new_content).map_err(|e| format!("Failed to write config: {}", e))?;
 
     Ok(())
 }

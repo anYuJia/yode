@@ -1,5 +1,5 @@
-use crate::commands::{Command, CommandMeta, CommandCategory, CommandOutput, CommandResult};
 use crate::commands::context::CommandContext;
+use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
 
 pub struct ToolsCommand {
     meta: CommandMeta,
@@ -20,7 +20,9 @@ impl ToolsCommand {
     }
 }
 impl Command for ToolsCommand {
-    fn meta(&self) -> &CommandMeta { &self.meta }
+    fn meta(&self) -> &CommandMeta {
+        &self.meta
+    }
 
     fn execute(&self, _args: &str, ctx: &mut CommandContext<'_>) -> CommandResult {
         let defs = ctx.tools.definitions();

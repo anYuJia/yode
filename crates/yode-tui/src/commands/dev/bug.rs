@@ -27,8 +27,7 @@ impl Command for BugCommand {
     }
 
     fn execute(&self, _args: &str, ctx: &mut CommandContext) -> CommandResult {
-        let session_short =
-            &ctx.session.session_id[..ctx.session.session_id.len().min(8)];
+        let session_short = &ctx.session.session_id[..ctx.session.session_id.len().min(8)];
         let os_info = format!("{} {}", std::env::consts::OS, std::env::consts::ARCH);
         let recent_msgs: Vec<String> = ctx
             .chat_entries
@@ -40,9 +39,7 @@ impl Command for BugCommand {
                     ChatRole::User => "User",
                     ChatRole::Assistant => "Assistant",
                     ChatRole::System => "System",
-                    ChatRole::ToolCall { name, .. } => {
-                        return format!("  ToolCall({}): ...", name)
-                    }
+                    ChatRole::ToolCall { name, .. } => return format!("  ToolCall({}): ...", name),
                     ChatRole::ToolResult { name, .. } => {
                         return format!("  ToolResult({}): ...", name)
                     }

@@ -85,7 +85,11 @@ impl HistoryState {
             } else {
                 // Past the end — restore saved input
                 self.browse_index = None;
-                BrowseResult::Restore(self.saved_input.take().unwrap_or_else(|| vec![String::new()]))
+                BrowseResult::Restore(
+                    self.saved_input
+                        .take()
+                        .unwrap_or_else(|| vec![String::new()]),
+                )
             }
         } else {
             BrowseResult::None
@@ -120,7 +124,8 @@ impl HistoryState {
     /// Update search filter.
     pub fn update_search(&mut self) {
         let query = self.search_query.to_lowercase();
-        self.search_results = self.entries
+        self.search_results = self
+            .entries
             .iter()
             .rev()
             .filter(|h| h.to_lowercase().contains(&query))

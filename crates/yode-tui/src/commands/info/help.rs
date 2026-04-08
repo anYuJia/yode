@@ -36,9 +36,19 @@ impl Command for HelpCommand {
                 let aliases = if meta.aliases.is_empty() {
                     String::new()
                 } else {
-                    format!(" ({})", meta.aliases.iter().map(|a| format!("/{}", a)).collect::<Vec<_>>().join(", "))
+                    format!(
+                        " ({})",
+                        meta.aliases
+                            .iter()
+                            .map(|a| format!("/{}", a))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
                 };
-                help.push_str(&format!("    /{:<14} {}{}\n", meta.name, meta.description, aliases));
+                help.push_str(&format!(
+                    "    /{:<14} {}{}\n",
+                    meta.name, meta.description, aliases
+                ));
             }
         }
 

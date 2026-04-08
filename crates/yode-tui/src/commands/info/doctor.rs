@@ -30,10 +30,15 @@ impl Command for DoctorCommand {
 
         // 1. Check providers
         if ctx.all_provider_models.is_empty() {
-            checks.push("  [!!] No LLM providers configured. Run /provider add to set one up.".to_string());
+            checks.push(
+                "  [!!] No LLM providers configured. Run /provider add to set one up.".to_string(),
+            );
         } else {
             let names: Vec<_> = ctx.all_provider_models.keys().cloned().collect();
-            checks.push(format!("  [ok] LLM providers configured: {}", names.join(", ")));
+            checks.push(format!(
+                "  [ok] LLM providers configured: {}",
+                names.join(", ")
+            ));
         }
 
         // 2. Check git
@@ -71,14 +76,18 @@ impl Command for DoctorCommand {
         } else {
             "  [--] No truecolor (using 256 colors)".to_string()
         });
-        
-        if ctx.terminal_caps.in_tmux { checks.push("  [--] Running inside tmux".to_string()); }
-        if ctx.terminal_caps.in_ssh { checks.push("  [--] Running over SSH".to_string()); }
+
+        if ctx.terminal_caps.in_tmux {
+            checks.push("  [--] Running inside tmux".to_string());
+        }
+        if ctx.terminal_caps.in_ssh {
+            checks.push("  [--] Running over SSH".to_string());
+        }
 
         // 5. Check Yode internals
         let tool_count = ctx.tools.definitions().len();
         checks.push(format!("  [ok] {} tools registered", tool_count));
-        
+
         let config_path = dirs::home_dir().map(|h| h.join(".yode/config.toml"));
         if let Some(p) = config_path {
             if p.exists() {

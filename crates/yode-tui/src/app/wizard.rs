@@ -1,6 +1,5 @@
 /// Interactive wizard for multi-step command flows.
 /// Renders in the TUI viewport with selection and text input support.
-
 use std::collections::HashMap;
 
 /// A single step in an interactive wizard.
@@ -37,7 +36,8 @@ impl WizardStep {
 }
 
 /// Callback type for when a wizard completes.
-pub type WizardCallback = Box<dyn FnOnce(&HashMap<String, String>) -> Result<Vec<String>, String> + Send>;
+pub type WizardCallback =
+    Box<dyn FnOnce(&HashMap<String, String>) -> Result<Vec<String>, String> + Send>;
 
 /// Callback type for when a step completes — can modify subsequent steps' defaults.
 pub type StepCallback = Box<dyn Fn(&str, &mut Vec<WizardStep>) + Send>;
@@ -114,7 +114,9 @@ impl Wizard {
     pub fn select_up(&mut self) {
         if let Some(WizardStep::Select { options, .. }) = self.current_step() {
             let len = options.len();
-            if len == 0 { return; }
+            if len == 0 {
+                return;
+            }
             if self.select_index == 0 {
                 self.select_index = len - 1;
             } else {
@@ -127,7 +129,9 @@ impl Wizard {
     pub fn select_down(&mut self) {
         if let Some(WizardStep::Select { options, .. }) = self.current_step() {
             let len = options.len();
-            if len == 0 { return; }
+            if len == 0 {
+                return;
+            }
             if self.select_index >= len - 1 {
                 self.select_index = 0;
             } else {
@@ -149,13 +153,13 @@ impl Wizard {
 
     /// Submit the current step. Returns Ok(None) if more steps, Ok(Some(msgs)) if done.
     pub fn submit(&mut self) -> Result<Option<Vec<String>>, String> {
-        let step = self.steps.get(self.current)
+        let step = self
+            .steps
+            .get(self.current)
             .ok_or("Wizard already complete")?;
 
         let value = match step {
-            WizardStep::Select { options, .. } => {
-                options[self.select_index].clone()
-            }
+            WizardStep::Select { options, .. } => options[self.select_index].clone(),
             WizardStep::Input { default, .. } => {
                 let v = self.input_buf.trim().to_string();
                 if v.is_empty() {

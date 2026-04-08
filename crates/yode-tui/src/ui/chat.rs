@@ -14,13 +14,13 @@ use crate::app::{App, ChatEntry, ChatRole};
 pub const GREEN: Color = Color::LightGreen;
 pub const RED: Color = Color::LightRed;
 pub const YELLOW: Color = Color::LightYellow;
-pub const CYAN: Color = Color::Indexed(51);       // RGB #00FFFF - pure cyan (most visible)
+pub const CYAN: Color = Color::Indexed(51); // RGB #00FFFF - pure cyan (most visible)
 pub const BLUE: Color = Color::LightBlue;
-pub const DIM: Color = Color::Gray;               // ANSI 7 — adapts to terminal theme
-pub const WHITE: Color = Color::Indexed(231);     // RGB #FFFFFF - pure white
-pub const CODE_BG: Color = Color::Indexed(234);    // #1c1c1c
+pub const DIM: Color = Color::Gray; // ANSI 7 — adapts to terminal theme
+pub const WHITE: Color = Color::Indexed(231); // RGB #FFFFFF - pure white
+pub const CODE_BG: Color = Color::Indexed(234); // #1c1c1c
 pub const INLINE_CODE_BG: Color = Color::Indexed(236); // #303030
-pub const ACCENT: Color = Color::LightMagenta;     // ANSI 13 — bright purple // purple for ⏺
+pub const ACCENT: Color = Color::LightMagenta; // ANSI 13 — bright purple // purple for ⏺
 
 // ── Main Render ─────────────────────────────────────────────────────
 pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
@@ -54,9 +54,9 @@ pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
             ChatRole::Assistant => render_assistant(&mut lines, entry),
             ChatRole::ToolCall { id, name } => {
                 // Find matching ToolResult (next entry with same ID)
-                let result_entry = entries[i + 1..].iter().find(|e| {
-                    matches!(&e.role, ChatRole::ToolResult { id: eid, .. } if eid == id)
-                });
+                let result_entry = entries[i + 1..]
+                    .iter()
+                    .find(|e| matches!(&e.role, ChatRole::ToolResult { id: eid, .. } if eid == id));
                 render_tool_call(
                     &mut lines,
                     name,
@@ -69,9 +69,10 @@ pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
             ChatRole::ToolResult { id, .. } => {
                 // Already rendered as part of ToolCall above — skip standalone
                 // But if there was no preceding ToolCall, render it
-                let has_preceding_call = i > 0 && entries[..i].iter().rev().any(|e| {
-                    matches!(&e.role, ChatRole::ToolCall { id: tid, .. } if tid == id)
-                });
+                let has_preceding_call = i > 0
+                    && entries[..i].iter().rev().any(
+                        |e| matches!(&e.role, ChatRole::ToolCall { id: tid, .. } if tid == id),
+                    );
                 if !has_preceding_call {
                     render_standalone_result(&mut lines, entry);
                 }
@@ -108,18 +109,9 @@ pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
         let spinner = app.spinner_char();
         let elapsed_str = app.thinking_elapsed_str();
         lines.push(Line::from(vec![
-            Span::styled(
-                format!("  {} ", spinner),
-                Style::default().fg(YELLOW),
-            ),
-            Span::styled(
-                "Working…",
-                Style::default().fg(YELLOW),
-            ),
-            Span::styled(
-                format!(" ({})", elapsed_str),
-                Style::default().fg(DIM),
-            ),
+            Span::styled(format!("  {} ", spinner), Style::default().fg(YELLOW)),
+            Span::styled("Working…", Style::default().fg(YELLOW)),
+            Span::styled(format!(" ({})", elapsed_str), Style::default().fg(DIM)),
         ]));
         lines.push(Line::from(""));
     }
@@ -141,8 +133,14 @@ pub fn render_user(lines: &mut Vec<Line<'static>>, entry: &ChatEntry) {
     for (i, line) in entry.content.lines().enumerate() {
         if i == 0 {
             lines.push(Line::from(vec![
-                Span::styled("> ", Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
-                Span::styled(line.to_string(), user_style.clone().add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "> ",
+                    Style::default().fg(GREEN).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    line.to_string(),
+                    user_style.clone().add_modifier(Modifier::BOLD),
+                ),
             ]));
         } else {
             lines.push(Line::from(Span::styled(
@@ -159,14 +157,21 @@ pub fn render_assistant(lines: &mut Vec<Line<'static>>, entry: &ChatEntry) {
     // 1. Render reasoning (thinking) if present
     if let Some(ref reasoning) = entry.reasoning {
         if !reasoning.trim().is_empty() {
-            lines.push(Line::from(vec![
-                Span::styled("  💭 Thinking…", Style::default().fg(YELLOW).add_modifier(Modifier::ITALIC)),
-            ]));
+            lines.push(Line::from(vec![Span::styled(
+                "  💭 Thinking…",
+                Style::default().fg(YELLOW).add_modifier(Modifier::ITALIC),
+            )]));
 
             for line in reasoning.trim().lines() {
                 lines.push(Line::from(vec![
-                    Span::styled("  │ ", Style::default().fg(YELLOW).add_modifier(Modifier::DIM)),
-                    Span::styled(line.to_string(), Style::default().fg(DIM).add_modifier(Modifier::ITALIC)),
+                    Span::styled(
+                        "  │ ",
+                        Style::default().fg(YELLOW).add_modifier(Modifier::DIM),
+                    ),
+                    Span::styled(
+                        line.to_string(),
+                        Style::default().fg(DIM).add_modifier(Modifier::ITALIC),
+                    ),
                 ]));
             }
             lines.push(Line::from("")); // Space after thinking
@@ -198,7 +203,10 @@ pub fn render_tool_call(
     timestamp: std::time::Instant,
 ) {
     let args: serde_json::Value = serde_json::from_str(args_json).unwrap_or_default();
-    let is_error = result.map_or(false, |r| matches!(r.role, ChatRole::ToolResult { is_error, .. } if is_error));
+    let is_error = result.map_or(
+        false,
+        |r| matches!(r.role, ChatRole::ToolResult { is_error, .. } if is_error),
+    );
     let result_content = result.map(|r| r.content.as_str()).unwrap_or("");
     let duration = result.and_then(|r| r.duration);
 
@@ -212,10 +220,7 @@ pub fn render_tool_call(
             format!("{}(", tool_display),
             Style::default().fg(WHITE).add_modifier(Modifier::BOLD),
         ),
-        Span::styled(
-            truncate_str(&summary, 60),
-            Style::default().fg(DIM),
-        ),
+        Span::styled(truncate_str(&summary, 60), Style::default().fg(DIM)),
         Span::styled(")", Style::default().fg(WHITE).add_modifier(Modifier::BOLD)),
     ];
 
@@ -239,7 +244,10 @@ pub fn render_tool_call(
     if let Some(p) = progress {
         let mut progress_spans = vec![
             Span::styled("  │ ", Style::default().fg(YELLOW)),
-            Span::styled(p.message.clone(), Style::default().fg(YELLOW).add_modifier(Modifier::ITALIC)),
+            Span::styled(
+                p.message.clone(),
+                Style::default().fg(YELLOW).add_modifier(Modifier::ITALIC),
+            ),
         ];
         if let Some(pct) = p.percent {
             progress_spans.push(Span::styled(
@@ -338,11 +346,7 @@ fn render_bash_content(
 }
 
 // ── write_file content ──────────────────────────────────────────────
-fn render_write_content(
-    lines: &mut Vec<Line<'static>>,
-    args: &serde_json::Value,
-    _is_error: bool,
-) {
+fn render_write_content(lines: &mut Vec<Line<'static>>, args: &serde_json::Value, _is_error: bool) {
     let content = args["content"].as_str().unwrap_or("");
     let line_count = content.lines().count();
     if line_count > 0 {
@@ -362,11 +366,7 @@ fn render_write_content(
 }
 
 // ── edit_file content ───────────────────────────────────────────────
-fn render_edit_content(
-    lines: &mut Vec<Line<'static>>,
-    args: &serde_json::Value,
-    _is_error: bool,
-) {
+fn render_edit_content(lines: &mut Vec<Line<'static>>, args: &serde_json::Value, _is_error: bool) {
     let old = args["old_string"].as_str().unwrap_or("");
     let new = args["new_string"].as_str().unwrap_or("");
     let max_diff = 5;
@@ -405,7 +405,10 @@ pub fn render_standalone_result(lines: &mut Vec<Line<'static>>, entry: &ChatEntr
         let color = if *is_error { RED } else { DIM };
         lines.push(Line::from(vec![
             Span::styled("  ⎿ ", Style::default().fg(ACCENT)),
-            Span::styled(name.clone(), Style::default().fg(WHITE).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                name.clone(),
+                Style::default().fg(WHITE).add_modifier(Modifier::BOLD),
+            ),
         ]));
         for (i, line) in entry.content.lines().enumerate() {
             if i >= 5 {
@@ -435,7 +438,9 @@ pub fn manual_wrap(lines: Vec<Line<'static>>, width: u16) -> Vec<Line<'static>> 
     let mut result = Vec::with_capacity(lines.len());
 
     for line in lines {
-        let total_w: usize = line.spans.iter()
+        let total_w: usize = line
+            .spans
+            .iter()
             .map(|s| UnicodeWidthStr::width(s.content.as_ref()))
             .sum();
 
@@ -512,14 +517,14 @@ pub fn render_header(app: &App, width: usize) -> Vec<Line<'static>> {
     let logo_w = 34usize;
     // Gradient colors for border + logo (purple range, ANSI 256)
     let gradient: [Color; 8] = [
-        Color::Indexed(57),   // top border
-        Color::Indexed(57),   // row 0 (logo[0])
-        Color::Indexed(99),   // row 1 (logo[1])
-        Color::Indexed(135),  // row 2 (logo[2])
-        Color::Indexed(141),  // row 3 (logo[3])
-        Color::Indexed(177),  // row 4 (logo[4])
-        Color::Indexed(183),  // row 5 (logo[5])
-        Color::Indexed(183),  // bottom border
+        Color::Indexed(57),  // top border
+        Color::Indexed(57),  // row 0 (logo[0])
+        Color::Indexed(99),  // row 1 (logo[1])
+        Color::Indexed(135), // row 2 (logo[2])
+        Color::Indexed(141), // row 3 (logo[3])
+        Color::Indexed(177), // row 4 (logo[4])
+        Color::Indexed(183), // row 5 (logo[5])
+        Color::Indexed(183), // bottom border
     ];
 
     let inner_w = width.saturating_sub(4);
@@ -527,8 +532,12 @@ pub fn render_header(app: &App, width: usize) -> Vec<Line<'static>> {
 
     // Helper: build a row with left content + optional right-aligned logo
     // `row_idx` is the gradient index for the left border
-    let make_row = |left_spans: Vec<Span<'static>>, logo_idx: Option<usize>, row_idx: usize| -> Line<'static> {
-        let left_w: usize = left_spans.iter()
+    let make_row = |left_spans: Vec<Span<'static>>,
+                    logo_idx: Option<usize>,
+                    row_idx: usize|
+     -> Line<'static> {
+        let left_w: usize = left_spans
+            .iter()
             .map(|s| UnicodeWidthStr::width(s.content.as_ref()))
             .sum();
 
@@ -542,7 +551,9 @@ pub fn render_header(app: &App, width: usize) -> Vec<Line<'static>> {
                 spans.push(Span::raw(" ".repeat(gap)));
                 spans.push(Span::styled(
                     logo[idx].to_string(),
-                    Style::default().fg(gradient[row_idx]).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(gradient[row_idx])
+                        .add_modifier(Modifier::BOLD),
                 ));
             }
         }
@@ -567,38 +578,54 @@ pub fn render_header(app: &App, width: usize) -> Vec<Line<'static>> {
     lines.push(make_row(vec![], Some(0), 1));
 
     // Row 1: model + logo[1]
-    lines.push(make_row(vec![
-        Span::styled(" ", Style::default()),
-        Span::styled(model, model_style),
-    ], Some(1), 2));
+    lines.push(make_row(
+        vec![
+            Span::styled(" ", Style::default()),
+            Span::styled(model, model_style),
+        ],
+        Some(1),
+        2,
+    ));
 
     // Row 2: workdir + logo[2]
-    lines.push(make_row(vec![
-        Span::styled(" ", Style::default()),
-        Span::styled(workdir, path_style),
-    ], Some(2), 3));
+    lines.push(make_row(
+        vec![
+            Span::styled(" ", Style::default()),
+            Span::styled(workdir, path_style),
+        ],
+        Some(2),
+        3,
+    ));
 
     // Row 3: session + logo[3]
-    lines.push(make_row(vec![
-        Span::styled(" ", Style::default()),
-        Span::styled(format!("session {}", session_short), dim),
-    ], Some(3), 4));
+    lines.push(make_row(
+        vec![
+            Span::styled(" ", Style::default()),
+            Span::styled(format!("session {}", session_short), dim),
+        ],
+        Some(3),
+        4,
+    ));
 
     // Row 4: empty + logo[4]
     lines.push(make_row(vec![], Some(4), 5));
 
     // Row 5: tips + logo[5]
-    lines.push(make_row(vec![
-        Span::styled(" ", Style::default()),
-        Span::styled("? ", Style::default().fg(ACCENT)),
-        Span::styled("/help", hint_style),
-        Span::styled(" · ", Style::default().fg(Color::DarkGray)),
-        Span::styled("/keys", hint_style),
-        Span::styled(" · ", Style::default().fg(Color::DarkGray)),
-        Span::styled("Shift+Tab mode", hint_style),
-        Span::styled(" · ", Style::default().fg(Color::DarkGray)),
-        Span::styled("Ctrl+C×2 quit", hint_style),
-    ], Some(5), 6));
+    lines.push(make_row(
+        vec![
+            Span::styled(" ", Style::default()),
+            Span::styled("? ", Style::default().fg(ACCENT)),
+            Span::styled("/help", hint_style),
+            Span::styled(" · ", Style::default().fg(Color::DarkGray)),
+            Span::styled("/keys", hint_style),
+            Span::styled(" · ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Shift+Tab mode", hint_style),
+            Span::styled(" · ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Ctrl+C×2 quit", hint_style),
+        ],
+        Some(5),
+        6,
+    ));
 
     // ── Bottom rule: ╰─────────────────────╯
     let bot_color = Style::default().fg(gradient[7]);
@@ -680,14 +707,18 @@ fn render_markdown_impl(text: &str, default_fg: Option<Color>) -> Vec<Line<'stat
         if raw.contains('|') && raw.trim().starts_with('|') {
             let trimmed = raw.trim();
             // Check for separator row (|---|---|)
-            if trimmed.chars().all(|c| c == '|' || c == '-' || c == ':' || c == ' ') {
+            if trimmed
+                .chars()
+                .all(|c| c == '|' || c == '-' || c == ':' || c == ' ')
+            {
                 // Table separator — just mark we're in a table, skip this row
                 in_table = true;
                 i += 1;
                 continue;
             }
             // Parse table cells
-            let cells: Vec<String> = trimmed.split('|')
+            let cells: Vec<String> = trimmed
+                .split('|')
                 .filter(|s| !s.is_empty())
                 .map(|s| s.trim().to_string())
                 .collect();
@@ -708,7 +739,9 @@ fn render_markdown_impl(text: &str, default_fg: Option<Color>) -> Vec<Line<'stat
         // Horizontal rule
         let trimmed = raw.trim();
         if (trimmed.starts_with("---") || trimmed.starts_with("***") || trimmed.starts_with("___"))
-            && trimmed.chars().all(|c| c == '-' || c == '*' || c == '_' || c == ' ')
+            && trimmed
+                .chars()
+                .all(|c| c == '-' || c == '*' || c == '_' || c == ' ')
             && trimmed.len() >= 3
         {
             lines.push(Line::from(Span::styled(
@@ -748,9 +781,7 @@ fn render_markdown_impl(text: &str, default_fg: Option<Color>) -> Vec<Line<'stat
         // Blockquotes
         if raw.starts_with("> ") || raw == ">" {
             let content = if raw.len() > 2 { &raw[2..] } else { "" };
-            let mut spans = vec![
-                Span::styled("  ▎ ", Style::default().fg(Color::DarkGray)),
-            ];
+            let mut spans = vec![Span::styled("  ▎ ", Style::default().fg(Color::DarkGray))];
             spans.extend(parse_inline(content.to_string(), default_fg));
             lines.push(Line::from(spans));
             i += 1;
@@ -760,9 +791,7 @@ fn render_markdown_impl(text: &str, default_fg: Option<Color>) -> Vec<Line<'stat
         // Task lists
         if raw.starts_with("- [x] ") || raw.starts_with("- [X] ") {
             let content = &raw[6..];
-            let mut spans = vec![
-                Span::styled("  ☑ ", Style::default().fg(GREEN)),
-            ];
+            let mut spans = vec![Span::styled("  ☑ ", Style::default().fg(GREEN))];
             spans.extend(parse_inline(content.to_string(), default_fg));
             lines.push(Line::from(spans));
             i += 1;
@@ -770,9 +799,7 @@ fn render_markdown_impl(text: &str, default_fg: Option<Color>) -> Vec<Line<'stat
         }
         if raw.starts_with("- [ ] ") {
             let content = &raw[6..];
-            let mut spans = vec![
-                Span::styled("  ☐ ", Style::default().fg(DIM)),
-            ];
+            let mut spans = vec![Span::styled("  ☐ ", Style::default().fg(DIM))];
             spans.extend(parse_inline(content.to_string(), default_fg));
             lines.push(Line::from(spans));
             i += 1;
@@ -805,7 +832,10 @@ fn render_markdown_impl(text: &str, default_fg: Option<Color>) -> Vec<Line<'stat
 
         // Numbered lists
         if let Some((num, rest)) = try_numbered_list(raw) {
-            let mut spans = vec![Span::styled(format!("  {}. ", num), Style::default().fg(DIM))];
+            let mut spans = vec![Span::styled(
+                format!("  {}. ", num),
+                Style::default().fg(DIM),
+            )];
             spans.extend(parse_inline(rest.to_string(), default_fg));
             lines.push(Line::from(spans));
             i += 1;
@@ -825,7 +855,10 @@ fn render_markdown_impl(text: &str, default_fg: Option<Color>) -> Vec<Line<'stat
                 Style::default().fg(WHITE).bg(CODE_BG),
             )));
         }
-        lines.push(Line::from(Span::styled("  └──────", Style::default().fg(DIM))));
+        lines.push(Line::from(Span::styled(
+            "  └──────",
+            Style::default().fg(DIM),
+        )));
     }
     if in_table && !table_rows.is_empty() {
         render_table(&mut lines, &table_rows);
@@ -835,7 +868,9 @@ fn render_markdown_impl(text: &str, default_fg: Option<Color>) -> Vec<Line<'stat
 
 /// Render a markdown table with aligned columns.
 fn render_table(lines: &mut Vec<Line<'static>>, rows: &[Vec<String>]) {
-    if rows.is_empty() { return; }
+    if rows.is_empty() {
+        return;
+    }
 
     // Calculate column widths
     let col_count = rows.iter().map(|r| r.len()).max().unwrap_or(0);
@@ -869,11 +904,15 @@ fn render_table(lines: &mut Vec<Line<'static>>, rows: &[Vec<String>]) {
         lines.push(Line::from(spans));
 
         // Separator
-        let sep: String = widths.iter()
+        let sep: String = widths
+            .iter()
             .map(|w| "─".repeat(w + 2))
             .collect::<Vec<_>>()
             .join("┼");
-        lines.push(Line::from(Span::styled(format!("  {}", sep), Style::default().fg(DIM))));
+        lines.push(Line::from(Span::styled(
+            format!("  {}", sep),
+            Style::default().fg(DIM),
+        )));
     }
 
     // Data rows
@@ -907,7 +946,9 @@ fn try_numbered_list(line: &str) -> Option<(&str, &str)> {
 fn parse_inline(text: String, default_fg: Option<Color>) -> Vec<Span<'static>> {
     let mut spans = Vec::new();
     let mut remaining: &str = &text;
-    let default_style = default_fg.map(|fg| Style::default().fg(fg)).unwrap_or_default();
+    let default_style = default_fg
+        .map(|fg| Style::default().fg(fg))
+        .unwrap_or_default();
 
     while !remaining.is_empty() {
         if let Some(pos) = remaining.find("**") {
@@ -916,8 +957,10 @@ fn parse_inline(text: String, default_fg: Option<Color>) -> Vec<Span<'static>> {
             }
             remaining = &remaining[pos + 2..];
             if let Some(end) = remaining.find("**") {
-                spans.push(Span::styled(remaining[..end].to_string(),
-                    default_style.add_modifier(Modifier::BOLD)));
+                spans.push(Span::styled(
+                    remaining[..end].to_string(),
+                    default_style.add_modifier(Modifier::BOLD),
+                ));
                 remaining = &remaining[end + 2..];
             } else {
                 spans.push(Span::styled("**".to_string(), default_style));
@@ -928,8 +971,10 @@ fn parse_inline(text: String, default_fg: Option<Color>) -> Vec<Span<'static>> {
             }
             remaining = &remaining[pos + 1..];
             if let Some(end) = remaining.find('`') {
-                spans.push(Span::styled(remaining[..end].to_string(),
-                    Style::default().fg(YELLOW).bg(INLINE_CODE_BG)));
+                spans.push(Span::styled(
+                    remaining[..end].to_string(),
+                    Style::default().fg(YELLOW).bg(INLINE_CODE_BG),
+                ));
                 remaining = &remaining[end + 1..];
             } else {
                 spans.push(Span::styled("`".to_string(), default_style));

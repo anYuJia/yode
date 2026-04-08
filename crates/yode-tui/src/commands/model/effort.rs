@@ -1,10 +1,10 @@
 use yode_core::EffortLevel;
 
+use crate::commands::context::CommandContext;
 use crate::commands::{
     ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
     CommandResult,
 };
-use crate::commands::context::CommandContext;
 
 pub struct EffortCommand {
     meta: CommandMeta,
