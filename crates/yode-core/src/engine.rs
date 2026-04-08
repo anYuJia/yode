@@ -24,6 +24,7 @@ use crate::context_manager::ContextManager;
 use crate::cost_tracker::CostTracker;
 use crate::db::Database;
 use crate::hooks::{HookContext, HookEvent, HookManager};
+use crate::instructions::{load_instruction_context, load_memory_context};
 use crate::permission::{CommandClassifier, CommandRiskLevel, PermissionAction, PermissionManager};
 
 /// Maximum size for tool results (50KB)
@@ -422,78 +423,7 @@ impl AgentEngine {
         permissions: PermissionManager,
         context: AgentContext,
     ) -> Self {
-        let mut system_prompt = include_str!("../../../prompts/system.md").to_string();
-
-        // Inject runtime environment info
-        system_prompt.push_str("\n\n# Environment\n\n");
-
-        // Block to safely get initial runtime state
-        let (cwd, project_root) = {
-            // We use a sync-friendly way here for initial prompt or just use the root
-            // Since rt is new, we know it matches the root
-            (context.working_dir_compat(), context.working_dir_compat())
-        };
-
-        system_prompt.push_str(&format!(
-            "- Working directory: {}\n- Project root: {}\n- Platform: {} ({})\n- Date: {}\n- Model: {}\n- Provider: {}\n",
-            cwd.display(),
-            project_root.display(),
-            std::env::consts::OS,
-            std::env::consts::ARCH,
-            chrono::Local::now().format("%Y-%m-%d"),
-            context.model,
-            context.provider,
-        ));
-
-        // Inject git status if in a git repo
-        if cwd.join(".git").exists() {
-            system_prompt.push_str("- Git repo: yes\n");
-            if let Ok(output) = std::process::Command::new("git")
-                .args(["branch", "--show-current"])
-                .current_dir(&cwd)
-                .output()
-            {
-                let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if !branch.is_empty() {
-                    system_prompt.push_str(&format!("- Branch: {}\n", branch));
-                }
-            }
-        }
-
-        let cwd = context.working_dir_compat();
-        // Try to load project-level documentation (YODE.md, CLAUDE.md, etc.)
-        system_prompt.push_str(&AgentEngine::get_project_docs_static(&cwd));
-
-        // Inject memory files if they exist
-        if let Some(memory_content) = AgentEngine::get_memory_files_static(&cwd) {
-            system_prompt.push_str("\n\n");
-            system_prompt.push_str(&memory_content);
-        }
-
-        // Inject output style instructions if not default
-        if context.output_style != "default" {
-            system_prompt.push_str("\n\n# Output Style\n\n");
-            match context.output_style.as_str() {
-                "explanatory" => {
-                    system_prompt.push_str("You are in **Explanatory Mode**. Before and after writing code, provide brief educational insights about implementation choices.\n");
-                    system_prompt.push_str("Include 2-3 key educational points explaining WHY you chose this approach.\n");
-                    system_prompt.push_str(
-                        "These insights should be in the conversation, not in the codebase.\n",
-                    );
-                }
-                "learning" => {
-                    system_prompt.push_str("You are in **Learning Mode**. Help the user learn through hands-on practice.\n");
-                    system_prompt
-                        .push_str("- Request user input for meaningful design decisions\n");
-                    system_prompt.push_str("- Ask the user to write small code pieces (2-10 lines) for key decisions\n");
-                    system_prompt.push_str(
-                        "- Frame contributions as valuable design decisions, not busy work\n",
-                    );
-                    system_prompt.push_str("- Wait for user implementation before proceeding\n");
-                }
-                _ => {}
-            }
-        }
+        let system_prompt = Self::build_system_prompt_for_context(&context);
 
         let mut messages = Vec::new();
         messages.push(Message::system(&system_prompt));
@@ -554,19 +484,33 @@ impl AgentEngine {
     /// Rebuild the system prompt with current context (model, provider, etc.)
     /// and update the first message in the conversation history.
     fn rebuild_system_prompt(&mut self) {
+        let system_prompt = Self::build_system_prompt_for_context(&self.context);
+
+        self.system_prompt = system_prompt.clone();
+
+        // Update the system message in conversation history
+        if let Some(first) = self.messages.first_mut() {
+            if matches!(first.role, Role::System) {
+                first.content = Some(system_prompt);
+                first.normalize_in_place();
+            }
+        }
+    }
+
+    fn build_system_prompt_for_context(context: &AgentContext) -> String {
         let mut system_prompt = include_str!("../../../prompts/system.md").to_string();
-        let cwd = self.context.working_dir_compat();
+        let cwd = context.working_dir_compat();
 
         system_prompt.push_str("\n\n# Environment\n\n");
         system_prompt.push_str(&format!(
             "- Working directory: {}\n- Project root: {}\n- Platform: {} ({})\n- Date: {}\n- Model: {}\n- Provider: {}\n",
             cwd.display(),
-            cwd.display(), // For now project root is same as initial cwd
+            cwd.display(),
             std::env::consts::OS,
             std::env::consts::ARCH,
             chrono::Local::now().format("%Y-%m-%d"),
-            self.context.model,
-            self.context.provider,
+            context.model,
+            context.provider,
         ));
 
         if cwd.join(".git").exists() {
@@ -583,27 +527,19 @@ impl AgentEngine {
             }
         }
 
-        let yode_md = cwd.join("YODE.md");
-        if yode_md.exists() {
-            if let Ok(override_prompt) = std::fs::read_to_string(&yode_md) {
-                system_prompt.push_str("\n\n# Project-specific instructions\n\n");
-                system_prompt.push_str(&override_prompt);
-            }
+        if let Some(instruction_content) = load_instruction_context(&cwd) {
+            system_prompt.push_str("\n\n");
+            system_prompt.push_str(&instruction_content);
         }
 
-        // Inject project-level documentation (YODE.md, CLAUDE.md, etc.)
-        system_prompt.push_str(&AgentEngine::get_project_docs_static(&cwd));
-
-        // Inject memory files if they exist
-        if let Some(memory_content) = AgentEngine::get_memory_files_static(&cwd) {
+        if let Some(memory_content) = load_memory_context(&cwd) {
             system_prompt.push_str("\n\n");
             system_prompt.push_str(&memory_content);
         }
 
-        // Inject output style instructions if not default
-        if self.context.output_style != "default" {
+        if context.output_style != "default" {
             system_prompt.push_str("\n\n# Output Style\n\n");
-            match self.context.output_style.as_str() {
+            match context.output_style.as_str() {
                 "explanatory" => {
                     system_prompt.push_str("You are in **Explanatory Mode**. Before and after writing code, provide brief educational insights about implementation choices.\n");
                     system_prompt.push_str("Include 2-3 key educational points explaining WHY you chose this approach.\n");
@@ -625,14 +561,7 @@ impl AgentEngine {
             }
         }
 
-        self.system_prompt = system_prompt.clone();
-
-        // Update the system message in conversation history
-        if let Some(first) = self.messages.first_mut() {
-            if matches!(first.role, Role::System) {
-                first.content = Some(system_prompt);
-            }
-        }
+        system_prompt
     }
 
     pub fn set_effort(&mut self, level: EffortLevel) {
@@ -702,78 +631,6 @@ impl AgentEngine {
             ))),
             plan_mode: Some(Arc::clone(&self.plan_mode)),
         }
-    }
-
-    /// Get project documentation (YODE.md, CLAUDE.md, etc.)
-    fn get_project_docs_static(project_root: &std::path::Path) -> String {
-        let mut docs = Vec::new();
-
-        // Check for project-specific instruction files in priority order
-        let doc_patterns = [
-            "YODE.md",
-            "CLAUDE.md",
-            "GEMINI.md",
-            "AGENTS.md",
-            ".yode/instructions.md",
-            "docs/YODE.md",
-            "docs/CLAUDE.md",
-        ];
-
-        for pattern in &doc_patterns {
-            let path = project_root.join(pattern);
-            if path.exists() {
-                if let Ok(content) = std::fs::read_to_string(&path) {
-                    docs.push(format!("## From: {}\n\n{}", pattern, content));
-                    info!("Loaded project documentation: {}", path.display());
-                }
-            }
-        }
-
-        if docs.is_empty() {
-            return String::new();
-        }
-
-        let mut result = String::new();
-        result.push_str("\n\n# Project Documentation\n\n");
-        result.push_str("The following instructions are from project documentation files.\n\n");
-        result.push_str(&docs.join("\n\n"));
-        result
-    }
-
-    /// Get memory files content if they exist
-    fn get_memory_files_static(project_root: &std::path::Path) -> Option<String> {
-        let memory_dir = project_root.join("memory");
-        if !memory_dir.exists() {
-            return None;
-        }
-
-        let mut memory_contents = Vec::new();
-
-        if let Ok(entries) = std::fs::read_dir(&memory_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().and_then(|s| s.to_str()) == Some("md") {
-                    if let Ok(content) = std::fs::read_to_string(&path) {
-                        let file_name = path
-                            .file_name()
-                            .and_then(|s| s.to_str())
-                            .unwrap_or("unknown");
-                        memory_contents.push(format!("## {}\n\n{}", file_name, content));
-                        info!("Loaded memory file: {}", path.display());
-                    }
-                }
-            }
-        }
-
-        if memory_contents.is_empty() {
-            return None;
-        }
-
-        let mut result = String::new();
-        result.push_str("# User Memory\n\n");
-        result.push_str("The following are user memory notes for this project.\n\n");
-        result.push_str(&memory_contents.join("\n\n"));
-        Some(result)
     }
 
     /// Get the current message history.

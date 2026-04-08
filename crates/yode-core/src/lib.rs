@@ -5,6 +5,7 @@ pub mod cost_tracker;
 pub mod db;
 pub mod engine;
 pub mod hooks;
+pub mod instructions;
 pub mod permission;
 pub mod session;
 pub mod setup;
