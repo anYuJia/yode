@@ -2182,27 +2182,30 @@ fn handle_engine_event(
             ));
         }
         EngineEvent::ContextCompressed {
+            mode,
             removed,
             tool_results_truncated,
             summary,
+            session_memory_path,
+            transcript_path,
         } => {
             let mut content = match (removed, tool_results_truncated) {
                 (0, truncated) => {
                     format!(
-                        "Context compressed: truncated {} oversized tool results to stay within the window.",
-                        truncated
+                        "Context compressed ({}): truncated {} oversized tool results to stay within the window.",
+                        mode, truncated
                     )
                 }
                 (removed, 0) => {
                     format!(
-                        "Context compressed: removed {} messages to fit window.",
-                        removed
+                        "Context compressed ({}): removed {} messages to fit window.",
+                        mode, removed
                     )
                 }
                 (removed, truncated) => {
                     format!(
-                        "Context compressed: removed {} messages and truncated {} oversized tool results.",
-                        removed, truncated
+                        "Context compressed ({}): removed {} messages and truncated {} oversized tool results.",
+                        mode, removed, truncated
                     )
                 }
             };
@@ -2210,6 +2213,16 @@ fn handle_engine_event(
             if let Some(summary) = summary {
                 content.push_str("\n");
                 content.push_str(&summary);
+            }
+
+            if let Some(path) = session_memory_path {
+                content.push_str("\nSession memory: ");
+                content.push_str(&path);
+            }
+
+            if let Some(path) = transcript_path {
+                content.push_str("\nTranscript backup: ");
+                content.push_str(&path);
             }
 
             app.chat_entries

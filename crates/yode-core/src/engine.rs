@@ -221,9 +221,12 @@ pub enum EngineEvent {
     PlanModeExited,
     /// Context window was compressed to fit within limits
     ContextCompressed {
+        mode: String,
         removed: usize,
         tool_results_truncated: usize,
         summary: Option<String>,
+        session_memory_path: Option<String>,
+        transcript_path: Option<String>,
     },
     /// Cost update after API call
     CostUpdate {
@@ -1128,9 +1131,12 @@ impl AgentEngine {
         }
 
         let _ = event_tx.send(EngineEvent::ContextCompressed {
+            mode: mode.to_string(),
             removed: report.removed,
             tool_results_truncated: report.tool_results_truncated,
             summary: report.summary.clone(),
+            session_memory_path: session_memory_path.map(|p| p.display().to_string()),
+            transcript_path: transcript_path.map(|p| p.display().to_string()),
         });
         true
     }
