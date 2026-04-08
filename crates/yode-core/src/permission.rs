@@ -6,10 +6,11 @@ use serde::{Deserialize, Serialize};
 // ─── Permission Mode ────────────────────────────────────────────────────────
 
 /// Permission modes control how tool execution is authorized.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum PermissionMode {
     /// Default: dangerous tools require confirmation
+    #[default]
     Default,
     /// Plan mode: only read-only tools allowed, no mutations
     Plan,
@@ -19,12 +20,6 @@ pub enum PermissionMode {
     AcceptEdits,
     /// Bypass: skip all permission checks (dangerous)
     Bypass,
-}
-
-impl std::default::Default for PermissionMode {
-    fn default() -> Self {
-        PermissionMode::Default
-    }
 }
 
 impl std::fmt::Display for PermissionMode {
@@ -470,13 +465,13 @@ impl PermissionManager {
         }
 
         // 3. AcceptEdits mode: auto-approve file modifications
-        if self.mode == PermissionMode::AcceptEdits {
-            if matches!(
+        if self.mode == PermissionMode::AcceptEdits
+            && matches!(
                 tool_name,
                 "write_file" | "edit_file" | "multi_edit" | "notebook_edit"
-            ) {
-                return PermissionAction::Allow;
-            }
+            )
+        {
+            return PermissionAction::Allow;
         }
 
         // 4. For bash commands, check risk level in Auto mode
@@ -513,10 +508,8 @@ impl PermissionManager {
         }
 
         // 7. Auto mode: auto-approve read-only tools
-        if self.mode == PermissionMode::Auto {
-            if self.readonly_tools.iter().any(|t| t == tool_name) {
-                return PermissionAction::Allow;
-            }
+        if self.mode == PermissionMode::Auto && self.readonly_tools.iter().any(|t| t == tool_name) {
+            return PermissionAction::Allow;
         }
 
         // 8. Default behavior based on tool type

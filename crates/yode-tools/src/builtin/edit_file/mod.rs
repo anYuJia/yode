@@ -128,11 +128,7 @@ Usage:
         }
 
         // --- Smarter String Matching (Quote Robustness) ---
-        let actual_old = if content.contains(old_string) {
-            old_string.to_string()
-        } else {
-            old_string.to_string()
-        };
+        let actual_old = old_string.to_string();
 
         // Count occurrences
         let count = content.matches(&actual_old).count();

@@ -118,7 +118,7 @@ Usage:
         let total_lines = lines.len();
 
         // offset is 1-based; clamp to valid range
-        let start = if offset >= 1 { offset - 1 } else { 0 };
+        let start = offset.saturating_sub(1);
         let start = start.min(total_lines);
 
         let end = match limit {

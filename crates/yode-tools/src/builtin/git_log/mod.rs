@@ -93,8 +93,7 @@ Common patterns:
             .get("count")
             .and_then(|v| v.as_i64())
             .unwrap_or(10)
-            .min(50)
-            .max(1) as u32;
+            .clamp(1, 50) as u32;
 
         let oneline = params
             .get("oneline")

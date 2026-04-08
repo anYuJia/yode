@@ -13,6 +13,11 @@ resolver = "2"
 version = "0.0.8"
 edition = "2021"
 license = "MIT"
+description = "A terminal-native AI coding assistant built with Rust"
+repository = "https://github.com/anYuJia/yode"
+readme = "README.md"
+keywords = ["ai", "assistant", "terminal", "rust", "llm"]
+categories = ["development-tools"]
 
 [workspace.dependencies]
 # Async
@@ -77,6 +82,12 @@ yode-agent = { path = "crates/yode-agent" }
 name = "yode"
 version.workspace = true
 edition.workspace = true
+description.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 yode-core = { workspace = true }

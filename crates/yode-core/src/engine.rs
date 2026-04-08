@@ -510,8 +510,7 @@ impl AgentEngine {
     ) -> Self {
         let system_prompt = Self::build_system_prompt_for_context(&context);
 
-        let mut messages = Vec::new();
-        messages.push(Message::system(&system_prompt));
+        let messages = vec![Message::system(&system_prompt)];
 
         let context_manager = ContextManager::new(&context.model);
         let cost_tracker = CostTracker::new(&context.model);
@@ -1692,7 +1691,7 @@ impl AgentEngine {
                 }
             }
             if !combined.is_empty() {
-                self.messages.push(Message::system(&format!(
+                self.messages.push(Message::system(format!(
                     "[System Auto-Context via pre_turn hooks]\n{}",
                     combined
                 )));
@@ -2001,7 +2000,7 @@ impl AgentEngine {
                 }
             }
             if !combined.is_empty() {
-                self.messages.push(Message::system(&format!(
+                self.messages.push(Message::system(format!(
                     "[System Auto-Context via pre_turn hooks]\n{}",
                     combined
                 )));
@@ -2465,15 +2464,14 @@ impl AgentEngine {
                         full_text = warning.to_string();
                     }
                     warn!("LLM streaming response truncated due to max_tokens");
-                } else if resp.stop_reason == Some(yode_llm::types::StopReason::StopSequence)
+                } else if (resp.stop_reason == Some(yode_llm::types::StopReason::StopSequence)
                     || matches!(
                         resp.stop_reason,
                         Some(yode_llm::types::StopReason::Other(_))
-                    )
+                    ))
+                    && (full_text.contains("[tool_") || full_text.contains("<tool_"))
                 {
-                    if full_text.contains("[tool_") || full_text.contains("<tool_") {
-                        warn!("LLM streaming response stopped via stop sequence or other reason but contains incomplete tool tags. Reason: {:?}", resp.stop_reason);
-                    }
+                    warn!("LLM streaming response stopped via stop sequence or other reason but contains incomplete tool tags. Reason: {:?}", resp.stop_reason);
                 }
             }
 
@@ -3040,7 +3038,7 @@ impl AgentEngine {
         }
 
         // Self-reflection every 10 calls
-        if self.tool_call_count > 0 && self.tool_call_count % TOOL_REFLECT_INTERVAL == 0 {
+        if self.tool_call_count > 0 && self.tool_call_count.is_multiple_of(TOOL_REFLECT_INTERVAL) {
             let state_summary = format!(
                 "\n\n[Checkpoint: {} tool calls | {} files read | {} files modified. \
                  Summarize your understanding. What's your hypothesis? What's the most efficient next step?]",
@@ -3518,20 +3516,18 @@ impl AgentEngine {
                     ));
                 }
 
-                match CommandClassifier::classify(cmd) {
-                    CommandRiskLevel::Destructive => {
-                        return Ok(ToolResult::error_typed(
-                            format!("Command blocked (destructive): {}", cmd),
-                            ToolErrorType::PermissionDeny,
-                            false,
-                            Some(
-                                "This command is classified as destructive and cannot be executed."
-                                    .to_string(),
-                            ),
-                        ));
-                    }
-                    _ => {} // Other risk levels handled by permission system
+                if CommandClassifier::classify(cmd) == CommandRiskLevel::Destructive {
+                    return Ok(ToolResult::error_typed(
+                        format!("Command blocked (destructive): {}", cmd),
+                        ToolErrorType::PermissionDeny,
+                        false,
+                        Some(
+                            "This command is classified as destructive and cannot be executed."
+                                .to_string(),
+                        ),
+                    ));
                 }
+                // Other risk levels handled by permission system
             }
         }
 
@@ -3780,9 +3776,7 @@ impl AgentEngine {
             // Add contextual recovery hints based on error type
             let auto_hint = match result.error_type {
                 Some(ToolErrorType::NotFound) => {
-                    Some(format!(
-                        "Try using `glob` to find the correct path, or `grep` to search for the symbol by name."
-                    ))
+                    Some("Try using `glob` to find the correct path, or `grep` to search for the symbol by name.".to_string())
                 }
                 Some(ToolErrorType::Validation) => {
                     Some(format!(

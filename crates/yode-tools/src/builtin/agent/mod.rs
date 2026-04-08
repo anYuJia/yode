@@ -113,7 +113,7 @@ impl Tool for AgentTool {
         let cwd = params
             .get("cwd")
             .and_then(|v| v.as_str())
-            .map(|s| std::path::PathBuf::from(s));
+            .map(std::path::PathBuf::from);
 
         let allowed_tools: Vec<String> = params
             .get("allowed_tools") // Backward compatibility for any internal calls

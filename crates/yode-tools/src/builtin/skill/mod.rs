@@ -128,7 +128,7 @@ impl Tool for SkillTool {
                 let metadata = json!({ "action": "list", "count": skills.len() });
                 Ok(ToolResult::success_with_metadata(output, metadata))
             }
-            "get" | _ => {
+            _ => {
                 let name = params
                     .get("name")
                     .and_then(|v| v.as_str())

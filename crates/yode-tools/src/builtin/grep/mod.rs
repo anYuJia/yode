@@ -184,7 +184,7 @@ Usage:
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
 
-        if !output.status.success() && stderr.len() > 0 {
+        if !output.status.success() && !stderr.is_empty() {
             return Ok(ToolResult::error(format!("rg error: {}", stderr)));
         }
 

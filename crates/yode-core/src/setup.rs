@@ -222,7 +222,7 @@ fn select_menu(header: Option<&str>, prompt: &str, options: &[MenuOption]) -> Re
 
     disable_raw_mode()?;
 
-    print!("\x1B[{}B\n", options.len());
+    println!("\x1B[{}B", options.len());
     io::stdout().flush()?;
 
     result

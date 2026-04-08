@@ -61,20 +61,15 @@ impl std::str::FromStr for EffortLevel {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum QuerySource {
+    #[default]
     User,
     SubAgent,
     Cron,
     Hook(String),
     Compact,
     SessionMemory,
-}
-
-impl Default for QuerySource {
-    fn default() -> Self {
-        Self::User
-    }
 }
 
 impl QuerySource {

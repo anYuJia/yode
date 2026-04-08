@@ -86,7 +86,6 @@ impl Tool for LsTool {
             recursive,
             show_hidden,
             &mut entries,
-            0,
             &mut counts,
         );
 
@@ -131,7 +130,6 @@ fn list_dir_with_counts(
     recursive: bool,
     show_hidden: bool,
     entries: &mut Vec<String>,
-    depth: usize,
     counts: &mut (usize, usize),
 ) {
     let mut dir_entries: Vec<_> = match std::fs::read_dir(dir) {
@@ -165,7 +163,6 @@ fn list_dir_with_counts(
                     recursive,
                     show_hidden,
                     entries,
-                    depth + 1,
                     counts,
                 );
             }

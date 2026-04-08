@@ -544,7 +544,7 @@ impl LlmProvider for GeminiProvider {
 
         let resp = self
             .client
-            .get(&self.models_url())
+            .get(self.models_url())
             .send()
             .await
             .context("Failed to fetch Gemini models")?;

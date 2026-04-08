@@ -360,12 +360,9 @@ impl AnthropicProvider {
                     // Try to merge into previous user message if it has tool_result blocks
                     if let Some(last) = anthropic_msgs.last_mut() {
                         if last.role == "user" {
-                            match &mut last.content {
-                                AnthropicContent::Blocks(blocks) => {
-                                    blocks.push(block);
-                                    continue;
-                                }
-                                _ => {}
+                            if let AnthropicContent::Blocks(blocks) = &mut last.content {
+                                blocks.push(block);
+                                continue;
                             }
                         }
                     }
@@ -430,7 +427,7 @@ impl LlmProvider for AnthropicProvider {
 
         let resp = self
             .client
-            .post(&self.messages_url())
+            .post(self.messages_url())
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", "2023-06-01")
             .header("content-type", "application/json")
@@ -571,7 +568,7 @@ impl LlmProvider for AnthropicProvider {
 
         let resp = self
             .client
-            .post(&self.messages_url())
+            .post(self.messages_url())
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", "2023-06-01")
             .header("content-type", "application/json")

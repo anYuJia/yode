@@ -33,8 +33,8 @@ impl McpClient {
             .iter()
             .map(|(k, v)| {
                 // Expand $ENV_VAR references in values
-                let expanded = if v.starts_with('$') {
-                    std::env::var(&v[1..]).unwrap_or_default()
+                let expanded = if let Some(stripped) = v.strip_prefix('$') {
+                    std::env::var(stripped).unwrap_or_default()
                 } else {
                     v.clone()
                 };

@@ -328,7 +328,7 @@ impl LlmProvider for OpenAiProvider {
 
         let resp = self
             .client
-            .post(&self.chat_url())
+            .post(self.chat_url())
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
             .json(&body)
@@ -412,7 +412,7 @@ impl LlmProvider for OpenAiProvider {
 
         let resp = self
             .client
-            .post(&self.chat_url())
+            .post(self.chat_url())
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
             .json(&body)
@@ -719,7 +719,7 @@ impl LlmProvider for OpenAiProvider {
 
         let resp = self
             .client
-            .get(&self.models_url())
+            .get(self.models_url())
             .header("Authorization", format!("Bearer {}", self.api_key))
             .send()
             .await

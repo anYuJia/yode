@@ -105,7 +105,7 @@ fn coerce_type(value: &Value, expected: &str) -> Result<Value, String> {
                 // Coerce "1.5" → 1.5
                 s.parse::<f64>()
                     .ok()
-                    .and_then(|f| serde_json::Number::from_f64(f))
+                    .and_then(serde_json::Number::from_f64)
                     .map(Value::Number)
                     .ok_or_else(|| format!("expected number, got string \"{}\"", s))
             }

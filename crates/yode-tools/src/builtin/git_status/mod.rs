@@ -122,9 +122,10 @@ Git workflow reminder:
             {
                 let p_stdout = String::from_utf8_lossy(&p_out.stdout);
                 for line in p_stdout.lines() {
-                    if line.starts_with("# branch.head ") {
-                        branch = line[14..].to_string();
-                    } else if line.starts_with('1') || line.starts_with('2') {
+                    if let Some(stripped) = line.strip_prefix("# branch.head ") {
+                        branch = stripped.to_string();
+                    }
+ else if line.starts_with('1') || line.starts_with('2') {
                         // Changed tracked file
                         let parts: Vec<&str> = line.split_whitespace().collect();
                         if parts.len() > 1 {

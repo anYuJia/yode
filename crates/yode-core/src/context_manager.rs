@@ -21,22 +21,16 @@ impl ModelLimits {
                 context_window: 200_000,
                 output_tokens: 8_192,
             }
-        } else if model_lower.contains("claude-opus") || model_lower.contains("claude-3-opus") {
+        } else if model_lower.contains("claude-opus")
+            || model_lower.contains("claude-3-opus")
+            || model_lower.contains("claude-haiku")
+            || model_lower.contains("claude-3-haiku")
+        {
             Self {
                 context_window: 200_000,
                 output_tokens: 4_096,
             }
-        } else if model_lower.contains("claude-haiku") || model_lower.contains("claude-3-haiku") {
-            Self {
-                context_window: 200_000,
-                output_tokens: 4_096,
-            }
-        } else if model_lower.contains("gpt-4o") {
-            Self {
-                context_window: 128_000,
-                output_tokens: 4_096,
-            }
-        } else if model_lower.contains("gpt-4-turbo") {
+        } else if model_lower.contains("gpt-4o") || model_lower.contains("gpt-4-turbo") {
             Self {
                 context_window: 128_000,
                 output_tokens: 4_096,
@@ -359,8 +353,8 @@ impl ContextManager {
             // Find the lowest-priority message in the removable range [1..remove_end)
             let mut min_priority = u32::MAX;
             let mut min_idx = 1;
-            for i in 1..remove_end {
-                let p = message_priority(&messages[i]);
+            for (i, msg) in messages.iter().enumerate().take(remove_end).skip(1) {
+                let p = message_priority(msg);
                 if p < min_priority {
                     min_priority = p;
                     min_idx = i;
