@@ -436,6 +436,13 @@ impl ContextManager {
     pub fn compress(&self, messages: &mut Vec<Message>) -> usize {
         self.compress_with_report(messages).removed
     }
+
+    /// Check whether the current messages still exceed the compaction threshold,
+    /// using the cached token/char ratio from the latest API response when available.
+    pub fn exceeds_threshold_estimate(&self, messages: &[Message]) -> bool {
+        (self.estimate_tokens(messages) as f64)
+            > (self.limits.context_window as f64 * self.threshold)
+    }
 }
 
 #[cfg(test)]
@@ -774,5 +781,17 @@ mod tests {
         let summary = report.summary.expect("summary anchor should be inserted");
         assert!(summary.starts_with(CONTEXT_SUMMARY_PREFIX));
         assert!(messages.iter().any(is_context_summary));
+    }
+
+    #[test]
+    fn test_exceeds_threshold_estimate_uses_cached_ratio() {
+        let mut cm = ContextManager::new("claude-sonnet-4");
+        let baseline = vec![Message::user(&"x".repeat(1000))];
+        cm.should_compress(160_000, &baseline);
+
+        assert!(cm.exceeds_threshold_estimate(&baseline));
+
+        let smaller = vec![Message::user(&"x".repeat(100))];
+        assert!(!cm.exceeds_threshold_estimate(&smaller));
     }
 }

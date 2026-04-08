@@ -3,6 +3,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
+use serde_json::{json, Map, Value};
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
@@ -20,12 +21,13 @@ use yode_tools::tool::{
 use yode_tools::validation;
 
 use crate::context::{AgentContext, EffortLevel, QuerySource};
-use crate::context_manager::ContextManager;
+use crate::context_manager::{CompressionReport, ContextManager};
 use crate::cost_tracker::CostTracker;
 use crate::db::Database;
 use crate::hooks::{HookContext, HookEvent, HookManager};
 use crate::instructions::{load_instruction_context, load_memory_context};
 use crate::permission::{CommandClassifier, CommandRiskLevel, PermissionAction, PermissionManager};
+use crate::session_memory::persist_compaction_memory;
 
 /// Maximum size for tool results (50KB)
 const MAX_TOOL_RESULT_SIZE: usize = 50 * 1024;
@@ -247,6 +249,8 @@ const TOOL_BUDGET_WARNING: u32 = 25;
 const TOOL_REFLECT_INTERVAL: u32 = 10;
 /// Goal reminder injection point.
 const TOOL_GOAL_REMINDER: u32 = 5;
+/// Stop retrying auto-compaction after repeated failures.
+const MAX_CONSECUTIVE_COMPACTION_FAILURES: u32 = 3;
 
 /// The core agent engine that drives the conversation loop.
 pub struct AgentEngine {
@@ -294,6 +298,14 @@ pub struct AgentEngine {
     project_kind: ProjectKind,
     /// Unified recovery state for tool-call orchestration.
     recovery_state: RecoveryState,
+    /// Current query source, used for context-management policy decisions.
+    current_query_source: QuerySource,
+    /// Consecutive auto-compaction failures for circuit breaking.
+    compaction_failures: u32,
+    /// Whether auto-compaction has been disabled for this session.
+    autocompact_disabled: bool,
+    /// Guard against nested compaction attempts.
+    compaction_in_progress: bool,
 }
 
 /// Convert yode-tools ToolDefinition to yode-llm ToolDefinition.
@@ -459,6 +471,10 @@ impl AgentEngine {
             plan_mode: Arc::new(Mutex::new(false)),
             project_kind: detected_project_kind,
             recovery_state: RecoveryState::Normal,
+            current_query_source: QuerySource::User,
+            compaction_failures: 0,
+            autocompact_disabled: false,
+            compaction_in_progress: false,
         }
     }
 
@@ -471,6 +487,7 @@ impl AgentEngine {
     pub fn set_model(&mut self, model: String) {
         self.context.model = model;
         self.context_manager = ContextManager::new(&self.context.model);
+        self.reset_autocompact_state();
         self.rebuild_system_prompt();
     }
 
@@ -633,6 +650,270 @@ impl AgentEngine {
         }
     }
 
+    async fn current_runtime_working_dir(&self) -> String {
+        self.context.runtime.lock().await.cwd.display().to_string()
+    }
+
+    fn parse_tool_input(arguments: &str) -> Value {
+        serde_json::from_str(arguments).unwrap_or_else(|_| Value::Object(Map::new()))
+    }
+
+    async fn run_pre_tool_use_hook(
+        &self,
+        tool_call: &ToolCall,
+        working_dir: &str,
+    ) -> Option<ToolResult> {
+        let hook_mgr = self.hook_manager.as_ref()?;
+        let hook_ctx = HookContext {
+            event: HookEvent::PreToolUse.to_string(),
+            session_id: self.context.session_id.clone(),
+            working_dir: working_dir.to_string(),
+            tool_name: Some(tool_call.name.clone()),
+            tool_input: Some(Self::parse_tool_input(&tool_call.arguments)),
+            tool_output: None,
+            error: None,
+            user_prompt: None,
+            metadata: None,
+        };
+
+        hook_mgr
+            .check_blocked(HookEvent::PreToolUse, &hook_ctx)
+            .await
+            .map(|blocked| {
+                ToolResult::error_typed(
+                    format!("Blocked by hook: {}", blocked.reason.unwrap_or_default()),
+                    ToolErrorType::PermissionDeny,
+                    false,
+                    None,
+                )
+            })
+    }
+
+    async fn run_post_tool_use_hooks(
+        &self,
+        tool_call: &ToolCall,
+        working_dir: &str,
+        result: &mut ToolResult,
+    ) {
+        let Some(hook_mgr) = self.hook_manager.as_ref() else {
+            return;
+        };
+
+        let event = if result.is_error {
+            HookEvent::PostToolUseFailure
+        } else {
+            HookEvent::PostToolUse
+        };
+
+        let hook_ctx = HookContext {
+            event: event.to_string(),
+            session_id: self.context.session_id.clone(),
+            working_dir: working_dir.to_string(),
+            tool_name: Some(tool_call.name.clone()),
+            tool_input: Some(Self::parse_tool_input(&tool_call.arguments)),
+            tool_output: Some(result.content.clone()),
+            error: result.is_error.then(|| result.content.clone()),
+            user_prompt: None,
+            metadata: result.metadata.clone(),
+        };
+
+        let results = hook_mgr.execute(event, &hook_ctx).await;
+        let mut hook_outputs = Vec::new();
+
+        for hook_result in results {
+            if hook_result.blocked {
+                warn!(
+                    "Post-tool hook requested block for {}: {}",
+                    tool_call.name,
+                    hook_result.reason.unwrap_or_default()
+                );
+            }
+
+            if let Some(stdout) = hook_result.stdout {
+                let trimmed = stdout.trim();
+                if !trimmed.is_empty() {
+                    hook_outputs.push(trimmed.to_string());
+                }
+            }
+        }
+
+        if !hook_outputs.is_empty() {
+            result.content.push_str("\n\n[Post-tool hook output]\n");
+            result.content.push_str(&hook_outputs.join("\n\n"));
+        }
+    }
+
+    async fn execute_advisory_hooks(&self, event: HookEvent, context: HookContext) {
+        let Some(hook_mgr) = self.hook_manager.as_ref() else {
+            return;
+        };
+
+        for hook_result in hook_mgr.execute(event.clone(), &context).await {
+            if hook_result.blocked {
+                warn!(
+                    "{} hook requested a block, but Yode will continue: {}",
+                    event,
+                    hook_result.reason.unwrap_or_default()
+                );
+            }
+
+            if let Some(stdout) = hook_result.stdout {
+                let trimmed = stdout.trim();
+                if !trimmed.is_empty() {
+                    info!("{} hook output: {}", event, trimmed);
+                }
+            }
+        }
+    }
+
+    fn build_compaction_hook_context(
+        &self,
+        event: HookEvent,
+        prompt_tokens: u32,
+        report: Option<&CompressionReport>,
+        session_memory_path: Option<&std::path::Path>,
+    ) -> HookContext {
+        let mut metadata = Map::new();
+        metadata.insert("mode".to_string(), json!("auto"));
+        metadata.insert("prompt_tokens".to_string(), json!(prompt_tokens));
+        metadata.insert("message_count".to_string(), json!(self.messages.len()));
+        metadata.insert("files_read".to_string(), json!(self.files_read.len()));
+        metadata.insert(
+            "files_modified".to_string(),
+            json!(self.files_modified.len()),
+        );
+
+        if let Some(report) = report {
+            metadata.insert("removed".to_string(), json!(report.removed));
+            metadata.insert(
+                "tool_results_truncated".to_string(),
+                json!(report.tool_results_truncated),
+            );
+            if let Some(summary) = report.summary.as_deref() {
+                metadata.insert("summary".to_string(), json!(summary));
+            }
+        }
+
+        if let Some(path) = session_memory_path {
+            metadata.insert(
+                "session_memory_path".to_string(),
+                json!(path.display().to_string()),
+            );
+        }
+
+        HookContext {
+            event: event.to_string(),
+            session_id: self.context.session_id.clone(),
+            working_dir: self.context.working_dir_compat().display().to_string(),
+            tool_name: None,
+            tool_input: None,
+            tool_output: None,
+            error: None,
+            user_prompt: None,
+            metadata: Some(Value::Object(metadata)),
+        }
+    }
+
+    async fn maybe_compact_context(
+        &mut self,
+        prompt_tokens: u32,
+        event_tx: &mpsc::UnboundedSender<EngineEvent>,
+    ) {
+        if !self.current_query_source.allows_auto_compaction() {
+            debug!(
+                "Skipping auto-compaction for query source {:?}",
+                self.current_query_source
+            );
+            return;
+        }
+
+        if self.autocompact_disabled {
+            debug!("Skipping auto-compaction because the circuit breaker is open");
+            return;
+        }
+
+        if self.compaction_in_progress {
+            warn!("Skipping nested auto-compaction attempt");
+            return;
+        }
+
+        if !self
+            .context_manager
+            .should_compress(prompt_tokens, &self.messages)
+        {
+            return;
+        }
+
+        self.compaction_in_progress = true;
+
+        let pre_context =
+            self.build_compaction_hook_context(HookEvent::PreCompact, prompt_tokens, None, None);
+        self.execute_advisory_hooks(HookEvent::PreCompact, pre_context)
+            .await;
+
+        let report = self
+            .context_manager
+            .compress_with_report(&mut self.messages);
+        if report.removed == 0 && report.tool_results_truncated == 0 {
+            self.compaction_in_progress = false;
+            self.record_compaction_failure("compression made no changes", event_tx);
+            return;
+        }
+
+        let mut session_memory_path = None;
+        let project_root = self.context.working_dir_compat();
+        match persist_compaction_memory(
+            &project_root,
+            &self.context.session_id,
+            &report,
+            &self.files_read,
+            &self.files_modified,
+        ) {
+            Ok(path) => {
+                session_memory_path = Some(path);
+                self.rebuild_system_prompt();
+            }
+            Err(err) => warn!("Failed to persist session memory after compaction: {}", err),
+        }
+
+        let post_context = self.build_compaction_hook_context(
+            HookEvent::PostCompact,
+            prompt_tokens,
+            Some(&report),
+            session_memory_path.as_deref(),
+        );
+        self.execute_advisory_hooks(HookEvent::PostCompact, post_context)
+            .await;
+        let compressed_context = self.build_compaction_hook_context(
+            HookEvent::ContextCompressed,
+            prompt_tokens,
+            Some(&report),
+            session_memory_path.as_deref(),
+        );
+        self.execute_advisory_hooks(HookEvent::ContextCompressed, compressed_context)
+            .await;
+
+        let still_above_threshold = self
+            .context_manager
+            .exceeds_threshold_estimate(&self.messages);
+        self.compaction_in_progress = false;
+
+        if still_above_threshold {
+            self.record_compaction_failure(
+                "context remains above the safety threshold after compaction",
+                event_tx,
+            );
+        } else {
+            self.compaction_failures = 0;
+        }
+
+        let _ = event_tx.send(EngineEvent::ContextCompressed {
+            removed: report.removed,
+            tool_results_truncated: report.tool_results_truncated,
+            summary: report.summary.clone(),
+        });
+    }
+
     /// Get the current message history.
     pub fn messages(&self) -> &[Message] {
         &self.messages
@@ -652,6 +933,7 @@ impl AgentEngine {
             self.messages.push(sys);
         }
         self.messages.extend(messages);
+        self.reset_autocompact_state();
         info!(
             "Restored {} messages from database",
             self.messages.len() - 1
@@ -669,6 +951,7 @@ impl AgentEngine {
             }
             info!("Cleared conversation, kept system prompt");
         }
+        self.reset_autocompact_state();
     }
 
     /// Save a message to the database if available.
@@ -697,14 +980,53 @@ impl AgentEngine {
         }
     }
 
+    fn reset_autocompact_state(&mut self) {
+        self.compaction_failures = 0;
+        self.autocompact_disabled = false;
+        self.compaction_in_progress = false;
+    }
+
+    fn record_compaction_failure(
+        &mut self,
+        reason: impl Into<String>,
+        event_tx: &mpsc::UnboundedSender<EngineEvent>,
+    ) {
+        let reason = reason.into();
+        self.compaction_failures += 1;
+        warn!(
+            "Auto-compaction failure {}/{}: {}",
+            self.compaction_failures, MAX_CONSECUTIVE_COMPACTION_FAILURES, reason
+        );
+
+        if self.compaction_failures < MAX_CONSECUTIVE_COMPACTION_FAILURES {
+            return;
+        }
+
+        self.autocompact_disabled = true;
+        let warning = format!(
+            "[Auto-compact disabled after {} consecutive failures: {}. Continue with shorter turns or clear context before retrying.]",
+            self.compaction_failures, reason
+        );
+
+        let already_present = self.messages.iter().any(|msg| {
+            matches!(msg.role, Role::System) && msg.content.as_deref() == Some(warning.as_str())
+        });
+        if !already_present {
+            self.messages.push(Message::system(warning.clone()));
+        }
+
+        let _ = event_tx.send(EngineEvent::Error(warning));
+    }
+
     /// Run one user turn: send user message, loop through tool calls until final text response.
     pub async fn run_turn(
         &mut self,
         user_input: &str,
-        _source: QuerySource,
+        source: QuerySource,
         event_tx: mpsc::UnboundedSender<EngineEvent>,
         mut confirm_rx: mpsc::UnboundedReceiver<ConfirmResponse>,
     ) -> Result<()> {
+        self.current_query_source = source;
         let _ = event_tx.send(EngineEvent::Thinking);
 
         // Optional pre-read hook before LLM call
@@ -718,6 +1040,7 @@ impl AgentEngine {
                 tool_output: None,
                 error: None,
                 user_prompt: Some(user_input.to_string()),
+                metadata: None,
             };
             let results = hook_mgr.execute(HookEvent::PreTurn, &hook_ctx).await;
             let mut combined = String::new();
@@ -790,22 +1113,8 @@ impl AgentEngine {
                 });
             }
 
-            // Check if context window needs compression (should_compress caches token count)
-            if self
-                .context_manager
-                .should_compress(response.usage.prompt_tokens, &self.messages)
-            {
-                let report = self
-                    .context_manager
-                    .compress_with_report(&mut self.messages);
-                if report.removed > 0 || report.tool_results_truncated > 0 {
-                    let _ = event_tx.send(EngineEvent::ContextCompressed {
-                        removed: report.removed,
-                        tool_results_truncated: report.tool_results_truncated,
-                        summary: report.summary.clone(),
-                    });
-                }
-            }
+            self.maybe_compact_context(response.usage.prompt_tokens, &event_tx)
+                .await;
 
             debug!(
                 "LLM response: text={:?}, tool_calls={}",
@@ -913,6 +1222,9 @@ impl AgentEngine {
                     self.enforce_tool_budget(&mut result);
 
                     self.inject_intelligence(&mut result, &tc.name, &tc.arguments);
+                    let working_dir = self.current_runtime_working_dir().await;
+                    self.run_post_tool_use_hooks(tc, &working_dir, &mut result)
+                        .await;
 
                     self.messages
                         .push(Message::tool_result(&tc.id, &result.content));
@@ -936,6 +1248,9 @@ impl AgentEngine {
                     self.enforce_tool_budget(&mut result);
 
                     self.inject_intelligence(&mut result, &tool_call.name, &tool_call.arguments);
+                    let working_dir = self.current_runtime_working_dir().await;
+                    self.run_post_tool_use_hooks(tool_call, &working_dir, &mut result)
+                        .await;
 
                     self.messages
                         .push(Message::tool_result(&tool_call.id, &result.content));
@@ -985,11 +1300,12 @@ impl AgentEngine {
     pub async fn run_turn_streaming(
         &mut self,
         user_input: &str,
-        _source: QuerySource,
+        source: QuerySource,
         event_tx: mpsc::UnboundedSender<EngineEvent>,
         mut confirm_rx: mpsc::UnboundedReceiver<ConfirmResponse>,
         cancel_token: Option<CancellationToken>,
     ) -> Result<()> {
+        self.current_query_source = source;
         // Optional pre-read hook before LLM call
         if let Some(ref hook_mgr) = self.hook_manager {
             let hook_ctx = HookContext {
@@ -1001,6 +1317,7 @@ impl AgentEngine {
                 tool_output: None,
                 error: None,
                 user_prompt: Some(user_input.to_string()),
+                metadata: None,
             };
             let results = hook_mgr.execute(HookEvent::PreTurn, &hook_ctx).await;
             let mut combined = String::new();
@@ -1439,23 +1756,9 @@ impl AgentEngine {
                 }
             }
 
-            // Check if context window needs compression based on final response usage
             if let Some(ref resp) = final_response {
-                if self
-                    .context_manager
-                    .should_compress(resp.usage.prompt_tokens, &self.messages)
-                {
-                    let report = self
-                        .context_manager
-                        .compress_with_report(&mut self.messages);
-                    if report.removed > 0 || report.tool_results_truncated > 0 {
-                        let _ = event_tx.send(EngineEvent::ContextCompressed {
-                            removed: report.removed,
-                            tool_results_truncated: report.tool_results_truncated,
-                            summary: report.summary.clone(),
-                        });
-                    }
-                }
+                self.maybe_compact_context(resp.usage.prompt_tokens, &event_tx)
+                    .await;
             }
 
             // Build assistant message from stream
@@ -1607,6 +1910,10 @@ impl AgentEngine {
                             result.content.push_str("\n\n[Budget notice: 15 tool calls used. Consider summarizing current findings before continuing.]");
                         }
 
+                        let working_dir = self.current_runtime_working_dir().await;
+                        self.run_post_tool_use_hooks(&tc, &working_dir, &mut result)
+                            .await;
+
                         self.messages
                             .push(Message::tool_result(&tc.id, &result.content));
                         self.persist_message(
@@ -1646,6 +1953,9 @@ impl AgentEngine {
                     let mut result = truncate_tool_result(result);
 
                     self.inject_intelligence(&mut result, &tool_call.name, &tool_call.arguments);
+                    let working_dir = self.current_runtime_working_dir().await;
+                    self.run_post_tool_use_hooks(tool_call, &working_dir, &mut result)
+                        .await;
 
                     self.messages
                         .push(Message::tool_result(&tool_call.id, &result.content));
@@ -2159,6 +2469,21 @@ impl AgentEngine {
             });
 
             let ctx = self.build_tool_context(Some(p_tx)).await;
+            let working_dir = ctx
+                .working_dir
+                .as_ref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default();
+
+            if let Some(blocked) = self.run_pre_tool_use_hook(tc, &working_dir).await {
+                let tc_clone = tc.clone();
+                futures.push(Box::pin(async move { (tc_clone, blocked) })
+                    as Pin<
+                        Box<dyn std::future::Future<Output = (ToolCall, ToolResult)> + Send>,
+                    >);
+                continue;
+            }
+
             let tool_name = tc.name.clone();
             let tc_clone = tc.clone();
 
@@ -2667,32 +2992,6 @@ impl AgentEngine {
         );
         let start_time = std::time::Instant::now();
 
-        // Pre-tool-use hook
-        if let Some(ref hook_mgr) = self.hook_manager {
-            let hook_ctx = HookContext {
-                event: "pre_tool_use".into(),
-                session_id: self.context.session_id.clone(),
-                working_dir: self.context.working_dir_compat().display().to_string(),
-                tool_name: Some(tool_call.name.clone()),
-
-                tool_input: Some(serde_json::from_str(&tool_call.arguments).unwrap_or_default()),
-                tool_output: None,
-                error: None,
-                user_prompt: None,
-            };
-            if let Some(blocked) = hook_mgr
-                .check_blocked(HookEvent::PreToolUse, &hook_ctx)
-                .await
-            {
-                return Ok(ToolResult::error_typed(
-                    format!("Blocked by hook: {}", blocked.reason.unwrap_or_default()),
-                    ToolErrorType::PermissionDeny,
-                    false,
-                    None,
-                ));
-            }
-        }
-
         let (p_tx, mut p_rx) = mpsc::unbounded_channel::<yode_tools::tool::ToolProgress>();
         let event_tx_inner = event_tx.clone();
         let tc_id = tool_call.id.clone();
@@ -2709,33 +3008,17 @@ impl AgentEngine {
 
         let ctx = self.build_tool_context(Some(p_tx)).await;
 
-        // Pre-tool-use hook
-        if let Some(ref hook_mgr) = self.hook_manager {
-            let hook_ctx = HookContext {
-                event: "pre_tool_use".into(),
-                session_id: self.context.session_id.clone(),
-                working_dir: ctx
-                    .working_dir
+        if let Some(blocked) = self
+            .run_pre_tool_use_hook(
+                tool_call,
+                &ctx.working_dir
                     .as_ref()
                     .map(|p| p.display().to_string())
                     .unwrap_or_default(),
-                tool_name: Some(tool_call.name.clone()),
-                tool_input: Some(serde_json::from_str(&tool_call.arguments).unwrap_or_default()),
-                tool_output: None,
-                error: None,
-                user_prompt: None,
-            };
-            if let Some(blocked) = hook_mgr
-                .check_blocked(HookEvent::PreToolUse, &hook_ctx)
-                .await
-            {
-                return Ok(ToolResult::error_typed(
-                    format!("Blocked by hook: {}", blocked.reason.unwrap_or_default()),
-                    ToolErrorType::PermissionDeny,
-                    false,
-                    None,
-                ));
-            }
+            )
+            .await
+        {
+            return Ok(blocked);
         }
 
         let mut result = match tokio::time::timeout(
@@ -3160,6 +3443,73 @@ mod tests {
         let (tx, _rx) = mpsc::unbounded_channel();
         let results = engine.execute_tools_parallel(&[], &tx).await;
         assert!(results.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_autocompact_circuit_breaker_trips_after_repeated_failures() {
+        let mut engine = make_engine(vec![], vec![]);
+        engine.messages = vec![
+            Message::system("system"),
+            Message::user("u1"),
+            Message::assistant("a1"),
+            Message::user("u2"),
+            Message::assistant("a2"),
+            Message::user("u3"),
+            Message::assistant("a3"),
+        ];
+        engine.current_query_source = QuerySource::User;
+
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        for _ in 0..MAX_CONSECUTIVE_COMPACTION_FAILURES {
+            engine.maybe_compact_context(160_000, &tx).await;
+        }
+
+        assert!(engine.autocompact_disabled);
+        assert_eq!(
+            engine.compaction_failures,
+            MAX_CONSECUTIVE_COMPACTION_FAILURES
+        );
+        assert!(engine.messages.iter().any(|msg| {
+            msg.content
+                .as_deref()
+                .unwrap_or_default()
+                .contains("Auto-compact disabled")
+        }));
+        assert!(matches!(rx.try_recv(), Ok(EngineEvent::Error(_))));
+    }
+
+    #[tokio::test]
+    async fn test_compact_query_source_skips_autocompact() {
+        let mut engine = make_engine(vec![], vec![]);
+        let big = "x".repeat(18_000);
+        engine.messages = vec![
+            Message::system("system"),
+            Message::user(&big),
+            Message::assistant(&big),
+            Message::tool_result("tc1", &big),
+            Message::user(&big),
+            Message::assistant(&big),
+            Message::user("recent1"),
+            Message::assistant("recent2"),
+            Message::user("recent3"),
+            Message::assistant("recent4"),
+            Message::user("recent5"),
+            Message::assistant("recent6"),
+        ];
+        engine.current_query_source = QuerySource::Compact;
+
+        let before_len = engine.messages.len();
+        let (tx, _rx) = mpsc::unbounded_channel();
+        engine.maybe_compact_context(160_000, &tx).await;
+
+        assert_eq!(engine.messages.len(), before_len);
+        assert_eq!(engine.compaction_failures, 0);
+        assert!(!engine.messages.iter().any(|msg| {
+            msg.content
+                .as_deref()
+                .unwrap_or_default()
+                .starts_with("[Context summary]")
+        }));
     }
 }
 

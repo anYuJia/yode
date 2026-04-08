@@ -8,6 +8,7 @@ pub mod hooks;
 pub mod instructions;
 pub mod permission;
 pub mod session;
+pub mod session_memory;
 pub mod setup;
 pub mod skills;
 pub mod updater;

@@ -13,6 +13,9 @@ pub enum HookEvent {
     SessionEnd,
     // Turn lifecycle
     PreTurn,
+    // Context compaction
+    PreCompact,
+    PostCompact,
     // Tool execution
     PreToolUse,
     PostToolUse,
@@ -32,6 +35,8 @@ impl std::fmt::Display for HookEvent {
             Self::SessionStart => write!(f, "session_start"),
             Self::SessionEnd => write!(f, "session_end"),
             Self::PreTurn => write!(f, "pre_turn"),
+            Self::PreCompact => write!(f, "pre_compact"),
+            Self::PostCompact => write!(f, "post_compact"),
             Self::PreToolUse => write!(f, "pre_tool_use"),
             Self::PostToolUse => write!(f, "post_tool_use"),
             Self::PostToolUseFailure => write!(f, "post_tool_use_failure"),
@@ -61,6 +66,8 @@ pub struct HookContext {
     pub error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_prompt: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<Value>,
 }
 
 // ─── Hook Result ────────────────────────────────────────────────────────────
@@ -264,6 +271,8 @@ mod tests {
     fn test_hook_event_display() {
         assert_eq!(HookEvent::PreToolUse.to_string(), "pre_tool_use");
         assert_eq!(HookEvent::SessionStart.to_string(), "session_start");
+        assert_eq!(HookEvent::PreCompact.to_string(), "pre_compact");
+        assert_eq!(HookEvent::PostCompact.to_string(), "post_compact");
     }
 
     #[test]
@@ -292,6 +301,7 @@ mod tests {
             tool_output: None,
             error: None,
             user_prompt: None,
+            metadata: None,
         };
         let results = mgr.execute(HookEvent::PreToolUse, &ctx).await;
         assert!(results.is_empty());
@@ -316,6 +326,7 @@ mod tests {
             tool_output: None,
             error: None,
             user_prompt: None,
+            metadata: None,
         };
         let results = mgr.execute(HookEvent::PreToolUse, &ctx).await;
         assert_eq!(results.len(), 1);
@@ -343,6 +354,7 @@ mod tests {
             tool_output: None,
             error: None,
             user_prompt: None,
+            metadata: None,
         };
         let results = mgr.execute(HookEvent::PreToolUse, &ctx).await;
         assert!(results.is_empty());

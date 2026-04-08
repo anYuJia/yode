@@ -67,11 +67,19 @@ pub enum QuerySource {
     SubAgent,
     Cron,
     Hook(String),
+    Compact,
+    SessionMemory,
 }
 
 impl Default for QuerySource {
     fn default() -> Self {
         Self::User
+    }
+}
+
+impl QuerySource {
+    pub fn allows_auto_compaction(&self) -> bool {
+        !matches!(self, Self::Compact | Self::SessionMemory)
     }
 }
 
