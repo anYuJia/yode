@@ -23,12 +23,15 @@ impl MemoryCommand {
                 args: vec![ArgDef {
                     name: "target".to_string(),
                     required: false,
-                    hint: "[live|session|latest|list|<index>|<file>]".to_string(),
+                    hint: "[live|session|latest|list [recent|auto|manual]|<index>|<file>]".to_string(),
                     completions: ArgCompletionSource::Static(vec![
                         "live".to_string(),
                         "session".to_string(),
                         "latest".to_string(),
                         "list".to_string(),
+                        "list recent".to_string(),
+                        "list auto".to_string(),
+                        "list manual".to_string(),
                     ]),
                 }],
                 category: CommandCategory::Info,
@@ -68,7 +71,22 @@ impl Command for MemoryCommand {
                     .ok_or_else(|| "No transcript backups found.".to_string())?;
                 render_latest_transcript(&latest)
             }
-            "list" => Ok(CommandOutput::Message(render_transcript_list(&transcripts_dir))),
+            "list" => Ok(CommandOutput::Message(render_transcript_list(
+                &transcripts_dir,
+                TranscriptFilter::All,
+            ))),
+            "list recent" => Ok(CommandOutput::Message(render_transcript_list(
+                &transcripts_dir,
+                TranscriptFilter::Recent,
+            ))),
+            "list auto" => Ok(CommandOutput::Message(render_transcript_list(
+                &transcripts_dir,
+                TranscriptFilter::Auto,
+            ))),
+            "list manual" => Ok(CommandOutput::Message(render_transcript_list(
+                &transcripts_dir,
+                TranscriptFilter::Manual,
+            ))),
             target => {
                 let transcript = resolve_transcript_target(&transcripts_dir, target)
                     .ok_or_else(|| format!("Unknown memory target: {}", target))?;
@@ -176,13 +194,27 @@ fn render_latest_transcript(path: &Path) -> CommandResult {
     )))
 }
 
-fn render_transcript_list(dir: &Path) -> String {
-    let entries = sorted_transcript_entries(dir);
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TranscriptFilter {
+    All,
+    Recent,
+    Auto,
+    Manual,
+}
+
+fn render_transcript_list(dir: &Path, filter: TranscriptFilter) -> String {
+    let entries = filtered_transcript_entries(dir, filter);
     if entries.is_empty() {
         return format!("No transcript backups found in {}.", dir.display());
     }
 
-    let mut output = format!("Transcript backups in {}:\n", dir.display());
+    let label = match filter {
+        TranscriptFilter::All => "all",
+        TranscriptFilter::Recent => "recent",
+        TranscriptFilter::Auto => "auto",
+        TranscriptFilter::Manual => "manual",
+    };
+    let mut output = format!("Transcript backups in {} ({label}):\n", dir.display());
     for (idx, path) in entries.into_iter().take(10).enumerate() {
         output.push_str(&format!("  {:>2}. ", idx + 1));
         output.push_str(&path.display().to_string());
@@ -222,6 +254,29 @@ fn transcript_entries(dir: &Path) -> Vec<PathBuf> {
 fn sorted_transcript_entries(dir: &Path) -> Vec<PathBuf> {
     let mut entries = transcript_entries(dir);
     entries.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
+    entries
+}
+
+fn filtered_transcript_entries(dir: &Path, filter: TranscriptFilter) -> Vec<PathBuf> {
+    let mut entries = sorted_transcript_entries(dir);
+    match filter {
+        TranscriptFilter::All => {}
+        TranscriptFilter::Recent => {
+            entries.truncate(5);
+        }
+        TranscriptFilter::Auto | TranscriptFilter::Manual => {
+            entries.retain(|path| {
+                read_transcript_metadata(path)
+                    .and_then(|meta| meta.mode)
+                    .map(|mode| match filter {
+                        TranscriptFilter::Auto => mode == "auto",
+                        TranscriptFilter::Manual => mode == "manual",
+                        _ => true,
+                    })
+                    .unwrap_or(false)
+            });
+        }
+    }
     entries
 }
 
@@ -313,9 +368,9 @@ fn extract_summary_preview(content: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        extract_summary_preview, latest_transcript, read_transcript_metadata,
-        render_transcript_list, resolve_transcript_target, truncate_for_display,
-        MAX_DISPLAY_CHARS,
+        extract_summary_preview, filtered_transcript_entries, latest_transcript,
+        read_transcript_metadata, render_transcript_list, resolve_transcript_target,
+        truncate_for_display, TranscriptFilter, MAX_DISPLAY_CHARS,
     };
 
     #[test]
@@ -358,7 +413,7 @@ mod tests {
         let by_name = resolve_transcript_target(&dir, "aaa-compact-20240101.md").unwrap();
         assert!(by_name.ends_with("aaa-compact-20240101.md"));
 
-        let listing = render_transcript_list(&dir);
+        let listing = render_transcript_list(&dir, TranscriptFilter::All);
         assert!(listing.contains("  1. "));
         assert!(listing.contains("  2. "));
 
@@ -395,5 +450,34 @@ mod tests {
         let preview = extract_summary_preview(content).unwrap();
         assert!(preview.contains("First line"));
         assert!(preview.contains("Second line"));
+    }
+
+    #[test]
+    fn filtered_transcript_entries_supports_mode_filter() {
+        let dir = std::env::temp_dir().join(format!(
+            "yode-memory-command-filter-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("auto.md"),
+            "# Compaction Transcript\n\n- Mode: auto\n- Timestamp: 2026-01-01 10:00:00\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("manual.md"),
+            "# Compaction Transcript\n\n- Mode: manual\n- Timestamp: 2026-01-01 11:00:00\n",
+        )
+        .unwrap();
+
+        let auto = filtered_transcript_entries(&dir, TranscriptFilter::Auto);
+        assert_eq!(auto.len(), 1);
+        assert!(auto[0].ends_with("auto.md"));
+
+        let manual_listing = render_transcript_list(&dir, TranscriptFilter::Manual);
+        assert!(manual_listing.contains("manual"));
+        assert!(!manual_listing.contains("auto.md"));
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
