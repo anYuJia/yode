@@ -995,6 +995,12 @@ async fn run_app(
             }
         }
     }
+
+    {
+        let mut engine = engine.lock().await;
+        engine.finalize_session_hooks("tui_exit").await;
+    }
+
     Ok(())
 }
 

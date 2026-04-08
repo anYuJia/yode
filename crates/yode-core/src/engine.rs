@@ -1,6 +1,9 @@
 use regex::Regex;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, AtomicU64, Ordering},
+    Arc,
+};
 
 use anyhow::{Context as _, Result};
 use serde_json::{json, Map, Value};
@@ -27,7 +30,11 @@ use crate::db::Database;
 use crate::hooks::{HookContext, HookEvent, HookManager};
 use crate::instructions::{load_instruction_context, load_memory_context};
 use crate::permission::{CommandClassifier, CommandRiskLevel, PermissionAction, PermissionManager};
-use crate::session_memory::persist_compaction_memory;
+use crate::session_memory::{
+    build_live_snapshot, clear_live_session_memory, live_session_memory_path,
+    persist_compaction_memory, persist_live_session_memory, persist_live_session_memory_summary,
+    render_live_session_memory_prompt,
+};
 use crate::transcript::write_compaction_transcript;
 
 /// Maximum size for tool results (50KB)
@@ -252,6 +259,9 @@ const TOOL_REFLECT_INTERVAL: u32 = 10;
 const TOOL_GOAL_REMINDER: u32 = 5;
 /// Stop retrying auto-compaction after repeated failures.
 const MAX_CONSECUTIVE_COMPACTION_FAILURES: u32 = 3;
+const SESSION_MEMORY_INIT_CHAR_THRESHOLD: usize = 8_000;
+const SESSION_MEMORY_CHAR_DELTA_THRESHOLD: usize = 4_000;
+const SESSION_MEMORY_TOOL_DELTA_THRESHOLD: u32 = 3;
 
 /// The core agent engine that drives the conversation loop.
 pub struct AgentEngine {
@@ -307,6 +317,18 @@ pub struct AgentEngine {
     autocompact_disabled: bool,
     /// Guard against nested compaction attempts.
     compaction_in_progress: bool,
+    /// Cumulative tool calls across the current session.
+    session_tool_calls_total: u32,
+    /// Whether live session memory has crossed its initial activation threshold.
+    session_memory_initialized: bool,
+    /// Message char count at the last live session memory refresh.
+    last_session_memory_char_count: usize,
+    /// Total tool calls at the last live session memory refresh.
+    last_session_memory_tool_count: u32,
+    /// Whether an async live session memory update is already running.
+    session_memory_update_in_progress: Arc<AtomicBool>,
+    /// Generation counter used to invalidate stale async session memory writes.
+    session_memory_generation: Arc<AtomicU64>,
 }
 
 /// Convert yode-tools ToolDefinition to yode-llm ToolDefinition.
@@ -476,6 +498,12 @@ impl AgentEngine {
             compaction_failures: 0,
             autocompact_disabled: false,
             compaction_in_progress: false,
+            session_tool_calls_total: 0,
+            session_memory_initialized: false,
+            last_session_memory_char_count: 0,
+            last_session_memory_tool_count: 0,
+            session_memory_update_in_progress: Arc::new(AtomicBool::new(false)),
+            session_memory_generation: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -661,33 +689,63 @@ impl AgentEngine {
 
     async fn run_pre_tool_use_hook(
         &self,
-        tool_call: &ToolCall,
+        tool_name: &str,
+        tool_arguments: &str,
         working_dir: &str,
+        params: &mut Value,
     ) -> Option<ToolResult> {
         let hook_mgr = self.hook_manager.as_ref()?;
         let hook_ctx = HookContext {
             event: HookEvent::PreToolUse.to_string(),
             session_id: self.context.session_id.clone(),
             working_dir: working_dir.to_string(),
-            tool_name: Some(tool_call.name.clone()),
-            tool_input: Some(Self::parse_tool_input(&tool_call.arguments)),
+            tool_name: Some(tool_name.to_string()),
+            tool_input: Some(params.clone()),
             tool_output: None,
             error: None,
             user_prompt: None,
             metadata: None,
         };
+        let results = hook_mgr.execute(HookEvent::PreToolUse, &hook_ctx).await;
+        let mut hook_outputs = Vec::new();
 
-        hook_mgr
-            .check_blocked(HookEvent::PreToolUse, &hook_ctx)
-            .await
-            .map(|blocked| {
-                ToolResult::error_typed(
-                    format!("Blocked by hook: {}", blocked.reason.unwrap_or_default()),
+        for result in results {
+            if let Some(modified_input) = result.modified_input {
+                *params = modified_input;
+            }
+
+            if result.blocked {
+                return Some(ToolResult::error_typed(
+                    format!(
+                        "Blocked by hook: {}",
+                        result.reason.unwrap_or_else(|| {
+                            format!("pre_tool_use rejected {}", tool_name)
+                        })
+                    ),
                     ToolErrorType::PermissionDeny,
                     false,
                     None,
-                )
-            })
+                ));
+            }
+
+            if let Some(stdout) = result.stdout {
+                let trimmed = stdout.trim();
+                if !trimmed.is_empty() {
+                    hook_outputs.push(trimmed.to_string());
+                }
+            }
+        }
+
+        if !hook_outputs.is_empty() {
+            info!(
+                "pre_tool_use hook output for {}({}): {}",
+                tool_name,
+                tool_arguments,
+                hook_outputs.join(" | ")
+            );
+        }
+
+        None
     }
 
     async fn run_post_tool_use_hooks(
@@ -767,6 +825,44 @@ impl AgentEngine {
         }
     }
 
+    async fn append_hook_outputs_as_system_message(
+        &mut self,
+        event: HookEvent,
+        context: HookContext,
+        banner: &str,
+    ) {
+        let Some(hook_mgr) = self.hook_manager.as_ref() else {
+            return;
+        };
+
+        let results = hook_mgr.execute(event.clone(), &context).await;
+        let mut combined = String::new();
+
+        for result in results {
+            if result.blocked {
+                warn!(
+                    "{} hook requested a block, but Yode will continue: {}",
+                    event,
+                    result.reason.unwrap_or_default()
+                );
+            }
+
+            if let Some(stdout) = result.stdout {
+                let trimmed = stdout.trim();
+                if !trimmed.is_empty() {
+                    combined.push_str(trimmed);
+                    combined.push_str("\n\n");
+                }
+            }
+        }
+
+        if !combined.is_empty() {
+            let message = format!("[{}]\n{}", banner, combined);
+            self.messages.push(Message::system(&message));
+            self.persist_message("system", Some(&message), None, None, None);
+        }
+    }
+
     pub async fn initialize_session_hooks(&mut self, reason: &'static str) {
         let Some(hook_mgr) = self.hook_manager.as_ref() else {
             return;
@@ -815,6 +911,34 @@ impl AgentEngine {
             self.messages.push(Message::system(&message));
             self.persist_message("system", Some(&message), None, None, None);
         }
+    }
+
+    pub async fn finalize_session_hooks(&mut self, reason: &'static str) {
+        self.flush_live_session_memory_on_shutdown();
+
+        let Some(_hook_mgr) = self.hook_manager.as_ref() else {
+            return;
+        };
+
+        let hook_ctx = HookContext {
+            event: HookEvent::SessionEnd.to_string(),
+            session_id: self.context.session_id.clone(),
+            working_dir: self.context.working_dir_compat().display().to_string(),
+            tool_name: None,
+            tool_input: None,
+            tool_output: None,
+            error: None,
+            user_prompt: None,
+            metadata: Some(json!({
+                "reason": reason,
+                "resumed": self.context.is_resumed,
+                "total_messages": self.messages.len(),
+                "total_tool_calls": self.session_tool_calls_total,
+            })),
+        };
+
+        self.execute_advisory_hooks(HookEvent::SessionEnd, hook_ctx)
+            .await;
     }
 
     fn build_compaction_hook_context(
@@ -1069,7 +1193,15 @@ impl AgentEngine {
             }
             info!("Cleared conversation, kept system prompt");
         }
+        if let Err(err) = clear_live_session_memory(&self.context.working_dir_compat()) {
+            warn!(
+                "Failed to clear live session memory during conversation reset: {}",
+                err
+            );
+        }
+        self.reset_live_session_memory_tracking();
         self.sync_persisted_messages_snapshot();
+        self.rebuild_system_prompt();
         self.reset_autocompact_state();
     }
 
@@ -1114,6 +1246,177 @@ impl AgentEngine {
         if let Err(err) = db.touch_session(&self.context.session_id) {
             warn!("Failed to touch session after snapshot rewrite: {}", err);
         }
+    }
+
+    fn current_message_char_count(&self) -> usize {
+        self.messages
+            .iter()
+            .map(|m| {
+                m.content.as_ref().map(|c| c.len()).unwrap_or(0)
+                    + m.tool_calls
+                        .iter()
+                        .map(|tc| tc.arguments.len() + tc.name.len())
+                        .sum::<usize>()
+            })
+            .sum()
+    }
+
+    fn maybe_refresh_live_session_memory(&mut self) {
+        self.session_tool_calls_total = self
+            .session_tool_calls_total
+            .saturating_add(self.tool_call_count);
+
+        let current_chars = self.current_message_char_count();
+        if !self.session_memory_initialized {
+            if current_chars < SESSION_MEMORY_INIT_CHAR_THRESHOLD
+                && self.session_tool_calls_total < SESSION_MEMORY_TOOL_DELTA_THRESHOLD
+            {
+                return;
+            }
+            self.session_memory_initialized = true;
+        }
+
+        let char_delta = current_chars.saturating_sub(self.last_session_memory_char_count);
+        let tool_delta = self
+            .session_tool_calls_total
+            .saturating_sub(self.last_session_memory_tool_count);
+
+        if char_delta < SESSION_MEMORY_CHAR_DELTA_THRESHOLD
+            && tool_delta < SESSION_MEMORY_TOOL_DELTA_THRESHOLD
+        {
+            return;
+        }
+
+        self.last_session_memory_char_count = current_chars;
+        self.last_session_memory_tool_count = self.session_tool_calls_total;
+
+        let snapshot = build_live_snapshot(
+            &self.context.session_id,
+            &self.messages,
+            self.session_tool_calls_total,
+            &self.files_read.keys().cloned().collect::<Vec<_>>(),
+            &self.files_modified,
+        );
+
+        let project_root = self.context.working_dir_compat();
+        if self.provider.name() == "mock" {
+            match persist_live_session_memory(&project_root, &snapshot) {
+                Ok(_) => {
+                    self.rebuild_system_prompt();
+                }
+                Err(err) => warn!("Failed to refresh live session memory: {}", err),
+            }
+            return;
+        }
+
+        if self
+            .session_memory_update_in_progress
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return;
+        }
+
+        let provider = Arc::clone(&self.provider);
+        let model = self.context.model.clone();
+        let generation = Arc::clone(&self.session_memory_generation);
+        let scheduled_generation = generation.load(Ordering::SeqCst);
+        let update_flag = Arc::clone(&self.session_memory_update_in_progress);
+        let recent_messages = self
+            .messages
+            .iter()
+            .rev()
+            .take(12)
+            .cloned()
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>();
+
+        tokio::spawn(async move {
+            let existing_summary =
+                std::fs::read_to_string(live_session_memory_path(&project_root)).ok();
+            let prompt = render_live_session_memory_prompt(
+                existing_summary.as_deref(),
+                &snapshot,
+                &recent_messages,
+            );
+            let request = ChatRequest {
+                model,
+                messages: vec![
+                    Message::system(
+                        "You maintain concise session memory for a coding assistant. Return markdown only.",
+                    ),
+                    Message::user(prompt),
+                ],
+                tools: vec![],
+                temperature: Some(0.2),
+                max_tokens: Some(500),
+            };
+
+            let summary = provider
+                .chat(request)
+                .await
+                .ok()
+                .and_then(|resp| resp.message.content)
+                .filter(|content| !content.trim().is_empty());
+
+            if generation.load(Ordering::SeqCst) != scheduled_generation {
+                update_flag.store(false, Ordering::SeqCst);
+                return;
+            }
+
+            let result = if let Some(summary) = summary {
+                persist_live_session_memory_summary(&project_root, &snapshot, &summary)
+            } else {
+                persist_live_session_memory(&project_root, &snapshot)
+            };
+
+            if let Err(err) = result {
+                warn!("Failed to persist async live session memory: {}", err);
+            } else {
+                info!("Live session memory refreshed asynchronously");
+            }
+
+            update_flag.store(false, Ordering::SeqCst);
+        });
+    }
+
+    fn flush_live_session_memory_on_shutdown(&mut self) {
+        self.invalidate_live_session_memory_updates();
+
+        if self.messages.len() <= 1 {
+            return;
+        }
+
+        let snapshot = build_live_snapshot(
+            &self.context.session_id,
+            &self.messages,
+            self.session_tool_calls_total,
+            &self.files_read.keys().cloned().collect::<Vec<_>>(),
+            &self.files_modified,
+        );
+
+        if let Err(err) =
+            persist_live_session_memory(&self.context.working_dir_compat(), &snapshot)
+        {
+            warn!("Failed to flush live session memory on shutdown: {}", err);
+        }
+    }
+
+    fn invalidate_live_session_memory_updates(&mut self) {
+        self.session_memory_generation
+            .fetch_add(1, Ordering::SeqCst);
+        self.session_memory_update_in_progress
+            .store(false, Ordering::SeqCst);
+    }
+
+    fn reset_live_session_memory_tracking(&mut self) {
+        self.session_tool_calls_total = 0;
+        self.session_memory_initialized = false;
+        self.last_session_memory_char_count = 0;
+        self.last_session_memory_tool_count = 0;
+        self.invalidate_live_session_memory_updates();
     }
 
     fn reset_autocompact_state(&mut self) {
@@ -1163,7 +1466,28 @@ impl AgentEngine {
         mut confirm_rx: mpsc::UnboundedReceiver<ConfirmResponse>,
     ) -> Result<()> {
         self.current_query_source = source;
+        self.rebuild_system_prompt();
         let _ = event_tx.send(EngineEvent::Thinking);
+
+        let prompt_submit_ctx = HookContext {
+            event: HookEvent::UserPromptSubmit.to_string(),
+            session_id: self.context.session_id.clone(),
+            working_dir: self.context.working_dir_compat().display().to_string(),
+            tool_name: None,
+            tool_input: None,
+            tool_output: None,
+            error: None,
+            user_prompt: Some(user_input.to_string()),
+            metadata: Some(json!({
+                "query_source": format!("{:?}", self.current_query_source),
+            })),
+        };
+        self.append_hook_outputs_as_system_message(
+            HookEvent::UserPromptSubmit,
+            prompt_submit_ctx,
+            "System Auto-Context via user_prompt_submit hooks",
+        )
+        .await;
 
         // Optional pre-read hook before LLM call
         if let Some(ref hook_mgr) = self.hook_manager {
@@ -1423,6 +1747,7 @@ impl AgentEngine {
                 }
             }
 
+            self.maybe_refresh_live_session_memory();
             let _ = event_tx.send(EngineEvent::TurnComplete(response));
             let _ = event_tx.send(EngineEvent::Done);
             break;
@@ -1442,6 +1767,26 @@ impl AgentEngine {
         cancel_token: Option<CancellationToken>,
     ) -> Result<()> {
         self.current_query_source = source;
+        self.rebuild_system_prompt();
+        let prompt_submit_ctx = HookContext {
+            event: HookEvent::UserPromptSubmit.to_string(),
+            session_id: self.context.session_id.clone(),
+            working_dir: self.context.working_dir_compat().display().to_string(),
+            tool_name: None,
+            tool_input: None,
+            tool_output: None,
+            error: None,
+            user_prompt: Some(user_input.to_string()),
+            metadata: Some(json!({
+                "query_source": format!("{:?}", self.current_query_source),
+            })),
+        };
+        self.append_hook_outputs_as_system_message(
+            HookEvent::UserPromptSubmit,
+            prompt_submit_ctx,
+            "System Auto-Context via user_prompt_submit hooks",
+        )
+        .await;
         // Optional pre-read hook before LLM call
         if let Some(ref hook_mgr) = self.hook_manager {
             let hook_ctx = HookContext {
@@ -2168,6 +2513,7 @@ impl AgentEngine {
 
                 if resp.message.tool_calls.is_empty() {
                     debug!("Streaming turn complete with no tool calls; finishing turn.");
+                    self.maybe_refresh_live_session_memory();
                     let _ = event_tx.send(EngineEvent::TurnComplete(resp));
                     let _ = event_tx.send(EngineEvent::Done);
                     break;
@@ -2563,22 +2909,6 @@ impl AgentEngine {
             let mut params: serde_json::Value = serde_json::from_str(&tc.arguments)
                 .unwrap_or_else(|_| serde_json::Value::Object(serde_json::Map::new()));
 
-            let schema = tool.parameters_schema();
-            if let Err(msg) = validation::validate_and_coerce(&schema, &mut params) {
-                let tc_clone = tc.clone();
-                let result = ToolResult::error_typed(
-                    format!("Parameter validation failed: {}", msg),
-                    ToolErrorType::Validation,
-                    true,
-                    Some(format!("Fix the parameters and retry. Schema: {}", schema)),
-                );
-                futures.push(Box::pin(async move { (tc_clone, result) })
-                    as Pin<
-                        Box<dyn std::future::Future<Output = (ToolCall, ToolResult)> + Send>,
-                    >);
-                continue;
-            }
-
             let _ = event_tx.send(EngineEvent::ToolCallStart {
                 id: tc.id.clone(),
                 name: tc.name.clone(),
@@ -2611,9 +2941,28 @@ impl AgentEngine {
                 .map(|p| p.display().to_string())
                 .unwrap_or_default();
 
-            if let Some(blocked) = self.run_pre_tool_use_hook(tc, &working_dir).await {
+            if let Some(blocked) = self
+                .run_pre_tool_use_hook(&tc.name, &tc.arguments, &working_dir, &mut params)
+                .await
+            {
                 let tc_clone = tc.clone();
                 futures.push(Box::pin(async move { (tc_clone, blocked) })
+                    as Pin<
+                        Box<dyn std::future::Future<Output = (ToolCall, ToolResult)> + Send>,
+                    >);
+                continue;
+            }
+
+            let schema = tool.parameters_schema();
+            if let Err(msg) = validation::validate_and_coerce(&schema, &mut params) {
+                let tc_clone = tc.clone();
+                let result = ToolResult::error_typed(
+                    format!("Parameter validation failed: {}", msg),
+                    ToolErrorType::Validation,
+                    true,
+                    Some(format!("Fix the parameters and retry. Schema: {}", schema)),
+                );
+                futures.push(Box::pin(async move { (tc_clone, result) })
                     as Pin<
                         Box<dyn std::future::Future<Output = (ToolCall, ToolResult)> + Send>,
                     >);
@@ -2826,16 +3175,13 @@ impl AgentEngine {
         // Parse arguments
         let mut params: serde_json::Value = serde_json::from_str(&tool_call.arguments)
             .unwrap_or_else(|_| serde_json::Value::Object(serde_json::Map::new()));
+        let working_dir = self.current_runtime_working_dir().await;
 
-        // Validate and coerce parameters against the tool's schema
-        let schema = tool.parameters_schema();
-        if let Err(msg) = validation::validate_and_coerce(&schema, &mut params) {
-            return Ok(ToolResult::error_typed(
-                format!("Parameter validation failed: {}", msg),
-                ToolErrorType::Validation,
-                true,
-                Some(format!("Fix the parameters and retry. Schema: {}", schema)),
-            ));
+        if let Some(blocked) = self
+            .run_pre_tool_use_hook(&tool_call.name, &tool_call.arguments, &working_dir, &mut params)
+            .await
+        {
+            return Ok(blocked);
         }
 
         // Claude-style unified recovery gate:
@@ -2998,6 +3344,22 @@ impl AgentEngine {
                 });
             }
             PermissionAction::Confirm => {
+                let permission_request_ctx = HookContext {
+                    event: HookEvent::PermissionRequest.to_string(),
+                    session_id: self.context.session_id.clone(),
+                    working_dir: self.context.working_dir_compat().display().to_string(),
+                    tool_name: Some(tool_call.name.clone()),
+                    tool_input: Some(params.clone()),
+                    tool_output: None,
+                    error: None,
+                    user_prompt: None,
+                    metadata: Some(json!({
+                        "decision": "confirm",
+                    })),
+                };
+                self.execute_advisory_hooks(HookEvent::PermissionRequest, permission_request_ctx)
+                    .await;
+
                 let _ = event_tx.send(EngineEvent::ToolConfirmRequired {
                     id: tool_call.id.clone(),
                     name: tool_call.name.clone(),
@@ -3041,6 +3403,21 @@ impl AgentEngine {
                         Ok(Some(ConfirmResponse::Deny)) => {
                             info!("Tool {} denied by user", tool_call.name);
                             self.permissions.record_denial(&tool_call.name);
+                            let denied_ctx = HookContext {
+                                event: HookEvent::PermissionDenied.to_string(),
+                                session_id: self.context.session_id.clone(),
+                                working_dir: self.context.working_dir_compat().display().to_string(),
+                                tool_name: Some(tool_call.name.clone()),
+                                tool_input: Some(params.clone()),
+                                tool_output: None,
+                                error: Some("Tool execution denied by user.".to_string()),
+                                user_prompt: None,
+                                metadata: Some(json!({
+                                    "source": "user_confirmation",
+                                })),
+                            };
+                            self.execute_advisory_hooks(HookEvent::PermissionDenied, denied_ctx)
+                                .await;
                             return Ok(ToolResult::error(
                                 "Tool execution denied by user.".to_string(),
                             ));
@@ -3060,6 +3437,21 @@ impl AgentEngine {
                 }
             }
             PermissionAction::Deny => {
+                let denied_ctx = HookContext {
+                    event: HookEvent::PermissionDenied.to_string(),
+                    session_id: self.context.session_id.clone(),
+                    working_dir: self.context.working_dir_compat().display().to_string(),
+                    tool_name: Some(tool_call.name.clone()),
+                    tool_input: Some(params.clone()),
+                    tool_output: None,
+                    error: Some(format!("Tool {} is not permitted.", tool_call.name)),
+                    user_prompt: None,
+                    metadata: Some(json!({
+                        "source": "permission_manager",
+                    })),
+                };
+                self.execute_advisory_hooks(HookEvent::PermissionDenied, denied_ctx)
+                    .await;
                 return Ok(ToolResult::error(format!(
                     "Tool {} is not permitted.",
                     tool_call.name
@@ -3144,17 +3536,16 @@ impl AgentEngine {
 
         let ctx = self.build_tool_context(Some(p_tx)).await;
 
-        if let Some(blocked) = self
-            .run_pre_tool_use_hook(
-                tool_call,
-                &ctx.working_dir
-                    .as_ref()
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_default(),
-            )
-            .await
-        {
-            return Ok(blocked);
+        // Validate and coerce parameters against the tool's schema after hooks
+        // so updatedInput/modified_input can take effect.
+        let schema = tool.parameters_schema();
+        if let Err(msg) = validation::validate_and_coerce(&schema, &mut params) {
+            return Ok(ToolResult::error_typed(
+                format!("Parameter validation failed: {}", msg),
+                ToolErrorType::Validation,
+                true,
+                Some(format!("Fix the parameters and retry. Schema: {}", schema)),
+            ));
         }
 
         let mut result = match tokio::time::timeout(
@@ -3686,10 +4077,8 @@ mod tests {
     #[tokio::test]
     async fn test_initialize_session_hooks_injects_system_context() {
         let mut engine = make_engine(vec![], vec![]);
-        let hook_dir = std::env::temp_dir().join(format!(
-            "yode-session-hook-test-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let hook_dir =
+            std::env::temp_dir().join(format!("yode-session-hook-test-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&hook_dir).unwrap();
         let mut hook_mgr = crate::hooks::HookManager::new(hook_dir);
         hook_mgr.register(crate::hooks::HookDefinition {
@@ -3715,6 +4104,94 @@ mod tests {
                 .unwrap_or_default()
                 .contains("session context")
         }));
+    }
+
+    #[tokio::test]
+    async fn test_append_hook_outputs_as_system_message_injects_context() {
+        let mut engine = make_engine(vec![], vec![]);
+        let hook_dir = std::env::temp_dir().join(format!(
+            "yode-user-prompt-hook-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&hook_dir).unwrap();
+        let mut hook_mgr = crate::hooks::HookManager::new(hook_dir);
+        hook_mgr.register(crate::hooks::HookDefinition {
+            command: "echo prompt context".into(),
+            events: vec!["user_prompt_submit".into()],
+            tool_filter: None,
+            timeout_secs: 5,
+            can_block: false,
+        });
+        engine.set_hook_manager(hook_mgr);
+
+        let ctx = HookContext {
+            event: HookEvent::UserPromptSubmit.to_string(),
+            session_id: engine.context().session_id.clone(),
+            working_dir: engine.context().working_dir_compat().display().to_string(),
+            tool_name: None,
+            tool_input: None,
+            tool_output: None,
+            error: None,
+            user_prompt: Some("hello".to_string()),
+            metadata: None,
+        };
+        engine
+            .append_hook_outputs_as_system_message(
+                HookEvent::UserPromptSubmit,
+                ctx,
+                "System Auto-Context via user_prompt_submit hooks",
+            )
+            .await;
+
+        assert!(engine.messages.iter().any(|msg| {
+            msg.content
+                .as_deref()
+                .unwrap_or_default()
+                .contains("prompt context")
+        }));
+    }
+
+    #[test]
+    fn test_live_session_memory_refresh_writes_snapshot() {
+        let mut engine = make_engine(vec![], vec![]);
+        let project_root = engine.context().working_dir_compat();
+        let big = "x".repeat(9_000);
+        engine.messages = vec![
+            Message::system("system"),
+            Message::user(format!("Need to debug resume flow {}", big)),
+            Message::assistant("I traced the issue to persisted message snapshots."),
+        ];
+        engine.tool_call_count = 3;
+        engine
+            .files_modified
+            .push(project_root.join("src/main.rs").display().to_string());
+
+        engine.maybe_refresh_live_session_memory();
+
+        let live_path = crate::session_memory::live_session_memory_path(&project_root);
+        let content = std::fs::read_to_string(live_path).unwrap();
+        assert!(content.contains("Session Snapshot"));
+        assert!(content.contains("persisted message snapshots"));
+        assert!(engine.session_memory_initialized);
+        assert!(engine.last_session_memory_tool_count >= 3);
+    }
+
+    #[test]
+    fn test_session_end_flush_writes_snapshot_without_threshold() {
+        let mut engine = make_engine(vec![], vec![]);
+        let project_root = engine.context().working_dir_compat();
+        engine.messages = vec![
+            Message::system("system"),
+            Message::user("Short session"),
+            Message::assistant("But still worth persisting on exit."),
+        ];
+
+        engine.flush_live_session_memory_on_shutdown();
+
+        let live_path = crate::session_memory::live_session_memory_path(&project_root);
+        let content = std::fs::read_to_string(live_path).unwrap();
+        assert!(content.contains("Session Snapshot"));
+        assert!(content.contains("Short session"));
     }
 }
 

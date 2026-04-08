@@ -212,18 +212,38 @@ impl HookManager {
             Ok(Ok(output)) => {
                 let stdout = String::from_utf8_lossy(&output.stdout).to_string();
                 let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                let mut structured = parse_structured_hook_output(&stdout);
+                if let Some(ref mut parsed) = structured {
+                    if parsed.blocked && !hook.can_block {
+                        parsed.blocked = false;
+                    }
+                }
 
                 if !output.status.success() && hook.can_block {
-                    HookResult {
-                        blocked: true,
-                        reason: Some(if stderr.is_empty() {
-                            format!("Hook '{}' exited with code {}", hook.command, output.status)
-                        } else {
-                            stderr.trim().to_string()
-                        }),
-                        modified_input: None,
-                        stdout: Some(stdout),
+                    if let Some(mut parsed) = structured {
+                        if parsed.reason.is_none() {
+                            parsed.reason = Some(if stderr.is_empty() {
+                                format!("Hook '{}' exited with code {}", hook.command, output.status)
+                            } else {
+                                stderr.trim().to_string()
+                            });
+                        }
+                        parsed.blocked = true;
+                        parsed
+                    } else {
+                        HookResult {
+                            blocked: true,
+                            reason: Some(if stderr.is_empty() {
+                                format!("Hook '{}' exited with code {}", hook.command, output.status)
+                            } else {
+                                stderr.trim().to_string()
+                            }),
+                            modified_input: None,
+                            stdout: Some(stdout),
+                        }
                     }
+                } else if let Some(parsed) = structured {
+                    parsed
                 } else {
                     HookResult {
                         blocked: false,
@@ -251,6 +271,66 @@ impl HookManager {
             }
         }
     }
+}
+
+fn parse_structured_hook_output(stdout: &str) -> Option<HookResult> {
+    let trimmed = stdout.trim();
+    if !trimmed.starts_with('{') {
+        return None;
+    }
+
+    let value: Value = serde_json::from_str(trimmed).ok()?;
+    let object = value.as_object()?;
+
+    let continue_flag = object.get("continue").and_then(|v| v.as_bool());
+    let decision = object
+        .get("decision")
+        .and_then(|v| v.as_str())
+        .map(|s| s.eq_ignore_ascii_case("block"))
+        .unwrap_or(false);
+    let blocked = continue_flag.map(|v| !v).unwrap_or(false) || decision;
+
+    let reason = object
+        .get("reason")
+        .or_else(|| object.get("stopReason"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let modified_input = object
+        .get("modified_input")
+        .cloned()
+        .or_else(|| object.get("updatedInput").cloned())
+        .or_else(|| {
+            object
+                .get("hookSpecificOutput")
+                .and_then(|v| v.get("updatedInput"))
+                .cloned()
+        });
+
+    let stdout = object
+        .get("systemMessage")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .or_else(|| {
+            object
+                .get("additional_context")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        })
+        .or_else(|| {
+            object
+                .get("hookSpecificOutput")
+                .and_then(|v| v.get("additionalContext"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        });
+
+    Some(HookResult {
+        blocked,
+        reason,
+        modified_input,
+        stdout,
+    })
 }
 
 // ─── Hook Config (for TOML) ────────────────────────────────────────────────
@@ -358,5 +438,41 @@ mod tests {
         };
         let results = mgr.execute(HookEvent::PreToolUse, &ctx).await;
         assert!(results.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_hook_manager_parses_structured_json_output() {
+        let mut mgr = HookManager::new(PathBuf::from("/tmp"));
+        mgr.register(HookDefinition {
+            command: "printf '%s' '{\"continue\":false,\"reason\":\"blocked\",\"modified_input\":{\"path\":\"src/main.rs\"},\"systemMessage\":\"hook context\"}'".into(),
+            events: vec!["pre_tool_use".into()],
+            tool_filter: None,
+            timeout_secs: 5,
+            can_block: true,
+        });
+        let ctx = HookContext {
+            event: "pre_tool_use".into(),
+            session_id: "test".into(),
+            working_dir: "/tmp".into(),
+            tool_name: Some("bash".into()),
+            tool_input: None,
+            tool_output: None,
+            error: None,
+            user_prompt: None,
+            metadata: None,
+        };
+        let results = mgr.execute(HookEvent::PreToolUse, &ctx).await;
+        assert_eq!(results.len(), 1);
+        assert!(results[0].blocked);
+        assert_eq!(results[0].reason.as_deref(), Some("blocked"));
+        assert_eq!(results[0].stdout.as_deref(), Some("hook context"));
+        assert_eq!(
+            results[0]
+                .modified_input
+                .as_ref()
+                .and_then(|v| v.get("path"))
+                .and_then(|v| v.as_str()),
+            Some("src/main.rs")
+        );
     }
 }

@@ -714,7 +714,7 @@ async fn main() -> Result<()> {
         // 用流式模式执行（兼容只支持流式的第三方 API）
         let chat_msg_owned = chat_msg.clone();
         let engine_handle = tokio::spawn(async move {
-            engine
+            let result = engine
                 .run_turn_streaming(
                     &chat_msg_owned,
                     yode_core::context::QuerySource::User,
@@ -722,7 +722,9 @@ async fn main() -> Result<()> {
                     confirm_rx,
                     None,
                 )
-                .await
+                .await;
+            engine.finalize_session_hooks("chat_exit").await;
+            result
         });
 
         // 实时打印输出
