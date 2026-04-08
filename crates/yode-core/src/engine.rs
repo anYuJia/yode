@@ -767,6 +767,56 @@ impl AgentEngine {
         }
     }
 
+    pub async fn initialize_session_hooks(&mut self, reason: &'static str) {
+        let Some(hook_mgr) = self.hook_manager.as_ref() else {
+            return;
+        };
+
+        let hook_ctx = HookContext {
+            event: HookEvent::SessionStart.to_string(),
+            session_id: self.context.session_id.clone(),
+            working_dir: self.context.working_dir_compat().display().to_string(),
+            tool_name: None,
+            tool_input: None,
+            tool_output: None,
+            error: None,
+            user_prompt: None,
+            metadata: Some(json!({
+                "reason": reason,
+                "resumed": self.context.is_resumed,
+            })),
+        };
+
+        let results = hook_mgr.execute(HookEvent::SessionStart, &hook_ctx).await;
+        let mut combined = String::new();
+
+        for result in results {
+            if result.blocked {
+                warn!(
+                    "session_start hook requested a block, but Yode will continue: {}",
+                    result.reason.unwrap_or_default()
+                );
+            }
+
+            if let Some(stdout) = result.stdout {
+                let trimmed = stdout.trim();
+                if !trimmed.is_empty() {
+                    combined.push_str(trimmed);
+                    combined.push_str("\n\n");
+                }
+            }
+        }
+
+        if !combined.is_empty() {
+            let message = format!(
+                "[System Auto-Context via session_start hooks]\n{}",
+                combined
+            );
+            self.messages.push(Message::system(&message));
+            self.persist_message("system", Some(&message), None, None, None);
+        }
+    }
+
     fn build_compaction_hook_context(
         &self,
         event: HookEvent,
@@ -3362,13 +3412,10 @@ mod tests {
         }
         let provider: Arc<dyn yode_llm::provider::LlmProvider> = Arc::new(MockProvider);
         let permissions = PermissionManager::from_confirmation_list(confirm_tools);
-        let workdir = std::env::temp_dir().join(format!("yode-engine-test-{}", uuid::Uuid::new_v4()));
+        let workdir =
+            std::env::temp_dir().join(format!("yode-engine-test-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&workdir).unwrap();
-        let context = AgentContext::new(
-            workdir,
-            "mock".to_string(),
-            "claude-sonnet-4".to_string(),
-        );
+        let context = AgentContext::new(workdir, "mock".to_string(), "claude-sonnet-4".to_string());
         AgentEngine::new(provider, Arc::new(registry), permissions, context)
     }
 
@@ -3634,6 +3681,40 @@ mod tests {
                         .contains("[compressed]")
                 })
         );
+    }
+
+    #[tokio::test]
+    async fn test_initialize_session_hooks_injects_system_context() {
+        let mut engine = make_engine(vec![], vec![]);
+        let hook_dir = std::env::temp_dir().join(format!(
+            "yode-session-hook-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&hook_dir).unwrap();
+        let mut hook_mgr = crate::hooks::HookManager::new(hook_dir);
+        hook_mgr.register(crate::hooks::HookDefinition {
+            command: "echo session context".into(),
+            events: vec!["session_start".into()],
+            tool_filter: None,
+            timeout_secs: 5,
+            can_block: false,
+        });
+        engine.set_hook_manager(hook_mgr);
+
+        engine.initialize_session_hooks("startup").await;
+
+        assert!(engine.messages.iter().any(|msg| {
+            msg.content
+                .as_deref()
+                .unwrap_or_default()
+                .contains("session_start hooks")
+        }));
+        assert!(engine.messages.iter().any(|msg| {
+            msg.content
+                .as_deref()
+                .unwrap_or_default()
+                .contains("session context")
+        }));
     }
 }
 

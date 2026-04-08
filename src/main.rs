@@ -700,6 +700,13 @@ async fn main() -> Result<()> {
         if let Some(msgs) = restored_messages {
             engine.restore_messages(msgs);
         }
+        engine
+            .initialize_session_hooks(if engine.context().is_resumed {
+                "resume"
+            } else {
+                "startup"
+            })
+            .await;
 
         let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
         let (confirm_tx, confirm_rx) = tokio::sync::mpsc::unbounded_channel();

@@ -642,6 +642,25 @@ pub async fn run(
     let mut engine_inner = AgentEngine::new(provider, tools.clone(), permissions, context);
     engine_inner.set_database(db);
 
+    if let Ok(config) = yode_core::config::Config::load() {
+        if !config.hooks.hooks.is_empty() {
+            use yode_core::hooks::{HookDefinition, HookManager};
+            let mut hook_mgr = HookManager::new(
+                std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
+            );
+            for h in &config.hooks.hooks {
+                hook_mgr.register(HookDefinition {
+                    command: h.command.clone(),
+                    events: h.events.clone(),
+                    tool_filter: h.tool_filter.clone(),
+                    timeout_secs: h.timeout_secs,
+                    can_block: h.can_block,
+                });
+            }
+            engine_inner.set_hook_manager(hook_mgr);
+        }
+    }
+
     // Restore messages to engine (for context)
     if let Some(ref messages) = restored_messages {
         engine_inner.restore_messages(messages.clone());
@@ -652,6 +671,9 @@ pub async fn run(
             ));
         }
     }
+    engine_inner
+        .initialize_session_hooks(if is_resumed { "resume" } else { "startup" })
+        .await;
 
     let engine = Arc::new(Mutex::new(engine_inner));
     app.engine = Some(engine.clone());
