@@ -17,7 +17,7 @@ use yode_tools::state::TaskStore;
 use yode_tools::tool::{SubAgentRunner, ToolContext, ToolErrorType, ToolResult, UserQuery, SubAgentOptions};
 use yode_tools::validation;
 
-use crate::context::{AgentContext, EffortLevel};
+use crate::context::{AgentContext, EffortLevel, QuerySource};
 use crate::context_manager::ContextManager;
 use crate::cost_tracker::CostTracker;
 use crate::db::Database;
@@ -754,10 +754,36 @@ impl AgentEngine {
     pub async fn run_turn(
         &mut self,
         user_input: &str,
+        _source: QuerySource,
         event_tx: mpsc::UnboundedSender<EngineEvent>,
         mut confirm_rx: mpsc::UnboundedReceiver<ConfirmResponse>,
         ) -> Result<()> {
         let _ = event_tx.send(EngineEvent::Thinking);
+
+        // Optional pre-read hook before LLM call
+        if let Some(ref hook_mgr) = self.hook_manager {
+            let hook_ctx = HookContext {
+                event: "pre_turn".into(),
+                session_id: self.context.session_id.clone(),
+                working_dir: self.context.working_dir_compat().display().to_string(),
+                tool_name: None,
+                tool_input: None,
+                tool_output: None,
+                error: None,
+                user_prompt: Some(user_input.to_string()),
+            };
+            let results = hook_mgr.execute(HookEvent::PreTurn, &hook_ctx).await;
+            let mut combined = String::new();
+            for res in results {
+                if let Some(out) = res.stdout {
+                    combined.push_str(&out);
+                    combined.push_str("\n\n");
+                }
+            }
+            if !combined.is_empty() {
+                self.messages.push(Message::system(&format!("[System Auto-Context via pre_turn hooks]\n{}", combined)));
+            }
+        }
 
         // Add user message
         self.messages.push(Message::user(user_input));
@@ -980,10 +1006,36 @@ impl AgentEngine {
     pub async fn run_turn_streaming(
         &mut self,
         user_input: &str,
+        _source: QuerySource,
         event_tx: mpsc::UnboundedSender<EngineEvent>,
         mut confirm_rx: mpsc::UnboundedReceiver<ConfirmResponse>,
         cancel_token: Option<CancellationToken>,
     ) -> Result<()> {
+        // Optional pre-read hook before LLM call
+        if let Some(ref hook_mgr) = self.hook_manager {
+            let hook_ctx = HookContext {
+                event: "pre_turn".into(),
+                session_id: self.context.session_id.clone(),
+                working_dir: self.context.working_dir_compat().display().to_string(),
+                tool_name: None,
+                tool_input: None,
+                tool_output: None,
+                error: None,
+                user_prompt: Some(user_input.to_string()),
+            };
+            let results = hook_mgr.execute(HookEvent::PreTurn, &hook_ctx).await;
+            let mut combined = String::new();
+            for res in results {
+                if let Some(out) = res.stdout {
+                    combined.push_str(&out);
+                    combined.push_str("\n\n");
+                }
+            }
+            if !combined.is_empty() {
+                self.messages.push(Message::system(&format!("[System Auto-Context via pre_turn hooks]\n{}", combined)));
+            }
+        }
+
         self.messages.push(Message::user(user_input));
         self.persist_message("user", Some(user_input), None, None, None);
 
@@ -2902,7 +2954,7 @@ impl SubAgentRunner for SubAgentRunnerImpl {
             // Note: We currently don't have a clean way to get the final text from run_turn
             // easily without streaming, but we can capture the TextComplete event.
             let engine_handle = tokio::spawn(async move {
-                engine.run_turn(&turn_prompt, result_tx, confirm_rx).await
+                engine.run_turn(&turn_prompt, QuerySource::SubAgent, result_tx, confirm_rx).await
             });
 
             let mut result_text = String::new();

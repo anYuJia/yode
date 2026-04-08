@@ -1551,7 +1551,7 @@ fn try_process_next(
     tokio::spawn(async move {
         let mut engine = engine.lock().await;
         let result = engine
-            .run_turn_streaming(&payload, event_tx.clone(), confirm_rx, Some(cancel_token))
+            .run_turn_streaming(&payload, yode_core::context::QuerySource::User, event_tx.clone(), confirm_rx, Some(cancel_token))
             .await;
         if let Err(e) = result {
             error!("Engine turn error: {}", e);

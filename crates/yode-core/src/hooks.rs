@@ -11,6 +11,8 @@ pub enum HookEvent {
     // Session lifecycle
     SessionStart,
     SessionEnd,
+    // Turn lifecycle
+    PreTurn,
     // Tool execution
     PreToolUse,
     PostToolUse,
@@ -29,6 +31,7 @@ impl std::fmt::Display for HookEvent {
         match self {
             Self::SessionStart => write!(f, "session_start"),
             Self::SessionEnd => write!(f, "session_end"),
+            Self::PreTurn => write!(f, "pre_turn"),
             Self::PreToolUse => write!(f, "pre_tool_use"),
             Self::PostToolUse => write!(f, "post_tool_use"),
             Self::PostToolUseFailure => write!(f, "post_tool_use_failure"),

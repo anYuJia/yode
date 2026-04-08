@@ -55,6 +55,20 @@ impl std::str::FromStr for EffortLevel {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum QuerySource {
+    User,
+    SubAgent,
+    Cron,
+    Hook(String),
+}
+
+impl Default for QuerySource {
+    fn default() -> Self {
+        Self::User
+    }
+}
+
 /// Runtime context for an agent session.
 #[derive(Debug, Clone)]
 pub struct AgentContext {
