@@ -21,22 +21,68 @@ impl ModelCosts {
     pub fn for_model(model: &str) -> Self {
         let m = model.to_lowercase();
         if m.contains("claude-opus") || m.contains("claude-3-opus") {
-            Self { input_per_million: 15.0, output_per_million: 75.0, cache_write_per_million: 18.75, cache_read_per_million: 1.5 }
-        } else if m.contains("claude-sonnet-4") || m.contains("claude-3-5-sonnet") || m.contains("claude-3.5-sonnet") {
-            Self { input_per_million: 3.0, output_per_million: 15.0, cache_write_per_million: 3.75, cache_read_per_million: 0.3 }
-        } else if m.contains("claude-haiku") || m.contains("claude-3-haiku") || m.contains("claude-3.5-haiku") {
-            Self { input_per_million: 0.80, output_per_million: 4.0, cache_write_per_million: 1.0, cache_read_per_million: 0.08 }
+            Self {
+                input_per_million: 15.0,
+                output_per_million: 75.0,
+                cache_write_per_million: 18.75,
+                cache_read_per_million: 1.5,
+            }
+        } else if m.contains("claude-sonnet-4")
+            || m.contains("claude-3-5-sonnet")
+            || m.contains("claude-3.5-sonnet")
+        {
+            Self {
+                input_per_million: 3.0,
+                output_per_million: 15.0,
+                cache_write_per_million: 3.75,
+                cache_read_per_million: 0.3,
+            }
+        } else if m.contains("claude-haiku")
+            || m.contains("claude-3-haiku")
+            || m.contains("claude-3.5-haiku")
+        {
+            Self {
+                input_per_million: 0.80,
+                output_per_million: 4.0,
+                cache_write_per_million: 1.0,
+                cache_read_per_million: 0.08,
+            }
         } else if m.contains("gpt-4o") {
-            Self { input_per_million: 2.50, output_per_million: 10.0, cache_write_per_million: 2.50, cache_read_per_million: 1.25 }
+            Self {
+                input_per_million: 2.50,
+                output_per_million: 10.0,
+                cache_write_per_million: 2.50,
+                cache_read_per_million: 1.25,
+            }
         } else if m.contains("gpt-4-turbo") {
-            Self { input_per_million: 10.0, output_per_million: 30.0, cache_write_per_million: 10.0, cache_read_per_million: 5.0 }
+            Self {
+                input_per_million: 10.0,
+                output_per_million: 30.0,
+                cache_write_per_million: 10.0,
+                cache_read_per_million: 5.0,
+            }
         } else if m.contains("gpt-3.5") {
-            Self { input_per_million: 0.50, output_per_million: 1.50, cache_write_per_million: 0.50, cache_read_per_million: 0.25 }
+            Self {
+                input_per_million: 0.50,
+                output_per_million: 1.50,
+                cache_write_per_million: 0.50,
+                cache_read_per_million: 0.25,
+            }
         } else if m.contains("deepseek") {
-            Self { input_per_million: 0.27, output_per_million: 1.10, cache_write_per_million: 0.27, cache_read_per_million: 0.07 }
+            Self {
+                input_per_million: 0.27,
+                output_per_million: 1.10,
+                cache_write_per_million: 0.27,
+                cache_read_per_million: 0.07,
+            }
         } else {
             // Default to moderate pricing
-            Self { input_per_million: 3.0, output_per_million: 15.0, cache_write_per_million: 3.75, cache_read_per_million: 0.3 }
+            Self {
+                input_per_million: 3.0,
+                output_per_million: 15.0,
+                cache_write_per_million: 3.75,
+                cache_read_per_million: 0.3,
+            }
         }
     }
 }
@@ -112,10 +158,14 @@ impl CostTracker {
 
     /// Get the estimated total cost in USD.
     pub fn estimated_cost(&self) -> f64 {
-        let input_cost = self.usage.input_tokens as f64 * self.costs.input_per_million / 1_000_000.0;
-        let output_cost = self.usage.output_tokens as f64 * self.costs.output_per_million / 1_000_000.0;
-        let cache_write_cost = self.usage.cache_write_tokens as f64 * self.costs.cache_write_per_million / 1_000_000.0;
-        let cache_read_cost = self.usage.cache_read_tokens as f64 * self.costs.cache_read_per_million / 1_000_000.0;
+        let input_cost =
+            self.usage.input_tokens as f64 * self.costs.input_per_million / 1_000_000.0;
+        let output_cost =
+            self.usage.output_tokens as f64 * self.costs.output_per_million / 1_000_000.0;
+        let cache_write_cost =
+            self.usage.cache_write_tokens as f64 * self.costs.cache_write_per_million / 1_000_000.0;
+        let cache_read_cost =
+            self.usage.cache_read_tokens as f64 * self.costs.cache_read_per_million / 1_000_000.0;
         input_cost + output_cost + cache_write_cost + cache_read_cost
     }
 
@@ -130,7 +180,8 @@ impl CostTracker {
 
     /// Remaining budget (None if no limit set).
     pub fn remaining_budget(&self) -> Option<f64> {
-        self.budget_limit.map(|limit| (limit - self.estimated_cost()).max(0.0))
+        self.budget_limit
+            .map(|limit| (limit - self.estimated_cost()).max(0.0))
     }
 
     pub fn usage(&self) -> &UsageData {

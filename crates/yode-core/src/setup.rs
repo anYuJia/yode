@@ -1,23 +1,23 @@
+use crate::config::{Config, ProviderConfig};
 use anyhow::Result;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
     terminal::{disable_raw_mode, enable_raw_mode},
 };
 use std::io::{self, Write};
-use crate::config::{Config, ProviderConfig};
 
 /// Check if any API key is configured either in ENV or Config
 pub fn has_api_keys_configured() -> bool {
     let has_env = std::env::var("OPENAI_API_KEY").is_ok()
         || std::env::var("ANTHROPIC_API_KEY").is_ok()
         || std::env::var("ANTHROPIC_AUTH_TOKEN").is_ok();
-        
+
     let has_config = if let Ok(config) = Config::load() {
         config.llm.providers.values().any(|p| p.api_key.is_some())
     } else {
         false
     };
-    
+
     has_env || has_config
 }
 
@@ -57,7 +57,11 @@ pub fn run_setup_interactive() -> Result<()> {
         "openai" => ("openai", "https://api.openai.com/v1", "openai"),
         "kimi" => ("openai", "https://api.moonshot.cn/v1", "kimi"),
         "deepseek" => ("openai", "https://api.deepseek.com", "deepseek"),
-        "gemini" => ("openai", "https://generativelanguage.googleapis.com/v1beta/openai/", "gemini"),
+        "gemini" => (
+            "openai",
+            "https://generativelanguage.googleapis.com/v1beta/openai/",
+            "gemini",
+        ),
         _ => ("custom", "", "custom"),
     };
 
@@ -83,7 +87,10 @@ pub fn run_setup_interactive() -> Result<()> {
         }
         u
     } else {
-        let prompt = format!("请输入 Base URL (直接回车使用官方默认 {}): ", default_base_url);
+        let prompt = format!(
+            "请输入 Base URL (直接回车使用官方默认 {}): ",
+            default_base_url
+        );
         let u = read_input(&prompt)?;
         if u.is_empty() {
             default_base_url.to_string()
@@ -101,21 +108,27 @@ pub fn run_setup_interactive() -> Result<()> {
         }
     };
 
-    let prompt = format!("请为该 Provider 起个名字 (直接回车使用默认 '{}'): ", name_suggestion);
+    let prompt = format!(
+        "请为该 Provider 起个名字 (直接回车使用默认 '{}'): ",
+        name_suggestion
+    );
     let mut p_name = read_input(&prompt)?;
     if p_name.is_empty() {
         p_name = name_suggestion.to_string();
     }
 
-    config.llm.providers.insert(p_name.clone(), ProviderConfig {
-        format: format_val,
-        base_url: Some(p_base_url),
-        api_key: Some(p_api_key.clone()),
-        models: Vec::new(),
-    });
-    
+    config.llm.providers.insert(
+        p_name.clone(),
+        ProviderConfig {
+            format: format_val,
+            base_url: Some(p_base_url),
+            api_key: Some(p_api_key.clone()),
+            models: Vec::new(),
+        },
+    );
+
     config.llm.default_provider = p_name.clone();
-    
+
     let default_model_suggestion = match name_suggestion {
         "anthropic" => "claude-3-5-sonnet-20241022",
         "openai" => "gpt-4o",
@@ -124,8 +137,11 @@ pub fn run_setup_interactive() -> Result<()> {
         "gemini" => "gemini-2.5-flash",
         _ => "gpt-4o",
     };
-    
-    let prompt = format!("请输入此 Provider 默认使用的模型名称 (直接回车推荐 '{}'): ", default_model_suggestion);
+
+    let prompt = format!(
+        "请输入此 Provider 默认使用的模型名称 (直接回车推荐 '{}'): ",
+        default_model_suggestion
+    );
     let mut m_name = read_input(&prompt)?;
     if m_name.is_empty() {
         m_name = default_model_suggestion.to_string();
@@ -170,7 +186,13 @@ fn select_menu(header: Option<&str>, prompt: &str, options: &[MenuOption]) -> Re
         print!("\r\x1B[{}A", options.len());
         io::stdout().flush()?;
 
-        if let Event::Key(KeyEvent { code, modifiers, kind, .. }) = event::read()? {
+        if let Event::Key(KeyEvent {
+            code,
+            modifiers,
+            kind,
+            ..
+        }) = event::read()?
+        {
             if kind == KeyEventKind::Press {
                 if modifiers.contains(KeyModifiers::CONTROL) && code == KeyCode::Char('c') {
                     disable_raw_mode()?;
@@ -218,7 +240,10 @@ fn read_input(prompt: &str) -> Result<String> {
 fn wait_for_key() -> Result<()> {
     enable_raw_mode()?;
     loop {
-        if let Event::Key(KeyEvent { code, modifiers, .. }) = event::read()? {
+        if let Event::Key(KeyEvent {
+            code, modifiers, ..
+        }) = event::read()?
+        {
             if modifiers.contains(KeyModifiers::CONTROL) && code == KeyCode::Char('c') {
                 disable_raw_mode()?;
                 std::process::exit(0);

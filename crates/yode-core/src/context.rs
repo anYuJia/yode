@@ -26,7 +26,11 @@ impl SessionRuntime {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EffortLevel {
-    Min, Low, Medium, High, Max,
+    Min,
+    Low,
+    Medium,
+    High,
+    Max,
 }
 
 impl std::fmt::Display for EffortLevel {
@@ -50,7 +54,9 @@ impl std::str::FromStr for EffortLevel {
             "medium" => Ok(Self::Medium),
             "high" => Ok(Self::High),
             "max" => Ok(Self::Max),
-            _ => Err(format!("Unknown effort level: {s}. Valid: min, low, medium, high, max")),
+            _ => Err(format!(
+                "Unknown effort level: {s}. Valid: min, low, medium, high, max"
+            )),
         }
     }
 }
@@ -113,7 +119,12 @@ impl AgentContext {
     }
 
     /// Create a context that resumes an existing session.
-    pub fn resume(session_id: String, working_dir: PathBuf, provider: String, model: String) -> Self {
+    pub fn resume(
+        session_id: String,
+        working_dir: PathBuf,
+        provider: String,
+        model: String,
+    ) -> Self {
         Self {
             session_id,
             runtime: Arc::new(Mutex::new(SessionRuntime::new(working_dir))),
@@ -127,8 +138,6 @@ impl AgentContext {
 
     /// Synchronously get the root directory (only for initialization or compat).
     pub fn working_dir_compat(&self) -> PathBuf {
-        futures::executor::block_on(async {
-            self.runtime.lock().await.project_root.clone()
-        })
+        futures::executor::block_on(async { self.runtime.lock().await.project_root.clone() })
     }
 }

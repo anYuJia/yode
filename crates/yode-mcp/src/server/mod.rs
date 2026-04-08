@@ -24,9 +24,7 @@ impl YodeMcpServer {
 
 impl ServerHandler for YodeMcpServer {
     fn get_info(&self) -> ServerInfo {
-        let capabilities = ServerCapabilities::builder()
-            .enable_tools()
-            .build();
+        let capabilities = ServerCapabilities::builder().enable_tools().build();
         ServerInfo::new(capabilities)
             .with_server_info(Implementation::new("yode", env!("CARGO_PKG_VERSION")))
             .with_instructions("Yode AI coding assistant - exposes built-in file, search, and shell tools via MCP.")
@@ -41,8 +39,8 @@ impl ServerHandler for YodeMcpServer {
         let tools: Vec<rmcp::model::Tool> = definitions
             .into_iter()
             .map(|td| {
-                let input_schema: Arc<JsonObject> = serde_json::from_value(td.parameters)
-                    .unwrap_or_default();
+                let input_schema: Arc<JsonObject> =
+                    serde_json::from_value(td.parameters).unwrap_or_default();
                 rmcp::model::Tool::new(td.name, td.description, input_schema)
             })
             .collect();

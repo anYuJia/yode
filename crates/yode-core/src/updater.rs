@@ -12,16 +12,16 @@
 //! - Release channels (stable/latest)
 
 use anyhow::{Context, Result};
+use flate2;
 use serde::{Deserialize, Serialize};
 #[allow(unused_imports)] // Reserved for future checksum verification
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tar;
+use tempfile;
 use tokio::fs;
 use tracing::{error, info, warn};
-use tempfile;
-use tar;
-use flate2;
 use walkdir;
 
 /// Current version from Cargo.toml
@@ -145,7 +145,11 @@ impl Updater {
             .context("Failed to parse release response")?;
 
         // Parse version from tag (e.g., "v0.2.0" -> "0.2.0")
-        let latest_version = release.tag_name.strip_prefix('v').unwrap_or(&release.tag_name).to_string();
+        let latest_version = release
+            .tag_name
+            .strip_prefix('v')
+            .unwrap_or(&release.tag_name)
+            .to_string();
 
         // Compare versions
         let is_newer = is_version_newer(CURRENT_VERSION, &latest_version);
@@ -154,7 +158,10 @@ impl Updater {
         self.update_last_checked().await;
 
         if is_newer {
-            info!("New version available: {} (current: {})", latest_version, CURRENT_VERSION);
+            info!(
+                "New version available: {} (current: {})",
+                latest_version, CURRENT_VERSION
+            );
 
             // Find download URL for current platform
             let download_url = self.find_download_url(&release.assets);
@@ -195,9 +202,12 @@ impl Updater {
 
         // Acquire lock to prevent concurrent updates
         match self.acquire_lock().await {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(UpdateError::LockHeld(pid)) => {
-                anyhow::bail!("Another update process is running (lock held by PID {})", pid);
+                anyhow::bail!(
+                    "Another update process is running (lock held by PID {})",
+                    pid
+                );
             }
             Err(e) => return Err(e.into()),
         }
@@ -205,7 +215,11 @@ impl Updater {
         let downloads_dir = self.config_dir.join("downloads");
         fs::create_dir_all(&downloads_dir).await?;
 
-        let filename = update.download_url.split('/').next_back().unwrap_or("yode-update.tar.gz");
+        let filename = update
+            .download_url
+            .split('/')
+            .next_back()
+            .unwrap_or("yode-update.tar.gz");
         let filepath = downloads_dir.join(filename);
 
         // Download with retry logic
@@ -288,26 +302,30 @@ impl Updater {
             .prefix("yode-update")
             .tempdir()
             .context("Failed to create temporary directory for update")?;
-            
+
         let file = std::fs::File::open(&update_path)
             .context(format!("Failed to open update file: {:?}", update_path))?;
-            
+
         let gz = flate2::read::GzDecoder::new(file);
         let mut archive = tar::Archive::new(gz);
-        
+
         // Disable xattrs as they often cause failures on macOS/Linux due to security or filesystem limits
         archive.set_unpack_xattrs(false);
         archive.set_preserve_permissions(true);
 
         if let Err(e) = archive.unpack(temp_dir.path()) {
-            warn!("Failed to unpack update archive to {:?}: {}", temp_dir.path(), e);
+            warn!(
+                "Failed to unpack update archive to {:?}: {}",
+                temp_dir.path(),
+                e
+            );
             warn!("This is often due to macOS permission restrictions or file format mismatch. Skipping update.");
             return Ok(false);
         }
 
         // 2. Find the yode binary in the extracted contents
         let mut new_bin_path = None;
-        
+
         // First look in the root of the temp dir
         for entry in std::fs::read_dir(temp_dir.path())? {
             let entry = entry?;
@@ -341,25 +359,26 @@ impl Updater {
         info!("Found new binary at: {:?}", new_bin_path);
 
         // 3. Get current executable path
-        let current_exe = std::env::current_exe().context("Failed to get current executable path")?;
+        let current_exe =
+            std::env::current_exe().context("Failed to get current executable path")?;
         let old_exe = current_exe.with_extension("old");
 
         // 4. Atomic replacement
         if old_exe.exists() {
             let _ = std::fs::remove_file(&old_exe);
         }
-        
+
         // On Unix, we can rename the current file even if it's running
         std::fs::rename(&current_exe, &old_exe)
             .context("Failed to move current binary to backup path")?;
-            
+
         if let Err(e) = std::fs::copy(&new_bin_path, &current_exe) {
             // Rollback if copy fails
             error!("Failed to copy new binary: {}. Rolling back...", e);
             let _ = std::fs::rename(&old_exe, &current_exe);
             return Err(e.into());
         }
-        
+
         // Ensure the new binary is executable
         #[cfg(unix)]
         {
@@ -374,7 +393,7 @@ impl Updater {
         // 5. Cleanup
         let _ = std::fs::remove_file(&old_exe);
         let _ = std::fs::remove_file(&update_path);
-        
+
         info!("Update applied successfully. Version updated to latest.");
         Ok(true)
     }
@@ -557,7 +576,8 @@ async fn download_with_stall_detection(url: &str, filepath: &PathBuf) -> Result<
     let content_length = response.content_length().unwrap_or(0);
     info!("Downloading {} bytes...", content_length);
 
-    let mut file = fs::File::create(filepath).await
+    let mut file = fs::File::create(filepath)
+        .await
         .context("Failed to create download file")?;
 
     let mut stream = response.bytes_stream();
@@ -569,7 +589,8 @@ async fn download_with_stall_detection(url: &str, filepath: &PathBuf) -> Result<
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.context("Failed to read download chunk")?;
 
-        file.write_all(&chunk).await
+        file.write_all(&chunk)
+            .await
             .context("Failed to write to download file")?;
 
         downloaded += chunk.len() as u64;
@@ -577,7 +598,10 @@ async fn download_with_stall_detection(url: &str, filepath: &PathBuf) -> Result<
         // Check for stall
         let now = SystemTime::now();
         if now.duration_since(last_progress).unwrap().as_millis() > STALL_TIMEOUT_MS as u128 {
-            anyhow::bail!("Download stalled: no data received for {}ms", STALL_TIMEOUT_MS);
+            anyhow::bail!(
+                "Download stalled: no data received for {}ms",
+                STALL_TIMEOUT_MS
+            );
         }
         last_progress = now;
     }
@@ -605,10 +629,7 @@ fn is_version_newer(current: &str, latest: &str) -> bool {
 }
 
 fn parse_version(version: &str) -> Vec<u32> {
-    version
-        .split('.')
-        .filter_map(|s| s.parse().ok())
-        .collect()
+    version.split('.').filter_map(|s| s.parse().ok()).collect()
 }
 
 /// Get the target triple for current platform

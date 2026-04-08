@@ -140,7 +140,9 @@ impl HookManager {
     /// Execute all hooks matching the given event.
     pub async fn execute(&self, event: HookEvent, context: &HookContext) -> Vec<HookResult> {
         let event_str = event.to_string();
-        let matching: Vec<&HookDefinition> = self.hooks.iter()
+        let matching: Vec<&HookDefinition> = self
+            .hooks
+            .iter()
             .filter(|h| h.events.iter().any(|e| e == &event_str))
             .filter(|h| {
                 // Apply tool filter if present
@@ -167,7 +169,11 @@ impl HookManager {
     }
 
     /// Check if any blocking hook prevents an operation.
-    pub async fn check_blocked(&self, event: HookEvent, context: &HookContext) -> Option<HookResult> {
+    pub async fn check_blocked(
+        &self,
+        event: HookEvent,
+        context: &HookContext,
+    ) -> Option<HookResult> {
         let results = self.execute(event, context).await;
         results.into_iter().find(|r| r.blocked)
     }
@@ -192,7 +198,8 @@ impl HookManager {
                 .current_dir(&self.working_dir)
                 .output()
                 .await
-        }).await;
+        })
+        .await;
 
         match result {
             Ok(Ok(output)) => {
@@ -215,7 +222,11 @@ impl HookManager {
                         blocked: false,
                         reason: None,
                         modified_input: None,
-                        stdout: if stdout.is_empty() { None } else { Some(stdout) },
+                        stdout: if stdout.is_empty() {
+                            None
+                        } else {
+                            Some(stdout)
+                        },
                     }
                 }
             }
@@ -224,7 +235,11 @@ impl HookManager {
                 HookResult::allowed()
             }
             Err(_) => {
-                tracing::warn!("Hook '{}' timed out after {}s", hook.command, hook.timeout_secs);
+                tracing::warn!(
+                    "Hook '{}' timed out after {}s",
+                    hook.command,
+                    hook.timeout_secs
+                );
                 HookResult::allowed()
             }
         }

@@ -30,7 +30,14 @@ pub const KNOWN_PROVIDERS: &[ProviderInfo] = &[
         format: "openai",
         env_keys: &["OPENAI_API_KEY"],
         default_base_url: "https://api.openai.com/v1",
-        default_models: &["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "o1", "o1-mini", "o3-mini"],
+        default_models: &[
+            "gpt-4o",
+            "gpt-4o-mini",
+            "gpt-4-turbo",
+            "o1",
+            "o1-mini",
+            "o3-mini",
+        ],
     },
     ProviderInfo {
         name: "google",
@@ -51,14 +58,22 @@ pub const KNOWN_PROVIDERS: &[ProviderInfo] = &[
         format: "openai",
         env_keys: &["GROQ_API_KEY"],
         default_base_url: "https://api.groq.com/openai/v1",
-        default_models: &["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"],
+        default_models: &[
+            "llama-3.3-70b-versatile",
+            "llama-3.1-8b-instant",
+            "mixtral-8x7b-32768",
+        ],
     },
     ProviderInfo {
         name: "mistral",
         format: "openai",
         env_keys: &["MISTRAL_API_KEY"],
         default_base_url: "https://api.mistral.ai/v1",
-        default_models: &["mistral-large-latest", "mistral-medium-latest", "codestral-latest"],
+        default_models: &[
+            "mistral-large-latest",
+            "mistral-medium-latest",
+            "codestral-latest",
+        ],
     },
     ProviderInfo {
         name: "xai",
@@ -122,14 +137,26 @@ pub const KNOWN_PROVIDERS: &[ProviderInfo] = &[
         format: "openai",
         env_keys: &["DASHSCOPE_API_KEY", "QWEN_API_KEY"],
         default_base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        default_models: &["qwen3.5-plus", "qwen-max", "qwen-plus", "qwen-turbo", "qwen3-coder-30b-a3b-instruct"],
+        default_models: &[
+            "qwen3.5-plus",
+            "qwen-max",
+            "qwen-plus",
+            "qwen-turbo",
+            "qwen3-coder-30b-a3b-instruct",
+        ],
     },
     ProviderInfo {
         name: "alibaba-coding",
         format: "openai",
         env_keys: &["ALIBABA_CODING_PLAN_API_KEY"],
         default_base_url: "https://coding.dashscope.aliyuncs.com/v1",
-        default_models: &["qwen3.5-plus", "qwen3-coder-next", "kimi-k2.5", "MiniMax-M2.5", "glm-5"],
+        default_models: &[
+            "qwen3.5-plus",
+            "qwen3-coder-next",
+            "kimi-k2.5",
+            "MiniMax-M2.5",
+            "glm-5",
+        ],
     },
     ProviderInfo {
         name: "zhipu",
@@ -171,7 +198,11 @@ pub const KNOWN_PROVIDERS: &[ProviderInfo] = &[
         format: "openai",
         env_keys: &["SILICONFLOW_API_KEY", "SF_API_KEY"],
         default_base_url: "https://api.siliconflow.cn/v1",
-        default_models: &["deepseek-ai/DeepSeek-V3", "Qwen/Qwen2.5-72B-Instruct", "THUDM/GLM-4-32B-0414"],
+        default_models: &[
+            "deepseek-ai/DeepSeek-V3",
+            "Qwen/Qwen2.5-72B-Instruct",
+            "THUDM/GLM-4-32B-0414",
+        ],
     },
     ProviderInfo {
         name: "yi",
@@ -220,7 +251,12 @@ pub const KNOWN_PROVIDERS: &[ProviderInfo] = &[
         format: "openai",
         env_keys: &["TENCENT_CODING_PLAN_API_KEY"],
         default_base_url: "https://api.lkeap.cloud.tencent.com/coding/v3",
-        default_models: &["hunyuan-2.0-instruct", "kimi-k2.5", "hunyuan-t1", "tc-code-latest"],
+        default_models: &[
+            "hunyuan-2.0-instruct",
+            "kimi-k2.5",
+            "hunyuan-t1",
+            "tc-code-latest",
+        ],
     },
     ProviderInfo {
         name: "bailing",

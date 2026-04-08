@@ -1,6 +1,6 @@
 use tokio::sync::mpsc;
-use yode_llm::providers::anthropic::AnthropicProvider;
 use yode_llm::provider::LlmProvider;
+use yode_llm::providers::anthropic::AnthropicProvider;
 use yode_llm::types::{ChatRequest, Message, StreamEvent, ToolDefinition};
 
 #[tokio::test]
@@ -10,8 +10,8 @@ async fn test_anthropic_chat() {
         .expect("Set ANTHROPIC_AUTH_TOKEN or ANTHROPIC_API_KEY");
     let base_url = std::env::var("ANTHROPIC_BASE_URL")
         .unwrap_or_else(|_| "https://api.anthropic.com".to_string());
-    let model = std::env::var("ANTHROPIC_MODEL")
-        .unwrap_or_else(|_| "claude-sonnet-4-20250514".to_string());
+    let model =
+        std::env::var("ANTHROPIC_MODEL").unwrap_or_else(|_| "claude-sonnet-4-20250514".to_string());
 
     let provider = AnthropicProvider::new("anthropic", api_key, base_url);
     assert_eq!(provider.name(), "anthropic");
@@ -33,7 +33,11 @@ async fn test_anthropic_chat() {
     println!("[非流式] 回复：{}", text);
     println!("[非流式] 模型：{}", response.model);
     println!("[非流式] 用量：{:?}", response.usage);
-    assert!(text.contains("2"), "response should contain '2', got: {}", text);
+    assert!(
+        text.contains("2"),
+        "response should contain '2', got: {}",
+        text
+    );
 }
 
 #[tokio::test]
@@ -43,8 +47,8 @@ async fn test_anthropic_stream() {
         .expect("Set ANTHROPIC_AUTH_TOKEN or ANTHROPIC_API_KEY");
     let base_url = std::env::var("ANTHROPIC_BASE_URL")
         .unwrap_or_else(|_| "https://api.anthropic.com".to_string());
-    let model = std::env::var("ANTHROPIC_MODEL")
-        .unwrap_or_else(|_| "claude-sonnet-4-20250514".to_string());
+    let model =
+        std::env::var("ANTHROPIC_MODEL").unwrap_or_else(|_| "claude-sonnet-4-20250514".to_string());
 
     let provider = AnthropicProvider::new("anthropic", api_key, base_url);
 
@@ -60,7 +64,10 @@ async fn test_anthropic_stream() {
     };
 
     let (tx, mut rx) = mpsc::channel::<StreamEvent>(256);
-    provider.chat_stream(request, tx).await.expect("stream should succeed");
+    provider
+        .chat_stream(request, tx)
+        .await
+        .expect("stream should succeed");
 
     let mut full_text = String::new();
     let mut full_reasoning = String::new();
@@ -76,8 +83,14 @@ async fn test_anthropic_stream() {
                 full_reasoning.push_str(&delta);
             }
             StreamEvent::Done(resp) => {
-                println!("\n[流式] 完成，模型：{}, 用量：{:?}", resp.model, resp.usage);
-                println!("[Debug] full_text={:?}, full_reasoning={:?}", full_text, full_reasoning);
+                println!(
+                    "\n[流式] 完成，模型：{}, 用量：{:?}",
+                    resp.model, resp.usage
+                );
+                println!(
+                    "[Debug] full_text={:?}, full_reasoning={:?}",
+                    full_text, full_reasoning
+                );
             }
             StreamEvent::Error(e) => {
                 panic!("Stream error: {}", e);
@@ -100,8 +113,7 @@ async fn test_dashscope_simple_input() {
     let base_url = std::env::var("ANTHROPIC_BASE_URL")
         .unwrap_or_else(|_| "https://api.anthropic.com".to_string());
     // Use DashScope's qwen model
-    let model = std::env::var("ANTHROPIC_MODEL")
-        .unwrap_or_else(|_| "qwen3.5-plus".to_string());
+    let model = std::env::var("ANTHROPIC_MODEL").unwrap_or_else(|_| "qwen3.5-plus".to_string());
 
     let provider = AnthropicProvider::new("anthropic", api_key, base_url);
 
@@ -117,7 +129,10 @@ async fn test_dashscope_simple_input() {
     };
 
     let (tx, mut rx) = mpsc::channel::<StreamEvent>(256);
-    provider.chat_stream(request, tx).await.expect("stream should succeed");
+    provider
+        .chat_stream(request, tx)
+        .await
+        .expect("stream should succeed");
 
     let mut full_text = String::new();
     let mut full_reasoning = String::new();
@@ -151,8 +166,8 @@ async fn test_anthropic_tool_call() {
         .expect("Set ANTHROPIC_AUTH_TOKEN or ANTHROPIC_API_KEY");
     let base_url = std::env::var("ANTHROPIC_BASE_URL")
         .unwrap_or_else(|_| "https://api.anthropic.com".to_string());
-    let model = std::env::var("ANTHROPIC_MODEL")
-        .unwrap_or_else(|_| "claude-sonnet-4-20250514".to_string());
+    let model =
+        std::env::var("ANTHROPIC_MODEL").unwrap_or_else(|_| "claude-sonnet-4-20250514".to_string());
 
     let provider = AnthropicProvider::new("anthropic", api_key, base_url);
 
@@ -184,10 +199,19 @@ async fn test_anthropic_tool_call() {
 
     let response = provider.chat(request).await.expect("chat should succeed");
     println!("[工具调用] 文本：{:?}", response.message.content);
-    println!("[工具调用] 工具调用数：{}", response.message.tool_calls.len());
+    println!(
+        "[工具调用] 工具调用数：{}",
+        response.message.tool_calls.len()
+    );
     for tc in &response.message.tool_calls {
-        println!("[工具调用] name={}, id={}, args={}", tc.name, tc.id, tc.arguments);
+        println!(
+            "[工具调用] name={}, id={}, args={}",
+            tc.name, tc.id, tc.arguments
+        );
     }
-    assert!(!response.message.tool_calls.is_empty(), "should trigger tool call");
+    assert!(
+        !response.message.tool_calls.is_empty(),
+        "should trigger tool call"
+    );
     assert_eq!(response.message.tool_calls[0].name, "read_file");
 }

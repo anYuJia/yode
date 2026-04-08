@@ -10,11 +10,7 @@ pub trait LlmProvider: Send + Sync {
 
     async fn chat(&self, request: ChatRequest) -> Result<ChatResponse>;
 
-    async fn chat_stream(
-        &self,
-        request: ChatRequest,
-        tx: mpsc::Sender<StreamEvent>,
-    ) -> Result<()>;
+    async fn chat_stream(&self, request: ChatRequest, tx: mpsc::Sender<StreamEvent>) -> Result<()>;
 
     async fn list_models(&self) -> Result<Vec<ModelInfo>>;
 }

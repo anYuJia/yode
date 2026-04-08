@@ -158,7 +158,10 @@ impl Config {
 
     /// Load config from a specific path, or default locations.
     pub fn load_from(path: Option<&Path>) -> Result<Self> {
-        let home_config = dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".yode").join("config.toml");
+        let home_config = dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".yode")
+            .join("config.toml");
 
         let config_str = if let Some(p) = path {
             std::fs::read_to_string(p)?
@@ -174,7 +177,10 @@ impl Config {
 
     /// Save config to the default config file path
     pub fn save(&self) -> Result<()> {
-        let path = dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".yode").join("config.toml");
+        let path = dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".yode")
+            .join("config.toml");
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }

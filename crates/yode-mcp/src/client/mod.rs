@@ -45,15 +45,16 @@ impl McpClient {
         let args = config.args.clone();
         let command = config.command.clone();
 
-        let service = ().serve(TokioChildProcess::new(
-            Command::new(&command).configure(|cmd| {
-                cmd.args(&args);
-                for (k, v) in &env_vars {
-                    cmd.env(k, v);
-                }
-            }),
-        )?)
-        .await?;
+        let service = ()
+            .serve(TokioChildProcess::new(Command::new(&command).configure(
+                |cmd| {
+                    cmd.args(&args);
+                    for (k, v) in &env_vars {
+                        cmd.env(k, v);
+                    }
+                },
+            ))?)
+            .await?;
 
         let peer_info = service.peer_info();
         if let Some(info) = peer_info {
@@ -92,7 +93,11 @@ impl McpClient {
             let wrapper = McpToolWrapper {
                 tool_name: name,
                 original_name: tool.name.to_string(),
-                description: tool.description.clone().map(|c| c.to_string()).unwrap_or_default(),
+                description: tool
+                    .description
+                    .clone()
+                    .map(|c| c.to_string())
+                    .unwrap_or_default(),
                 input_schema: serde_json::to_value(&tool.input_schema).unwrap_or_default(),
                 server_name: self.server_name.clone(),
                 peer: self.peer.clone(),
@@ -104,11 +109,7 @@ impl McpClient {
     }
 
     /// Call a tool on this MCP server.
-    pub async fn call_tool(
-        &self,
-        tool_name: &str,
-        arguments: serde_json::Value,
-    ) -> Result<String> {
+    pub async fn call_tool(&self, tool_name: &str, arguments: serde_json::Value) -> Result<String> {
         let mut request = CallToolRequestParams::new(tool_name.to_string());
         if let Some(obj) = arguments.as_object() {
             request = request.with_arguments(obj.clone());

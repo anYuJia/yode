@@ -67,10 +67,7 @@ impl Tool for McpToolWrapper {
                     Ok(ToolResult::success(output))
                 }
             }
-            Err(e) => Ok(ToolResult::error(format!(
-                "MCP tool call failed: {}",
-                e
-            ))),
+            Err(e) => Ok(ToolResult::error(format!("MCP tool call failed: {}", e))),
         }
     }
 }

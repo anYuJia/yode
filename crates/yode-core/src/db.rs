@@ -103,8 +103,9 @@ impl Database {
 
     pub fn get_session(&self, session_id: &str) -> Result<Option<Session>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn
-            .prepare("SELECT id, name, provider, model, created_at, updated_at FROM sessions WHERE id = ?1")?;
+        let mut stmt = conn.prepare(
+            "SELECT id, name, provider, model, created_at, updated_at FROM sessions WHERE id = ?1",
+        )?;
 
         let mut rows = stmt.query(params![session_id])?;
         if let Some(row) = rows.next()? {

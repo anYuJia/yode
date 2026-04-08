@@ -51,7 +51,11 @@ pub fn together(api_key: &str) -> OpenAiProvider {
 
 /// Fireworks AI
 pub fn fireworks(api_key: &str) -> OpenAiProvider {
-    OpenAiProvider::new("fireworks", api_key, "https://api.fireworks.ai/inference/v1")
+    OpenAiProvider::new(
+        "fireworks",
+        api_key,
+        "https://api.fireworks.ai/inference/v1",
+    )
 }
 
 /// Perplexity
@@ -68,17 +72,29 @@ pub fn cerebras(api_key: &str) -> OpenAiProvider {
 
 /// 通义千问 Qwen - 阿里云百炼 (国内)
 pub fn qwen(api_key: &str) -> OpenAiProvider {
-    OpenAiProvider::new("qwen", api_key, "https://dashscope.aliyuncs.com/compatible-mode/v1")
+    OpenAiProvider::new(
+        "qwen",
+        api_key,
+        "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    )
 }
 
 /// 通义千问 Qwen - 阿里云百炼 (国际)
 pub fn qwen_intl(api_key: &str) -> OpenAiProvider {
-    OpenAiProvider::new("qwen-intl", api_key, "https://dashscope-intl.aliyuncs.com/compatible-mode/v1")
+    OpenAiProvider::new(
+        "qwen-intl",
+        api_key,
+        "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+    )
 }
 
 /// 阿里 Coding Plan (国内, 支持 kimi/qwen/minimax/glm 多模型)
 pub fn alibaba_coding(api_key: &str) -> OpenAiProvider {
-    OpenAiProvider::new("alibaba-coding", api_key, "https://coding.dashscope.aliyuncs.com/v1")
+    OpenAiProvider::new(
+        "alibaba-coding",
+        api_key,
+        "https://coding.dashscope.aliyuncs.com/v1",
+    )
 }
 
 /// 智谱 GLM (Zhipu AI)
@@ -88,7 +104,11 @@ pub fn zhipu(api_key: &str) -> OpenAiProvider {
 
 /// 智谱 Coding Plan
 pub fn zhipu_coding(api_key: &str) -> OpenAiProvider {
-    OpenAiProvider::new("zhipu-coding", api_key, "https://open.bigmodel.cn/api/coding/paas/v4")
+    OpenAiProvider::new(
+        "zhipu-coding",
+        api_key,
+        "https://open.bigmodel.cn/api/coding/paas/v4",
+    )
 }
 
 /// Kimi / Moonshot (月之暗面, 国内端点)
@@ -109,7 +129,11 @@ pub fn kimi_coding_url() -> &'static str {
 
 /// 豆包 Doubao (字节跳动/火山引擎)
 pub fn doubao(api_key: &str) -> OpenAiProvider {
-    OpenAiProvider::new("doubao", api_key, "https://ark.cn-beijing.volces.com/api/v3")
+    OpenAiProvider::new(
+        "doubao",
+        api_key,
+        "https://ark.cn-beijing.volces.com/api/v3",
+    )
 }
 
 /// MiniMax (国际端点, Anthropic 兼容)
@@ -160,17 +184,29 @@ pub fn ernie(api_key: &str) -> OpenAiProvider {
 
 /// 腾讯混元 Hunyuan
 pub fn hunyuan(api_key: &str) -> OpenAiProvider {
-    OpenAiProvider::new("hunyuan", api_key, "https://api.hunyuan.cloud.tencent.com/v1")
+    OpenAiProvider::new(
+        "hunyuan",
+        api_key,
+        "https://api.hunyuan.cloud.tencent.com/v1",
+    )
 }
 
 /// 腾讯 Coding Plan
 pub fn tencent_coding(api_key: &str) -> OpenAiProvider {
-    OpenAiProvider::new("tencent-coding", api_key, "https://api.lkeap.cloud.tencent.com/coding/v3")
+    OpenAiProvider::new(
+        "tencent-coding",
+        api_key,
+        "https://api.lkeap.cloud.tencent.com/coding/v3",
+    )
 }
 
 /// 百灵 Bailing
 pub fn bailing(api_key: &str) -> OpenAiProvider {
-    OpenAiProvider::new("bailing", api_key, "https://api.tbox.cn/api/llm/v1/chat/completions")
+    OpenAiProvider::new(
+        "bailing",
+        api_key,
+        "https://api.tbox.cn/api/llm/v1/chat/completions",
+    )
 }
 
 /// iFlow (国内聚合平台)
