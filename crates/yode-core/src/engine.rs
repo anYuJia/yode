@@ -301,7 +301,7 @@ fn truncate_tool_result(result: ToolResult) -> ToolResult {
         let tail: String = result.content.chars().rev().take(tail_size).collect::<String>().chars().rev().collect();
         ToolResult {
             content: format!(
-                "{}\n\n... [截断: 原始 {} 字节，使用 read_file 的 offset/limit 查看完整内容] ...\n\n{}",
+                "{}\n\n... [TRUNCATED: Original {} bytes, content omitted to prevent context overflow. Use search tools (grep/glob) or targeted reads (offset/limit) to inspect the rest] ...\n\n{}",
                 head,
                 result.content.len(),
                 tail
