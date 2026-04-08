@@ -89,9 +89,17 @@ fn render_memory_status(
     let runtime_lines = runtime
         .map(|state| {
             format!(
-                "\n  Last compact mode: {}\n  Last compact mem:  {}\n  Last transcript:   {}\n  Last memory update: {}",
+                "\n  Last compact mode: {}\n  Last compact at:   {}\n  Last compact summary: {}\n  Last compact mem:  {}\n  Last transcript:   {}\n  Last memory update: {}",
                 state
                     .last_compaction_mode
+                    .as_deref()
+                    .unwrap_or("none"),
+                state
+                    .last_compaction_at
+                    .as_deref()
+                    .unwrap_or("none"),
+                state
+                    .last_compaction_summary_excerpt
                     .as_deref()
                     .unwrap_or("none"),
                 state
@@ -107,8 +115,12 @@ fn render_memory_status(
                     .as_ref()
                     .map(|path| {
                         format!(
-                            "{} ({})",
+                            "{} ({}, {})",
                             path,
+                            state
+                                .last_session_memory_update_at
+                                .as_deref()
+                                .unwrap_or("unknown time"),
                             if state.last_session_memory_generated_summary {
                                 "summary"
                             } else {

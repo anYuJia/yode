@@ -272,8 +272,11 @@ pub struct EngineRuntimeState {
     pub live_session_memory_path: String,
     pub session_tool_calls_total: u32,
     pub last_compaction_mode: Option<String>,
+    pub last_compaction_at: Option<String>,
+    pub last_compaction_summary_excerpt: Option<String>,
     pub last_compaction_session_memory_path: Option<String>,
     pub last_compaction_transcript_path: Option<String>,
+    pub last_session_memory_update_at: Option<String>,
     pub last_session_memory_update_path: Option<String>,
     pub last_session_memory_generated_summary: bool,
 }
@@ -359,10 +362,16 @@ pub struct AgentEngine {
     session_memory_generation: Arc<AtomicU64>,
     /// Most recent compaction mode.
     last_compaction_mode: Option<String>,
+    /// Most recent compaction timestamp.
+    last_compaction_at: Option<String>,
+    /// Most recent compaction summary excerpt.
+    last_compaction_summary_excerpt: Option<String>,
     /// Most recent compaction session memory artifact path.
     last_compaction_session_memory_path: Option<String>,
     /// Most recent compaction transcript artifact path.
     last_compaction_transcript_path: Option<String>,
+    /// Most recent live session memory update timestamp.
+    last_session_memory_update_at: Option<String>,
     /// Most recent live session memory update path.
     last_session_memory_update_path: Option<String>,
     /// Whether the latest live session memory update used an LLM summary.
@@ -543,8 +552,11 @@ impl AgentEngine {
             session_memory_update_in_progress: Arc::new(AtomicBool::new(false)),
             session_memory_generation: Arc::new(AtomicU64::new(0)),
             last_compaction_mode: None,
+            last_compaction_at: None,
+            last_compaction_summary_excerpt: None,
             last_compaction_session_memory_path: None,
             last_compaction_transcript_path: None,
+            last_session_memory_update_at: None,
             last_session_memory_update_path: None,
             last_session_memory_generated_summary: false,
         }
@@ -701,8 +713,11 @@ impl AgentEngine {
                 .to_string(),
             session_tool_calls_total: self.session_tool_calls_total,
             last_compaction_mode: self.last_compaction_mode.clone(),
+            last_compaction_at: self.last_compaction_at.clone(),
+            last_compaction_summary_excerpt: self.last_compaction_summary_excerpt.clone(),
             last_compaction_session_memory_path: self.last_compaction_session_memory_path.clone(),
             last_compaction_transcript_path: self.last_compaction_transcript_path.clone(),
+            last_session_memory_update_at: self.last_session_memory_update_at.clone(),
             last_session_memory_update_path: self.last_session_memory_update_path.clone(),
             last_session_memory_generated_summary: self.last_session_memory_generated_summary,
         }
@@ -1212,6 +1227,15 @@ impl AgentEngine {
             transcript_path: transcript_path_str.clone(),
         });
         self.last_compaction_mode = Some(mode.to_string());
+        self.last_compaction_at = Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
+        self.last_compaction_summary_excerpt = report.summary.as_ref().map(|summary| {
+            let excerpt: String = summary.chars().take(160).collect();
+            if summary.chars().count() > 160 {
+                format!("{}...", excerpt)
+            } else {
+                excerpt
+            }
+        });
         self.last_compaction_session_memory_path = session_memory_path_str;
         self.last_compaction_transcript_path = transcript_path_str;
         true
@@ -1283,8 +1307,11 @@ impl AgentEngine {
         }
         self.reset_live_session_memory_tracking();
         self.last_compaction_mode = None;
+        self.last_compaction_at = None;
+        self.last_compaction_summary_excerpt = None;
         self.last_compaction_session_memory_path = None;
         self.last_compaction_transcript_path = None;
+        self.last_session_memory_update_at = None;
         self.last_session_memory_update_path = None;
         self.last_session_memory_generated_summary = false;
         self.sync_persisted_messages_snapshot();
@@ -1392,6 +1419,8 @@ impl AgentEngine {
         if self.provider.name() == "mock" {
             match persist_live_session_memory(&project_root, &snapshot) {
                 Ok(path) => {
+                    self.last_session_memory_update_at =
+                        Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
                     self.last_session_memory_update_path = Some(path.display().to_string());
                     self.last_session_memory_generated_summary = false;
                     self.rebuild_system_prompt();
@@ -1506,10 +1535,16 @@ impl AgentEngine {
             &self.files_modified,
         );
 
-        if let Err(err) =
-            persist_live_session_memory(&self.context.working_dir_compat(), &snapshot)
-        {
-            warn!("Failed to flush live session memory on shutdown: {}", err);
+        match persist_live_session_memory(&self.context.working_dir_compat(), &snapshot) {
+            Ok(path) => {
+                self.last_session_memory_update_at =
+                    Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
+                self.last_session_memory_update_path = Some(path.display().to_string());
+                self.last_session_memory_generated_summary = false;
+            }
+            Err(err) => {
+                warn!("Failed to flush live session memory on shutdown: {}", err);
+            }
         }
     }
 

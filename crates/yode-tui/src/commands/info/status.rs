@@ -46,7 +46,7 @@ impl Command for StatusCommand {
             .map(|engine| engine.runtime_state());
         let runtime_lines = if let Some(state) = runtime {
             format!(
-                "\n  Query source:    {}\n  Autocompact:     {}\n  Compact fails:   {}\n  Live memory:     {}{}\n  Live memory file: {}\n  Last compact:    {}\n  Last compact mem: {}\n  Last transcript: {}\n  Last memory update: {}",
+                "\n  Query source:    {}\n  Autocompact:     {}\n  Compact fails:   {}\n  Live memory:     {}{}\n  Live memory file: {}\n  Last compact:    {}\n  Compact at:      {}\n  Compact summary: {}\n  Last compact mem: {}\n  Last transcript: {}\n  Last memory update: {}",
                 state.query_source,
                 if state.autocompact_disabled {
                     "disabled"
@@ -69,6 +69,12 @@ impl Command for StatusCommand {
                     .last_compaction_mode
                     .unwrap_or_else(|| "none".to_string()),
                 state
+                    .last_compaction_at
+                    .unwrap_or_else(|| "none".to_string()),
+                state
+                    .last_compaction_summary_excerpt
+                    .unwrap_or_else(|| "none".to_string()),
+                state
                     .last_compaction_session_memory_path
                     .unwrap_or_else(|| "none".to_string()),
                 state
@@ -76,8 +82,12 @@ impl Command for StatusCommand {
                     .unwrap_or_else(|| "none".to_string()),
                 state.last_session_memory_update_path.map(|path| {
                     format!(
-                        "{} ({})",
+                        "{} ({}, {})",
                         path,
+                        state
+                            .last_session_memory_update_at
+                            .as_deref()
+                            .unwrap_or("unknown time"),
                         if state.last_session_memory_generated_summary {
                             "summary"
                         } else {
