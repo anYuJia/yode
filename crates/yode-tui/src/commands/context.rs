@@ -2,8 +2,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
+use tokio::sync::mpsc;
 use tokio::sync::Mutex;
-use yode_core::engine::AgentEngine;
+use yode_core::engine::{AgentEngine, EngineEvent};
 use yode_llm::registry::ProviderRegistry;
 use yode_tools::registry::ToolRegistry;
 
@@ -29,6 +30,7 @@ pub struct CommandContext<'a> {
     pub session_start: Instant,
     pub turn_started_at: Option<Instant>,
     pub cmd_registry: &'a super::registry::CommandRegistry,
+    pub engine_event_tx: &'a mpsc::UnboundedSender<EngineEvent>,
 }
 
 pub struct CompletionContext<'a> {

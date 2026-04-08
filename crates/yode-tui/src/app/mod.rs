@@ -1388,6 +1388,7 @@ fn handle_enter(
                 session_start: app.session_start,
                 turn_started_at: app.turn_started_at,
                 cmd_registry: &app.cmd_registry,
+                engine_event_tx,
             };
             app.cmd_registry
                 .execute_command(cmd_name, cmd_args, &mut ctx)

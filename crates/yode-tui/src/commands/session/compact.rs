@@ -34,10 +34,19 @@ impl Command for CompactCommand {
     }
 
     fn execute(&self, _args: &str, ctx: &mut CommandContext) -> CommandResult {
-        if ctx.chat_entries.len() > 20 {
-            let start = ctx.chat_entries.len() - 20;
-            *ctx.chat_entries = ctx.chat_entries[start..].to_vec();
-        }
-        Ok(CommandOutput::Message("History compacted.".to_string()))
+        let engine = ctx.engine.clone();
+        let event_tx = ctx.engine_event_tx.clone();
+
+        tokio::spawn(async move {
+            let mut engine = engine.lock().await;
+            let changed = engine.force_compact(event_tx.clone()).await;
+            if !changed {
+                let _ = event_tx.send(yode_core::engine::EngineEvent::Error(
+                    "Compaction made no changes.".to_string(),
+                ));
+            }
+        });
+
+        Ok(CommandOutput::Message("Compaction requested.".to_string()))
     }
 }

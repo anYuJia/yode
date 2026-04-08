@@ -4,6 +4,7 @@ use std::sync::Mutex;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection};
+use yode_llm::types::{Message, Role};
 
 use crate::session::Session;
 
@@ -202,6 +203,49 @@ impl Database {
         Ok(messages)
     }
 
+    pub fn replace_messages(&self, session_id: &str, messages: &[Message]) -> Result<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.execute(
+            "DELETE FROM messages WHERE session_id = ?1",
+            params![session_id],
+        )?;
+
+        let now = Utc::now().to_rfc3339();
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO messages (session_id, role, content, reasoning, tool_calls_json, tool_call_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            )?;
+
+            for message in messages {
+                let role = match message.role {
+                    Role::User => "user",
+                    Role::Assistant => "assistant",
+                    Role::Tool => "tool",
+                    Role::System => "system",
+                };
+                let tool_calls_json = if message.tool_calls.is_empty() {
+                    None
+                } else {
+                    Some(serde_json::to_string(&message.tool_calls)?)
+                };
+
+                stmt.execute(params![
+                    session_id,
+                    role,
+                    message.content.as_deref(),
+                    message.reasoning.as_deref(),
+                    tool_calls_json.as_deref(),
+                    message.tool_call_id.as_deref(),
+                    now,
+                ])?;
+            }
+        }
+
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Update session name
     pub fn update_session_name(&self, session_id: &str, name: &str) -> Result<()> {
         let conn = self.conn.lock().unwrap();
@@ -210,5 +254,49 @@ impl Database {
             params![name, Utc::now().to_rfc3339(), session_id],
         )?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+    use tempfile::tempdir;
+    use yode_llm::types::Message;
+
+    use super::Database;
+    use crate::session::Session;
+
+    #[test]
+    fn replace_messages_overwrites_previous_session_history() {
+        let temp = tempdir().unwrap();
+        let db = Database::open(&temp.path().join("sessions.db")).unwrap();
+        db.create_session(&Session {
+            id: "session-1".to_string(),
+            name: None,
+            provider: "mock".to_string(),
+            model: "mock-model".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        })
+        .unwrap();
+
+        db.save_message("session-1", "user", Some("old"), None, None, None)
+            .unwrap();
+        db.save_message("session-1", "assistant", Some("older"), None, None, None)
+            .unwrap();
+
+        db.replace_messages(
+            "session-1",
+            &[
+                Message::user("new user"),
+                Message::assistant("new assistant"),
+            ],
+        )
+        .unwrap();
+
+        let messages = db.load_messages("session-1").unwrap();
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].content.as_deref(), Some("new user"));
+        assert_eq!(messages[1].content.as_deref(), Some("new assistant"));
     }
 }

@@ -11,6 +11,7 @@ pub mod session;
 pub mod session_memory;
 pub mod setup;
 pub mod skills;
+pub mod transcript;
 pub mod updater;
 
 pub use context::EffortLevel;

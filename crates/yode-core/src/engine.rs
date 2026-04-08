@@ -28,6 +28,7 @@ use crate::hooks::{HookContext, HookEvent, HookManager};
 use crate::instructions::{load_instruction_context, load_memory_context};
 use crate::permission::{CommandClassifier, CommandRiskLevel, PermissionAction, PermissionManager};
 use crate::session_memory::persist_compaction_memory;
+use crate::transcript::write_compaction_transcript;
 
 /// Maximum size for tool results (50KB)
 const MAX_TOOL_RESULT_SIZE: usize = 50 * 1024;
@@ -769,12 +770,14 @@ impl AgentEngine {
     fn build_compaction_hook_context(
         &self,
         event: HookEvent,
+        mode: &'static str,
         prompt_tokens: u32,
         report: Option<&CompressionReport>,
         session_memory_path: Option<&std::path::Path>,
+        transcript_path: Option<&std::path::Path>,
     ) -> HookContext {
         let mut metadata = Map::new();
-        metadata.insert("mode".to_string(), json!("auto"));
+        metadata.insert("mode".to_string(), json!(mode));
         metadata.insert("prompt_tokens".to_string(), json!(prompt_tokens));
         metadata.insert("message_count".to_string(), json!(self.messages.len()));
         metadata.insert("files_read".to_string(), json!(self.files_read.len()));
@@ -801,6 +804,13 @@ impl AgentEngine {
             );
         }
 
+        if let Some(path) = transcript_path {
+            metadata.insert(
+                "transcript_path".to_string(),
+                json!(path.display().to_string()),
+            );
+        }
+
         HookContext {
             event: event.to_string(),
             session_id: self.context.session_id.clone(),
@@ -819,48 +829,70 @@ impl AgentEngine {
         prompt_tokens: u32,
         event_tx: &mpsc::UnboundedSender<EngineEvent>,
     ) {
-        if !self.current_query_source.allows_auto_compaction() {
+        let _ = self.compact_context(prompt_tokens, event_tx, false).await;
+    }
+
+    async fn compact_context(
+        &mut self,
+        prompt_tokens: u32,
+        event_tx: &mpsc::UnboundedSender<EngineEvent>,
+        force: bool,
+    ) -> bool {
+        let mode = if force { "manual" } else { "auto" };
+
+        if !force && !self.current_query_source.allows_auto_compaction() {
             debug!(
                 "Skipping auto-compaction for query source {:?}",
                 self.current_query_source
             );
-            return;
+            return false;
         }
 
-        if self.autocompact_disabled {
+        if !force && self.autocompact_disabled {
             debug!("Skipping auto-compaction because the circuit breaker is open");
-            return;
+            return false;
         }
 
         if self.compaction_in_progress {
             warn!("Skipping nested auto-compaction attempt");
-            return;
+            return false;
         }
 
-        if !self
-            .context_manager
-            .should_compress(prompt_tokens, &self.messages)
+        if !force
+            && !self
+                .context_manager
+                .should_compress(prompt_tokens, &self.messages)
         {
-            return;
+            return false;
         }
 
         self.compaction_in_progress = true;
 
-        let pre_context =
-            self.build_compaction_hook_context(HookEvent::PreCompact, prompt_tokens, None, None);
+        let pre_context = self.build_compaction_hook_context(
+            HookEvent::PreCompact,
+            mode,
+            prompt_tokens,
+            None,
+            None,
+            None,
+        );
         self.execute_advisory_hooks(HookEvent::PreCompact, pre_context)
             .await;
 
+        let pre_compact_messages = self.messages.clone();
         let report = self
             .context_manager
             .compress_with_report(&mut self.messages);
         if report.removed == 0 && report.tool_results_truncated == 0 {
             self.compaction_in_progress = false;
-            self.record_compaction_failure("compression made no changes", event_tx);
-            return;
+            if !force {
+                self.record_compaction_failure("compression made no changes", event_tx);
+            }
+            return false;
         }
 
         let mut session_memory_path = None;
+        let mut transcript_path = None;
         let project_root = self.context.working_dir_compat();
         match persist_compaction_memory(
             &project_root,
@@ -875,20 +907,34 @@ impl AgentEngine {
             }
             Err(err) => warn!("Failed to persist session memory after compaction: {}", err),
         }
+        match write_compaction_transcript(
+            &project_root,
+            &self.context.session_id,
+            &pre_compact_messages,
+            &report,
+        ) {
+            Ok(path) => transcript_path = Some(path),
+            Err(err) => warn!("Failed to write compaction transcript: {}", err),
+        }
+        self.sync_persisted_messages_snapshot();
 
         let post_context = self.build_compaction_hook_context(
             HookEvent::PostCompact,
+            mode,
             prompt_tokens,
             Some(&report),
             session_memory_path.as_deref(),
+            transcript_path.as_deref(),
         );
         self.execute_advisory_hooks(HookEvent::PostCompact, post_context)
             .await;
         let compressed_context = self.build_compaction_hook_context(
             HookEvent::ContextCompressed,
+            mode,
             prompt_tokens,
             Some(&report),
             session_memory_path.as_deref(),
+            transcript_path.as_deref(),
         );
         self.execute_advisory_hooks(HookEvent::ContextCompressed, compressed_context)
             .await;
@@ -898,7 +944,7 @@ impl AgentEngine {
             .exceeds_threshold_estimate(&self.messages);
         self.compaction_in_progress = false;
 
-        if still_above_threshold {
+        if still_above_threshold && !force {
             self.record_compaction_failure(
                 "context remains above the safety threshold after compaction",
                 event_tx,
@@ -912,6 +958,28 @@ impl AgentEngine {
             tool_results_truncated: report.tool_results_truncated,
             summary: report.summary.clone(),
         });
+        true
+    }
+
+    fn estimated_prompt_tokens_for_current_messages(&self) -> u32 {
+        let char_count: usize = self
+            .messages
+            .iter()
+            .map(|m| {
+                m.content.as_ref().map(|c| c.len()).unwrap_or(0)
+                    + m.tool_calls
+                        .iter()
+                        .map(|tc| tc.arguments.len() + tc.name.len())
+                        .sum::<usize>()
+            })
+            .sum();
+        (char_count / 4).max(1) as u32
+    }
+
+    pub async fn force_compact(&mut self, event_tx: mpsc::UnboundedSender<EngineEvent>) -> bool {
+        let estimated_tokens = self.estimated_prompt_tokens_for_current_messages();
+        self.compact_context(estimated_tokens, &event_tx, true)
+            .await
     }
 
     /// Get the current message history.
@@ -951,6 +1019,7 @@ impl AgentEngine {
             }
             info!("Cleared conversation, kept system prompt");
         }
+        self.sync_persisted_messages_snapshot();
         self.reset_autocompact_state();
     }
 
@@ -977,6 +1046,23 @@ impl AgentEngine {
             if let Err(e) = db.touch_session(&self.context.session_id) {
                 warn!("Failed to touch session: {}", e);
             }
+        }
+    }
+
+    fn sync_persisted_messages_snapshot(&self) {
+        let Some(ref db) = self.db else {
+            return;
+        };
+
+        let snapshot = self.messages.iter().skip(1).cloned().collect::<Vec<_>>();
+
+        if let Err(err) = db.replace_messages(&self.context.session_id, &snapshot) {
+            warn!("Failed to rewrite session message snapshot: {}", err);
+            return;
+        }
+
+        if let Err(err) = db.touch_session(&self.context.session_id) {
+            warn!("Failed to touch session after snapshot rewrite: {}", err);
         }
     }
 
@@ -3276,8 +3362,10 @@ mod tests {
         }
         let provider: Arc<dyn yode_llm::provider::LlmProvider> = Arc::new(MockProvider);
         let permissions = PermissionManager::from_confirmation_list(confirm_tools);
+        let workdir = std::env::temp_dir().join(format!("yode-engine-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&workdir).unwrap();
         let context = AgentContext::new(
-            std::env::current_dir().unwrap(),
+            workdir,
             "mock".to_string(),
             "claude-sonnet-4".to_string(),
         );
@@ -3510,6 +3598,42 @@ mod tests {
                 .unwrap_or_default()
                 .starts_with("[Context summary]")
         }));
+    }
+
+    #[tokio::test]
+    async fn test_force_compact_ignores_auto_compact_guard() {
+        let mut engine = make_engine(vec![], vec![]);
+        let big = "x".repeat(18_000);
+        engine.messages = vec![
+            Message::system("system"),
+            Message::user(&big),
+            Message::assistant(&big),
+            Message::tool_result("tc1", &big),
+            Message::user(&big),
+            Message::assistant(&big),
+            Message::user("recent1"),
+            Message::assistant("recent2"),
+            Message::user("recent3"),
+            Message::assistant("recent4"),
+            Message::user("recent5"),
+            Message::assistant("recent6"),
+        ];
+        engine.current_query_source = QuerySource::Compact;
+        engine.autocompact_disabled = true;
+
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let changed = engine.force_compact(tx).await;
+
+        assert!(changed);
+        assert!(
+            engine.messages.len() < 12
+                || engine.messages.iter().any(|msg| {
+                    msg.content
+                        .as_deref()
+                        .unwrap_or_default()
+                        .contains("[compressed]")
+                })
+        );
     }
 }
 
