@@ -66,7 +66,7 @@ impl Command for MemoryCommand {
             "latest" => {
                 let latest = latest_transcript(&transcripts_dir)
                     .ok_or_else(|| "No transcript backups found.".to_string())?;
-                render_file("Latest transcript", &latest)
+                render_latest_transcript(&latest)
             }
             "list" => Ok(CommandOutput::Message(render_transcript_list(&transcripts_dir))),
             target => {
@@ -154,6 +154,24 @@ fn render_file(label: &str, path: &Path) -> CommandResult {
         "{}\nPath: {}\n\n{}",
         label,
         path.display(),
+        truncated
+    )))
+}
+
+fn render_latest_transcript(path: &Path) -> CommandResult {
+    let content = fs::read_to_string(path)
+        .map_err(|_| format!("Latest transcript not found: {}", path.display()))?;
+    let meta = read_transcript_metadata(path).unwrap_or_default();
+    let preview = extract_summary_preview(&content).unwrap_or_else(|| "No summary anchor".to_string());
+    let truncated = truncate_for_display(&content);
+    Ok(CommandOutput::Message(format!(
+        "Latest transcript\nPath: {}\nMode: {}\nTimestamp: {}\nRemoved: {}\nTruncated: {}\nSummary preview: {}\n\n{}",
+        path.display(),
+        meta.mode.unwrap_or_else(|| "unknown".to_string()),
+        meta.timestamp.unwrap_or_else(|| "unknown".to_string()),
+        meta.removed.unwrap_or(0),
+        meta.truncated.unwrap_or(0),
+        preview,
         truncated
     )))
 }
@@ -273,11 +291,31 @@ fn read_transcript_metadata(path: &Path) -> Option<TranscriptMetadata> {
     Some(meta)
 }
 
+fn extract_summary_preview(content: &str) -> Option<String> {
+    let start = content.find("## Summary Anchor")?;
+    let summary_block = &content[start..];
+    let fenced_start = summary_block.find("```text")?;
+    let after_fence = &summary_block[fenced_start + "```text".len()..];
+    let fenced_end = after_fence.find("```")?;
+    let summary = after_fence[..fenced_end].trim();
+    if summary.is_empty() {
+        return None;
+    }
+
+    let preview: String = summary.chars().take(180).collect();
+    if summary.chars().count() > 180 {
+        Some(format!("{}...", preview))
+    } else {
+        Some(preview)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        latest_transcript, read_transcript_metadata, render_transcript_list,
-        resolve_transcript_target, truncate_for_display, MAX_DISPLAY_CHARS,
+        extract_summary_preview, latest_transcript, read_transcript_metadata,
+        render_transcript_list, resolve_transcript_target, truncate_for_display,
+        MAX_DISPLAY_CHARS,
     };
 
     #[test]
@@ -349,5 +387,13 @@ mod tests {
         assert!(meta.has_summary);
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn extract_summary_preview_reads_summary_anchor_block() {
+        let content = "# Compaction Transcript\n\n## Summary Anchor\n\n```text\nFirst line\nSecond line\n```\n";
+        let preview = extract_summary_preview(content).unwrap();
+        assert!(preview.contains("First line"));
+        assert!(preview.contains("Second line"));
     }
 }
