@@ -826,6 +826,25 @@ impl AgentEngine {
 
             // Add assistant message to history (with tag cleaning)
             let mut assistant_msg = response.message.clone();
+
+            // Handle StopReason::MaxTokens
+            if response.stop_reason == Some(yode_llm::types::StopReason::MaxTokens) {
+                let warning = "\n\n[WARNING: Response truncated due to max_tokens limit. Consider increasing effort level if more detail is needed.]";
+                if let Some(content) = &mut assistant_msg.content {
+                    content.push_str(warning);
+                } else {
+                    assistant_msg.content = Some(warning.to_string());
+                }
+                warn!("LLM response truncated due to max_tokens");
+            } else if response.stop_reason == Some(yode_llm::types::StopReason::StopSequence) || matches!(response.stop_reason, Some(yode_llm::types::StopReason::Other(_))) {
+                if let Some(ref content) = assistant_msg.content {
+                    if content.contains("[tool_") || content.contains("<tool_") {
+                        warn!("LLM response stopped via stop sequence or other reason but contains incomplete tool tags. Reason: {:?}", response.stop_reason);
+                        // Future improvement: auto-close JSON braces for partial tool calls
+                    }
+                }
+            }
+
             if let Some(ref content) = assistant_msg.content {
                 if content.contains("[tool_use") || content.contains("[DUMMY_TOOL") {
                     assistant_msg.content = Some(self.clean_assistant_response(content));
@@ -1309,6 +1328,25 @@ impl AgentEngine {
                 tool_call_id: None,
                 images: Vec::new(),
             };
+
+            // Handle StopReason::MaxTokens
+            if let Some(ref resp) = final_response {
+                if resp.stop_reason == Some(yode_llm::types::StopReason::MaxTokens) {
+                    let warning = "\n\n[WARNING: Response truncated due to max_tokens limit. Consider increasing effort level if more detail is needed.]";
+                    if let Some(content) = &mut assistant_msg.content {
+                        content.push_str(warning);
+                        full_text = content.clone();
+                    } else {
+                        assistant_msg.content = Some(warning.to_string());
+                        full_text = warning.to_string();
+                    }
+                    warn!("LLM streaming response truncated due to max_tokens");
+                } else if resp.stop_reason == Some(yode_llm::types::StopReason::StopSequence) || matches!(resp.stop_reason, Some(yode_llm::types::StopReason::Other(_))) {
+                    if full_text.contains("[tool_") || full_text.contains("<tool_") {
+                        warn!("LLM streaming response stopped via stop sequence or other reason but contains incomplete tool tags. Reason: {:?}", resp.stop_reason);
+                    }
+                }
+            }
 
             // --- PR-1: Strict Protocol Gate & Auto Recovery/Retry ---
             if assistant_msg.tool_calls.is_empty() && !full_text.is_empty() && self.is_protocol_violation(&full_text) {
@@ -1986,11 +2024,23 @@ impl AgentEngine {
 
     /// Detects if the assistant response contains forbidden internal protocol patterns.
     fn is_protocol_violation(&self, text: &str) -> bool {
-        // Look for tool use fingerprints that leaked into text
-        text.contains("[tool_use") || 
-        text.contains("[DUMMY_TOOL") || 
-        text.contains("[tool_result") ||
-        (text.contains("<tool_code>") && text.contains("</tool_code>")) // Some models use XML tags
+        // Forbidden protocol markers that models sometimes hallucinate
+        let forbidden_patterns = [
+            "[tool_use", 
+            "[DUMMY_TOOL", 
+            "[tool_result",
+            // Claude-like XML leakage (if not explicitly enabled for the model)
+            "<tool_code>", 
+            "<tool_input>", 
+            "<tool_call>",
+        ];
+
+        for pattern in forbidden_patterns {
+            if text.contains(pattern) {
+                return true;
+            }
+        }
+        false
     }
 
     /// Attempts to recover tool calls leaked into the text response.

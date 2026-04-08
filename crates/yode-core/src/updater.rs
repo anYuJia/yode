@@ -300,7 +300,9 @@ impl Updater {
         archive.set_preserve_permissions(true);
 
         if let Err(e) = archive.unpack(temp_dir.path()) {
-            anyhow::bail!("Failed to unpack update archive to {:?}: {}", temp_dir.path(), e);
+            warn!("Failed to unpack update archive to {:?}: {}", temp_dir.path(), e);
+            warn!("This is often due to macOS permission restrictions or file format mismatch. Skipping update.");
+            return Ok(false);
         }
 
         // 2. Find the yode binary in the extracted contents
