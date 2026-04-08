@@ -281,6 +281,13 @@ pub struct EngineRuntimeState {
     pub last_session_memory_generated_summary: bool,
 }
 
+#[derive(Debug, Default)]
+struct SharedMemoryStatus {
+    last_session_memory_update_at: Option<String>,
+    last_session_memory_update_path: Option<String>,
+    last_session_memory_generated_summary: bool,
+}
+
 /// Tool call budget thresholds for analysis guidance.
 const TOOL_BUDGET_NOTICE: u32 = 15;
 const TOOL_BUDGET_WARNING: u32 = 25;
@@ -360,6 +367,8 @@ pub struct AgentEngine {
     session_memory_update_in_progress: Arc<AtomicBool>,
     /// Generation counter used to invalidate stale async session memory writes.
     session_memory_generation: Arc<AtomicU64>,
+    /// Shared runtime status for live session memory updates from background tasks.
+    shared_memory_status: Arc<Mutex<SharedMemoryStatus>>,
     /// Most recent compaction mode.
     last_compaction_mode: Option<String>,
     /// Most recent compaction timestamp.
@@ -370,12 +379,6 @@ pub struct AgentEngine {
     last_compaction_session_memory_path: Option<String>,
     /// Most recent compaction transcript artifact path.
     last_compaction_transcript_path: Option<String>,
-    /// Most recent live session memory update timestamp.
-    last_session_memory_update_at: Option<String>,
-    /// Most recent live session memory update path.
-    last_session_memory_update_path: Option<String>,
-    /// Whether the latest live session memory update used an LLM summary.
-    last_session_memory_generated_summary: bool,
 }
 
 /// Convert yode-tools ToolDefinition to yode-llm ToolDefinition.
@@ -551,14 +554,12 @@ impl AgentEngine {
             last_session_memory_tool_count: 0,
             session_memory_update_in_progress: Arc::new(AtomicBool::new(false)),
             session_memory_generation: Arc::new(AtomicU64::new(0)),
+            shared_memory_status: Arc::new(Mutex::new(SharedMemoryStatus::default())),
             last_compaction_mode: None,
             last_compaction_at: None,
             last_compaction_summary_excerpt: None,
             last_compaction_session_memory_path: None,
             last_compaction_transcript_path: None,
-            last_session_memory_update_at: None,
-            last_session_memory_update_path: None,
-            last_session_memory_generated_summary: false,
         }
     }
 
@@ -694,6 +695,18 @@ impl AgentEngine {
     }
 
     pub fn runtime_state(&self) -> EngineRuntimeState {
+        let shared_status = self
+            .shared_memory_status
+            .try_lock()
+            .ok()
+            .map(|state| {
+                (
+                    state.last_session_memory_update_at.clone(),
+                    state.last_session_memory_update_path.clone(),
+                    state.last_session_memory_generated_summary,
+                )
+            })
+            .unwrap_or((None, None, false));
         EngineRuntimeState {
             query_source: format!("{:?}", self.current_query_source),
             autocompact_disabled: self.autocompact_disabled,
@@ -717,9 +730,9 @@ impl AgentEngine {
             last_compaction_summary_excerpt: self.last_compaction_summary_excerpt.clone(),
             last_compaction_session_memory_path: self.last_compaction_session_memory_path.clone(),
             last_compaction_transcript_path: self.last_compaction_transcript_path.clone(),
-            last_session_memory_update_at: self.last_session_memory_update_at.clone(),
-            last_session_memory_update_path: self.last_session_memory_update_path.clone(),
-            last_session_memory_generated_summary: self.last_session_memory_generated_summary,
+            last_session_memory_update_at: shared_status.0,
+            last_session_memory_update_path: shared_status.1,
+            last_session_memory_generated_summary: shared_status.2,
         }
     }
 
@@ -1311,9 +1324,7 @@ impl AgentEngine {
         self.last_compaction_summary_excerpt = None;
         self.last_compaction_session_memory_path = None;
         self.last_compaction_transcript_path = None;
-        self.last_session_memory_update_at = None;
-        self.last_session_memory_update_path = None;
-        self.last_session_memory_generated_summary = false;
+        self.set_shared_memory_status(None, None, false);
         self.sync_persisted_messages_snapshot();
         self.rebuild_system_prompt();
         self.reset_autocompact_state();
@@ -1359,6 +1370,19 @@ impl AgentEngine {
 
         if let Err(err) = db.touch_session(&self.context.session_id) {
             warn!("Failed to touch session after snapshot rewrite: {}", err);
+        }
+    }
+
+    fn set_shared_memory_status(
+        &self,
+        updated_at: Option<String>,
+        path: Option<String>,
+        generated_summary: bool,
+    ) {
+        if let Ok(mut state) = self.shared_memory_status.try_lock() {
+            state.last_session_memory_update_at = updated_at;
+            state.last_session_memory_update_path = path;
+            state.last_session_memory_generated_summary = generated_summary;
         }
     }
 
@@ -1419,14 +1443,17 @@ impl AgentEngine {
         if self.provider.name() == "mock" {
             match persist_live_session_memory(&project_root, &snapshot) {
                 Ok(path) => {
-                    self.last_session_memory_update_at =
-                        Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
-                    self.last_session_memory_update_path = Some(path.display().to_string());
-                    self.last_session_memory_generated_summary = false;
+                    let updated_at = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+                    let path_str = path.display().to_string();
+                    self.set_shared_memory_status(
+                        Some(updated_at),
+                        Some(path_str.clone()),
+                        false,
+                    );
                     self.rebuild_system_prompt();
                     if let Some(event_tx) = event_tx {
                         let _ = event_tx.send(EngineEvent::SessionMemoryUpdated {
-                            path: path.display().to_string(),
+                            path: path_str,
                             generated_summary: false,
                         });
                     }
@@ -1449,6 +1476,7 @@ impl AgentEngine {
         let generation = Arc::clone(&self.session_memory_generation);
         let scheduled_generation = generation.load(Ordering::SeqCst);
         let update_flag = Arc::clone(&self.session_memory_update_in_progress);
+        let shared_memory_status = Arc::clone(&self.shared_memory_status);
         let event_tx = event_tx.cloned();
         let recent_messages = self
             .messages
@@ -1504,9 +1532,16 @@ impl AgentEngine {
             match result {
                 Ok((path, generated_summary)) => {
                     info!("Live session memory refreshed asynchronously");
+                    let updated_at = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+                    let path_str = path.display().to_string();
+                    let mut state = shared_memory_status.lock().await;
+                    state.last_session_memory_update_at = Some(updated_at.clone());
+                    state.last_session_memory_update_path = Some(path_str.clone());
+                    state.last_session_memory_generated_summary = generated_summary;
+                    drop(state);
                     if let Some(event_tx) = &event_tx {
                         let _ = event_tx.send(EngineEvent::SessionMemoryUpdated {
-                            path: path.display().to_string(),
+                            path: path_str,
                             generated_summary,
                         });
                     }
@@ -1537,10 +1572,11 @@ impl AgentEngine {
 
         match persist_live_session_memory(&self.context.working_dir_compat(), &snapshot) {
             Ok(path) => {
-                self.last_session_memory_update_at =
-                    Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
-                self.last_session_memory_update_path = Some(path.display().to_string());
-                self.last_session_memory_generated_summary = false;
+                self.set_shared_memory_status(
+                    Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()),
+                    Some(path.display().to_string()),
+                    false,
+                );
             }
             Err(err) => {
                 warn!("Failed to flush live session memory on shutdown: {}", err);
