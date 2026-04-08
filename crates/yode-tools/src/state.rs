@@ -60,7 +60,13 @@ impl TaskStore {
         }
     }
 
-    pub fn update(&mut self, id: &str, subject: Option<String>, description: Option<String>, status: Option<TaskStatus>) -> Option<&Task> {
+    pub fn update(
+        &mut self,
+        id: &str,
+        subject: Option<String>,
+        description: Option<String>,
+        status: Option<TaskStatus>,
+    ) -> Option<&Task> {
         if let Some(task) = self.tasks.get_mut(id) {
             if let Some(s) = subject {
                 task.subject = s;

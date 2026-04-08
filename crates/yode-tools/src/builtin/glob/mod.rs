@@ -35,10 +35,7 @@ impl Tool for GlobTool {
     }
 
     fn activity_description(&self, params: &Value) -> String {
-        let pattern = params
-            .get("pattern")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let pattern = params.get("pattern").and_then(|v| v.as_str()).unwrap_or("");
         format!("Searching for files: {}", pattern)
     }
 
@@ -85,10 +82,7 @@ Examples:
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing required parameter: pattern"))?;
 
-        let base_path = params
-            .get("path")
-            .and_then(|v| v.as_str())
-            .unwrap_or(".");
+        let base_path = params.get("path").and_then(|v| v.as_str()).unwrap_or(".");
 
         tracing::debug!(pattern = %pattern, path = %base_path, "Glob search");
 
@@ -131,10 +125,10 @@ Examples:
                 "path": base_path,
                 "match_count": 0,
             });
-            return Ok(ToolResult::success_with_metadata(format!(
-                "No files matching '{}' found in '{}'.",
-                pattern, base_path
-            ), metadata));
+            return Ok(ToolResult::success_with_metadata(
+                format!("No files matching '{}' found in '{}'.", pattern, base_path),
+                metadata,
+            ));
         }
 
         let result: Vec<String> = matches.iter().map(|(p, _)| p.clone()).collect();
@@ -143,7 +137,10 @@ Examples:
             "path": base_path,
             "match_count": result.len(),
         });
-        Ok(ToolResult::success_with_metadata(result.join("\n"), metadata))
+        Ok(ToolResult::success_with_metadata(
+            result.join("\n"),
+            metadata,
+        ))
     }
 }
 

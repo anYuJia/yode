@@ -79,10 +79,7 @@ IMPORTANT: WebFetch WILL FAIL for authenticated or private URLs. Before using th
 
         let status = response.status();
         if !status.is_success() {
-            return Ok(ToolResult::error(format!(
-                "HTTP {} for '{}'",
-                status, url
-            )));
+            return Ok(ToolResult::error(format!("HTTP {} for '{}'", status, url)));
         }
 
         let content_type = response

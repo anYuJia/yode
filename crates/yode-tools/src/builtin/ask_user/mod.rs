@@ -105,21 +105,43 @@ impl Tool for AskUserTool {
 
         let mut questions = Vec::new();
         for q_val in questions_val {
-            let question = q_val.get("question").and_then(|v| v.as_str()).unwrap_or_default().to_string();
-            let header = q_val.get("header").and_then(|v| v.as_str()).unwrap_or_default().to_string();
-            let multi_select = q_val.get("multiSelect").and_then(|v| v.as_bool()).unwrap_or(false);
-            
+            let question = q_val
+                .get("question")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let header = q_val
+                .get("header")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let multi_select = q_val
+                .get("multiSelect")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+
             let mut options = Vec::new();
             if let Some(opts_val) = q_val.get("options").and_then(|v| v.as_array()) {
                 for opt_val in opts_val {
                     options.push(crate::tool::UserQueryOption {
-                        label: opt_val.get("label").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-                        description: opt_val.get("description").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-                        preview: opt_val.get("preview").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                        label: opt_val
+                            .get("label")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .to_string(),
+                        description: opt_val
+                            .get("description")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .to_string(),
+                        preview: opt_val
+                            .get("preview")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string()),
                     });
                 }
             }
-            
+
             questions.push(crate::tool::UserQuestion {
                 question,
                 header,
@@ -130,12 +152,20 @@ impl Tool for AskUserTool {
 
         let tx = match &ctx.user_input_tx {
             Some(t) => t,
-            None => return Ok(ToolResult::error("User input channel not available.".to_string())),
+            None => {
+                return Ok(ToolResult::error(
+                    "User input channel not available.".to_string(),
+                ))
+            }
         };
 
         let rx = match &ctx.user_input_rx {
             Some(r) => r,
-            None => return Ok(ToolResult::error("User input response channel not available.".to_string())),
+            None => {
+                return Ok(ToolResult::error(
+                    "User input response channel not available.".to_string(),
+                ))
+            }
         };
 
         let id = Uuid::new_v4().to_string();
@@ -145,18 +175,19 @@ impl Tool for AskUserTool {
             id: id.clone(),
             questions: questions.clone(),
         }) {
-            return Ok(ToolResult::error(format!("Failed to send query to user: {}", e)));
+            return Ok(ToolResult::error(format!(
+                "Failed to send query to user: {}",
+                e
+            )));
         }
 
         // Wait for response (TUI will send a JSON string mapping question text to answer)
         let mut guard = rx.lock().await;
         match guard.recv().await {
-            Some(answer_json) => {
-                Ok(ToolResult::success_with_metadata(
-                    format!("User answered: {}", answer_json),
-                    json!({ "raw_answers": answer_json })
-                ))
-            }
+            Some(answer_json) => Ok(ToolResult::success_with_metadata(
+                format!("User answered: {}", answer_json),
+                json!({ "raw_answers": answer_json }),
+            )),
             None => Ok(ToolResult::error("User input channel closed.".to_string())),
         }
     }

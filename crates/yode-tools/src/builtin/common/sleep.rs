@@ -14,11 +14,14 @@ impl Tool for SleepTool {
     }
 
     fn user_facing_name(&self) -> &str {
-        "Sleep" 
+        "Sleep"
     }
 
     fn activity_description(&self, params: &Value) -> String {
-        let ms = params.get("duration_ms").and_then(|v| v.as_u64()).unwrap_or(0);
+        let ms = params
+            .get("duration_ms")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
         format!("Sleeping for {}ms", ms)
     }
 

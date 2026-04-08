@@ -21,7 +21,10 @@ impl Tool for McpAuthTool {
     }
 
     fn activity_description(&self, params: &Value) -> String {
-        let server = params.get("server").and_then(|v| v.as_str()).unwrap_or("server");
+        let server = params
+            .get("server")
+            .and_then(|v| v.as_str())
+            .unwrap_or("server");
         format!("Authenticating MCP server: {}", server)
     }
 
@@ -53,10 +56,10 @@ impl Tool for McpAuthTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<ToolResult> {
         let server = params.get("server").and_then(|v| v.as_str()).unwrap_or("");
-        
+
         // Mock authentication URL for now
         let auth_url = format!("https://yode.dev/mcp/auth/{}", server);
-        
+
         let msg = format!(
             "To use the '{}' MCP server, please complete authorization in your browser:\n\n{}\n\nOnce completed, the server's tools will become available automatically.",
             server, auth_url

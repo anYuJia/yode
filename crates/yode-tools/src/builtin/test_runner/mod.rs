@@ -36,7 +36,8 @@ fn detect_framework(dir: &Path, filter: Option<&str>) -> Option<DetectedFramewor
         if let Ok(content) = std::fs::read_to_string(dir.join("package.json")) {
             if let Ok(pkg) = serde_json::from_str::<Value>(&content) {
                 // Check for vitest
-                let has_vitest = pkg.get("devDependencies")
+                let has_vitest = pkg
+                    .get("devDependencies")
                     .and_then(|d| d.get("vitest"))
                     .is_some();
                 if has_vitest {
@@ -52,7 +53,8 @@ fn detect_framework(dir: &Path, filter: Option<&str>) -> Option<DetectedFramewor
                 }
 
                 // Check for jest
-                let has_jest = pkg.get("devDependencies")
+                let has_jest = pkg
+                    .get("devDependencies")
                     .and_then(|d| d.get("jest"))
                     .is_some();
                 if has_jest {
@@ -68,7 +70,8 @@ fn detect_framework(dir: &Path, filter: Option<&str>) -> Option<DetectedFramewor
                 }
 
                 // Fallback: npm test if script exists
-                let has_test_script = pkg.get("scripts")
+                let has_test_script = pkg
+                    .get("scripts")
                     .and_then(|s| s.get("test"))
                     .and_then(|v| v.as_str())
                     .map(|s| s != "echo \"Error: no test specified\" && exit 1")
@@ -188,7 +191,10 @@ fn extract_number(line: &str, after_word: &str) -> Option<u32> {
     let parts: Vec<&str> = line.split_whitespace().collect();
     for (i, part) in parts.iter().enumerate() {
         if part.contains(after_word) && i > 0 {
-            return parts[i - 1].trim_matches(|c: char| !c.is_ascii_digit()).parse().ok();
+            return parts[i - 1]
+                .trim_matches(|c: char| !c.is_ascii_digit())
+                .parse()
+                .ok();
         }
     }
     None
@@ -341,11 +347,7 @@ impl Tool for TestRunnerTool {
         let combined = format!("{}{}", stdout, stderr);
         let (passed, failed) = parse_test_counts(&combined, framework_name);
 
-        let status = if output.success() {
-            "PASSED"
-        } else {
-            "FAILED"
-        };
+        let status = if output.success() { "PASSED" } else { "FAILED" };
 
         let mut result_str = format!(
             "## Test Results ({})\n\nStatus: **{}** (exit code: {})\n",
@@ -355,10 +357,7 @@ impl Tool for TestRunnerTool {
         );
 
         if passed > 0 || failed > 0 {
-            result_str.push_str(&format!(
-                "Passed: {} | Failed: {}\n",
-                passed, failed
-            ));
+            result_str.push_str(&format!("Passed: {} | Failed: {}\n", passed, failed));
         }
 
         result_str.push_str(&format!("\n### Output\n```\n{}\n```", combined.trim()));

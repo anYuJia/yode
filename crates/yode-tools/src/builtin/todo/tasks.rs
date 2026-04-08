@@ -23,7 +23,10 @@ impl Tool for TaskCreateTool {
     }
 
     fn activity_description(&self, params: &Value) -> String {
-        let subject = params.get("subject").and_then(|v| v.as_str()).unwrap_or("task");
+        let subject = params
+            .get("subject")
+            .and_then(|v| v.as_str())
+            .unwrap_or("task");
         format!("Creating task: {}", subject)
     }
 
@@ -57,14 +60,26 @@ impl Tool for TaskCreateTool {
     }
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
-        let tasks = ctx.tasks.as_ref().ok_or_else(|| anyhow::anyhow!("Task store not available"))?;
-        let subject = params.get("subject").and_then(|v| v.as_str()).unwrap_or_default();
-        let description = params.get("description").and_then(|v| v.as_str()).unwrap_or_default();
+        let tasks = ctx
+            .tasks
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Task store not available"))?;
+        let subject = params
+            .get("subject")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let description = params
+            .get("description")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
 
         let mut store = tasks.lock().await;
         let task = store.create(subject.to_string(), description.to_string());
-        
-        Ok(ToolResult::success(format!("Task #{} created successfully: {}", task.id, task.subject)))
+
+        Ok(ToolResult::success(format!(
+            "Task #{} created successfully: {}",
+            task.id, task.subject
+        )))
     }
 }
 
@@ -106,10 +121,13 @@ impl Tool for TaskListTool {
     }
 
     async fn execute(&self, _params: Value, ctx: &ToolContext) -> Result<ToolResult> {
-        let tasks = ctx.tasks.as_ref().ok_or_else(|| anyhow::anyhow!("Task store not available"))?;
+        let tasks = ctx
+            .tasks
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Task store not available"))?;
         let store = tasks.lock().await;
         let all = store.list();
-        
+
         if all.is_empty() {
             return Ok(ToolResult::success("No tasks found.".to_string()));
         }
@@ -117,9 +135,14 @@ impl Tool for TaskListTool {
         let mut output = String::from("Current tasks:\n\n");
         for task in all {
             let status = format!("{:?}", task.status);
-            output.push_str(&format!("- [#{}] {} ({})\n", task.id, task.subject, status.to_lowercase()));
+            output.push_str(&format!(
+                "- [#{}] {} ({})\n",
+                task.id,
+                task.subject,
+                status.to_lowercase()
+            ));
         }
-        
+
         Ok(ToolResult::success(output))
     }
 }
@@ -169,16 +192,25 @@ impl Tool for TaskGetTool {
     }
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
-        let tasks = ctx.tasks.as_ref().ok_or_else(|| anyhow::anyhow!("Task store not available"))?;
-        let id = params.get("id").and_then(|v| v.as_str()).ok_or_else(|| anyhow::anyhow!("Missing task ID"))?;
-        
+        let tasks = ctx
+            .tasks
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Task store not available"))?;
+        let id = params
+            .get("id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Missing task ID"))?;
+
         let store = tasks.lock().await;
         match store.get(id) {
             Some(task) => {
                 let status = format!("{:?}", task.status);
                 let output = format!(
                     "Task #{} Details:\nSubject: {}\nStatus: {}\nDescription: {}",
-                    task.id, task.subject, status.to_lowercase(), task.description
+                    task.id,
+                    task.subject,
+                    status.to_lowercase(),
+                    task.description
                 );
                 Ok(ToolResult::success(output))
             }

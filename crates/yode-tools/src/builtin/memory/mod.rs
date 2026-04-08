@@ -32,7 +32,13 @@ impl MemoryTool {
             .map(|segment| {
                 segment
                     .chars()
-                    .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' || c == '.' { c } else { '_' })
+                    .map(|c| {
+                        if c.is_alphanumeric() || c == '-' || c == '_' || c == '.' {
+                            c
+                        } else {
+                            '_'
+                        }
+                    })
                     .collect::<String>()
             })
             .collect::<Vec<_>>()
@@ -51,7 +57,10 @@ impl Tool for MemoryTool {
     }
 
     fn activity_description(&self, params: &Value) -> String {
-        let action = params.get("action").and_then(|v| v.as_str()).unwrap_or("manage");
+        let action = params
+            .get("action")
+            .and_then(|v| v.as_str())
+            .unwrap_or("manage");
         let name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
         if name.is_empty() {
             format!("Memory: {} action", action)
@@ -106,15 +115,22 @@ impl Tool for MemoryTool {
         let action = params.get("action").and_then(|v| v.as_str()).unwrap_or("");
         let name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
         let content = params.get("content").and_then(|v| v.as_str()).unwrap_or("");
-        let scope = params.get("scope").and_then(|v| v.as_str()).unwrap_or("project");
+        let scope = params
+            .get("scope")
+            .and_then(|v| v.as_str())
+            .unwrap_or("project");
 
         match action {
             "save" => {
                 if name.is_empty() {
-                    return Ok(ToolResult::error("'name' is required for save action".to_string()));
+                    return Ok(ToolResult::error(
+                        "'name' is required for save action".to_string(),
+                    ));
                 }
                 if content.is_empty() {
-                    return Ok(ToolResult::error("'content' is required for save action".to_string()));
+                    return Ok(ToolResult::error(
+                        "'content' is required for save action".to_string(),
+                    ));
                 }
                 let dir = Self::memory_dir(ctx, scope)?;
                 let safe_name = Self::sanitize_name(name);
@@ -123,22 +139,26 @@ impl Tool for MemoryTool {
                     std::fs::create_dir_all(parent)?;
                 }
                 std::fs::write(&file_path, content)?;
-                let metadata = serde_json::json!({ "action": "save", "name": name, "scope": scope });
+                let metadata =
+                    serde_json::json!({ "action": "save", "name": name, "scope": scope });
                 Ok(ToolResult::success_with_metadata(
                     format!("Memory '{}' saved to {}", name, file_path.display()),
-                    metadata
+                    metadata,
                 ))
             }
             "read" => {
                 if name.is_empty() {
-                    return Ok(ToolResult::error("'name' is required for read action".to_string()));
+                    return Ok(ToolResult::error(
+                        "'name' is required for read action".to_string(),
+                    ));
                 }
                 let dir = Self::memory_dir(ctx, scope)?;
                 let safe_name = Self::sanitize_name(name);
                 let file_path = dir.join(format!("{}.md", safe_name));
                 match std::fs::read_to_string(&file_path) {
                     Ok(content) => {
-                        let metadata = serde_json::json!({ "action": "read", "name": name, "scope": scope });
+                        let metadata =
+                            serde_json::json!({ "action": "read", "name": name, "scope": scope });
                         Ok(ToolResult::success_with_metadata(content, metadata))
                     }
                     Err(_) => Ok(ToolResult::error(format!("Memory '{}' not found", name))),
@@ -147,35 +167,55 @@ impl Tool for MemoryTool {
             "list" => {
                 let dir = Self::memory_dir(ctx, scope)?;
                 if !dir.exists() {
-                    let metadata = serde_json::json!({ "action": "list", "scope": scope, "count": 0 });
-                    return Ok(ToolResult::success_with_metadata("No memories found.".to_string(), metadata));
+                    let metadata =
+                        serde_json::json!({ "action": "list", "scope": scope, "count": 0 });
+                    return Ok(ToolResult::success_with_metadata(
+                        "No memories found.".to_string(),
+                        metadata,
+                    ));
                 }
                 let mut entries = Vec::new();
                 collect_memory_files(&dir, &dir, &mut entries)?;
-                let metadata = serde_json::json!({ "action": "list", "scope": scope, "count": entries.len() });
+                let metadata =
+                    serde_json::json!({ "action": "list", "scope": scope, "count": entries.len() });
                 if entries.is_empty() {
-                    Ok(ToolResult::success_with_metadata("No memories found.".to_string(), metadata))
+                    Ok(ToolResult::success_with_metadata(
+                        "No memories found.".to_string(),
+                        metadata,
+                    ))
                 } else {
                     entries.sort();
-                    Ok(ToolResult::success_with_metadata(entries.join("\n"), metadata))
+                    Ok(ToolResult::success_with_metadata(
+                        entries.join("\n"),
+                        metadata,
+                    ))
                 }
             }
             "delete" => {
                 if name.is_empty() {
-                    return Ok(ToolResult::error("'name' is required for delete action".to_string()));
+                    return Ok(ToolResult::error(
+                        "'name' is required for delete action".to_string(),
+                    ));
                 }
                 let dir = Self::memory_dir(ctx, scope)?;
                 let safe_name = Self::sanitize_name(name);
                 let file_path = dir.join(format!("{}.md", safe_name));
                 if file_path.exists() {
                     std::fs::remove_file(&file_path)?;
-                    let metadata = serde_json::json!({ "action": "delete", "name": name, "scope": scope });
-                    Ok(ToolResult::success_with_metadata(format!("Memory '{}' deleted", name), metadata))
+                    let metadata =
+                        serde_json::json!({ "action": "delete", "name": name, "scope": scope });
+                    Ok(ToolResult::success_with_metadata(
+                        format!("Memory '{}' deleted", name),
+                        metadata,
+                    ))
                 } else {
                     Ok(ToolResult::error(format!("Memory '{}' not found", name)))
                 }
             }
-            _ => Ok(ToolResult::error(format!("Unknown action: '{}'. Use save/read/list/delete.", action))),
+            _ => Ok(ToolResult::error(format!(
+                "Unknown action: '{}'. Use save/read/list/delete.",
+                action
+            ))),
         }
     }
 }

@@ -67,7 +67,9 @@ impl ToolRegistry {
     }
 
     pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
-        self.tools.get(name).cloned()
+        self.tools
+            .get(name)
+            .cloned()
             .or_else(|| self.deferred.get(name).cloned())
     }
 

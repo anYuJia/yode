@@ -103,7 +103,10 @@ Git workflow reminder:
             let metadata = json!({
                 "clean": true,
             });
-            Ok(ToolResult::success_with_metadata("No changes (clean working tree)".to_string(), metadata))
+            Ok(ToolResult::success_with_metadata(
+                "No changes (clean working tree)".to_string(),
+                metadata,
+            ))
         } else {
             // Try to extract branch and counts for metadata
             let mut branch = "unknown".to_string();
@@ -151,7 +154,10 @@ Git workflow reminder:
                 "clean": false,
             });
 
-            Ok(ToolResult::success_with_metadata(stdout.to_string(), metadata))
+            Ok(ToolResult::success_with_metadata(
+                stdout.to_string(),
+                metadata,
+            ))
         }
     }
 }
@@ -168,9 +174,21 @@ mod tests {
     }
 
     fn init_git_repo(dir: &std::path::Path) {
-        Command::new("git").args(["init"]).current_dir(dir).output().unwrap();
-        Command::new("git").args(["config", "user.email", "test@test.com"]).current_dir(dir).output().unwrap();
-        Command::new("git").args(["config", "user.name", "Test"]).current_dir(dir).output().unwrap();
+        Command::new("git")
+            .args(["init"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
     }
 
     #[tokio::test]
@@ -179,16 +197,30 @@ mod tests {
         init_git_repo(dir.path());
         // Create and commit a file so we have a non-empty repo
         std::fs::write(dir.path().join("a.txt"), "hello").unwrap();
-        Command::new("git").args(["add", "."]).current_dir(dir.path()).output().unwrap();
-        Command::new("git").args(["commit", "-m", "init"]).current_dir(dir.path()).output().unwrap();
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
 
         let tool = GitStatusTool;
-        let result = tool.execute(json!({}), &ctx_with_dir(dir.path())).await.unwrap();
+        let result = tool
+            .execute(json!({}), &ctx_with_dir(dir.path()))
+            .await
+            .unwrap();
         assert!(!result.is_error);
         // Clean repo should show nothing or "clean"
         let content = result.content.to_lowercase();
-        assert!(content.contains("clean") || content.contains("nothing to commit"),
-            "Expected clean status, got: {}", result.content);
+        assert!(
+            content.contains("clean") || content.contains("nothing to commit"),
+            "Expected clean status, got: {}",
+            result.content
+        );
     }
 
     #[tokio::test]
@@ -196,14 +228,25 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         init_git_repo(dir.path());
         std::fs::write(dir.path().join("a.txt"), "hello").unwrap();
-        Command::new("git").args(["add", "."]).current_dir(dir.path()).output().unwrap();
-        Command::new("git").args(["commit", "-m", "init"]).current_dir(dir.path()).output().unwrap();
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
 
         // Make a change
         std::fs::write(dir.path().join("b.txt"), "new file").unwrap();
 
         let tool = GitStatusTool;
-        let result = tool.execute(json!({}), &ctx_with_dir(dir.path())).await.unwrap();
+        let result = tool
+            .execute(json!({}), &ctx_with_dir(dir.path()))
+            .await
+            .unwrap();
         assert!(!result.is_error);
         assert!(result.content.contains("b.txt"));
     }
@@ -215,7 +258,10 @@ mod tests {
         std::fs::write(dir.path().join("x.txt"), "data").unwrap();
 
         let tool = GitStatusTool;
-        let result = tool.execute(json!({"short": true}), &ctx_with_dir(dir.path())).await.unwrap();
+        let result = tool
+            .execute(json!({"short": true}), &ctx_with_dir(dir.path()))
+            .await
+            .unwrap();
         assert!(!result.is_error);
         assert!(result.content.contains("x.txt"));
         // Short format uses ?? prefix for untracked
@@ -227,7 +273,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         // Don't init git
         let tool = GitStatusTool;
-        let result = tool.execute(json!({}), &ctx_with_dir(dir.path())).await.unwrap();
+        let result = tool
+            .execute(json!({}), &ctx_with_dir(dir.path()))
+            .await
+            .unwrap();
         assert!(result.is_error);
     }
 }

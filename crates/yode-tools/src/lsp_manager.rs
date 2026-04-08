@@ -135,10 +135,7 @@ impl LspManager {
 
     /// Ensure the LSP server for the given file is running.
     async fn ensure_server(&mut self, file_path: &Path) -> Result<String> {
-        let ext = file_path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
+        let ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
         let lang = Self::lang_key(ext).to_string();
 
         if !self.servers.contains_key(&lang) {
@@ -201,7 +198,9 @@ impl LspManager {
         let lang = self.ensure_server(file_path).await?;
         let uri = format!("file://{}", file_path.display());
 
-        let server = self.servers.get_mut(&lang)
+        let server = self
+            .servers
+            .get_mut(&lang)
             .ok_or_else(|| anyhow::anyhow!("LSP server not running for {}", lang))?;
 
         match operation {
@@ -233,9 +232,9 @@ impl LspManager {
                 });
                 send_request(server, "textDocument/documentSymbol", params).await
             }
-            "diagnostics" => {
-                Ok(serde_json::json!({ "message": "Diagnostics are push-based. Use hover or references instead." }))
-            }
+            "diagnostics" => Ok(
+                serde_json::json!({ "message": "Diagnostics are push-based. Use hover or references instead." }),
+            ),
             _ => Err(anyhow::anyhow!("Unknown LSP operation: {}", operation)),
         }
     }

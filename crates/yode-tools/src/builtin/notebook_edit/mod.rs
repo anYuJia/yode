@@ -13,12 +13,18 @@ impl Tool for NotebookEditTool {
     }
 
     fn user_facing_name(&self) -> &str {
-        "" 
+        ""
     }
 
     fn activity_description(&self, params: &Value) -> String {
-        let path = params.get("notebook_path").and_then(|v| v.as_str()).unwrap_or("");
-        let mode = params.get("edit_mode").and_then(|v| v.as_str()).unwrap_or("edit");
+        let path = params
+            .get("notebook_path")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let mode = params
+            .get("edit_mode")
+            .and_then(|v| v.as_str())
+            .unwrap_or("edit");
         format!("Editing notebook {}: {}", mode, path)
     }
 
@@ -79,17 +85,29 @@ impl Tool for NotebookEditTool {
             let h = history.lock().await;
             if !h.contains(&std::path::PathBuf::from(notebook_path)) {
                 return Ok(ToolResult::error_typed(
-                    format!("Notebook '{}' has not been read yet. Read it first before editing.", notebook_path),
+                    format!(
+                        "Notebook '{}' has not been read yet. Read it first before editing.",
+                        notebook_path
+                    ),
                     crate::tool::ToolErrorType::Validation,
                     true,
-                    Some(format!("Call read_file(file_path=\"{}\") first.", notebook_path)),
+                    Some(format!(
+                        "Call read_file(file_path=\"{}\") first.",
+                        notebook_path
+                    )),
                 ));
             }
         }
 
-        let edit_mode = params.get("edit_mode").and_then(|v| v.as_str()).unwrap_or("replace");
+        let edit_mode = params
+            .get("edit_mode")
+            .and_then(|v| v.as_str())
+            .unwrap_or("replace");
         let cell_id = params.get("cell_id").and_then(|v| v.as_str());
-        let new_source = params.get("new_source").and_then(|v| v.as_str()).unwrap_or("");
+        let new_source = params
+            .get("new_source")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         let cell_type = params.get("cell_type").and_then(|v| v.as_str());
 
         // Read and parse
@@ -103,21 +121,24 @@ impl Tool for NotebookEditTool {
 
         // Resolve cell index from cell_id
         let cell_index = match cell_id {
-            Some(id) if id.starts_with("cell-") => {
-                id.strip_prefix("cell-")
-                    .and_then(|s| s.parse::<usize>().ok())
-                    .unwrap_or(0)
-            }
-            Some(id) => {
-                cells.iter().position(|c| c.get("id").and_then(|v| v.as_str()) == Some(id)).unwrap_or(0)
-            }
+            Some(id) if id.starts_with("cell-") => id
+                .strip_prefix("cell-")
+                .and_then(|s| s.parse::<usize>().ok())
+                .unwrap_or(0),
+            Some(id) => cells
+                .iter()
+                .position(|c| c.get("id").and_then(|v| v.as_str()) == Some(id))
+                .unwrap_or(0),
             None => 0,
         };
 
         match edit_mode {
             "replace" => {
                 if cell_index >= cells.len() {
-                    return Ok(ToolResult::error(format!("Cell index {} out of range.", cell_index)));
+                    return Ok(ToolResult::error(format!(
+                        "Cell index {} out of range.",
+                        cell_index
+                    )));
                 }
                 let cell = &mut cells[cell_index];
                 cell["source"] = source_to_lines(new_source);
@@ -148,21 +169,26 @@ impl Tool for NotebookEditTool {
                     cells.remove(cell_index);
                 }
             }
-            _ => return Ok(ToolResult::error(format!("Unknown edit_mode: {}", edit_mode))),
+            _ => {
+                return Ok(ToolResult::error(format!(
+                    "Unknown edit_mode: {}",
+                    edit_mode
+                )))
+            }
         }
 
         // Write back
         let updated_content = serde_json::to_string_pretty(&notebook)?;
         std::fs::write(notebook_path, &updated_content)?;
 
-        Ok(ToolResult::success(format!("Notebook {} updated successfully ({}).", notebook_path, edit_mode)))
+        Ok(ToolResult::success(format!(
+            "Notebook {} updated successfully ({}).",
+            notebook_path, edit_mode
+        )))
     }
 }
 
 fn source_to_lines(source: &str) -> Value {
-    let lines: Vec<String> = source
-        .lines()
-        .map(|l| format!("{}\n", l))
-        .collect();
+    let lines: Vec<String> = source.lines().map(|l| format!("{}\n", l)).collect();
     json!(lines)
 }

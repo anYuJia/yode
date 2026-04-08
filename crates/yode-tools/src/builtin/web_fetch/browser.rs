@@ -17,11 +17,14 @@ impl Tool for WebBrowserTool {
     }
 
     fn user_facing_name(&self) -> &str {
-        "Browser" 
+        "Browser"
     }
 
     fn activity_description(&self, params: &Value) -> String {
-        let action = params.get("action").and_then(|v| v.as_str()).unwrap_or("browsing");
+        let action = params
+            .get("action")
+            .and_then(|v| v.as_str())
+            .unwrap_or("browsing");
         let url = params.get("url").and_then(|v| v.as_str()).unwrap_or("");
         if !url.is_empty() {
             format!("Browser: {} {}", action, url)
@@ -75,11 +78,20 @@ impl Tool for WebBrowserTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<ToolResult> {
         let action = params.get("action").and_then(|v| v.as_str()).unwrap_or("");
-        
+
         // Mock browser execution
         let msg = match action {
-            "navigate" => format!("Navigated to {}", params.get("url").and_then(|v| v.as_str()).unwrap_or("URL")),
-            "click" => format!("Clicked element: {}", params.get("selector").and_then(|v| v.as_str()).unwrap_or("?")),
+            "navigate" => format!(
+                "Navigated to {}",
+                params.get("url").and_then(|v| v.as_str()).unwrap_or("URL")
+            ),
+            "click" => format!(
+                "Clicked element: {}",
+                params
+                    .get("selector")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?")
+            ),
             "screenshot" => "Captured screenshot (stored in session artifacts).".to_string(),
             _ => format!("Performed browser action: {}", action),
         };

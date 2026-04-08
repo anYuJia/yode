@@ -119,8 +119,11 @@ Usage:
                     "line_count": line_count,
                 });
                 Ok(ToolResult::success_with_metadata(
-                    format!("Successfully wrote {} bytes ({} lines) to '{}'", byte_count, line_count, file_path),
-                    metadata
+                    format!(
+                        "Successfully wrote {} bytes ({} lines) to '{}'",
+                        byte_count, line_count, file_path
+                    ),
+                    metadata,
                 ))
             }
             Err(e) => {

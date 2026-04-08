@@ -19,7 +19,11 @@ impl Tool for BatchTool {
     }
 
     fn activity_description(&self, params: &Value) -> String {
-        let count = params.get("invocations").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
+        let count = params
+            .get("invocations")
+            .and_then(|v| v.as_array())
+            .map(|a| a.len())
+            .unwrap_or(0);
         format!("Executing {} tools in parallel", count)
     }
 
@@ -95,10 +99,7 @@ impl Tool for BatchTool {
             }
 
             if registry.get(tool_name).is_none() {
-                return Ok(ToolResult::error(format!(
-                    "Unknown tool: '{}'",
-                    tool_name
-                )));
+                return Ok(ToolResult::error(format!("Unknown tool: '{}'", tool_name)));
             }
         }
 
@@ -107,10 +108,7 @@ impl Tool for BatchTool {
 
         for (i, inv) in invocations.iter().enumerate() {
             let tool_name = inv.get("tool_name").unwrap().as_str().unwrap().to_string();
-            let tool_params = inv
-                .get("params")
-                .cloned()
-                .unwrap_or_else(|| json!({}));
+            let tool_params = inv.get("params").cloned().unwrap_or_else(|| json!({}));
             let tool = registry.get(&tool_name).unwrap();
 
             handles.push(tokio::spawn(async move {
@@ -151,7 +149,7 @@ impl Tool for BatchTool {
 
         Ok(ToolResult::success_with_metadata(
             serde_json::to_string_pretty(&results).unwrap(),
-            metadata
+            metadata,
         ))
     }
 }

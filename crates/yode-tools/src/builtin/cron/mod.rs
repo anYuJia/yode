@@ -19,7 +19,7 @@ impl Tool for CronCreateTool {
     }
 
     fn user_facing_name(&self) -> &str {
-        "" 
+        ""
     }
 
     fn activity_description(&self, params: &Value) -> String {
@@ -64,14 +64,23 @@ impl Tool for CronCreateTool {
     }
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
-        let cron_mgr = ctx.cron_manager.as_ref().ok_or_else(|| anyhow::anyhow!("Cron manager not available"))?;
+        let cron_mgr = ctx
+            .cron_manager
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Cron manager not available"))?;
         let cron_expr = params.get("cron").and_then(|v| v.as_str()).unwrap_or("");
         let prompt = params.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
-        let recurring = params.get("recurring").and_then(|v| v.as_bool()).unwrap_or(true);
+        let recurring = params
+            .get("recurring")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
 
         let mut mgr = cron_mgr.lock().await;
         let id = mgr.create(cron_expr.to_string(), prompt.to_string(), recurring)?;
-        Ok(ToolResult::success(format!("Cron job created with ID: {}. Note: recurring jobs expire after 3 days.", id)))
+        Ok(ToolResult::success(format!(
+            "Cron job created with ID: {}. Note: recurring jobs expire after 3 days.",
+            id
+        )))
     }
 }
 
@@ -113,17 +122,25 @@ impl Tool for CronListTool {
     }
 
     async fn execute(&self, _params: Value, ctx: &ToolContext) -> Result<ToolResult> {
-        let cron_mgr = ctx.cron_manager.as_ref().ok_or_else(|| anyhow::anyhow!("Cron manager not available"))?;
+        let cron_mgr = ctx
+            .cron_manager
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Cron manager not available"))?;
         let mgr = cron_mgr.lock().await;
         let jobs = mgr.list();
-        
+
         if jobs.is_empty() {
             return Ok(ToolResult::success("No cron jobs scheduled.".to_string()));
         }
 
         let mut output = String::from("Current cron jobs:\n\n");
         for job in jobs {
-            output.push_str(&format!("- ID: {}, cron: '{}', next_fire: {}\n", job.id, job.cron_expr, job.next_fire.format("%Y-%m-%d %H:%M:%S")));
+            output.push_str(&format!(
+                "- ID: {}, cron: '{}', next_fire: {}\n",
+                job.id,
+                job.cron_expr,
+                job.next_fire.format("%Y-%m-%d %H:%M:%S")
+            ));
         }
         Ok(ToolResult::success(output))
     }
@@ -174,9 +191,15 @@ impl Tool for CronDeleteTool {
     }
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
-        let cron_mgr = ctx.cron_manager.as_ref().ok_or_else(|| anyhow::anyhow!("Cron manager not available"))?;
-        let id = params.get("id").and_then(|v| v.as_str()).ok_or_else(|| anyhow::anyhow!("Missing job ID"))?;
-        
+        let cron_mgr = ctx
+            .cron_manager
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Cron manager not available"))?;
+        let id = params
+            .get("id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Missing job ID"))?;
+
         let mut mgr = cron_mgr.lock().await;
         if mgr.delete(id) {
             Ok(ToolResult::success(format!("Cron job {} deleted.", id)))

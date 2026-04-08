@@ -13,7 +13,7 @@ impl Tool for SendUserFileTool {
     }
 
     fn user_facing_name(&self) -> &str {
-        "" 
+        ""
     }
 
     fn aliases(&self) -> Vec<String> {
@@ -21,7 +21,10 @@ impl Tool for SendUserFileTool {
     }
 
     fn activity_description(&self, params: &Value) -> String {
-        let path = params.get("file_path").and_then(|v| v.as_str()).unwrap_or("");
+        let path = params
+            .get("file_path")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         format!("Sending file to user: {}", path)
     }
 
@@ -61,9 +64,15 @@ impl Tool for SendUserFileTool {
             .ok_or_else(|| anyhow::anyhow!("'file_path' is required"))?;
 
         if !std::path::Path::new(file_path).exists() {
-            return Ok(ToolResult::error(format!("File '{}' does not exist.", file_path)));
+            return Ok(ToolResult::error(format!(
+                "File '{}' does not exist.",
+                file_path
+            )));
         }
 
-        Ok(ToolResult::success(format!("File sent to user: {}", file_path)))
+        Ok(ToolResult::success(format!(
+            "File sent to user: {}",
+            file_path
+        )))
     }
 }

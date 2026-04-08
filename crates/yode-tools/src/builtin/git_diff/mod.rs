@@ -18,7 +18,10 @@ impl Tool for GitDiffTool {
     }
 
     fn activity_description(&self, params: &Value) -> String {
-        let target = params.get("target").and_then(|v| v.as_str()).unwrap_or("unstaged");
+        let target = params
+            .get("target")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unstaged");
         format!("Showing git diff ({})", target)
     }
 
@@ -104,7 +107,10 @@ Output: Unified diff format showing added (+) and removed (-) lines."#
                             "Parameter 'commit' is required when target is \"commit\"".to_string(),
                             ToolErrorType::Validation,
                             true,
-                            Some("Provide a commit hash or ref, e.g. \"HEAD~1\" or \"abc1234\"".to_string()),
+                            Some(
+                                "Provide a commit hash or ref, e.g. \"HEAD~1\" or \"abc1234\""
+                                    .to_string(),
+                            ),
                         ));
                     }
                 };
@@ -112,7 +118,10 @@ Output: Unified diff format showing added (+) and removed (-) lines."#
             }
             other => {
                 return Ok(ToolResult::error_typed(
-                    format!("Invalid target: \"{}\". Must be \"staged\", \"unstaged\", or \"commit\"", other),
+                    format!(
+                        "Invalid target: \"{}\". Must be \"staged\", \"unstaged\", or \"commit\"",
+                        other
+                    ),
                     ToolErrorType::Validation,
                     true,
                     Some("Use target: \"staged\", \"unstaged\", or \"commit\"".to_string()),
@@ -124,7 +133,9 @@ Output: Unified diff format showing added (+) and removed (-) lines."#
             cmd.args(["--", p]);
         }
 
-        let output = cmd.output().map_err(|e| anyhow::anyhow!("Failed to run git: {}", e))?;
+        let output = cmd
+            .output()
+            .map_err(|e| anyhow::anyhow!("Failed to run git: {}", e))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -144,17 +155,26 @@ Output: Unified diff format showing added (+) and removed (-) lines."#
                 "path": path,
                 "has_changes": false,
             });
-            Ok(ToolResult::success_with_metadata(format!("No differences found (target: {})", target), metadata))
+            Ok(ToolResult::success_with_metadata(
+                format!("No differences found (target: {})", target),
+                metadata,
+            ))
         } else {
             // Count files in diff (lines starting with "diff --git")
-            let file_count = stdout.lines().filter(|l| l.starts_with("diff --git")).count();
+            let file_count = stdout
+                .lines()
+                .filter(|l| l.starts_with("diff --git"))
+                .count();
             let metadata = json!({
                 "target": target,
                 "path": path,
                 "has_changes": true,
                 "files_changed": file_count,
             });
-            Ok(ToolResult::success_with_metadata(stdout.to_string(), metadata))
+            Ok(ToolResult::success_with_metadata(
+                stdout.to_string(),
+                metadata,
+            ))
         }
     }
 }

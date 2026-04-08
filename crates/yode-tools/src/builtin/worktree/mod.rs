@@ -14,7 +14,7 @@ impl Tool for EnterWorktreeTool {
     }
 
     fn user_facing_name(&self) -> &str {
-        "" 
+        ""
     }
 
     fn activity_description(&self, params: &Value) -> String {
@@ -62,13 +62,17 @@ impl Tool for EnterWorktreeTool {
         {
             let state = worktree_state.lock().await;
             if state.current_worktree.is_some() {
-                return Ok(ToolResult::error("Already in a worktree session. Exit the current one first.".to_string()));
+                return Ok(ToolResult::error(
+                    "Already in a worktree session. Exit the current one first.".to_string(),
+                ));
             }
         }
 
         // Check if in a git repo
         if !working_dir.join(".git").exists() {
-            return Ok(ToolResult::error("Not in a git repository. Worktrees require git.".to_string()));
+            return Ok(ToolResult::error(
+                "Not in a git repository. Worktrees require git.".to_string(),
+            ));
         }
 
         let name = params
@@ -97,7 +101,10 @@ impl Tool for EnterWorktreeTool {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Ok(ToolResult::error(format!("git worktree add failed: {}", stderr)));
+            return Ok(ToolResult::error(format!(
+                "git worktree add failed: {}",
+                stderr
+            )));
         }
 
         {
@@ -130,7 +137,10 @@ impl Tool for ExitWorktreeTool {
     }
 
     fn activity_description(&self, params: &Value) -> String {
-        let action = params.get("action").and_then(|v| v.as_str()).unwrap_or("keep");
+        let action = params
+            .get("action")
+            .and_then(|v| v.as_str())
+            .unwrap_or("keep");
         format!("Exiting worktree (action: {})", action)
     }
 
@@ -166,8 +176,14 @@ impl Tool for ExitWorktreeTool {
     }
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
-        let action = params.get("action").and_then(|v| v.as_str()).unwrap_or("keep");
-        let discard_changes = params.get("discard_changes").and_then(|v| v.as_bool()).unwrap_or(false);
+        let action = params
+            .get("action")
+            .and_then(|v| v.as_str())
+            .unwrap_or("keep");
+        let discard_changes = params
+            .get("discard_changes")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         let worktree_state = ctx
             .worktree_state
@@ -176,7 +192,11 @@ impl Tool for ExitWorktreeTool {
 
         let (original_dir, worktree_dir, branch_name) = {
             let state = worktree_state.lock().await;
-            match (&state.original_dir, &state.current_worktree, &state.branch_name) {
+            match (
+                &state.original_dir,
+                &state.current_worktree,
+                &state.branch_name,
+            ) {
                 (Some(orig), Some(wt), Some(branch)) => (orig.clone(), wt.clone(), branch.clone()),
                 _ => return Ok(ToolResult::error("No active worktree session.".to_string())),
             }
@@ -202,7 +222,12 @@ impl Tool for ExitWorktreeTool {
             }
 
             let _ = std::process::Command::new("git")
-                .args(["worktree", "remove", &worktree_dir.display().to_string(), "--force"])
+                .args([
+                    "worktree",
+                    "remove",
+                    &worktree_dir.display().to_string(),
+                    "--force",
+                ])
                 .current_dir(&original_dir)
                 .output();
 
@@ -220,9 +245,16 @@ impl Tool for ExitWorktreeTool {
         }
 
         let msg = if action == "remove" {
-            format!("Worktree removed. Session restored to {}", original_dir.display())
+            format!(
+                "Worktree removed. Session restored to {}",
+                original_dir.display()
+            )
         } else {
-            format!("Exited worktree (kept at {}). Session restored to {}", worktree_dir.display(), original_dir.display())
+            format!(
+                "Exited worktree (kept at {}). Session restored to {}",
+                worktree_dir.display(),
+                original_dir.display()
+            )
         };
 
         Ok(ToolResult::success(msg))

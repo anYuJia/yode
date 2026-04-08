@@ -17,7 +17,10 @@ impl Tool for ConfigTool {
     }
 
     fn activity_description(&self, params: &Value) -> String {
-        let setting = params.get("setting").and_then(|v| v.as_str()).unwrap_or("setting");
+        let setting = params
+            .get("setting")
+            .and_then(|v| v.as_str())
+            .unwrap_or("setting");
         if params.get("value").is_some() {
             format!("Updating config: {}", setting)
         } else {
@@ -62,10 +65,10 @@ impl Tool for ConfigTool {
 
         let _value = params.get("value");
 
-        // Note: Currently Yode core manages config. 
+        // Note: Currently Yode core manages config.
         // In this implementation, we simulate the get/set logic.
         // Future: integrate with yode_core::config::Config
-        
+
         if let Some(v) = _value {
             Ok(ToolResult::success(format!("Set {} to {}", setting, v)))
         } else {

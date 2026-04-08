@@ -16,7 +16,7 @@ impl Tool for GrepTool {
     }
 
     fn user_facing_name(&self) -> &str {
-        "Search" 
+        "Search"
     }
 
     fn activity_description(&self, params: &Value) -> String {
@@ -105,10 +105,13 @@ Usage:
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
         let pattern = params.get("pattern").and_then(|v| v.as_str()).unwrap_or("");
         let path = params.get("path").and_then(|v| v.as_str()).unwrap_or(".");
-        let output_mode = params.get("output_mode").and_then(|v| v.as_str()).unwrap_or("files_with_matches");
-        
+        let output_mode = params
+            .get("output_mode")
+            .and_then(|v| v.as_str())
+            .unwrap_or("files_with_matches");
+
         let mut args = vec!["--hidden".to_string()];
-        
+
         // Output mode
         match output_mode {
             "files_with_matches" => args.push("-l".to_string()),
@@ -131,11 +134,19 @@ Usage:
             }
         }
 
-        if params.get("case_insensitive").and_then(|v| v.as_bool()).unwrap_or(false) {
+        if params
+            .get("case_insensitive")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
             args.push("-i".to_string());
         }
 
-        if params.get("multiline").and_then(|v| v.as_bool()).unwrap_or(false) {
+        if params
+            .get("multiline")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
             args.push("-U".to_string());
             args.push("--multiline-dotall".to_string());
         }
@@ -156,11 +167,17 @@ Usage:
         let working_dir = ctx.working_dir.as_deref().unwrap_or_else(|| Path::new("."));
 
         // Execute ripgrep
-        let output = match Command::new("rg").args(&args).current_dir(working_dir).output() {
+        let output = match Command::new("rg")
+            .args(&args)
+            .current_dir(working_dir)
+            .output()
+        {
             Ok(o) => o,
             Err(_) => {
                 // Fallback to internal implementation if rg is not installed
-                return Ok(ToolResult::error("ripgrep (rg) is not installed in the system path.".to_string()));
+                return Ok(ToolResult::error(
+                    "ripgrep (rg) is not installed in the system path.".to_string(),
+                ));
             }
         };
 
@@ -176,20 +193,30 @@ Usage:
         }
 
         // Apply head_limit and offset
-        let head_limit = params.get("head_limit").and_then(|v| v.as_u64()).unwrap_or(250) as usize;
+        let head_limit = params
+            .get("head_limit")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(250) as usize;
         let offset = params.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
 
         let lines: Vec<&str> = stdout.lines().collect();
         let total_count = lines.len();
-        
+
         let start = offset.min(total_count);
-        let end = if head_limit == 0 { total_count } else { (start + head_limit).min(total_count) };
-        
+        let end = if head_limit == 0 {
+            total_count
+        } else {
+            (start + head_limit).min(total_count)
+        };
+
         let result_lines = &lines[start..end];
         let mut final_output = result_lines.join("\n");
 
         if end < total_count {
-            final_output.push_str(&format!("\n\n[Showing results with pagination = limit: {}, offset: {}]", head_limit, offset));
+            final_output.push_str(&format!(
+                "\n\n[Showing results with pagination = limit: {}, offset: {}]",
+                head_limit, offset
+            ));
         }
 
         Ok(ToolResult::success(final_output))

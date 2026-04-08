@@ -18,11 +18,14 @@ impl Tool for REPLTool {
     }
 
     fn user_facing_name(&self) -> &str {
-        "REPL" 
+        "REPL"
     }
 
     fn activity_description(&self, params: &Value) -> String {
-        let lang = params.get("language").and_then(|v| v.as_str()).unwrap_or("code");
+        let lang = params
+            .get("language")
+            .and_then(|v| v.as_str())
+            .unwrap_or("code");
         format!("Running {} REPL", lang)
     }
 
@@ -57,32 +60,22 @@ impl Tool for REPLTool {
     }
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<ToolResult> {
-        let language = params.get("language").and_then(|v| v.as_str()).unwrap_or("python");
+        let language = params
+            .get("language")
+            .and_then(|v| v.as_str())
+            .unwrap_or("python");
         let code = params.get("code").and_then(|v| v.as_str()).unwrap_or("");
 
         let output = match language {
-            "python" => {
-                Command::new("python3")
-                    .arg("-c")
-                    .arg(code)
-                    .output()
-                    .await?
+            "python" => Command::new("python3").arg("-c").arg(code).output().await?,
+            "nodejs" => Command::new("node").arg("-e").arg(code).output().await?,
+            "bash" => Command::new("bash").arg("-c").arg(code).output().await?,
+            _ => {
+                return Ok(ToolResult::error(format!(
+                    "Unsupported language: {}",
+                    language
+                )))
             }
-            "nodejs" => {
-                Command::new("node")
-                    .arg("-e")
-                    .arg(code)
-                    .output()
-                    .await?
-            }
-            "bash" => {
-                Command::new("bash")
-                    .arg("-c")
-                    .arg(code)
-                    .output()
-                    .await?
-            }
-            _ => return Ok(ToolResult::error(format!("Unsupported language: {}", language))),
         };
 
         let stdout = String::from_utf8_lossy(&output.stdout);

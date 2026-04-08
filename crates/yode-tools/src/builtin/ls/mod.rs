@@ -19,10 +19,7 @@ impl Tool for LsTool {
     }
 
     fn activity_description(&self, params: &Value) -> String {
-        let path = params
-            .get("path")
-            .and_then(|v| v.as_str())
-            .unwrap_or(".");
+        let path = params.get("path").and_then(|v| v.as_str()).unwrap_or(".");
         format!("Listing directory: {}", path)
     }
 
@@ -55,10 +52,7 @@ impl Tool for LsTool {
     }
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<ToolResult> {
-        let path = params
-            .get("path")
-            .and_then(|v| v.as_str())
-            .unwrap_or(".");
+        let path = params.get("path").and_then(|v| v.as_str()).unwrap_or(".");
 
         let recursive = params
             .get("recursive")
@@ -86,7 +80,15 @@ impl Tool for LsTool {
 
         let mut entries = Vec::new();
         let mut counts = (0, 0); // (files, dirs)
-        list_dir_with_counts(base, base, recursive, show_hidden, &mut entries, 0, &mut counts);
+        list_dir_with_counts(
+            base,
+            base,
+            recursive,
+            show_hidden,
+            &mut entries,
+            0,
+            &mut counts,
+        );
 
         let metadata = json!({
             "path": path,
@@ -97,10 +99,16 @@ impl Tool for LsTool {
         });
 
         if entries.is_empty() {
-            return Ok(ToolResult::success_with_metadata("(empty directory)".to_string(), metadata));
+            return Ok(ToolResult::success_with_metadata(
+                "(empty directory)".to_string(),
+                metadata,
+            ));
         }
 
-        Ok(ToolResult::success_with_metadata(entries.join("\n"), metadata))
+        Ok(ToolResult::success_with_metadata(
+            entries.join("\n"),
+            metadata,
+        ))
     }
 }
 
@@ -151,7 +159,15 @@ fn list_dir_with_counts(
             entries.push(format!("{}/", rel_str));
 
             if recursive && !SKIP_DIRS.contains(&name_str.as_ref()) {
-                list_dir_with_counts(base, &path, recursive, show_hidden, entries, depth + 1, counts);
+                list_dir_with_counts(
+                    base,
+                    &path,
+                    recursive,
+                    show_hidden,
+                    entries,
+                    depth + 1,
+                    counts,
+                );
             }
         } else {
             counts.0 += 1;

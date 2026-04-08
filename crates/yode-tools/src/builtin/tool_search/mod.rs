@@ -51,10 +51,7 @@ impl Tool for ToolSearchTool {
     }
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
-        let query = params
-            .get("query")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let query = params.get("query").and_then(|v| v.as_str()).unwrap_or("");
 
         let max_results = params
             .get("max_results")
@@ -62,7 +59,9 @@ impl Tool for ToolSearchTool {
             .unwrap_or(5) as usize;
 
         if query.is_empty() {
-            return Ok(ToolResult::error("'query' parameter is required".to_string()));
+            return Ok(ToolResult::error(
+                "'query' parameter is required".to_string(),
+            ));
         }
 
         let registry = ctx
@@ -110,22 +109,25 @@ impl Tool for ToolSearchTool {
                 }
             }
         }
-        
+
         matches.truncate(max_results);
 
         if matches.is_empty() {
             let metadata = serde_json::json!({ "query": query, "count": 0 });
-            Ok(ToolResult::success_with_metadata(format!(
-                "No tools found matching '{}'",
-                query
-            ), metadata))
+            Ok(ToolResult::success_with_metadata(
+                format!("No tools found matching '{}'", query),
+                metadata,
+            ))
         } else {
             let metadata = serde_json::json!({ "query": query, "count": matches.len() });
-            Ok(ToolResult::success_with_metadata(format!(
-                "Found tool(s) matching '{}':\n{}",
-                query,
-                matches.join("\n")
-            ), metadata))
+            Ok(ToolResult::success_with_metadata(
+                format!(
+                    "Found tool(s) matching '{}':\n{}",
+                    query,
+                    matches.join("\n")
+                ),
+                metadata,
+            ))
         }
     }
 }

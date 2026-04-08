@@ -247,7 +247,7 @@ pub trait Tool: Send + Sync {
     fn name(&self) -> &str;
     fn description(&self) -> &str;
     fn parameters_schema(&self) -> Value;
-    
+
     /// User-facing name for the tool (e.g. "Bash" for "bash").
     fn user_facing_name(&self) -> &str {
         self.name()
@@ -268,15 +268,15 @@ pub trait Tool: Send + Sync {
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities::default()
     }
-    
+
     /// Legacy method - check if requires confirmation
     fn requires_confirmation(&self) -> bool {
         self.capabilities().requires_confirmation
     }
-    
+
     /// Execute the tool with given parameters
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult>;
-    
+
     /// Get tool definition for LLM
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {

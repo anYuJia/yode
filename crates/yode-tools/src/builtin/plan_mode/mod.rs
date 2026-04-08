@@ -50,7 +50,7 @@ impl Tool for EnterPlanModeTool {
                 return Ok(ToolResult::error("Already in plan mode.".to_string()));
             }
             *mode = true;
-            
+
             let instructions = r#"Entered plan mode. You should now focus on exploring the codebase and designing an implementation approach.
 
 In plan mode, you should:
@@ -65,7 +65,9 @@ Remember: DO NOT write or edit any files yet. This is a read-only exploration an
 
             Ok(ToolResult::success(instructions.to_string()))
         } else {
-            Ok(ToolResult::error("Plan mode is not supported in this context.".to_string()))
+            Ok(ToolResult::error(
+                "Plan mode is not supported in this context.".to_string(),
+            ))
         }
     }
 }
@@ -130,14 +132,16 @@ impl Tool for ExitPlanModeTool {
                 return Ok(ToolResult::error("You are not in plan mode. This tool is only for exiting plan mode after writing a plan.".to_string()));
             }
             *mode = false;
-            
+
             let output = r#"User has approved your plan. You can now start coding. Start with updating your todo list if applicable.
 
 You can refer back to your plan if needed during implementation. Good luck!"#;
 
             Ok(ToolResult::success(output.to_string()))
         } else {
-            Ok(ToolResult::error("Plan mode is not supported in this context.".to_string()))
+            Ok(ToolResult::error(
+                "Plan mode is not supported in this context.".to_string(),
+            ))
         }
     }
 }

@@ -21,7 +21,10 @@ impl Tool for TodoTool {
     }
 
     fn activity_description(&self, params: &Value) -> String {
-        let action = params.get("action").and_then(|v| v.as_str()).unwrap_or("manage");
+        let action = params
+            .get("action")
+            .and_then(|v| v.as_str())
+            .unwrap_or("manage");
         format!("Task: {} action", action)
     }
 
@@ -68,9 +71,7 @@ impl Tool for TodoTool {
         let tasks = match &ctx.tasks {
             Some(t) => t,
             None => {
-                return Ok(ToolResult::error(
-                    "Task store not available.".to_string(),
-                ));
+                return Ok(ToolResult::error("Task store not available.".to_string()));
             }
         };
 
@@ -102,8 +103,14 @@ impl Tool for TodoTool {
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("Missing required parameter: id"))?;
 
-                let subject = params.get("subject").and_then(|v| v.as_str()).map(String::from);
-                let description = params.get("description").and_then(|v| v.as_str()).map(String::from);
+                let subject = params
+                    .get("subject")
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+                let description = params
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
                 let status = params
                     .get("status")
                     .and_then(|v| v.as_str())

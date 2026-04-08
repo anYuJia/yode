@@ -15,9 +15,7 @@ pub fn validate_and_coerce(schema: &Value, params: &mut Value) -> Result<(), Str
     let params_obj = params.as_object_mut().unwrap();
 
     // Get properties and required fields from schema
-    let properties = schema_obj
-        .get("properties")
-        .and_then(|v| v.as_object());
+    let properties = schema_obj.get("properties").and_then(|v| v.as_object());
     let required: Vec<&str> = schema_obj
         .get("required")
         .and_then(|v| v.as_array())

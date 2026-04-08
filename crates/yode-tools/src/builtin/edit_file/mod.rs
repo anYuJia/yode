@@ -177,7 +177,7 @@ Usage:
 
                 Ok(ToolResult::success_with_metadata(
                     format!("The file {} has been updated successfully.", file_path),
-                    metadata
+                    metadata,
                 ))
             }
             Err(e) => Ok(ToolResult::error(format!(

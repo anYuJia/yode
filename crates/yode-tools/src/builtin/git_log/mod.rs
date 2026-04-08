@@ -150,16 +150,22 @@ Common patterns:
                 "path": path,
                 "author": author,
             });
-            Ok(ToolResult::success_with_metadata("No commits found".to_string(), metadata))
+            Ok(ToolResult::success_with_metadata(
+                "No commits found".to_string(),
+                metadata,
+            ))
         } else {
             // Count lines for metadata
-            let actual_count = stdout.lines().count(); 
+            let actual_count = stdout.lines().count();
             let metadata = json!({
                 "count": actual_count,
                 "path": path,
                 "author": author,
             });
-            Ok(ToolResult::success_with_metadata(stdout.to_string(), metadata))
+            Ok(ToolResult::success_with_metadata(
+                stdout.to_string(),
+                metadata,
+            ))
         }
     }
 }
@@ -176,14 +182,34 @@ mod tests {
     }
 
     fn init_git_repo_with_commits(dir: &std::path::Path, n: usize) {
-        Command::new("git").args(["init"]).current_dir(dir).output().unwrap();
-        Command::new("git").args(["config", "user.email", "test@test.com"]).current_dir(dir).output().unwrap();
-        Command::new("git").args(["config", "user.name", "Tester"]).current_dir(dir).output().unwrap();
+        Command::new("git")
+            .args(["init"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.name", "Tester"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
         for i in 0..n {
             let fname = format!("file{}.txt", i);
             std::fs::write(dir.join(&fname), format!("content {}", i)).unwrap();
-            Command::new("git").args(["add", &fname]).current_dir(dir).output().unwrap();
-            Command::new("git").args(["commit", "-m", &format!("commit {}", i)]).current_dir(dir).output().unwrap();
+            Command::new("git")
+                .args(["add", &fname])
+                .current_dir(dir)
+                .output()
+                .unwrap();
+            Command::new("git")
+                .args(["commit", "-m", &format!("commit {}", i)])
+                .current_dir(dir)
+                .output()
+                .unwrap();
         }
     }
 
@@ -193,7 +219,10 @@ mod tests {
         init_git_repo_with_commits(dir.path(), 3);
 
         let tool = GitLogTool;
-        let result = tool.execute(json!({}), &ctx_with_dir(dir.path())).await.unwrap();
+        let result = tool
+            .execute(json!({}), &ctx_with_dir(dir.path()))
+            .await
+            .unwrap();
         assert!(!result.is_error);
         assert!(result.content.contains("commit 2"));
         assert!(result.content.contains("commit 0"));
@@ -205,7 +234,13 @@ mod tests {
         init_git_repo_with_commits(dir.path(), 5);
 
         let tool = GitLogTool;
-        let result = tool.execute(json!({"count": 2, "oneline": true}), &ctx_with_dir(dir.path())).await.unwrap();
+        let result = tool
+            .execute(
+                json!({"count": 2, "oneline": true}),
+                &ctx_with_dir(dir.path()),
+            )
+            .await
+            .unwrap();
         assert!(!result.is_error);
         // Should only show 2 commits (most recent)
         let lines: Vec<&str> = result.content.trim().lines().collect();
@@ -219,10 +254,21 @@ mod tests {
         init_git_repo_with_commits(dir.path(), 3);
 
         let tool = GitLogTool;
-        let result = tool.execute(json!({"path": "file1.txt", "oneline": true}), &ctx_with_dir(dir.path())).await.unwrap();
+        let result = tool
+            .execute(
+                json!({"path": "file1.txt", "oneline": true}),
+                &ctx_with_dir(dir.path()),
+            )
+            .await
+            .unwrap();
         assert!(!result.is_error);
         let lines: Vec<&str> = result.content.trim().lines().collect();
-        assert_eq!(lines.len(), 1, "Expected 1 commit for file1.txt, got: {:?}", lines);
+        assert_eq!(
+            lines.len(),
+            1,
+            "Expected 1 commit for file1.txt, got: {:?}",
+            lines
+        );
     }
 
     #[tokio::test]
@@ -231,12 +277,24 @@ mod tests {
         init_git_repo_with_commits(dir.path(), 2);
 
         let tool = GitLogTool;
-        let result = tool.execute(json!({"author": "Tester", "oneline": true}), &ctx_with_dir(dir.path())).await.unwrap();
+        let result = tool
+            .execute(
+                json!({"author": "Tester", "oneline": true}),
+                &ctx_with_dir(dir.path()),
+            )
+            .await
+            .unwrap();
         assert!(!result.is_error);
         assert!(result.content.contains("commit"));
 
         // Non-matching author
-        let result = tool.execute(json!({"author": "nobody", "oneline": true}), &ctx_with_dir(dir.path())).await.unwrap();
+        let result = tool
+            .execute(
+                json!({"author": "nobody", "oneline": true}),
+                &ctx_with_dir(dir.path()),
+            )
+            .await
+            .unwrap();
         assert!(!result.is_error);
         assert_eq!(result.content, "No commits found");
     }
@@ -248,13 +306,25 @@ mod tests {
 
         let tool = GitLogTool;
         // count=100 should be clamped to 50, but we only have 2 commits
-        let result = tool.execute(json!({"count": 100, "oneline": true}), &ctx_with_dir(dir.path())).await.unwrap();
+        let result = tool
+            .execute(
+                json!({"count": 100, "oneline": true}),
+                &ctx_with_dir(dir.path()),
+            )
+            .await
+            .unwrap();
         assert!(!result.is_error);
         let lines: Vec<&str> = result.content.trim().lines().collect();
         assert_eq!(lines.len(), 2);
 
         // count=0 should be clamped to 1
-        let result = tool.execute(json!({"count": 0, "oneline": true}), &ctx_with_dir(dir.path())).await.unwrap();
+        let result = tool
+            .execute(
+                json!({"count": 0, "oneline": true}),
+                &ctx_with_dir(dir.path()),
+            )
+            .await
+            .unwrap();
         assert!(!result.is_error);
         let lines: Vec<&str> = result.content.trim().lines().collect();
         assert_eq!(lines.len(), 1);

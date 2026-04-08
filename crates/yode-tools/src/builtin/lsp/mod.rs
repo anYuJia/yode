@@ -19,8 +19,14 @@ impl Tool for LspTool {
     }
 
     fn activity_description(&self, params: &Value) -> String {
-        let op = params.get("operation").and_then(|v| v.as_str()).unwrap_or("query");
-        let file = params.get("filePath").and_then(|v| v.as_str()).unwrap_or("");
+        let op = params
+            .get("operation")
+            .and_then(|v| v.as_str())
+            .unwrap_or("query");
+        let file = params
+            .get("filePath")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         format!("LSP {}: {}", op, file)
     }
 
@@ -65,10 +71,19 @@ impl Tool for LspTool {
     }
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
-        let operation = params.get("operation").and_then(|v| v.as_str()).unwrap_or("");
-        let file_path = params.get("filePath").and_then(|v| v.as_str()).unwrap_or("");
+        let operation = params
+            .get("operation")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let file_path = params
+            .get("filePath")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         let line = params.get("line").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-        let character = params.get("character").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+        let character = params
+            .get("character")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
 
         if operation.is_empty() || file_path.is_empty() {
             return Ok(ToolResult::error(
@@ -86,7 +101,8 @@ impl Tool for LspTool {
 
         match mgr.execute(operation, &path, line, character).await {
             Ok(result) => {
-                let formatted = serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string());
+                let formatted =
+                    serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string());
                 let metadata = serde_json::json!({
                     "operation": operation,
                     "file_path": file_path,

@@ -7,4 +7,7 @@ pub mod tool;
 pub mod validation;
 
 pub use registry::{ToolDefinition, ToolRegistry};
-pub use tool::{McpResource, McpResourceProvider, SubAgentRunner, Tool, ToolContext, ToolResult, UserQuery, WorktreeState};
+pub use tool::{
+    McpResource, McpResourceProvider, SubAgentRunner, Tool, ToolContext, ToolResult, UserQuery,
+    WorktreeState,
+};

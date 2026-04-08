@@ -17,11 +17,14 @@ impl Tool for ListMcpResourcesTool {
     }
 
     fn user_facing_name(&self) -> &str {
-        "" 
+        ""
     }
 
     fn activity_description(&self, params: &Value) -> String {
-        let server = params.get("server").and_then(|v| v.as_str()).unwrap_or("all servers");
+        let server = params
+            .get("server")
+            .and_then(|v| v.as_str())
+            .unwrap_or("all servers");
         format!("Listing MCP resources from: {}", server)
     }
 

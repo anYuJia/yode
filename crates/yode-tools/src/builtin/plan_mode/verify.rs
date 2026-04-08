@@ -17,11 +17,14 @@ impl Tool for VerifyPlanExecutionTool {
     }
 
     fn user_facing_name(&self) -> &str {
-        "" 
+        ""
     }
 
     fn activity_description(&self, params: &Value) -> String {
-        let status = params.get("status").and_then(|v| v.as_str()).unwrap_or("verifying");
+        let status = params
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("verifying");
         format!("Verifying plan execution: {}", status)
     }
 
@@ -57,7 +60,10 @@ impl Tool for VerifyPlanExecutionTool {
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<ToolResult> {
         let summary = params.get("summary").and_then(|v| v.as_str()).unwrap_or("");
-        let status = params.get("status").and_then(|v| v.as_str()).unwrap_or("success");
+        let status = params
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("success");
 
         let output = format!(
             "Plan Verification (Status: {}):\n\n{}",

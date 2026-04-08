@@ -64,7 +64,10 @@ impl Tool for SkillTool {
     }
 
     fn activity_description(&self, params: &Value) -> String {
-        let action = params.get("action").and_then(|v| v.as_str()).unwrap_or("get");
+        let action = params
+            .get("action")
+            .and_then(|v| v.as_str())
+            .unwrap_or("get");
         let name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
         if action == "list" {
             "Listing skills".to_string()
@@ -113,8 +116,9 @@ impl Tool for SkillTool {
                 if skills.is_empty() {
                     let metadata = json!({ "action": "list", "count": 0 });
                     return Ok(ToolResult::success_with_metadata(
-                        "No skills found. Add .md files to .yode/skills/ or ~/.yode/skills/.".to_string(),
-                        metadata
+                        "No skills found. Add .md files to .yode/skills/ or ~/.yode/skills/."
+                            .to_string(),
+                        metadata,
                     ));
                 }
                 let mut output = String::from("Available skills:\n");
@@ -133,10 +137,14 @@ impl Tool for SkillTool {
                 match store.get(name) {
                     Some(skill) => {
                         let metadata = json!({ "action": "get", "name": name });
-                        Ok(ToolResult::success_with_metadata(skill.content.clone(), metadata))
+                        Ok(ToolResult::success_with_metadata(
+                            skill.content.clone(),
+                            metadata,
+                        ))
                     }
                     None => {
-                        let available: Vec<&str> = store.list().iter().map(|s| s.name.as_str()).collect();
+                        let available: Vec<&str> =
+                            store.list().iter().map(|s| s.name.as_str()).collect();
                         Ok(ToolResult::error(format!(
                             "Skill '{}' not found. Available skills: {:?}",
                             name, available

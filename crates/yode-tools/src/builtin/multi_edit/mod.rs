@@ -17,8 +17,15 @@ impl Tool for MultiEditTool {
     }
 
     fn activity_description(&self, params: &Value) -> String {
-        let file = params.get("file_path").and_then(|v| v.as_str()).unwrap_or("");
-        let count = params.get("edits").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
+        let file = params
+            .get("file_path")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let count = params
+            .get("edits")
+            .and_then(|v| v.as_array())
+            .map(|a| a.len())
+            .unwrap_or(0);
         format!("Applying {} edits to: {}", count, file)
     }
 
@@ -138,8 +145,11 @@ impl Tool for MultiEditTool {
                     "applied_edits": applied,
                 });
                 Ok(ToolResult::success_with_metadata(
-                    format!("Successfully applied {} edit(s) to '{}'.", applied, file_path),
-                    metadata
+                    format!(
+                        "Successfully applied {} edit(s) to '{}'.",
+                        applied, file_path
+                    ),
+                    metadata,
                 ))
             }
             Err(e) => Ok(ToolResult::error(format!(

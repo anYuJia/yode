@@ -61,10 +61,7 @@ impl Tool for ProjectMapTool {
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Working directory not set"))?;
 
-        let depth = params
-            .get("depth")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(2) as usize;
+        let depth = params.get("depth").and_then(|v| v.as_u64()).unwrap_or(2) as usize;
         let include_deps = params
             .get("include_deps")
             .and_then(|v| v.as_bool())
@@ -93,10 +90,7 @@ impl Tool for ProjectMapTool {
         if !entries.is_empty() {
             output.push_str("\n## Entry Points\n");
             for entry in &entries {
-                let rel = entry
-                    .strip_prefix(working_dir)
-                    .unwrap_or(entry)
-                    .display();
+                let rel = entry.strip_prefix(working_dir).unwrap_or(entry).display();
                 output.push_str(&format!("- {}\n", rel));
             }
         }
@@ -241,11 +235,9 @@ fn scan_project_stats(dir: &Path) -> ProjectStats {
 
 fn find_entry_points(dir: &Path, project_type: &ProjectType) -> Vec<PathBuf> {
     let candidates: &[&str] = match project_type {
-        ProjectType::Rust | ProjectType::RustWorkspace => &[
-            "src/main.rs",
-            "src/lib.rs",
-            "src/bin/main.rs",
-        ],
+        ProjectType::Rust | ProjectType::RustWorkspace => {
+            &["src/main.rs", "src/lib.rs", "src/bin/main.rs"]
+        }
         ProjectType::Node => &[
             "src/index.ts",
             "src/index.js",
@@ -386,10 +378,7 @@ fn analyze_rust_deps(dir: &Path) -> Vec<(String, Vec<String>)> {
     walk_files(dir, &mut |path| {
         if path.file_name().map(|n| n == "Cargo.toml").unwrap_or(false) {
             // Skip target directory
-            if !path
-                .to_string_lossy()
-                .contains("/target/")
-            {
+            if !path.to_string_lossy().contains("/target/") {
                 cargo_files.push(path.to_path_buf());
             }
         }
@@ -413,7 +402,8 @@ fn analyze_rust_deps(dir: &Path) -> Vec<(String, Vec<String>)> {
 
             for line in content.lines() {
                 let trimmed = line.trim();
-                if trimmed.starts_with("[dependencies]") || trimmed.starts_with("[dev-dependencies]")
+                if trimmed.starts_with("[dependencies]")
+                    || trimmed.starts_with("[dev-dependencies]")
                 {
                     in_deps = true;
                     continue;
@@ -490,7 +480,12 @@ fn walk_files(dir: &Path, callback: &mut dyn FnMut(&Path)) {
     walk_files_recursive(dir, callback, 0, 10);
 }
 
-fn walk_files_recursive(dir: &Path, callback: &mut dyn FnMut(&Path), depth: usize, max_depth: usize) {
+fn walk_files_recursive(
+    dir: &Path,
+    callback: &mut dyn FnMut(&Path),
+    depth: usize,
+    max_depth: usize,
+) {
     if depth > max_depth {
         return;
     }

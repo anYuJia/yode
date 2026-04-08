@@ -1,6 +1,6 @@
+use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
-use std::path::Path;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -9,7 +9,7 @@ use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use tokio::sync::mpsc;
 
-use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult, ToolErrorType, ToolProgress};
+use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolErrorType, ToolProgress, ToolResult};
 
 const DEFAULT_TIMEOUT_SECS: u64 = 120;
 const MAX_TIMEOUT_SECS: u64 = 600;
@@ -21,16 +21,29 @@ const STALL_TAIL_BYTES: usize = 1024;
 
 /// Patterns that suggest an interactive prompt is blocking.
 const INTERACTIVE_PROMPT_PATTERNS: &[&str] = &[
-    "password:", "Password:", "passphrase",
-    "[y/n]", "[Y/n]", "[yes/no]",
-    "Are you sure", "are you sure",
-    "Continue?", "continue?",
-    "Press any key", "press any key",
-    "Enter ", "enter ",
-    "Username:", "username:",
-    "(yes/no)", "(Y/N)",
-    "Do you want to", "do you want to",
-    "> ", "$ ", "# ",
+    "password:",
+    "Password:",
+    "passphrase",
+    "[y/n]",
+    "[Y/n]",
+    "[yes/no]",
+    "Are you sure",
+    "are you sure",
+    "Continue?",
+    "continue?",
+    "Press any key",
+    "press any key",
+    "Enter ",
+    "enter ",
+    "Username:",
+    "username:",
+    "(yes/no)",
+    "(Y/N)",
+    "Do you want to",
+    "do you want to",
+    "> ",
+    "$ ",
+    "# ",
 ];
 
 pub struct BashTool;
@@ -46,10 +59,7 @@ impl Tool for BashTool {
     }
 
     fn activity_description(&self, params: &Value) -> String {
-        let command = params
-            .get("command")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let command = params.get("command").and_then(|v| v.as_str()).unwrap_or("");
         format!("Running command: {}", command)
     }
 
@@ -144,15 +154,14 @@ While the bash tool can do similar things, it's better to use the built-in tools
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing required parameter: command"))?;
 
-        let working_dir = ctx
-            .working_dir
-            .as_deref()
-            .unwrap_or_else(|| Path::new("."));
+        let working_dir = ctx.working_dir.as_deref().unwrap_or_else(|| Path::new("."));
 
         // Parse timeout: prioritize timeout_ms, fallback to legacy 'timeout'
-        let timeout_ms = params.get("timeout_ms").and_then(|v| v.as_u64())
+        let timeout_ms = params
+            .get("timeout_ms")
+            .and_then(|v| v.as_u64())
             .or_else(|| params.get("timeout").and_then(|v| v.as_u64()));
-            
+
         let timeout_secs = match timeout_ms {
             Some(t) if t >= 1000 => (t / 1000).min(MAX_TIMEOUT_SECS),
             Some(t) => t.min(MAX_TIMEOUT_SECS), // handle legacy seconds if passed to timeout_ms
@@ -186,7 +195,9 @@ While the bash tool can do similar things, it's better to use the built-in tools
             .spawn()?;
 
         // Stall watchdog: periodically check if the command is stalled
-        let stall_check = self.run_with_stall_watchdog(&mut child, timeout_duration, ctx.progress_tx.clone()).await;
+        let stall_check = self
+            .run_with_stall_watchdog(&mut child, timeout_duration, ctx.progress_tx.clone())
+            .await;
 
         match stall_check {
             StallResult::Completed(output) => self.format_output(command, working_dir, output),
@@ -217,7 +228,10 @@ While the bash tool can do similar things, it's better to use the built-in tools
             }
             StallResult::Error(e) => {
                 let _ = child.kill().await;
-                Ok(ToolResult::error(format!("Failed to execute command: {}", e)))
+                Ok(ToolResult::error(format!(
+                    "Failed to execute command: {}",
+                    e
+                )))
             }
         }
     }
@@ -346,7 +360,12 @@ impl BashTool {
         )))
     }
 
-    fn format_output(&self, command: &str, working_dir: &Path, output: std::process::Output) -> Result<ToolResult> {
+    fn format_output(
+        &self,
+        command: &str,
+        working_dir: &Path,
+        output: std::process::Output,
+    ) -> Result<ToolResult> {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
         let exit_code = output.status.code().unwrap_or(-1);
@@ -386,7 +405,7 @@ impl BashTool {
             "cwd": working_dir.display().to_string(),
         });
         let cmd_base = command.split_whitespace().next().unwrap_or("");
-        
+
         let cmd_type = if ["grep", "rg", "find", "ag", "ack"].contains(&cmd_base) {
             "search"
         } else if ["ls", "tree", "du"].contains(&cmd_base) {
@@ -428,9 +447,13 @@ mod tests {
     fn test_looks_like_interactive_prompt() {
         assert!(looks_like_interactive_prompt("Enter password: "));
         assert!(looks_like_interactive_prompt("Continue? [y/n] "));
-        assert!(looks_like_interactive_prompt("Are you sure you want to proceed?"));
+        assert!(looks_like_interactive_prompt(
+            "Are you sure you want to proceed?"
+        ));
         assert!(looks_like_interactive_prompt("Username: "));
-        assert!(!looks_like_interactive_prompt("Build completed successfully"));
+        assert!(!looks_like_interactive_prompt(
+            "Build completed successfully"
+        ));
         assert!(!looks_like_interactive_prompt(""));
         assert!(!looks_like_interactive_prompt("  \n  \n"));
     }

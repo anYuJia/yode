@@ -1,7 +1,7 @@
-use std::path::Path;
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
+use std::path::Path;
 
 use crate::tool::{Tool, ToolContext, ToolResult};
 
@@ -93,7 +93,10 @@ Usage:
         let path = Path::new(file_path);
         if path.is_dir() {
             return Ok(ToolResult::error_typed(
-                format!("'{}' is a directory, not a file. Use 'ls' to list its contents.", file_path),
+                format!(
+                    "'{}' is a directory, not a file. Use 'ls' to list its contents.",
+                    file_path
+                ),
                 crate::tool::ToolErrorType::Validation,
                 true,
                 Some(format!("Call ls(path=\"{}\") instead.", file_path)),
@@ -127,14 +130,16 @@ Usage:
         let was_truncated = end < total_lines && limit.is_some();
         for (idx, line) in lines[start..end].iter().enumerate() {
             let line_num = start + idx + 1; // 1-based line number
-            // cat -n format: right-justified 6-wide line number, then tab, then content
+                                            // cat -n format: right-justified 6-wide line number, then tab, then content
             output.push_str(&format!("{:>6}\t{}\n", line_num, line));
         }
 
         if was_truncated {
             output.push_str(&format!(
                 "\n... (showing lines {}-{} of {} total, use offset/limit to read more)\n",
-                start + 1, end, total_lines
+                start + 1,
+                end,
+                total_lines
             ));
         }
 

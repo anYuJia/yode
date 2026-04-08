@@ -29,7 +29,12 @@ impl CronManager {
     }
 
     /// Create a new cron job. Returns the job ID.
-    pub fn create(&mut self, cron_expr: String, prompt: String, recurring: bool) -> anyhow::Result<String> {
+    pub fn create(
+        &mut self,
+        cron_expr: String,
+        prompt: String,
+        recurring: bool,
+    ) -> anyhow::Result<String> {
         let schedule = Self::parse_cron(&cron_expr)?;
         let id = self.next_id.to_string();
         self.next_id += 1;
@@ -98,7 +103,8 @@ impl CronManager {
 
     /// Parse a 5-field cron expression and return the next fire time.
     fn parse_cron(expr: &str) -> anyhow::Result<chrono::DateTime<chrono::Local>> {
-        let schedule: cron::Schedule = format!("0 {}", expr).parse()
+        let schedule: cron::Schedule = format!("0 {}", expr)
+            .parse()
             .map_err(|e| anyhow::anyhow!("Invalid cron expression '{}': {}", expr, e))?;
         schedule
             .upcoming(chrono::Utc)

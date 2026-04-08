@@ -182,13 +182,12 @@ impl HypothesisStore {
             // Sort by type, then by confidence (HIGH first)
             let mut sorted = verified.clone();
             sorted.sort_by(|a, b| {
-                let type_order =
-                    |t: &FindingType| match t {
-                        FindingType::Bug => 0,
-                        FindingType::Risk => 1,
-                        FindingType::Optimization => 2,
-                        FindingType::DesignChoice => 3,
-                    };
+                let type_order = |t: &FindingType| match t {
+                    FindingType::Bug => 0,
+                    FindingType::Risk => 1,
+                    FindingType::Optimization => 2,
+                    FindingType::DesignChoice => 3,
+                };
                 type_order(&a.finding_type).cmp(&type_order(&b.finding_type))
             });
 
@@ -258,7 +257,10 @@ impl Tool for HypothesisTool {
     }
 
     fn activity_description(&self, params: &Value) -> String {
-        let action = params.get("action").and_then(|v| v.as_str()).unwrap_or("manage");
+        let action = params
+            .get("action")
+            .and_then(|v| v.as_str())
+            .unwrap_or("manage");
         format!("Hypothesis: {} action", action)
     }
 
@@ -405,9 +407,7 @@ impl Tool for HypothesisTool {
                 let store = HYPOTHESIS_STORE.lock().unwrap();
                 let hypotheses = store.list();
                 if hypotheses.is_empty() {
-                    return Ok(ToolResult::success(
-                        "No hypotheses recorded.".to_string(),
-                    ));
+                    return Ok(ToolResult::success("No hypotheses recorded.".to_string()));
                 }
                 let mut output = String::new();
                 for h in hypotheses {
@@ -433,9 +433,7 @@ impl Tool for HypothesisTool {
             "clear" => {
                 let mut store = HYPOTHESIS_STORE.lock().unwrap();
                 store.clear();
-                Ok(ToolResult::success(
-                    "All hypotheses cleared.".to_string(),
-                ))
+                Ok(ToolResult::success("All hypotheses cleared.".to_string()))
             }
             _ => Ok(ToolResult::error(format!(
                 "Unknown action: '{}'. Use create, verify, refute, list, report, or clear.",

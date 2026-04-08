@@ -101,10 +101,7 @@ After committing, the tool returns the commit output. Use git_status to verify t
             .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
             .unwrap_or_default();
 
-        let all = params
-            .get("all")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        let all = params.get("all").and_then(|v| v.as_bool()).unwrap_or(false);
 
         let working_dir = ctx
             .working_dir
@@ -175,7 +172,10 @@ After committing, the tool returns the commit output. Use git_status to verify t
             "message": message,
         });
 
-        Ok(ToolResult::success_with_metadata(stdout.to_string(), metadata))
+        Ok(ToolResult::success_with_metadata(
+            stdout.to_string(),
+            metadata,
+        ))
     }
 }
 
@@ -191,9 +191,21 @@ mod tests {
     }
 
     fn init_repo(dir: &std::path::Path) {
-        Command::new("git").args(["init"]).current_dir(dir).output().unwrap();
-        Command::new("git").args(["config", "user.email", "test@test.com"]).current_dir(dir).output().unwrap();
-        Command::new("git").args(["config", "user.name", "Test"]).current_dir(dir).output().unwrap();
+        Command::new("git")
+            .args(["init"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
     }
 
     #[tokio::test]
@@ -203,14 +215,24 @@ mod tests {
         std::fs::write(dir.path().join("a.txt"), "hello").unwrap();
 
         let tool = GitCommitTool;
-        let result = tool.execute(json!({
-            "message": "add a.txt",
-            "files": ["a.txt"]
-        }), &ctx_with_dir(dir.path())).await.unwrap();
+        let result = tool
+            .execute(
+                json!({
+                    "message": "add a.txt",
+                    "files": ["a.txt"]
+                }),
+                &ctx_with_dir(dir.path()),
+            )
+            .await
+            .unwrap();
         assert!(!result.is_error, "commit failed: {}", result.content);
 
         // Verify commit was made
-        let log = Command::new("git").args(["log", "--oneline"]).current_dir(dir.path()).output().unwrap();
+        let log = Command::new("git")
+            .args(["log", "--oneline"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
         let log_str = String::from_utf8_lossy(&log.stdout);
         assert!(log_str.contains("add a.txt"));
     }
@@ -221,17 +243,31 @@ mod tests {
         init_repo(dir.path());
         // Create and commit initial file
         std::fs::write(dir.path().join("a.txt"), "v1").unwrap();
-        Command::new("git").args(["add", "."]).current_dir(dir.path()).output().unwrap();
-        Command::new("git").args(["commit", "-m", "init"]).current_dir(dir.path()).output().unwrap();
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
 
         // Modify tracked file
         std::fs::write(dir.path().join("a.txt"), "v2").unwrap();
 
         let tool = GitCommitTool;
-        let result = tool.execute(json!({
-            "message": "update a.txt",
-            "all": true
-        }), &ctx_with_dir(dir.path())).await.unwrap();
+        let result = tool
+            .execute(
+                json!({
+                    "message": "update a.txt",
+                    "all": true
+                }),
+                &ctx_with_dir(dir.path()),
+            )
+            .await
+            .unwrap();
         assert!(!result.is_error, "commit -a failed: {}", result.content);
     }
 
@@ -241,9 +277,15 @@ mod tests {
         init_repo(dir.path());
 
         let tool = GitCommitTool;
-        let result = tool.execute(json!({
-            "message": ""
-        }), &ctx_with_dir(dir.path())).await.unwrap();
+        let result = tool
+            .execute(
+                json!({
+                    "message": ""
+                }),
+                &ctx_with_dir(dir.path()),
+            )
+            .await
+            .unwrap();
         assert!(result.is_error);
         assert!(result.content.contains("message"));
     }
@@ -254,13 +296,27 @@ mod tests {
         init_repo(dir.path());
         // Need an initial commit for git to exist properly
         std::fs::write(dir.path().join("a.txt"), "v1").unwrap();
-        Command::new("git").args(["add", "."]).current_dir(dir.path()).output().unwrap();
-        Command::new("git").args(["commit", "-m", "init"]).current_dir(dir.path()).output().unwrap();
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
 
         let tool = GitCommitTool;
-        let result = tool.execute(json!({
-            "message": "nothing to commit"
-        }), &ctx_with_dir(dir.path())).await.unwrap();
+        let result = tool
+            .execute(
+                json!({
+                    "message": "nothing to commit"
+                }),
+                &ctx_with_dir(dir.path()),
+            )
+            .await
+            .unwrap();
         assert!(result.is_error, "Should fail with nothing staged");
     }
 }

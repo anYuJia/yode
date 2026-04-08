@@ -94,10 +94,7 @@ impl Tool for WebSearchTool {
         {
             Ok(r) => r,
             Err(e) => {
-                return Ok(ToolResult::error(format!(
-                    "Search request failed: {}",
-                    e
-                )));
+                return Ok(ToolResult::error(format!("Search request failed: {}", e)));
             }
         };
 
@@ -124,7 +121,10 @@ impl Tool for WebSearchTool {
         let mut output = String::new();
         if let Some(results) = result.get("results").and_then(|v| v.as_array()) {
             for (i, item) in results.iter().enumerate() {
-                let title = item.get("title").and_then(|v| v.as_str()).unwrap_or("(no title)");
+                let title = item
+                    .get("title")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("(no title)");
                 let url = item.get("url").and_then(|v| v.as_str()).unwrap_or("");
                 let content = item.get("content").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -142,12 +142,16 @@ impl Tool for WebSearchTool {
                 "query": query,
                 "result_count": 0,
             });
-            Ok(ToolResult::success_with_metadata(format!(
-                "No results found for '{}'.",
-                query
-            ), metadata))
+            Ok(ToolResult::success_with_metadata(
+                format!("No results found for '{}'.", query),
+                metadata,
+            ))
         } else {
-            let count = result.get("results").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
+            let count = result
+                .get("results")
+                .and_then(|v| v.as_array())
+                .map(|a| a.len())
+                .unwrap_or(0);
             let metadata = json!({
                 "query": query,
                 "result_count": count,

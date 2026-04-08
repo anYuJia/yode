@@ -13,11 +13,14 @@ impl Tool for SnipTool {
     }
 
     fn user_facing_name(&self) -> &str {
-        "" 
+        ""
     }
 
     fn activity_description(&self, params: &Value) -> String {
-        let path = params.get("file_path").and_then(|v| v.as_str()).unwrap_or("");
+        let path = params
+            .get("file_path")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         format!("Snipping file: {}", path)
     }
 
@@ -55,8 +58,14 @@ impl Tool for SnipTool {
     }
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
-        let file_path = params.get("file_path").and_then(|v| v.as_str()).unwrap_or("");
-        let start_line = params.get("start_line").and_then(|v| v.as_u64()).unwrap_or(1) as usize;
+        let file_path = params
+            .get("file_path")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let start_line = params
+            .get("start_line")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(1) as usize;
         let end_line = params.get("end_line").and_then(|v| v.as_u64()).unwrap_or(1) as usize;
 
         if file_path.is_empty() {
@@ -71,12 +80,17 @@ impl Tool for SnipTool {
 
         let content = tokio::fs::read_to_string(file_path).await?;
         let lines: Vec<&str> = content.lines().collect();
-        
+
         let start = start_line.saturating_sub(1);
         let end = end_line.min(lines.len());
-        
+
         if start >= lines.len() || start > end {
-            return Ok(ToolResult::error(format!("Line range {}-{} is out of bounds (file has {} lines).", start_line, end_line, lines.len())));
+            return Ok(ToolResult::error(format!(
+                "Line range {}-{} is out of bounds (file has {} lines).",
+                start_line,
+                end_line,
+                lines.len()
+            )));
         }
 
         let snippet = lines[start..end].join("\n");
