@@ -14,7 +14,9 @@ use yode_llm::types::{
 };
 use yode_tools::registry::ToolRegistry;
 use yode_tools::state::TaskStore;
-use yode_tools::tool::{SubAgentRunner, ToolContext, ToolErrorType, ToolResult, UserQuery, SubAgentOptions};
+use yode_tools::tool::{
+    SubAgentOptions, SubAgentRunner, ToolContext, ToolErrorType, ToolResult, UserQuery,
+};
 use yode_tools::validation;
 
 use crate::context::{AgentContext, EffortLevel, QuerySource};
@@ -54,17 +56,30 @@ fn classify_error(err: &anyhow::Error) -> ErrorKind {
     let msg = format!("{:#}", err);
     if msg.contains("429") || msg.contains("rate_limit") || msg.contains("Too Many Requests") {
         ErrorKind::RateLimit
-    } else if msg.contains("500") || msg.contains("502") || msg.contains("503") || msg.contains("504")
-        || msg.contains("timeout") || msg.contains("超时") || msg.contains("timed out")
-        || msg.contains("connection") || msg.contains("Connection")
-        || msg.contains("ECONNRESET") || msg.contains("ECONNREFUSED")
-        || msg.contains("Broken pipe") || msg.contains("reset by peer")
-        || msg.contains("Failed to send") || msg.contains("failed to send")
-        || msg.contains("dns error") || msg.contains("DNS error")
-        || msg.contains("hyper") || msg.contains("reqwest")
-        || msg.contains("network") || msg.contains("Network")
+    } else if msg.contains("500")
+        || msg.contains("502")
+        || msg.contains("503")
+        || msg.contains("504")
+        || msg.contains("timeout")
+        || msg.contains("超时")
+        || msg.contains("timed out")
+        || msg.contains("connection")
+        || msg.contains("Connection")
+        || msg.contains("ECONNRESET")
+        || msg.contains("ECONNREFUSED")
+        || msg.contains("Broken pipe")
+        || msg.contains("reset by peer")
+        || msg.contains("Failed to send")
+        || msg.contains("failed to send")
+        || msg.contains("dns error")
+        || msg.contains("DNS error")
+        || msg.contains("hyper")
+        || msg.contains("reqwest")
+        || msg.contains("network")
+        || msg.contains("Network")
         || msg.contains("temporarily unavailable")
-        || msg.contains("connect error") || msg.contains("Connect error")
+        || msg.contains("connect error")
+        || msg.contains("Connect error")
     {
         ErrorKind::Transient
     } else {
@@ -92,7 +107,8 @@ fn retry_delay(kind: ErrorKind, attempt: u32) -> std::time::Duration {
             let jitter = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_millis() % 1000;
+                .as_millis()
+                % 1000;
             std::time::Duration::from_millis((base_secs * 1000) + jitter as u64)
         }
         ErrorKind::Fatal => std::time::Duration::from_secs(0),
@@ -179,10 +195,7 @@ pub enum EngineEvent {
         delay_secs: u64,
     },
     /// Tool is asking user a question
-    AskUser {
-        id: String,
-        question: String,
-    },
+    AskUser { id: String, question: String },
     /// Agent loop finished (no more tool calls)
     Done,
     /// Sub-agent started
@@ -196,7 +209,11 @@ pub enum EngineEvent {
     /// Plan mode exited
     PlanModeExited,
     /// Context window was compressed to fit within limits
-    ContextCompressed { removed: usize },
+    ContextCompressed {
+        removed: usize,
+        tool_results_truncated: usize,
+        summary: Option<String>,
+    },
     /// Cost update after API call
     CostUpdate {
         estimated_cost: f64,
@@ -296,9 +313,17 @@ fn convert_tool_definitions(registry: &ToolRegistry) -> Vec<LlmToolDefinition> {
 fn truncate_tool_result(result: ToolResult) -> ToolResult {
     if result.content.len() > MAX_TOOL_RESULT_SIZE {
         let head_size = MAX_TOOL_RESULT_SIZE * 3 / 4; // 75% from start
-        let tail_size = MAX_TOOL_RESULT_SIZE / 4;       // 25% from end
+        let tail_size = MAX_TOOL_RESULT_SIZE / 4; // 25% from end
         let head: String = result.content.chars().take(head_size).collect();
-        let tail: String = result.content.chars().rev().take(tail_size).collect::<String>().chars().rev().collect();
+        let tail: String = result
+            .content
+            .chars()
+            .rev()
+            .take(tail_size)
+            .collect::<String>()
+            .chars()
+            .rev()
+            .collect();
         ToolResult {
             content: format!(
                 "{}\n\n... [TRUNCATED: Original {} bytes, content omitted to prevent context overflow. Use search tools (grep/glob) or targeted reads (offset/limit) to inspect the rest] ...\n\n{}",
@@ -321,7 +346,8 @@ impl AgentEngine {
     fn detect_project_kind(root: &std::path::Path) -> ProjectKind {
         let has_cargo = root.join("Cargo.toml").exists();
         let has_node = root.join("package.json").exists();
-        let has_python = root.join("pyproject.toml").exists() || root.join("requirements.txt").exists();
+        let has_python =
+            root.join("pyproject.toml").exists() || root.join("requirements.txt").exists();
 
         match (has_cargo, has_node, has_python) {
             (true, false, false) => ProjectKind::Rust,
@@ -333,9 +359,18 @@ impl AgentEngine {
     }
 
     fn update_recovery_state(&mut self) {
-        let not_found = *self.error_buckets.get(&ToolErrorType::NotFound).unwrap_or(&0);
-        let validation = *self.error_buckets.get(&ToolErrorType::Validation).unwrap_or(&0);
-        let timeout = *self.error_buckets.get(&ToolErrorType::Timeout).unwrap_or(&0);
+        let not_found = *self
+            .error_buckets
+            .get(&ToolErrorType::NotFound)
+            .unwrap_or(&0);
+        let validation = *self
+            .error_buckets
+            .get(&ToolErrorType::Validation)
+            .unwrap_or(&0);
+        let timeout = *self
+            .error_buckets
+            .get(&ToolErrorType::Timeout)
+            .unwrap_or(&0);
 
         self.recovery_state = if self.consecutive_failures >= 3 {
             RecoveryState::NeedUserGuidance
@@ -348,7 +383,11 @@ impl AgentEngine {
         };
     }
 
-    fn language_command_mismatch(&self, tool_name: &str, params: &serde_json::Value) -> Option<String> {
+    fn language_command_mismatch(
+        &self,
+        tool_name: &str,
+        params: &serde_json::Value,
+    ) -> Option<String> {
         if tool_name != "bash" {
             return None;
         }
@@ -365,7 +404,10 @@ impl AgentEngine {
         }
 
         let starts_with_cargo = cmd.starts_with("cargo ");
-        let starts_with_npm = cmd.starts_with("npm ") || cmd.starts_with("pnpm ") || cmd.starts_with("yarn ") || cmd.starts_with("bun ");
+        let starts_with_npm = cmd.starts_with("npm ")
+            || cmd.starts_with("pnpm ")
+            || cmd.starts_with("yarn ")
+            || cmd.starts_with("bun ");
 
         match self.project_kind {
             ProjectKind::Node if starts_with_cargo => Some("Project appears to be Node/TypeScript. Avoid cargo commands until Rust root is verified.".to_string()),
@@ -384,7 +426,7 @@ impl AgentEngine {
 
         // Inject runtime environment info
         system_prompt.push_str("\n\n# Environment\n\n");
-        
+
         // Block to safely get initial runtime state
         let (cwd, project_root) = {
             // We use a sync-friendly way here for initial prompt or just use the root
@@ -435,13 +477,18 @@ impl AgentEngine {
                 "explanatory" => {
                     system_prompt.push_str("You are in **Explanatory Mode**. Before and after writing code, provide brief educational insights about implementation choices.\n");
                     system_prompt.push_str("Include 2-3 key educational points explaining WHY you chose this approach.\n");
-                    system_prompt.push_str("These insights should be in the conversation, not in the codebase.\n");
+                    system_prompt.push_str(
+                        "These insights should be in the conversation, not in the codebase.\n",
+                    );
                 }
                 "learning" => {
                     system_prompt.push_str("You are in **Learning Mode**. Help the user learn through hands-on practice.\n");
-                    system_prompt.push_str("- Request user input for meaningful design decisions\n");
+                    system_prompt
+                        .push_str("- Request user input for meaningful design decisions\n");
                     system_prompt.push_str("- Ask the user to write small code pieces (2-10 lines) for key decisions\n");
-                    system_prompt.push_str("- Frame contributions as valuable design decisions, not busy work\n");
+                    system_prompt.push_str(
+                        "- Frame contributions as valuable design decisions, not busy work\n",
+                    );
                     system_prompt.push_str("- Wait for user implementation before proceeding\n");
                 }
                 _ => {}
@@ -560,13 +607,18 @@ impl AgentEngine {
                 "explanatory" => {
                     system_prompt.push_str("You are in **Explanatory Mode**. Before and after writing code, provide brief educational insights about implementation choices.\n");
                     system_prompt.push_str("Include 2-3 key educational points explaining WHY you chose this approach.\n");
-                    system_prompt.push_str("These insights should be in the conversation, not in the codebase.\n");
+                    system_prompt.push_str(
+                        "These insights should be in the conversation, not in the codebase.\n",
+                    );
                 }
                 "learning" => {
                     system_prompt.push_str("You are in **Learning Mode**. Help the user learn through hands-on practice.\n");
-                    system_prompt.push_str("- Request user input for meaningful design decisions\n");
+                    system_prompt
+                        .push_str("- Request user input for meaningful design decisions\n");
                     system_prompt.push_str("- Ask the user to write small code pieces (2-10 lines) for key decisions\n");
-                    system_prompt.push_str("- Frame contributions as valuable design decisions, not busy work\n");
+                    system_prompt.push_str(
+                        "- Frame contributions as valuable design decisions, not busy work\n",
+                    );
                     system_prompt.push_str("- Wait for user implementation before proceeding\n");
                 }
                 _ => {}
@@ -583,15 +635,33 @@ impl AgentEngine {
         }
     }
 
-    pub fn set_effort(&mut self, level: EffortLevel) { self.context.effort = level; }
-    pub fn effort(&self) -> EffortLevel { self.context.effort }
-    pub fn current_model(&self) -> &str { &self.context.model }
-    pub fn current_provider(&self) -> &str { &self.context.provider }
-    pub fn permissions(&self) -> &PermissionManager { &self.permissions }
-    pub fn permissions_mut(&mut self) -> &mut PermissionManager { &mut self.permissions }
-    pub fn cost_tracker(&self) -> &CostTracker { &self.cost_tracker }
-    pub fn cost_tracker_mut(&mut self) -> &mut CostTracker { &mut self.cost_tracker }
-    pub fn get_database(&self) -> Option<&Database> { self.db.as_ref() }
+    pub fn set_effort(&mut self, level: EffortLevel) {
+        self.context.effort = level;
+    }
+    pub fn effort(&self) -> EffortLevel {
+        self.context.effort
+    }
+    pub fn current_model(&self) -> &str {
+        &self.context.model
+    }
+    pub fn current_provider(&self) -> &str {
+        &self.context.provider
+    }
+    pub fn permissions(&self) -> &PermissionManager {
+        &self.permissions
+    }
+    pub fn permissions_mut(&mut self) -> &mut PermissionManager {
+        &mut self.permissions
+    }
+    pub fn cost_tracker(&self) -> &CostTracker {
+        &self.cost_tracker
+    }
+    pub fn cost_tracker_mut(&mut self) -> &mut CostTracker {
+        &mut self.cost_tracker
+    }
+    pub fn get_database(&self) -> Option<&Database> {
+        self.db.as_ref()
+    }
 
     /// Set hook manager.
     pub fn set_hook_manager(&mut self, mgr: HookManager) {
@@ -614,7 +684,7 @@ impl AgentEngine {
         progress_tx: Option<mpsc::UnboundedSender<yode_tools::tool::ToolProgress>>,
     ) -> ToolContext {
         let cwd = self.context.runtime.lock().await.cwd.clone();
-        
+
         ToolContext {
             registry: Some(Arc::clone(&self.tools)),
             tasks: Some(Arc::clone(&self.task_store)),
@@ -627,7 +697,9 @@ impl AgentEngine {
             cron_manager: None,
             lsp_manager: None,
             worktree_state: None,
-            read_file_history: Some(Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new()))),
+            read_file_history: Some(Arc::new(tokio::sync::Mutex::new(
+                std::collections::HashSet::new(),
+            ))),
             plan_mode: Some(Arc::clone(&self.plan_mode)),
         }
     }
@@ -682,7 +754,8 @@ impl AgentEngine {
                 let path = entry.path();
                 if path.extension().and_then(|s| s.to_str()) == Some("md") {
                     if let Ok(content) = std::fs::read_to_string(&path) {
-                        let file_name = path.file_name()
+                        let file_name = path
+                            .file_name()
                             .and_then(|s| s.to_str())
                             .unwrap_or("unknown");
                         memory_contents.push(format!("## {}\n\n{}", file_name, content));
@@ -722,7 +795,10 @@ impl AgentEngine {
             self.messages.push(sys);
         }
         self.messages.extend(messages);
-        info!("Restored {} messages from database", self.messages.len() - 1);
+        info!(
+            "Restored {} messages from database",
+            self.messages.len() - 1
+        );
     }
 
     /// Clear conversation history, keeping only the system prompt.
@@ -739,9 +815,23 @@ impl AgentEngine {
     }
 
     /// Save a message to the database if available.
-    fn persist_message(&self, role: &str, content: Option<&str>, reasoning: Option<&str>, tool_calls_json: Option<&str>, tool_call_id: Option<&str>) {
+    fn persist_message(
+        &self,
+        role: &str,
+        content: Option<&str>,
+        reasoning: Option<&str>,
+        tool_calls_json: Option<&str>,
+        tool_call_id: Option<&str>,
+    ) {
         if let Some(ref db) = self.db {
-            if let Err(e) = db.save_message(&self.context.session_id, role, content, reasoning, tool_calls_json, tool_call_id) {
+            if let Err(e) = db.save_message(
+                &self.context.session_id,
+                role,
+                content,
+                reasoning,
+                tool_calls_json,
+                tool_call_id,
+            ) {
                 warn!("Failed to persist message: {}", e);
             }
             if let Err(e) = db.touch_session(&self.context.session_id) {
@@ -757,7 +847,7 @@ impl AgentEngine {
         _source: QuerySource,
         event_tx: mpsc::UnboundedSender<EngineEvent>,
         mut confirm_rx: mpsc::UnboundedReceiver<ConfirmResponse>,
-        ) -> Result<()> {
+    ) -> Result<()> {
         let _ = event_tx.send(EngineEvent::Thinking);
 
         // Optional pre-read hook before LLM call
@@ -781,7 +871,10 @@ impl AgentEngine {
                 }
             }
             if !combined.is_empty() {
-                self.messages.push(Message::system(&format!("[System Auto-Context via pre_turn hooks]\n{}", combined)));
+                self.messages.push(Message::system(&format!(
+                    "[System Auto-Context via pre_turn hooks]\n{}",
+                    combined
+                )));
             }
         }
 
@@ -841,10 +934,19 @@ impl AgentEngine {
             }
 
             // Check if context window needs compression (should_compress caches token count)
-            if self.context_manager.should_compress(response.usage.prompt_tokens, &self.messages) {
-                let removed = self.context_manager.compress(&mut self.messages);
-                if removed > 0 {
-                    let _ = event_tx.send(EngineEvent::ContextCompressed { removed });
+            if self
+                .context_manager
+                .should_compress(response.usage.prompt_tokens, &self.messages)
+            {
+                let report = self
+                    .context_manager
+                    .compress_with_report(&mut self.messages);
+                if report.removed > 0 || report.tool_results_truncated > 0 {
+                    let _ = event_tx.send(EngineEvent::ContextCompressed {
+                        removed: report.removed,
+                        tool_results_truncated: report.tool_results_truncated,
+                        summary: report.summary.clone(),
+                    });
                 }
             }
 
@@ -866,7 +968,12 @@ impl AgentEngine {
                     assistant_msg.content = Some(warning.to_string());
                 }
                 warn!("LLM response truncated due to max_tokens");
-            } else if response.stop_reason == Some(yode_llm::types::StopReason::StopSequence) || matches!(response.stop_reason, Some(yode_llm::types::StopReason::Other(_))) {
+            } else if response.stop_reason == Some(yode_llm::types::StopReason::StopSequence)
+                || matches!(
+                    response.stop_reason,
+                    Some(yode_llm::types::StopReason::Other(_))
+                )
+            {
                 if let Some(ref content) = assistant_msg.content {
                     if content.contains("[tool_") || content.contains("<tool_") {
                         warn!("LLM response stopped via stop sequence or other reason but contains incomplete tool tags. Reason: {:?}", response.stop_reason);
@@ -887,12 +994,18 @@ impl AgentEngine {
                 if let Some(content) = assistant_msg.content.clone() {
                     let recovered = self.recover_leaked_tool_calls(&content);
                     if !recovered.is_empty() {
-                        info!("Recovered {} leaked tool calls from text response (non-streaming).", recovered.len());
+                        info!(
+                            "Recovered {} leaked tool calls from text response (non-streaming).",
+                            recovered.len()
+                        );
                         assistant_msg.tool_calls = recovered;
                         self.violation_retries = 0;
                     } else if self.is_protocol_violation(&content) {
                         self.consecutive_failures = self.consecutive_failures.saturating_add(1);
-                        let bucket = self.error_buckets.entry(ToolErrorType::Protocol).or_insert(0);
+                        let bucket = self
+                            .error_buckets
+                            .entry(ToolErrorType::Protocol)
+                            .or_insert(0);
                         *bucket += 1;
                     }
                 }
@@ -900,6 +1013,7 @@ impl AgentEngine {
                 self.violation_retries = 0;
             }
 
+            assistant_msg.normalize_in_place();
             self.messages.push(assistant_msg.clone());
 
             // Persist assistant message
@@ -943,7 +1057,8 @@ impl AgentEngine {
 
                     self.inject_intelligence(&mut result, &tc.name, &tc.arguments);
 
-                    self.messages.push(Message::tool_result(&tc.id, &result.content));
+                    self.messages
+                        .push(Message::tool_result(&tc.id, &result.content));
                     self.persist_message("tool", Some(&result.content), None, None, Some(&tc.id));
 
                     let _ = event_tx.send(EngineEvent::ToolResult {
@@ -965,8 +1080,15 @@ impl AgentEngine {
 
                     self.inject_intelligence(&mut result, &tool_call.name, &tool_call.arguments);
 
-                    self.messages.push(Message::tool_result(&tool_call.id, &result.content));
-                    self.persist_message("tool", Some(&result.content), None, None, Some(&tool_call.id));
+                    self.messages
+                        .push(Message::tool_result(&tool_call.id, &result.content));
+                    self.persist_message(
+                        "tool",
+                        Some(&result.content),
+                        None,
+                        None,
+                        Some(&tool_call.id),
+                    );
 
                     let _ = event_tx.send(EngineEvent::ToolResult {
                         id: tool_call.id.clone(),
@@ -1032,7 +1154,10 @@ impl AgentEngine {
                 }
             }
             if !combined.is_empty() {
-                self.messages.push(Message::system(&format!("[System Auto-Context via pre_turn hooks]\n{}", combined)));
+                self.messages.push(Message::system(&format!(
+                    "[System Auto-Context via pre_turn hooks]\n{}",
+                    combined
+                )));
             }
         }
 
@@ -1079,10 +1204,14 @@ impl AgentEngine {
                 let result = tokio::time::timeout(
                     std::time::Duration::from_secs(LLM_TIMEOUT_SECS.max(600)),
                     provider.chat_stream(request, stream_tx),
-                ).await;
+                )
+                .await;
                 match result {
                     Ok(inner) => inner,
-                    Err(_) => Err(anyhow::anyhow!("LLM 调用超时 ({}秒)", LLM_TIMEOUT_SECS.max(600))),
+                    Err(_) => Err(anyhow::anyhow!(
+                        "LLM 调用超时 ({}秒)",
+                        LLM_TIMEOUT_SECS.max(600)
+                    )),
                 }
             });
 
@@ -1098,7 +1227,10 @@ impl AgentEngine {
             loop {
                 // Global per-turn timeout guard: stop endless streaming/ruminating.
                 if turn_start.elapsed() > hard_turn_timeout {
-                    warn!("Streaming turn timed out after {:?}; forcing completion", hard_turn_timeout);
+                    warn!(
+                        "Streaming turn timed out after {:?}; forcing completion",
+                        hard_turn_timeout
+                    );
                     stream_handle.abort();
                     stalled = true;
                     break;
@@ -1106,7 +1238,10 @@ impl AgentEngine {
 
                 // Watchdog: no progress events for too long => force break.
                 if last_progress_at.elapsed() > stall_timeout {
-                    warn!("Streaming stalled for {:?} without progress; forcing completion", stall_timeout);
+                    warn!(
+                        "Streaming stalled for {:?} without progress; forcing completion",
+                        stall_timeout
+                    );
                     stream_handle.abort();
                     stalled = true;
                     break;
@@ -1136,12 +1271,23 @@ impl AgentEngine {
                         }
                     }
                 } else {
-                    match tokio::time::timeout(std::time::Duration::from_secs(2), stream_rx.recv()).await {
+                    match tokio::time::timeout(std::time::Duration::from_secs(2), stream_rx.recv())
+                        .await
+                    {
                         Ok(Some(ev)) => {
                             last_progress_at = std::time::Instant::now();
                             let is_done = matches!(ev, StreamEvent::Done(_));
-                            Self::process_stream_event(ev, &mut full_text, &mut full_reasoning, &mut tool_calls, &mut final_response, &event_tx);
-                            if is_done { break; }
+                            Self::process_stream_event(
+                                ev,
+                                &mut full_text,
+                                &mut full_reasoning,
+                                &mut tool_calls,
+                                &mut final_response,
+                                &event_tx,
+                            );
+                            if is_done {
+                                break;
+                            }
                         }
                         Ok(None) => break,
                         Err(_) => {
@@ -1157,28 +1303,50 @@ impl AgentEngine {
                 if !full_text.is_empty() || !full_reasoning.is_empty() {
                     let mut blocks = Vec::new();
                     if !full_reasoning.is_empty() {
-                        blocks.push(yode_llm::types::ContentBlock::Thinking { thinking: full_reasoning.clone(), signature: None });
+                        blocks.push(yode_llm::types::ContentBlock::Thinking {
+                            thinking: full_reasoning.clone(),
+                            signature: None,
+                        });
                     }
                     if !full_text.is_empty() {
-                        blocks.push(yode_llm::types::ContentBlock::Text { text: full_text.clone() });
+                        blocks.push(yode_llm::types::ContentBlock::Text {
+                            text: full_text.clone(),
+                        });
                     }
 
                     let assistant_msg = Message {
                         role: Role::Assistant,
-                        content: if full_text.is_empty() { None } else { Some(full_text.clone()) },
-                        reasoning: if full_reasoning.is_empty() { None } else { Some(full_reasoning.clone()) },
+                        content: if full_text.is_empty() {
+                            None
+                        } else {
+                            Some(full_text.clone())
+                        },
+                        reasoning: if full_reasoning.is_empty() {
+                            None
+                        } else {
+                            Some(full_reasoning.clone())
+                        },
                         content_blocks: blocks,
                         tool_calls: vec![],
                         tool_call_id: None,
                         images: Vec::new(),
-                    };
+                    }
+                    .normalized();
                     self.messages.push(assistant_msg);
                     self.persist_message(
                         "assistant",
-                        if full_text.is_empty() { None } else { Some(&full_text) },
-                        if full_reasoning.is_empty() { None } else { Some(&full_reasoning) },
+                        if full_text.is_empty() {
+                            None
+                        } else {
+                            Some(&full_text)
+                        },
+                        if full_reasoning.is_empty() {
+                            None
+                        } else {
+                            Some(&full_reasoning)
+                        },
                         None,
-                        None
+                        None,
                     );
                 }
                 if stalled {
@@ -1251,7 +1419,7 @@ impl AgentEngine {
                                     messages: self.messages.clone(),
                                     tools: convert_tool_definitions(&self.tools),
                                     temperature: Some(0.7),
-                                    max_tokens: Some(4096),
+                                    max_tokens: Some(self.context.get_max_tokens()),
                                 };
 
                                 // Retry streaming
@@ -1261,10 +1429,14 @@ impl AgentEngine {
                                     let result = tokio::time::timeout(
                                         std::time::Duration::from_secs(LLM_TIMEOUT_SECS),
                                         retry_provider.chat_stream(retry_request, retry_tx),
-                                    ).await;
+                                    )
+                                    .await;
                                     match result {
                                         Ok(inner) => inner,
-                                        Err(_) => Err(anyhow::anyhow!("LLM 调用超时 ({}秒)", LLM_TIMEOUT_SECS)),
+                                        Err(_) => Err(anyhow::anyhow!(
+                                            "LLM 调用超时 ({}秒)",
+                                            LLM_TIMEOUT_SECS
+                                        )),
                                     }
                                 });
 
@@ -1293,8 +1465,17 @@ impl AgentEngine {
                                         match retry_rx.recv().await {
                                             Some(ev) => {
                                                 let is_done = matches!(ev, StreamEvent::Done(_));
-                                                Self::process_stream_event(ev, &mut full_text, &mut full_reasoning, &mut tool_calls, &mut final_response, &event_tx);
-                                                if is_done { break; }
+                                                Self::process_stream_event(
+                                                    ev,
+                                                    &mut full_text,
+                                                    &mut full_reasoning,
+                                                    &mut tool_calls,
+                                                    &mut final_response,
+                                                    &event_tx,
+                                                );
+                                                if is_done {
+                                                    break;
+                                                }
                                             }
                                             None => break,
                                         }
@@ -1305,28 +1486,50 @@ impl AgentEngine {
                                     if !full_text.is_empty() || !full_reasoning.is_empty() {
                                         let mut blocks = Vec::new();
                                         if !full_reasoning.is_empty() {
-                                            blocks.push(yode_llm::types::ContentBlock::Thinking { thinking: full_reasoning.clone(), signature: None });
+                                            blocks.push(yode_llm::types::ContentBlock::Thinking {
+                                                thinking: full_reasoning.clone(),
+                                                signature: None,
+                                            });
                                         }
                                         if !full_text.is_empty() {
-                                            blocks.push(yode_llm::types::ContentBlock::Text { text: full_text.clone() });
+                                            blocks.push(yode_llm::types::ContentBlock::Text {
+                                                text: full_text.clone(),
+                                            });
                                         }
 
                                         let assistant_msg = Message {
                                             role: Role::Assistant,
-                                            content: if full_text.is_empty() { None } else { Some(full_text.clone()) },
-                                            reasoning: if full_reasoning.is_empty() { None } else { Some(full_reasoning.clone()) },
+                                            content: if full_text.is_empty() {
+                                                None
+                                            } else {
+                                                Some(full_text.clone())
+                                            },
+                                            reasoning: if full_reasoning.is_empty() {
+                                                None
+                                            } else {
+                                                Some(full_reasoning.clone())
+                                            },
                                             content_blocks: blocks,
                                             tool_calls: vec![],
                                             tool_call_id: None,
                                             images: Vec::new(),
-                                        };
+                                        }
+                                        .normalized();
                                         self.messages.push(assistant_msg);
                                         self.persist_message(
                                             "assistant",
-                                            if full_text.is_empty() { None } else { Some(&full_text) },
-                                            if full_reasoning.is_empty() { None } else { Some(&full_reasoning) },
+                                            if full_text.is_empty() {
+                                                None
+                                            } else {
+                                                Some(&full_text)
+                                            },
+                                            if full_reasoning.is_empty() {
+                                                None
+                                            } else {
+                                                Some(&full_reasoning)
+                                            },
                                             None,
-                                            None
+                                            None,
                                         );
                                     }
                                     let _ = event_tx.send(EngineEvent::Done);
@@ -1339,10 +1542,20 @@ impl AgentEngine {
                                         break;
                                     }
                                     Ok(Err(e2)) => {
-                                        warn!("Stream retry {}/{} failed: {}", attempt + 1, max_attempts, e2);
+                                        warn!(
+                                            "Stream retry {}/{} failed: {}",
+                                            attempt + 1,
+                                            max_attempts,
+                                            e2
+                                        );
                                     }
                                     Err(e2) => {
-                                        warn!("Stream retry {}/{} panicked: {}", attempt + 1, max_attempts, e2);
+                                        warn!(
+                                            "Stream retry {}/{} panicked: {}",
+                                            attempt + 1,
+                                            max_attempts,
+                                            e2
+                                        );
                                     }
                                 }
 
@@ -1371,10 +1584,19 @@ impl AgentEngine {
 
             // Check if context window needs compression based on final response usage
             if let Some(ref resp) = final_response {
-                if self.context_manager.should_compress(resp.usage.prompt_tokens, &self.messages) {
-                    let removed = self.context_manager.compress(&mut self.messages);
-                    if removed > 0 {
-                        let _ = event_tx.send(EngineEvent::ContextCompressed { removed });
+                if self
+                    .context_manager
+                    .should_compress(resp.usage.prompt_tokens, &self.messages)
+                {
+                    let report = self
+                        .context_manager
+                        .compress_with_report(&mut self.messages);
+                    if report.removed > 0 || report.tool_results_truncated > 0 {
+                        let _ = event_tx.send(EngineEvent::ContextCompressed {
+                            removed: report.removed,
+                            tool_results_truncated: report.tool_results_truncated,
+                            summary: report.summary.clone(),
+                        });
                     }
                 }
             }
@@ -1382,9 +1604,17 @@ impl AgentEngine {
             // Build assistant message from stream
             let mut assistant_msg = Message {
                 role: Role::Assistant,
-                content: if full_text.is_empty() { None } else { Some(full_text.clone()) },
-                reasoning: if full_reasoning.is_empty() { None } else { Some(full_reasoning.clone()) },
-                content_blocks: Vec::new(), 
+                content: if full_text.is_empty() {
+                    None
+                } else {
+                    Some(full_text.clone())
+                },
+                reasoning: if full_reasoning.is_empty() {
+                    None
+                } else {
+                    Some(full_reasoning.clone())
+                },
+                content_blocks: Vec::new(),
                 tool_calls: tool_calls.clone(),
                 tool_call_id: None,
                 images: Vec::new(),
@@ -1402,7 +1632,12 @@ impl AgentEngine {
                         full_text = warning.to_string();
                     }
                     warn!("LLM streaming response truncated due to max_tokens");
-                } else if resp.stop_reason == Some(yode_llm::types::StopReason::StopSequence) || matches!(resp.stop_reason, Some(yode_llm::types::StopReason::Other(_))) {
+                } else if resp.stop_reason == Some(yode_llm::types::StopReason::StopSequence)
+                    || matches!(
+                        resp.stop_reason,
+                        Some(yode_llm::types::StopReason::Other(_))
+                    )
+                {
                     if full_text.contains("[tool_") || full_text.contains("<tool_") {
                         warn!("LLM streaming response stopped via stop sequence or other reason but contains incomplete tool tags. Reason: {:?}", resp.stop_reason);
                     }
@@ -1410,7 +1645,10 @@ impl AgentEngine {
             }
 
             // --- PR-1: Strict Protocol Gate & Auto Recovery/Retry ---
-            if assistant_msg.tool_calls.is_empty() && !full_text.is_empty() && self.is_protocol_violation(&full_text) {
+            if assistant_msg.tool_calls.is_empty()
+                && !full_text.is_empty()
+                && self.is_protocol_violation(&full_text)
+            {
                 // Try recovery first (Repair instead of Fail)
                 let recovered = self.recover_leaked_tool_calls(&full_text);
                 if !recovered.is_empty() {
@@ -1422,7 +1660,7 @@ impl AgentEngine {
                     self.violation_retries += 1;
                     warn!("Protocol violation detected (attempt {}). Retrying with strict constraints...", self.violation_retries);
                     let _ = event_tx.send(EngineEvent::Thinking);
-                    
+
                     self.messages.push(Message::user(
                         "STRICT PROTOCOL VIOLATION: You outputted internal tool tags ([tool_use], [DUMMY_TOOL], etc.) in your text response. \
                          This is forbidden. Please respond again using ONLY natural language. Do NOT use tool tags or JSON in this response."
@@ -1450,12 +1688,22 @@ impl AgentEngine {
 
             // Build content blocks for history
             if !full_reasoning.is_empty() {
-                assistant_msg.content_blocks.push(yode_llm::types::ContentBlock::Thinking { thinking: full_reasoning.clone(), signature: None });
+                assistant_msg
+                    .content_blocks
+                    .push(yode_llm::types::ContentBlock::Thinking {
+                        thinking: full_reasoning.clone(),
+                        signature: None,
+                    });
             }
             if !full_text.is_empty() {
-                assistant_msg.content_blocks.push(yode_llm::types::ContentBlock::Text { text: full_text.clone() });
+                assistant_msg
+                    .content_blocks
+                    .push(yode_llm::types::ContentBlock::Text {
+                        text: full_text.clone(),
+                    });
             }
-            
+
+            assistant_msg.normalize_in_place();
             self.messages.push(assistant_msg.clone());
 
             // Persist assistant message
@@ -1502,8 +1750,15 @@ impl AgentEngine {
                             result.content.push_str("\n\n[Budget notice: 15 tool calls used. Consider summarizing current findings before continuing.]");
                         }
 
-                        self.messages.push(Message::tool_result(&tc.id, &result.content));
-                        self.persist_message("tool", Some(&result.content), None, None, Some(&tc.id));
+                        self.messages
+                            .push(Message::tool_result(&tc.id, &result.content));
+                        self.persist_message(
+                            "tool",
+                            Some(&result.content),
+                            None,
+                            None,
+                            Some(&tc.id),
+                        );
 
                         let _ = event_tx.send(EngineEvent::ToolResult {
                             id: tc.id.clone(),
@@ -1523,7 +1778,12 @@ impl AgentEngine {
                     }
 
                     let result = self
-                        .handle_tool_call(tool_call, &event_tx, &mut confirm_rx, cancel_token.as_ref())
+                        .handle_tool_call(
+                            tool_call,
+                            &event_tx,
+                            &mut confirm_rx,
+                            cancel_token.as_ref(),
+                        )
                         .await?;
 
                     let mut result = truncate_tool_result(result);
@@ -1532,7 +1792,13 @@ impl AgentEngine {
 
                     self.messages
                         .push(Message::tool_result(&tool_call.id, &result.content));
-                    self.persist_message("tool", Some(&result.content), None, None, Some(&tool_call.id));
+                    self.persist_message(
+                        "tool",
+                        Some(&result.content),
+                        None,
+                        None,
+                        Some(&tool_call.id),
+                    );
 
                     let _ = event_tx.send(EngineEvent::ToolResult {
                         id: tool_call.id.clone(),
@@ -1573,7 +1839,7 @@ impl AgentEngine {
                     if content.contains("[tool_use") || content.contains("[DUMMY_TOOL") {
                         resp.message.content = Some(self.clean_assistant_response(&content));
                     }
-                    
+
                     // Strict mode: do NOT recover leaked tool calls from plain text.
                     // Claude-style stability favors schema-valid metadata only.
                     // Text pseudo-calls frequently cause malformed histories and API 400s.
@@ -1688,7 +1954,10 @@ impl AgentEngine {
 
         loop {
             if attempt > 0 && attempt <= max_attempts {
-                let kind = last_err.as_ref().map(classify_error).unwrap_or(ErrorKind::Transient);
+                let kind = last_err
+                    .as_ref()
+                    .map(classify_error)
+                    .unwrap_or(ErrorKind::Transient);
                 let delay = retry_delay(kind, attempt - 1);
                 let total_secs = delay.as_secs();
                 if let Some(tx) = event_tx {
@@ -1717,7 +1986,8 @@ impl AgentEngine {
             let result = tokio::time::timeout(
                 std::time::Duration::from_secs(LLM_TIMEOUT_SECS),
                 self.provider.chat(request.clone()),
-            ).await;
+            )
+            .await;
 
             match result {
                 Ok(Ok(response)) => return Ok(response),
@@ -1727,21 +1997,31 @@ impl AgentEngine {
                         return Err(e).context("LLM chat request failed");
                     }
                     max_attempts = max_retries_for(kind);
-                    warn!("LLM call failed (attempt {}/{}): {}", attempt + 1, max_attempts, e);
+                    warn!(
+                        "LLM call failed (attempt {}/{}): {}",
+                        attempt + 1,
+                        max_attempts,
+                        e
+                    );
                     last_err = Some(e);
                 }
                 Err(_) => {
                     let err = anyhow::anyhow!("LLM 调用超时 ({}秒)", LLM_TIMEOUT_SECS);
                     max_attempts = max_retries_for(ErrorKind::Transient);
-                    warn!("LLM call timed out (attempt {}/{})", attempt + 1, max_attempts);
+                    warn!(
+                        "LLM call timed out (attempt {}/{})",
+                        attempt + 1,
+                        max_attempts
+                    );
                     last_err = Some(err);
                 }
             }
             attempt += 1;
         }
 
-        Err(last_err.unwrap_or_else(|| anyhow::anyhow!("LLM call failed after {} retries", max_attempts)))
-            .context("LLM chat request failed")
+        Err(last_err
+            .unwrap_or_else(|| anyhow::anyhow!("LLM call failed after {} retries", max_attempts)))
+        .context("LLM chat request failed")
     }
 
     fn inject_intelligence(&mut self, result: &mut ToolResult, tool_name: &str, tool_args: &str) {
@@ -1750,7 +2030,7 @@ impl AgentEngine {
         // --- PR-1: Recovery FSM Logic ---
         if result.is_error {
             self.consecutive_failures += 1;
-            
+
             if let Some(err_type) = &result.error_type {
                 let err_type_val = *err_type;
                 {
@@ -1800,7 +2080,8 @@ impl AgentEngine {
 
             // Auto-exit re-anchor mode after a successful lightweight discovery action.
             // This mirrors Claude-style recovery flow: re-anchor first, then resume normal execution.
-            let is_discovery_tool = matches!(tool_name, "ls" | "glob" | "read_file" | "project_map");
+            let is_discovery_tool =
+                matches!(tool_name, "ls" | "glob" | "read_file" | "project_map");
             if self.recovery_state == RecoveryState::ReanchorRequired && is_discovery_tool {
                 self.consecutive_failures = 0;
                 self.error_buckets.clear();
@@ -1822,7 +2103,11 @@ impl AgentEngine {
         // Extract file_path from tool arguments if present
         let file_path = serde_json::from_str::<serde_json::Value>(tool_args)
             .ok()
-            .and_then(|v| v.get("file_path").and_then(|p| p.as_str()).map(String::from));
+            .and_then(|v| {
+                v.get("file_path")
+                    .and_then(|p| p.as_str())
+                    .map(String::from)
+            });
 
         if let Some(ref path) = file_path {
             match tool_name {
@@ -1853,7 +2138,7 @@ impl AgentEngine {
                 // First edit — remind about verification
                 result.content.push_str(
                     "\n\n[Next: Run `bash` with build command to verify. \
-                     If you changed a function signature, grep for callers to update them too.]"
+                     If you changed a function signature, grep for callers to update them too.]",
                 );
             } else if self.files_modified.len() > 3 {
                 // Many edits — remind to build
@@ -1883,12 +2168,12 @@ impl AgentEngine {
         if self.consecutive_failures == 2 {
             result.content.push_str(
                 "\n\n[2 failures in a row. Your current approach isn't working. \
-                 Step back: What assumption might be wrong? Try a different tool or strategy.]"
+                 Step back: What assumption might be wrong? Try a different tool or strategy.]",
             );
         } else if self.consecutive_failures >= 3 {
             result.content.push_str(
                 "\n\n[3+ consecutive failures. STOP searching and summarize what you know. \
-                 Present your findings to the user and ask for guidance.]"
+                 Present your findings to the user and ask for guidance.]",
             );
         }
 
@@ -1898,7 +2183,7 @@ impl AgentEngine {
         if self.tool_call_count == TOOL_GOAL_REMINDER {
             result.content.push_str(
                 "\n\n[5 tool calls done. Quick check: Do you have enough information to act? \
-                 If yes, stop gathering and start implementing.]"
+                 If yes, stop gathering and start implementing.]",
             );
         }
 
@@ -1916,13 +2201,13 @@ impl AgentEngine {
 
         // Budget warnings
         if self.tool_call_count == TOOL_BUDGET_WARNING {
-            result.content.push_str(
-                "\n\n[Budget: 25 calls used. Produce your answer/fix NOW.]"
-            );
+            result
+                .content
+                .push_str("\n\n[Budget: 25 calls used. Produce your answer/fix NOW.]");
         } else if self.tool_call_count == TOOL_BUDGET_NOTICE {
-            result.content.push_str(
-                "\n\n[Budget: 15 calls. Start converging toward a solution.]"
-            );
+            result
+                .content
+                .push_str("\n\n[Budget: 15 calls. Start converging toward a solution.]");
         }
     }
 
@@ -1940,7 +2225,8 @@ impl AgentEngine {
         for tc in tool_calls {
             let can_parallel = if let Some(tool) = self.tools.get(&tc.name) {
                 let caps = tool.capabilities();
-                caps.read_only && matches!(self.permissions.check(&tc.name), PermissionAction::Allow)
+                caps.read_only
+                    && matches!(self.permissions.check(&tc.name), PermissionAction::Allow)
             } else {
                 false
             };
@@ -1984,7 +2270,9 @@ impl AgentEngine {
                     Some(format!("Fix the parameters and retry. Schema: {}", schema)),
                 );
                 futures.push(Box::pin(async move { (tc_clone, result) })
-                    as Pin<Box<dyn std::future::Future<Output = (ToolCall, ToolResult)> + Send>>);
+                    as Pin<
+                        Box<dyn std::future::Future<Output = (ToolCall, ToolResult)> + Send>,
+                    >);
                 continue;
             }
 
@@ -1994,7 +2282,10 @@ impl AgentEngine {
                 arguments: tc.arguments.clone(),
             });
 
-            info!("Executing tool in parallel: {} (auto-allowed, read-only)", tc.name);
+            info!(
+                "Executing tool in parallel: {} (auto-allowed, read-only)",
+                tc.name
+            );
 
             let (p_tx, mut p_rx) = mpsc::unbounded_channel::<yode_tools::tool::ToolProgress>();
             let event_tx_inner = event_tx.clone();
@@ -2065,7 +2356,10 @@ impl AgentEngine {
             if let Some(file_path) = metadata.get("file_path").and_then(|v| v.as_str()) {
                 match tool_name {
                     "read_file" => {
-                        let lines = metadata.get("total_lines").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                        let lines = metadata
+                            .get("total_lines")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0) as usize;
                         self.files_read.insert(file_path.to_string(), lines);
                     }
                     "edit_file" | "write_file" | "multi_edit" | "notebook_edit" => {
@@ -2087,12 +2381,12 @@ impl AgentEngine {
     fn is_protocol_violation(&self, text: &str) -> bool {
         // Forbidden protocol markers that models sometimes hallucinate
         let forbidden_patterns = [
-            "[tool_use", 
-            "[DUMMY_TOOL", 
+            "[tool_use",
+            "[DUMMY_TOOL",
             "[tool_result",
             // Claude-like XML leakage (if not explicitly enabled for the model)
-            "<tool_code>", 
-            "<tool_input>", 
+            "<tool_code>",
+            "<tool_input>",
             "<tool_call>",
         ];
 
@@ -2113,12 +2407,16 @@ impl AgentEngine {
         // We only attempt recovery when explicit tool marker exists and within size budget.
         const RECOVERY_TEXT_MAX_CHARS: usize = 20_000;
         const RECOVERY_MAX_CALLS: usize = 8;
-        if text.len() > RECOVERY_TEXT_MAX_CHARS || (!text.contains("[tool_use") && !text.contains("[DUMMY_TOOL")) {
+        if text.len() > RECOVERY_TEXT_MAX_CHARS
+            || (!text.contains("[tool_use") && !text.contains("[DUMMY_TOOL"))
+        {
             return recovered;
         }
 
         // Pattern 1: Look for [tool_use id=... name=...] { ... }
-        let tag_re = Regex::new(r"(?s)\[tool_use\s+id=([^\s\]>]+)\s+name=([^\s\]>]+)[\]>]\s*(\{.*?\})").unwrap();
+        let tag_re =
+            Regex::new(r"(?s)\[tool_use\s+id=([^\s\]>]+)\s+name=([^\s\]>]+)[\]>]\s*(\{.*?\})")
+                .unwrap();
         for cap in tag_re.captures_iter(text).take(RECOVERY_MAX_CALLS) {
             recovered.push(ToolCall {
                 id: cap[1].to_string(),
@@ -2129,12 +2427,14 @@ impl AgentEngine {
 
         // Pattern 2: Look for raw JSON blocks only in small texts and only if no explicit tags found.
         if recovered.is_empty() {
-            let json_re = Regex::new(r#"(?s)\{\s*"(?:command|file_path|pattern|query)"\s*:.*?\}"#).unwrap();
+            let json_re =
+                Regex::new(r#"(?s)\{\s*"(?:command|file_path|pattern|query)"\s*:.*?\}"#).unwrap();
             for (i, m) in json_re.find_iter(text).take(RECOVERY_MAX_CALLS).enumerate() {
                 let json_str = m.as_str();
                 let name = if json_str.contains("\"command\"") {
                     "bash"
-                } else if json_str.contains("\"file_path\"") && json_str.contains("\"old_string\"") {
+                } else if json_str.contains("\"file_path\"") && json_str.contains("\"old_string\"")
+                {
                     "edit_file"
                 } else if json_str.contains("\"file_path\"") {
                     "read_file"
@@ -2169,7 +2469,7 @@ impl AgentEngine {
                 let allowed = size.saturating_sub(over_limit);
                 let preview_len = allowed.min(1000); // Give at least some preview
                 let preview: String = result.content.chars().take(preview_len).collect();
-                
+
                 result.content = format!(
                     "{}\n\n[AGGREGATE BUDGET EXCEEDED: Remaining {} bytes of this result omitted. \
                      STOP requesting large outputs in this turn to avoid context overflow.]",
@@ -2259,14 +2559,20 @@ impl AgentEngine {
                     format!("Security Block: '{}' is an invalid path. {}", file_path, r),
                     ToolErrorType::Validation,
                     true,
-                    Some("Correct the path to a literal, normalized format and try again.".to_string()),
+                    Some(
+                        "Correct the path to a literal, normalized format and try again."
+                            .to_string(),
+                    ),
                 ));
             }
         }
 
         // Check permissions (with content matching for bash commands)
         let command_content = if tool_call.name == "bash" {
-            params.get("command").and_then(|v| v.as_str()).map(|s| s.to_string())
+            params
+                .get("command")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
         } else {
             None
         };
@@ -2296,7 +2602,9 @@ impl AgentEngine {
             }
         }
 
-        let action = self.permissions.check_with_content(&tool_call.name, command_content.as_deref());
+        let action = self
+            .permissions
+            .check_with_content(&tool_call.name, command_content.as_deref());
 
         // For bash: additional security check via command classifier
         if tool_call.name == "bash" {
@@ -2315,15 +2623,22 @@ impl AgentEngine {
                     }
                 });
 
-                let is_recursive_ls = cmd_lower.contains("ls ") && (cmd_lower.contains("-r") || cmd_lower.contains("-lar"));
+                let is_recursive_ls = cmd_lower.contains("ls ")
+                    && (cmd_lower.contains("-r") || cmd_lower.contains("-lar"));
 
                 if is_forbidden || is_recursive_ls {
                     let (cmd_name, alternative) = if is_forbidden {
-                        let matched = forbidden_binaries.iter().find(|&&b| cmd_lower.contains(b)).unwrap_or(&"search");
-                        (*matched, match *matched {
-                            "find" => "glob",
-                            _ => "grep",
-                        })
+                        let matched = forbidden_binaries
+                            .iter()
+                            .find(|&&b| cmd_lower.contains(b))
+                            .unwrap_or(&"search");
+                        (
+                            *matched,
+                            match *matched {
+                                "find" => "glob",
+                                _ => "grep",
+                            },
+                        )
                     } else {
                         ("ls -R", "ls (without -R) or project_map")
                     };
@@ -2342,7 +2657,10 @@ impl AgentEngine {
                             format!("Command blocked (destructive): {}", cmd),
                             ToolErrorType::PermissionDeny,
                             false,
-                            Some("This command is classified as destructive and cannot be executed.".to_string()),
+                            Some(
+                                "This command is classified as destructive and cannot be executed."
+                                    .to_string(),
+                            ),
                         ));
                     }
                     _ => {} // Other risk levels handled by permission system
@@ -2392,7 +2710,12 @@ impl AgentEngine {
                         }
                     }
 
-                    match tokio::time::timeout(std::time::Duration::from_millis(500), confirm_rx.recv()).await {
+                    match tokio::time::timeout(
+                        std::time::Duration::from_millis(500),
+                        confirm_rx.recv(),
+                    )
+                    .await
+                    {
                         Ok(Some(ConfirmResponse::Allow)) => {
                             info!("Tool {} confirmed by user", tool_call.name);
                             break;
@@ -2481,7 +2804,10 @@ impl AgentEngine {
 
         // Execute the tool with timing
         self.cost_tracker.record_tool_call();
-        debug!("Tool execute start: tool={} args={}", tool_call.name, tool_call.arguments);
+        debug!(
+            "Tool execute start: tool={} args={}",
+            tool_call.name, tool_call.arguments
+        );
         let start_time = std::time::Instant::now();
 
         // Pre-tool-use hook
@@ -2497,7 +2823,10 @@ impl AgentEngine {
                 error: None,
                 user_prompt: None,
             };
-            if let Some(blocked) = hook_mgr.check_blocked(HookEvent::PreToolUse, &hook_ctx).await {
+            if let Some(blocked) = hook_mgr
+                .check_blocked(HookEvent::PreToolUse, &hook_ctx)
+                .await
+            {
                 return Ok(ToolResult::error_typed(
                     format!("Blocked by hook: {}", blocked.reason.unwrap_or_default()),
                     ToolErrorType::PermissionDeny,
@@ -2528,14 +2857,21 @@ impl AgentEngine {
             let hook_ctx = HookContext {
                 event: "pre_tool_use".into(),
                 session_id: self.context.session_id.clone(),
-                working_dir: ctx.working_dir.as_ref().map(|p| p.display().to_string()).unwrap_or_default(),
+                working_dir: ctx
+                    .working_dir
+                    .as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_default(),
                 tool_name: Some(tool_call.name.clone()),
                 tool_input: Some(serde_json::from_str(&tool_call.arguments).unwrap_or_default()),
                 tool_output: None,
                 error: None,
                 user_prompt: None,
             };
-            if let Some(blocked) = hook_mgr.check_blocked(HookEvent::PreToolUse, &hook_ctx).await {
+            if let Some(blocked) = hook_mgr
+                .check_blocked(HookEvent::PreToolUse, &hook_ctx)
+                .await
+            {
                 return Ok(ToolResult::error_typed(
                     format!("Blocked by hook: {}", blocked.reason.unwrap_or_default()),
                     ToolErrorType::PermissionDeny,
@@ -2595,9 +2931,13 @@ impl AgentEngine {
 
             // Prefer tool-provided suggestion, fall back to auto-generated hint
             if let Some(ref suggestion) = result.suggestion {
-                result.content.push_str(&format!("\n\nSuggestion: {}", suggestion));
+                result
+                    .content
+                    .push_str(&format!("\n\nSuggestion: {}", suggestion));
             } else if let Some(hint) = auto_hint {
-                result.content.push_str(&format!("\n\nSuggestion: {}", hint));
+                result
+                    .content
+                    .push_str(&format!("\n\nSuggestion: {}", hint));
             }
         }
 
@@ -2664,10 +3004,8 @@ Reply with ONLY the suggestion, no quotes or explanation."#;
         let provider = Arc::clone(&self.provider);
 
         // Reduced timeout to 5 seconds for suggestion (should be fast)
-        match tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            provider.chat(request)
-        ).await {
+        match tokio::time::timeout(std::time::Duration::from_secs(5), provider.chat(request)).await
+        {
             Ok(Ok(response)) => {
                 if let Some(content) = response.message.content {
                     let suggestion = content.trim().to_string();
@@ -2707,11 +3045,20 @@ mod tests {
 
     #[async_trait::async_trait]
     impl yode_llm::provider::LlmProvider for MockProvider {
-        fn name(&self) -> &str { "mock" }
-        async fn chat(&self, _req: yode_llm::types::ChatRequest) -> anyhow::Result<yode_llm::types::ChatResponse> {
+        fn name(&self) -> &str {
+            "mock"
+        }
+        async fn chat(
+            &self,
+            _req: yode_llm::types::ChatRequest,
+        ) -> anyhow::Result<yode_llm::types::ChatResponse> {
             unimplemented!("Mock provider should not be called in unit tests")
         }
-        async fn chat_stream(&self, _req: yode_llm::types::ChatRequest, _tx: tokio::sync::mpsc::Sender<yode_llm::types::StreamEvent>) -> anyhow::Result<()> {
+        async fn chat_stream(
+            &self,
+            _req: yode_llm::types::ChatRequest,
+            _tx: tokio::sync::mpsc::Sender<yode_llm::types::StreamEvent>,
+        ) -> anyhow::Result<()> {
             unimplemented!()
         }
         async fn list_models(&self) -> anyhow::Result<Vec<yode_llm::ModelInfo>> {
@@ -2720,12 +3067,18 @@ mod tests {
     }
 
     /// A mock read-only tool for testing parallel execution.
-    struct MockReadTool { name: String }
+    struct MockReadTool {
+        name: String,
+    }
 
     #[async_trait::async_trait]
     impl Tool for MockReadTool {
-        fn name(&self) -> &str { &self.name }
-        fn description(&self) -> &str { "mock read tool" }
+        fn name(&self) -> &str {
+            &self.name
+        }
+        fn description(&self) -> &str {
+            "mock read tool"
+        }
         fn parameters_schema(&self) -> serde_json::Value {
             serde_json::json!({"type": "object", "properties": {}})
         }
@@ -2736,7 +3089,11 @@ mod tests {
                 read_only: true,
             }
         }
-        async fn execute(&self, _params: serde_json::Value, _ctx: &ToolContext) -> anyhow::Result<ToolResult> {
+        async fn execute(
+            &self,
+            _params: serde_json::Value,
+            _ctx: &ToolContext,
+        ) -> anyhow::Result<ToolResult> {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
             Ok(ToolResult::success(format!("result from {}", self.name)))
         }
@@ -2747,8 +3104,12 @@ mod tests {
 
     #[async_trait::async_trait]
     impl Tool for MockWriteTool {
-        fn name(&self) -> &str { "mock_write" }
-        fn description(&self) -> &str { "mock write tool" }
+        fn name(&self) -> &str {
+            "mock_write"
+        }
+        fn description(&self) -> &str {
+            "mock write tool"
+        }
         fn parameters_schema(&self) -> serde_json::Value {
             serde_json::json!({"type": "object", "properties": {}})
         }
@@ -2759,7 +3120,11 @@ mod tests {
                 read_only: false,
             }
         }
-        async fn execute(&self, _params: serde_json::Value, _ctx: &ToolContext) -> anyhow::Result<ToolResult> {
+        async fn execute(
+            &self,
+            _params: serde_json::Value,
+            _ctx: &ToolContext,
+        ) -> anyhow::Result<ToolResult> {
             Ok(ToolResult::success("write done".to_string()))
         }
     }
@@ -2792,9 +3157,21 @@ mod tests {
             vec![],
         );
         let tcs = vec![
-            ToolCall { id: "1".into(), name: "r1".into(), arguments: "{}".into() },
-            ToolCall { id: "2".into(), name: "r2".into(), arguments: "{}".into() },
-            ToolCall { id: "3".into(), name: "r3".into(), arguments: "{}".into() },
+            ToolCall {
+                id: "1".into(),
+                name: "r1".into(),
+                arguments: "{}".into(),
+            },
+            ToolCall {
+                id: "2".into(),
+                name: "r2".into(),
+                arguments: "{}".into(),
+            },
+            ToolCall {
+                id: "3".into(),
+                name: "r3".into(),
+                arguments: "{}".into(),
+            },
         ];
         let (par, seq) = engine.partition_tool_calls(&tcs);
         assert_eq!(par.len(), 3);
@@ -2805,15 +3182,29 @@ mod tests {
     fn test_partition_mixed() {
         let engine = make_engine(
             vec![
-                Arc::new(MockReadTool { name: "reader".into() }),
+                Arc::new(MockReadTool {
+                    name: "reader".into(),
+                }),
                 Arc::new(MockWriteTool),
             ],
             vec!["mock_write".into()],
         );
         let tcs = vec![
-            ToolCall { id: "1".into(), name: "reader".into(), arguments: "{}".into() },
-            ToolCall { id: "2".into(), name: "mock_write".into(), arguments: "{}".into() },
-            ToolCall { id: "3".into(), name: "reader".into(), arguments: "{}".into() },
+            ToolCall {
+                id: "1".into(),
+                name: "reader".into(),
+                arguments: "{}".into(),
+            },
+            ToolCall {
+                id: "2".into(),
+                name: "mock_write".into(),
+                arguments: "{}".into(),
+            },
+            ToolCall {
+                id: "3".into(),
+                name: "reader".into(),
+                arguments: "{}".into(),
+            },
         ];
         let (par, seq) = engine.partition_tool_calls(&tcs);
         assert_eq!(par.len(), 2);
@@ -2824,9 +3215,11 @@ mod tests {
     #[test]
     fn test_partition_unknown_tool() {
         let engine = make_engine(vec![], vec![]);
-        let tcs = vec![
-            ToolCall { id: "1".into(), name: "nonexistent".into(), arguments: "{}".into() },
-        ];
+        let tcs = vec![ToolCall {
+            id: "1".into(),
+            name: "nonexistent".into(),
+            arguments: "{}".into(),
+        }];
         let (par, seq) = engine.partition_tool_calls(&tcs);
         assert_eq!(par.len(), 0);
         assert_eq!(seq.len(), 1);
@@ -2835,14 +3228,22 @@ mod tests {
     #[test]
     fn test_partition_read_only_needing_confirm() {
         let engine = make_engine(
-            vec![Arc::new(MockReadTool { name: "sensitive".into() })],
+            vec![Arc::new(MockReadTool {
+                name: "sensitive".into(),
+            })],
             vec!["sensitive".into()],
         );
-        let tcs = vec![
-            ToolCall { id: "1".into(), name: "sensitive".into(), arguments: "{}".into() },
-        ];
+        let tcs = vec![ToolCall {
+            id: "1".into(),
+            name: "sensitive".into(),
+            arguments: "{}".into(),
+        }];
         let (par, seq) = engine.partition_tool_calls(&tcs);
-        assert_eq!(par.len(), 0, "Confirm-required tools must not be parallelized");
+        assert_eq!(
+            par.len(),
+            0,
+            "Confirm-required tools must not be parallelized"
+        );
         assert_eq!(seq.len(), 1);
     }
 
@@ -2859,9 +3260,21 @@ mod tests {
             vec![],
         );
         let tcs = vec![
-            ToolCall { id: "x1".into(), name: "a".into(), arguments: "{}".into() },
-            ToolCall { id: "x2".into(), name: "b".into(), arguments: "{}".into() },
-            ToolCall { id: "x3".into(), name: "c".into(), arguments: "{}".into() },
+            ToolCall {
+                id: "x1".into(),
+                name: "a".into(),
+                arguments: "{}".into(),
+            },
+            ToolCall {
+                id: "x2".into(),
+                name: "b".into(),
+                arguments: "{}".into(),
+            },
+            ToolCall {
+                id: "x3".into(),
+                name: "c".into(),
+                arguments: "{}".into(),
+            },
         ];
         let (tx, mut rx) = mpsc::unbounded_channel();
         let results = engine.execute_tools_parallel(&tcs, &tx).await;
@@ -2877,7 +3290,9 @@ mod tests {
         // Check events
         let mut starts = 0;
         while let Ok(ev) = rx.try_recv() {
-            if matches!(ev, EngineEvent::ToolCallStart { .. }) { starts += 1; }
+            if matches!(ev, EngineEvent::ToolCallStart { .. }) {
+                starts += 1;
+            }
         }
         assert_eq!(starts, 3);
     }
@@ -2906,7 +3321,7 @@ impl SubAgentRunner for SubAgentRunnerImpl {
     ) -> Pin<Box<dyn std::future::Future<Output = Result<String>> + Send + '_>> {
         let allowed_tools = options.allowed_tools.clone();
         let subagent_model = options.model.clone();
-        
+
         Box::pin(async move {
             // Create a filtered tool registry for the sub-agent
             let mut sub_registry = ToolRegistry::new();
@@ -2950,11 +3365,13 @@ impl SubAgentRunner for SubAgentRunnerImpl {
             let turn_prompt = format!("[Sub-task: {}]\n\n{}", options.description, prompt);
 
             let (result_tx, mut result_rx) = mpsc::unbounded_channel();
-            
+
             // Note: We currently don't have a clean way to get the final text from run_turn
             // easily without streaming, but we can capture the TextComplete event.
             let engine_handle = tokio::spawn(async move {
-                engine.run_turn(&turn_prompt, QuerySource::SubAgent, result_tx, confirm_rx).await
+                engine
+                    .run_turn(&turn_prompt, QuerySource::SubAgent, result_tx, confirm_rx)
+                    .await
             });
 
             let mut result_text = String::new();

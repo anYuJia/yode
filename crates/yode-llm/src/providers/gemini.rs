@@ -230,7 +230,11 @@ fn convert_messages(messages: &[Message]) -> (Option<GeminiContent>, Vec<GeminiC
             Role::Tool => {
                 if let Some(ref text) = msg.content {
                     // Need the tool name — extract from tool_call_id pattern or use "function"
-                    let name = msg.tool_call_id.as_deref().unwrap_or("function").to_string();
+                    let name = msg
+                        .tool_call_id
+                        .as_deref()
+                        .unwrap_or("function")
+                        .to_string();
                     contents.push(GeminiContent {
                         role: Some("user".into()),
                         parts: vec![GeminiPart::FunctionResponse {
@@ -303,13 +307,22 @@ fn parse_response(resp: &GeminiResponse, _model: &str) -> (Message, Usage) {
 
     let message = Message {
         role: Role::Assistant,
-        content: if text.is_empty() { None } else { Some(text.clone()) },
-        content_blocks: if text.is_empty() { vec![] } else { vec![crate::types::ContentBlock::Text { text }] },
+        content: if text.is_empty() {
+            None
+        } else {
+            Some(text.clone())
+        },
+        content_blocks: if text.is_empty() {
+            vec![]
+        } else {
+            vec![crate::types::ContentBlock::Text { text }]
+        },
         reasoning: None,
         tool_calls,
         tool_call_id: None,
         images: Vec::new(),
-    };
+    }
+    .normalized();
 
     (message, usage)
 }
@@ -337,7 +350,8 @@ impl LlmProvider for GeminiProvider {
         let url = self.generate_url(&request.model);
         debug!("Sending Gemini request to {}", url);
 
-        let resp = self.client
+        let resp = self
+            .client
             .post(&url)
             .header("Content-Type", "application/json")
             .json(&body)
@@ -349,26 +363,30 @@ impl LlmProvider for GeminiProvider {
         if !status.is_success() {
             let text = resp.text().await.unwrap_or_default();
             if let Ok(err) = serde_json::from_str::<GeminiError>(&text) {
-                return Err(anyhow!("Gemini API error ({}): {}", status, err.error.message));
+                return Err(anyhow!(
+                    "Gemini API error ({}): {}",
+                    status,
+                    err.error.message
+                ));
             }
             return Err(anyhow!("Gemini API error ({}): {}", status, text));
         }
 
-        let api_resp: GeminiResponse = resp.json().await.context("Failed to parse Gemini response")?;
+        let api_resp: GeminiResponse = resp
+            .json()
+            .await
+            .context("Failed to parse Gemini response")?;
         let (message, usage) = parse_response(&api_resp, &request.model);
 
         Ok(ChatResponse {
             message,
             usage,
             model: request.model,
+            stop_reason: None, // Gemini API 目前不显式返回 stop_reason
         })
     }
 
-    async fn chat_stream(
-        &self,
-        request: ChatRequest,
-        tx: mpsc::Sender<StreamEvent>,
-    ) -> Result<()> {
+    async fn chat_stream(&self, request: ChatRequest, tx: mpsc::Sender<StreamEvent>) -> Result<()> {
         let (system, contents) = convert_messages(&request.messages);
         let tools = convert_tools(&request.tools);
 
@@ -385,7 +403,8 @@ impl LlmProvider for GeminiProvider {
         let url = self.stream_url(&request.model);
         debug!("Sending Gemini stream request to {}", url);
 
-        let resp = self.client
+        let resp = self
+            .client
             .post(&url)
             .header("Content-Type", "application/json")
             .json(&body)
@@ -451,15 +470,20 @@ impl LlmProvider for GeminiProvider {
                                     let args = serde_json::to_string(&function_call.args)
                                         .unwrap_or_default();
 
-                                    let _ = tx.send(StreamEvent::ToolCallStart {
-                                        id: id.clone(),
-                                        name: function_call.name.clone(),
-                                    }).await;
-                                    let _ = tx.send(StreamEvent::ToolCallDelta {
-                                        id: id.clone(),
-                                        arguments: args.clone(),
-                                    }).await;
-                                    let _ = tx.send(StreamEvent::ToolCallEnd { id: id.clone() }).await;
+                                    let _ = tx
+                                        .send(StreamEvent::ToolCallStart {
+                                            id: id.clone(),
+                                            name: function_call.name.clone(),
+                                        })
+                                        .await;
+                                    let _ = tx
+                                        .send(StreamEvent::ToolCallDelta {
+                                            id: id.clone(),
+                                            arguments: args.clone(),
+                                        })
+                                        .await;
+                                    let _ =
+                                        tx.send(StreamEvent::ToolCallEnd { id: id.clone() }).await;
 
                                     all_tool_calls.push(ToolCall {
                                         id,
@@ -477,19 +501,31 @@ impl LlmProvider for GeminiProvider {
 
         let message = Message {
             role: Role::Assistant,
-            content: if full_text.is_empty() { None } else { Some(full_text.clone()) },
-            content_blocks: if full_text.is_empty() { vec![] } else { vec![crate::types::ContentBlock::Text { text: full_text }] },
+            content: if full_text.is_empty() {
+                None
+            } else {
+                Some(full_text.clone())
+            },
+            content_blocks: if full_text.is_empty() {
+                vec![]
+            } else {
+                vec![crate::types::ContentBlock::Text { text: full_text }]
+            },
             reasoning: None,
             tool_calls: all_tool_calls,
             tool_call_id: None,
             images: Vec::new(),
-        };
+        }
+        .normalized();
 
-        let _ = tx.send(StreamEvent::Done(ChatResponse {
-            message,
-            usage: final_usage,
-            model: request.model,
-        })).await;
+        let _ = tx
+            .send(StreamEvent::Done(ChatResponse {
+                message,
+                usage: final_usage,
+                model: request.model,
+                stop_reason: None,
+            }))
+            .await;
 
         Ok(())
     }
@@ -506,7 +542,8 @@ impl LlmProvider for GeminiProvider {
             display_name: Option<String>,
         }
 
-        let resp = self.client
+        let resp = self
+            .client
             .get(&self.models_url())
             .send()
             .await
@@ -517,10 +554,16 @@ impl LlmProvider for GeminiProvider {
         }
 
         let data: ModelsResp = resp.json().await?;
-        Ok(data.models.into_iter()
+        Ok(data
+            .models
+            .into_iter()
             .filter(|m| m.name.contains("gemini"))
             .map(|m| {
-                let id = m.name.strip_prefix("models/").unwrap_or(&m.name).to_string();
+                let id = m
+                    .name
+                    .strip_prefix("models/")
+                    .unwrap_or(&m.name)
+                    .to_string();
                 ModelInfo {
                     name: m.display_name.unwrap_or_else(|| id.clone()),
                     id,

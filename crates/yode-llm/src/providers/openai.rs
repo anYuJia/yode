@@ -43,7 +43,11 @@ struct OpenAiMessage {
     role: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     content: Option<String>,
-    #[serde(alias = "thought", alias = "reasoning", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        alias = "thought",
+        alias = "reasoning",
+        skip_serializing_if = "Option::is_none"
+    )]
     reasoning_content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_calls: Option<Vec<OpenAiToolCall>>,
@@ -97,6 +101,8 @@ struct OpenAiResponse {
 #[derive(Debug, Deserialize)]
 struct OpenAiChoice {
     message: OpenAiMessage,
+    #[serde(default)]
+    finish_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -230,7 +236,10 @@ fn openai_message_to_internal(msg: &OpenAiMessage) -> Message {
 
     let mut blocks = Vec::new();
     if let Some(ref r) = msg.reasoning_content {
-        blocks.push(crate::types::ContentBlock::Thinking { thinking: r.clone(), signature: None });
+        blocks.push(crate::types::ContentBlock::Thinking {
+            thinking: r.clone(),
+            signature: None,
+        });
     }
     if let Some(ref t) = msg.content {
         blocks.push(crate::types::ContentBlock::Text { text: t.clone() });
@@ -245,6 +254,7 @@ fn openai_message_to_internal(msg: &OpenAiMessage) -> Message {
         tool_call_id: msg.tool_call_id.clone(),
         images: Vec::new(),
     }
+    .normalized()
 }
 
 fn tool_to_openai(tool: &ToolDefinition) -> OpenAiTool {
@@ -268,7 +278,11 @@ pub struct OpenAiProvider {
 }
 
 impl OpenAiProvider {
-    pub fn new(name: impl Into<String>, api_key: impl Into<String>, base_url: impl Into<String>) -> Self {
+    pub fn new(
+        name: impl Into<String>,
+        api_key: impl Into<String>,
+        base_url: impl Into<String>,
+    ) -> Self {
         Self {
             name: name.into(),
             api_key: api_key.into(),
@@ -297,8 +311,7 @@ impl LlmProvider for OpenAiProvider {
 
     async fn chat(&self, request: ChatRequest) -> Result<ChatResponse> {
         let tools: Vec<OpenAiTool> = request.tools.iter().map(tool_to_openai).collect();
-        let messages: Vec<OpenAiMessage> =
-            request.messages.iter().map(message_to_openai).collect();
+        let messages: Vec<OpenAiMessage> = request.messages.iter().map(message_to_openai).collect();
 
         let body = OpenAiRequest {
             model: request.model.clone(),
@@ -337,10 +350,8 @@ impl LlmProvider for OpenAiProvider {
             return Err(anyhow!("OpenAI API error ({}): {}", status, error_text));
         }
 
-        let api_resp: OpenAiResponse = resp
-            .json()
-            .await
-            .context("Failed to parse chat response")?;
+        let api_resp: OpenAiResponse =
+            resp.json().await.context("Failed to parse chat response")?;
 
         let choice = api_resp
             .choices
@@ -350,11 +361,23 @@ impl LlmProvider for OpenAiProvider {
 
         let message = openai_message_to_internal(&choice.message);
 
-        let usage = api_resp.usage.map(|u| Usage {
-            prompt_tokens: u.prompt_tokens,
-            completion_tokens: u.completion_tokens,
-            total_tokens: u.total_tokens,
-        }).unwrap_or_default();
+        let stop_reason = match choice.finish_reason.as_deref() {
+            Some("stop") => Some(crate::types::StopReason::EndTurn),
+            Some("tool_calls") => Some(crate::types::StopReason::ToolUse),
+            Some("length") => Some(crate::types::StopReason::MaxTokens),
+            Some("content_filter") => Some(crate::types::StopReason::ContentFilter),
+            Some(other) => Some(crate::types::StopReason::Other(other.to_string())),
+            None => None,
+        };
+
+        let usage = api_resp
+            .usage
+            .map(|u| Usage {
+                prompt_tokens: u.prompt_tokens,
+                completion_tokens: u.completion_tokens,
+                total_tokens: u.total_tokens,
+            })
+            .unwrap_or_default();
 
         debug!(
             "Chat response received: {} prompt tokens, {} completion tokens",
@@ -365,17 +388,13 @@ impl LlmProvider for OpenAiProvider {
             message,
             usage,
             model: api_resp.model,
+            stop_reason,
         })
     }
 
-    async fn chat_stream(
-        &self,
-        request: ChatRequest,
-        tx: mpsc::Sender<StreamEvent>,
-    ) -> Result<()> {
+    async fn chat_stream(&self, request: ChatRequest, tx: mpsc::Sender<StreamEvent>) -> Result<()> {
         let tools: Vec<OpenAiTool> = request.tools.iter().map(tool_to_openai).collect();
-        let messages: Vec<OpenAiMessage> =
-            request.messages.iter().map(message_to_openai).collect();
+        let messages: Vec<OpenAiMessage> = request.messages.iter().map(message_to_openai).collect();
 
         let body = OpenAiRequest {
             model: request.model.clone(),
@@ -384,7 +403,9 @@ impl LlmProvider for OpenAiProvider {
             temperature: request.temperature,
             max_tokens: request.max_tokens,
             stream: true,
-            stream_options: Some(StreamOptions { include_usage: true }),
+            stream_options: Some(StreamOptions {
+                include_usage: true,
+            }),
         };
 
         debug!("Sending streaming chat request to {}", self.chat_url());
@@ -426,6 +447,7 @@ impl LlmProvider for OpenAiProvider {
         let mut active_tool_indices: HashMap<u32, bool> = HashMap::new();
         let mut model = request.model.clone();
         let mut final_usage = Usage::default();
+        let mut stop_reason = None;
         let mut saw_done_sentinel = false;
         let mut saw_finish_reason = false;
         let mut finalize_reason = "stream_eof";
@@ -464,7 +486,11 @@ impl LlmProvider for OpenAiProvider {
             };
 
             // Log chunk for debugging (trace level)
-            trace!("Received chunk: choices={}, has_usage={}", chunk.choices.len(), chunk.usage.is_some());
+            trace!(
+                "Received chunk: choices={}, has_usage={}",
+                chunk.choices.len(),
+                chunk.usage.is_some()
+            );
 
             if let Some(m) = &chunk.model {
                 model = m.clone();
@@ -490,7 +516,11 @@ impl LlmProvider for OpenAiProvider {
                 if let Some(reasoning) = &delta.reasoning_content {
                     if !reasoning.is_empty() {
                         full_reasoning.push_str(reasoning);
-                        if tx.send(StreamEvent::ReasoningDelta(reasoning.clone())).await.is_err() {
+                        if tx
+                            .send(StreamEvent::ReasoningDelta(reasoning.clone()))
+                            .await
+                            .is_err()
+                        {
                             debug!("Stream receiver dropped, stopping");
                             return Ok(());
                         }
@@ -501,7 +531,11 @@ impl LlmProvider for OpenAiProvider {
                 if let Some(content) = &delta.content {
                     if !content.is_empty() {
                         full_content.push_str(content);
-                        if tx.send(StreamEvent::TextDelta(content.clone())).await.is_err() {
+                        if tx
+                            .send(StreamEvent::TextDelta(content.clone()))
+                            .await
+                            .is_err()
+                        {
                             debug!("Stream receiver dropped, stopping");
                             return Ok(());
                         }
@@ -565,17 +599,24 @@ impl LlmProvider for OpenAiProvider {
                 }
 
                 // If there's a finish_reason, end any active tool calls and exit loop
-                if choice.finish_reason.is_some() {
+                if let Some(reason) = &choice.finish_reason {
                     saw_finish_reason = true;
                     finalize_reason = "finish_reason";
-                    debug!("Received finish_reason: {}", choice.finish_reason.as_ref().unwrap());
+                    debug!("Received finish_reason: {}", reason);
+
+                    stop_reason = match reason.as_str() {
+                        "stop" => Some(crate::types::StopReason::EndTurn),
+                        "tool_calls" => Some(crate::types::StopReason::ToolUse),
+                        "length" => Some(crate::types::StopReason::MaxTokens),
+                        "content_filter" => Some(crate::types::StopReason::ContentFilter),
+                        _ => Some(crate::types::StopReason::Other(reason.clone())),
+                    };
+
                     for (&index, active) in &active_tool_indices {
                         if *active {
                             if let Some(tc) = accumulated_tool_calls.get(&index) {
                                 if tx
-                                    .send(StreamEvent::ToolCallEnd {
-                                        id: tc.id.clone(),
-                                    })
+                                    .send(StreamEvent::ToolCallEnd { id: tc.id.clone() })
                                     .await
                                     .is_err()
                                 {
@@ -634,7 +675,10 @@ impl LlmProvider for OpenAiProvider {
 
         let mut blocks = Vec::new();
         if let Some(ref r) = reasoning {
-            blocks.push(crate::types::ContentBlock::Thinking { thinking: r.clone(), signature: None });
+            blocks.push(crate::types::ContentBlock::Thinking {
+                thinking: r.clone(),
+                signature: None,
+            });
         }
         if let Some(ref t) = content {
             blocks.push(crate::types::ContentBlock::Text { text: t.clone() });
@@ -648,12 +692,14 @@ impl LlmProvider for OpenAiProvider {
             tool_calls: final_tool_calls,
             tool_call_id: None,
             images: Vec::new(),
-        };
+        }
+        .normalized();
 
         let response = ChatResponse {
             message: final_message,
             usage: final_usage,
             model,
+            stop_reason,
         };
 
         let _ = tx.send(StreamEvent::Done(response)).await;

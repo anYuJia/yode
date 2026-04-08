@@ -122,7 +122,7 @@ async fn main() -> Result<()> {
         .join(".yode");
     let updater = yode_core::updater::Updater::new(
         config_dir.clone(),
-        true, // auto_check doesn't matter for apply
+        true,  // auto_check doesn't matter for apply
         false, // auto_download doesn't matter for apply
     );
 
@@ -132,7 +132,7 @@ async fn main() -> Result<()> {
                 info!("Update applied, restarting...");
                 let args: Vec<String> = std::env::args().collect();
                 let exe = std::env::current_exe()?;
-                
+
                 #[cfg(unix)]
                 {
                     use std::os::unix::process::CommandExt;
@@ -141,12 +141,10 @@ async fn main() -> Result<()> {
                     let err = cmd.exec();
                     return Err(anyhow::anyhow!("Failed to restart after update: {}", err));
                 }
-                
+
                 #[cfg(not(unix))]
                 {
-                    std::process::Command::new(exe)
-                        .args(&args[1..])
-                        .spawn()?;
+                    std::process::Command::new(exe).args(&args[1..]).spawn()?;
                     std::process::exit(0);
                 }
             }
@@ -179,8 +177,18 @@ async fn main() -> Result<()> {
                     ProviderAction::List => {
                         println!("已配置的提供商列表:");
                         for (name, p) in &config.llm.providers {
-                            let is_default = if name == &config.llm.default_provider { " (当前默认)" } else { "" };
-                            println!("- {}{} [格式: {}, Base URL: {}]", name, is_default, p.format, p.base_url.as_deref().unwrap_or(""));
+                            let is_default = if name == &config.llm.default_provider {
+                                " (当前默认)"
+                            } else {
+                                ""
+                            };
+                            println!(
+                                "- {}{} [格式: {}, Base URL: {}]",
+                                name,
+                                is_default,
+                                p.format,
+                                p.base_url.as_deref().unwrap_or("")
+                            );
                         }
                     }
                     ProviderAction::Remove { name } => {
@@ -221,7 +229,7 @@ async fn main() -> Result<()> {
                                 println!("✨ 发现新版本: {}", result.latest_version);
                                 println!("   当前版本: {}", yode_core::updater::CURRENT_VERSION);
                                 println!("\n发布日志:\n{}", result.release_notes);
-                                
+
                                 if config.update.auto_download {
                                     println!("\n正在下载更新...");
                                     match updater.download_update(&result).await {
@@ -238,7 +246,10 @@ async fn main() -> Result<()> {
                                 }
                             }
                             Ok(None) => {
-                                println!("✓ 当前已是最新版本 ({})", yode_core::updater::CURRENT_VERSION);
+                                println!(
+                                    "✓ 当前已是最新版本 ({})",
+                                    yode_core::updater::CURRENT_VERSION
+                                );
                             }
                             Err(e) => {
                                 println!("✗ 检查更新失败: {}", e);
@@ -266,27 +277,40 @@ async fn main() -> Result<()> {
                 let git_v = std::process::Command::new("git").arg("--version").output();
                 match git_v {
                     Ok(o) if o.status.success() => {
-                        println!("  [ok] git available: {}", String::from_utf8_lossy(&o.stdout).trim());
+                        println!(
+                            "  [ok] git available: {}",
+                            String::from_utf8_lossy(&o.stdout).trim()
+                        );
                     }
                     _ => println!("  [!!] git not found"),
                 }
-                
+
                 for runtime in ["node", "python3", "go", "cargo"] {
-                    let out = std::process::Command::new(runtime).arg("--version").output();
+                    let out = std::process::Command::new(runtime)
+                        .arg("--version")
+                        .output();
                     if let Ok(o) = out {
-                        println!("  [ok] {} available: {}", runtime, String::from_utf8_lossy(&o.stdout).trim());
+                        println!(
+                            "  [ok] {} available: {}",
+                            runtime,
+                            String::from_utf8_lossy(&o.stdout).trim()
+                        );
                     } else {
                         println!("  [--] {} not found", runtime);
                     }
                 }
-                
+
                 if config.llm.providers.is_empty() {
                     println!("  [!!] No LLM providers configured.");
                 } else {
                     println!("  [ok] {} providers configured", config.llm.providers.len());
                 }
-                
-                println!("\nPlatform: {} {}", std::env::consts::OS, std::env::consts::ARCH);
+
+                println!(
+                    "\nPlatform: {} {}",
+                    std::env::consts::OS,
+                    std::env::consts::ARCH
+                );
                 println!("Version:  v{}", env!("CARGO_PKG_VERSION"));
                 return Ok(());
             }
@@ -336,7 +360,11 @@ async fn main() -> Result<()> {
         use yode_tools::builtin::skill::SkillStore;
         let mut store = SkillStore::new();
         for skill in skill_registry.list() {
-            store.add(skill.name.clone(), skill.description.clone(), skill.content.clone());
+            store.add(
+                skill.name.clone(),
+                skill.description.clone(),
+                skill.content.clone(),
+            );
         }
         let store = std::sync::Arc::new(tokio::sync::Mutex::new(store));
         builtin::register_skill_tool(&mut tool_registry, store.clone());
@@ -373,9 +401,13 @@ async fn main() -> Result<()> {
                 } else if p_config.format == "openai" {
                     env::var("OPENAI_API_KEY").ok()
                 } else if p_config.format == "anthropic" {
-                    env::var("ANTHROPIC_API_KEY").or_else(|_| env::var("ANTHROPIC_AUTH_TOKEN")).ok()
+                    env::var("ANTHROPIC_API_KEY")
+                        .or_else(|_| env::var("ANTHROPIC_AUTH_TOKEN"))
+                        .ok()
                 } else if p_config.format == "gemini" {
-                    env::var("GOOGLE_API_KEY").or_else(|_| env::var("GEMINI_API_KEY")).ok()
+                    env::var("GOOGLE_API_KEY")
+                        .or_else(|_| env::var("GEMINI_API_KEY"))
+                        .ok()
                 } else {
                     None
                 }
@@ -386,30 +418,44 @@ async fn main() -> Result<()> {
                 if name == "ollama" || p_config.format == "ollama" {
                     String::new()
                 } else {
-                    warn!("Provider '{}' is configured but missing an API key, skipping.", name);
+                    warn!(
+                        "Provider '{}' is configured but missing an API key, skipping.",
+                        name
+                    );
                     continue;
                 }
             }
         };
 
         let known = yode_llm::find_provider_info(name);
-        let default_base = known.map(|k| k.default_base_url).unwrap_or(match p_config.format.as_str() {
-            "openai" => "https://api.openai.com/v1",
-            "anthropic" => "https://api.anthropic.com",
-            "gemini" => "https://generativelanguage.googleapis.com/v1beta",
-            _ => "https://api.openai.com/v1",
-        });
+        let default_base =
+            known
+                .map(|k| k.default_base_url)
+                .unwrap_or(match p_config.format.as_str() {
+                    "openai" => "https://api.openai.com/v1",
+                    "anthropic" => "https://api.anthropic.com",
+                    "gemini" => "https://generativelanguage.googleapis.com/v1beta",
+                    _ => "https://api.openai.com/v1",
+                });
 
         let base_url = match env::var(format!("{}_BASE_URL", env_prefix))
             .ok()
-            .or_else(|| p_config.base_url.clone()) {
-            Some(u) => if u.is_empty() { default_base.to_string() } else { u },
+            .or_else(|| p_config.base_url.clone())
+        {
+            Some(u) => {
+                if u.is_empty() {
+                    default_base.to_string()
+                } else {
+                    u
+                }
+            }
             None => default_base.to_string(),
         };
 
         match p_config.format.as_str() {
             "anthropic" => {
-                provider_registry.register(Arc::new(AnthropicProvider::new(name, &api_key, &base_url)));
+                provider_registry
+                    .register(Arc::new(AnthropicProvider::new(name, &api_key, &base_url)));
             }
             "gemini" => {
                 let mut p = GeminiProvider::new(&api_key);
@@ -420,7 +466,8 @@ async fn main() -> Result<()> {
             }
             _ => {
                 // OpenAI-compatible (openai, ollama, groq, mistral, deepseek, xai, etc.)
-                provider_registry.register(Arc::new(OpenAiProvider::new(name, &api_key, &base_url)));
+                provider_registry
+                    .register(Arc::new(OpenAiProvider::new(name, &api_key, &base_url)));
             }
         }
     }
@@ -430,33 +477,55 @@ async fn main() -> Result<()> {
         if provider_registry.contains(info.name) {
             continue;
         }
-        let api_key = info.env_keys.iter().find_map(|k| env::var(k).ok()).unwrap_or_default();
+        let api_key = info
+            .env_keys
+            .iter()
+            .find_map(|k| env::var(k).ok())
+            .unwrap_or_default();
         match info.format {
             "anthropic" => {
-                provider_registry.register(Arc::new(AnthropicProvider::new(info.name, &api_key, info.default_base_url)));
+                provider_registry.register(Arc::new(AnthropicProvider::new(
+                    info.name,
+                    &api_key,
+                    info.default_base_url,
+                )));
             }
             "gemini" => {
                 provider_registry.register(Arc::new(GeminiProvider::new(&api_key)));
             }
             _ => {
-                provider_registry.register(Arc::new(OpenAiProvider::new(info.name, &api_key, info.default_base_url)));
+                provider_registry.register(Arc::new(OpenAiProvider::new(
+                    info.name,
+                    &api_key,
+                    info.default_base_url,
+                )));
             }
         }
     }
 
     // Auto-detect provider and model from env vars or CLI args
-    let provider_name = cli.provider.unwrap_or_else(|| config.llm.default_provider.clone());
+    let provider_name = cli
+        .provider
+        .unwrap_or_else(|| config.llm.default_provider.clone());
 
     // Build provider → models map from config
-    let all_provider_models: std::collections::HashMap<String, Vec<String>> = config.llm.providers.iter()
+    let all_provider_models: std::collections::HashMap<String, Vec<String>> = config
+        .llm
+        .providers
+        .iter()
         .filter(|(name, _)| provider_registry.get(name).is_some())
         .map(|(name, p_config)| (name.clone(), p_config.models.clone()))
         .collect();
 
     // Resolve model: CLI arg > config default > first model in provider's list
-    let provider_models = all_provider_models.get(&provider_name).cloned().unwrap_or_default();
+    let provider_models = all_provider_models
+        .get(&provider_name)
+        .cloned()
+        .unwrap_or_default();
     let model = {
-        let requested = cli.model.unwrap_or_else(|| config.llm.default_model.clone());
+        let requested = cli
+            .model
+            .unwrap_or_else(|| config.llm.default_model.clone());
         if !provider_models.is_empty() && !provider_models.contains(&requested) {
             let first = provider_models[0].clone();
             warn!(
@@ -483,7 +552,8 @@ async fn main() -> Result<()> {
     ))?;
 
     // Setup permissions from config
-    let mut permissions = PermissionManager::from_confirmation_list(config.tools.require_confirmation.clone());
+    let mut permissions =
+        PermissionManager::from_confirmation_list(config.tools.require_confirmation.clone());
 
     // Apply permission mode from config
     if let Some(ref mode_str) = config.permissions.default_mode {
@@ -541,29 +611,42 @@ async fn main() -> Result<()> {
                         .unwrap_or_default();
                     let mut blocks = Vec::new();
                     if let Some(ref r) = m.reasoning {
-                        blocks.push(yode_llm::types::ContentBlock::Thinking { thinking: r.clone(), signature: None });
+                        blocks.push(yode_llm::types::ContentBlock::Thinking {
+                            thinking: r.clone(),
+                            signature: None,
+                        });
                     }
                     if let Some(ref t) = m.content {
                         blocks.push(yode_llm::types::ContentBlock::Text { text: t.clone() });
                     }
 
-                    Some(Message {
-                        role,
-                        content: m.content,
-                        content_blocks: blocks,
-                        reasoning: m.reasoning,
-                        tool_calls,
-                        tool_call_id: m.tool_call_id,
-                        images: Vec::new(),
-                    })                })
+                    Some(
+                        Message {
+                            role,
+                            content: m.content,
+                            content_blocks: blocks,
+                            reasoning: m.reasoning,
+                            tool_calls,
+                            tool_call_id: m.tool_call_id,
+                            images: Vec::new(),
+                        }
+                        .normalized(),
+                    )
+                })
                 .collect();
             (ctx, Some(messages))
         } else {
             eprintln!("会话 '{}' 未找到，创建新会话。", resume_id);
-            (AgentContext::new(workdir, provider_name.clone(), model.clone()), None)
+            (
+                AgentContext::new(workdir, provider_name.clone(), model.clone()),
+                None,
+            )
         }
     } else {
-        (AgentContext::new(workdir, provider_name.clone(), model.clone()), None)
+        (
+            AgentContext::new(workdir, provider_name.clone(), model.clone()),
+            None,
+        )
     };
 
     // Create session in database if new
@@ -624,7 +707,15 @@ async fn main() -> Result<()> {
         // 用流式模式执行（兼容只支持流式的第三方 API）
         let chat_msg_owned = chat_msg.clone();
         let engine_handle = tokio::spawn(async move {
-            engine.run_turn_streaming(&chat_msg_owned, yode_core::context::QuerySource::User, event_tx, confirm_rx, None).await
+            engine
+                .run_turn_streaming(
+                    &chat_msg_owned,
+                    yode_core::context::QuerySource::User,
+                    event_tx,
+                    confirm_rx,
+                    None,
+                )
+                .await
         });
 
         // 实时打印输出
@@ -636,8 +727,14 @@ async fn main() -> Result<()> {
                     full_text.push_str(&delta);
                 }
                 EngineEvent::TextComplete(_) => {}
-                EngineEvent::ToolCallStart { name, arguments, .. } => {
-                    eprintln!("\x1b[90m⚡ {}({})\x1b[0m", name, truncate_str(&arguments, 80));
+                EngineEvent::ToolCallStart {
+                    name, arguments, ..
+                } => {
+                    eprintln!(
+                        "\x1b[90m⚡ {}({})\x1b[0m",
+                        name,
+                        truncate_str(&arguments, 80)
+                    );
                 }
                 EngineEvent::ToolConfirmRequired { id, name, .. } => {
                     // 非交互模式自动允许工具执行
@@ -647,17 +744,33 @@ async fn main() -> Result<()> {
                 }
                 EngineEvent::ToolResult { name, result, .. } => {
                     if result.is_error {
-                        eprintln!("\x1b[31m✗ {} 失败: {}\x1b[0m", name, truncate_str(&result.content, 200));
+                        eprintln!(
+                            "\x1b[31m✗ {} 失败: {}\x1b[0m",
+                            name,
+                            truncate_str(&result.content, 200)
+                        );
                     } else {
-                        eprintln!("\x1b[90m✓ {} 完成 ({} 字节)\x1b[0m", name, result.content.len());
+                        eprintln!(
+                            "\x1b[90m✓ {} 完成 ({} 字节)\x1b[0m",
+                            name,
+                            result.content.len()
+                        );
                     }
                 }
                 EngineEvent::Error(e) => {
                     eprintln!("\x1b[31m错误: {}\x1b[0m", e);
                 }
-                EngineEvent::Retrying { error_message, attempt, max_attempts, delay_secs } => {
+                EngineEvent::Retrying {
+                    error_message,
+                    attempt,
+                    max_attempts,
+                    delay_secs,
+                } => {
                     eprintln!("\x1b[31m⎿  {}\x1b[0m", error_message);
-                    eprintln!("\x1b[33m   Retrying in {} seconds… (attempt {}/{})\x1b[0m", delay_secs, attempt, max_attempts);
+                    eprintln!(
+                        "\x1b[33m   Retrying in {} seconds… (attempt {}/{})\x1b[0m",
+                        delay_secs, attempt, max_attempts
+                    );
                 }
                 EngineEvent::Done => break,
                 _ => {}
@@ -704,7 +817,8 @@ async fn main() -> Result<()> {
         restored_messages,
         skill_cmds,
         all_provider_models,
-    ).await?;
+    )
+    .await?;
 
     // Shut down MCP clients
     for client in mcp_clients {

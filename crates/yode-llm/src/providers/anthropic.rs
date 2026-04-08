@@ -57,20 +57,17 @@ enum ContentBlock {
     #[serde(rename = "text")]
     Text {
         #[serde(default)]
-        text: String
+        text: String,
     },
     #[serde(rename = "thinking")]
     Thinking {
         #[serde(default)]
         thinking: String,
         #[serde(default, rename = "signature")]
-        #[allow(dead_code)]
-        _signature: Option<String>,
+        signature: Option<String>,
     },
     #[serde(rename = "image")]
-    Image {
-        source: ImageSource,
-    },
+    Image { source: ImageSource },
     #[serde(rename = "tool_use")]
     ToolUse {
         id: String,
@@ -129,9 +126,7 @@ struct AnthropicUsage {
 #[serde(tag = "type")]
 enum AnthropicStreamEvent {
     #[serde(rename = "message_start")]
-    MessageStart {
-        message: AnthropicMessageStart,
-    },
+    MessageStart { message: AnthropicMessageStart },
     #[serde(rename = "content_block_start")]
     ContentBlockStart {
         #[allow(dead_code)]
@@ -154,8 +149,7 @@ enum AnthropicStreamEvent {
     },
     #[serde(rename = "message_delta")]
     MessageDelta {
-        #[allow(dead_code)]
-        delta: serde_json::Value,
+        delta: AnthropicMessageDelta,
         usage: Option<AnthropicUsage>,
     },
     #[serde(rename = "message_stop")]
@@ -163,9 +157,7 @@ enum AnthropicStreamEvent {
     #[serde(rename = "ping")]
     Ping {},
     #[serde(rename = "error")]
-    Error {
-        error: AnthropicErrorDetail,
-    },
+    Error { error: AnthropicErrorDetail },
     #[serde(other)]
     Unknown,
 }
@@ -188,6 +180,14 @@ impl AnthropicStreamEvent {
 }
 
 #[derive(Debug, Deserialize)]
+struct AnthropicMessageDelta {
+    #[allow(dead_code)]
+    pub stop_reason: Option<String>,
+    #[allow(dead_code)]
+    pub stop_sequence: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct AnthropicMessageStart {
     model: String,
     #[serde(default)]
@@ -202,21 +202,17 @@ enum ContentBlockStart {
     #[serde(rename = "text", alias = "text_start")]
     Text {
         #[serde(default)]
-        text: String
+        text: String,
     },
     #[serde(rename = "thinking", alias = "thinking_start")]
     Thinking {
         #[serde(default)]
         thinking: String,
         #[serde(default, rename = "signature")]
-        #[allow(dead_code)]
-        _signature: Option<String>,
+        signature: Option<String>,
     },
     #[serde(rename = "tool_use", alias = "tool_use_start")]
-    ToolUse {
-        id: String,
-        name: String
-    },
+    ToolUse { id: String, name: String },
     #[serde(other)]
     Unknown,
 }
@@ -230,8 +226,7 @@ enum ContentBlockDelta {
     ThinkingDelta {
         thinking: String,
         #[serde(default, rename = "signature")]
-        #[allow(dead_code)]
-        _signature: Option<String>,
+        signature: Option<String>,
     },
     #[serde(rename = "input_json_delta", alias = "input_json")]
     InputJsonDelta { partial_json: String },
@@ -264,7 +259,11 @@ pub struct AnthropicProvider {
 }
 
 impl AnthropicProvider {
-    pub fn new(name: impl Into<String>, api_key: impl Into<String>, base_url: impl Into<String>) -> Self {
+    pub fn new(
+        name: impl Into<String>,
+        api_key: impl Into<String>,
+        base_url: impl Into<String>,
+    ) -> Self {
         Self {
             name: name.into(),
             api_key: api_key.into(),
@@ -296,7 +295,7 @@ impl AnthropicProvider {
                         AnthropicContent::Text(msg.content.clone().unwrap_or_default())
                     } else {
                         let mut blocks = Vec::new();
-                        
+
                         if let Some(text) = &msg.content {
                             if !text.is_empty() {
                                 blocks.push(ContentBlock::Text { text: text.clone() });
@@ -312,7 +311,7 @@ impl AnthropicProvider {
                                 },
                             });
                         }
-                        
+
                         AnthropicContent::Blocks(blocks)
                     };
 
@@ -418,7 +417,11 @@ impl LlmProvider for AnthropicProvider {
             messages,
             system,
             tools,
-            temperature: if thinking.is_some() { None } else { request.temperature },
+            temperature: if thinking.is_some() {
+                None
+            } else {
+                request.temperature
+            },
             thinking: thinking.clone(),
             stream: false,
         };
@@ -466,9 +469,15 @@ impl LlmProvider for AnthropicProvider {
                     text_content.push_str(text);
                     content_blocks.push(crate::types::ContentBlock::Text { text: text.clone() });
                 }
-                ContentBlock::Thinking { thinking, .. } => {
+                ContentBlock::Thinking {
+                    thinking,
+                    signature,
+                } => {
                     reasoning_content.push_str(thinking);
-                    content_blocks.push(crate::types::ContentBlock::Thinking { thinking: thinking.clone(), signature: None });
+                    content_blocks.push(crate::types::ContentBlock::Thinking {
+                        thinking: thinking.clone(),
+                        signature: signature.clone(),
+                    });
                 }
                 ContentBlock::ToolUse { id, name, input } => {
                     tool_calls.push(ToolCall {
@@ -506,20 +515,27 @@ impl LlmProvider for AnthropicProvider {
             tool_calls,
             tool_call_id: None,
             images: Vec::new(),
+        }
+        .normalized();
+
+        let stop_reason = match api_resp.stop_reason.as_deref() {
+            Some("end_turn") => Some(crate::types::StopReason::EndTurn),
+            Some("tool_use") => Some(crate::types::StopReason::ToolUse),
+            Some("max_tokens") => Some(crate::types::StopReason::MaxTokens),
+            Some("stop_sequence") => Some(crate::types::StopReason::StopSequence),
+            Some(other) => Some(crate::types::StopReason::Other(other.to_string())),
+            None => None,
         };
 
         Ok(ChatResponse {
             message,
             usage,
             model: api_resp.model,
+            stop_reason,
         })
     }
 
-    async fn chat_stream(
-        &self,
-        request: ChatRequest,
-        tx: mpsc::Sender<StreamEvent>,
-    ) -> Result<()> {
+    async fn chat_stream(&self, request: ChatRequest, tx: mpsc::Sender<StreamEvent>) -> Result<()> {
         let (system, messages) = Self::convert_messages(&request.messages);
         let tools = Self::convert_tools(&request.tools);
         let max_tokens = request.max_tokens.unwrap_or(4096);
@@ -537,7 +553,11 @@ impl LlmProvider for AnthropicProvider {
             messages,
             system,
             tools,
-            temperature: if thinking.is_some() { None } else { request.temperature },
+            temperature: if thinking.is_some() {
+                None
+            } else {
+                request.temperature
+            },
             thinking: thinking.clone(),
             stream: true,
         };
@@ -564,7 +584,10 @@ impl LlmProvider for AnthropicProvider {
         if !status.is_success() {
             let error_text = resp.text().await.unwrap_or_default();
             if let Ok(err_resp) = serde_json::from_str::<AnthropicErrorResponse>(&error_text) {
-                let msg = format!("Anthropic API error ({}): {}", status, err_resp.error.message);
+                let msg = format!(
+                    "Anthropic API error ({}): {}",
+                    status, err_resp.error.message
+                );
                 let _ = tx.send(StreamEvent::Error(msg.clone())).await;
                 return Err(anyhow!(msg));
             }
@@ -576,12 +599,15 @@ impl LlmProvider for AnthropicProvider {
         let mut event_stream = resp.bytes_stream().eventsource();
 
         // Accumulated state for building the final ChatResponse (Claude-style)
-        let mut content_blocks: std::collections::BTreeMap<u32, crate::types::ContentBlock> = std::collections::BTreeMap::new();
+        let mut content_blocks: std::collections::BTreeMap<u32, crate::types::ContentBlock> =
+            std::collections::BTreeMap::new();
         let mut tool_calls: Vec<ToolCall> = Vec::new();
         // Map content block index -> tool_use id for robust tool delta/end routing
-        let mut tool_ids_by_index: std::collections::HashMap<u32, String> = std::collections::HashMap::new();
+        let mut tool_ids_by_index: std::collections::HashMap<u32, String> =
+            std::collections::HashMap::new();
         let mut model = request.model.clone();
         let mut final_usage = Usage::default();
+        let mut stop_reason = None;
         let mut saw_message_stop = false;
         let mut finalize_reason = "stream_eof";
         let mut event_count: u64 = 0;
@@ -610,7 +636,10 @@ impl LlmProvider for AnthropicProvider {
             let stream_event: AnthropicStreamEvent = match serde_json::from_str(&data) {
                 Ok(e) => e,
                 Err(e) => {
-                    warn!("Failed to parse Anthropic stream event: {} (data: {})", e, data);
+                    warn!(
+                        "Failed to parse Anthropic stream event: {} (data: {})",
+                        e, data
+                    );
                     continue;
                 }
             };
@@ -624,11 +653,13 @@ impl LlmProvider for AnthropicProvider {
                     model = message.model;
                     if let Some(u) = message.usage {
                         final_usage.prompt_tokens = u.input_tokens;
-                        let _ = tx.send(StreamEvent::UsageUpdate(Usage {
-                            prompt_tokens: u.input_tokens,
-                            completion_tokens: 0,
-                            total_tokens: u.input_tokens,
-                        })).await;
+                        let _ = tx
+                            .send(StreamEvent::UsageUpdate(Usage {
+                                prompt_tokens: u.input_tokens,
+                                completion_tokens: 0,
+                                total_tokens: u.input_tokens,
+                            }))
+                            .await;
                     }
                 }
                 AnthropicStreamEvent::ContentBlockStart {
@@ -641,14 +672,26 @@ impl LlmProvider for AnthropicProvider {
                             first_block_text = text.clone();
                         }
 
-                        content_blocks.insert(index, crate::types::ContentBlock::Text { text: text.clone() });
+                        content_blocks.insert(
+                            index,
+                            crate::types::ContentBlock::Text { text: text.clone() },
+                        );
                         if !text.is_empty() {
                             let _ = tx.send(StreamEvent::TextDelta(text)).await;
                         }
                     }
-                    ContentBlockStart::Thinking { thinking, .. } => {
+                    ContentBlockStart::Thinking {
+                        thinking,
+                        signature,
+                    } => {
                         first_block_is_thinking = true;
-                        content_blocks.insert(index, crate::types::ContentBlock::Thinking { thinking: thinking.clone(), signature: None });
+                        content_blocks.insert(
+                            index,
+                            crate::types::ContentBlock::Thinking {
+                                thinking: thinking.clone(),
+                                signature: signature.clone(),
+                            },
+                        );
                         if !thinking.is_empty() {
                             let _ = tx.send(StreamEvent::ReasoningDelta(thinking)).await;
                         }
@@ -663,7 +706,7 @@ impl LlmProvider for AnthropicProvider {
                         let _ = tx.send(StreamEvent::ToolCallStart { id, name }).await;
                     }
                     ContentBlockStart::Unknown => {}
-                }
+                },
                 AnthropicStreamEvent::ContentBlockDelta { index, delta } => match delta {
                     ContentBlockDelta::TextDelta { text } => {
                         // Track first block text for DashScope thinking detection
@@ -684,10 +727,13 @@ impl LlmProvider for AnthropicProvider {
                             if is_thinking {
                                 first_block_is_thinking = true;
                                 // Update content block type
-                                content_blocks.insert(index, crate::types::ContentBlock::Thinking {
-                                    thinking: first_block_text.clone(),
-                                    signature: None
-                                });
+                                content_blocks.insert(
+                                    index,
+                                    crate::types::ContentBlock::Thinking {
+                                        thinking: first_block_text.clone(),
+                                        signature: None,
+                                    },
+                                );
                                 // Send as ReasoningDelta instead
                                 if tx.send(StreamEvent::ReasoningDelta(text)).await.is_err() {
                                     return Ok(());
@@ -699,14 +745,19 @@ impl LlmProvider for AnthropicProvider {
                         // Normal text delta
                         if first_block_is_thinking && index == 0 {
                             // This shouldn't happen, but handle it
-                            if let Some(crate::types::ContentBlock::Thinking { thinking: t, .. }) = content_blocks.get_mut(&index) {
+                            if let Some(crate::types::ContentBlock::Thinking {
+                                thinking: t, ..
+                            }) = content_blocks.get_mut(&index)
+                            {
                                 t.push_str(&text);
                             }
                             if tx.send(StreamEvent::ReasoningDelta(text)).await.is_err() {
                                 return Ok(());
                             }
                         } else {
-                            if let Some(crate::types::ContentBlock::Text { text: t }) = content_blocks.get_mut(&index) {
+                            if let Some(crate::types::ContentBlock::Text { text: t }) =
+                                content_blocks.get_mut(&index)
+                            {
                                 t.push_str(&text);
                             }
                             if tx.send(StreamEvent::TextDelta(text)).await.is_err() {
@@ -714,12 +765,26 @@ impl LlmProvider for AnthropicProvider {
                             }
                         }
                     }
-                    ContentBlockDelta::ThinkingDelta { thinking, .. } => {
+                    ContentBlockDelta::ThinkingDelta {
+                        thinking,
+                        signature,
+                    } => {
                         first_block_is_thinking = true;
-                        if let Some(crate::types::ContentBlock::Thinking { thinking: t, .. }) = content_blocks.get_mut(&index) {
+                        if let Some(crate::types::ContentBlock::Thinking {
+                            thinking: t,
+                            signature: s,
+                        }) = content_blocks.get_mut(&index)
+                        {
                             t.push_str(&thinking);
+                            if signature.is_some() {
+                                *s = signature.clone();
+                            }
                         }
-                        if tx.send(StreamEvent::ReasoningDelta(thinking)).await.is_err() {
+                        if tx
+                            .send(StreamEvent::ReasoningDelta(thinking))
+                            .await
+                            .is_err()
+                        {
                             return Ok(());
                         }
                     }
@@ -748,15 +813,23 @@ impl LlmProvider for AnthropicProvider {
                         }
                     }
                     ContentBlockDelta::Unknown => {}
-                }
+                },
                 AnthropicStreamEvent::ContentBlockStop { index } => {
                     if let Some(tool_id) = tool_ids_by_index.remove(&index) {
-                        let _ = tx
-                            .send(StreamEvent::ToolCallEnd { id: tool_id })
-                            .await;
+                        let _ = tx.send(StreamEvent::ToolCallEnd { id: tool_id }).await;
                     }
                 }
-                AnthropicStreamEvent::MessageDelta { delta: _, usage } => {
+                AnthropicStreamEvent::MessageDelta { delta, usage } => {
+                    if let Some(reason) = delta.stop_reason {
+                        stop_reason = match reason.as_str() {
+                            "end_turn" => Some(crate::types::StopReason::EndTurn),
+                            "tool_use" => Some(crate::types::StopReason::ToolUse),
+                            "max_tokens" => Some(crate::types::StopReason::MaxTokens),
+                            "stop_sequence" => Some(crate::types::StopReason::StopSequence),
+                            _ => Some(crate::types::StopReason::Other(reason)),
+                        };
+                    }
+
                     if let Some(u) = usage {
                         final_usage.completion_tokens = u.output_tokens;
                         if u.input_tokens > 0 {
@@ -764,12 +837,14 @@ impl LlmProvider for AnthropicProvider {
                         }
                         final_usage.total_tokens =
                             final_usage.prompt_tokens + final_usage.completion_tokens;
-                        
-                        let _ = tx.send(StreamEvent::UsageUpdate(Usage {
-                            prompt_tokens: final_usage.prompt_tokens,
-                            completion_tokens: final_usage.completion_tokens,
-                            total_tokens: final_usage.total_tokens,
-                        })).await;
+
+                        let _ = tx
+                            .send(StreamEvent::UsageUpdate(Usage {
+                                prompt_tokens: final_usage.prompt_tokens,
+                                completion_tokens: final_usage.completion_tokens,
+                                total_tokens: final_usage.total_tokens,
+                            }))
+                            .await;
                     }
                 }
                 AnthropicStreamEvent::MessageStop {} => {
@@ -819,39 +894,50 @@ impl LlmProvider for AnthropicProvider {
         }
 
         // Finalize final message using accumulated blocks (Claude-style)
-        let final_content_blocks: Vec<crate::types::ContentBlock> = content_blocks.into_values().collect();
+        let final_content_blocks: Vec<crate::types::ContentBlock> =
+            content_blocks.into_values().collect();
         let mut full_text = String::new();
         let mut full_reasoning = String::new();
 
         for block in &final_content_blocks {
             match block {
                 crate::types::ContentBlock::Text { text } => full_text.push_str(text),
-                crate::types::ContentBlock::Thinking { thinking, .. } => full_reasoning.push_str(thinking),
+                crate::types::ContentBlock::Thinking { thinking, .. } => {
+                    full_reasoning.push_str(thinking)
+                }
             }
         }
 
         let final_message = Message {
             role: Role::Assistant,
-            content: if full_text.is_empty() { None } else { Some(full_text) },
-            reasoning: if full_reasoning.is_empty() { None } else { Some(full_reasoning) },
+            content: if full_text.is_empty() {
+                None
+            } else {
+                Some(full_text)
+            },
+            reasoning: if full_reasoning.is_empty() {
+                None
+            } else {
+                Some(full_reasoning)
+            },
             content_blocks: final_content_blocks,
             tool_calls,
             tool_call_id: None,
             images: Vec::new(),
-        };
+        }
+        .normalized();
 
         let response = ChatResponse {
             message: final_message,
             usage: final_usage,
             model,
+            stop_reason,
         };
 
         let _ = tx.send(StreamEvent::Done(response)).await;
         debug!(
             "Sent StreamEvent::Done - stream complete (reason={}, saw_message_stop={}, events={})",
-            finalize_reason,
-            saw_message_stop,
-            event_count
+            finalize_reason, saw_message_stop, event_count
         );
 
         Ok(())

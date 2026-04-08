@@ -104,12 +104,15 @@ impl Message {
     pub fn assistant_with_reasoning(content: Option<String>, reasoning: Option<String>) -> Self {
         let mut blocks = Vec::new();
         if let Some(ref r) = reasoning {
-            blocks.push(ContentBlock::Thinking { thinking: r.clone(), signature: None });
+            blocks.push(ContentBlock::Thinking {
+                thinking: r.clone(),
+                signature: None,
+            });
         }
         if let Some(ref t) = content {
             blocks.push(ContentBlock::Text { text: t.clone() });
         }
-        
+
         Self {
             role: Role::Assistant,
             content,
@@ -151,6 +154,104 @@ impl Message {
             images: vec![image],
         }
     }
+
+    /// Normalize the legacy flat fields and structured content blocks so they stay in sync.
+    pub fn normalized(mut self) -> Self {
+        self.normalize_in_place();
+        self
+    }
+
+    /// Normalize the legacy flat fields and structured content blocks so they stay in sync.
+    pub fn normalize_in_place(&mut self) {
+        fn sanitize(value: Option<String>) -> Option<String> {
+            value.and_then(|text| {
+                if text.trim().is_empty() {
+                    None
+                } else {
+                    Some(text)
+                }
+            })
+        }
+
+        self.content = sanitize(self.content.take());
+        self.reasoning = sanitize(self.reasoning.take());
+
+        let mut thinking_blocks = Vec::new();
+        let mut text_blocks = Vec::new();
+
+        for block in self.content_blocks.drain(..) {
+            match block {
+                ContentBlock::Thinking {
+                    thinking,
+                    signature,
+                } if !thinking.trim().is_empty() => {
+                    thinking_blocks.push(ContentBlock::Thinking {
+                        thinking,
+                        signature,
+                    });
+                }
+                ContentBlock::Text { text } if !text.trim().is_empty() => {
+                    text_blocks.push(ContentBlock::Text { text });
+                }
+                _ => {}
+            }
+        }
+
+        let block_reasoning = thinking_blocks
+            .iter()
+            .filter_map(|block| match block {
+                ContentBlock::Thinking { thinking, .. } => Some(thinking.as_str()),
+                _ => None,
+            })
+            .collect::<String>();
+        let block_content = text_blocks
+            .iter()
+            .filter_map(|block| match block {
+                ContentBlock::Text { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<String>();
+
+        if self.reasoning.is_none() && !block_reasoning.is_empty() {
+            self.reasoning = Some(block_reasoning.clone());
+        }
+        if self.content.is_none() && !block_content.is_empty() {
+            self.content = Some(block_content.clone());
+        }
+
+        match (&self.reasoning, block_reasoning.is_empty()) {
+            (Some(reasoning), true) => {
+                thinking_blocks.push(ContentBlock::Thinking {
+                    thinking: reasoning.clone(),
+                    signature: None,
+                });
+            }
+            (Some(reasoning), false) if reasoning != &block_reasoning => {
+                thinking_blocks = vec![ContentBlock::Thinking {
+                    thinking: reasoning.clone(),
+                    signature: None,
+                }];
+            }
+            _ => {}
+        }
+
+        match (&self.content, block_content.is_empty()) {
+            (Some(content), true) => {
+                text_blocks.push(ContentBlock::Text {
+                    text: content.clone(),
+                });
+            }
+            (Some(content), false) if content != &block_content => {
+                text_blocks = vec![ContentBlock::Text {
+                    text: content.clone(),
+                }];
+            }
+            _ => {}
+        }
+
+        self.content_blocks = thinking_blocks;
+        self.content_blocks.extend(text_blocks);
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -176,11 +277,23 @@ pub struct ChatRequest {
     pub max_tokens: Option<u32>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum StopReason {
+    EndTurn,
+    ToolUse,
+    MaxTokens,
+    StopSequence,
+    ContentFilter,
+    Other(String),
+}
+
 #[derive(Debug, Clone)]
 pub struct ChatResponse {
     pub message: Message,
     pub usage: Usage,
     pub model: String,
+    pub stop_reason: Option<StopReason>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -196,9 +309,17 @@ pub enum StreamEvent {
     ReasoningDelta(String),
     /// Real-time usage information (e.g. prompt tokens known at start)
     UsageUpdate(Usage),
-    ToolCallStart { id: String, name: String },
-    ToolCallDelta { id: String, arguments: String },
-    ToolCallEnd { id: String },
+    ToolCallStart {
+        id: String,
+        name: String,
+    },
+    ToolCallDelta {
+        id: String,
+        arguments: String,
+    },
+    ToolCallEnd {
+        id: String,
+    },
     Done(ChatResponse),
     Error(String),
 }
@@ -208,4 +329,62 @@ pub struct ModelInfo {
     pub id: String,
     pub name: String,
     pub provider: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ContentBlock, Message, Role};
+
+    #[test]
+    fn normalize_builds_blocks_from_flat_fields() {
+        let message = Message {
+            role: Role::Assistant,
+            content: Some("final answer".to_string()),
+            content_blocks: Vec::new(),
+            reasoning: Some("step by step".to_string()),
+            tool_calls: Vec::new(),
+            tool_call_id: None,
+            images: Vec::new(),
+        }
+        .normalized();
+
+        assert_eq!(message.content_blocks.len(), 2);
+        assert!(matches!(
+            &message.content_blocks[0],
+            ContentBlock::Thinking { thinking, .. } if thinking == "step by step"
+        ));
+        assert!(matches!(
+            &message.content_blocks[1],
+            ContentBlock::Text { text } if text == "final answer"
+        ));
+    }
+
+    #[test]
+    fn normalize_backfills_flat_fields_from_blocks() {
+        let message = Message {
+            role: Role::Assistant,
+            content: None,
+            content_blocks: vec![
+                ContentBlock::Thinking {
+                    thinking: "inspect repo".to_string(),
+                    signature: Some("sig".to_string()),
+                },
+                ContentBlock::Text {
+                    text: "done".to_string(),
+                },
+            ],
+            reasoning: None,
+            tool_calls: Vec::new(),
+            tool_call_id: None,
+            images: Vec::new(),
+        }
+        .normalized();
+
+        assert_eq!(message.reasoning.as_deref(), Some("inspect repo"));
+        assert_eq!(message.content.as_deref(), Some("done"));
+        assert!(matches!(
+            &message.content_blocks[0],
+            ContentBlock::Thinking { signature, .. } if signature.as_deref() == Some("sig")
+        ));
+    }
 }

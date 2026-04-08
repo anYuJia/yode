@@ -4,17 +4,15 @@ pub mod history;
 pub mod input;
 pub mod wizard;
 
+use regex::Regex;
 use std::collections::HashMap;
 use std::io::{self, Write as IoWrite};
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
-use regex::Regex;
 
 use anyhow::Result;
-use crossterm::event::{KeyCode, KeyModifiers, EnableBracketedPaste, DisableBracketedPaste};
-use crossterm::terminal::{
-    disable_raw_mode, enable_raw_mode, Clear, ClearType,
-};
+use crossterm::event::{DisableBracketedPaste, EnableBracketedPaste, KeyCode, KeyModifiers};
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType};
 use crossterm::ExecutableCommand;
 use ratatui::backend::CrosstermBackend;
 use ratatui::style::{Color, Modifier};
@@ -108,14 +106,27 @@ impl ChatEntry {
 pub enum ChatRole {
     User,
     Assistant,
-    ToolCall { id: String, name: String },
-    ToolResult { id: String, name: String, is_error: bool },
+    ToolCall {
+        id: String,
+        name: String,
+    },
+    ToolResult {
+        id: String,
+        name: String,
+        is_error: bool,
+    },
     Error,
     System,
-    SubAgentCall { description: String },
-    SubAgentToolCall { name: String },
+    SubAgentCall {
+        description: String,
+    },
+    SubAgentToolCall {
+        name: String,
+    },
     SubAgentResult,
-    AskUser { id: String },
+    AskUser {
+        id: String,
+    },
 }
 
 /// Permission mode for tool execution.
@@ -178,7 +189,12 @@ pub enum TurnStatus {
     /// Turn completed: `⚡ Done · 13s · 3 tool calls`
     Done { elapsed: Duration, tools: u32 },
     /// Retrying after error: `⎿ error · Retrying in 3s (2/10)`
-    Retrying { error: String, attempt: u32, max_attempts: u32, delay_secs: u64 },
+    Retrying {
+        error: String,
+        attempt: u32,
+        max_attempts: u32,
+        delay_secs: u64,
+    },
 }
 
 impl TurnStatus {
@@ -202,12 +218,34 @@ pub struct ThinkingState {
 
 /// Fun spinner verbs (inspired by Claude Code)
 const SPINNER_VERBS: &[&str] = &[
-    "Thinking", "Computing", "Pondering", "Brewing", "Crafting",
-    "Cooking", "Weaving", "Forging", "Conjuring", "Composing",
-    "Hatching", "Spinning", "Churning", "Simmering", "Percolating",
-    "Noodling", "Ruminating", "Cogitating", "Assembling", "Channeling",
-    "Synthesizing", "Crystallizing", "Orchestrating", "Manifesting",
-    "Concocting", "Germinating", "Incubating", "Cultivating",
+    "Thinking",
+    "Computing",
+    "Pondering",
+    "Brewing",
+    "Crafting",
+    "Cooking",
+    "Weaving",
+    "Forging",
+    "Conjuring",
+    "Composing",
+    "Hatching",
+    "Spinning",
+    "Churning",
+    "Simmering",
+    "Percolating",
+    "Noodling",
+    "Ruminating",
+    "Cogitating",
+    "Assembling",
+    "Channeling",
+    "Synthesizing",
+    "Crystallizing",
+    "Orchestrating",
+    "Manifesting",
+    "Concocting",
+    "Germinating",
+    "Incubating",
+    "Cultivating",
 ];
 
 /// Spinner advances every SPINNER_TICK_DIVISOR ticks.
@@ -446,7 +484,6 @@ impl App {
         }
     }
 
-
     /// Sync is_thinking from thinking state (call after state changes).
     fn sync_thinking(&mut self) {
         self.is_thinking = self.thinking.active;
@@ -474,7 +511,10 @@ impl App {
     }
 
     pub fn thinking_elapsed_str(&self) -> String {
-        let d = self.turn_started_at.map(|s| s.elapsed()).unwrap_or_default();
+        let d = self
+            .turn_started_at
+            .map(|s| s.elapsed())
+            .unwrap_or_default();
         format_duration(d)
     }
 
@@ -499,12 +539,17 @@ impl crate::commands::Command for SkillCommandWrapper {
         &self.meta
     }
 
-    fn execute(&self, _args: &str, _ctx: &mut crate::commands::context::CommandContext) -> crate::commands::CommandResult {
+    fn execute(
+        &self,
+        _args: &str,
+        _ctx: &mut crate::commands::context::CommandContext,
+    ) -> crate::commands::CommandResult {
         // Skill commands are handled by showing the skill description;
         // actual execution flows through the normal chat/engine path.
-        Ok(crate::commands::CommandOutput::Message(
-            format!("Skill command: {}", self.meta.description),
-        ))
+        Ok(crate::commands::CommandOutput::Message(format!(
+            "Skill command: {}",
+            self.meta.description
+        )))
     }
 }
 
@@ -534,7 +579,10 @@ pub async fn run(
     let working_dir = context.working_dir_compat().display().to_string();
     let is_resumed = context.is_resumed;
     let provider_name = context.provider.clone();
-    let provider_models = all_provider_models.get(&provider_name).cloned().unwrap_or_default();
+    let provider_models = all_provider_models
+        .get(&provider_name)
+        .cloned()
+        .unwrap_or_default();
     let mut app = App::new(
         context.model.clone(),
         context.session_id.clone(),
@@ -573,30 +621,35 @@ pub async fn run(
             match msg.role {
                 yode_llm::types::Role::User => {
                     if let Some(ref content) = msg.content {
-                        app.chat_entries.push(ChatEntry::new(ChatRole::User, content.clone()));
+                        app.chat_entries
+                            .push(ChatEntry::new(ChatRole::User, content.clone()));
                     }
                 }
                 yode_llm::types::Role::Assistant => {
                     if let Some(ref content) = msg.content {
-                        app.chat_entries.push(ChatEntry::new(ChatRole::Assistant, content.clone()));
+                        app.chat_entries
+                            .push(ChatEntry::new(ChatRole::Assistant, content.clone()));
                     }
                 }
                 _ => {}
             }
         }
     }
-    
+
     // Print restored chat entries to stdout
     print_entries_to_stdout(&mut app)?;
 
     let mut engine_inner = AgentEngine::new(provider, tools.clone(), permissions, context);
     engine_inner.set_database(db);
-    
+
     // Restore messages to engine (for context)
     if let Some(ref messages) = restored_messages {
         engine_inner.restore_messages(messages.clone());
         if is_resumed {
-            app.chat_entries.push(ChatEntry::new(ChatRole::System, "Session resumed.".to_string()));
+            app.chat_entries.push(ChatEntry::new(
+                ChatRole::System,
+                "Session resumed.".to_string(),
+            ));
         }
     }
 
@@ -635,7 +688,8 @@ pub async fn run(
                     match updater.download_update(&result).await {
                         Ok(path) => {
                             tracing::info!("Update downloaded to: {:?}", path);
-                            let _ = update_event_tx.send(EngineEvent::UpdateDownloaded(latest.clone()));
+                            let _ =
+                                update_event_tx.send(EngineEvent::UpdateDownloaded(latest.clone()));
                         }
                         Err(e) => {
                             tracing::warn!("Update download failed: {}", e);
@@ -662,9 +716,14 @@ pub async fn run(
     )?;
 
     let result = run_app(
-        &mut terminal, &mut app, engine, tools,
-        engine_event_tx, &mut engine_event_rx,
-    ).await;
+        &mut terminal,
+        &mut app,
+        engine,
+        tools,
+        engine_event_tx,
+        &mut engine_event_rx,
+    )
+    .await;
 
     // Clear the viewport before exiting so summary prints cleanly below
     terminal.clear()?;
@@ -711,11 +770,23 @@ fn print_exit_summary(app: &App) {
     eprintln!();
     eprintln!("────────────────────────────────────────");
     eprintln!("Session summary");
-    eprintln!("  Session:       {} (resume: yode --resume {})", session_short, session_short);
+    eprintln!(
+        "  Session:       {} (resume: yode --resume {})",
+        session_short, session_short
+    );
     eprintln!("  Duration:      {}", duration_str);
-    eprintln!("  Input tokens:  {}", format_number(app.session.input_tokens));
-    eprintln!("  Output tokens: {}", format_number(app.session.output_tokens));
-    eprintln!("  Total tokens:  {}", format_number(app.session.total_tokens));
+    eprintln!(
+        "  Input tokens:  {}",
+        format_number(app.session.input_tokens)
+    );
+    eprintln!(
+        "  Output tokens: {}",
+        format_number(app.session.output_tokens)
+    );
+    eprintln!(
+        "  Total tokens:  {}",
+        format_number(app.session.total_tokens)
+    );
     eprintln!("  Tool calls:    {}", app.session.tool_call_count);
     eprintln!("  Est. cost:     ${:.4}", cost);
     eprintln!("────────────────────────────────────────");
@@ -791,7 +862,8 @@ async fn run_app(
                     0
                 };
                 let pending_line = app.pending_inputs.len() as u16;
-                visual_lines.clamp(1, 5) + completion_lines + thinking_line + pending_line + 4 // +separator +status_bar_separator +status_bar +blank_line
+                visual_lines.clamp(1, 5) + completion_lines + thinking_line + pending_line + 4
+                // +separator +status_bar_separator +status_bar +blank_line
             };
             let area = terminal.get_frame().area();
             if area.height != needed {
@@ -919,7 +991,8 @@ fn handle_key_event(
         match key.code {
             KeyCode::Esc => {
                 app.wizard = None;
-                app.chat_entries.push(ChatEntry::new(ChatRole::System, "Wizard cancelled.".into()));
+                app.chat_entries
+                    .push(ChatEntry::new(ChatRole::System, "Wizard cancelled.".into()));
             }
             KeyCode::Up => {
                 if let Some(ref mut wiz) = app.wizard {
@@ -934,7 +1007,8 @@ fn handle_key_event(
             KeyCode::Char(c) => {
                 if key.modifiers.contains(KeyModifiers::CONTROL) && c == 'c' {
                     app.wizard = None;
-                    app.chat_entries.push(ChatEntry::new(ChatRole::System, "Wizard cancelled.".into()));
+                    app.chat_entries
+                        .push(ChatEntry::new(ChatRole::System, "Wizard cancelled.".into()));
                 } else if let Some(ref mut wiz) = app.wizard {
                     if matches!(wiz.current_step(), Some(WizardStep::Input { .. })) {
                         wiz.input_char(c);
@@ -954,8 +1028,8 @@ fn handle_key_event(
                     Ok(None) => {} // More steps
                     Ok(Some(messages)) => {
                         // Check if wizard wants to hot-reload a provider
-                        let reload_name = app.wizard.as_ref()
-                            .and_then(|w| w.reload_provider.clone());
+                        let reload_name =
+                            app.wizard.as_ref().and_then(|w| w.reload_provider.clone());
                         for msg in messages {
                             app.chat_entries.push(ChatEntry::new(ChatRole::System, msg));
                         }
@@ -978,7 +1052,9 @@ fn handle_key_event(
     // ── History search mode ─────────────────────────────────
     if app.history.search_mode {
         match key.code {
-            KeyCode::Esc => { app.history.exit_search(false); }
+            KeyCode::Esc => {
+                app.history.exit_search(false);
+            }
             KeyCode::Enter => {
                 if let Some(text) = app.history.exit_search(true) {
                     app.input.set_text(&text);
@@ -1021,7 +1097,10 @@ fn handle_key_event(
         } else {
             // Check for double-tap within 500ms
             let now = Instant::now();
-            let is_double_tap = app.last_ctrl_c.map(|t| now.duration_since(t).as_millis() < 500).unwrap_or(false);
+            let is_double_tap = app
+                .last_ctrl_c
+                .map(|t| now.duration_since(t).as_millis() < 500)
+                .unwrap_or(false);
 
             if is_double_tap {
                 app.should_quit = true;
@@ -1111,7 +1190,11 @@ fn handle_key_event(
     // ── Main key handling ───────────────────────────────────
     match key.code {
         KeyCode::Enter => handle_enter(terminal, app, key, engine, tools, engine_event_tx),
-        KeyCode::Char(c) if (key.modifiers.contains(KeyModifiers::CONTROL) || key.modifiers.contains(KeyModifiers::SUPER)) && c == 'v' => {
+        KeyCode::Char(c)
+            if (key.modifiers.contains(KeyModifiers::CONTROL)
+                || key.modifiers.contains(KeyModifiers::SUPER))
+                && c == 'v' =>
+        {
             // Ctrl+V: read from system clipboard directly (works even without BracketedPaste)
             if let Ok(output) = std::process::Command::new("pbpaste").output() {
                 if output.status.success() {
@@ -1139,7 +1222,20 @@ fn handle_key_event(
         KeyCode::Char(c) => handle_char(app, key, c),
         KeyCode::Backspace => {
             app.input.backspace();
-            { let ctx = crate::commands::context::CompletionContext { provider_models: &app.provider_models, all_provider_models: &app.all_provider_models, provider_name: &app.provider_name, tools: &app.tools }; app.cmd_completion.update(&app.input.lines[0], !app.input.is_multiline(), &app.cmd_registry, &ctx); }
+            {
+                let ctx = crate::commands::context::CompletionContext {
+                    provider_models: &app.provider_models,
+                    all_provider_models: &app.all_provider_models,
+                    provider_name: &app.provider_name,
+                    tools: &app.tools,
+                };
+                app.cmd_completion.update(
+                    &app.input.lines[0],
+                    !app.input.is_multiline(),
+                    &app.cmd_registry,
+                    &ctx,
+                );
+            }
             app.file_completion.update(&app.input.text());
         }
         KeyCode::Delete => app.input.delete(),
@@ -1248,12 +1344,18 @@ fn handle_enter(
             if let Some(suggestion) = app.cmd_registry.suggest_similar(cmd_name) {
                 app.chat_entries.push(ChatEntry::new(
                     ChatRole::System,
-                    format!("Unknown command: /{}. Did you mean /{}?", cmd_name, suggestion),
+                    format!(
+                        "Unknown command: /{}. Did you mean /{}?",
+                        cmd_name, suggestion
+                    ),
                 ));
             } else {
                 app.chat_entries.push(ChatEntry::new(
                     ChatRole::System,
-                    format!("Unknown command: /{}. Type /help for available commands.", cmd_name),
+                    format!(
+                        "Unknown command: /{}. Type /help for available commands.",
+                        cmd_name
+                    ),
                 ));
             }
             return;
@@ -1261,7 +1363,8 @@ fn handle_enter(
 
         // Add user message to scrollback (except for /clear which is handled below)
         if cmd_name != "clear" {
-            app.chat_entries.push(ChatEntry::new(ChatRole::User, raw_typed.clone()));
+            app.chat_entries
+                .push(ChatEntry::new(ChatRole::User, raw_typed.clone()));
         }
 
         // Execute in a block so ctx is dropped before we handle result
@@ -1286,14 +1389,17 @@ fn handle_enter(
                 turn_started_at: app.turn_started_at,
                 cmd_registry: &app.cmd_registry,
             };
-            app.cmd_registry.execute_command(cmd_name, cmd_args, &mut ctx)
+            app.cmd_registry
+                .execute_command(cmd_name, cmd_args, &mut ctx)
         };
 
         // Special handling for /clear to ensure UI reset
         if cmd_name == "clear" {
             // 1. Clear terminal screen completely
             let mut stdout = io::stdout();
-            let _ = stdout.execute(crossterm::terminal::Clear(crossterm::terminal::ClearType::All));
+            let _ = stdout.execute(crossterm::terminal::Clear(
+                crossterm::terminal::ClearType::All,
+            ));
             let _ = stdout.execute(crossterm::cursor::MoveTo(0, 0));
 
             // 2. Print welcome header
@@ -1347,7 +1453,10 @@ fn handle_enter(
                 // Should not happen since we checked find() above
                 app.chat_entries.push(ChatEntry::new(
                     ChatRole::System,
-                    format!("Unknown command: /{}. Type /help for available commands.", cmd_name),
+                    format!(
+                        "Unknown command: /{}. Type /help for available commands.",
+                        cmd_name
+                    ),
                 ));
             }
         }
@@ -1359,13 +1468,20 @@ fn handle_enter(
     let processed_display = app.process_file_references(&display);
 
     if app.session.permission_mode == PermissionMode::Plan {
-        app.chat_entries.push(ChatEntry::new(ChatRole::User, processed_display.clone()));
+        app.chat_entries
+            .push(ChatEntry::new(ChatRole::User, processed_display.clone()));
         app.chat_entries.push(ChatEntry::new(
             ChatRole::System,
             "[Plan mode] Input recorded. Switch to Normal or Auto-Accept to execute.".to_string(),
         ));
     } else {
-        send_input(app, &processed_display, &processed_payload, engine, engine_event_tx);
+        send_input(
+            app,
+            &processed_display,
+            &processed_payload,
+            engine,
+            engine_event_tx,
+        );
     }
 }
 
@@ -1393,7 +1509,20 @@ fn handle_char(app: &mut App, key: crossterm::event::KeyEvent, c: char) {
         }
     } else {
         app.input.insert_char(c);
-        { let ctx = crate::commands::context::CompletionContext { provider_models: &app.provider_models, all_provider_models: &app.all_provider_models, provider_name: &app.provider_name, tools: &app.tools }; app.cmd_completion.update(&app.input.lines[0], !app.input.is_multiline(), &app.cmd_registry, &ctx); }
+        {
+            let ctx = crate::commands::context::CompletionContext {
+                provider_models: &app.provider_models,
+                all_provider_models: &app.all_provider_models,
+                provider_name: &app.provider_name,
+                tools: &app.tools,
+            };
+            app.cmd_completion.update(
+                &app.input.lines[0],
+                !app.input.is_multiline(),
+                &app.cmd_registry,
+                &ctx,
+            );
+        }
         if c == '@' || app.file_completion.is_active() {
             app.file_completion.update(&app.input.text());
         }
@@ -1423,8 +1552,6 @@ fn handle_down(app: &mut App) {
         browse_history_next(app);
     }
 }
-
-
 
 /// Browse to previous history entry (Ctrl+P or Up with text).
 fn browse_history_prev(app: &mut App) {
@@ -1478,7 +1605,20 @@ fn handle_tab(app: &mut App) {
             app.input.set_text(&cmd);
         }
     } else {
-        { let ctx = crate::commands::context::CompletionContext { provider_models: &app.provider_models, all_provider_models: &app.all_provider_models, provider_name: &app.provider_name, tools: &app.tools }; app.cmd_completion.update(&app.input.lines[0], !app.input.is_multiline(), &app.cmd_registry, &ctx); }
+        {
+            let ctx = crate::commands::context::CompletionContext {
+                provider_models: &app.provider_models,
+                all_provider_models: &app.all_provider_models,
+                provider_name: &app.provider_name,
+                tools: &app.tools,
+            };
+            app.cmd_completion.update(
+                &app.input.lines[0],
+                !app.input.is_multiline(),
+                &app.cmd_registry,
+                &ctx,
+            );
+        }
         if app.cmd_completion.candidates.len() == 1 {
             if let Some(cmd) = app.cmd_completion.accept() {
                 app.input.set_text(&cmd);
@@ -1497,8 +1637,9 @@ fn send_input(
     engine_event_tx: &mpsc::UnboundedSender<EngineEvent>,
 ) {
     // Add to internal sequential queue
-    app.pending_inputs.push((display.to_string(), payload.to_string()));
-    
+    app.pending_inputs
+        .push((display.to_string(), payload.to_string()));
+
     // Attempt to start processing if idle
     try_process_next(app, engine, engine_event_tx);
 }
@@ -1516,20 +1657,21 @@ fn try_process_next(
     app.is_processing = true;
 
     // Add user message to UI scrollback only when it starts processing
-    app.chat_entries.push(ChatEntry::new(ChatRole::User, display));
+    app.chat_entries
+        .push(ChatEntry::new(ChatRole::User, display));
 
     // Reset turn state synchronously (Claude-style)
     let cancel_token = CancellationToken::new();
     app.thinking.start(cancel_token.clone());
     app.turn_started_at = Some(Instant::now());
     app.turn_tool_count = 0;
-    
+
     // Estimate input tokens to be just the new user message
     // 1 token per 3 bytes is a rough heuristic. Ensure it's at least 1 for short messages.
     let new_bytes = payload.len();
     app.session.turn_input_tokens = (new_bytes as u32 / 3).max(1);
     app.session.turn_output_tokens = 0;
-    
+
     // Set Working status immediately
     let verb = {
         use std::collections::hash_map::DefaultHasher;
@@ -1547,11 +1689,17 @@ fn try_process_next(
 
     let engine = engine.clone();
     let event_tx = engine_event_tx.clone();
-    
+
     tokio::spawn(async move {
         let mut engine = engine.lock().await;
         let result = engine
-            .run_turn_streaming(&payload, yode_core::context::QuerySource::User, event_tx.clone(), confirm_rx, Some(cancel_token))
+            .run_turn_streaming(
+                &payload,
+                yode_core::context::QuerySource::User,
+                event_tx.clone(),
+                confirm_rx,
+                Some(cancel_token),
+            )
             .await;
         if let Err(e) = result {
             error!("Engine turn error: {}", e);
@@ -1584,8 +1732,8 @@ fn handle_engine_event(
                 } else {
                     usage.prompt_tokens
                 };
-                
-                // If it's 0 (because the prompt didn't grow, e.g., due to caching or 
+
+                // If it's 0 (because the prompt didn't grow, e.g., due to caching or
                 // missing context), fallback to the estimate we made, or at least 1.
                 if new_tokens > 0 {
                     app.session.turn_input_tokens = new_tokens;
@@ -1598,11 +1746,12 @@ fn handle_engine_event(
         EngineEvent::TextDelta(delta) => {
             // 1. Combine with any partial tags
             app.streaming_tag_buf.push_str(&delta);
-            
+
             // 2. Heuristic Check: Only buffer if it REALLY looks like an incomplete tag
             // If the buffer is getting too long, it's definitely not a tag protocol.
             if app.streaming_tag_buf.len() > 500 {
-                app.streaming_buf.push_str(&std::mem::take(&mut app.streaming_tag_buf));
+                app.streaming_buf
+                    .push_str(&std::mem::take(&mut app.streaming_tag_buf));
             } else {
                 let triggers = ["[tool_use", "[tool_result", "[DUMMY_TOOL", "name=bash"];
                 let mut has_trigger = false;
@@ -1620,7 +1769,10 @@ fn handle_engine_event(
                             // Trigger found but NO complete tag.
                             // CRITICAL: Only stay in buffer if the trigger is near the end or followed by JSON-like chars.
                             let after_trigger = &app.streaming_tag_buf[pos + t.len()..];
-                            if after_trigger.trim().is_empty() || after_trigger.contains('{') || after_trigger.contains('i') {
+                            if after_trigger.trim().is_empty()
+                                || after_trigger.contains('{')
+                                || after_trigger.contains('i')
+                            {
                                 // Potential incomplete tag — wait.
                                 has_trigger = true;
                                 break;
@@ -1631,7 +1783,8 @@ fn handle_engine_event(
 
                 if !has_trigger {
                     // No active incomplete tag — release the buffer
-                    app.streaming_buf.push_str(&std::mem::take(&mut app.streaming_tag_buf));
+                    app.streaming_buf
+                        .push_str(&std::mem::take(&mut app.streaming_tag_buf));
                 }
             }
 
@@ -1685,7 +1838,11 @@ fn handle_engine_event(
                 app.streaming_reasoning = text;
             }
         }
-        EngineEvent::ToolCallStart { id, name, arguments } => {
+        EngineEvent::ToolCallStart {
+            id,
+            name,
+            arguments,
+        } => {
             // Finalize any streaming buffer into a ChatEntry first.
             finalize_streaming(app);
             app.turn_tool_count += 1;
@@ -1703,9 +1860,10 @@ fn handle_engine_event(
             }
 
             // --- Fix Duplicates via ID Matching ---
-            let existing = app.chat_entries.iter_mut().rev().take(10).find(|e| {
-                matches!(&e.role, ChatRole::ToolCall { id: ref eid, .. } if eid == &id)
-            });
+            let existing =
+                app.chat_entries.iter_mut().rev().take(10).find(
+                    |e| matches!(&e.role, ChatRole::ToolCall { id: ref eid, .. } if eid == &id),
+                );
 
             if let Some(entry) = existing {
                 // Update existing entry with full arguments
@@ -1714,17 +1872,20 @@ fn handle_engine_event(
                 // New tool call — create entry
                 app.session.tool_call_count += 1;
                 app.tool_call_starts.insert(id.clone(), Instant::now());
-                app.chat_entries.push(ChatEntry::new(
-                    ChatRole::ToolCall { id, name },
-                    arguments,
-                ));
+                app.chat_entries
+                    .push(ChatEntry::new(ChatRole::ToolCall { id, name }, arguments));
             }
         }
-        EngineEvent::ToolConfirmRequired { id, name, arguments } => {
+        EngineEvent::ToolConfirmRequired {
+            id,
+            name,
+            arguments,
+        } => {
             // Update the existing ToolCall entry with full arguments
-            let existing = app.chat_entries.iter_mut().rev().take(10).find(|e| {
-                matches!(&e.role, ChatRole::ToolCall { id: ref eid, .. } if eid == &id)
-            });
+            let existing =
+                app.chat_entries.iter_mut().rev().take(10).find(
+                    |e| matches!(&e.role, ChatRole::ToolCall { id: ref eid, .. } if eid == &id),
+                );
 
             if let Some(entry) = existing {
                 if entry.content.is_empty() {
@@ -1732,7 +1893,10 @@ fn handle_engine_event(
                 }
             } else {
                 app.chat_entries.push(ChatEntry::new(
-                    ChatRole::ToolCall { id: id.clone(), name: name.clone() },
+                    ChatRole::ToolCall {
+                        id: id.clone(),
+                        name: name.clone(),
+                    },
                     arguments.clone(),
                 ));
             }
@@ -1744,23 +1908,39 @@ fn handle_engine_event(
                     let _ = tx.send(ConfirmResponse::Allow);
                 }
             } else {
-                app.pending_confirmation = Some(PendingConfirmation { id, name, arguments });
+                app.pending_confirmation = Some(PendingConfirmation {
+                    id,
+                    name,
+                    arguments,
+                });
                 app.confirm_selected = 0;
             }
         }
-        EngineEvent::ToolProgress { id, name: _, progress } => {
+        EngineEvent::ToolProgress {
+            id,
+            name: _,
+            progress,
+        } => {
             // Find the exact ToolCall entry by ID
-            let existing = app.chat_entries.iter_mut().rev().take(15).find(|e| {
-                matches!(&e.role, ChatRole::ToolCall { id: ref eid, .. } if eid == &id)
-            });
+            let existing =
+                app.chat_entries.iter_mut().rev().take(15).find(
+                    |e| matches!(&e.role, ChatRole::ToolCall { id: ref eid, .. } if eid == &id),
+                );
             if let Some(entry) = existing {
                 entry.progress = Some(progress);
             }
         }
         EngineEvent::ToolResult { id, name, result } => {
-            let duration = app.tool_call_starts.remove(&id).map(|start| start.elapsed());
+            let duration = app
+                .tool_call_starts
+                .remove(&id)
+                .map(|start| start.elapsed());
             let mut entry = ChatEntry::new(
-                ChatRole::ToolResult { id, name, is_error: result.is_error },
+                ChatRole::ToolResult {
+                    id,
+                    name,
+                    is_error: result.is_error,
+                },
                 result.content,
             );
             entry.duration = duration;
@@ -1783,7 +1963,7 @@ fn handle_engine_event(
                 } else {
                     prompt
                 };
-                
+
                 app.session.input_tokens += new_tokens;
                 app.session.previous_prompt_tokens = prompt;
             } else if total > completion {
@@ -1808,7 +1988,7 @@ fn handle_engine_event(
 
             // Output tokens for this turn are precise
             app.session.turn_output_tokens = completion;
-            
+
             app.thinking.stop();
             app.thinking_printed = false;
             app.sync_thinking();
@@ -1818,7 +1998,12 @@ fn handle_engine_event(
             app.thinking_printed = false;
             app.chat_entries.push(ChatEntry::new(ChatRole::Error, e));
         }
-        EngineEvent::Retrying { error_message, attempt, max_attempts, delay_secs } => {
+        EngineEvent::Retrying {
+            error_message,
+            attempt,
+            max_attempts,
+            delay_secs,
+        } => {
             finalize_streaming(app);
             app.thinking_printed = false;
             app.turn_status = TurnStatus::Retrying {
@@ -1867,10 +2052,14 @@ fn handle_engine_event(
                 app.suggestion_generating = true;
 
                 // Build messages for suggestion generation
-                let messages: Vec<yode_llm::types::Message> = app.chat_entries.iter()
+                let messages: Vec<yode_llm::types::Message> = app
+                    .chat_entries
+                    .iter()
                     .filter_map(|e| match e.role {
                         ChatRole::User => Some(yode_llm::types::Message::user(&e.content)),
-                        ChatRole::Assistant => Some(yode_llm::types::Message::assistant(&e.content)),
+                        ChatRole::Assistant => {
+                            Some(yode_llm::types::Message::assistant(&e.content))
+                        }
                         _ => None,
                     })
                     .collect();
@@ -1886,7 +2075,8 @@ fn handle_engine_event(
                     match engine_guard.generate_prompt_suggestion(&messages).await {
                         Some(suggestion) => {
                             tracing::debug!("Suggestion generated: {}", suggestion);
-                            let _ = event_tx_clone.send(EngineEvent::SuggestionReady { suggestion });
+                            let _ =
+                                event_tx_clone.send(EngineEvent::SuggestionReady { suggestion });
                         }
                         None => {
                             tracing::debug!("No suggestion generated");
@@ -1927,14 +2117,14 @@ fn handle_engine_event(
         }
         EngineEvent::SubAgentComplete { result } => {
             app.in_sub_agent = false;
-            let mut entry = ChatEntry::new(
-                ChatRole::SubAgentResult,
-                result,
-            );
+            let mut entry = ChatEntry::new(ChatRole::SubAgentResult, result);
             // Calculate duration from SubAgentCall timestamp
-            if let Some(call_entry) = app.chat_entries.iter().rev().find(|e| {
-                matches!(&e.role, ChatRole::SubAgentCall { .. })
-            }) {
+            if let Some(call_entry) = app
+                .chat_entries
+                .iter()
+                .rev()
+                .find(|e| matches!(&e.role, ChatRole::SubAgentCall { .. }))
+            {
                 entry.duration = Some(call_entry.timestamp.elapsed());
             }
             app.chat_entries.push(entry);
@@ -1962,20 +2152,60 @@ fn handle_engine_event(
                 "📋 Exited plan mode".to_string(),
             ));
         }
-        EngineEvent::ContextCompressed { removed } => {
-            app.chat_entries.push(ChatEntry::new(
-                ChatRole::System,
-                format!("Context compressed: removed {} messages to fit window.", removed),
-            ));
+        EngineEvent::ContextCompressed {
+            removed,
+            tool_results_truncated,
+            summary,
+        } => {
+            let mut content = match (removed, tool_results_truncated) {
+                (0, truncated) => {
+                    format!(
+                        "Context compressed: truncated {} oversized tool results to stay within the window.",
+                        truncated
+                    )
+                }
+                (removed, 0) => {
+                    format!(
+                        "Context compressed: removed {} messages to fit window.",
+                        removed
+                    )
+                }
+                (removed, truncated) => {
+                    format!(
+                        "Context compressed: removed {} messages and truncated {} oversized tool results.",
+                        removed, truncated
+                    )
+                }
+            };
+
+            if let Some(summary) = summary {
+                content.push_str("\n");
+                content.push_str(&summary);
+            }
+
+            app.chat_entries
+                .push(ChatEntry::new(ChatRole::System, content));
         }
-        EngineEvent::CostUpdate { estimated_cost, input_tokens, output_tokens } => {
+        EngineEvent::CostUpdate {
+            estimated_cost,
+            input_tokens,
+            output_tokens,
+        } => {
             // Update status bar with cost info (silently)
-            tracing::debug!("Cost: ${:.4} ({}in/{}out)", estimated_cost, input_tokens, output_tokens);
+            tracing::debug!(
+                "Cost: ${:.4} ({}in/{}out)",
+                estimated_cost,
+                input_tokens,
+                output_tokens
+            );
         }
         EngineEvent::BudgetExceeded { cost, limit } => {
             app.chat_entries.push(ChatEntry::new(
                 ChatRole::System,
-                format!("⚠ Budget limit exceeded: ${:.4} (limit: ${:.2})", cost, limit),
+                format!(
+                    "⚠ Budget limit exceeded: ${:.4} (limit: ${:.2})",
+                    cost, limit
+                ),
             ));
         }
     }
@@ -2021,18 +2251,24 @@ fn reload_provider_from_config(name: &str, app: &mut App) {
         .or_else(|| p_config.base_url.clone())
         .unwrap_or_else(|| default_base.to_string());
 
-    let provider: std::sync::Arc<dyn yode_llm::provider::LlmProvider> = if p_config.format == "openai" {
-        std::sync::Arc::new(yode_llm::providers::openai::OpenAiProvider::new(name, api_key, base_url))
-    } else {
-        std::sync::Arc::new(yode_llm::providers::anthropic::AnthropicProvider::new(name, api_key, base_url))
-    };
+    let provider: std::sync::Arc<dyn yode_llm::provider::LlmProvider> =
+        if p_config.format == "openai" {
+            std::sync::Arc::new(yode_llm::providers::openai::OpenAiProvider::new(
+                name, api_key, base_url,
+            ))
+        } else {
+            std::sync::Arc::new(yode_llm::providers::anthropic::AnthropicProvider::new(
+                name, api_key, base_url,
+            ))
+        };
 
     // Register (replaces old entry)
     app.provider_registry.register(provider.clone());
 
     // Update models list
     if let Some(p_cfg) = config.llm.providers.get(name) {
-        app.all_provider_models.insert(name.to_string(), p_cfg.models.clone());
+        app.all_provider_models
+            .insert(name.to_string(), p_cfg.models.clone());
     }
 
     // If this is the active provider, also update the engine
@@ -2049,11 +2285,14 @@ fn reload_provider_from_config(name: &str, app: &mut App) {
 /// Move streaming_buf content into a ChatEntry and reset streaming state.
 /// Save any unprinted remainder for flush to output.
 fn finalize_streaming(app: &mut App) {
-    if !app.streaming_buf.is_empty() || !app.streaming_reasoning.is_empty() || !app.streaming_tag_buf.is_empty() {
+    if !app.streaming_buf.is_empty()
+        || !app.streaming_reasoning.is_empty()
+        || !app.streaming_tag_buf.is_empty()
+    {
         let mut content_raw = std::mem::take(&mut app.streaming_buf);
         // Combine with any remaining partial tags
         content_raw.push_str(&std::mem::take(&mut app.streaming_tag_buf));
-        
+
         let content = strip_internal_tags(&content_raw);
         let reasoning = if app.streaming_reasoning.is_empty() {
             None
@@ -2065,13 +2304,15 @@ fn finalize_streaming(app: &mut App) {
 
         // Save unprinted tail lines for flush
         if printed < all_lines.len() {
-            let remainder: Vec<String> = all_lines[printed..].iter().map(|s| s.to_string()).collect();
+            let remainder: Vec<String> =
+                all_lines[printed..].iter().map(|s| s.to_string()).collect();
             app.streaming_remainder = Some((remainder, printed == 0));
         }
 
-        let mut entry = ChatEntry::new_with_reasoning(ChatRole::Assistant, content.clone(), reasoning);
+        let mut entry =
+            ChatEntry::new_with_reasoning(ChatRole::Assistant, content.clone(), reasoning);
         entry.already_printed = true; // always true — remainder handled separately
-        // Don't push empty/whitespace-only assistant entries (unless they have reasoning)
+                                      // Don't push empty/whitespace-only assistant entries (unless they have reasoning)
         if !content.trim().is_empty() || entry.reasoning.is_some() {
             app.chat_entries.push(entry);
         }
@@ -2089,20 +2330,29 @@ fn raw_print_lines(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     lines: &[(String, Option<crossterm::style::Color>, bool)],
 ) -> Result<()> {
-    if lines.is_empty() { return Ok(()); }
+    if lines.is_empty() {
+        return Ok(());
+    }
 
     // Calculate actual terminal rows needed, accounting for CJK/wide-char wrapping.
     // A logical line wider than the terminal wraps to multiple rows.
     // Always strip ANSI codes for width — inline markdown renders ANSI-styled text.
     let term_width = crossterm::terminal::size()?.0 as usize;
-    let actual_rows: usize = lines.iter().map(|(text, _color, _)| {
-        let visible = if text.contains('\x1b') {
-            unicode_width::UnicodeWidthStr::width(strip_ansi(text).as_str())
-        } else {
-            unicode_width::UnicodeWidthStr::width(text.as_str())
-        };
-        if visible == 0 || term_width == 0 { 1 } else { visible.div_ceil(term_width).max(1) }
-    }).sum();
+    let actual_rows: usize = lines
+        .iter()
+        .map(|(text, _color, _)| {
+            let visible = if text.contains('\x1b') {
+                unicode_width::UnicodeWidthStr::width(strip_ansi(text).as_str())
+            } else {
+                unicode_width::UnicodeWidthStr::width(text.as_str())
+            };
+            if visible == 0 || term_width == 0 {
+                1
+            } else {
+                visible.div_ceil(term_width).max(1)
+            }
+        })
+        .sum();
 
     // Step 1: Create blank space above viewport
     terminal.insert_before(actual_rows as u16, |_buf| {})?;
@@ -2111,15 +2361,19 @@ fn raw_print_lines(
     let backend = terminal.backend_mut();
 
     // Move cursor up from viewport start to the first blank line
-    crossterm::queue!(backend,
-        crossterm::cursor::MoveUp(actual_rows as u16),
-    )?;
+    crossterm::queue!(backend, crossterm::cursor::MoveUp(actual_rows as u16),)?;
 
     for (text, color, bold) in lines {
         crossterm::queue!(backend, crossterm::cursor::MoveToColumn(0))?;
-        crossterm::queue!(backend, crossterm::terminal::Clear(crossterm::terminal::ClearType::CurrentLine))?;
+        crossterm::queue!(
+            backend,
+            crossterm::terminal::Clear(crossterm::terminal::ClearType::CurrentLine)
+        )?;
         if *bold {
-            crossterm::queue!(backend, crossterm::style::SetAttribute(crossterm::style::Attribute::Bold))?;
+            crossterm::queue!(
+                backend,
+                crossterm::style::SetAttribute(crossterm::style::Attribute::Bold)
+            )?;
         }
         if let Some(c) = color {
             crossterm::queue!(backend, crossterm::style::SetForegroundColor(*c))?;
@@ -2128,7 +2382,10 @@ fn raw_print_lines(
         crossterm::queue!(backend, crossterm::style::Print(text))?;
         crossterm::queue!(backend, crossterm::style::ResetColor)?;
         if *bold {
-            crossterm::queue!(backend, crossterm::style::SetAttribute(crossterm::style::Attribute::NoBold))?;
+            crossterm::queue!(
+                backend,
+                crossterm::style::SetAttribute(crossterm::style::Attribute::NoBold)
+            )?;
         }
         crossterm::queue!(backend, crossterm::cursor::MoveToNextLine(1))?;
     }
@@ -2179,41 +2436,53 @@ fn print_header_to_stdout(app: &App) -> Result<()> {
                 stdout.execute(crossterm::style::SetForegroundColor(c))?;
             }
             if span.style.add_modifier.contains(Modifier::BOLD) {
-                stdout.execute(crossterm::style::SetAttribute(crossterm::style::Attribute::Bold))?;
+                stdout.execute(crossterm::style::SetAttribute(
+                    crossterm::style::Attribute::Bold,
+                ))?;
             }
             stdout.execute(crossterm::style::Print(&span.content))?;
-            stdout.execute(crossterm::style::SetAttribute(crossterm::style::Attribute::Reset))?;
+            stdout.execute(crossterm::style::SetAttribute(
+                crossterm::style::Attribute::Reset,
+            ))?;
         }
         stdout.execute(crossterm::style::Print("\r\n"))?;
     }
-    stdout.execute(crossterm::style::SetAttribute(crossterm::style::Attribute::Reset))?;
+    stdout.execute(crossterm::style::SetAttribute(
+        crossterm::style::Attribute::Reset,
+    ))?;
     stdout.execute(crossterm::style::ResetColor)?;
     stdout.flush()?;
     Ok(())
 }
 
 fn print_entries_to_stdout(app: &mut App) -> Result<()> {
-    if app.chat_entries.is_empty() { return Ok(()); }
-    
+    if app.chat_entries.is_empty() {
+        return Ok(());
+    }
+
     let mut stdout = io::stdout();
     for i in 0..app.chat_entries.len() {
         let entry = &app.chat_entries[i];
         let text_lines = format_entry_as_strings(entry, &app.chat_entries, i);
-        
+
         if i > 0 && matches!(entry.role, ChatRole::User) {
             stdout.execute(crossterm::style::Print("\r\n"))?;
         }
-        
+
         for (text, style) in text_lines {
             if let Some(color) = style.fg {
                 let c = to_crossterm_color(color);
                 stdout.execute(crossterm::style::SetForegroundColor(c))?;
             }
             if style.add_modifier.contains(Modifier::BOLD) {
-                stdout.execute(crossterm::style::SetAttribute(crossterm::style::Attribute::Bold))?;
+                stdout.execute(crossterm::style::SetAttribute(
+                    crossterm::style::Attribute::Bold,
+                ))?;
             }
             stdout.execute(crossterm::style::Print(text))?;
-            stdout.execute(crossterm::style::SetAttribute(crossterm::style::Attribute::Reset))?;
+            stdout.execute(crossterm::style::SetAttribute(
+                crossterm::style::Attribute::Reset,
+            ))?;
             stdout.execute(crossterm::style::Print("\r\n"))?;
         }
     }
@@ -2229,7 +2498,11 @@ pub fn format_duration(d: Duration) -> String {
     if total_secs >= 60 {
         let mins = total_secs / 60;
         let secs = total_secs % 60;
-        if secs == 0 { format!("{}m", mins) } else { format!("{}m {}s", mins, secs) }
+        if secs == 0 {
+            format!("{}m", mins)
+        } else {
+            format!("{}m {}s", mins, secs)
+        }
     } else {
         format!("{}s", total_secs)
     }
@@ -2274,7 +2547,8 @@ fn flush_entries_to_scrollback(
         if complete_count > app.streaming_printed_lines {
             // Get all lines, but only print up to complete_count
             let all_lines: Vec<&str> = app.streaming_buf.lines().collect();
-            let to_print = &all_lines[app.streaming_printed_lines..complete_count.min(all_lines.len())];
+            let to_print =
+                &all_lines[app.streaming_printed_lines..complete_count.min(all_lines.len())];
 
             let needs_spacer = app.streaming_printed_lines == 0;
             let mut first_printed = app.streaming_printed_lines > 0;
@@ -2309,7 +2583,11 @@ fn flush_entries_to_scrollback(
                 } else {
                     let (color, bold) = md_line_color(&text);
                     // Reset = terminal default foreground; don't set explicit color
-                    let color_opt = if matches!(color, crossterm::style::Color::Reset) { None } else { Some(color) };
+                    let color_opt = if matches!(color, crossterm::style::Color::Reset) {
+                        None
+                    } else {
+                        Some(color)
+                    };
                     all_output.push((format!("{}{}", prefix, text), color_opt, bold));
                 }
                 lines_printed_in_this_batch += 1;
@@ -2339,7 +2617,11 @@ fn flush_entries_to_scrollback(
                     all_output.push((format!("  {}", highlighted), None, false));
                 } else {
                     let (color, bold) = md_line_color(&text);
-                    let color_opt = if matches!(color, crossterm::style::Color::Reset) { None } else { Some(color) };
+                    let color_opt = if matches!(color, crossterm::style::Color::Reset) {
+                        None
+                    } else {
+                        Some(color)
+                    };
                     all_output.push((format!("  {}", text), color_opt, bold));
                 }
             }
@@ -2359,9 +2641,9 @@ fn flush_entries_to_scrollback(
         // result + timing display works correctly in scrollback.
         if let ChatRole::ToolCall { id: ref tid, .. } = entry.role {
             let tool_id = tid.clone();
-            let has_result = app.chat_entries[app.printed_count + 1..].iter().any(|e| {
-                matches!(&e.role, ChatRole::ToolResult { id: ref eid, .. } if eid == &tool_id)
-            });
+            let has_result = app.chat_entries[app.printed_count + 1..].iter().any(
+                |e| matches!(&e.role, ChatRole::ToolResult { id: ref eid, .. } if eid == &tool_id),
+            );
             if !has_result {
                 break; // Wait for result before printing
             }
@@ -2370,16 +2652,19 @@ fn flush_entries_to_scrollback(
         // Defer SubAgentCall until SubAgentResult arrives, so the nested
         // block renders as a complete tree with timing.
         if matches!(entry.role, ChatRole::SubAgentCall { .. }) {
-            let has_result = app.chat_entries[app.printed_count + 1..].iter().any(|e| {
-                matches!(&e.role, ChatRole::SubAgentResult)
-            });
+            let has_result = app.chat_entries[app.printed_count + 1..]
+                .iter()
+                .any(|e| matches!(&e.role, ChatRole::SubAgentResult));
             if !has_result {
                 break; // Wait for sub-agent to complete
             }
         }
 
         // Skip SubAgentToolCall and SubAgentResult — rendered by SubAgentCall
-        if matches!(entry.role, ChatRole::SubAgentToolCall { .. } | ChatRole::SubAgentResult) {
+        if matches!(
+            entry.role,
+            ChatRole::SubAgentToolCall { .. } | ChatRole::SubAgentResult
+        ) {
             app.printed_count += 1;
             continue;
         }
@@ -2456,19 +2741,25 @@ fn format_entry_as_strings(
                 } else if is_code_block_line(&line) {
                     // Code line — embed ANSI highlighting, no ratatui fg color
                     let highlighted = highlight_code_line(&line);
-                    result.push((format!("  {}", highlighted), ratatui::style::Style::default()));
+                    result.push((
+                        format!("  {}", highlighted),
+                        ratatui::style::Style::default(),
+                    ));
                 } else {
                     // Use white color for all assistant response lines
                     result.push((format!("  {}", line), white));
                 }
             }
         }
-        ChatRole::ToolCall { id: ref tid, ref name } => {
+        ChatRole::ToolCall {
+            id: ref tid,
+            ref name,
+        } => {
             let args: serde_json::Value = serde_json::from_str(&entry.content).unwrap_or_default();
 
-            let tool_result = all_entries[index + 1..].iter().find(|e| {
-                matches!(&e.role, ChatRole::ToolResult { id: ref eid, .. } if eid == tid)
-            });
+            let tool_result = all_entries[index + 1..].iter().find(
+                |e| matches!(&e.role, ChatRole::ToolResult { id: ref eid, .. } if eid == tid),
+            );
 
             // Format timing suffix from the matching ToolResult's duration
             let timing = tool_result
@@ -2489,9 +2780,14 @@ fn format_entry_as_strings(
             if name == "edit_file" {
                 let file_path = args["file_path"].as_str().unwrap_or("???");
                 // Shorten path: show relative if under cwd
-                let display_path = file_path.strip_prefix(&format!("{}/",
-                    std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default()
-                )).unwrap_or(file_path);
+                let display_path = file_path
+                    .strip_prefix(&format!(
+                        "{}/",
+                        std::env::current_dir()
+                            .map(|p| p.display().to_string())
+                            .unwrap_or_default()
+                    ))
+                    .unwrap_or(file_path);
 
                 let old_str = args["old_string"].as_str().unwrap_or("");
                 let new_str = args["new_string"].as_str().unwrap_or("");
@@ -2517,7 +2813,10 @@ fn format_entry_as_strings(
                 let total = old_lines.len() + new_lines.len();
                 for line in &old_lines {
                     if shown >= max_diff {
-                        result.push((format!("     … +{} lines (ctrl+o to expand)", total - shown), dim));
+                        result.push((
+                            format!("     … +{} lines (ctrl+o to expand)", total - shown),
+                            dim,
+                        ));
                         break;
                     }
                     result.push((format!("     - {}", line), red_dim));
@@ -2526,7 +2825,10 @@ fn format_entry_as_strings(
                 if shown < max_diff {
                     for line in &new_lines {
                         if shown >= max_diff {
-                            result.push((format!("     … +{} lines (ctrl+o to expand)", total - shown), dim));
+                            result.push((
+                                format!("     … +{} lines (ctrl+o to expand)", total - shown),
+                                dim,
+                            ));
                             break;
                         }
                         result.push((format!("     + {}", line), green));
@@ -2536,16 +2838,26 @@ fn format_entry_as_strings(
             } else if name == "read_file" {
                 // Read: just show the path, no content
                 let file_path = args["file_path"].as_str().unwrap_or("???");
-                let display_path = file_path.strip_prefix(&format!("{}/",
-                    std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default()
-                )).unwrap_or(file_path);
+                let display_path = file_path
+                    .strip_prefix(&format!(
+                        "{}/",
+                        std::env::current_dir()
+                            .map(|p| p.display().to_string())
+                            .unwrap_or_default()
+                    ))
+                    .unwrap_or(file_path);
                 result.push((format!("⏺ Read({}){}", display_path, timing), accent));
             } else if name == "write_file" {
                 // Write: show path + first few lines of content
                 let file_path = args["file_path"].as_str().unwrap_or("???");
-                let display_path = file_path.strip_prefix(&format!("{}/",
-                    std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default()
-                )).unwrap_or(file_path);
+                let display_path = file_path
+                    .strip_prefix(&format!(
+                        "{}/",
+                        std::env::current_dir()
+                            .map(|p| p.display().to_string())
+                            .unwrap_or_default()
+                    ))
+                    .unwrap_or(file_path);
                 let content = args["content"].as_str().unwrap_or("");
                 let total_lines = content.lines().count();
                 result.push((format!("⏺ Write({}){}", display_path, timing), accent));
@@ -2553,7 +2865,13 @@ fn format_entry_as_strings(
                 let max_preview = 3;
                 for (i, line) in content.lines().enumerate() {
                     if i >= max_preview {
-                        result.push((format!("     … +{} lines (ctrl+o to expand)", total_lines - max_preview), dim));
+                        result.push((
+                            format!(
+                                "     … +{} lines (ctrl+o to expand)",
+                                total_lines - max_preview
+                            ),
+                            dim,
+                        ));
                         break;
                     }
                     let green = ratatui::style::Style::default().fg(Color::LightGreen);
@@ -2561,7 +2879,10 @@ fn format_entry_as_strings(
                 }
             } else {
                 let summary = tool_summary_str(name, &args);
-                result.push((format!("⏺ {}({}){}", capitalize(name), summary, timing), accent));
+                result.push((
+                    format!("⏺ {}({}){}", capitalize(name), summary, timing),
+                    accent,
+                ));
 
                 if let Some(res) = tool_result {
                     let max_lines = 3;
@@ -2570,11 +2891,22 @@ fn format_entry_as_strings(
                         .unwrap_or(120);
                     for (i, line) in res.content.lines().enumerate() {
                         if i >= max_lines {
-                            result.push((format!("     … +{} lines (ctrl+o to expand)", res.content.lines().count() - max_lines), dim));
+                            result.push((
+                                format!(
+                                    "     … +{} lines (ctrl+o to expand)",
+                                    res.content.lines().count() - max_lines
+                                ),
+                                dim,
+                            ));
                             break;
                         }
                         let prefix = if i == 0 { "  ⎿  " } else { "     " };
-                        let style = if matches!(res.role, ChatRole::ToolResult { is_error, .. } if is_error) { red } else { dim };
+                        let style = if matches!(res.role, ChatRole::ToolResult { is_error, .. } if is_error)
+                        {
+                            red
+                        } else {
+                            dim
+                        };
                         let display = truncate_line(line, max_line_chars);
                         result.push((format!("{}{}", prefix, display), style));
                     }
@@ -2582,11 +2914,15 @@ fn format_entry_as_strings(
             }
         }
         ChatRole::ToolResult { id: ref rid, .. } => {
-            let has_preceding = index > 0 && all_entries[..index].iter().rev().any(|e| {
-                matches!(&e.role, ChatRole::ToolCall { id: ref tid, .. } if tid == rid)
-            });
+            let has_preceding = index > 0
+                && all_entries[..index].iter().rev().any(
+                    |e| matches!(&e.role, ChatRole::ToolCall { id: ref tid, .. } if tid == rid),
+                );
             if !has_preceding {
-                result.push((format!("  ⎿ {}", entry.content.lines().next().unwrap_or("")), dim));
+                result.push((
+                    format!("  ⎿ {}", entry.content.lines().next().unwrap_or("")),
+                    dim,
+                ));
             }
         }
         ChatRole::Error => {
@@ -2639,14 +2975,23 @@ fn format_entry_as_strings(
                 .map(|d| format!(" ── {}", format_duration(d)))
                 .unwrap_or_default();
 
-            result.push((format!("⏺ {}({}){}", agent_type, description, timing), accent));
+            result.push((
+                format!("⏺ {}({}){}", agent_type, description, timing),
+                accent,
+            ));
 
             // Show first 3 sub-tools, then truncate
             let max_show = 3;
             let total = sub_tools.len();
             for (i, tool_name) in sub_tools.iter().enumerate() {
                 if i >= max_show {
-                    result.push((format!("     … +{} more tool uses (ctrl+o to expand)", total - max_show), dim));
+                    result.push((
+                        format!(
+                            "     … +{} more tool uses (ctrl+o to expand)",
+                            total - max_show
+                        ),
+                        dim,
+                    ));
                     break;
                 }
                 let prefix = if i == 0 { "  ⎿  " } else { "     " };
@@ -2680,20 +3025,37 @@ fn tool_summary_str(name: &str, args: &serde_json::Value) -> String {
         "memory" => {
             let action = args["action"].as_str().unwrap_or("???");
             let mem_name = args["name"].as_str().unwrap_or("");
-            if mem_name.is_empty() { action.to_string() } else { format!("{} {}", action, mem_name) }
+            if mem_name.is_empty() {
+                action.to_string()
+            } else {
+                format!("{} {}", action, mem_name)
+            }
         }
         "cron" => args["action"].as_str().unwrap_or("???").to_string(),
         "lsp" => {
             let op = args["operation"].as_str().unwrap_or("???");
             let file = args["filePath"].as_str().unwrap_or("");
-            if file.is_empty() { op.to_string() } else { format!("{} {}", op, file) }
+            if file.is_empty() {
+                op.to_string()
+            } else {
+                format!("{} {}", op, file)
+            }
         }
         "enter_worktree" => args["name"].as_str().unwrap_or("").to_string(),
         "notebook_edit" => args["notebook_path"].as_str().unwrap_or("???").to_string(),
         _ => {
             if let Some(obj) = args.as_object() {
                 // Try common argument keys
-                for key in &["command", "path", "file_path", "relative_path", "query", "pattern", "url", "name"] {
+                for key in &[
+                    "command",
+                    "path",
+                    "file_path",
+                    "relative_path",
+                    "query",
+                    "pattern",
+                    "url",
+                    "name",
+                ] {
                     if let Some(val) = obj.get(*key).and_then(|v| v.as_str()) {
                         return val.to_string();
                     }
@@ -2748,11 +3110,11 @@ fn is_code_block_line(text: &str) -> bool {
 fn highlight_code_line(line: &str) -> String {
     // One Dark theme colors
     const RESET: &str = "\x1b[0m";
-    const KW: &str = "\x1b[38;2;198;120;221m";      // purple - keywords
-    const STR: &str = "\x1b[38;2;152;195;121m";      // green - strings
-    const CMT: &str = "\x1b[38;2;92;99;112m";        // gray - comments
-    const NUM: &str = "\x1b[38;2;209;154;102m";      // orange - numbers
-    const BASE: &str = "\x1b[38;2;171;178;191m";     // light gray - base
+    const KW: &str = "\x1b[38;2;198;120;221m"; // purple - keywords
+    const STR: &str = "\x1b[38;2;152;195;121m"; // green - strings
+    const CMT: &str = "\x1b[38;2;92;99;112m"; // gray - comments
+    const NUM: &str = "\x1b[38;2;209;154;102m"; // orange - numbers
+    const BASE: &str = "\x1b[38;2;171;178;191m"; // light gray - base
 
     let trimmed = line.trim();
 
@@ -2850,7 +3212,8 @@ fn highlight_code_line(line: &str) -> String {
 }
 
 fn is_code_keyword(word: &str) -> bool {
-    matches!(word,
+    matches!(
+        word,
         // Python
         "def" | "class" | "if" | "elif" | "else" | "for" | "while" | "return" |
         "import" | "from" | "with" | "try" | "except" | "finally" |
@@ -2927,7 +3290,9 @@ fn markdown_to_plain(text: &str) -> String {
         // Table lines
         if is_table_line {
             let inner = &trimmed[1..trimmed.len() - 1];
-            let is_separator = inner.chars().all(|c| c == '-' || c == ':' || c == '|' || c == ' ');
+            let is_separator = inner
+                .chars()
+                .all(|c| c == '-' || c == ':' || c == '|' || c == ' ');
             if !is_separator {
                 let cells: Vec<String> = inner
                     .split('|')
@@ -2941,7 +3306,9 @@ fn markdown_to_plain(text: &str) -> String {
         // Horizontal rule
         if (trimmed.starts_with("---") || trimmed.starts_with("***") || trimmed.starts_with("___"))
             && trimmed.len() >= 3
-            && trimmed.chars().all(|c| c == '-' || c == '*' || c == '_' || c == ' ')
+            && trimmed
+                .chars()
+                .all(|c| c == '-' || c == '*' || c == '_' || c == ' ')
         {
             result.push_str("────────────────────────────────\n\n");
             continue;
@@ -2997,7 +3364,8 @@ fn markdown_to_plain(text: &str) -> String {
 
         // Ordered lists (1. item, 2. item, etc.)
         if let Some(dot_pos) = trimmed.find(". ") {
-            if dot_pos <= 3 && dot_pos > 0 && trimmed[..dot_pos].chars().all(|c| c.is_ascii_digit()) {
+            if dot_pos <= 3 && dot_pos > 0 && trimmed[..dot_pos].chars().all(|c| c.is_ascii_digit())
+            {
                 let num = &trimmed[..dot_pos];
                 let content = &trimmed[dot_pos + 2..];
                 let src_indent = line.len() - line.trim_start().len();
@@ -3111,14 +3479,18 @@ fn process_md_line(line: &str, in_code_block: &mut bool) -> String {
     // Horizontal rule
     if (trimmed.starts_with("---") || trimmed.starts_with("***"))
         && trimmed.len() >= 3
-        && trimmed.chars().all(|c| c == '-' || c == '*' || c == '_' || c == ' ')
+        && trimmed
+            .chars()
+            .all(|c| c == '-' || c == '*' || c == '_' || c == ' ')
     {
         return "────────────────────────────────".to_string();
     }
     // Table line (streaming — can't buffer, just clean up)
     if trimmed.starts_with('|') && trimmed.ends_with('|') && trimmed.len() > 1 {
         let inner = &trimmed[1..trimmed.len() - 1];
-        let is_separator = inner.chars().all(|c| c == '-' || c == ':' || c == '|' || c == ' ');
+        let is_separator = inner
+            .chars()
+            .all(|c| c == '-' || c == ':' || c == '|' || c == ' ');
         if is_separator {
             return "  ──────────────────────────".to_string();
         }
@@ -3152,12 +3524,22 @@ fn process_md_line(line: &str, in_code_block: &mut bool) -> String {
         return format!("☐ {}", render_inline_md(&trimmed[6..], true));
     }
     // Headers (#### → H4 as sub-bullet, ### → H3, ## → H2, # → H1)
-    if trimmed.starts_with("#### ") { return format!("  ▹ {}", render_inline_md(&trimmed[5..], true)); }
-    if trimmed.starts_with("### ") { return format!("▸ {}", render_inline_md(&trimmed[4..], true)); }
-    if trimmed.starts_with("## ") { return format!("── {}", render_inline_md(&trimmed[3..], true)); }
-    if trimmed.starts_with("# ") { return format!("━━ {}", render_inline_md(&trimmed[2..], true)); }
+    if trimmed.starts_with("#### ") {
+        return format!("  ▹ {}", render_inline_md(&trimmed[5..], true));
+    }
+    if trimmed.starts_with("### ") {
+        return format!("▸ {}", render_inline_md(&trimmed[4..], true));
+    }
+    if trimmed.starts_with("## ") {
+        return format!("── {}", render_inline_md(&trimmed[3..], true));
+    }
+    if trimmed.starts_with("# ") {
+        return format!("━━ {}", render_inline_md(&trimmed[2..], true));
+    }
     // Blockquote
-    if trimmed.starts_with("> ") { return format!("▎ {}", render_inline_md(&trimmed[2..], true)); }
+    if trimmed.starts_with("> ") {
+        return format!("▎ {}", render_inline_md(&trimmed[2..], true));
+    }
     // Default: render with ANSI inline formatting
     render_inline_md(line, true)
 }
@@ -3197,7 +3579,9 @@ fn render_inline_md(text: &str, ansi: bool) -> String {
             } else {
                 result.push_str(&content);
             }
-            if i + 1 < len { i += 2; } // skip closing **
+            if i + 1 < len {
+                i += 2;
+            } // skip closing **
         } else if chars[i] == '`' {
             // `code` — find closing `
             i += 1;
@@ -3213,7 +3597,9 @@ fn render_inline_md(text: &str, ansi: bool) -> String {
             } else {
                 result.push_str(&content);
             }
-            if i < len { i += 1; } // skip closing `
+            if i < len {
+                i += 1;
+            } // skip closing `
         } else if chars[i] == '[' {
             // [text](url) → text
             let bracket_start = i + 1;
@@ -3228,7 +3614,9 @@ fn render_inline_md(text: &str, ansi: bool) -> String {
                 while j < len && chars[j] != ')' {
                     j += 1;
                 }
-                if j < len { j += 1; } // skip )
+                if j < len {
+                    j += 1;
+                } // skip )
                 if ansi {
                     result.push_str(LINK_COLOR);
                     result.push_str(&link_text);
