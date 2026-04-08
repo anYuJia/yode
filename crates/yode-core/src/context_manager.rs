@@ -437,6 +437,18 @@ impl ContextManager {
         self.compress_with_report(messages).removed
     }
 
+    pub fn context_window(&self) -> usize {
+        self.limits.context_window
+    }
+
+    pub fn compression_threshold_tokens(&self) -> usize {
+        (self.limits.context_window as f64 * self.threshold) as usize
+    }
+
+    pub fn estimate_tokens_for_messages(&self, messages: &[Message]) -> usize {
+        self.estimate_tokens(messages)
+    }
+
     /// Check whether the current messages still exceed the compaction threshold,
     /// using the cached token/char ratio from the latest API response when available.
     pub fn exceeds_threshold_estimate(&self, messages: &[Message]) -> bool {

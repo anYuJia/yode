@@ -2124,6 +2124,19 @@ fn handle_engine_event(
                 app.input.set_ghost_text(app.prompt_suggestion.clone());
             }
         }
+        EngineEvent::SessionMemoryUpdated {
+            path,
+            generated_summary,
+        } => {
+            app.chat_entries.push(ChatEntry::new(
+                ChatRole::System,
+                format!(
+                    "Session memory updated ({}): {}",
+                    if generated_summary { "summary" } else { "snapshot" },
+                    path
+                ),
+            ));
+        }
         EngineEvent::UpdateAvailable(version) => {
             app.update_available = Some(version);
         }

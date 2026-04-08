@@ -781,6 +781,16 @@ async fn main() -> Result<()> {
                         delay_secs, attempt, max_attempts
                     );
                 }
+                EngineEvent::SessionMemoryUpdated {
+                    path,
+                    generated_summary,
+                } => {
+                    eprintln!(
+                        "\x1b[90m🧠 Session memory updated ({}) -> {}\x1b[0m",
+                        if generated_summary { "summary" } else { "snapshot" },
+                        path
+                    );
+                }
                 EngineEvent::Done => break,
                 _ => {}
             }

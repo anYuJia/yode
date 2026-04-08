@@ -238,6 +238,11 @@ pub enum EngineEvent {
     BudgetExceeded { cost: f64, limit: f64 },
     /// Suggestion generated (async LLM call completed)
     SuggestionReady { suggestion: String },
+    /// Live session memory file was refreshed
+    SessionMemoryUpdated {
+        path: String,
+        generated_summary: bool,
+    },
     /// App update is available
     UpdateAvailable(String),
     /// App update is downloading
@@ -251,6 +256,26 @@ pub enum EngineEvent {
 pub enum ConfirmResponse {
     Allow,
     Deny,
+}
+
+#[derive(Debug, Clone)]
+pub struct EngineRuntimeState {
+    pub query_source: String,
+    pub autocompact_disabled: bool,
+    pub compaction_failures: u32,
+    pub context_window_tokens: usize,
+    pub compaction_threshold_tokens: usize,
+    pub estimated_context_tokens: usize,
+    pub message_count: usize,
+    pub live_session_memory_initialized: bool,
+    pub live_session_memory_updating: bool,
+    pub live_session_memory_path: String,
+    pub session_tool_calls_total: u32,
+    pub last_compaction_mode: Option<String>,
+    pub last_compaction_session_memory_path: Option<String>,
+    pub last_compaction_transcript_path: Option<String>,
+    pub last_session_memory_update_path: Option<String>,
+    pub last_session_memory_generated_summary: bool,
 }
 
 /// Tool call budget thresholds for analysis guidance.
@@ -332,6 +357,16 @@ pub struct AgentEngine {
     session_memory_update_in_progress: Arc<AtomicBool>,
     /// Generation counter used to invalidate stale async session memory writes.
     session_memory_generation: Arc<AtomicU64>,
+    /// Most recent compaction mode.
+    last_compaction_mode: Option<String>,
+    /// Most recent compaction session memory artifact path.
+    last_compaction_session_memory_path: Option<String>,
+    /// Most recent compaction transcript artifact path.
+    last_compaction_transcript_path: Option<String>,
+    /// Most recent live session memory update path.
+    last_session_memory_update_path: Option<String>,
+    /// Whether the latest live session memory update used an LLM summary.
+    last_session_memory_generated_summary: bool,
 }
 
 /// Convert yode-tools ToolDefinition to yode-llm ToolDefinition.
@@ -507,6 +542,11 @@ impl AgentEngine {
             last_session_memory_tool_count: 0,
             session_memory_update_in_progress: Arc::new(AtomicBool::new(false)),
             session_memory_generation: Arc::new(AtomicU64::new(0)),
+            last_compaction_mode: None,
+            last_compaction_session_memory_path: None,
+            last_compaction_transcript_path: None,
+            last_session_memory_update_path: None,
+            last_session_memory_generated_summary: false,
         }
     }
 
@@ -641,6 +681,33 @@ impl AgentEngine {
         self.db.as_ref()
     }
 
+    pub fn runtime_state(&self) -> EngineRuntimeState {
+        EngineRuntimeState {
+            query_source: format!("{:?}", self.current_query_source),
+            autocompact_disabled: self.autocompact_disabled,
+            compaction_failures: self.compaction_failures,
+            context_window_tokens: self.context_manager.context_window(),
+            compaction_threshold_tokens: self.context_manager.compression_threshold_tokens(),
+            estimated_context_tokens: self
+                .context_manager
+                .estimate_tokens_for_messages(&self.messages),
+            message_count: self.messages.len(),
+            live_session_memory_initialized: self.session_memory_initialized,
+            live_session_memory_updating: self
+                .session_memory_update_in_progress
+                .load(Ordering::SeqCst),
+            live_session_memory_path: live_session_memory_path(&self.context.working_dir_compat())
+                .display()
+                .to_string(),
+            session_tool_calls_total: self.session_tool_calls_total,
+            last_compaction_mode: self.last_compaction_mode.clone(),
+            last_compaction_session_memory_path: self.last_compaction_session_memory_path.clone(),
+            last_compaction_transcript_path: self.last_compaction_transcript_path.clone(),
+            last_session_memory_update_path: self.last_session_memory_update_path.clone(),
+            last_session_memory_generated_summary: self.last_session_memory_generated_summary,
+        }
+    }
+
     /// Set hook manager.
     pub fn set_hook_manager(&mut self, mgr: HookManager) {
         self.hook_manager = Some(mgr);
@@ -754,6 +821,7 @@ impl AgentEngine {
     async fn run_post_tool_use_hooks(
         &self,
         tool_call: &ToolCall,
+        effective_input: &Value,
         working_dir: &str,
         result: &mut ToolResult,
     ) {
@@ -772,7 +840,7 @@ impl AgentEngine {
             session_id: self.context.session_id.clone(),
             working_dir: working_dir.to_string(),
             tool_name: Some(tool_call.name.clone()),
-            tool_input: Some(Self::parse_tool_input(&tool_call.arguments)),
+            tool_input: Some(effective_input.clone()),
             tool_output: Some(result.content.clone()),
             error: result.is_error.then(|| result.content.clone()),
             user_prompt: None,
@@ -1130,14 +1198,22 @@ impl AgentEngine {
             self.compaction_failures = 0;
         }
 
+        let session_memory_path_str = session_memory_path
+            .as_ref()
+            .map(|p| p.display().to_string());
+        let transcript_path_str = transcript_path.as_ref().map(|p| p.display().to_string());
+
         let _ = event_tx.send(EngineEvent::ContextCompressed {
             mode: mode.to_string(),
             removed: report.removed,
             tool_results_truncated: report.tool_results_truncated,
             summary: report.summary.clone(),
-            session_memory_path: session_memory_path.map(|p| p.display().to_string()),
-            transcript_path: transcript_path.map(|p| p.display().to_string()),
+            session_memory_path: session_memory_path_str.clone(),
+            transcript_path: transcript_path_str.clone(),
         });
+        self.last_compaction_mode = Some(mode.to_string());
+        self.last_compaction_session_memory_path = session_memory_path_str;
+        self.last_compaction_transcript_path = transcript_path_str;
         true
     }
 
@@ -1206,6 +1282,11 @@ impl AgentEngine {
             );
         }
         self.reset_live_session_memory_tracking();
+        self.last_compaction_mode = None;
+        self.last_compaction_session_memory_path = None;
+        self.last_compaction_transcript_path = None;
+        self.last_session_memory_update_path = None;
+        self.last_session_memory_generated_summary = false;
         self.sync_persisted_messages_snapshot();
         self.rebuild_system_prompt();
         self.reset_autocompact_state();
@@ -1267,7 +1348,10 @@ impl AgentEngine {
             .sum()
     }
 
-    fn maybe_refresh_live_session_memory(&mut self) {
+    fn maybe_refresh_live_session_memory(
+        &mut self,
+        event_tx: Option<&mpsc::UnboundedSender<EngineEvent>>,
+    ) {
         self.session_tool_calls_total = self
             .session_tool_calls_total
             .saturating_add(self.tool_call_count);
@@ -1307,8 +1391,16 @@ impl AgentEngine {
         let project_root = self.context.working_dir_compat();
         if self.provider.name() == "mock" {
             match persist_live_session_memory(&project_root, &snapshot) {
-                Ok(_) => {
+                Ok(path) => {
+                    self.last_session_memory_update_path = Some(path.display().to_string());
+                    self.last_session_memory_generated_summary = false;
                     self.rebuild_system_prompt();
+                    if let Some(event_tx) = event_tx {
+                        let _ = event_tx.send(EngineEvent::SessionMemoryUpdated {
+                            path: path.display().to_string(),
+                            generated_summary: false,
+                        });
+                    }
                 }
                 Err(err) => warn!("Failed to refresh live session memory: {}", err),
             }
@@ -1328,6 +1420,7 @@ impl AgentEngine {
         let generation = Arc::clone(&self.session_memory_generation);
         let scheduled_generation = generation.load(Ordering::SeqCst);
         let update_flag = Arc::clone(&self.session_memory_update_in_progress);
+        let event_tx = event_tx.cloned();
         let recent_messages = self
             .messages
             .iter()
@@ -1374,14 +1467,24 @@ impl AgentEngine {
 
             let result = if let Some(summary) = summary {
                 persist_live_session_memory_summary(&project_root, &snapshot, &summary)
+                    .map(|path| (path, true))
             } else {
-                persist_live_session_memory(&project_root, &snapshot)
+                persist_live_session_memory(&project_root, &snapshot).map(|path| (path, false))
             };
 
-            if let Err(err) = result {
-                warn!("Failed to persist async live session memory: {}", err);
-            } else {
-                info!("Live session memory refreshed asynchronously");
+            match result {
+                Ok((path, generated_summary)) => {
+                    info!("Live session memory refreshed asynchronously");
+                    if let Some(event_tx) = &event_tx {
+                        let _ = event_tx.send(EngineEvent::SessionMemoryUpdated {
+                            path: path.display().to_string(),
+                            generated_summary,
+                        });
+                    }
+                }
+                Err(err) => {
+                    warn!("Failed to persist async live session memory: {}", err);
+                }
             }
 
             update_flag.store(false, Ordering::SeqCst);
@@ -1689,8 +1792,14 @@ impl AgentEngine {
 
                     self.inject_intelligence(&mut result, &tc.name, &tc.arguments);
                     let working_dir = self.current_runtime_working_dir().await;
-                    self.run_post_tool_use_hooks(tc, &working_dir, &mut result)
-                        .await;
+                    let effective_input = Self::parse_tool_input(&tc.arguments);
+                    self.run_post_tool_use_hooks(
+                        tc,
+                        &effective_input,
+                        &working_dir,
+                        &mut result,
+                    )
+                    .await;
 
                     self.messages
                         .push(Message::tool_result(&tc.id, &result.content));
@@ -1715,8 +1824,13 @@ impl AgentEngine {
 
                     self.inject_intelligence(&mut result, &tool_call.name, &tool_call.arguments);
                     let working_dir = self.current_runtime_working_dir().await;
-                    self.run_post_tool_use_hooks(tool_call, &working_dir, &mut result)
-                        .await;
+                    self.run_post_tool_use_hooks(
+                        tool_call,
+                        &Self::parse_tool_input(&tool_call.arguments),
+                        &working_dir,
+                        &mut result,
+                    )
+                    .await;
 
                     self.messages
                         .push(Message::tool_result(&tool_call.id, &result.content));
@@ -1753,9 +1867,9 @@ impl AgentEngine {
                 }
             }
 
-            self.maybe_refresh_live_session_memory();
-            let _ = event_tx.send(EngineEvent::TurnComplete(response));
-            let _ = event_tx.send(EngineEvent::Done);
+        self.maybe_refresh_live_session_memory(Some(&event_tx));
+        let _ = event_tx.send(EngineEvent::TurnComplete(response));
+        let _ = event_tx.send(EngineEvent::Done);
             break;
         }
 
@@ -2398,8 +2512,14 @@ impl AgentEngine {
                         }
 
                         let working_dir = self.current_runtime_working_dir().await;
-                        self.run_post_tool_use_hooks(&tc, &working_dir, &mut result)
-                            .await;
+                        let effective_input = Self::parse_tool_input(&tc.arguments);
+                        self.run_post_tool_use_hooks(
+                            &tc,
+                            &effective_input,
+                            &working_dir,
+                            &mut result,
+                        )
+                        .await;
 
                         self.messages
                             .push(Message::tool_result(&tc.id, &result.content));
@@ -2441,8 +2561,13 @@ impl AgentEngine {
 
                     self.inject_intelligence(&mut result, &tool_call.name, &tool_call.arguments);
                     let working_dir = self.current_runtime_working_dir().await;
-                    self.run_post_tool_use_hooks(tool_call, &working_dir, &mut result)
-                        .await;
+                    self.run_post_tool_use_hooks(
+                        tool_call,
+                        &Self::parse_tool_input(&tool_call.arguments),
+                        &working_dir,
+                        &mut result,
+                    )
+                    .await;
 
                     self.messages
                         .push(Message::tool_result(&tool_call.id, &result.content));
@@ -2519,7 +2644,7 @@ impl AgentEngine {
 
                 if resp.message.tool_calls.is_empty() {
                     debug!("Streaming turn complete with no tool calls; finishing turn.");
-                    self.maybe_refresh_live_session_memory();
+                    self.maybe_refresh_live_session_memory(Some(&event_tx));
                     let _ = event_tx.send(EngineEvent::TurnComplete(resp));
                     let _ = event_tx.send(EngineEvent::Done);
                     break;
@@ -2914,38 +3039,7 @@ impl AgentEngine {
 
             let mut params: serde_json::Value = serde_json::from_str(&tc.arguments)
                 .unwrap_or_else(|_| serde_json::Value::Object(serde_json::Map::new()));
-
-            let _ = event_tx.send(EngineEvent::ToolCallStart {
-                id: tc.id.clone(),
-                name: tc.name.clone(),
-                arguments: tc.arguments.clone(),
-            });
-
-            info!(
-                "Executing tool in parallel: {} (auto-allowed, read-only)",
-                tc.name
-            );
-
-            let (p_tx, mut p_rx) = mpsc::unbounded_channel::<yode_tools::tool::ToolProgress>();
-            let event_tx_inner = event_tx.clone();
-            let tc_id = tc.id.clone();
-            let tc_name = tc.name.clone();
-            tokio::spawn(async move {
-                while let Some(progress) = p_rx.recv().await {
-                    let _ = event_tx_inner.send(EngineEvent::ToolProgress {
-                        id: tc_id.clone(),
-                        name: tc_name.clone(),
-                        progress,
-                    });
-                }
-            });
-
-            let ctx = self.build_tool_context(Some(p_tx)).await;
-            let working_dir = ctx
-                .working_dir
-                .as_ref()
-                .map(|p| p.display().to_string())
-                .unwrap_or_default();
+            let working_dir = self.current_runtime_working_dir().await;
 
             if let Some(blocked) = self
                 .run_pre_tool_use_hook(&tc.name, &tc.arguments, &working_dir, &mut params)
@@ -2974,6 +3068,35 @@ impl AgentEngine {
                     >);
                 continue;
             }
+            let effective_arguments =
+                serde_json::to_string(&params).unwrap_or_else(|_| tc.arguments.clone());
+
+            let _ = event_tx.send(EngineEvent::ToolCallStart {
+                id: tc.id.clone(),
+                name: tc.name.clone(),
+                arguments: effective_arguments,
+            });
+
+            info!(
+                "Executing tool in parallel: {} (auto-allowed, read-only)",
+                tc.name
+            );
+
+            let (p_tx, mut p_rx) = mpsc::unbounded_channel::<yode_tools::tool::ToolProgress>();
+            let event_tx_inner = event_tx.clone();
+            let tc_id = tc.id.clone();
+            let tc_name = tc.name.clone();
+            tokio::spawn(async move {
+                while let Some(progress) = p_rx.recv().await {
+                    let _ = event_tx_inner.send(EngineEvent::ToolProgress {
+                        id: tc_id.clone(),
+                        name: tc_name.clone(),
+                        progress,
+                    });
+                }
+            });
+
+            let ctx = self.build_tool_context(Some(p_tx)).await;
 
             let tool_name = tc.name.clone();
             let tc_clone = tc.clone();
@@ -3246,6 +3369,8 @@ impl AgentEngine {
         } else {
             None
         };
+        let effective_arguments =
+            serde_json::to_string(&params).unwrap_or_else(|_| tool_call.arguments.clone());
 
         // Unified project/command gate (Claude-style preflight): block mismatched
         // language-specific commands until project root assumptions are corrected.
@@ -3346,7 +3471,7 @@ impl AgentEngine {
                 let _ = event_tx.send(EngineEvent::ToolCallStart {
                     id: tool_call.id.clone(),
                     name: tool_call.name.clone(),
-                    arguments: tool_call.arguments.clone(),
+                    arguments: effective_arguments.clone(),
                 });
             }
             PermissionAction::Confirm => {
@@ -3369,7 +3494,7 @@ impl AgentEngine {
                 let _ = event_tx.send(EngineEvent::ToolConfirmRequired {
                     id: tool_call.id.clone(),
                     name: tool_call.name.clone(),
-                    arguments: tool_call.arguments.clone(),
+                    arguments: effective_arguments.clone(),
                 });
 
                 debug!("Waiting for user confirmation: tool={}", tool_call.name);
@@ -3466,8 +3591,8 @@ impl AgentEngine {
         }
 
         // Dedup detection: warn if same tool+args was called recently
-        let call_sig = (tool_call.name.clone(), tool_call.arguments.clone());
-        let current_sig_text = format!("{}:{}", tool_call.name, tool_call.arguments);
+        let call_sig = (tool_call.name.clone(), effective_arguments.clone());
+        let current_sig_text = format!("{}:{}", tool_call.name, effective_arguments);
 
         // Allow repetition for observer tools (ls, git_status, etc.)
         let is_observer_tool = [
@@ -3799,6 +3924,45 @@ mod tests {
             _ctx: &ToolContext,
         ) -> anyhow::Result<ToolResult> {
             Ok(ToolResult::success("write done".to_string()))
+        }
+    }
+
+    struct MockPathTool;
+
+    #[async_trait::async_trait]
+    impl Tool for MockPathTool {
+        fn name(&self) -> &str {
+            "mock_path"
+        }
+        fn description(&self) -> &str {
+            "mock path tool"
+        }
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string" }
+                },
+                "required": ["path"]
+            })
+        }
+        fn capabilities(&self) -> ToolCapabilities {
+            ToolCapabilities {
+                requires_confirmation: false,
+                supports_auto_execution: true,
+                read_only: false,
+            }
+        }
+        async fn execute(
+            &self,
+            params: serde_json::Value,
+            _ctx: &ToolContext,
+        ) -> anyhow::Result<ToolResult> {
+            let path = params
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("missing");
+            Ok(ToolResult::success(format!("path={}", path)))
         }
     }
 
@@ -4157,6 +4321,40 @@ mod tests {
         }));
     }
 
+    #[tokio::test]
+    async fn test_pre_tool_use_hook_can_modify_input() {
+        let mut engine = make_engine(vec![Arc::new(MockPathTool)], vec![]);
+        let hook_dir = std::env::temp_dir().join(format!(
+            "yode-modify-hook-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&hook_dir).unwrap();
+        let mut hook_mgr = crate::hooks::HookManager::new(hook_dir);
+        hook_mgr.register(crate::hooks::HookDefinition {
+            command: "printf '%s' '{\"updatedInput\":{\"path\":\"new.txt\"}}'".into(),
+            events: vec!["pre_tool_use".into()],
+            tool_filter: Some(vec!["mock_path".into()]),
+            timeout_secs: 5,
+            can_block: false,
+        });
+        engine.set_hook_manager(hook_mgr);
+
+        let tool_call = ToolCall {
+            id: "tc1".into(),
+            name: "mock_path".into(),
+            arguments: "{\"path\":\"old.txt\"}".into(),
+        };
+        let (event_tx, _event_rx) = mpsc::unbounded_channel();
+        let (_confirm_tx, mut confirm_rx) = mpsc::unbounded_channel();
+
+        let result = engine
+            .handle_tool_call(&tool_call, &event_tx, &mut confirm_rx, None)
+            .await
+            .unwrap();
+
+        assert_eq!(result.content, "path=new.txt");
+    }
+
     #[test]
     fn test_live_session_memory_refresh_writes_snapshot() {
         let mut engine = make_engine(vec![], vec![]);
@@ -4172,7 +4370,7 @@ mod tests {
             .files_modified
             .push(project_root.join("src/main.rs").display().to_string());
 
-        engine.maybe_refresh_live_session_memory();
+        engine.maybe_refresh_live_session_memory(None);
 
         let live_path = crate::session_memory::live_session_memory_path(&project_root);
         let content = std::fs::read_to_string(live_path).unwrap();
