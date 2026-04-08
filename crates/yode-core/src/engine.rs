@@ -86,10 +86,14 @@ fn retry_delay(kind: ErrorKind, attempt: u32) -> std::time::Duration {
             };
             std::time::Duration::from_secs(secs)
         }
-        // Transient: exponential backoff 2s, 4s, 8s, 16s, 16s
+        // Transient: exponential backoff 2s, 4s, 8s, 16s, 16s with jitter
         ErrorKind::Transient => {
-            let secs = 2u64.pow(attempt.min(4) + 1);
-            std::time::Duration::from_secs(secs)
+            let base_secs = 2u64.pow(attempt.min(4) + 1);
+            let jitter = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() % 1000;
+            std::time::Duration::from_millis((base_secs * 1000) + jitter as u64)
         }
         ErrorKind::Fatal => std::time::Duration::from_secs(0),
     }
@@ -1015,18 +1019,18 @@ impl AgentEngine {
             let (stream_tx, mut stream_rx) = mpsc::channel::<StreamEvent>(256);
 
             let turn_start = std::time::Instant::now();
-            // Hard guard for "ruminating" stalls in streaming mode.
-            let hard_turn_timeout = std::time::Duration::from_secs(90);
+            // Hard guard for "ruminating" stalls in streaming mode. Extended for reasoning models.
+            let hard_turn_timeout = std::time::Duration::from_secs(600);
 
             let provider = self.provider.clone();
             let stream_handle = tokio::spawn(async move {
                 let result = tokio::time::timeout(
-                    std::time::Duration::from_secs(LLM_TIMEOUT_SECS),
+                    std::time::Duration::from_secs(LLM_TIMEOUT_SECS.max(600)),
                     provider.chat_stream(request, stream_tx),
                 ).await;
                 match result {
                     Ok(inner) => inner,
-                    Err(_) => Err(anyhow::anyhow!("LLM 调用超时 ({}秒)", LLM_TIMEOUT_SECS)),
+                    Err(_) => Err(anyhow::anyhow!("LLM 调用超时 ({}秒)", LLM_TIMEOUT_SECS.max(600))),
                 }
             });
 
@@ -1037,7 +1041,7 @@ impl AgentEngine {
             let mut cancelled = false;
             let mut stalled = false;
             let mut last_progress_at = std::time::Instant::now();
-            let stall_timeout = std::time::Duration::from_secs(60);
+            let stall_timeout = std::time::Duration::from_secs(120);
 
             loop {
                 // Global per-turn timeout guard: stop endless streaming/ruminating.
@@ -1074,6 +1078,10 @@ impl AgentEngine {
                             stream_handle.abort();
                             break;
                         }
+                        _ = tokio::time::sleep(std::time::Duration::from_secs(2)) => {
+                            // Emit heartbeat while waiting for token
+                            let _ = event_tx.send(EngineEvent::Thinking);
+                        }
                     }
                 } else {
                     match tokio::time::timeout(std::time::Duration::from_secs(2), stream_rx.recv()).await {
@@ -1085,7 +1093,8 @@ impl AgentEngine {
                         }
                         Ok(None) => break,
                         Err(_) => {
-                            // periodic wake-up to re-check hard timeout
+                            // periodic wake-up to re-check hard timeout and emit heartbeat
+                            let _ = event_tx.send(EngineEvent::Thinking);
                         }
                     }
                 }
