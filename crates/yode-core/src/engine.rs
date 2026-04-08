@@ -1185,6 +1185,7 @@ impl AgentEngine {
             &self.context.session_id,
             &pre_compact_messages,
             &report,
+            mode,
         ) {
             Ok(path) => transcript_path = Some(path),
             Err(err) => warn!("Failed to write compaction transcript: {}", err),

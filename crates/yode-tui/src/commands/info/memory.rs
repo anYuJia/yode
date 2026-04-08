@@ -168,6 +168,20 @@ fn render_transcript_list(dir: &Path) -> String {
     for (idx, path) in entries.into_iter().take(10).enumerate() {
         output.push_str(&format!("  {:>2}. ", idx + 1));
         output.push_str(&path.display().to_string());
+        if let Some(meta) = read_transcript_metadata(&path) {
+            output.push_str(&format!(
+                "\n      {} | mode={} | removed={} | truncated={}{}",
+                meta.timestamp.unwrap_or_else(|| "unknown time".to_string()),
+                meta.mode.unwrap_or_else(|| "unknown".to_string()),
+                meta.removed.unwrap_or(0),
+                meta.truncated.unwrap_or(0),
+                if meta.has_summary {
+                    " | summary=yes"
+                } else {
+                    ""
+                }
+            ));
+        }
         output.push('\n');
     }
     output
@@ -230,11 +244,40 @@ fn truncate_for_display(content: &str) -> String {
     )
 }
 
+#[derive(Debug, Default)]
+struct TranscriptMetadata {
+    timestamp: Option<String>,
+    mode: Option<String>,
+    removed: Option<usize>,
+    truncated: Option<usize>,
+    has_summary: bool,
+}
+
+fn read_transcript_metadata(path: &Path) -> Option<TranscriptMetadata> {
+    let content = fs::read_to_string(path).ok()?;
+    let mut meta = TranscriptMetadata::default();
+
+    for line in content.lines().take(8) {
+        if let Some(value) = line.strip_prefix("- Timestamp: ") {
+            meta.timestamp = Some(value.to_string());
+        } else if let Some(value) = line.strip_prefix("- Mode: ") {
+            meta.mode = Some(value.to_string());
+        } else if let Some(value) = line.strip_prefix("- Removed messages: ") {
+            meta.removed = value.parse::<usize>().ok();
+        } else if let Some(value) = line.strip_prefix("- Tool results truncated: ") {
+            meta.truncated = value.parse::<usize>().ok();
+        }
+    }
+
+    meta.has_summary = content.contains("## Summary Anchor");
+    Some(meta)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        latest_transcript, render_transcript_list, resolve_transcript_target,
-        truncate_for_display, MAX_DISPLAY_CHARS,
+        latest_transcript, read_transcript_metadata, render_transcript_list,
+        resolve_transcript_target, truncate_for_display, MAX_DISPLAY_CHARS,
     };
 
     #[test]
@@ -280,6 +323,30 @@ mod tests {
         let listing = render_transcript_list(&dir);
         assert!(listing.contains("  1. "));
         assert!(listing.contains("  2. "));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn read_transcript_metadata_parses_header_fields() {
+        let dir = std::env::temp_dir().join(format!(
+            "yode-memory-command-meta-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("sample.md");
+        std::fs::write(
+            &path,
+            "# Compaction Transcript\n\n- Session: abc\n- Mode: manual\n- Timestamp: 2026-01-01 10:00:00\n- Removed messages: 7\n- Tool results truncated: 2\n\n## Summary Anchor\n",
+        )
+        .unwrap();
+
+        let meta = read_transcript_metadata(&path).unwrap();
+        assert_eq!(meta.mode.as_deref(), Some("manual"));
+        assert_eq!(meta.timestamp.as_deref(), Some("2026-01-01 10:00:00"));
+        assert_eq!(meta.removed, Some(7));
+        assert_eq!(meta.truncated, Some(2));
+        assert!(meta.has_summary);
 
         std::fs::remove_dir_all(&dir).ok();
     }

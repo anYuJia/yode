@@ -13,6 +13,7 @@ pub fn write_compaction_transcript(
     session_id: &str,
     messages: &[Message],
     report: &CompressionReport,
+    mode: &str,
 ) -> Result<PathBuf> {
     let dir = project_root.join(TRANSCRIPTS_DIR);
     fs::create_dir_all(&dir)
@@ -26,7 +27,7 @@ pub fn write_compaction_transcript(
     ));
     fs::write(
         &path,
-        render_compaction_transcript(session_id, messages, report),
+        render_compaction_transcript(session_id, messages, report, mode),
     )
     .with_context(|| format!("Failed to write transcript file: {}", path.display()))?;
 
@@ -37,10 +38,12 @@ fn render_compaction_transcript(
     session_id: &str,
     messages: &[Message],
     report: &CompressionReport,
+    mode: &str,
 ) -> String {
     let mut output = String::new();
     output.push_str("# Compaction Transcript\n\n");
     output.push_str(&format!("- Session: {}\n", session_id));
+    output.push_str(&format!("- Mode: {}\n", mode));
     output.push_str(&format!(
         "- Timestamp: {}\n",
         chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
@@ -126,11 +129,13 @@ mod tests {
             "session-1234",
             &[Message::user("hello"), Message::assistant("world")],
             &report,
+            "auto",
         )
         .unwrap();
 
         let content = std::fs::read_to_string(path).unwrap();
         assert!(content.contains("Compaction Transcript"));
+        assert!(content.contains("- Mode: auto"));
         assert!(content.contains("summary anchor"));
         assert!(content.contains("### User"));
         assert!(content.contains("### Assistant"));
