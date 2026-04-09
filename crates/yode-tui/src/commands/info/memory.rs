@@ -1,3 +1,4 @@
+use chrono::{Duration, Local, NaiveDate, NaiveDateTime};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -23,7 +24,7 @@ impl MemoryCommand {
                 args: vec![ArgDef {
                     name: "target".to_string(),
                     required: false,
-                    hint: "[live|session|latest|list [recent|auto|manual|summary|failed]|compare <a> <b>|<index>|<file>]".to_string(),
+                    hint: "[live|session|latest|list [recent|auto|manual|summary|failed|today|yesterday|YYYY-MM-DD[..YYYY-MM-DD]]|compare <a> <b>|<index>|<file>]".to_string(),
                     completions: ArgCompletionSource::Static(vec![
                         "live".to_string(),
                         "session".to_string(),
@@ -34,6 +35,8 @@ impl MemoryCommand {
                         "list manual".to_string(),
                         "list summary".to_string(),
                         "list failed".to_string(),
+                        "list today".to_string(),
+                        "list yesterday".to_string(),
                         "compare".to_string(),
                     ]),
                 }],
@@ -68,6 +71,14 @@ impl Command for MemoryCommand {
             return render_transcript_compare(&transcripts_dir, compare.0, compare.1);
         }
 
+        if args == "list" || args.starts_with("list ") {
+            let filter = parse_list_filter(args)?;
+            return Ok(CommandOutput::Message(render_transcript_list(
+                &transcripts_dir,
+                &filter,
+            )));
+        }
+
         match args {
             "" => Ok(CommandOutput::Message(render_memory_status(
                 &live_path,
@@ -84,30 +95,6 @@ impl Command for MemoryCommand {
                     })?;
                 render_latest_transcript(&latest)
             }
-            "list" => Ok(CommandOutput::Message(render_transcript_list(
-                &transcripts_dir,
-                TranscriptFilter::All,
-            ))),
-            "list recent" => Ok(CommandOutput::Message(render_transcript_list(
-                &transcripts_dir,
-                TranscriptFilter::Recent,
-            ))),
-            "list auto" => Ok(CommandOutput::Message(render_transcript_list(
-                &transcripts_dir,
-                TranscriptFilter::Auto,
-            ))),
-            "list manual" => Ok(CommandOutput::Message(render_transcript_list(
-                &transcripts_dir,
-                TranscriptFilter::Manual,
-            ))),
-            "list summary" => Ok(CommandOutput::Message(render_transcript_list(
-                &transcripts_dir,
-                TranscriptFilter::Summary,
-            ))),
-            "list failed" => Ok(CommandOutput::Message(render_transcript_list(
-                &transcripts_dir,
-                TranscriptFilter::Failed,
-            ))),
             target => {
                 let transcript = resolve_transcript_target(&transcripts_dir, target)
                     .ok_or_else(|| format!("Unknown memory target: {}", target))?;
@@ -234,7 +221,7 @@ fn render_transcript_compare(dir: &Path, left_target: &str, right_target: &str) 
     )))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum TranscriptFilter {
     All,
     Recent,
@@ -242,25 +229,63 @@ enum TranscriptFilter {
     Manual,
     Summary,
     Failed,
+    DateRange(DateRangeFilter),
 }
 
-fn render_transcript_list(dir: &Path, filter: TranscriptFilter) -> String {
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DateRangeFilter {
+    start: Option<NaiveDate>,
+    end: Option<NaiveDate>,
+}
+
+impl DateRangeFilter {
+    fn single(date: NaiveDate) -> Self {
+        Self {
+            start: Some(date),
+            end: Some(date),
+        }
+    }
+
+    fn label(&self) -> String {
+        fn fmt(date: NaiveDate) -> String {
+            date.format("%Y-%m-%d").to_string()
+        }
+
+        match (self.start, self.end) {
+            (Some(start), Some(end)) if start == end => fmt(start),
+            (Some(start), Some(end)) => format!("{}..{}", fmt(start), fmt(end)),
+            (Some(start), None) => format!("{}..", fmt(start)),
+            (None, Some(end)) => format!("..{}", fmt(end)),
+            (None, None) => "range".to_string(),
+        }
+    }
+
+    fn contains(&self, date: NaiveDate) -> bool {
+        if let Some(start) = self.start {
+            if date < start {
+                return false;
+            }
+        }
+        if let Some(end) = self.end {
+            if date > end {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+fn render_transcript_list(dir: &Path, filter: &TranscriptFilter) -> String {
     let entries = filtered_transcript_entries(dir, filter);
+    let label = transcript_filter_label(filter);
     if entries.is_empty() {
         return format!(
-            "No transcript backups found in {}. Transcript artifacts are written only after a compaction that actually removes or truncates content.",
-            dir.display()
+            "No transcript backups matched '{}' in {}. Transcript artifacts are written only after a compaction that actually removes or truncates content.",
+            label,
+            dir.display(),
         );
     }
 
-    let label = match filter {
-        TranscriptFilter::All => "all",
-        TranscriptFilter::Recent => "recent",
-        TranscriptFilter::Auto => "auto",
-        TranscriptFilter::Manual => "manual",
-        TranscriptFilter::Summary => "summary",
-        TranscriptFilter::Failed => "failed",
-    };
     let mut output = format!("Transcript backups in {} ({label}):\n", dir.display());
     for (idx, path) in entries.into_iter().take(10).enumerate() {
         output.push_str(&format!("  {:>2}. ", idx + 1));
@@ -305,7 +330,7 @@ fn sorted_transcript_entries(dir: &Path) -> Vec<PathBuf> {
     entries
 }
 
-fn filtered_transcript_entries(dir: &Path, filter: TranscriptFilter) -> Vec<PathBuf> {
+fn filtered_transcript_entries(dir: &Path, filter: &TranscriptFilter) -> Vec<PathBuf> {
     let mut entries = sorted_transcript_entries(dir);
     match filter {
         TranscriptFilter::All => {}
@@ -315,7 +340,8 @@ fn filtered_transcript_entries(dir: &Path, filter: TranscriptFilter) -> Vec<Path
         TranscriptFilter::Auto
         | TranscriptFilter::Manual
         | TranscriptFilter::Summary
-        | TranscriptFilter::Failed => {
+        | TranscriptFilter::Failed
+        | TranscriptFilter::DateRange(_) => {
             entries.retain(|path| {
                 let meta = match read_transcript_metadata(path) {
                     Some(meta) => meta,
@@ -326,12 +352,95 @@ fn filtered_transcript_entries(dir: &Path, filter: TranscriptFilter) -> Vec<Path
                     TranscriptFilter::Manual => meta.mode.as_deref() == Some("manual"),
                     TranscriptFilter::Summary => meta.has_summary,
                     TranscriptFilter::Failed => meta.failed_tool_results.unwrap_or(0) > 0,
+                    TranscriptFilter::DateRange(range) => meta
+                        .timestamp
+                        .as_deref()
+                        .and_then(parse_transcript_date)
+                        .map(|date| range.contains(date))
+                        .unwrap_or(false),
                     _ => true,
                 }
             });
         }
     }
     entries
+}
+
+fn transcript_filter_label(filter: &TranscriptFilter) -> String {
+    match filter {
+        TranscriptFilter::All => "all".to_string(),
+        TranscriptFilter::Recent => "recent".to_string(),
+        TranscriptFilter::Auto => "auto".to_string(),
+        TranscriptFilter::Manual => "manual".to_string(),
+        TranscriptFilter::Summary => "summary".to_string(),
+        TranscriptFilter::Failed => "failed".to_string(),
+        TranscriptFilter::DateRange(range) => range.label(),
+    }
+}
+
+fn parse_list_filter(args: &str) -> Result<TranscriptFilter, String> {
+    if args == "list" {
+        return Ok(TranscriptFilter::All);
+    }
+
+    let spec = args
+        .strip_prefix("list ")
+        .ok_or_else(memory_list_usage)?
+        .trim();
+
+    match spec {
+        "recent" => Ok(TranscriptFilter::Recent),
+        "auto" => Ok(TranscriptFilter::Auto),
+        "manual" => Ok(TranscriptFilter::Manual),
+        "summary" => Ok(TranscriptFilter::Summary),
+        "failed" => Ok(TranscriptFilter::Failed),
+        _ => parse_date_range_filter(spec)
+            .map(TranscriptFilter::DateRange)
+            .ok_or_else(memory_list_usage),
+    }
+}
+
+fn memory_list_usage() -> String {
+    "Usage: /memory list [recent|auto|manual|summary|failed|today|yesterday|YYYY-MM-DD|YYYY-MM-DD..YYYY-MM-DD|..YYYY-MM-DD|YYYY-MM-DD..]".to_string()
+}
+
+fn parse_date_range_filter(spec: &str) -> Option<DateRangeFilter> {
+    if spec == "today" {
+        return Some(DateRangeFilter::single(Local::now().date_naive()));
+    }
+    if spec == "yesterday" {
+        return Some(DateRangeFilter::single(
+            Local::now().date_naive() - Duration::days(1),
+        ));
+    }
+
+    if let Some((start, end)) = spec.split_once("..") {
+        let start = if start.is_empty() {
+            None
+        } else {
+            Some(parse_iso_date(start)?)
+        };
+        let end = if end.is_empty() {
+            None
+        } else {
+            Some(parse_iso_date(end)?)
+        };
+        if start.is_none() && end.is_none() {
+            return None;
+        }
+        if let (Some(start), Some(end)) = (start, end) {
+            if start > end {
+                return None;
+            }
+        }
+        return Some(DateRangeFilter { start, end });
+    }
+
+    parse_iso_date(spec).map(DateRangeFilter::single)
+}
+
+fn parse_iso_date(value: &str) -> Option<NaiveDate> {
+    NaiveDate::parse_from_str(value, "%Y-%m-%d").ok()
 }
 
 fn resolve_transcript_target(dir: &Path, target: &str) -> Option<PathBuf> {
@@ -439,6 +548,13 @@ fn extract_summary_preview(content: &str) -> Option<String> {
     } else {
         Some(preview)
     }
+}
+
+fn parse_transcript_date(timestamp: &str) -> Option<NaiveDate> {
+    NaiveDateTime::parse_from_str(timestamp, "%Y-%m-%d %H:%M:%S")
+        .ok()
+        .map(|ts| ts.date())
+        .or_else(|| parse_iso_date(timestamp))
 }
 
 fn build_transcript_compare_output(
@@ -584,8 +700,9 @@ fn summarize_compare_line(line: &str) -> String {
 mod tests {
     use super::{
         build_transcript_compare_output, extract_summary_preview, filtered_transcript_entries,
-        latest_transcript, parse_compare_targets, read_transcript_metadata, render_transcript_list,
-        resolve_transcript_target, truncate_for_display, TranscriptFilter, MAX_DISPLAY_CHARS,
+        latest_transcript, parse_compare_targets, parse_date_range_filter, parse_list_filter,
+        read_transcript_metadata, render_transcript_list, resolve_transcript_target,
+        truncate_for_display, TranscriptFilter, MAX_DISPLAY_CHARS,
     };
 
     #[test]
@@ -626,7 +743,7 @@ mod tests {
         let by_name = resolve_transcript_target(&dir, "aaa-compact-20240101.md").unwrap();
         assert!(by_name.ends_with("aaa-compact-20240101.md"));
 
-        let listing = render_transcript_list(&dir, TranscriptFilter::All);
+        let listing = render_transcript_list(&dir, &TranscriptFilter::All);
         assert!(listing.contains("  1. "));
         assert!(listing.contains("  2. "));
 
@@ -682,11 +799,11 @@ mod tests {
         )
         .unwrap();
 
-        let auto = filtered_transcript_entries(&dir, TranscriptFilter::Auto);
+        let auto = filtered_transcript_entries(&dir, &TranscriptFilter::Auto);
         assert_eq!(auto.len(), 1);
         assert!(auto[0].ends_with("auto.md"));
 
-        let manual_listing = render_transcript_list(&dir, TranscriptFilter::Manual);
+        let manual_listing = render_transcript_list(&dir, &TranscriptFilter::Manual);
         assert!(manual_listing.contains("manual"));
         assert!(!manual_listing.contains("auto.md"));
 
@@ -711,11 +828,11 @@ mod tests {
         )
         .unwrap();
 
-        let summary = filtered_transcript_entries(&dir, TranscriptFilter::Summary);
+        let summary = filtered_transcript_entries(&dir, &TranscriptFilter::Summary);
         assert_eq!(summary.len(), 1);
         assert!(summary[0].ends_with("with-summary.md"));
 
-        let summary_listing = render_transcript_list(&dir, TranscriptFilter::Summary);
+        let summary_listing = render_transcript_list(&dir, &TranscriptFilter::Summary);
         assert!(summary_listing.contains("summary=yes"));
         assert!(!summary_listing.contains("without-summary.md"));
 
@@ -740,13 +857,87 @@ mod tests {
         )
         .unwrap();
 
-        let failed = filtered_transcript_entries(&dir, TranscriptFilter::Failed);
+        let failed = filtered_transcript_entries(&dir, &TranscriptFilter::Failed);
         assert_eq!(failed.len(), 1);
         assert!(failed[0].ends_with("failed.md"));
 
-        let failed_listing = render_transcript_list(&dir, TranscriptFilter::Failed);
+        let failed_listing = render_transcript_list(&dir, &TranscriptFilter::Failed);
         assert!(failed_listing.contains("failed=2"));
         assert!(!failed_listing.contains("clean.md"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn parse_list_filter_supports_date_ranges() {
+        assert!(matches!(
+            parse_list_filter("list 2026-01-01").unwrap(),
+            TranscriptFilter::DateRange(_)
+        ));
+        assert!(matches!(
+            parse_list_filter("list 2026-01-01..2026-01-03").unwrap(),
+            TranscriptFilter::DateRange(_)
+        ));
+        assert!(matches!(
+            parse_list_filter("list ..2026-01-03").unwrap(),
+            TranscriptFilter::DateRange(_)
+        ));
+        assert!(matches!(
+            parse_list_filter("list today").unwrap(),
+            TranscriptFilter::DateRange(_)
+        ));
+        assert!(parse_list_filter("list 2026-01-03..2026-01-01").is_err());
+        assert!(parse_list_filter("list nope").is_err());
+    }
+
+    #[test]
+    fn parse_date_range_filter_supports_open_ranges() {
+        let range = parse_date_range_filter("2026-01-01..").unwrap();
+        assert_eq!(
+            format!("{:?}", range),
+            "DateRangeFilter { start: Some(2026-01-01), end: None }"
+        );
+
+        let range = parse_date_range_filter("..2026-01-03").unwrap();
+        assert_eq!(
+            format!("{:?}", range),
+            "DateRangeFilter { start: None, end: Some(2026-01-03) }"
+        );
+    }
+
+    #[test]
+    fn filtered_transcript_entries_supports_date_range_filter() {
+        let dir = std::env::temp_dir().join(format!(
+            "yode-memory-command-date-filter-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("first.md"),
+            "# Compaction Transcript\n\n- Mode: auto\n- Timestamp: 2026-01-01 10:00:00\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("second.md"),
+            "# Compaction Transcript\n\n- Mode: manual\n- Timestamp: 2026-01-03 11:00:00\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("third.md"),
+            "# Compaction Transcript\n\n- Mode: manual\n- Timestamp: 2026-01-05 11:00:00\n",
+        )
+        .unwrap();
+
+        let filter = parse_list_filter("list 2026-01-02..2026-01-04").unwrap();
+        let filtered = filtered_transcript_entries(&dir, &filter);
+        assert_eq!(filtered.len(), 1);
+        assert!(filtered[0].ends_with("second.md"));
+
+        let listing = render_transcript_list(&dir, &filter);
+        assert!(listing.contains("(2026-01-02..2026-01-04)"));
+        assert!(listing.contains("second.md"));
+        assert!(!listing.contains("first.md"));
+        assert!(!listing.contains("third.md"));
 
         std::fs::remove_dir_all(&dir).ok();
     }
