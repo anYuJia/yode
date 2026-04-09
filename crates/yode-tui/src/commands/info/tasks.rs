@@ -19,8 +19,11 @@ impl TasksCommand {
                     ArgDef {
                         name: "task".into(),
                         required: false,
-                        hint: "<task-id|stop>".into(),
-                        completions: ArgCompletionSource::None,
+                        hint: "<task-id|stop|read>".into(),
+                        completions: ArgCompletionSource::Static(vec![
+                            "stop".to_string(),
+                            "read".to_string(),
+                        ]),
                     },
                     ArgDef {
                         name: "task-id".into(),
@@ -83,12 +86,43 @@ impl Command for TasksCommand {
                     Err(format!("Task '{}' not found or cannot be cancelled.", id))
                 }
             }
+            ["read", id] => {
+                let Some(task) = engine.runtime_task_snapshot(id) else {
+                    return Err(format!("Task '{}' not found.", id));
+                };
+                let content = std::fs::read_to_string(&task.output_path).map_err(|err| {
+                    format!(
+                        "Failed to read task output {} ({}): {}",
+                        task.id, task.output_path, err
+                    )
+                })?;
+                let lines = content.lines().collect::<Vec<_>>();
+                let preview_start = lines.len().saturating_sub(40);
+                let preview = lines[preview_start..].join("\n");
+                Ok(CommandOutput::Message(format!(
+                    "Task output {}\nPath: {}\nShowing lines {}-{} of {}\n\n{}",
+                    task.id,
+                    task.output_path,
+                    preview_start + 1,
+                    lines.len(),
+                    lines.len(),
+                    preview
+                )))
+            }
             [id] => {
                 let Some(task) = engine.runtime_task_snapshot(id) else {
                     return Err(format!("Task '{}' not found.", id));
                 };
+                let output_preview = std::fs::read_to_string(&task.output_path)
+                    .ok()
+                    .map(|content| {
+                        let lines = content.lines().collect::<Vec<_>>();
+                        let preview_start = lines.len().saturating_sub(8);
+                        lines[preview_start..].join("\n")
+                    })
+                    .unwrap_or_else(|| "(unavailable)".to_string());
                 Ok(CommandOutput::Message(format!(
-                    "Task {}:\n  Kind:        {}\n  Source tool: {}\n  Status:      {:?}\n  Description: {}\n  Created:     {}\n  Started:     {}\n  Completed:   {}\n  Progress:    {}\n  Error:       {}\n  Output:      {}",
+                    "Task {}:\n  Kind:        {}\n  Source tool: {}\n  Status:      {:?}\n  Description: {}\n  Created:     {}\n  Started:     {}\n  Completed:   {}\n  Progress:    {}\n  Error:       {}\n  Output:      {}\n\n  Output preview:\n{}\n\nUse `/tasks read {}` for the full tail.",
                     task.id,
                     task.kind,
                     task.source_tool,
@@ -100,9 +134,11 @@ impl Command for TasksCommand {
                     task.last_progress.as_deref().unwrap_or("none"),
                     task.error.as_deref().unwrap_or("none"),
                     task.output_path,
+                    output_preview,
+                    task.id,
                 )))
             }
-            _ => Err("Usage: /tasks | /tasks <task-id> | /tasks stop <task-id>".into()),
+            _ => Err("Usage: /tasks | /tasks <task-id> | /tasks read <task-id> | /tasks stop <task-id>".into()),
         }
     }
 }
