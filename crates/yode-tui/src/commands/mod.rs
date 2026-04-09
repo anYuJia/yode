@@ -112,6 +112,7 @@ pub fn register_all(registry: &mut CommandRegistry) {
     // Dev
     registry.register(Box::new(dev::DiffCommand::new()));
     registry.register(Box::new(dev::BugCommand::new()));
+    registry.register(Box::new(dev::CoordinateCommand::new()));
     registry.register(Box::new(dev::ReviewCommand::new()));
     registry.register(Box::new(dev::ReviewsCommand::new()));
     // Utility
