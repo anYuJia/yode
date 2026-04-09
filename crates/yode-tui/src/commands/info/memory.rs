@@ -68,7 +68,9 @@ impl Command for MemoryCommand {
             "session" => render_file("Compaction memory", &session_path),
             "latest" => {
                 let latest = latest_transcript(&transcripts_dir)
-                    .ok_or_else(|| "No transcript backups found.".to_string())?;
+                    .ok_or_else(|| {
+                        "No transcript backups found. Transcript artifacts are written only after a compaction that actually removes or truncates content.".to_string()
+                    })?;
                 render_latest_transcript(&latest)
             }
             "list" => Ok(CommandOutput::Message(render_transcript_list(
@@ -205,7 +207,10 @@ enum TranscriptFilter {
 fn render_transcript_list(dir: &Path, filter: TranscriptFilter) -> String {
     let entries = filtered_transcript_entries(dir, filter);
     if entries.is_empty() {
-        return format!("No transcript backups found in {}.", dir.display());
+        return format!(
+            "No transcript backups found in {}. Transcript artifacts are written only after a compaction that actually removes or truncates content.",
+            dir.display()
+        );
     }
 
     let label = match filter {

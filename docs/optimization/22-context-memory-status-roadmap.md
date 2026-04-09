@@ -232,11 +232,18 @@ live memory 现在支持：
    - `/memory list auto`
 
 2. 触发一次真实 compact，确认 artifacts 流程通。
+   前提：
+   - 当前 session 已经积累出可压缩内容
+   - `/compact` 只有在实际移除消息或截断旧 tool result 时才会写 transcript
    预期：
    - TUI 出现 compact 提示
    - 能看到 `Session memory:` 路径
    - 能看到 `Transcript backup:` 路径
    - `/memory latest` 能直接查看最近 transcript 预览
+
+   排障：
+   - 如果提示 `Compaction made no changes`，说明当前上下文还不够长，或者虽然调用了 `/compact`，但没有发生实际压缩
+   - 这时 `/memory latest` 和 `/memory list` 返回空是预期行为
 
 3. 验证 hook 的 `updatedInput` 能否在你的实际 hook 配置里生效。
    重点测试：

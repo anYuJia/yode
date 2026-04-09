@@ -42,7 +42,7 @@ impl Command for CompactCommand {
             let changed = engine.force_compact(event_tx.clone()).await;
             if !changed {
                 let _ = event_tx.send(yode_core::engine::EngineEvent::Error(
-                    "Compaction made no changes.".to_string(),
+                    "Compaction made no changes. Current session is too short or already below the compaction target, so no transcript was written.".to_string(),
                 ));
             }
         });
