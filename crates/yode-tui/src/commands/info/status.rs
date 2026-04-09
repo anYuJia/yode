@@ -46,7 +46,7 @@ impl Command for StatusCommand {
             .map(|engine| engine.runtime_state());
         let runtime_sections = if let Some(state) = runtime {
             format!(
-                "\n\nCompact:\n  Query source:    {}\n  Autocompact:     {}\n  Compact fails:   {}\n  Compact count:   {} (auto {}, manual {})\n  Breaker reason:  {}\n  Last compact:    {}\n  Compact at:      {}\n  Compact summary: {}\n  Last compact mem: {}\n  Last transcript: {}\n\nMemory:\n  Live memory:     {}{}\n  Live memory file: {}\n  Memory updates:  {}\n  Last memory update: {}\n\nTools:\n  Session tools:   {}\n  Failed tools:    {}\n  Always-allow:    {}",
+                "\n\nCompact:\n  Query source:    {}\n  Autocompact:     {}\n  Compact fails:   {}\n  Compact count:   {} (auto {}, manual {})\n  Breaker reason:  {}\n  Last compact:    {}\n  Compact at:      {}\n  Compact summary: {}\n  Last compact mem: {}\n  Last transcript: {}\n\nMemory:\n  Live memory:     {}{}\n  Live memory file: {}\n  Memory updates:  {}\n  Last memory update: {}\n\nTools:\n  Session tools:   {}\n  Failed tools:    {}\n  Always-allow:    {}\n\nHooks:\n  Hook runs:       {}\n  Hook timeouts:   {}\n  Hook exec errs:  {}\n  Hook exits!=0:   {}\n  Hook wakes:      {}\n  Last hook fail:  {}\n  Last hook at:    {}\n  Last hook timeout: {}",
                 state.query_source,
                 if state.autocompact_disabled {
                     "disabled"
@@ -111,6 +111,37 @@ impl Command for StatusCommand {
                 state.session_tool_calls_total,
                 state.tracked_failed_tool_results,
                 always_allow,
+                state.hook_total_executions,
+                state.hook_timeout_count,
+                state.hook_execution_error_count,
+                state.hook_nonzero_exit_count,
+                state.hook_wake_notification_count,
+                state
+                    .last_hook_failure_command
+                    .as_ref()
+                    .map(|command| {
+                        format!(
+                            "{} [{}]: {}",
+                            command,
+                            state
+                                .last_hook_failure_event
+                                .as_deref()
+                                .unwrap_or("unknown"),
+                            state
+                                .last_hook_failure_reason
+                                .as_deref()
+                                .unwrap_or("unknown")
+                        )
+                    })
+                    .unwrap_or_else(|| "none".to_string()),
+                state
+                    .last_hook_failure_at
+                    .as_deref()
+                    .unwrap_or("none"),
+                state
+                    .last_hook_timeout_command
+                    .as_deref()
+                    .unwrap_or("none"),
             )
         } else {
             format!(

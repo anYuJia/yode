@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -130,6 +131,7 @@ pub struct HookManager {
     hooks: Vec<HookDefinition>,
     working_dir: PathBuf,
     wake_notifications: Mutex<Vec<WakeNotification>>,
+    stats: Mutex<HookManagerStats>,
 }
 
 #[derive(Debug, Clone)]
@@ -139,12 +141,27 @@ pub struct WakeNotification {
     pub message: String,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct HookManagerStats {
+    pub total_executions: u32,
+    pub timeout_count: u32,
+    pub execution_error_count: u32,
+    pub nonzero_exit_count: u32,
+    pub wake_notification_count: u32,
+    pub last_failure_event: Option<String>,
+    pub last_failure_command: Option<String>,
+    pub last_failure_reason: Option<String>,
+    pub last_failure_at: Option<String>,
+    pub last_timeout_command: Option<String>,
+}
+
 impl HookManager {
     pub fn new(working_dir: PathBuf) -> Self {
         Self {
             hooks: Vec::new(),
             working_dir,
             wake_notifications: Mutex::new(Vec::new()),
+            stats: Mutex::new(HookManagerStats::default()),
         }
     }
 
@@ -214,7 +231,15 @@ impl HookManager {
         }
     }
 
+    pub fn stats_snapshot(&self) -> HookManagerStats {
+        self.stats
+            .lock()
+            .map(|stats| stats.clone())
+            .unwrap_or_default()
+    }
+
     async fn execute_hook(&self, hook: &HookDefinition, context: &HookContext) -> HookResult {
+        self.record_hook_attempt();
         let context_json = match serde_json::to_string(context) {
             Ok(j) => j,
             Err(e) => {
@@ -224,6 +249,7 @@ impl HookManager {
         };
 
         let timeout = std::time::Duration::from_secs(hook.timeout_secs);
+        let started_at = Instant::now();
 
         let result = tokio::time::timeout(timeout, async {
             tokio::process::Command::new("sh")
@@ -249,6 +275,7 @@ impl HookManager {
                 }
 
                 if output.status.code() == Some(2) {
+                    self.record_hook_wake();
                     let wake_message = structured
                         .as_ref()
                         .and_then(|parsed| parsed.wake_notification.clone())
@@ -289,6 +316,24 @@ impl HookManager {
                 }
 
                 if !output.status.success() && hook.can_block {
+                    self.record_hook_failure(
+                        &context.event,
+                        &hook.command,
+                        if stderr.is_empty() {
+                            format!(
+                                "non-zero exit after {}ms: {}",
+                                started_at.elapsed().as_millis(),
+                                output.status
+                            )
+                        } else {
+                            format!(
+                                "non-zero exit after {}ms: {}",
+                                started_at.elapsed().as_millis(),
+                                stderr.trim()
+                            )
+                        },
+                        true,
+                    );
                     if let Some(mut parsed) = structured {
                         if parsed.reason.is_none() {
                             parsed.reason = Some(if stderr.is_empty() {
@@ -336,16 +381,67 @@ impl HookManager {
             }
             Ok(Err(e)) => {
                 tracing::warn!("Hook execution failed: {}", e);
+                self.record_hook_failure(
+                    &context.event,
+                    &hook.command,
+                    format!(
+                        "spawn/exec error after {}ms: {}",
+                        started_at.elapsed().as_millis(),
+                        e
+                    ),
+                    false,
+                );
                 HookResult::allowed()
             }
             Err(_) => {
                 tracing::warn!(
-                    "Hook '{}' timed out after {}s",
+                    "Hook '{}' timed out after {}s (event={})",
                     hook.command,
-                    hook.timeout_secs
+                    hook.timeout_secs,
+                    context.event,
                 );
+                self.record_hook_timeout(&context.event, &hook.command, hook.timeout_secs);
                 HookResult::allowed()
             }
+        }
+    }
+
+    fn record_hook_attempt(&self) {
+        if let Ok(mut stats) = self.stats.lock() {
+            stats.total_executions = stats.total_executions.saturating_add(1);
+        }
+    }
+
+    fn record_hook_wake(&self) {
+        if let Ok(mut stats) = self.stats.lock() {
+            stats.wake_notification_count = stats.wake_notification_count.saturating_add(1);
+        }
+    }
+
+    fn record_hook_timeout(&self, event: &str, command: &str, timeout_secs: u64) {
+        if let Ok(mut stats) = self.stats.lock() {
+            stats.timeout_count = stats.timeout_count.saturating_add(1);
+            stats.last_failure_event = Some(event.to_string());
+            stats.last_failure_command = Some(command.to_string());
+            stats.last_failure_reason = Some(format!("timed out after {}s", timeout_secs));
+            stats.last_failure_at =
+                Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
+            stats.last_timeout_command = Some(command.to_string());
+        }
+    }
+
+    fn record_hook_failure(&self, event: &str, command: &str, reason: String, nonzero_exit: bool) {
+        if let Ok(mut stats) = self.stats.lock() {
+            if nonzero_exit {
+                stats.nonzero_exit_count = stats.nonzero_exit_count.saturating_add(1);
+            } else {
+                stats.execution_error_count = stats.execution_error_count.saturating_add(1);
+            }
+            stats.last_failure_event = Some(event.to_string());
+            stats.last_failure_command = Some(command.to_string());
+            stats.last_failure_reason = Some(reason);
+            stats.last_failure_at =
+                Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
         }
     }
 }
@@ -639,6 +735,37 @@ mod tests {
         assert_eq!(wake.len(), 1);
         assert_eq!(wake[0].message, "wake up");
         assert_eq!(wake[0].event, "pre_tool_use");
+        let stats = mgr.stats_snapshot();
+        assert_eq!(stats.total_executions, 1);
+        assert_eq!(stats.wake_notification_count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_hook_manager_records_timeout_stats() {
+        let mut mgr = HookManager::new(PathBuf::from("/tmp"));
+        mgr.register(HookDefinition {
+            command: "sleep 2".into(),
+            events: vec!["pre_tool_use".into()],
+            tool_filter: None,
+            timeout_secs: 1,
+            can_block: false,
+        });
+        let ctx = HookContext {
+            event: "pre_tool_use".into(),
+            session_id: "test".into(),
+            working_dir: "/tmp".into(),
+            tool_name: Some("bash".into()),
+            tool_input: None,
+            tool_output: None,
+            error: None,
+            user_prompt: None,
+            metadata: None,
+        };
+        let _ = mgr.execute(HookEvent::PreToolUse, &ctx).await;
+        let stats = mgr.stats_snapshot();
+        assert_eq!(stats.total_executions, 1);
+        assert_eq!(stats.timeout_count, 1);
+        assert_eq!(stats.last_timeout_command.as_deref(), Some("sleep 2"));
     }
 
     #[test]

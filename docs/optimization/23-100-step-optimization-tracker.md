@@ -18,11 +18,11 @@
 
 当前焦点：
 
-- `035 Long-running hook timeout / cancel tracing`
+- `037 Session end hook 增加 memory flush metadata`
 
 当前进度：
 
-- `34 / 100` 已完成
+- `36 / 100` 已完成
 
 ## 001-010 Structured Memory
 
@@ -69,8 +69,8 @@
 - `[x] 032 Hook context 增加 live memory status`
 - `[x] 033 Hook output 支持 memory-specific structured fields`
 - `[x] 034 Async hook wake notification 基础框架`
-- `[ ] 035 Long-running hook timeout / cancel tracing`
-- `[ ] 036 Hook failure telemetry aggregation`
+- `[x] 035 Long-running hook timeout / cancel tracing`
+- `[x] 036 Hook failure telemetry aggregation`
 - `[ ] 037 Session end hook 增加 memory flush metadata`
 - `[ ] 038 Permission hooks 增加 final effective input snapshot`
 - `[ ] 039 Hook additionalContext 注入优先级治理`

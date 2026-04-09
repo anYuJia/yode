@@ -342,6 +342,16 @@ pub struct EngineRuntimeState {
     pub last_session_memory_generated_summary: bool,
     pub session_memory_update_count: u32,
     pub tracked_failed_tool_results: usize,
+    pub hook_total_executions: u32,
+    pub hook_timeout_count: u32,
+    pub hook_execution_error_count: u32,
+    pub hook_nonzero_exit_count: u32,
+    pub hook_wake_notification_count: u32,
+    pub last_hook_failure_event: Option<String>,
+    pub last_hook_failure_command: Option<String>,
+    pub last_hook_failure_reason: Option<String>,
+    pub last_hook_failure_at: Option<String>,
+    pub last_hook_timeout_command: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -794,6 +804,11 @@ impl AgentEngine {
                 )
             })
             .unwrap_or((None, None, false, 0));
+        let hook_stats = self
+            .hook_manager
+            .as_ref()
+            .map(|mgr| mgr.stats_snapshot())
+            .unwrap_or_default();
         EngineRuntimeState {
             query_source: format!("{:?}", self.current_query_source),
             autocompact_disabled: self.autocompact_disabled,
@@ -826,6 +841,16 @@ impl AgentEngine {
             last_session_memory_generated_summary: shared_status.2,
             session_memory_update_count: shared_status.3,
             tracked_failed_tool_results: self.failed_tool_call_ids.len(),
+            hook_total_executions: hook_stats.total_executions,
+            hook_timeout_count: hook_stats.timeout_count,
+            hook_execution_error_count: hook_stats.execution_error_count,
+            hook_nonzero_exit_count: hook_stats.nonzero_exit_count,
+            hook_wake_notification_count: hook_stats.wake_notification_count,
+            last_hook_failure_event: hook_stats.last_failure_event,
+            last_hook_failure_command: hook_stats.last_failure_command,
+            last_hook_failure_reason: hook_stats.last_failure_reason,
+            last_hook_failure_at: hook_stats.last_failure_at,
+            last_hook_timeout_command: hook_stats.last_timeout_command,
         }
     }
 

@@ -165,6 +165,22 @@ impl Command for DoctorCommand {
                 "  [ok] Failed tool results tracked: {}",
                 state.tracked_failed_tool_results
             ));
+            checks.push(format!(
+                "  [ok] Hook executions tracked: {}",
+                state.hook_total_executions
+            ));
+            if state.hook_timeout_count > 0 {
+                checks.push(format!(
+                    "  [!!] Hook timeouts observed: {} (last: {})",
+                    state.hook_timeout_count,
+                    state
+                        .last_hook_timeout_command
+                        .as_deref()
+                        .unwrap_or("unknown")
+                ));
+            } else {
+                checks.push("  [ok] No hook timeouts observed".to_string());
+            }
         } else {
             checks.push("  [--] Engine runtime busy; skipped context/memory checks".to_string());
         }
