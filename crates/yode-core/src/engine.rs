@@ -6242,6 +6242,30 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                         tokio::select! {
                             maybe_event = event_rx.recv() => {
                                 match maybe_event {
+                                    Some(EngineEvent::Thinking) => {
+                                        runtime_tasks.lock().await.update_progress(
+                                            &task_id,
+                                            "thinking".to_string(),
+                                        );
+                                    }
+                                    Some(EngineEvent::ToolCallStart { name, .. }) => {
+                                        runtime_tasks.lock().await.update_progress(
+                                            &task_id,
+                                            format!("tool: {}", name),
+                                        );
+                                    }
+                                    Some(EngineEvent::ToolProgress { name, progress, .. }) => {
+                                        runtime_tasks.lock().await.update_progress(
+                                            &task_id,
+                                            format!("{}: {}", name, progress.message),
+                                        );
+                                    }
+                                    Some(EngineEvent::ContextCompressed { mode, .. }) => {
+                                        runtime_tasks.lock().await.update_progress(
+                                            &task_id,
+                                            format!("context compacted ({})", mode),
+                                        );
+                                    }
                                     Some(EngineEvent::TextComplete(text)) => {
                                         result_text = text;
                                     }
