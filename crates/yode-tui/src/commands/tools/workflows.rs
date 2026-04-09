@@ -74,7 +74,24 @@ impl Command for WorkflowsCommand {
 
         let mut output = format!("Workflow scripts in {}:\n", dir.display());
         for path in entries {
-            output.push_str(&format!("  - {}\n", path.display()));
+            let label = std::fs::read_to_string(&path)
+                .ok()
+                .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok())
+                .map(|json| {
+                    let name = json
+                        .get("name")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or_else(|| {
+                            path.file_stem().and_then(|value| value.to_str()).unwrap_or("workflow")
+                        });
+                    let description = json
+                        .get("description")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("no description");
+                    format!("{} — {}", name, description)
+                })
+                .unwrap_or_else(|| path.display().to_string());
+            output.push_str(&format!("  - {} ({})\n", label, path.display()));
         }
         output.push_str(
             "\nUse `/workflows run <name>` to load a workflow_run prompt, or call the `workflow_run` tool directly.",

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use async_trait::async_trait;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
@@ -59,6 +59,10 @@ impl Tool for WorkflowRunTool {
                 "workflow_path": {
                     "type": "string",
                     "description": "Absolute path to a workflow JSON file."
+                },
+                "variables": {
+                    "type": "object",
+                    "description": "Optional ${var} substitutions applied recursively to workflow step params before execution."
                 }
             }
         })
@@ -103,6 +107,11 @@ impl Tool for WorkflowRunTool {
                 err
             )
         })?;
+        let variables = params
+            .get("variables")
+            .and_then(|value| value.as_object())
+            .cloned()
+            .unwrap_or_default();
 
         let mut step_outputs = Vec::new();
         for (index, step) in workflow.steps.iter().enumerate() {
@@ -137,6 +146,7 @@ impl Tool for WorkflowRunTool {
                 )));
             }
 
+            let resolved_params = apply_variables(step.params.clone(), &variables);
             let step_ctx = ToolContext {
                 registry: ctx.registry.clone(),
                 tasks: ctx.tasks.clone(),
@@ -154,7 +164,7 @@ impl Tool for WorkflowRunTool {
                 plan_mode: ctx.plan_mode.clone(),
             };
 
-            let result = match tool.execute(step.params.clone(), &step_ctx).await {
+            let result = match tool.execute(resolved_params, &step_ctx).await {
                 Ok(result) => result,
                 Err(err) => ToolResult::error(format!("Step {} failed: {}", index + 1, err)),
             };
@@ -178,10 +188,43 @@ impl Tool for WorkflowRunTool {
                 "workflow_name": workflow.name,
                 "description": workflow.description,
                 "step_count": workflow.steps.len(),
+                "variables": variables,
                 "results": step_outputs,
             }),
         ))
     }
+}
+
+fn apply_variables(value: Value, variables: &Map<String, Value>) -> Value {
+    match value {
+        Value::String(text) => Value::String(replace_variables(&text, variables)),
+        Value::Array(items) => Value::Array(
+            items
+                .into_iter()
+                .map(|item| apply_variables(item, variables))
+                .collect(),
+        ),
+        Value::Object(object) => Value::Object(
+            object
+                .into_iter()
+                .map(|(key, value)| (key, apply_variables(value, variables)))
+                .collect(),
+        ),
+        other => other,
+    }
+}
+
+fn replace_variables(input: &str, variables: &Map<String, Value>) -> String {
+    let mut output = input.to_string();
+    for (key, value) in variables {
+        let placeholder = format!("${{{}}}", key);
+        let replacement = value
+            .as_str()
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| value.to_string());
+        output = output.replace(&placeholder, &replacement);
+    }
+    output
 }
 
 #[cfg(test)]
@@ -222,5 +265,23 @@ mod tests {
             .unwrap();
         assert!(!result.is_error);
         assert!(result.content.contains("\"tool\": \"ls\""));
+    }
+
+    #[test]
+    fn workflow_applies_variable_substitution() {
+        let params = serde_json::json!({
+            "command": "echo ${name}",
+            "nested": ["${kind}"]
+        });
+        let variables = serde_json::json!({
+            "name": "world",
+            "kind": "read-only"
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+        let applied = super::apply_variables(params, &variables);
+        assert_eq!(applied["command"].as_str(), Some("echo world"));
+        assert_eq!(applied["nested"][0].as_str(), Some("read-only"));
     }
 }
