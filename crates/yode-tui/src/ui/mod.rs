@@ -244,7 +244,16 @@ fn turn_runtime_indicator_text(app: &App) -> String {
     } else {
         "mem cold".to_string()
     };
-    format!(" · compact {} · {}", state.total_compactions, mem)
+    let recovery = match state.recovery_state.as_str() {
+        "ReanchorRequired" => " · reanchor",
+        "SingleStepMode" => " · single-step",
+        "NeedUserGuidance" => " · ask-user",
+        _ => "",
+    };
+    format!(
+        " · compact {} · {}{}",
+        state.total_compactions, mem, recovery
+    )
 }
 
 /// Format token count: 1234 → "1.2k", 500 → "500"

@@ -166,9 +166,48 @@ impl Command for DoctorCommand {
                 state.tracked_failed_tool_results
             ));
             checks.push(format!(
+                "  [ok] Tool progress events tracked: {}",
+                state.tool_progress_event_count
+            ));
+            checks.push(format!(
+                "  [ok] Parallel tool batches tracked: {}",
+                state.parallel_tool_batch_count
+            ));
+            if state.tool_truncation_count > 0 {
+                checks.push(format!(
+                    "  [!!] Tool truncations observed: {} (last: {})",
+                    state.tool_truncation_count,
+                    state
+                        .last_tool_truncation_reason
+                        .as_deref()
+                        .unwrap_or("unknown")
+                ));
+            } else {
+                checks.push("  [ok] No tool truncations observed".to_string());
+            }
+            if let Some(pattern) = state.latest_repeated_tool_failure.as_deref() {
+                checks.push(format!("  [!!] Repeated tool failure pattern: {}", pattern));
+            } else {
+                checks.push("  [ok] No repeated tool failure pattern observed".to_string());
+            }
+            if let Some(path) = state.last_tool_turn_artifact_path.as_deref() {
+                checks.push(format!("  [ok] Tool artifact available: {}", path));
+            } else {
+                checks.push("  [--] Tool artifact not written yet".to_string());
+            }
+            checks.push(format!(
                 "  [ok] Hook executions tracked: {}",
                 state.hook_total_executions
             ));
+            if state.recovery_state != "Normal" {
+                checks.push(format!(
+                    "  [!!] Recovery state active: {} (signature: {})",
+                    state.recovery_state,
+                    state.last_failed_signature.as_deref().unwrap_or("none")
+                ));
+            } else {
+                checks.push("  [ok] Recovery state normal".to_string());
+            }
             if state.hook_timeout_count > 0 {
                 checks.push(format!(
                     "  [!!] Hook timeouts observed: {} (last: {})",

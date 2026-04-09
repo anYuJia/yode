@@ -1,21 +1,25 @@
 mod config;
 mod context_cmd;
 pub mod cost;
+mod diagnostics;
 mod doctor;
 mod help;
 mod hooks_cmd;
 mod memory;
 mod status;
+mod tasks;
 mod update;
 mod version;
 
 pub use config::ConfigCommand;
 pub use context_cmd::ContextCommand;
 pub use cost::CostCommand;
+pub use diagnostics::DiagnosticsCommand;
 pub use doctor::DoctorCommand;
 pub use help::HelpCommand;
 pub use hooks_cmd::HooksCommand;
 pub use memory::MemoryCommand;
 pub use status::StatusCommand;
+pub use tasks::TasksCommand;
 pub use update::UpdateCommand;
 pub use version::VersionCommand;

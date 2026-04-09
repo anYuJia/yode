@@ -74,6 +74,10 @@ pub struct ChatEntry {
     pub duration: Option<Duration>,
     /// Tool execution progress (optional).
     pub progress: Option<yode_tools::tool::ToolProgress>,
+    /// Structured tool metadata attached to the result.
+    pub tool_metadata: Option<serde_json::Value>,
+    /// Structured error type attached to a tool result.
+    pub tool_error_type: Option<String>,
 }
 
 impl ChatEntry {
@@ -86,6 +90,8 @@ impl ChatEntry {
             already_printed: false,
             duration: None,
             progress: None,
+            tool_metadata: None,
+            tool_error_type: None,
         }
     }
 
@@ -98,6 +104,8 @@ impl ChatEntry {
             already_printed: false,
             duration: None,
             progress: None,
+            tool_metadata: None,
+            tool_error_type: None,
         }
     }
 }
@@ -843,6 +851,14 @@ async fn run_app(
         // Process engine events (non-blocking)
         while let Ok(event) = engine_event_rx.try_recv() {
             handle_engine_event(app, event, &engine, &engine_event_tx);
+        }
+        if let Ok(engine_guard) = engine.try_lock() {
+            for notification in engine_guard.drain_runtime_task_notifications() {
+                app.chat_entries.push(ChatEntry::new(
+                    ChatRole::System,
+                    format!("[Task] {}", notification.message),
+                ));
+            }
         }
 
         // Begin synchronized update — terminal buffers ALL output until
@@ -1743,6 +1759,23 @@ fn find_case_insensitive(haystack: &str, needle: &str) -> Option<usize> {
     haystack.to_lowercase().find(&needle.to_lowercase())
 }
 
+fn push_grouped_system_entry(app: &mut App, group_prefix: &str, content: String) {
+    if let Some(last) = app.chat_entries.last_mut() {
+        if matches!(last.role, ChatRole::System)
+            && last.content.starts_with(group_prefix)
+            && last.timestamp.elapsed() <= Duration::from_secs(5)
+        {
+            if !last.content.contains(&content) {
+                last.content.push('\n');
+                last.content.push_str(&content);
+            }
+            return;
+        }
+    }
+    app.chat_entries
+        .push(ChatEntry::new(ChatRole::System, content));
+}
+
 fn handle_engine_event(
     app: &mut App,
     event: EngineEvent,
@@ -1973,6 +2006,8 @@ fn handle_engine_event(
                 result.content,
             );
             entry.duration = duration;
+            entry.tool_metadata = result.metadata.clone();
+            entry.tool_error_type = result.error_type.map(|kind| format!("{:?}", kind));
             app.chat_entries.push(entry);
         }
         EngineEvent::TurnComplete(response) => {
@@ -2128,14 +2163,19 @@ fn handle_engine_event(
             path,
             generated_summary,
         } => {
-            app.chat_entries.push(ChatEntry::new(
-                ChatRole::System,
+            push_grouped_system_entry(
+                app,
+                "Session memory updated",
                 format!(
                     "Session memory updated ({}): {}",
-                    if generated_summary { "summary" } else { "snapshot" },
+                    if generated_summary {
+                        "summary"
+                    } else {
+                        "snapshot"
+                    },
                     path
                 ),
-            ));
+            );
         }
         EngineEvent::UpdateAvailable(version) => {
             app.update_available = Some(version);
@@ -2238,8 +2278,7 @@ fn handle_engine_event(
                 content.push_str(&path);
             }
 
-            app.chat_entries
-                .push(ChatEntry::new(ChatRole::System, content));
+            push_grouped_system_entry(app, "Context compressed", content);
         }
         EngineEvent::CostUpdate {
             estimated_cost,

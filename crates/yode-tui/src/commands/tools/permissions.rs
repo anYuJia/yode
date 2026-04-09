@@ -65,7 +65,13 @@ impl Command for PermissionsCommand {
             [] => {
                 let mode = engine.permissions().mode();
                 let tools = engine.permissions().confirmable_tools();
-                let mut lines = vec![format!("Permission mode: {}", mode)];
+                let rules = engine.permissions().rules_snapshot();
+                let denials = engine.permissions().recent_denials(5);
+                let runtime = engine.runtime_state();
+                let mut lines = vec![
+                    format!("Permission mode: {}", mode),
+                    format!("Recovery state: {}", runtime.recovery_state),
+                ];
                 if tools.is_empty() {
                     lines.push("All tools are auto-allowed (no confirmations required).".into());
                 } else {
@@ -74,6 +80,50 @@ impl Command for PermissionsCommand {
                         lines.push(format!("  {t}"));
                     }
                 }
+                if rules.is_empty() {
+                    lines.push("Rules: none".into());
+                } else {
+                    lines.push("Rules:".into());
+                    for rule in rules {
+                        lines.push(format!(
+                            "  {:?} {} {}{}",
+                            rule.source,
+                            rule.tool_name,
+                            match rule.behavior {
+                                yode_core::permission::RuleBehavior::Allow => "allow",
+                                yode_core::permission::RuleBehavior::Deny => "deny",
+                                yode_core::permission::RuleBehavior::Ask => "ask",
+                            },
+                            rule.pattern
+                                .as_ref()
+                                .map(|pattern| format!(" ({})", pattern))
+                                .unwrap_or_default()
+                        ));
+                    }
+                }
+                if denials.is_empty() {
+                    lines.push("Recent denials: none".into());
+                } else {
+                    lines.push("Recent denials:".into());
+                    for denial in denials {
+                        lines.push(format!(
+                            "  {} x{} (consecutive {}, at {})",
+                            denial.tool_name, denial.count, denial.consecutive, denial.last_at
+                        ));
+                    }
+                }
+                lines.push(format!(
+                    "Last permission decision: {} [{}]",
+                    runtime.last_permission_tool.as_deref().unwrap_or("none"),
+                    runtime.last_permission_action.as_deref().unwrap_or("none")
+                ));
+                lines.push(format!(
+                    "Why: {}",
+                    runtime
+                        .last_permission_explanation
+                        .as_deref()
+                        .unwrap_or("none")
+                ));
                 Ok(CommandOutput::Messages(lines))
             }
             // /permissions mode — show current mode
@@ -119,7 +169,7 @@ impl Command for PermissionsCommand {
             [tool, "deny"] => {
                 engine.permissions_mut().deny(tool);
                 Ok(CommandOutput::Message(format!(
-                    "Tool '{tool}' now requires confirmation."
+                    "Tool '{tool}' set to deny."
                 )))
             }
             _ => Err("Usage: /permissions [mode <mode>] | [tool allow|deny] | [reset]".into()),

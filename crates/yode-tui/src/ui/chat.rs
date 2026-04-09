@@ -237,6 +237,14 @@ pub fn render_tool_call(
             Style::default().fg(YELLOW).add_modifier(Modifier::ITALIC),
         ));
     }
+    if is_error {
+        if let Some(error_type) = result.and_then(|entry| entry.tool_error_type.as_deref()) {
+            title_spans.push(Span::styled(
+                format!(" <{}>", error_type),
+                Style::default().fg(RED).add_modifier(Modifier::BOLD),
+            ));
+        }
+    }
 
     lines.push(Line::from(title_spans));
 
@@ -258,11 +266,64 @@ pub fn render_tool_call(
         lines.push(Line::from(progress_spans));
     }
 
+    if let Some(metadata) = result.and_then(|entry| entry.tool_metadata.as_ref()) {
+        if let Some(diff) = metadata
+            .get("diff_preview")
+            .and_then(|value| value.as_object())
+        {
+            let removed = diff
+                .get("removed")
+                .and_then(|value| value.as_array())
+                .into_iter()
+                .flatten()
+                .filter_map(|value| value.as_str())
+                .take(5)
+                .collect::<Vec<_>>();
+            let added = diff
+                .get("added")
+                .and_then(|value| value.as_array())
+                .into_iter()
+                .flatten()
+                .filter_map(|value| value.as_str())
+                .take(5)
+                .collect::<Vec<_>>();
+
+            for line in removed {
+                lines.push(Line::from(Span::styled(
+                    format!("     - {}", line),
+                    Style::default().fg(RED),
+                )));
+            }
+            for line in added {
+                lines.push(Line::from(Span::styled(
+                    format!("     + {}", line),
+                    Style::default().fg(GREEN),
+                )));
+            }
+        }
+        if let Some(truncation) = metadata
+            .get("tool_runtime")
+            .and_then(|value| value.get("truncation"))
+            .and_then(|value| value.as_object())
+        {
+            if let Some(reason) = truncation.get("reason").and_then(|value| value.as_str()) {
+                lines.push(Line::from(Span::styled(
+                    format!("  │ truncated: {}", reason),
+                    Style::default().fg(YELLOW),
+                )));
+            }
+        }
+    }
+
     // Tool-specific content rendering (if multiline or special)
+    let has_metadata_diff = result
+        .and_then(|entry| entry.tool_metadata.as_ref())
+        .and_then(|metadata| metadata.get("diff_preview"))
+        .is_some();
     match name {
         "bash" => render_bash_content(lines, &args, result_content, is_error),
-        "write_file" => render_write_content(lines, &args, is_error),
-        "edit_file" => render_edit_content(lines, &args, is_error),
+        "write_file" if !has_metadata_diff => render_write_content(lines, &args, is_error),
+        "edit_file" if !has_metadata_diff => render_edit_content(lines, &args, is_error),
         _ => {}
     }
 

@@ -1,7 +1,9 @@
 use chrono::{Duration, Local, NaiveDate, NaiveDateTime};
 use similar::{ChangeTag, DiffOp, TextDiff};
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex};
 
 use crate::commands::context::CommandContext;
 use crate::commands::{
@@ -10,6 +12,12 @@ use crate::commands::{
 };
 
 const MAX_DISPLAY_CHARS: usize = 12_000;
+const MAX_COMPARE_CONTENT_CHARS: usize = 200_000;
+
+static TRANSCRIPT_META_CACHE: LazyLock<Mutex<HashMap<PathBuf, (u64, TranscriptMetadata)>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+static LATEST_TRANSCRIPT_CACHE: LazyLock<Mutex<HashMap<PathBuf, (u64, Option<PathBuf>)>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 pub struct MemoryCommand {
     meta: CommandMeta,
@@ -30,6 +38,7 @@ impl MemoryCommand {
                         "live".to_string(),
                         "session".to_string(),
                         "latest".to_string(),
+                        "pick".to_string(),
                         "list".to_string(),
                         "list recent".to_string(),
                         "list auto".to_string(),
@@ -92,6 +101,9 @@ impl Command for MemoryCommand {
             ))),
             "live" => render_memory_file("Live session memory", &live_path),
             "session" => render_memory_file("Compaction memory", &session_path),
+            "pick" => Ok(CommandOutput::Message(render_transcript_picker(
+                &transcripts_dir,
+            ))),
             _ if args.starts_with("latest compare ") => parse_latest_compare_target(args)
                 .ok_or_else(|| "Usage: /memory latest compare <target>".to_string())
                 .and_then(|target| {
@@ -127,6 +139,16 @@ fn render_memory_status(
     runtime: Option<&yode_core::engine::EngineRuntimeState>,
 ) -> String {
     let latest = latest_transcript(transcripts_dir);
+    let latest_failed = filtered_transcript_entries(
+        transcripts_dir,
+        &TranscriptListFilter {
+            require_failed: true,
+            recent_limit: Some(1),
+            ..TranscriptListFilter::default()
+        },
+    )
+    .into_iter()
+    .next();
     let transcript_count = transcript_entries(transcripts_dir).len();
     let runtime_lines = runtime
         .map(|state| {
@@ -175,12 +197,16 @@ fn render_memory_status(
         })
         .unwrap_or_default();
     format!(
-        "Memory artifacts:\n  Live memory:       {}\n  Compaction memory: {}\n  Transcript dir:    {}\n  Transcript count:  {}\n  Latest transcript: {}{}\n\nUse /memory live, /memory session, /memory latest, /memory list, /memory compare <a> <b>, or /memory <index>.",
+        "Memory artifacts:\n  Live memory:       {}\n  Compaction memory: {}\n  Transcript dir:    {}\n  Transcript count:  {}\n  Latest transcript: {}\n  Latest failed:     {}{}\n\nQuick jumps:\n  /memory latest\n  /memory list failed\n  /memory pick\n  /memory compare <a> <b>\n  /memory <index>",
         describe_path(live_path),
         describe_path(session_path),
         transcripts_dir.display(),
         transcript_count,
         latest
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "none".to_string()),
+        latest_failed
             .as_ref()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| "none".to_string()),
@@ -204,7 +230,7 @@ fn render_memory_file(label: &str, path: &Path) -> CommandResult {
     let content =
         fs::read_to_string(path).map_err(|_| format!("{} not found: {}", label, path.display()))?;
     if let Some(parsed) = parse_memory_document(&content) {
-        let mut output = String::new();
+        let mut output = String::with_capacity(content.len().min(MAX_DISPLAY_CHARS) + 512);
         output.push_str(&format!("{}\nPath: {}\n", label, path.display()));
         output.push_str("Schema: structured-v1\n");
         output.push_str(&format!("Entries: {}\n", parsed.entries.len()));
@@ -238,6 +264,11 @@ fn render_memory_file(label: &str, path: &Path) -> CommandResult {
         }
         output.push_str("\nRaw markdown:\n\n");
         output.push_str(&truncate_for_display(&content));
+        if content.lines().count() > 120 || content.chars().count() > MAX_DISPLAY_CHARS {
+            output.push_str(
+                "\n\n[Long artifact output. Scroll in the terminal for more, or open the file path directly.]",
+            );
+        }
         return Ok(CommandOutput::Message(output));
     }
 
@@ -265,6 +296,29 @@ fn render_latest_transcript(path: &Path) -> CommandResult {
         preview,
         truncated
     )))
+}
+
+fn render_transcript_picker(dir: &Path) -> String {
+    let entries = sorted_transcript_entries(dir);
+    if entries.is_empty() {
+        return "Transcript picker: no transcript artifacts found yet.".to_string();
+    }
+
+    let mut output = String::from("Transcript picker:\n");
+    for (idx, path) in entries.into_iter().take(12).enumerate() {
+        let meta = read_transcript_metadata(&path).unwrap_or_default();
+        output.push_str(&format!(
+            "  {:>2}. {} | mode={} | failed={} | summary={} | {}\n",
+            idx + 1,
+            meta.timestamp.unwrap_or_else(|| "unknown time".to_string()),
+            meta.mode.unwrap_or_else(|| "unknown".to_string()),
+            meta.failed_tool_results.unwrap_or(0),
+            if meta.has_summary { "yes" } else { "no" },
+            path.display()
+        ));
+    }
+    output.push_str("\nUse /memory <index> to open one, or /memory compare <a> <b> to diff two.");
+    output
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -434,7 +488,20 @@ fn render_transcript_list(dir: &Path, filter: &TranscriptListFilter) -> String {
 }
 
 fn latest_transcript(dir: &Path) -> Option<PathBuf> {
-    sorted_transcript_entries(dir).into_iter().next()
+    let stamp = file_cache_stamp(dir)?;
+    if let Ok(cache) = LATEST_TRANSCRIPT_CACHE.lock() {
+        if let Some((cached_stamp, cached_path)) = cache.get(dir) {
+            if *cached_stamp == stamp {
+                return cached_path.clone();
+            }
+        }
+    }
+
+    let latest = sorted_transcript_entries(dir).into_iter().next();
+    if let Ok(mut cache) = LATEST_TRANSCRIPT_CACHE.lock() {
+        cache.insert(dir.to_path_buf(), (stamp, latest.clone()));
+    }
+    latest
 }
 
 fn transcript_entries(dir: &Path) -> Vec<PathBuf> {
@@ -764,12 +831,20 @@ fn truncate_for_display(content: &str) -> String {
 
     let truncated = content.chars().take(MAX_DISPLAY_CHARS).collect::<String>();
     format!(
-        "{}\n\n[Truncated for display at {} chars]",
+        "{}\n\n[Truncated for display at {} chars. Scroll for earlier content if your terminal keeps history, or open the file path directly.]",
         truncated, MAX_DISPLAY_CHARS
     )
 }
 
-#[derive(Debug, Default)]
+fn file_cache_stamp(path: &Path) -> Option<u64> {
+    let modified = fs::metadata(path).ok()?.modified().ok()?;
+    modified
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|duration| duration.as_secs())
+}
+
+#[derive(Debug, Clone, Default)]
 struct TranscriptMetadata {
     timestamp: Option<String>,
     mode: Option<String>,
@@ -783,6 +858,15 @@ struct TranscriptMetadata {
 }
 
 fn read_transcript_metadata(path: &Path) -> Option<TranscriptMetadata> {
+    let stamp = file_cache_stamp(path)?;
+    if let Ok(cache) = TRANSCRIPT_META_CACHE.lock() {
+        if let Some((cached_stamp, cached_meta)) = cache.get(path) {
+            if *cached_stamp == stamp {
+                return Some(cached_meta.clone());
+            }
+        }
+    }
+
     let content = fs::read_to_string(path).ok()?;
     let mut meta = TranscriptMetadata::default();
 
@@ -807,6 +891,10 @@ fn read_transcript_metadata(path: &Path) -> Option<TranscriptMetadata> {
     }
 
     meta.has_summary = content.contains("## Summary Anchor");
+    if let Ok(mut cache) = TRANSCRIPT_META_CACHE.lock() {
+        cache.insert(path.to_path_buf(), (stamp, meta.clone()));
+    }
+
     Some(meta)
 }
 
@@ -855,6 +943,7 @@ fn build_transcript_compare_output(
     let left_messages = count_transcript_messages(left_content);
     let right_messages = count_transcript_messages(right_content);
     let identical = left_content == right_content;
+    let compare_too_large = left_chars.saturating_add(right_chars) > MAX_COMPARE_CONTENT_CHARS;
 
     let mut output = String::new();
     output.push_str("Transcript comparison\n");
@@ -863,6 +952,10 @@ fn build_transcript_compare_output(
     output.push_str(&format!(
         "Status: {}\n\n",
         if identical { "identical" } else { "different" }
+    ));
+    output.push_str(&format!(
+        "Diff window: hunks={} lines={}\n\n",
+        options.max_hunks, options.max_lines
     ));
 
     output.push_str("Metadata:\n");
@@ -940,7 +1033,14 @@ fn build_transcript_compare_output(
     output.push_str("\nSection summary:\n");
     output.push_str(&build_section_summary(left_content, right_content));
 
-    if options.diff_enabled {
+    if compare_too_large {
+        output.push_str("\nContent diff:\n");
+        output.push_str(&format!(
+            "  skipped: content too large for interactive diff preview ({} chars > {}). Use --no-diff, narrower targets, or inspect one transcript directly.\n",
+            left_chars + right_chars,
+            MAX_COMPARE_CONTENT_CHARS
+        ));
+    } else if options.diff_enabled {
         if let Some(diff_preview) = build_diff_preview(left_content, right_content, options) {
             output.push_str("\nContent diff:\n");
             output.push_str(&diff_preview);
@@ -1015,7 +1115,9 @@ fn build_diff_preview(left: &str, right: &str, options: &CompareOptions) -> Opti
                 ));
                 shown_lines += 1;
                 if shown_lines >= options.max_lines {
-                    output.push_str("    ... diff preview truncated ...\n");
+                    output.push_str(
+                        "    ... diff preview truncated ... use --lines N or --hunks N to expand ...\n",
+                    );
                     return Some(output);
                 }
             }
@@ -1024,7 +1126,7 @@ fn build_diff_preview(left: &str, right: &str, options: &CompareOptions) -> Opti
 
     if groups.len() > options.max_hunks {
         output.push_str(&format!(
-            "  ... {} more hunks omitted ...\n",
+            "  ... {} more hunks omitted ... use --hunks N to expand ...\n",
             groups.len() - options.max_hunks
         ));
     }

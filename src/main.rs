@@ -787,7 +787,11 @@ async fn main() -> Result<()> {
                 } => {
                     eprintln!(
                         "\x1b[90m🧠 Session memory updated ({}) -> {}\x1b[0m",
-                        if generated_summary { "summary" } else { "snapshot" },
+                        if generated_summary {
+                            "summary"
+                        } else {
+                            "snapshot"
+                        },
                         path
                     );
                 }

@@ -45,8 +45,18 @@ impl Command for StatusCommand {
             .ok()
             .map(|engine| engine.runtime_state());
         let runtime_sections = if let Some(state) = runtime {
+            let tool_error_counts = if state.tool_error_type_counts.is_empty() {
+                "none".to_string()
+            } else {
+                state
+                    .tool_error_type_counts
+                    .iter()
+                    .map(|(kind, count)| format!("{}={}", kind, count))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
             format!(
-                "\n\nCompact:\n  Query source:    {}\n  Autocompact:     {}\n  Compact fails:   {}\n  Compact count:   {} (auto {}, manual {})\n  Breaker reason:  {}\n  Last compact:    {}\n  Compact at:      {}\n  Compact summary: {}\n  Last compact mem: {}\n  Last transcript: {}\n\nMemory:\n  Live memory:     {}{}\n  Live memory file: {}\n  Memory updates:  {}\n  Last memory update: {}\n\nTools:\n  Session tools:   {}\n  Failed tools:    {}\n  Always-allow:    {}\n\nHooks:\n  Hook runs:       {}\n  Hook timeouts:   {}\n  Hook exec errs:  {}\n  Hook exits!=0:   {}\n  Hook wakes:      {}\n  Last hook fail:  {}\n  Last hook at:    {}\n  Last hook timeout: {}",
+                "\n\nCompact:\n  Query source:    {}\n  Autocompact:     {}\n  Compact fails:   {}\n  Compact count:   {} (auto {}, manual {})\n  Breaker reason:  {}\n  Last compact:    {}\n  Compact at:      {}\n  Compact summary: {}\n  Last compact mem: {}\n  Last transcript: {}\n\nMemory:\n  Live memory:     {}{}\n  Live memory file: {}\n  Memory updates:  {}\n  Last memory update: {}\n\nRecovery:\n  State:           {}\n  Single-step:     {}\n  Reanchor:        {}\n  Need guidance:   {}\n  Last signature:  {}\n  Last permission: {} [{}]\n  Permission why:  {}\n  Recent denials:  {}\n\nTools:\n  Session tools:   {}\n  Current turn:    {} calls / {} bytes\n  Budget notices:  {} (warning {})\n  Budget active:   notice={} warning={}\n  Progress events: {} (last: {} / {})\n  Parallel:        {} batches / {} calls (max {})\n  Truncations:     {} (last: {})\n  Error types:     {}\n  Repeat fail:     {}\n  Tool traces:     {} turn / {} calls\n  Tool artifact:   {}\n  Tool turn done:  {}\n  Failed tools:    {}\n  Always-allow:    {}\n\nHooks:\n  Hook runs:       {}\n  Hook timeouts:   {}\n  Hook exec errs:  {}\n  Hook exits!=0:   {}\n  Hook wakes:      {}\n  Last hook fail:  {}\n  Last hook at:    {}\n  Last hook timeout: {}",
                 state.query_source,
                 if state.autocompact_disabled {
                     "disabled"
@@ -93,22 +103,80 @@ impl Command for StatusCommand {
                 },
                 state.live_session_memory_path,
                 state.session_memory_update_count,
-                state.last_session_memory_update_path.as_ref().map(|path| {
-                    format!(
-                        "{} ({}, {})",
-                        path,
-                        state
-                            .last_session_memory_update_at
-                            .as_deref()
-                            .unwrap_or("unknown time"),
-                        if state.last_session_memory_generated_summary {
-                            "summary"
-                        } else {
-                            "snapshot"
-                        }
-                    )
-                }).unwrap_or_else(|| "none".to_string()),
+                state
+                    .last_session_memory_update_path
+                    .as_ref()
+                    .map(|path| {
+                        format!(
+                            "{} ({}, {})",
+                            path,
+                            state
+                                .last_session_memory_update_at
+                                .as_deref()
+                                .unwrap_or("unknown time"),
+                            if state.last_session_memory_generated_summary {
+                                "summary"
+                            } else {
+                                "snapshot"
+                            }
+                        )
+                    })
+                    .unwrap_or_else(|| "none".to_string()),
+                state.recovery_state,
+                state.recovery_single_step_count,
+                state.recovery_reanchor_count,
+                state.recovery_need_user_guidance_count,
+                state.last_failed_signature.as_deref().unwrap_or("none"),
+                state.last_permission_tool.as_deref().unwrap_or("none"),
+                state.last_permission_action.as_deref().unwrap_or("none"),
+                state
+                    .last_permission_explanation
+                    .as_deref()
+                    .unwrap_or("none"),
+                if state.recent_permission_denials.is_empty() {
+                    "none".to_string()
+                } else {
+                    state.recent_permission_denials.join(" | ")
+                },
                 state.session_tool_calls_total,
+                state.current_turn_tool_calls,
+                state.current_turn_tool_output_bytes,
+                state.tool_budget_notice_count,
+                state.tool_budget_warning_count,
+                state.current_turn_budget_notice_emitted,
+                state.current_turn_budget_warning_emitted,
+                state.tool_progress_event_count,
+                state
+                    .last_tool_progress_tool
+                    .as_deref()
+                    .unwrap_or("none"),
+                state
+                    .last_tool_progress_message
+                    .as_deref()
+                    .unwrap_or("none"),
+                state.parallel_tool_batch_count,
+                state.parallel_tool_call_count,
+                state.max_parallel_batch_size,
+                state.tool_truncation_count,
+                state
+                    .last_tool_truncation_reason
+                    .as_deref()
+                    .unwrap_or("none"),
+                tool_error_counts,
+                state
+                    .latest_repeated_tool_failure
+                    .as_deref()
+                    .unwrap_or("none"),
+                state.tool_trace_scope,
+                state.tool_traces.len(),
+                state
+                    .last_tool_turn_artifact_path
+                    .as_deref()
+                    .unwrap_or("none"),
+                state
+                    .last_tool_turn_completed_at
+                    .as_deref()
+                    .unwrap_or("none"),
                 state.tracked_failed_tool_results,
                 always_allow,
                 state.hook_total_executions,
