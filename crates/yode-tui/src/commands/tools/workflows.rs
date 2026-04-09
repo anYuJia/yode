@@ -19,10 +19,11 @@ impl WorkflowsCommand {
                     ArgDef {
                         name: "action".into(),
                         required: false,
-                        hint: "[run|show <name>]".into(),
+                        hint: "[run|show|init <name>]".into(),
                         completions: ArgCompletionSource::Static(vec![
                             "run".to_string(),
                             "show".to_string(),
+                            "init".to_string(),
                         ]),
                     },
                     ArgDef {
@@ -112,6 +113,20 @@ impl Command for WorkflowsCommand {
             );
             return Ok(CommandOutput::Message(output));
         }
+        if let ["init", template] = parts.as_slice() {
+            std::fs::create_dir_all(&dir)
+                .map_err(|err| format!("Failed to create {}: {}", dir.display(), err))?;
+            let (file_name, content) = workflow_template(template)
+                .ok_or_else(|| format!("Unknown workflow template: {}", template))?;
+            let path = dir.join(file_name);
+            std::fs::write(&path, content)
+                .map_err(|err| format!("Failed to write {}: {}", path.display(), err))?;
+            return Ok(CommandOutput::Message(format!(
+                "Initialized workflow template '{}' at {}.",
+                template,
+                path.display()
+            )));
+        }
 
         let entries = std::fs::read_dir(&dir)
             .ok()
@@ -169,4 +184,62 @@ fn latest_workflow_name(dir: &std::path::Path) -> Option<String> {
             .and_then(|stem| stem.to_str())
             .map(|stem| stem.to_string())
     })
+}
+
+fn workflow_template(name: &str) -> Option<(&'static str, &'static str)> {
+    match name {
+        "review-pipeline" => Some((
+            "review-pipeline.json",
+            r#"{
+  "name": "review-pipeline",
+  "description": "Plan a review and verification flow before shipping",
+  "steps": [
+    {
+      "tool_name": "review_changes",
+      "params": {
+        "focus": "${focus}"
+      }
+    },
+    {
+      "tool_name": "verification_agent",
+      "params": {
+        "goal": "verify the current implementation is correct",
+        "focus": "${focus}"
+      }
+    }
+  ]
+}"#,
+        )),
+        "coordinator-review" => Some((
+            "coordinator-review.json",
+            r#"{
+  "name": "coordinator-review",
+  "description": "Coordinate review and verification workstreams",
+  "steps": [
+    {
+      "tool_name": "coordinate_agents",
+      "params": {
+        "goal": "${goal}",
+        "workstreams": [
+          {
+            "id": "review",
+            "description": "review changes",
+            "prompt": "review the current workspace changes and report findings first",
+            "run_in_background": false
+          },
+          {
+            "id": "verify",
+            "description": "verify behavior",
+            "prompt": "verify the implementation and highlight regressions or missing tests",
+            "depends_on": ["review"],
+            "run_in_background": false
+          }
+        ]
+      }
+    }
+  ]
+}"#,
+        )),
+        _ => None,
+    }
 }
