@@ -97,6 +97,7 @@ pub fn register_all(registry: &mut CommandRegistry) {
     registry.register(Box::new(tools::WorkflowsCommand::new()));
     // Info
     registry.register(Box::new(info::HelpCommand::new()));
+    registry.register(Box::new(info::BriefCommand::new()));
     registry.register(Box::new(info::StatusCommand::new()));
     registry.register(Box::new(info::CostCommand::new()));
     registry.register(Box::new(info::VersionCommand::new()));

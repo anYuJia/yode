@@ -1,3 +1,4 @@
+mod brief;
 mod config;
 mod context_cmd;
 pub mod cost;
@@ -11,6 +12,7 @@ mod tasks;
 mod update;
 mod version;
 
+pub use brief::BriefCommand;
 pub use config::ConfigCommand;
 pub use context_cmd::ContextCommand;
 pub use cost::CostCommand;
