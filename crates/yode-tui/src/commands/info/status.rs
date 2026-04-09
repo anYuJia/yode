@@ -44,9 +44,9 @@ impl Command for StatusCommand {
             .try_lock()
             .ok()
             .map(|engine| engine.runtime_state());
-        let runtime_lines = if let Some(state) = runtime {
+        let runtime_sections = if let Some(state) = runtime {
             format!(
-                "\n  Query source:    {}\n  Autocompact:     {}\n  Compact fails:   {}\n  Live memory:     {}{}\n  Live memory file: {}\n  Last compact:    {}\n  Compact at:      {}\n  Compact summary: {}\n  Last compact mem: {}\n  Last transcript: {}\n  Last memory update: {}",
+                "\n\nCompact:\n  Query source:    {}\n  Autocompact:     {}\n  Compact fails:   {}\n  Compact count:   {} (auto {}, manual {})\n  Breaker reason:  {}\n  Last compact:    {}\n  Compact at:      {}\n  Compact summary: {}\n  Last compact mem: {}\n  Last transcript: {}\n\nMemory:\n  Live memory:     {}{}\n  Live memory file: {}\n  Memory updates:  {}\n  Last memory update: {}\n\nTools:\n  Session tools:   {}\n  Failed tools:    {}\n  Always-allow:    {}",
                 state.query_source,
                 if state.autocompact_disabled {
                     "disabled"
@@ -54,6 +54,33 @@ impl Command for StatusCommand {
                     "enabled"
                 },
                 state.compaction_failures,
+                state.total_compactions,
+                state.auto_compactions,
+                state.manual_compactions,
+                state
+                    .last_compaction_breaker_reason
+                    .as_deref()
+                    .unwrap_or("none"),
+                state
+                    .last_compaction_mode
+                    .as_deref()
+                    .unwrap_or("none"),
+                state
+                    .last_compaction_at
+                    .as_deref()
+                    .unwrap_or("none"),
+                state
+                    .last_compaction_summary_excerpt
+                    .as_deref()
+                    .unwrap_or("none"),
+                state
+                    .last_compaction_session_memory_path
+                    .as_deref()
+                    .unwrap_or("none"),
+                state
+                    .last_compaction_transcript_path
+                    .as_deref()
+                    .unwrap_or("none"),
                 if state.live_session_memory_initialized {
                     "initialized"
                 } else {
@@ -65,22 +92,8 @@ impl Command for StatusCommand {
                     ""
                 },
                 state.live_session_memory_path,
-                state
-                    .last_compaction_mode
-                    .unwrap_or_else(|| "none".to_string()),
-                state
-                    .last_compaction_at
-                    .unwrap_or_else(|| "none".to_string()),
-                state
-                    .last_compaction_summary_excerpt
-                    .unwrap_or_else(|| "none".to_string()),
-                state
-                    .last_compaction_session_memory_path
-                    .unwrap_or_else(|| "none".to_string()),
-                state
-                    .last_compaction_transcript_path
-                    .unwrap_or_else(|| "none".to_string()),
-                state.last_session_memory_update_path.map(|path| {
+                state.session_memory_update_count,
+                state.last_session_memory_update_path.as_ref().map(|path| {
                     format!(
                         "{} ({}, {})",
                         path,
@@ -95,13 +108,19 @@ impl Command for StatusCommand {
                         }
                     )
                 }).unwrap_or_else(|| "none".to_string()),
+                state.session_tool_calls_total,
+                state.tracked_failed_tool_results,
+                always_allow,
             )
         } else {
-            "\n  Runtime state:   engine busy".to_string()
+            format!(
+                "\n\nCompact:\n  Runtime state:   engine busy\n\nMemory:\n  Runtime state:   engine busy\n\nTools:\n  Always-allow:    {}",
+                always_allow,
+            )
         };
 
         Ok(CommandOutput::Message(format!(
-            "Session status:\n  Session:         {}\n  Model:           {}\n  Working dir:     {}\n  Permission mode: {}\n  Tokens:          {} (in: {}, out: {})\n  Tool calls:      {}\n  Est. cost:       ${:.4}\n  Always-allow:    {}\n  Terminal:        {}{}",
+            "Session status:\n  Session:         {}\n  Model:           {}\n  Working dir:     {}\n  Permission mode: {}\n  Tokens:          {} (in: {}, out: {})\n  Tool calls:      {}\n  Est. cost:       ${:.4}\n  Terminal:        {}{}",
             session_short,
             ctx.session.model,
             ctx.session.working_dir,
@@ -111,9 +130,8 @@ impl Command for StatusCommand {
             ctx.session.output_tokens,
             ctx.session.tool_call_count,
             cost,
-            always_allow,
             ctx.terminal_caps.summary(),
-            runtime_lines,
+            runtime_sections,
         )))
     }
 }

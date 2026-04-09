@@ -149,6 +149,7 @@ fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &App)
     use ratatui::style::{Color, Style};
     use ratatui::text::{Line, Span};
     use ratatui::widgets::Paragraph;
+    let indicators = turn_runtime_indicator_text(app);
 
     let status_line = match &app.turn_status {
         TurnStatus::Idle => return,
@@ -173,6 +174,7 @@ fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &App)
                     format!(" ({} · ↓{} tokens)", elapsed, format_tok(output_tok)),
                     Style::default().fg(Color::DarkGray),
                 ),
+                Span::styled(indicators.clone(), Style::default().fg(Color::DarkGray)),
             ])
         }
 
@@ -187,10 +189,11 @@ fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &App)
             let turn_out = app.session.turn_output_tokens;
             Line::from(vec![Span::styled(
                 format!(
-                    "  ⚡ Done · {}{} (↓{} tokens)",
+                    "  ⚡ Done · {}{} (↓{} tokens){}",
                     elapsed_str,
                     tools_str,
-                    format_tok(turn_out)
+                    format_tok(turn_out),
+                    indicators
                 ),
                 Style::default().fg(Color::DarkGray),
             )])
@@ -213,6 +216,7 @@ fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &App)
                 ),
                 Style::default().fg(Color::Yellow),
             ),
+            Span::styled(indicators, Style::default().fg(Color::DarkGray)),
         ]),
     };
 
@@ -223,6 +227,24 @@ fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &App)
         vec![status_line]
     };
     frame.render_widget(Paragraph::new(lines), area);
+}
+
+fn turn_runtime_indicator_text(app: &App) -> String {
+    let Some(engine) = &app.engine else {
+        return String::new();
+    };
+    let Ok(engine) = engine.try_lock() else {
+        return String::new();
+    };
+    let state = engine.runtime_state();
+    let mem = if state.live_session_memory_updating {
+        format!("mem {}*", state.session_memory_update_count)
+    } else if state.live_session_memory_initialized {
+        format!("mem {}", state.session_memory_update_count)
+    } else {
+        "mem cold".to_string()
+    };
+    format!(" · compact {} · {}", state.total_compactions, mem)
 }
 
 /// Format token count: 1234 → "1.2k", 500 → "500"

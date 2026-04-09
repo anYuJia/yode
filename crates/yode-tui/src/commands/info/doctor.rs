@@ -27,6 +27,12 @@ impl Command for DoctorCommand {
 
     fn execute(&self, _args: &str, ctx: &mut CommandContext) -> CommandResult {
         let mut checks = Vec::new();
+        let runtime = ctx
+            .engine
+            .try_lock()
+            .ok()
+            .map(|engine| engine.runtime_state());
+        let project_root = std::path::PathBuf::from(&ctx.session.working_dir);
 
         // 1. Check providers
         if ctx.all_provider_models.is_empty() {
@@ -95,6 +101,72 @@ impl Command for DoctorCommand {
             } else {
                 checks.push("  [!!] Config file missing".to_string());
             }
+        }
+
+        // 6. Check context/memory runtime health
+        if let Some(state) = runtime {
+            checks.push(format!(
+                "  [ok] Compact count: {} (auto {}, manual {})",
+                state.total_compactions, state.auto_compactions, state.manual_compactions
+            ));
+            if state.autocompact_disabled {
+                checks.push(format!(
+                    "  [!!] Autocompact breaker open: {}",
+                    state
+                        .last_compaction_breaker_reason
+                        .as_deref()
+                        .unwrap_or("unknown reason")
+                ));
+            } else {
+                checks.push("  [ok] Autocompact breaker closed".to_string());
+            }
+
+            let live_path = yode_core::session_memory::live_session_memory_path(&project_root);
+            if live_path.exists() {
+                checks.push(format!(
+                    "  [ok] Live memory file present: {}",
+                    live_path.display()
+                ));
+            } else {
+                checks.push(format!(
+                    "  [--] Live memory file missing: {}",
+                    live_path.display()
+                ));
+            }
+
+            let session_path = yode_core::session_memory::session_memory_path(&project_root);
+            if session_path.exists() {
+                checks.push(format!(
+                    "  [ok] Session memory file present: {}",
+                    session_path.display()
+                ));
+            } else {
+                checks.push(format!(
+                    "  [--] Session memory file missing: {}",
+                    session_path.display()
+                ));
+            }
+
+            let transcripts_dir = project_root.join(".yode").join("transcripts");
+            let transcript_count = std::fs::read_dir(&transcripts_dir)
+                .ok()
+                .into_iter()
+                .flat_map(|entries| entries.filter_map(Result::ok))
+                .count();
+            checks.push(format!(
+                "  [ok] Transcript artifacts visible: {}",
+                transcript_count
+            ));
+            checks.push(format!(
+                "  [ok] Session memory updates recorded: {}",
+                state.session_memory_update_count
+            ));
+            checks.push(format!(
+                "  [ok] Failed tool results tracked: {}",
+                state.tracked_failed_tool_results
+            ));
+        } else {
+            checks.push("  [--] Engine runtime busy; skipped context/memory checks".to_string());
         }
 
         Ok(CommandOutput::Message(format!(

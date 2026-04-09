@@ -44,6 +44,12 @@ struct StructuredMemorySections {
     open_questions: Vec<String>,
 }
 
+#[derive(Debug, Clone)]
+struct MemorySchemaHints {
+    freshness: Vec<String>,
+    confidence: Vec<String>,
+}
+
 pub fn persist_compaction_memory(
     project_root: &Path,
     session_id: &str,
@@ -138,13 +144,16 @@ pub fn persist_live_session_memory_summary(
     let mut content = String::new();
     content.push_str(LIVE_SESSION_MEMORY_HEADER);
     content.push_str("\n\n");
+    let generated_at = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let hints = live_memory_hints(&generated_at);
+    let summary_body = normalize_live_summary_markdown(summary, snapshot, &hints);
     content.push_str(&format!(
         "## {} session {}\n\n### Session Stats\n\n- Total tool calls this session: {}\n- Current message count: {}\n\n{}\n",
-        chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+        generated_at,
         snapshot.session_id.chars().take(8).collect::<String>(),
         snapshot.total_tool_calls,
         snapshot.message_count,
-        summary.trim()
+        summary_body
     ));
 
     let content = truncate_memory_file(content);
@@ -176,15 +185,13 @@ fn render_entry(
     files_modified: &[String],
 ) -> String {
     let short_session_id: String = session_id.chars().take(8).collect();
+    let generated_at = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let sections = structured_sections_from_compaction_summary(report.summary.as_deref());
+    let hints = compaction_memory_hints(&generated_at);
     let files_read_summary = summarize_read_files(project_root, files_read);
     let files_modified_summary = summarize_modified_files(project_root, files_modified);
     let mut lines = vec![
-        format!(
-            "## {} session {}",
-            chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
-            short_session_id
-        ),
+        format!("## {} session {}", generated_at, short_session_id),
         String::new(),
         "- Trigger: auto_compact".to_string(),
         format!("- Removed messages: {}", report.removed),
@@ -199,6 +206,7 @@ fn render_entry(
         &sections,
         files_read_summary.as_deref(),
         files_modified_summary.as_deref(),
+        &hints,
     );
 
     lines.join("\n")
@@ -366,10 +374,11 @@ pub fn render_live_session_memory_prompt(
 }
 
 fn render_live_snapshot(snapshot: &LiveSessionSnapshot) -> String {
+    let generated_at = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let mut lines = vec![
         format!(
             "## {} session {}",
-            chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+            generated_at,
             snapshot.session_id.chars().take(8).collect::<String>()
         ),
         String::new(),
@@ -388,11 +397,13 @@ fn render_live_snapshot(snapshot: &LiveSessionSnapshot) -> String {
     };
     let files_read_summary = summarize_entries(snapshot.files_read.clone());
     let files_modified_summary = summarize_entries(snapshot.files_modified.clone());
+    let hints = live_memory_hints(&generated_at);
     render_structured_sections(
         &mut lines,
         &sections,
         files_read_summary.as_deref(),
         files_modified_summary.as_deref(),
+        &hints,
     );
 
     lines.join("\n")
@@ -403,6 +414,7 @@ fn render_structured_sections(
     sections: &StructuredMemorySections,
     files_read_summary: Option<&str>,
     files_modified_summary: Option<&str>,
+    hints: &MemorySchemaHints,
 ) {
     push_bullet_section(lines, "Goals", &sections.goals);
     push_bullet_section(lines, "Findings", &sections.findings);
@@ -425,6 +437,8 @@ fn render_structured_sections(
     lines.push(String::new());
 
     push_bullet_section(lines, "Open Questions", &sections.open_questions);
+    push_bullet_section(lines, "Freshness", &hints.freshness);
+    push_bullet_section(lines, "Confidence", &hints.confidence);
 }
 
 fn push_bullet_section(lines: &mut Vec<String>, title: &str, items: &[String]) {
@@ -487,6 +501,90 @@ fn structured_sections_from_compaction_summary(summary: Option<&str>) -> Structu
     dedupe_section_items(&mut sections.decisions);
     dedupe_section_items(&mut sections.open_questions);
     sections
+}
+
+fn live_memory_hints(generated_at: &str) -> MemorySchemaHints {
+    MemorySchemaHints {
+        freshness: vec![
+            format!("Generated at: {}", generated_at),
+            "Current-session snapshot; prefer this over older compacted entries.".to_string(),
+        ],
+        confidence: vec![
+            "High for goals/files; medium for inferred findings and decisions.".to_string(),
+            "Derived from direct recent session messages and file activity.".to_string(),
+        ],
+    }
+}
+
+fn compaction_memory_hints(generated_at: &str) -> MemorySchemaHints {
+    MemorySchemaHints {
+        freshness: vec![
+            format!("Generated at: {}", generated_at),
+            "Point-in-time compact snapshot; verify against current code if the session has moved on."
+                .to_string(),
+        ],
+        confidence: vec![
+            "Medium; synthesized from compaction summary plus current-turn file activity."
+                .to_string(),
+            "Use transcript artifacts when a removed detail needs exact recovery.".to_string(),
+        ],
+    }
+}
+
+fn normalize_live_summary_markdown(
+    summary: &str,
+    snapshot: &LiveSessionSnapshot,
+    hints: &MemorySchemaHints,
+) -> String {
+    let trimmed = summary.trim();
+    if trimmed.contains("### Goals") || trimmed.contains("### Findings") {
+        let mut output = trimmed.to_string();
+        if !trimmed.contains("### Freshness") {
+            if !output.ends_with('\n') {
+                output.push('\n');
+            }
+            output.push('\n');
+            output.push_str(&render_named_section("Freshness", &hints.freshness));
+        }
+        if !trimmed.contains("### Confidence") {
+            if !output.ends_with('\n') {
+                output.push('\n');
+            }
+            output.push('\n');
+            output.push_str(&render_named_section("Confidence", &hints.confidence));
+        }
+        return output;
+    }
+
+    let sections = StructuredMemorySections {
+        goals: snapshot.goals.clone(),
+        findings: vec![trimmed.to_string()],
+        decisions: snapshot.decisions.clone(),
+        open_questions: snapshot.open_questions.clone(),
+    };
+    let files_read_summary = summarize_entries(snapshot.files_read.clone());
+    let files_modified_summary = summarize_entries(snapshot.files_modified.clone());
+    let mut lines = Vec::new();
+    render_structured_sections(
+        &mut lines,
+        &sections,
+        files_read_summary.as_deref(),
+        files_modified_summary.as_deref(),
+        hints,
+    );
+    lines.join("\n")
+}
+
+fn render_named_section(title: &str, items: &[String]) -> String {
+    let mut lines = vec![format!("### {}", title), String::new()];
+    if items.is_empty() {
+        lines.push("- None".to_string());
+    } else {
+        for item in items {
+            lines.push(format!("- {}", item));
+        }
+    }
+    lines.join("\n")
 }
 
 fn split_pipe_items(value: &str) -> Vec<String> {
@@ -587,7 +685,7 @@ mod tests {
 
     use super::{
         build_live_snapshot, clear_live_session_memory, persist_compaction_memory,
-        persist_live_session_memory,
+        persist_live_session_memory, persist_live_session_memory_summary,
     };
     use crate::context_manager::CompressionReport;
     use yode_llm::types::Message;
@@ -694,5 +792,36 @@ mod tests {
 
         clear_live_session_memory(temp.path()).unwrap();
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn normalizes_unstructured_live_summary_into_schema() {
+        let temp = tempfile::tempdir().unwrap();
+        let snapshot = build_live_snapshot(
+            "session-live",
+            &[
+                Message::user("Investigate the resume bug"),
+                Message::assistant("I will keep the persisted snapshot approach."),
+            ],
+            2,
+            &[temp.path().join("src/lib.rs").display().to_string()],
+            &[temp.path().join("src/main.rs").display().to_string()],
+        );
+
+        let path = persist_live_session_memory_summary(
+            temp.path(),
+            &snapshot,
+            "Need to preserve the snapshot rewrite fix.",
+        )
+        .unwrap();
+        let content = std::fs::read_to_string(path).unwrap();
+
+        assert!(content.contains("### Goals"));
+        assert!(content.contains("### Findings"));
+        assert!(content.contains("### Decisions"));
+        assert!(content.contains("### Files"));
+        assert!(content.contains("### Open Questions"));
+        assert!(content.contains("### Freshness"));
+        assert!(content.contains("### Confidence"));
     }
 }

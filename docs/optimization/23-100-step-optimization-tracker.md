@@ -18,11 +18,11 @@
 
 当前焦点：
 
-- `007 Memory schema 增加 confidence / freshness 提示`
+- `021 Transcript compare 增加 section-level summary`
 
 当前进度：
 
-- `6 / 100` 已完成
+- `20 / 100` 已完成
 
 ## 001-010 Structured Memory
 
@@ -32,23 +32,23 @@
 - `[x] 004 Session memory entry schema 对齐 live memory`
 - `[x] 005 Prompt 与 persisted memory schema 完全对齐`
 - `[x] 006 Memory schema 增加 Files Read / Files Modified 分段`
-- `[ ] 007 Memory schema 增加 confidence / freshness 提示`
-- `[ ] 008 Compact summary 自动映射到 structured findings`
-- `[ ] 009 Memory schema 向后兼容旧 markdown 内容`
-- `[ ] 010 `/memory live` / `/memory session` 增加 schema-aware 展示`
+- `[x] 007 Memory schema 增加 confidence / freshness 提示`
+- `[x] 008 Compact summary 自动映射到 structured findings`
+- `[x] 009 Memory schema 向后兼容旧 markdown 内容`
+- `[x] 010 `/memory live` / `/memory session` 增加 schema-aware 展示`
 
 ## 011-020 Context Health Dashboard
 
-- `[ ] 011 `/context` 增加 compact count`
-- `[ ] 012 `/context` 增加 last breaker reason`
-- `[ ] 013 `/status` 增加 session memory update count`
-- `[ ] 014 `/status` 增加 last failed tool result count`
-- `[ ] 015 Engine runtime state 增加 compact counters`
-- `[ ] 016 Engine runtime state 增加 breaker telemetry`
-- `[ ] 017 TUI status line 增加 compact indicator`
-- `[ ] 018 TUI status line 增加 live-memory indicator`
-- `[ ] 019 Diagnostics 输出统一成 compact / memory / tools 三段`
-- `[ ] 020 `/doctor` 纳入 context/memory 健康检查`
+- `[x] 011 `/context` 增加 compact count`
+- `[x] 012 `/context` 增加 last breaker reason`
+- `[x] 013 `/status` 增加 session memory update count`
+- `[x] 014 `/status` 增加 last failed tool result count`
+- `[x] 015 Engine runtime state 增加 compact counters`
+- `[x] 016 Engine runtime state 增加 breaker telemetry`
+- `[x] 017 TUI status line 增加 compact indicator`
+- `[x] 018 TUI status line 增加 live-memory indicator`
+- `[x] 019 Diagnostics 输出统一成 compact / memory / tools 三段`
+- `[x] 020 `/doctor` 纳入 context/memory 健康检查`
 
 ## 021-030 Transcript / History
 

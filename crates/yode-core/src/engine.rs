@@ -264,6 +264,10 @@ pub struct EngineRuntimeState {
     pub query_source: String,
     pub autocompact_disabled: bool,
     pub compaction_failures: u32,
+    pub total_compactions: u32,
+    pub auto_compactions: u32,
+    pub manual_compactions: u32,
+    pub last_compaction_breaker_reason: Option<String>,
     pub context_window_tokens: usize,
     pub compaction_threshold_tokens: usize,
     pub estimated_context_tokens: usize,
@@ -280,6 +284,8 @@ pub struct EngineRuntimeState {
     pub last_session_memory_update_at: Option<String>,
     pub last_session_memory_update_path: Option<String>,
     pub last_session_memory_generated_summary: bool,
+    pub session_memory_update_count: u32,
+    pub tracked_failed_tool_results: usize,
 }
 
 #[derive(Debug, Default)]
@@ -287,6 +293,7 @@ struct SharedMemoryStatus {
     last_session_memory_update_at: Option<String>,
     last_session_memory_update_path: Option<String>,
     last_session_memory_generated_summary: bool,
+    session_memory_update_count: u32,
 }
 
 /// Tool call budget thresholds for analysis guidance.
@@ -354,6 +361,14 @@ pub struct AgentEngine {
     current_query_source: QuerySource,
     /// Consecutive auto-compaction failures for circuit breaking.
     compaction_failures: u32,
+    /// Successful compactions in the current session.
+    total_compactions: u32,
+    /// Successful automatic compactions in the current session.
+    auto_compactions: u32,
+    /// Successful manual compactions in the current session.
+    manual_compactions: u32,
+    /// Most recent reason that opened the auto-compaction circuit breaker.
+    last_compaction_breaker_reason: Option<String>,
     /// Whether auto-compaction has been disabled for this session.
     autocompact_disabled: bool,
     /// Guard against nested compaction attempts.
@@ -549,6 +564,10 @@ impl AgentEngine {
             recovery_state: RecoveryState::Normal,
             current_query_source: QuerySource::User,
             compaction_failures: 0,
+            total_compactions: 0,
+            auto_compactions: 0,
+            manual_compactions: 0,
+            last_compaction_breaker_reason: None,
             autocompact_disabled: false,
             compaction_in_progress: false,
             session_tool_calls_total: 0,
@@ -707,13 +726,18 @@ impl AgentEngine {
                     state.last_session_memory_update_at.clone(),
                     state.last_session_memory_update_path.clone(),
                     state.last_session_memory_generated_summary,
+                    state.session_memory_update_count,
                 )
             })
-            .unwrap_or((None, None, false));
+            .unwrap_or((None, None, false, 0));
         EngineRuntimeState {
             query_source: format!("{:?}", self.current_query_source),
             autocompact_disabled: self.autocompact_disabled,
             compaction_failures: self.compaction_failures,
+            total_compactions: self.total_compactions,
+            auto_compactions: self.auto_compactions,
+            manual_compactions: self.manual_compactions,
+            last_compaction_breaker_reason: self.last_compaction_breaker_reason.clone(),
             context_window_tokens: self.context_manager.context_window(),
             compaction_threshold_tokens: self.context_manager.compression_threshold_tokens(),
             estimated_context_tokens: self
@@ -736,6 +760,8 @@ impl AgentEngine {
             last_session_memory_update_at: shared_status.0,
             last_session_memory_update_path: shared_status.1,
             last_session_memory_generated_summary: shared_status.2,
+            session_memory_update_count: shared_status.3,
+            tracked_failed_tool_results: self.failed_tool_call_ids.len(),
         }
     }
 
@@ -1257,6 +1283,12 @@ impl AgentEngine {
         });
         self.last_compaction_session_memory_path = session_memory_path_str;
         self.last_compaction_transcript_path = transcript_path_str;
+        self.total_compactions = self.total_compactions.saturating_add(1);
+        if mode == "auto" {
+            self.auto_compactions = self.auto_compactions.saturating_add(1);
+        } else {
+            self.manual_compactions = self.manual_compactions.saturating_add(1);
+        }
         true
     }
 
@@ -1332,7 +1364,10 @@ impl AgentEngine {
         self.last_compaction_summary_excerpt = None;
         self.last_compaction_session_memory_path = None;
         self.last_compaction_transcript_path = None;
-        self.set_shared_memory_status(None, None, false);
+        self.total_compactions = 0;
+        self.auto_compactions = 0;
+        self.manual_compactions = 0;
+        self.set_shared_memory_status(None, None, false, 0);
         self.sync_persisted_messages_snapshot();
         self.rebuild_system_prompt();
         self.reset_autocompact_state();
@@ -1394,11 +1429,22 @@ impl AgentEngine {
         updated_at: Option<String>,
         path: Option<String>,
         generated_summary: bool,
+        count_delta: u32,
     ) {
         if let Ok(mut state) = self.shared_memory_status.try_lock() {
             state.last_session_memory_update_at = updated_at;
             state.last_session_memory_update_path = path;
             state.last_session_memory_generated_summary = generated_summary;
+            if state.last_session_memory_update_at.is_none()
+                && state.last_session_memory_update_path.is_none()
+                && count_delta == 0
+            {
+                state.session_memory_update_count = 0;
+            } else {
+                state.session_memory_update_count = state
+                    .session_memory_update_count
+                    .saturating_add(count_delta);
+            }
         }
     }
 
@@ -1461,7 +1507,12 @@ impl AgentEngine {
                 Ok(path) => {
                     let updated_at = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
                     let path_str = path.display().to_string();
-                    self.set_shared_memory_status(Some(updated_at), Some(path_str.clone()), false);
+                    self.set_shared_memory_status(
+                        Some(updated_at),
+                        Some(path_str.clone()),
+                        false,
+                        1,
+                    );
                     self.rebuild_system_prompt();
                     if let Some(event_tx) = event_tx {
                         let _ = event_tx.send(EngineEvent::SessionMemoryUpdated {
@@ -1550,6 +1601,8 @@ impl AgentEngine {
                     state.last_session_memory_update_at = Some(updated_at.clone());
                     state.last_session_memory_update_path = Some(path_str.clone());
                     state.last_session_memory_generated_summary = generated_summary;
+                    state.session_memory_update_count =
+                        state.session_memory_update_count.saturating_add(1);
                     drop(state);
                     if let Some(event_tx) = &event_tx {
                         let _ = event_tx.send(EngineEvent::SessionMemoryUpdated {
@@ -1588,6 +1641,7 @@ impl AgentEngine {
                     Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()),
                     Some(path.display().to_string()),
                     false,
+                    1,
                 );
             }
             Err(err) => {
@@ -1615,6 +1669,7 @@ impl AgentEngine {
         self.compaction_failures = 0;
         self.autocompact_disabled = false;
         self.compaction_in_progress = false;
+        self.last_compaction_breaker_reason = None;
     }
 
     fn record_compaction_failure(
@@ -1634,6 +1689,7 @@ impl AgentEngine {
         }
 
         self.autocompact_disabled = true;
+        self.last_compaction_breaker_reason = Some(reason.clone());
         let warning = format!(
             "[Auto-compact disabled after {} consecutive failures: {}. Continue with shorter turns or clear context before retrying.]",
             self.compaction_failures, reason
@@ -4257,6 +4313,11 @@ mod tests {
                 .unwrap_or_default()
                 .contains("Auto-compact disabled")
         }));
+        let runtime = engine.runtime_state();
+        assert_eq!(
+            runtime.last_compaction_breaker_reason.as_deref(),
+            Some("compression made no changes")
+        );
         assert!(matches!(rx.try_recv(), Ok(EngineEvent::Error(_))));
     }
 
@@ -4319,6 +4380,9 @@ mod tests {
         let changed = engine.force_compact(tx).await;
 
         assert!(changed);
+        let runtime = engine.runtime_state();
+        assert_eq!(runtime.total_compactions, 1);
+        assert_eq!(runtime.manual_compactions, 1);
         assert!(
             engine.messages.len() < 12
                 || engine.messages.iter().any(|msg| {
@@ -4462,6 +4526,8 @@ mod tests {
         assert!(content.contains("persisted message snapshots"));
         assert!(engine.session_memory_initialized);
         assert!(engine.last_session_memory_tool_count >= 3);
+        let runtime = engine.runtime_state();
+        assert_eq!(runtime.session_memory_update_count, 1);
     }
 
     #[test]

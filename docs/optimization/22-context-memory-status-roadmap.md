@@ -86,6 +86,12 @@ live memory 现在支持：
 - clear/reset 失效旧后台任务
 - shutdown 最后一轮 flush
 
+这一轮又补了：
+
+- live/session memory 统一成稳定 section schema
+- `Goals / Findings / Decisions / Files / Open Questions / Freshness / Confidence`
+- 旧版非结构化 summary 会自动归一化到新 schema
+
 ### 6. hook 生命周期
 
 已经打通的事件：
@@ -178,7 +184,16 @@ live memory 现在支持：
 
 ### 3. diagnostics 还停留在命令态
 
-`/status` 和 `/context` 已经能看当前状态，但还没有形成更完整的“上下文健康度仪表盘”。
+`/status` 和 `/context` 现在已经能看：
+
+- compact 总次数 / auto 次数 / manual 次数
+- 最近一次 breaker reason
+- session memory update 次数
+- failed tool result 计数
+
+TUI turn status line 也已经补了 compact / live-memory 小指示。
+
+但它还没有形成更完整的“上下文健康度仪表盘”。
 
 例如还没做：
 
@@ -223,10 +238,10 @@ live memory 现在支持：
 
 ### 阶段 C：Context Health Dashboard
 
-优先做：
+已完成首批：
 
 1. `/context` 增加 compact count / last breaker reason
-2. `/status` 增加 session memory update 次数
+2. `/status` 增加 session memory update 次数 / failed tool count
 3. TUI 状态栏增加 compact/live-memory 小指示
 
 原因：

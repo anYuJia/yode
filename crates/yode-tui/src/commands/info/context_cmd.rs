@@ -47,7 +47,7 @@ impl Command for ContextCommand {
         let pct = (est_tokens as f64 / context_window as f64 * 100.0).min(100.0);
         let runtime_lines = if let Some(state) = runtime {
             format!(
-                "\n  Messages:        {}\n  Compaction line: ~{} tokens\n  Query source:    {}\n  Autocompact:     {}\n  Live memory:     {}\n  Session tools:   {}",
+                "\n  Messages:        {}\n  Compaction line: ~{} tokens\n  Query source:    {}\n  Autocompact:     {}\n  Compact count:   {} (auto {}, manual {})\n  Breaker reason:  {}\n  Live memory:     {}\n  Session tools:   {}\n  Memory updates:  {}",
                 state.message_count,
                 state.compaction_threshold_tokens,
                 state.query_source,
@@ -56,8 +56,16 @@ impl Command for ContextCommand {
                 } else {
                     "enabled"
                 },
+                state.total_compactions,
+                state.auto_compactions,
+                state.manual_compactions,
+                state
+                    .last_compaction_breaker_reason
+                    .as_deref()
+                    .unwrap_or("none"),
                 state.live_session_memory_path,
                 state.session_tool_calls_total,
+                state.session_memory_update_count,
             )
         } else {
             String::new()

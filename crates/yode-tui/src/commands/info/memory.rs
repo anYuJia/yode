@@ -89,8 +89,8 @@ impl Command for MemoryCommand {
                 &transcripts_dir,
                 runtime.as_ref(),
             ))),
-            "live" => render_file("Live session memory", &live_path),
-            "session" => render_file("Compaction memory", &session_path),
+            "live" => render_memory_file("Live session memory", &live_path),
+            "session" => render_memory_file("Compaction memory", &session_path),
             "latest" => {
                 let latest = latest_transcript(&transcripts_dir)
                     .ok_or_else(|| {
@@ -185,6 +185,50 @@ fn render_file(label: &str, path: &Path) -> CommandResult {
         path.display(),
         truncated
     )))
+}
+
+fn render_memory_file(label: &str, path: &Path) -> CommandResult {
+    let content =
+        fs::read_to_string(path).map_err(|_| format!("{} not found: {}", label, path.display()))?;
+    if let Some(parsed) = parse_memory_document(&content) {
+        let mut output = String::new();
+        output.push_str(&format!("{}\nPath: {}\n", label, path.display()));
+        output.push_str("Schema: structured-v1\n");
+        output.push_str(&format!("Entries: {}\n", parsed.entries.len()));
+        if let Some(entry) = parsed.entries.first() {
+            output.push_str(&format!(
+                "Latest entry: {}{}\n",
+                entry.timestamp.as_deref().unwrap_or("unknown"),
+                entry
+                    .session_id
+                    .as_deref()
+                    .map(|id| format!(" ({})", id))
+                    .unwrap_or_default()
+            ));
+            output.push_str(&format!(
+                "Age: {}\n",
+                memory_entry_age(entry.timestamp.as_deref())
+            ));
+            output.push_str("\nStructured view:\n");
+            for section in &entry.sections {
+                output.push_str(&format!(
+                    "  {} ({}): {}\n",
+                    section.title,
+                    section.items.len(),
+                    if section.items.is_empty() {
+                        "none".to_string()
+                    } else {
+                        section.items.join(" | ")
+                    }
+                ));
+            }
+        }
+        output.push_str("\nRaw markdown:\n\n");
+        output.push_str(&truncate_for_display(&content));
+        return Ok(CommandOutput::Message(output));
+    }
+
+    render_file(label, path)
 }
 
 fn render_latest_transcript(path: &Path) -> CommandResult {
@@ -853,14 +897,148 @@ fn summarize_compare_line(line: &str) -> String {
     format!("{}...", truncated)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MemoryDocumentView {
+    entries: Vec<MemoryEntryView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MemoryEntryView {
+    timestamp: Option<String>,
+    session_id: Option<String>,
+    sections: Vec<MemorySectionView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MemorySectionView {
+    title: String,
+    items: Vec<String>,
+}
+
+fn parse_memory_document(content: &str) -> Option<MemoryDocumentView> {
+    let mut entries = Vec::new();
+    let mut current_entry: Option<MemoryEntryView> = None;
+    let mut current_section: Option<MemorySectionView> = None;
+
+    for line in content.lines() {
+        if let Some(rest) = line.strip_prefix("## ") {
+            if rest.contains(" session ") {
+                flush_memory_section(&mut current_entry, &mut current_section);
+                if let Some(entry) = current_entry.take() {
+                    entries.push(entry);
+                }
+                current_entry = Some(parse_memory_entry_header(rest));
+            }
+            continue;
+        }
+
+        let Some(entry) = current_entry.as_mut() else {
+            continue;
+        };
+
+        if let Some(title) = line.strip_prefix("### ") {
+            flush_memory_section(&mut current_entry, &mut current_section);
+            current_section = Some(MemorySectionView {
+                title: title.trim().to_string(),
+                items: Vec::new(),
+            });
+            continue;
+        }
+
+        if let Some(section) = current_section.as_mut() {
+            if let Some(item) = line.strip_prefix("- ") {
+                section.items.push(item.trim().to_string());
+            } else if !line.trim().is_empty()
+                && section.title == "Session Stats"
+                && !line.starts_with("```")
+            {
+                section.items.push(line.trim().to_string());
+            }
+        } else if !line.trim().is_empty() && !line.starts_with('#') {
+            let _ = entry;
+        }
+    }
+
+    flush_memory_section(&mut current_entry, &mut current_section);
+    if let Some(entry) = current_entry.take() {
+        entries.push(entry);
+    }
+
+    if entries.is_empty() || !entries.iter().any(|entry| !entry.sections.is_empty()) {
+        None
+    } else {
+        Some(MemoryDocumentView { entries })
+    }
+}
+
+fn parse_memory_entry_header(header: &str) -> MemoryEntryView {
+    let (timestamp, session_id) =
+        if let Some((timestamp, session_id)) = header.split_once(" session ") {
+            (
+                Some(timestamp.trim().to_string()),
+                Some(session_id.trim().to_string()),
+            )
+        } else {
+            (Some(header.trim().to_string()), None)
+        };
+
+    MemoryEntryView {
+        timestamp,
+        session_id,
+        sections: Vec::new(),
+    }
+}
+
+fn flush_memory_section(
+    entry: &mut Option<MemoryEntryView>,
+    section: &mut Option<MemorySectionView>,
+) {
+    if let (Some(entry), Some(section)) = (entry.as_mut(), section.take()) {
+        entry.sections.push(section);
+    }
+}
+
+fn memory_entry_age(timestamp: Option<&str>) -> String {
+    let Some(timestamp) = timestamp else {
+        return "unknown".to_string();
+    };
+    let Some(dt) = NaiveDateTime::parse_from_str(timestamp, "%Y-%m-%d %H:%M:%S").ok() else {
+        return timestamp.to_string();
+    };
+
+    let now = Local::now().naive_local();
+    let delta = now - dt;
+    let hours = delta.num_hours();
+    if hours < 0 {
+        return "from the future".to_string();
+    }
+    if hours < 1 {
+        return "less than 1 hour old".to_string();
+    }
+    if hours < 24 {
+        return format!("{} hours old", hours);
+    }
+
+    let days = delta.num_days();
+    if days == 1 {
+        "1 day old".to_string()
+    } else {
+        format!("{} days old", days)
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use chrono::{Duration, Local};
+
     use super::{
         build_transcript_compare_output, extract_summary_preview, filtered_transcript_entries,
-        latest_transcript, parse_compare_targets, parse_date_range_filter, parse_list_filter,
-        read_transcript_metadata, render_transcript_list, resolve_transcript_target,
-        truncate_for_display, TranscriptListFilter, TranscriptMode, MAX_DISPLAY_CHARS,
+        latest_transcript, memory_entry_age, parse_compare_targets, parse_date_range_filter,
+        parse_list_filter, parse_memory_document, read_transcript_metadata, render_memory_file,
+        render_transcript_list, resolve_transcript_target, truncate_for_display,
+        TranscriptListFilter, TranscriptMode, MAX_DISPLAY_CHARS,
     };
+    use crate::commands::CommandOutput;
 
     #[test]
     fn latest_transcript_prefers_newest_filename() {
@@ -1235,6 +1413,72 @@ mod tests {
         assert!(output.contains("Changed lines:"));
         assert!(output.contains("Hunk 1"));
         assert!(output.contains("First difference:"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn parse_memory_document_reads_structured_sections() {
+        let content = "# Session Snapshot\n\nYode refreshes this file automatically.\n\n## 2026-04-09 10:00:00 session abc12345\n\n### Goals\n\n- Goal one\n\n### Findings\n\n- Finding one\n\n### Decisions\n\n- Decision one\n\n### Files\n\n- Read: src/lib.rs\n\n### Open Questions\n\n- Question one\n\n### Freshness\n\n- Generated at: 2026-04-09 10:00:00\n\n### Confidence\n\n- High\n";
+        let parsed = parse_memory_document(content).unwrap();
+        assert_eq!(parsed.entries.len(), 1);
+        assert_eq!(parsed.entries[0].session_id.as_deref(), Some("abc12345"));
+        assert_eq!(parsed.entries[0].sections[0].title, "Goals");
+        assert_eq!(parsed.entries[0].sections[0].items[0], "Goal one");
+    }
+
+    #[test]
+    fn memory_entry_age_formats_recent_entries() {
+        let now = Local::now().naive_local();
+        let ts = (now - Duration::hours(3))
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string();
+        assert_eq!(memory_entry_age(Some(&ts)), "3 hours old");
+    }
+
+    #[test]
+    fn render_memory_file_prefers_structured_view() {
+        let dir = std::env::temp_dir().join(format!(
+            "yode-memory-command-structured-file-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("session.live.md");
+        std::fs::write(
+            &path,
+            "# Session Snapshot\n\nYode refreshes this file during the session to preserve recent context between compactions.\n\n## 2026-04-09 10:00:00 session abc12345\n\n### Goals\n\n- Goal one\n\n### Findings\n\n- Finding one\n\n### Decisions\n\n- Decision one\n\n### Files\n\n- Read: src/lib.rs\n\n### Open Questions\n\n- Question one\n\n### Freshness\n\n- Generated at: 2026-04-09 10:00:00\n\n### Confidence\n\n- High\n",
+        )
+        .unwrap();
+
+        let rendered = render_memory_file("Live session memory", &path).unwrap();
+        let CommandOutput::Message(rendered) = rendered else {
+            panic!("expected message output");
+        };
+        assert!(rendered.contains("Schema: structured-v1"));
+        assert!(rendered.contains("Structured view:"));
+        assert!(rendered.contains("Goals (1): Goal one"));
+        assert!(rendered.contains("Freshness (1): Generated at: 2026-04-09 10:00:00"));
+        assert!(rendered.contains("Raw markdown:"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn render_memory_file_falls_back_for_legacy_content() {
+        let dir = std::env::temp_dir().join(format!(
+            "yode-memory-command-legacy-file-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("session.md");
+        std::fs::write(&path, "# Session Memory\n\nSummary:\nlegacy content\n").unwrap();
+
+        let rendered = render_memory_file("Compaction memory", &path).unwrap();
+        let CommandOutput::Message(rendered) = rendered else {
+            panic!("expected message output");
+        };
+        assert!(!rendered.contains("Schema: structured-v1"));
+        assert!(rendered.contains("legacy content"));
 
         std::fs::remove_dir_all(&dir).ok();
     }
