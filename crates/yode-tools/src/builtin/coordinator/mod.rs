@@ -6,6 +6,7 @@ use futures::future::join_all;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::builtin::review_common::persist_review_artifact;
 use crate::tool::{SubAgentOptions, Tool, ToolCapabilities, ToolContext, ToolResult};
 
 #[derive(Debug, Deserialize)]
@@ -218,12 +219,20 @@ impl Tool for CoordinateAgentsTool {
             pending = still_pending;
         }
 
+        let rendered_text = serde_json::to_string_pretty(&rendered)?;
+        let artifact_path = ctx
+            .working_dir
+            .as_deref()
+            .and_then(|dir| persist_review_artifact(dir, "coordinator", &goal, &rendered_text).ok())
+            .map(|path| path.display().to_string());
+
         Ok(ToolResult::success_with_metadata(
-            serde_json::to_string_pretty(&rendered)?,
+            rendered_text,
             json!({
                 "goal": goal,
                 "workstream_count": normalized.len(),
                 "phase_count": phase,
+                "coordination_artifact_path": artifact_path,
                 "results": rendered,
             }),
         ))
