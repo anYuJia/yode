@@ -19,8 +19,11 @@ impl WorkflowsCommand {
                     ArgDef {
                         name: "action".into(),
                         required: false,
-                        hint: "[run <name>]".into(),
-                        completions: ArgCompletionSource::Static(vec!["run".to_string()]),
+                        hint: "[run|show <name>]".into(),
+                        completions: ArgCompletionSource::Static(vec![
+                            "run".to_string(),
+                            "show".to_string(),
+                        ]),
                     },
                     ArgDef {
                         name: "name".into(),
@@ -55,6 +58,49 @@ impl Command for WorkflowsCommand {
                 "Loaded a workflow_run prompt for '{}'.",
                 name
             )));
+        }
+        if let ["show", name] = parts.as_slice() {
+            let path = dir.join(format!("{}.json", name));
+            let content = std::fs::read_to_string(&path)
+                .map_err(|err| format!("Failed to read {}: {}", path.display(), err))?;
+            let json: serde_json::Value = serde_json::from_str(&content)
+                .map_err(|err| format!("Invalid workflow JSON {}: {}", path.display(), err))?;
+            let steps = json
+                .get("steps")
+                .and_then(|value| value.as_array())
+                .ok_or_else(|| format!("Workflow {} has no steps array.", path.display()))?;
+            let mut output = format!(
+                "Workflow {}\nPath: {}\nDescription: {}\n\nSteps:\n",
+                json.get("name")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or(name),
+                path.display(),
+                json.get("description")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("none"),
+            );
+            for (index, step) in steps.iter().enumerate() {
+                output.push_str(&format!(
+                    "  {}. {} {}\n",
+                    index + 1,
+                    step.get("tool_name")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("unknown"),
+                    if step
+                        .get("continue_on_error")
+                        .and_then(|value| value.as_bool())
+                        .unwrap_or(false)
+                    {
+                        "(continue_on_error)"
+                    } else {
+                        ""
+                    }
+                ));
+            }
+            output.push_str(
+                "\nUse `/workflows run <name>` to load a workflow_run prompt, or call `workflow_run` with dry_run=true.",
+            );
+            return Ok(CommandOutput::Message(output));
         }
 
         let entries = std::fs::read_dir(&dir)

@@ -63,6 +63,11 @@ impl Tool for WorkflowRunTool {
                 "variables": {
                     "type": "object",
                     "description": "Optional ${var} substitutions applied recursively to workflow step params before execution."
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "If true, return the resolved workflow plan without executing any steps."
                 }
             }
         })
@@ -112,6 +117,37 @@ impl Tool for WorkflowRunTool {
             .and_then(|value| value.as_object())
             .cloned()
             .unwrap_or_default();
+        let dry_run = params
+            .get("dry_run")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
+
+        if dry_run {
+            let plan = workflow
+                .steps
+                .iter()
+                .enumerate()
+                .map(|(index, step)| {
+                    json!({
+                        "index": index + 1,
+                        "tool": step.tool_name,
+                        "continue_on_error": step.continue_on_error,
+                        "params": apply_variables(step.params.clone(), &variables),
+                    })
+                })
+                .collect::<Vec<_>>();
+            return Ok(ToolResult::success_with_metadata(
+                serde_json::to_string_pretty(&plan)?,
+                json!({
+                    "workflow_path": workflow_path,
+                    "workflow_name": workflow.name,
+                    "description": workflow.description,
+                    "variables": variables,
+                    "dry_run": true,
+                    "plan": plan,
+                }),
+            ));
+        }
 
         let mut step_outputs = Vec::new();
         for (index, step) in workflow.steps.iter().enumerate() {
