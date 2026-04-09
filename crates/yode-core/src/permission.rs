@@ -59,6 +59,16 @@ pub enum PermissionAction {
     Deny,
 }
 
+impl PermissionAction {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Allow => "allow",
+            Self::Confirm => "confirm",
+            Self::Deny => "deny",
+        }
+    }
+}
+
 // ─── Rule System ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -147,6 +157,25 @@ pub enum CommandRiskLevel {
     PotentiallyRisky,
     /// Dangerous/destructive (rm -rf /, DROP TABLE)
     Destructive,
+}
+
+#[derive(Debug, Clone)]
+pub struct DenialRecordView {
+    pub tool_name: String,
+    pub count: u32,
+    pub consecutive: u32,
+    pub last_at: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct PermissionExplanation {
+    pub action: PermissionAction,
+    pub reason: String,
+    pub mode: PermissionMode,
+    pub classifier_risk: Option<CommandRiskLevel>,
+    pub matched_rule: Option<String>,
+    pub denial_count: u32,
+    pub auto_skip_due_to_denials: bool,
 }
 
 const DESTRUCTIVE_PATTERNS: &[&str] = &[
@@ -283,6 +312,7 @@ struct DenialState {
     count: u32,
     consecutive: u32,
     last_time: Instant,
+    last_at: String,
 }
 
 #[derive(Debug)]
@@ -304,10 +334,12 @@ impl DenialTracker {
             count: 0,
             consecutive: 0,
             last_time: Instant::now(),
+            last_at: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
         });
         state.count += 1;
         state.consecutive += 1;
         state.last_time = Instant::now();
+        state.last_at = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
         self.cleanup_expired();
     }
 
@@ -333,6 +365,25 @@ impl DenialTracker {
 
     pub fn denial_count(&self, key: &str) -> u32 {
         self.states.get(key).map(|s| s.count).unwrap_or(0)
+    }
+
+    pub fn recent_entries(&self, limit: usize) -> Vec<DenialRecordView> {
+        let mut entries = self
+            .states
+            .iter()
+            .map(|(tool_name, state)| (tool_name, state))
+            .collect::<Vec<_>>();
+        entries.sort_by(|a, b| b.1.last_time.cmp(&a.1.last_time));
+        entries
+            .into_iter()
+            .take(limit)
+            .map(|(tool_name, state)| DenialRecordView {
+                tool_name: tool_name.clone(),
+                count: state.count,
+                consecutive: state.consecutive,
+                last_at: state.last_at.clone(),
+            })
+            .collect()
     }
 
     fn cleanup_expired(&mut self) {
@@ -451,17 +502,49 @@ impl PermissionManager {
 
     /// Check with optional command content for pattern matching.
     pub fn check_with_content(&self, tool_name: &str, content: Option<&str>) -> PermissionAction {
+        self.explain_with_content(tool_name, content).action
+    }
+
+    pub fn explain_with_content(
+        &self,
+        tool_name: &str,
+        content: Option<&str>,
+    ) -> PermissionExplanation {
         // 1. Bypass mode allows everything
         if self.mode == PermissionMode::Bypass {
-            return PermissionAction::Allow;
+            return PermissionExplanation {
+                action: PermissionAction::Allow,
+                reason: "Permission mode is bypass; all tools are allowed.".to_string(),
+                mode: self.mode,
+                classifier_risk: None,
+                matched_rule: None,
+                denial_count: 0,
+                auto_skip_due_to_denials: false,
+            };
         }
 
         // 2. Plan mode: only allow read-only tools
         if self.mode == PermissionMode::Plan {
             if self.readonly_tools.iter().any(|t| t == tool_name) {
-                return PermissionAction::Allow;
+                return PermissionExplanation {
+                    action: PermissionAction::Allow,
+                    reason: "Plan mode allows this read-only tool.".to_string(),
+                    mode: self.mode,
+                    classifier_risk: None,
+                    matched_rule: None,
+                    denial_count: self.denial_tracker.denial_count(tool_name),
+                    auto_skip_due_to_denials: false,
+                };
             }
-            return PermissionAction::Deny;
+            return PermissionExplanation {
+                action: PermissionAction::Deny,
+                reason: "Plan mode blocks mutating tools.".to_string(),
+                mode: self.mode,
+                classifier_risk: None,
+                matched_rule: None,
+                denial_count: self.denial_tracker.denial_count(tool_name),
+                auto_skip_due_to_denials: false,
+            };
         }
 
         // 3. AcceptEdits mode: auto-approve file modifications
@@ -471,16 +554,59 @@ impl PermissionManager {
                 "write_file" | "edit_file" | "multi_edit" | "notebook_edit"
             )
         {
-            return PermissionAction::Allow;
+            return PermissionExplanation {
+                action: PermissionAction::Allow,
+                reason: "Accept-edits mode auto-approves file modification tools.".to_string(),
+                mode: self.mode,
+                classifier_risk: None,
+                matched_rule: None,
+                denial_count: self.denial_tracker.denial_count(tool_name),
+                auto_skip_due_to_denials: false,
+            };
         }
 
         // 4. For bash commands, check risk level in Auto mode
         if self.mode == PermissionMode::Auto && tool_name == "bash" {
             if let Some(cmd) = content {
-                match CommandClassifier::classify(cmd) {
-                    CommandRiskLevel::Safe => return PermissionAction::Allow,
-                    CommandRiskLevel::Destructive => return PermissionAction::Deny,
-                    CommandRiskLevel::PotentiallyRisky => return PermissionAction::Confirm,
+                let risk = CommandClassifier::classify(cmd);
+                match risk {
+                    CommandRiskLevel::Safe => {
+                        return PermissionExplanation {
+                            action: PermissionAction::Allow,
+                            reason: "Auto mode classifier marked this bash command as safe."
+                                .to_string(),
+                            mode: self.mode,
+                            classifier_risk: Some(risk),
+                            matched_rule: None,
+                            denial_count: self.denial_tracker.denial_count(tool_name),
+                            auto_skip_due_to_denials: false,
+                        };
+                    }
+                    CommandRiskLevel::Destructive => {
+                        return PermissionExplanation {
+                            action: PermissionAction::Deny,
+                            reason: "Auto mode classifier marked this bash command as destructive."
+                                .to_string(),
+                            mode: self.mode,
+                            classifier_risk: Some(risk),
+                            matched_rule: None,
+                            denial_count: self.denial_tracker.denial_count(tool_name),
+                            auto_skip_due_to_denials: false,
+                        };
+                    }
+                    CommandRiskLevel::PotentiallyRisky => {
+                        return PermissionExplanation {
+                            action: PermissionAction::Confirm,
+                            reason:
+                                "Auto mode classifier marked this bash command as potentially risky."
+                                    .to_string(),
+                            mode: self.mode,
+                            classifier_risk: Some(risk),
+                            matched_rule: None,
+                            denial_count: self.denial_tracker.denial_count(tool_name),
+                            auto_skip_due_to_denials: false,
+                        };
+                    }
                     CommandRiskLevel::Unknown => {} // Fall through to rules
                 }
             }
@@ -488,7 +614,18 @@ impl PermissionManager {
 
         // 5. Check denial tracker
         if self.denial_tracker.should_auto_skip(tool_name) {
-            return PermissionAction::Deny;
+            return PermissionExplanation {
+                action: PermissionAction::Deny,
+                reason: format!(
+                    "Recent denials for '{}' crossed the auto-skip threshold.",
+                    tool_name
+                ),
+                mode: self.mode,
+                classifier_risk: None,
+                matched_rule: None,
+                denial_count: self.denial_tracker.denial_count(tool_name),
+                auto_skip_due_to_denials: true,
+            };
         }
 
         // 6. Check explicit rules (highest priority source wins)
@@ -500,24 +637,70 @@ impl PermissionManager {
         matching_rules.sort_by(|a, b| b.source.cmp(&a.source)); // Higher source = higher priority
 
         if let Some(rule) = matching_rules.first() {
-            return match rule.behavior {
+            let action = match rule.behavior {
                 RuleBehavior::Allow => PermissionAction::Allow,
                 RuleBehavior::Deny => PermissionAction::Deny,
                 RuleBehavior::Ask => PermissionAction::Confirm,
+            };
+            return PermissionExplanation {
+                action,
+                reason: format!(
+                    "Matched {} rule from {:?}.",
+                    match rule.behavior {
+                        RuleBehavior::Allow => "allow",
+                        RuleBehavior::Deny => "deny",
+                        RuleBehavior::Ask => "ask",
+                    },
+                    rule.source
+                ),
+                mode: self.mode,
+                classifier_risk: None,
+                matched_rule: Some(format!(
+                    "{}:{}{}",
+                    rule.tool_name,
+                    match rule.behavior {
+                        RuleBehavior::Allow => "allow",
+                        RuleBehavior::Deny => "deny",
+                        RuleBehavior::Ask => "ask",
+                    },
+                    rule.pattern
+                        .as_ref()
+                        .map(|pattern| format!(" ({})", pattern))
+                        .unwrap_or_default()
+                )),
+                denial_count: self.denial_tracker.denial_count(tool_name),
+                auto_skip_due_to_denials: false,
             };
         }
 
         // 7. Auto mode: auto-approve read-only tools
         if self.mode == PermissionMode::Auto && self.readonly_tools.iter().any(|t| t == tool_name) {
-            return PermissionAction::Allow;
+            return PermissionExplanation {
+                action: PermissionAction::Allow,
+                reason: "Auto mode allows this read-only tool.".to_string(),
+                mode: self.mode,
+                classifier_risk: None,
+                matched_rule: None,
+                denial_count: self.denial_tracker.denial_count(tool_name),
+                auto_skip_due_to_denials: false,
+            };
         }
 
         // 8. Default behavior based on tool type
-        match tool_name {
+        let action = match tool_name {
             "bash" | "write_file" | "edit_file" | "multi_edit" | "notebook_edit" | "git_commit" => {
                 PermissionAction::Confirm
             }
             _ => PermissionAction::Allow,
+        };
+        PermissionExplanation {
+            action,
+            reason: "Fell back to the built-in default permission policy.".to_string(),
+            mode: self.mode,
+            classifier_risk: None,
+            matched_rule: None,
+            denial_count: self.denial_tracker.denial_count(tool_name),
+            auto_skip_due_to_denials: false,
         }
     }
 
@@ -529,6 +712,14 @@ impl PermissionManager {
 
     pub fn record_success(&mut self, tool_name: &str) {
         self.denial_tracker.record_success(tool_name);
+    }
+
+    pub fn recent_denials(&self, limit: usize) -> Vec<DenialRecordView> {
+        self.denial_tracker.recent_entries(limit)
+    }
+
+    pub fn rules_snapshot(&self) -> Vec<PermissionRule> {
+        self.rules.clone()
     }
 
     // ── Legacy API (backwards compatible) ──
@@ -760,6 +951,30 @@ mod tests {
         }
         tracker.record_success("bash");
         assert!(!tracker.should_auto_skip("bash"));
+    }
+
+    #[test]
+    fn test_recent_denials_are_exposed() {
+        let mut pm = PermissionManager::new(PermissionMode::Default);
+        pm.record_denial("bash");
+        pm.record_denial("write_file");
+
+        let denials = pm.recent_denials(5);
+        assert_eq!(denials.len(), 2);
+        assert!(denials.iter().any(|entry| entry.tool_name == "bash"));
+        assert!(denials.iter().all(|entry| !entry.last_at.is_empty()));
+    }
+
+    #[test]
+    fn test_permission_explanation_surfaces_classifier_reason() {
+        let pm = PermissionManager::new(PermissionMode::Auto);
+        let explanation = pm.explain_with_content("bash", Some("git push --force"));
+        assert_eq!(explanation.action, PermissionAction::Confirm);
+        assert_eq!(
+            explanation.classifier_risk,
+            Some(CommandRiskLevel::PotentiallyRisky)
+        );
+        assert!(explanation.reason.contains("potentially risky"));
     }
 
     #[test]

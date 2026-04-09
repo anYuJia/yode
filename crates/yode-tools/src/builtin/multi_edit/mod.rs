@@ -129,10 +129,18 @@ impl Tool for MultiEditTool {
         }
 
         // Apply all edits sequentially
-        let mut applied = 0;
+        let mut applied: usize = 0;
+        let mut removed_preview = Vec::new();
+        let mut added_preview = Vec::new();
         for edit in edits {
             let old_string = edit.get("old_string").unwrap().as_str().unwrap();
             let new_string = edit.get("new_string").unwrap().as_str().unwrap();
+            if removed_preview.len() < 5 {
+                removed_preview.push(old_string.lines().next().unwrap_or("").to_string());
+            }
+            if added_preview.len() < 5 {
+                added_preview.push(new_string.lines().next().unwrap_or("").to_string());
+            }
             content = content.replacen(old_string, new_string, 1);
             applied += 1;
         }
@@ -143,6 +151,12 @@ impl Tool for MultiEditTool {
                 let metadata = json!({
                     "file_path": file_path,
                     "applied_edits": applied,
+                    "diff_preview": {
+                        "removed": removed_preview,
+                        "added": added_preview,
+                        "more_removed": applied.saturating_sub(removed_preview.len()),
+                        "more_added": applied.saturating_sub(added_preview.len()),
+                    },
                 });
                 Ok(ToolResult::success_with_metadata(
                     format!(

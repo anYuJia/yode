@@ -166,9 +166,25 @@ Usage:
                 }
 
                 let replacements = if replace_all { count } else { 1 };
+                let removed = actual_old
+                    .lines()
+                    .take(5)
+                    .map(|line| line.to_string())
+                    .collect::<Vec<_>>();
+                let added = new_string
+                    .lines()
+                    .take(5)
+                    .map(|line| line.to_string())
+                    .collect::<Vec<_>>();
                 let metadata = json!({
                     "file_path": file_path,
                     "replacements": replacements,
+                    "diff_preview": {
+                        "removed": removed,
+                        "added": added,
+                        "more_removed": actual_old.lines().count().saturating_sub(5),
+                        "more_added": new_string.lines().count().saturating_sub(5),
+                    },
                 });
 
                 Ok(ToolResult::success_with_metadata(

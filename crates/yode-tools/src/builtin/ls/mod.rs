@@ -157,14 +157,7 @@ fn list_dir_with_counts(
             entries.push(format!("{}/", rel_str));
 
             if recursive && !SKIP_DIRS.contains(&name_str.as_ref()) {
-                list_dir_with_counts(
-                    base,
-                    &path,
-                    recursive,
-                    show_hidden,
-                    entries,
-                    counts,
-                );
+                list_dir_with_counts(base, &path, recursive, show_hidden, entries, counts);
             }
         } else {
             counts.0 += 1;

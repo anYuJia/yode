@@ -108,6 +108,11 @@ Usage:
             Ok(()) => {
                 let byte_count = content.len();
                 let line_count = content.lines().count();
+                let preview_lines = content
+                    .lines()
+                    .take(5)
+                    .map(|line| line.to_string())
+                    .collect::<Vec<_>>();
                 tracing::debug!(
                     file_path = %file_path,
                     bytes = byte_count,
@@ -117,6 +122,12 @@ Usage:
                     "file_path": file_path,
                     "byte_count": byte_count,
                     "line_count": line_count,
+                    "diff_preview": {
+                        "removed": [],
+                        "added": preview_lines,
+                        "more_removed": 0,
+                        "more_added": line_count.saturating_sub(5),
+                    },
                 });
                 Ok(ToolResult::success_with_metadata(
                     format!(

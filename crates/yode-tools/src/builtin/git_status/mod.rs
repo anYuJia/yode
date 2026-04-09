@@ -124,8 +124,7 @@ Git workflow reminder:
                 for line in p_stdout.lines() {
                     if let Some(stripped) = line.strip_prefix("# branch.head ") {
                         branch = stripped.to_string();
-                    }
- else if line.starts_with('1') || line.starts_with('2') {
+                    } else if line.starts_with('1') || line.starts_with('2') {
                         // Changed tracked file
                         let parts: Vec<&str> = line.split_whitespace().collect();
                         if parts.len() > 1 {

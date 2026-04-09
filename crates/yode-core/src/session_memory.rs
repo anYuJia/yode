@@ -14,6 +14,7 @@ const LIVE_SESSION_MEMORY_HEADER: &str =
     "# Session Snapshot\n\nYode refreshes this file during the session to preserve recent context between compactions.";
 const MAX_SESSION_MEMORY_CHARS: usize = 16_000;
 const MAX_LISTED_FILES: usize = 8;
+const MEMORY_WRITE_RETRIES: usize = 3;
 
 pub fn session_memory_path(project_root: &Path) -> PathBuf {
     project_root.join(SESSION_MEMORY_RELATIVE_PATH)
@@ -90,7 +91,7 @@ pub fn persist_compaction_memory(
     }
 
     let content = truncate_memory_file(content);
-    fs::write(&path, content)
+    write_string_with_retry(&path, &content)
         .with_context(|| format!("Failed to write session memory file: {}", path.display()))?;
 
     Ok(path)
@@ -116,7 +117,7 @@ pub fn persist_live_session_memory(
     content.push_str(&render_live_snapshot(snapshot));
 
     let content = truncate_memory_file(content);
-    fs::write(&path, content).with_context(|| {
+    write_string_with_retry(&path, &content).with_context(|| {
         format!(
             "Failed to write live session memory file: {}",
             path.display()
@@ -157,7 +158,7 @@ pub fn persist_live_session_memory_summary(
     ));
 
     let content = truncate_memory_file(content);
-    fs::write(&path, content).with_context(|| {
+    write_string_with_retry(&path, &content).with_context(|| {
         format!(
             "Failed to write live session memory file: {}",
             path.display()
@@ -273,19 +274,60 @@ fn truncate_memory_file(content: String) -> String {
         return content;
     }
 
-    let mut truncated = content
-        .chars()
-        .take(MAX_SESSION_MEMORY_CHARS.saturating_sub(40))
-        .collect::<String>();
+    let marker = "\n\n[Older session memory entries truncated]";
+    let budget = MAX_SESSION_MEMORY_CHARS.saturating_sub(marker.chars().count());
 
-    if let Some(last_entry) = truncated.rfind("\n## ") {
-        if last_entry > SESSION_MEMORY_HEADER.len() {
-            truncated.truncate(last_entry);
+    if let Some(first_entry_start) = content.find("\n\n## ") {
+        let header = &content[..first_entry_start];
+        let entries = &content[first_entry_start + 2..];
+        let mut truncated = String::new();
+        truncated.push_str(header);
+
+        let mut remaining = budget.saturating_sub(header.chars().count());
+        for (idx, entry) in entries.split("\n\n## ").enumerate() {
+            let rendered_entry = if idx == 0 {
+                entry.to_string()
+            } else {
+                format!("## {}", entry)
+            };
+            let entry_chars = rendered_entry.chars().count() + 2;
+            if entry_chars > remaining {
+                if idx == 0 {
+                    let keep = remaining.saturating_sub(32);
+                    let shortened = rendered_entry.chars().take(keep).collect::<String>();
+                    truncated.push_str("\n\n");
+                    truncated.push_str(&shortened);
+                }
+                break;
+            }
+            truncated.push_str("\n\n");
+            truncated.push_str(&rendered_entry);
+            remaining = remaining.saturating_sub(entry_chars);
         }
+
+        truncated.push_str(marker);
+        return truncated;
     }
 
-    truncated.push_str("\n\n[Older session memory entries truncated]");
+    let mut truncated = content.chars().take(budget).collect::<String>();
+    truncated.push_str(marker);
     truncated
+}
+
+fn write_string_with_retry(path: &Path, content: &str) -> Result<()> {
+    let mut last_err = None;
+    for attempt in 0..MEMORY_WRITE_RETRIES {
+        match fs::write(path, content) {
+            Ok(()) => return Ok(()),
+            Err(err) => {
+                last_err = Some(err);
+                if attempt + 1 < MEMORY_WRITE_RETRIES {
+                    std::thread::sleep(std::time::Duration::from_millis(25 * (attempt as u64 + 1)));
+                }
+            }
+        }
+    }
+    Err(last_err.unwrap().into())
 }
 
 pub fn build_live_snapshot(

@@ -102,6 +102,8 @@ pub struct ToolContext {
     pub registry: Option<Arc<ToolRegistry>>,
     /// Shared task store (needed by `todo`).
     pub tasks: Option<Arc<Mutex<TaskStore>>>,
+    /// Shared background/runtime task store.
+    pub runtime_tasks: Option<Arc<Mutex<crate::runtime_tasks::RuntimeTaskStore>>>,
     /// Channel to send questions to the user (needed by `ask_user`).
     pub user_input_tx: Option<mpsc::UnboundedSender<UserQuery>>,
     /// Channel to receive answers from the user (needed by `ask_user`).
@@ -132,6 +134,7 @@ impl ToolContext {
         Self {
             registry: None,
             tasks: None,
+            runtime_tasks: None,
             user_input_tx: None,
             user_input_rx: None,
             progress_tx: None,

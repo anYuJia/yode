@@ -8,6 +8,7 @@ use yode_llm::types::{Message, Role};
 use crate::context_manager::CompressionReport;
 
 const TRANSCRIPTS_DIR: &str = ".yode/transcripts";
+const TRANSCRIPT_WRITE_RETRIES: usize = 3;
 
 pub fn write_compaction_transcript(
     project_root: &Path,
@@ -30,9 +31,9 @@ pub fn write_compaction_transcript(
         short_session_id(session_id),
         timestamp
     ));
-    fs::write(
+    write_string_with_retry(
         &path,
-        render_compaction_transcript(
+        &render_compaction_transcript(
             project_root,
             session_id,
             messages,
@@ -242,6 +243,22 @@ fn display_path(project_root: &Path, raw_path: &str) -> String {
         return relative.display().to_string();
     }
     raw_path.to_string()
+}
+
+fn write_string_with_retry(path: &Path, content: &str) -> Result<()> {
+    let mut last_err = None;
+    for attempt in 0..TRANSCRIPT_WRITE_RETRIES {
+        match fs::write(path, content) {
+            Ok(()) => return Ok(()),
+            Err(err) => {
+                last_err = Some(err);
+                if attempt + 1 < TRANSCRIPT_WRITE_RETRIES {
+                    std::thread::sleep(std::time::Duration::from_millis(25 * (attempt as u64 + 1)));
+                }
+            }
+        }
+    }
+    Err(last_err.unwrap().into())
 }
 
 #[cfg(test)]

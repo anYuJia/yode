@@ -1,5 +1,5 @@
 use regex::Regex;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::pin::Pin;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
@@ -8,6 +8,7 @@ use std::sync::{
 
 use anyhow::{Context as _, Result};
 use serde_json::{json, Map, Value};
+use sha2::{Digest, Sha256};
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
@@ -18,6 +19,7 @@ use yode_llm::types::{
     ToolDefinition as LlmToolDefinition,
 };
 use yode_tools::registry::ToolRegistry;
+use yode_tools::runtime_tasks::{RuntimeTask, RuntimeTaskNotification, RuntimeTaskStore};
 use yode_tools::state::TaskStore;
 use yode_tools::tool::{
     SubAgentOptions, SubAgentRunner, ToolContext, ToolErrorType, ToolResult, UserQuery,
@@ -35,6 +37,9 @@ use crate::session_memory::{
     build_live_snapshot, clear_live_session_memory, live_session_memory_path,
     persist_compaction_memory, persist_live_session_memory, persist_live_session_memory_summary,
     render_live_session_memory_prompt,
+};
+use crate::tool_runtime::{
+    write_tool_turn_artifact, ToolResultTruncationView, ToolRuntimeCallView, ToolTurnArtifact,
 };
 use crate::transcript::write_compaction_transcript;
 
@@ -125,6 +130,14 @@ fn retry_delay(kind: ErrorKind, attempt: u32) -> std::time::Duration {
         }
         ErrorKind::Fatal => std::time::Duration::from_secs(0),
     }
+}
+
+fn hex_short(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .take(6)
+        .map(|byte| format!("{:02x}", byte))
+        .collect()
 }
 
 /// Max retries for a given error kind.
@@ -352,6 +365,96 @@ pub struct EngineRuntimeState {
     pub last_hook_failure_reason: Option<String>,
     pub last_hook_failure_at: Option<String>,
     pub last_hook_timeout_command: Option<String>,
+    pub last_compaction_prompt_tokens: Option<u32>,
+    pub avg_compaction_prompt_tokens: Option<u32>,
+    pub recovery_state: String,
+    pub recovery_single_step_count: u32,
+    pub recovery_reanchor_count: u32,
+    pub recovery_need_user_guidance_count: u32,
+    pub last_failed_signature: Option<String>,
+    pub last_permission_tool: Option<String>,
+    pub last_permission_action: Option<String>,
+    pub last_permission_explanation: Option<String>,
+    pub recent_permission_denials: Vec<String>,
+    pub current_turn_tool_calls: u32,
+    pub current_turn_tool_output_bytes: usize,
+    pub current_turn_tool_progress_events: u32,
+    pub current_turn_parallel_batches: u32,
+    pub current_turn_parallel_calls: u32,
+    pub current_turn_max_parallel_batch_size: usize,
+    pub current_turn_truncated_results: u32,
+    pub current_turn_budget_notice_emitted: bool,
+    pub current_turn_budget_warning_emitted: bool,
+    pub tool_budget_notice_count: u32,
+    pub tool_budget_warning_count: u32,
+    pub last_tool_budget_warning: Option<String>,
+    pub tool_progress_event_count: u32,
+    pub last_tool_progress_message: Option<String>,
+    pub last_tool_progress_tool: Option<String>,
+    pub last_tool_progress_at: Option<String>,
+    pub parallel_tool_batch_count: u32,
+    pub parallel_tool_call_count: u32,
+    pub max_parallel_batch_size: usize,
+    pub tool_truncation_count: u32,
+    pub last_tool_truncation_reason: Option<String>,
+    pub latest_repeated_tool_failure: Option<String>,
+    pub last_tool_turn_completed_at: Option<String>,
+    pub last_tool_turn_artifact_path: Option<String>,
+    pub tool_error_type_counts: BTreeMap<String, u32>,
+    pub tool_trace_scope: String,
+    pub tool_traces: Vec<ToolRuntimeCallView>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct ToolExecutionTrace {
+    call_id: String,
+    tool_name: String,
+    started_at: Option<String>,
+    duration_ms: u64,
+    input_bytes: usize,
+    output_bytes: usize,
+    progress_updates: u32,
+    success: bool,
+    error_type: Option<String>,
+    parallel_batch: Option<u32>,
+    truncation: Option<ToolResultTruncationView>,
+    repeated_failure_count: u32,
+    metadata_summary: Option<String>,
+    diff_preview: Option<String>,
+    output_preview: String,
+}
+
+impl ToolExecutionTrace {
+    fn to_view(&self) -> ToolRuntimeCallView {
+        ToolRuntimeCallView {
+            call_id: self.call_id.clone(),
+            tool_name: self.tool_name.clone(),
+            started_at: self.started_at.clone(),
+            duration_ms: self.duration_ms,
+            input_bytes: self.input_bytes,
+            output_bytes: self.output_bytes,
+            progress_updates: self.progress_updates,
+            success: self.success,
+            error_type: self.error_type.clone(),
+            parallel_batch: self.parallel_batch,
+            truncation: self.truncation.clone(),
+            repeated_failure_count: self.repeated_failure_count,
+            metadata_summary: self.metadata_summary.clone(),
+            diff_preview: self.diff_preview.clone(),
+            output_preview: self.output_preview.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ToolExecutionOutcome {
+    tool_call: ToolCall,
+    result: ToolResult,
+    started_at: Option<String>,
+    duration_ms: u64,
+    progress_updates: u32,
+    last_progress_message: Option<String>,
+    parallel_batch: Option<u32>,
 }
 
 #[derive(Debug, Default)]
@@ -395,6 +498,8 @@ pub struct AgentEngine {
     db: Option<Database>,
     /// Shared task store for the todo tool.
     task_store: Arc<Mutex<TaskStore>>,
+    /// Shared runtime task store for background bash/sub-agent work.
+    runtime_task_store: Arc<Mutex<RuntimeTaskStore>>,
     /// Channel for ask_user questions (engine → TUI).
     ask_user_tx: Option<mpsc::UnboundedSender<UserQuery>>,
     /// Channel for ask_user answers (TUI → engine).
@@ -419,10 +524,74 @@ pub struct AgentEngine {
     files_read: std::collections::HashMap<String, usize>,
     /// Files the agent has modified in this turn.
     files_modified: Vec<String>,
+    /// Total tool progress events seen in this session.
+    tool_progress_event_count: u32,
+    /// Tool progress events seen in the current turn.
+    current_turn_tool_progress_events: u32,
+    /// Most recent tool progress message.
+    last_tool_progress_message: Option<String>,
+    /// Tool name for the most recent progress update.
+    last_tool_progress_tool: Option<String>,
+    /// Timestamp of the most recent tool progress update.
+    last_tool_progress_at: Option<String>,
+    /// Parallel batches executed across the current session.
+    parallel_tool_batch_count: u32,
+    /// Parallel batches executed in the current turn.
+    current_turn_parallel_batches: u32,
+    /// Tool calls executed in parallel across the current session.
+    parallel_tool_call_count: u32,
+    /// Tool calls executed in parallel in the current turn.
+    current_turn_parallel_calls: u32,
+    /// Largest observed parallel batch size in the current session.
+    max_parallel_batch_size: usize,
+    /// Largest observed parallel batch size in the current turn.
+    current_turn_max_parallel_batch_size: usize,
+    /// Budget notices emitted across the current session.
+    tool_budget_notice_count: u32,
+    /// Budget warnings emitted across the current session.
+    tool_budget_warning_count: u32,
+    /// Whether the current turn already emitted the notice threshold.
+    current_turn_budget_notice_emitted: bool,
+    /// Whether the current turn already emitted the warning threshold.
+    current_turn_budget_warning_emitted: bool,
+    /// Most recent budget warning text.
+    last_tool_budget_warning: Option<String>,
+    /// Truncated tool results across the current session.
+    tool_truncation_count: u32,
+    /// Truncated tool results in the current turn.
+    current_turn_truncated_results: u32,
+    /// Most recent truncation reason.
+    last_tool_truncation_reason: Option<String>,
+    /// Aggregated tool error types across the current session.
+    tool_error_type_counts: BTreeMap<String, u32>,
+    /// Failure signatures seen across the current session.
+    repeated_tool_failure_patterns: HashMap<String, u32>,
+    /// Most recent repeated failure summary.
+    latest_repeated_tool_failure: Option<String>,
+    /// Incrementing index for tool turns.
+    tool_turn_counter: u64,
+    /// When the current tool turn started.
+    current_tool_turn_started_at: Option<String>,
+    /// When the most recent tool turn completed.
+    last_tool_turn_completed_at: Option<String>,
+    /// Full trace for the current turn.
+    current_tool_execution_traces: Vec<ToolExecutionTrace>,
+    /// Last completed turn trace snapshot.
+    last_tool_turn_traces: Vec<ToolExecutionTrace>,
+    /// Latest per-turn tool artifact path.
+    last_tool_turn_artifact_path: Option<String>,
     /// Error buckets for state-machine recovery (Type -> Count).
     error_buckets: std::collections::HashMap<ToolErrorType, u32>,
     /// Last failed path/command to detect identical retry loops.
     last_failed_signature: Option<String>,
+    /// Recovery state transition counters.
+    recovery_single_step_count: u32,
+    recovery_reanchor_count: u32,
+    recovery_need_user_guidance_count: u32,
+    /// Most recent permission decision explanation surfaced to diagnostics.
+    last_permission_tool: Option<String>,
+    last_permission_action: Option<String>,
+    last_permission_explanation: Option<String>,
     /// Tool call ids whose latest result was an error in the current session.
     failed_tool_call_ids: HashSet<String>,
     /// Whether the engine is in plan mode.
@@ -471,6 +640,12 @@ pub struct AgentEngine {
     last_compaction_session_memory_path: Option<String>,
     /// Most recent compaction transcript artifact path.
     last_compaction_transcript_path: Option<String>,
+    /// Prompt tokens that triggered the most recent compaction.
+    last_compaction_prompt_tokens: Option<u32>,
+    /// Running total for compaction-trigger prompt token telemetry.
+    compaction_prompt_tokens_total: u64,
+    /// Sample count for compaction-trigger prompt token telemetry.
+    compaction_prompt_token_samples: u32,
 }
 
 /// Convert yode-tools ToolDefinition to yode-llm ToolDefinition.
@@ -486,10 +661,72 @@ fn convert_tool_definitions(registry: &ToolRegistry) -> Vec<LlmToolDefinition> {
         .collect()
 }
 
+fn metadata_object(result: &mut ToolResult) -> &mut Map<String, Value> {
+    if !matches!(result.metadata, Some(Value::Object(_))) {
+        result.metadata = Some(Value::Object(Map::new()));
+    }
+
+    match result.metadata {
+        Some(Value::Object(ref mut object)) => object,
+        _ => unreachable!("tool result metadata must be an object"),
+    }
+}
+
+fn tool_runtime_object(result: &mut ToolResult) -> &mut Map<String, Value> {
+    let metadata = metadata_object(result);
+    if !matches!(metadata.get("tool_runtime"), Some(Value::Object(_))) {
+        metadata.insert("tool_runtime".to_string(), Value::Object(Map::new()));
+    }
+
+    match metadata.get_mut("tool_runtime") {
+        Some(Value::Object(object)) => object,
+        _ => unreachable!("tool_runtime metadata must be an object"),
+    }
+}
+
+fn set_tool_runtime_truncation_metadata(
+    result: &mut ToolResult,
+    truncation: &ToolResultTruncationView,
+) {
+    let runtime = tool_runtime_object(result);
+    runtime.insert(
+        "truncation".to_string(),
+        json!({
+            "reason": truncation.reason,
+            "original_bytes": truncation.original_bytes,
+            "kept_bytes": truncation.kept_bytes,
+            "omitted_bytes": truncation.omitted_bytes,
+        }),
+    );
+}
+
+fn annotate_tool_result_runtime_metadata(
+    result: &mut ToolResult,
+    duration_ms: u64,
+    progress_updates: u32,
+    parallel_batch: Option<u32>,
+    input_bytes: usize,
+) {
+    let output_bytes = result.content.len();
+    let error_type = result.error_type.map(|kind| format!("{:?}", kind));
+    let runtime = tool_runtime_object(result);
+    runtime.insert("duration_ms".to_string(), json!(duration_ms));
+    runtime.insert("progress_updates".to_string(), json!(progress_updates));
+    runtime.insert("input_bytes".to_string(), json!(input_bytes));
+    runtime.insert("output_bytes".to_string(), json!(output_bytes));
+    if let Some(batch) = parallel_batch {
+        runtime.insert("parallel_batch".to_string(), json!(batch));
+    }
+    if let Some(error_type) = error_type {
+        runtime.insert("error_type".to_string(), json!(error_type));
+    }
+}
+
 /// Truncate tool result if it exceeds the size limit.
 /// Preserves the beginning and end of the result for better context.
 fn truncate_tool_result(result: ToolResult) -> ToolResult {
     if result.content.len() > MAX_TOOL_RESULT_SIZE {
+        let original_len = result.content.len();
         let head_size = MAX_TOOL_RESULT_SIZE * 3 / 4; // 75% from start
         let tail_size = MAX_TOOL_RESULT_SIZE / 4; // 25% from end
         let head: String = result.content.chars().take(head_size).collect();
@@ -502,11 +739,11 @@ fn truncate_tool_result(result: ToolResult) -> ToolResult {
             .chars()
             .rev()
             .collect();
-        ToolResult {
+        let mut truncated = ToolResult {
             content: format!(
                 "{}\n\n... [TRUNCATED: Original {} bytes, content omitted to prevent context overflow. Use search tools (grep/glob) or targeted reads (offset/limit) to inspect the rest] ...\n\n{}",
                 head,
-                result.content.len(),
+                original_len,
                 tail
             ),
             is_error: result.is_error,
@@ -514,7 +751,18 @@ fn truncate_tool_result(result: ToolResult) -> ToolResult {
             recoverable: result.recoverable,
             suggestion: result.suggestion,
             metadata: result.metadata,
-        }
+        };
+        let kept_bytes = truncated.content.len();
+        set_tool_runtime_truncation_metadata(
+            &mut truncated,
+            &ToolResultTruncationView {
+                reason: "single_result_limit".to_string(),
+                original_bytes: original_len,
+                kept_bytes,
+                omitted_bytes: original_len.saturating_sub(kept_bytes),
+            },
+        );
+        truncated
     } else {
         result
     }
@@ -550,7 +798,7 @@ impl AgentEngine {
             .get(&ToolErrorType::Timeout)
             .unwrap_or(&0);
 
-        self.recovery_state = if self.consecutive_failures >= 3 {
+        let next_state = if self.consecutive_failures >= 3 {
             RecoveryState::NeedUserGuidance
         } else if validation >= 2 || timeout >= 2 || self.consecutive_failures >= 2 {
             RecoveryState::SingleStepMode
@@ -559,6 +807,24 @@ impl AgentEngine {
         } else {
             RecoveryState::Normal
         };
+
+        if next_state != self.recovery_state {
+            match next_state {
+                RecoveryState::SingleStepMode => {
+                    self.recovery_single_step_count =
+                        self.recovery_single_step_count.saturating_add(1);
+                }
+                RecoveryState::ReanchorRequired => {
+                    self.recovery_reanchor_count = self.recovery_reanchor_count.saturating_add(1);
+                }
+                RecoveryState::NeedUserGuidance => {
+                    self.recovery_need_user_guidance_count =
+                        self.recovery_need_user_guidance_count.saturating_add(1);
+                }
+                RecoveryState::Normal => {}
+            }
+        };
+        self.recovery_state = next_state;
     }
 
     fn language_command_mismatch(
@@ -618,6 +884,7 @@ impl AgentEngine {
             system_prompt,
             db: None,
             task_store: Arc::new(Mutex::new(TaskStore::new())),
+            runtime_task_store: Arc::new(Mutex::new(RuntimeTaskStore::new())),
             ask_user_tx: None,
             ask_user_rx: None,
             tool_call_count: 0,
@@ -630,8 +897,42 @@ impl AgentEngine {
             hook_manager: None,
             files_read: std::collections::HashMap::new(),
             files_modified: Vec::new(),
+            tool_progress_event_count: 0,
+            current_turn_tool_progress_events: 0,
+            last_tool_progress_message: None,
+            last_tool_progress_tool: None,
+            last_tool_progress_at: None,
+            parallel_tool_batch_count: 0,
+            current_turn_parallel_batches: 0,
+            parallel_tool_call_count: 0,
+            current_turn_parallel_calls: 0,
+            max_parallel_batch_size: 0,
+            current_turn_max_parallel_batch_size: 0,
+            tool_budget_notice_count: 0,
+            tool_budget_warning_count: 0,
+            current_turn_budget_notice_emitted: false,
+            current_turn_budget_warning_emitted: false,
+            last_tool_budget_warning: None,
+            tool_truncation_count: 0,
+            current_turn_truncated_results: 0,
+            last_tool_truncation_reason: None,
+            tool_error_type_counts: BTreeMap::new(),
+            repeated_tool_failure_patterns: HashMap::new(),
+            latest_repeated_tool_failure: None,
+            tool_turn_counter: 0,
+            current_tool_turn_started_at: None,
+            last_tool_turn_completed_at: None,
+            current_tool_execution_traces: Vec::new(),
+            last_tool_turn_traces: Vec::new(),
+            last_tool_turn_artifact_path: None,
             error_buckets: std::collections::HashMap::new(),
             last_failed_signature: None,
+            recovery_single_step_count: 0,
+            recovery_reanchor_count: 0,
+            recovery_need_user_guidance_count: 0,
+            last_permission_tool: None,
+            last_permission_action: None,
+            last_permission_explanation: None,
             failed_tool_call_ids: HashSet::new(),
             plan_mode: Arc::new(Mutex::new(false)),
             project_kind: detected_project_kind,
@@ -656,6 +957,9 @@ impl AgentEngine {
             last_compaction_summary_excerpt: None,
             last_compaction_session_memory_path: None,
             last_compaction_transcript_path: None,
+            last_compaction_prompt_tokens: None,
+            compaction_prompt_tokens_total: 0,
+            compaction_prompt_token_samples: 0,
         }
     }
 
@@ -809,6 +1113,34 @@ impl AgentEngine {
             .as_ref()
             .map(|mgr| mgr.stats_snapshot())
             .unwrap_or_default();
+        let recent_permission_denials = self
+            .permissions
+            .recent_denials(5)
+            .into_iter()
+            .map(|entry| {
+                format!(
+                    "{} x{} (consecutive {}, at {})",
+                    entry.tool_name, entry.count, entry.consecutive, entry.last_at
+                )
+            })
+            .collect::<Vec<_>>();
+        let (tool_trace_scope, tool_traces) = if self.current_tool_execution_traces.is_empty() {
+            (
+                "last".to_string(),
+                self.last_tool_turn_traces
+                    .iter()
+                    .map(ToolExecutionTrace::to_view)
+                    .collect(),
+            )
+        } else {
+            (
+                "current".to_string(),
+                self.current_tool_execution_traces
+                    .iter()
+                    .map(ToolExecutionTrace::to_view)
+                    .collect(),
+            )
+        };
         EngineRuntimeState {
             query_source: format!("{:?}", self.current_query_source),
             autocompact_disabled: self.autocompact_disabled,
@@ -851,7 +1183,79 @@ impl AgentEngine {
             last_hook_failure_reason: hook_stats.last_failure_reason,
             last_hook_failure_at: hook_stats.last_failure_at,
             last_hook_timeout_command: hook_stats.last_timeout_command,
+            last_compaction_prompt_tokens: self.last_compaction_prompt_tokens,
+            avg_compaction_prompt_tokens: (self.compaction_prompt_token_samples > 0).then(|| {
+                (self.compaction_prompt_tokens_total / self.compaction_prompt_token_samples as u64)
+                    as u32
+            }),
+            recovery_state: format!("{:?}", self.recovery_state),
+            recovery_single_step_count: self.recovery_single_step_count,
+            recovery_reanchor_count: self.recovery_reanchor_count,
+            recovery_need_user_guidance_count: self.recovery_need_user_guidance_count,
+            last_failed_signature: self.last_failed_signature.clone(),
+            last_permission_tool: self.last_permission_tool.clone(),
+            last_permission_action: self.last_permission_action.clone(),
+            last_permission_explanation: self.last_permission_explanation.clone(),
+            recent_permission_denials,
+            current_turn_tool_calls: self.tool_call_count,
+            current_turn_tool_output_bytes: self.total_tool_results_bytes,
+            current_turn_tool_progress_events: self.current_turn_tool_progress_events,
+            current_turn_parallel_batches: self.current_turn_parallel_batches,
+            current_turn_parallel_calls: self.current_turn_parallel_calls,
+            current_turn_max_parallel_batch_size: self.current_turn_max_parallel_batch_size,
+            current_turn_truncated_results: self.current_turn_truncated_results,
+            current_turn_budget_notice_emitted: self.current_turn_budget_notice_emitted,
+            current_turn_budget_warning_emitted: self.current_turn_budget_warning_emitted,
+            tool_budget_notice_count: self.tool_budget_notice_count,
+            tool_budget_warning_count: self.tool_budget_warning_count,
+            last_tool_budget_warning: self.last_tool_budget_warning.clone(),
+            tool_progress_event_count: self.tool_progress_event_count,
+            last_tool_progress_message: self.last_tool_progress_message.clone(),
+            last_tool_progress_tool: self.last_tool_progress_tool.clone(),
+            last_tool_progress_at: self.last_tool_progress_at.clone(),
+            parallel_tool_batch_count: self.parallel_tool_batch_count,
+            parallel_tool_call_count: self.parallel_tool_call_count,
+            max_parallel_batch_size: self.max_parallel_batch_size,
+            tool_truncation_count: self.tool_truncation_count,
+            last_tool_truncation_reason: self.last_tool_truncation_reason.clone(),
+            latest_repeated_tool_failure: self.latest_repeated_tool_failure.clone(),
+            last_tool_turn_completed_at: self.last_tool_turn_completed_at.clone(),
+            last_tool_turn_artifact_path: self.last_tool_turn_artifact_path.clone(),
+            tool_error_type_counts: self.tool_error_type_counts.clone(),
+            tool_trace_scope,
+            tool_traces,
         }
+    }
+
+    pub fn runtime_tasks_snapshot(&self) -> Vec<RuntimeTask> {
+        self.runtime_task_store
+            .try_lock()
+            .ok()
+            .map(|store| store.list())
+            .unwrap_or_default()
+    }
+
+    pub fn runtime_task_snapshot(&self, id: &str) -> Option<RuntimeTask> {
+        self.runtime_task_store
+            .try_lock()
+            .ok()
+            .and_then(|store| store.get(id))
+    }
+
+    pub fn cancel_runtime_task(&self, id: &str) -> bool {
+        self.runtime_task_store
+            .try_lock()
+            .ok()
+            .map(|mut store| store.request_cancel(id))
+            .unwrap_or(false)
+    }
+
+    pub fn drain_runtime_task_notifications(&self) -> Vec<RuntimeTaskNotification> {
+        self.runtime_task_store
+            .try_lock()
+            .ok()
+            .map(|mut store| store.drain_notifications())
+            .unwrap_or_default()
     }
 
     /// Set hook manager.
@@ -879,11 +1283,17 @@ impl AgentEngine {
         ToolContext {
             registry: Some(Arc::clone(&self.tools)),
             tasks: Some(Arc::clone(&self.task_store)),
+            runtime_tasks: Some(Arc::clone(&self.runtime_task_store)),
             user_input_tx: self.ask_user_tx.clone(),
             user_input_rx: self.ask_user_rx.clone(),
             progress_tx,
             working_dir: Some(cwd),
-            sub_agent_runner: None,
+            sub_agent_runner: Some(Arc::new(SubAgentRunnerImpl {
+                provider: Arc::clone(&self.provider),
+                tools: Arc::clone(&self.tools),
+                context: self.context.clone(),
+                runtime_tasks: Arc::clone(&self.runtime_task_store),
+            })),
             mcp_resources: None,
             cron_manager: None,
             lsp_manager: None,
@@ -901,6 +1311,328 @@ impl AgentEngine {
 
     fn parse_tool_input(arguments: &str) -> Value {
         serde_json::from_str(arguments).unwrap_or_else(|_| Value::Object(Map::new()))
+    }
+
+    fn now_timestamp() -> String {
+        chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
+    }
+
+    fn reset_tool_turn_runtime(&mut self) {
+        self.tool_turn_counter = self.tool_turn_counter.saturating_add(1);
+        self.current_tool_turn_started_at = Some(Self::now_timestamp());
+        self.current_turn_tool_progress_events = 0;
+        self.current_turn_parallel_batches = 0;
+        self.current_turn_parallel_calls = 0;
+        self.current_turn_max_parallel_batch_size = 0;
+        self.current_turn_budget_notice_emitted = false;
+        self.current_turn_budget_warning_emitted = false;
+        self.current_turn_truncated_results = 0;
+        self.current_tool_execution_traces.clear();
+        self.total_tool_results_bytes = 0;
+        self.tool_call_count = 0;
+    }
+
+    fn record_tool_progress_summary(
+        &mut self,
+        tool_name: &str,
+        count: u32,
+        last_message: Option<String>,
+    ) {
+        if count == 0 {
+            return;
+        }
+        self.tool_progress_event_count = self.tool_progress_event_count.saturating_add(count);
+        self.current_turn_tool_progress_events =
+            self.current_turn_tool_progress_events.saturating_add(count);
+        if let Some(message) = last_message {
+            self.last_tool_progress_message = Some(message);
+            self.last_tool_progress_tool = Some(tool_name.to_string());
+            self.last_tool_progress_at = Some(Self::now_timestamp());
+        }
+    }
+
+    fn register_parallel_batch(&mut self, batch_size: usize) -> u32 {
+        self.parallel_tool_batch_count = self.parallel_tool_batch_count.saturating_add(1);
+        self.current_turn_parallel_batches = self.current_turn_parallel_batches.saturating_add(1);
+        self.parallel_tool_call_count = self
+            .parallel_tool_call_count
+            .saturating_add(batch_size as u32);
+        self.current_turn_parallel_calls = self
+            .current_turn_parallel_calls
+            .saturating_add(batch_size as u32);
+        self.max_parallel_batch_size = self.max_parallel_batch_size.max(batch_size);
+        self.current_turn_max_parallel_batch_size =
+            self.current_turn_max_parallel_batch_size.max(batch_size);
+        self.parallel_tool_batch_count
+    }
+
+    fn maybe_record_tool_budget_warning(&mut self) -> Option<String> {
+        if self.tool_call_count >= TOOL_BUDGET_WARNING && !self.current_turn_budget_warning_emitted
+        {
+            let message =
+                "Budget warning: 25 tool calls used. Stop exploring and produce your report.";
+            self.current_turn_budget_warning_emitted = true;
+            self.tool_budget_warning_count = self.tool_budget_warning_count.saturating_add(1);
+            self.last_tool_budget_warning = Some(message.to_string());
+            return Some(message.to_string());
+        }
+
+        if self.tool_call_count >= TOOL_BUDGET_NOTICE && !self.current_turn_budget_notice_emitted {
+            let message =
+                "Budget notice: 15 tool calls used. Consider summarizing current findings before continuing.";
+            self.current_turn_budget_notice_emitted = true;
+            self.tool_budget_notice_count = self.tool_budget_notice_count.saturating_add(1);
+            self.last_tool_budget_warning = Some(message.to_string());
+            return Some(message.to_string());
+        }
+
+        None
+    }
+
+    fn note_tool_truncation(&mut self, truncation: &ToolResultTruncationView) {
+        self.tool_truncation_count = self.tool_truncation_count.saturating_add(1);
+        self.current_turn_truncated_results = self.current_turn_truncated_results.saturating_add(1);
+        self.last_tool_truncation_reason = Some(truncation.reason.clone());
+    }
+
+    fn summarize_result_metadata(metadata: &Option<Value>) -> Option<String> {
+        let meta = metadata.as_ref()?.as_object()?;
+        let mut parts = Vec::new();
+        for key in [
+            "file_path",
+            "byte_count",
+            "line_count",
+            "replacements",
+            "applied_edits",
+            "command_type",
+            "url",
+            "count",
+        ] {
+            if let Some(value) = meta.get(key) {
+                let rendered = if let Some(s) = value.as_str() {
+                    s.to_string()
+                } else {
+                    value.to_string()
+                };
+                parts.push(format!("{}={}", key, rendered));
+            }
+        }
+        if parts.is_empty() {
+            None
+        } else {
+            Some(parts.join(", "))
+        }
+    }
+
+    fn extract_diff_preview(metadata: &Option<Value>) -> Option<String> {
+        let diff = metadata
+            .as_ref()
+            .and_then(|meta| meta.get("diff_preview"))
+            .and_then(|value| value.as_object())?;
+
+        let mut lines = Vec::new();
+        if let Some(removed) = diff.get("removed").and_then(|value| value.as_array()) {
+            for line in removed.iter().filter_map(|value| value.as_str()) {
+                lines.push(format!("-{}", line));
+            }
+            if let Some(extra) = diff.get("more_removed").and_then(|value| value.as_u64()) {
+                if extra > 0 {
+                    lines.push(format!("... {} more removed", extra));
+                }
+            }
+        }
+        if let Some(added) = diff.get("added").and_then(|value| value.as_array()) {
+            for line in added.iter().filter_map(|value| value.as_str()) {
+                lines.push(format!("+{}", line));
+            }
+            if let Some(extra) = diff.get("more_added").and_then(|value| value.as_u64()) {
+                if extra > 0 {
+                    lines.push(format!("... {} more added", extra));
+                }
+            }
+        }
+
+        if lines.is_empty() {
+            None
+        } else {
+            Some(lines.join("\n"))
+        }
+    }
+
+    fn output_preview(content: &str) -> String {
+        const MAX_LINES: usize = 6;
+        const MAX_CHARS: usize = 500;
+
+        let lines = content.lines().take(MAX_LINES).collect::<Vec<_>>();
+        let mut preview = lines.join("\n");
+        if preview.chars().count() > MAX_CHARS {
+            preview = preview.chars().take(MAX_CHARS).collect::<String>();
+            preview.push_str("\n... [preview truncated]");
+        } else if content.lines().count() > MAX_LINES {
+            preview.push_str("\n... [more lines omitted]");
+        }
+        preview
+    }
+
+    fn failure_signature(tool_call: &ToolCall, error_type: Option<&str>) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(tool_call.name.as_bytes());
+        hasher.update(tool_call.arguments.as_bytes());
+        if let Some(kind) = error_type {
+            hasher.update(kind.as_bytes());
+        }
+        let digest = hasher.finalize();
+        format!(
+            "{}:{}:{}",
+            tool_call.name,
+            error_type.unwrap_or("unknown"),
+            hex_short(&digest)
+        )
+    }
+
+    fn tool_truncation_from_metadata(metadata: &Option<Value>) -> Option<ToolResultTruncationView> {
+        let tool_runtime = metadata
+            .as_ref()
+            .and_then(|meta| meta.get("tool_runtime"))
+            .and_then(|value| value.as_object())?;
+        let truncation = tool_runtime.get("truncation")?.as_object()?;
+        Some(ToolResultTruncationView {
+            reason: truncation
+                .get("reason")
+                .and_then(|value| value.as_str())
+                .unwrap_or("unknown")
+                .to_string(),
+            original_bytes: truncation
+                .get("original_bytes")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(0) as usize,
+            kept_bytes: truncation
+                .get("kept_bytes")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(0) as usize,
+            omitted_bytes: truncation
+                .get("omitted_bytes")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(0) as usize,
+        })
+    }
+
+    fn record_tool_execution_trace(
+        &mut self,
+        tool_call: &ToolCall,
+        result: &ToolResult,
+        started_at: Option<String>,
+        duration_ms: u64,
+        progress_updates: u32,
+        parallel_batch: Option<u32>,
+        input_bytes: usize,
+    ) {
+        let error_type = result.error_type.map(|kind| format!("{:?}", kind));
+        if let Some(kind) = error_type.clone() {
+            *self.tool_error_type_counts.entry(kind.clone()).or_insert(0) += 1;
+        }
+
+        let repeated_failure_count = if result.is_error {
+            let signature = Self::failure_signature(tool_call, error_type.as_deref());
+            let count = self
+                .repeated_tool_failure_patterns
+                .entry(signature)
+                .and_modify(|existing| *existing = existing.saturating_add(1))
+                .or_insert(1);
+            if *count >= 2 {
+                self.latest_repeated_tool_failure = Some(format!(
+                    "{} [{}] x{}",
+                    tool_call.name,
+                    error_type.as_deref().unwrap_or("unknown"),
+                    *count
+                ));
+            }
+            *count
+        } else {
+            0
+        };
+
+        let truncation = Self::tool_truncation_from_metadata(&result.metadata);
+        if let Some(ref truncation) = truncation {
+            self.note_tool_truncation(truncation);
+        }
+        let trace = ToolExecutionTrace {
+            call_id: tool_call.id.clone(),
+            tool_name: tool_call.name.clone(),
+            started_at,
+            duration_ms,
+            input_bytes,
+            output_bytes: result.content.len(),
+            progress_updates,
+            success: !result.is_error,
+            error_type,
+            parallel_batch,
+            truncation,
+            repeated_failure_count,
+            metadata_summary: Self::summarize_result_metadata(&result.metadata),
+            diff_preview: Self::extract_diff_preview(&result.metadata),
+            output_preview: Self::output_preview(&result.content),
+        };
+        self.current_tool_execution_traces.push(trace);
+    }
+
+    fn complete_tool_turn_artifact(&mut self) {
+        if self.current_tool_execution_traces.is_empty() {
+            self.current_tool_turn_started_at = None;
+            return;
+        }
+
+        let total_calls = self.current_tool_execution_traces.len() as u32;
+        let success_count = self
+            .current_tool_execution_traces
+            .iter()
+            .filter(|trace| trace.success)
+            .count() as u32;
+        let failed_count = total_calls.saturating_sub(success_count);
+        let mut current_error_type_counts = BTreeMap::new();
+        for trace in &self.current_tool_execution_traces {
+            if let Some(kind) = trace.error_type.as_ref() {
+                *current_error_type_counts.entry(kind.clone()).or_insert(0) += 1;
+            }
+        }
+
+        let artifact = ToolTurnArtifact {
+            turn_index: self.tool_turn_counter,
+            started_at: self.current_tool_turn_started_at.clone(),
+            completed_at: Some(Self::now_timestamp()),
+            total_calls,
+            success_count,
+            failed_count,
+            total_output_bytes: self.total_tool_results_bytes,
+            truncated_results: self.current_turn_truncated_results,
+            progress_events: self.current_turn_tool_progress_events,
+            parallel_batches: self.current_turn_parallel_batches,
+            parallel_calls: self.current_turn_parallel_calls,
+            max_parallel_batch_size: self.current_turn_max_parallel_batch_size,
+            budget_notice_emitted: self.current_turn_budget_notice_emitted,
+            budget_warning_emitted: self.current_turn_budget_warning_emitted,
+            last_budget_warning: self.last_tool_budget_warning.clone(),
+            latest_repeated_failure: self.latest_repeated_tool_failure.clone(),
+            error_type_counts: current_error_type_counts,
+            calls: self
+                .current_tool_execution_traces
+                .iter()
+                .map(ToolExecutionTrace::to_view)
+                .collect(),
+        };
+
+        if let Ok(path) = write_tool_turn_artifact(
+            &self.context.working_dir_compat(),
+            &self.context.session_id,
+            &artifact,
+        ) {
+            self.last_tool_turn_artifact_path = Some(path.display().to_string());
+        }
+
+        self.last_tool_turn_completed_at = artifact.completed_at.clone();
+        self.last_tool_turn_traces = self.current_tool_execution_traces.clone();
+        self.current_tool_execution_traces.clear();
+        self.current_tool_turn_started_at = None;
     }
 
     async fn run_pre_tool_use_hook(
@@ -1256,6 +1988,12 @@ impl AgentEngine {
                 .unwrap_or(Value::Null),
         );
         metadata.insert(
+            "last_compaction_prompt_tokens".to_string(),
+            self.last_compaction_prompt_tokens
+                .map(|value| json!(value))
+                .unwrap_or(Value::Null),
+        );
+        metadata.insert(
             "live_session_memory_initialized".to_string(),
             json!(self.session_memory_initialized),
         );
@@ -1274,6 +2012,29 @@ impl AgentEngine {
         metadata.insert(
             "tracked_failed_tool_results".to_string(),
             json!(self.failed_tool_call_ids.len()),
+        );
+        metadata.insert(
+            "recovery_state".to_string(),
+            json!(format!("{:?}", self.recovery_state)),
+        );
+        metadata.insert(
+            "recovery_single_step_count".to_string(),
+            json!(self.recovery_single_step_count),
+        );
+        metadata.insert(
+            "recovery_reanchor_count".to_string(),
+            json!(self.recovery_reanchor_count),
+        );
+        metadata.insert(
+            "recovery_need_user_guidance_count".to_string(),
+            json!(self.recovery_need_user_guidance_count),
+        );
+        metadata.insert(
+            "last_failed_signature".to_string(),
+            self.last_failed_signature
+                .as_ref()
+                .map(|value| json!(value))
+                .unwrap_or(Value::Null),
         );
 
         if let Some(shared) = self.shared_memory_status.try_lock().ok() {
@@ -1493,6 +2254,12 @@ impl AgentEngine {
         });
         self.last_compaction_session_memory_path = session_memory_path_str;
         self.last_compaction_transcript_path = transcript_path_str;
+        self.last_compaction_prompt_tokens = Some(prompt_tokens);
+        self.compaction_prompt_tokens_total = self
+            .compaction_prompt_tokens_total
+            .saturating_add(prompt_tokens as u64);
+        self.compaction_prompt_token_samples =
+            self.compaction_prompt_token_samples.saturating_add(1);
         self.total_compactions = self.total_compactions.saturating_add(1);
         if mode == "auto" {
             self.auto_compactions = self.auto_compactions.saturating_add(1);
@@ -2054,11 +2821,10 @@ impl AgentEngine {
         self.messages.push(Message::user(user_input));
         self.persist_message("user", Some(user_input), None, None, None);
 
-        // Reset tool call budget counter for this turn
-        self.tool_call_count = 0;
+        // Reset tool/runtime counters for this turn
+        self.reset_tool_turn_runtime();
         self.recent_tool_calls.clear();
         self.consecutive_failures = 0;
-        self.total_tool_results_bytes = 0;
         self.violation_retries = 0;
         self.files_read.clear();
         self.files_modified.clear();
@@ -2207,19 +2973,18 @@ impl AgentEngine {
                 };
 
                 // Process parallel results
-                for (tc, result) in &parallel_results {
-                    let mut result = result.clone();
-                    self.track_file_access(&tc.name, &result);
-                    result = truncate_tool_result(result);
-                    self.enforce_tool_budget(&mut result);
-
-                    self.inject_intelligence(&mut result, &tc.name, &tc.arguments);
-                    let working_dir = self.current_runtime_working_dir().await;
-                    let effective_input = Self::parse_tool_input(&tc.arguments);
-                    self.run_post_tool_use_hooks(tc, &effective_input, &working_dir, &mut result)
+                for outcome in &parallel_results {
+                    let tc = &outcome.tool_call;
+                    let result = self
+                        .finalize_tool_result(
+                            tc,
+                            outcome.result.clone(),
+                            outcome.started_at.clone(),
+                            outcome.duration_ms,
+                            outcome.progress_updates,
+                            outcome.parallel_batch,
+                        )
                         .await;
-
-                    self.record_tool_result_status(&tc.id, &result);
                     self.messages
                         .push(Message::tool_result(&tc.id, &result.content));
                     self.persist_message("tool", Some(&result.content), None, None, Some(&tc.id));
@@ -2233,38 +2998,32 @@ impl AgentEngine {
 
                 // Execute sequential tools one by one
                 for tool_call in &sequential {
-                    let mut result = self
+                    let outcome = self
                         .handle_tool_call(tool_call, &event_tx, &mut confirm_rx, None)
                         .await?;
-
-                    self.track_file_access(&tool_call.name, &result);
-                    result = truncate_tool_result(result);
-                    self.enforce_tool_budget(&mut result);
-
-                    self.inject_intelligence(&mut result, &tool_call.name, &tool_call.arguments);
-                    let working_dir = self.current_runtime_working_dir().await;
-                    self.run_post_tool_use_hooks(
-                        tool_call,
-                        &Self::parse_tool_input(&tool_call.arguments),
-                        &working_dir,
-                        &mut result,
-                    )
-                    .await;
-
-                    self.record_tool_result_status(&tool_call.id, &result);
+                    let result = self
+                        .finalize_tool_result(
+                            &outcome.tool_call,
+                            outcome.result,
+                            outcome.started_at,
+                            outcome.duration_ms,
+                            outcome.progress_updates,
+                            outcome.parallel_batch,
+                        )
+                        .await;
                     self.messages
-                        .push(Message::tool_result(&tool_call.id, &result.content));
+                        .push(Message::tool_result(&outcome.tool_call.id, &result.content));
                     self.persist_message(
                         "tool",
                         Some(&result.content),
                         None,
                         None,
-                        Some(&tool_call.id),
+                        Some(&outcome.tool_call.id),
                     );
 
                     let _ = event_tx.send(EngineEvent::ToolResult {
-                        id: tool_call.id.clone(),
-                        name: tool_call.name.clone(),
+                        id: outcome.tool_call.id.clone(),
+                        name: outcome.tool_call.name.clone(),
                         result,
                     });
                 }
@@ -2288,6 +3047,7 @@ impl AgentEngine {
             }
 
             self.maybe_refresh_live_session_memory(Some(&event_tx));
+            self.complete_tool_turn_artifact();
             let _ = event_tx.send(EngineEvent::TurnComplete(response));
             let _ = event_tx.send(EngineEvent::Done);
             break;
@@ -2360,11 +3120,10 @@ impl AgentEngine {
         self.messages.push(Message::user(user_input));
         self.persist_message("user", Some(user_input), None, None, None);
 
-        // Reset tool call budget counter for this turn
-        self.tool_call_count = 0;
+        // Reset tool/runtime counters for this turn
+        self.reset_tool_turn_runtime();
         self.recent_tool_calls.clear();
         self.consecutive_failures = 0;
-        self.total_tool_results_bytes = 0;
         self.violation_retries = 0;
         self.files_read.clear();
         self.files_modified.clear();
@@ -2373,6 +3132,7 @@ impl AgentEngine {
             // Check cancellation before each LLM call
             if let Some(ref token) = cancel_token {
                 if token.is_cancelled() {
+                    self.complete_tool_turn_artifact();
                     let _ = event_tx.send(EngineEvent::Done);
                     return Ok(());
                 }
@@ -2550,6 +3310,7 @@ impl AgentEngine {
                         "[Watchdog] Streaming stalled; forcing graceful stop. Please retry with narrower scope.".to_string(),
                     ));
                 }
+                self.complete_tool_turn_artifact();
                 let _ = event_tx.send(EngineEvent::Done);
                 return Ok(());
             }
@@ -2594,6 +3355,7 @@ impl AgentEngine {
                                         // Check cancellation during countdown
                                         if let Some(ref token) = cancel_token {
                                             if token.is_cancelled() {
+                                                self.complete_tool_turn_artifact();
                                                 let _ = event_tx.send(EngineEvent::Done);
                                                 return Ok(());
                                             }
@@ -2605,6 +3367,7 @@ impl AgentEngine {
                                 // Check cancellation before retry
                                 if let Some(ref token) = cancel_token {
                                     if token.is_cancelled() {
+                                        self.complete_tool_turn_artifact();
                                         let _ = event_tx.send(EngineEvent::Done);
                                         return Ok(());
                                     }
@@ -2728,6 +3491,7 @@ impl AgentEngine {
                                             None,
                                         );
                                     }
+                                    self.complete_tool_turn_artifact();
                                     let _ = event_tx.send(EngineEvent::Done);
                                     return Ok(());
                                 }
@@ -2764,12 +3528,14 @@ impl AgentEngine {
 
                             if !retry_succeeded {
                                 let _ = event_tx.send(EngineEvent::Error(format!("{}", err)));
+                                self.complete_tool_turn_artifact();
                                 let _ = event_tx.send(EngineEvent::Done);
                                 return Err(err).context("LLM chat request failed");
                             }
                         } else {
                             // Fatal error — no retry
                             let _ = event_tx.send(EngineEvent::Error(format!("{}", err)));
+                            self.complete_tool_turn_artifact();
                             let _ = event_tx.send(EngineEvent::Done);
                             return Err(err).context("LLM chat request failed");
                         }
@@ -2910,6 +3676,7 @@ impl AgentEngine {
                     // Check cancellation before parallel batch
                     if let Some(ref token) = cancel_token {
                         if token.is_cancelled() {
+                            self.complete_tool_turn_artifact();
                             let _ = event_tx.send(EngineEvent::Done);
                             return Ok(());
                         }
@@ -2918,30 +3685,18 @@ impl AgentEngine {
                     info!("Executing {} tools in parallel (streaming)", parallel.len());
                     let parallel_results = self.execute_tools_parallel(&parallel, &event_tx).await;
 
-                    for (tc, result) in parallel_results {
-                        let mut result = result;
-                        self.track_file_access(&tc.name, &result);
-                        result = truncate_tool_result(result);
-                        self.enforce_tool_budget(&mut result);
-
-                        self.tool_call_count += 1;
-                        if self.tool_call_count == TOOL_BUDGET_WARNING {
-                            result.content.push_str("\n\n[Budget warning: 25 tool calls used. Stop exploring and produce your report.]");
-                        } else if self.tool_call_count == TOOL_BUDGET_NOTICE {
-                            result.content.push_str("\n\n[Budget notice: 15 tool calls used. Consider summarizing current findings before continuing.]");
-                        }
-
-                        let working_dir = self.current_runtime_working_dir().await;
-                        let effective_input = Self::parse_tool_input(&tc.arguments);
-                        self.run_post_tool_use_hooks(
-                            &tc,
-                            &effective_input,
-                            &working_dir,
-                            &mut result,
-                        )
-                        .await;
-
-                        self.record_tool_result_status(&tc.id, &result);
+                    for outcome in parallel_results {
+                        let tc = &outcome.tool_call;
+                        let result = self
+                            .finalize_tool_result(
+                                tc,
+                                outcome.result,
+                                outcome.started_at,
+                                outcome.duration_ms,
+                                outcome.progress_updates,
+                                outcome.parallel_batch,
+                            )
+                            .await;
                         self.messages
                             .push(Message::tool_result(&tc.id, &result.content));
                         self.persist_message(
@@ -2964,12 +3719,13 @@ impl AgentEngine {
                 for tool_call in &sequential {
                     if let Some(ref token) = cancel_token {
                         if token.is_cancelled() {
+                            self.complete_tool_turn_artifact();
                             let _ = event_tx.send(EngineEvent::Done);
                             return Ok(());
                         }
                     }
 
-                    let result = self
+                    let outcome = self
                         .handle_tool_call(
                             tool_call,
                             &event_tx,
@@ -2978,32 +3734,29 @@ impl AgentEngine {
                         )
                         .await?;
 
-                    let mut result = truncate_tool_result(result);
-
-                    self.inject_intelligence(&mut result, &tool_call.name, &tool_call.arguments);
-                    let working_dir = self.current_runtime_working_dir().await;
-                    self.run_post_tool_use_hooks(
-                        tool_call,
-                        &Self::parse_tool_input(&tool_call.arguments),
-                        &working_dir,
-                        &mut result,
-                    )
-                    .await;
-
-                    self.record_tool_result_status(&tool_call.id, &result);
+                    let result = self
+                        .finalize_tool_result(
+                            &outcome.tool_call,
+                            outcome.result,
+                            outcome.started_at,
+                            outcome.duration_ms,
+                            outcome.progress_updates,
+                            outcome.parallel_batch,
+                        )
+                        .await;
                     self.messages
-                        .push(Message::tool_result(&tool_call.id, &result.content));
+                        .push(Message::tool_result(&outcome.tool_call.id, &result.content));
                     self.persist_message(
                         "tool",
                         Some(&result.content),
                         None,
                         None,
-                        Some(&tool_call.id),
+                        Some(&outcome.tool_call.id),
                     );
 
                     let _ = event_tx.send(EngineEvent::ToolResult {
-                        id: tool_call.id.clone(),
-                        name: tool_call.name.clone(),
+                        id: outcome.tool_call.id.clone(),
+                        name: outcome.tool_call.name.clone(),
                         result,
                     });
                 }
@@ -3067,6 +3820,7 @@ impl AgentEngine {
                 if resp.message.tool_calls.is_empty() {
                     debug!("Streaming turn complete with no tool calls; finishing turn.");
                     self.maybe_refresh_live_session_memory(Some(&event_tx));
+                    self.complete_tool_turn_artifact();
                     let _ = event_tx.send(EngineEvent::TurnComplete(resp));
                     let _ = event_tx.send(EngineEvent::Done);
                     break;
@@ -3080,6 +3834,7 @@ impl AgentEngine {
                 }
             } else {
                 // Should not happen if stream completed normally
+                self.complete_tool_turn_artifact();
                 let _ = event_tx.send(EngineEvent::Done);
                 break;
             }
@@ -3402,14 +4157,8 @@ impl AgentEngine {
         }
 
         // Budget warnings
-        if self.tool_call_count == TOOL_BUDGET_WARNING {
-            result
-                .content
-                .push_str("\n\n[Budget: 25 calls used. Produce your answer/fix NOW.]");
-        } else if self.tool_call_count == TOOL_BUDGET_NOTICE {
-            result
-                .content
-                .push_str("\n\n[Budget: 15 calls. Start converging toward a solution.]");
+        if let Some(message) = self.maybe_record_tool_budget_warning() {
+            result.content.push_str(&format!("\n\n[{}]", message));
         }
     }
 
@@ -3445,13 +4194,14 @@ impl AgentEngine {
 
     /// Execute a batch of read-only, auto-allowed tool calls in parallel.
     async fn execute_tools_parallel(
-        &self,
+        &mut self,
         tool_calls: &[ToolCall],
         event_tx: &mpsc::UnboundedSender<EngineEvent>,
-    ) -> Vec<(ToolCall, ToolResult)> {
+    ) -> Vec<ToolExecutionOutcome> {
         use futures::future::join_all;
 
         let mut futures = Vec::new();
+        let batch_id = self.register_parallel_batch(tool_calls.len());
 
         for tc in tool_calls {
             let tool = match self.tools.get(&tc.name) {
@@ -3468,9 +4218,19 @@ impl AgentEngine {
                 .await
             {
                 let tc_clone = tc.clone();
-                futures.push(Box::pin(async move { (tc_clone, blocked) })
+                futures.push(Box::pin(async move {
+                    ToolExecutionOutcome {
+                        tool_call: tc_clone,
+                        result: blocked,
+                        started_at: Some(Self::now_timestamp()),
+                        duration_ms: 0,
+                        progress_updates: 0,
+                        last_progress_message: None,
+                        parallel_batch: Some(batch_id),
+                    }
+                })
                     as Pin<
-                        Box<dyn std::future::Future<Output = (ToolCall, ToolResult)> + Send>,
+                        Box<dyn std::future::Future<Output = ToolExecutionOutcome> + Send>,
                     >);
                 continue;
             }
@@ -3484,9 +4244,19 @@ impl AgentEngine {
                     true,
                     Some(format!("Fix the parameters and retry. Schema: {}", schema)),
                 );
-                futures.push(Box::pin(async move { (tc_clone, result) })
+                futures.push(Box::pin(async move {
+                    ToolExecutionOutcome {
+                        tool_call: tc_clone,
+                        result,
+                        started_at: Some(Self::now_timestamp()),
+                        duration_ms: 0,
+                        progress_updates: 0,
+                        last_progress_message: None,
+                        parallel_batch: Some(batch_id),
+                    }
+                })
                     as Pin<
-                        Box<dyn std::future::Future<Output = (ToolCall, ToolResult)> + Send>,
+                        Box<dyn std::future::Future<Output = ToolExecutionOutcome> + Send>,
                     >);
                 continue;
             }
@@ -3508,8 +4278,16 @@ impl AgentEngine {
             let event_tx_inner = event_tx.clone();
             let tc_id = tc.id.clone();
             let tc_name = tc.name.clone();
+            let progress_counter = Arc::new(AtomicU64::new(0));
+            let progress_counter_inner = Arc::clone(&progress_counter);
+            let last_progress_message = Arc::new(std::sync::Mutex::new(None::<String>));
+            let last_progress_message_inner = Arc::clone(&last_progress_message);
             tokio::spawn(async move {
                 while let Some(progress) = p_rx.recv().await {
+                    progress_counter_inner.fetch_add(1, Ordering::Relaxed);
+                    if let Ok(mut slot) = last_progress_message_inner.lock() {
+                        *slot = Some(progress.message.clone());
+                    }
                     let _ = event_tx_inner.send(EngineEvent::ToolProgress {
                         id: tc_id.clone(),
                         name: tc_name.clone(),
@@ -3522,6 +4300,7 @@ impl AgentEngine {
 
             let tool_name = tc.name.clone();
             let tc_clone = tc.clone();
+            let started_at = Some(Self::now_timestamp());
 
             futures.push(Box::pin(async move {
                 let start = std::time::Instant::now();
@@ -3543,11 +4322,32 @@ impl AgentEngine {
                     }
                 };
                 debug!(tool = %tool_name, elapsed_ms = start.elapsed().as_millis() as u64, "Parallel tool completed");
-                (tc_clone, result)
+                let progress_updates = progress_counter.load(Ordering::Relaxed) as u32;
+                let last_progress_message = last_progress_message
+                    .lock()
+                    .ok()
+                    .and_then(|slot| slot.clone());
+                ToolExecutionOutcome {
+                    tool_call: tc_clone,
+                    result,
+                    started_at,
+                    duration_ms: start.elapsed().as_millis() as u64,
+                    progress_updates,
+                    last_progress_message,
+                    parallel_batch: Some(batch_id),
+                }
             }));
         }
 
-        join_all(futures).await
+        let outcomes = join_all(futures).await;
+        for outcome in &outcomes {
+            self.record_tool_progress_summary(
+                &outcome.tool_call.name,
+                outcome.progress_updates,
+                outcome.last_progress_message.clone(),
+            );
+        }
+        outcomes
     }
 
     /// Tracks file read/modified status from tool results.
@@ -3687,6 +4487,7 @@ impl AgentEngine {
                 let allowed = size.saturating_sub(over_limit);
                 let preview_len = allowed.min(1000); // Give at least some preview
                 let preview: String = result.content.chars().take(preview_len).collect();
+                let original_bytes = size;
 
                 result.content = format!(
                     "{}\n\n[AGGREGATE BUDGET EXCEEDED: Remaining {} bytes of this result omitted. \
@@ -3694,14 +4495,88 @@ impl AgentEngine {
                     preview,
                     size - preview_len
                 );
+                set_tool_runtime_truncation_metadata(
+                    result,
+                    &ToolResultTruncationView {
+                        reason: "aggregate_budget_partial".to_string(),
+                        original_bytes,
+                        kept_bytes: result.content.len(),
+                        omitted_bytes: original_bytes.saturating_sub(result.content.len()),
+                    },
+                );
             } else {
                 // We were already over the limit
+                let original_bytes = size;
                 result.content = format!(
                     "[AGGREGATE BUDGET EXCEEDED: Full result ({} bytes) omitted to prevent context overflow. \
                      Summarize your current findings instead.]",
                     size
                 );
+                set_tool_runtime_truncation_metadata(
+                    result,
+                    &ToolResultTruncationView {
+                        reason: "aggregate_budget_omitted".to_string(),
+                        original_bytes,
+                        kept_bytes: result.content.len(),
+                        omitted_bytes: original_bytes.saturating_sub(result.content.len()),
+                    },
+                );
             }
+        }
+    }
+
+    async fn finalize_tool_result(
+        &mut self,
+        tool_call: &ToolCall,
+        mut result: ToolResult,
+        started_at: Option<String>,
+        duration_ms: u64,
+        progress_updates: u32,
+        parallel_batch: Option<u32>,
+    ) -> ToolResult {
+        self.track_file_access(&tool_call.name, &result);
+        result = truncate_tool_result(result);
+        self.enforce_tool_budget(&mut result);
+        self.inject_intelligence(&mut result, &tool_call.name, &tool_call.arguments);
+
+        let working_dir = self.current_runtime_working_dir().await;
+        let effective_input = Self::parse_tool_input(&tool_call.arguments);
+        self.run_post_tool_use_hooks(tool_call, &effective_input, &working_dir, &mut result)
+            .await;
+        annotate_tool_result_runtime_metadata(
+            &mut result,
+            duration_ms,
+            progress_updates,
+            parallel_batch,
+            tool_call.arguments.len(),
+        );
+
+        self.record_tool_execution_trace(
+            tool_call,
+            &result,
+            started_at,
+            duration_ms,
+            progress_updates,
+            parallel_batch,
+            tool_call.arguments.len(),
+        );
+        self.record_tool_result_status(&tool_call.id, &result);
+        result
+    }
+
+    fn immediate_tool_outcome(
+        tool_call: &ToolCall,
+        started_at: &Option<String>,
+        result: ToolResult,
+    ) -> ToolExecutionOutcome {
+        ToolExecutionOutcome {
+            tool_call: tool_call.clone(),
+            result,
+            started_at: started_at.clone(),
+            duration_ms: 0,
+            progress_updates: 0,
+            last_progress_message: None,
+            parallel_batch: None,
         }
     }
 
@@ -3712,14 +4587,20 @@ impl AgentEngine {
         event_tx: &mpsc::UnboundedSender<EngineEvent>,
         confirm_rx: &mut mpsc::UnboundedReceiver<ConfirmResponse>,
         cancel_token: Option<&CancellationToken>,
-    ) -> Result<ToolResult> {
+    ) -> Result<ToolExecutionOutcome> {
+        let started_at = Some(Self::now_timestamp());
         let tool = match self.tools.get(&tool_call.name) {
             Some(t) => t,
             None => {
-                return Ok(ToolResult::error(format!(
-                    "Unknown tool: {}",
-                    tool_call.name
-                )));
+                return Ok(ToolExecutionOutcome {
+                    tool_call: tool_call.clone(),
+                    result: ToolResult::error(format!("Unknown tool: {}", tool_call.name)),
+                    started_at,
+                    duration_ms: 0,
+                    progress_updates: 0,
+                    last_progress_message: None,
+                    parallel_batch: None,
+                });
             }
         };
 
@@ -3738,7 +4619,15 @@ impl AgentEngine {
             )
             .await
         {
-            return Ok(blocked);
+            return Ok(ToolExecutionOutcome {
+                tool_call: tool_call.clone(),
+                result: blocked,
+                started_at,
+                duration_ms: 0,
+                progress_updates: 0,
+                last_progress_message: None,
+                parallel_batch: None,
+            });
         }
 
         // Claude-style unified recovery gate:
@@ -3749,18 +4638,26 @@ impl AgentEngine {
                 "ls" | "glob" | "read_file" | "project_map"
             );
             if !allow_reanchor_tool {
-                return Ok(ToolResult::error_typed(
-                    format!(
-                        "Recovery gate active: '{}' is temporarily blocked until workspace is re-anchored.",
-                        tool_call.name
+                return Ok(ToolExecutionOutcome {
+                    tool_call: tool_call.clone(),
+                    result: ToolResult::error_typed(
+                        format!(
+                            "Recovery gate active: '{}' is temporarily blocked until workspace is re-anchored.",
+                            tool_call.name
+                        ),
+                        ToolErrorType::Validation,
+                        true,
+                        Some(
+                            "Run a lightweight discovery step first (ls/glob/read_file/project_map), then continue with execution tools."
+                                .to_string(),
+                        ),
                     ),
-                    ToolErrorType::Validation,
-                    true,
-                    Some(
-                        "Run a lightweight discovery step first (ls/glob/read_file/project_map), then continue with execution tools."
-                            .to_string(),
-                    ),
-                ));
+                    started_at,
+                    duration_ms: 0,
+                    progress_updates: 0,
+                    last_progress_message: None,
+                    parallel_batch: None,
+                });
             }
         }
 
@@ -3776,13 +4673,17 @@ impl AgentEngine {
             }
 
             if let Some(r) = reason {
-                return Ok(ToolResult::error_typed(
-                    format!("Security Block: '{}' is an invalid path. {}", file_path, r),
-                    ToolErrorType::Validation,
-                    true,
-                    Some(
-                        "Correct the path to a literal, normalized format and try again."
-                            .to_string(),
+                return Ok(Self::immediate_tool_outcome(
+                    tool_call,
+                    &started_at,
+                    ToolResult::error_typed(
+                        format!("Security Block: '{}' is an invalid path. {}", file_path, r),
+                        ToolErrorType::Validation,
+                        true,
+                        Some(
+                            "Correct the path to a literal, normalized format and try again."
+                                .to_string(),
+                        ),
                     ),
                 ));
             }
@@ -3804,11 +4705,15 @@ impl AgentEngine {
         // Unified project/command gate (Claude-style preflight): block mismatched
         // language-specific commands until project root assumptions are corrected.
         if let Some(reason) = self.language_command_mismatch(&tool_call.name, &params) {
-            return Ok(ToolResult::error_typed(
-                format!("Command blocked by project gate: {}", reason),
-                ToolErrorType::Validation,
-                true,
-                Some("Re-anchor with ls/glob/read on the target project root, then run matching build tooling.".to_string()),
+            return Ok(Self::immediate_tool_outcome(
+                tool_call,
+                &started_at,
+                ToolResult::error_typed(
+                    format!("Command blocked by project gate: {}", reason),
+                    ToolErrorType::Validation,
+                    true,
+                    Some("Re-anchor with ls/glob/read on the target project root, then run matching build tooling.".to_string()),
+                ),
             ));
         }
 
@@ -3816,19 +4721,27 @@ impl AgentEngine {
         if tool_call.name == "edit_file" || tool_call.name == "write_file" {
             if let Some(file_path) = params.get("file_path").and_then(|v| v.as_str()) {
                 if !self.files_read.contains_key(file_path) {
-                    return Ok(ToolResult::error_typed(
-                        format!("You must read the file '{}' with read_file before editing or overwriting it.", file_path),
-                        ToolErrorType::Validation,
-                        true,
-                        Some(format!("Call read_file(file_path=\"{}\") first.", file_path)),
+                    return Ok(Self::immediate_tool_outcome(
+                        tool_call,
+                        &started_at,
+                        ToolResult::error_typed(
+                            format!("You must read the file '{}' with read_file before editing or overwriting it.", file_path),
+                            ToolErrorType::Validation,
+                            true,
+                            Some(format!("Call read_file(file_path=\"{}\") first.", file_path)),
+                        ),
                     ));
                 }
             }
         }
 
-        let action = self
+        let permission_explanation = self
             .permissions
-            .check_with_content(&tool_call.name, command_content.as_deref());
+            .explain_with_content(&tool_call.name, command_content.as_deref());
+        self.last_permission_tool = Some(tool_call.name.clone());
+        self.last_permission_action = Some(permission_explanation.action.label().to_string());
+        self.last_permission_explanation = Some(permission_explanation.reason.clone());
+        let action = permission_explanation.action.clone();
 
         // For bash: additional security check via command classifier
         if tool_call.name == "bash" {
@@ -3867,22 +4780,35 @@ impl AgentEngine {
                         ("ls -R", "ls (without -R) or project_map")
                     };
 
-                    return Ok(ToolResult::error_typed(
-                        format!("Command blocked: Use the dedicated '{}' tool instead of running '{}' via bash.", alternative, cmd_name),
-                        ToolErrorType::Validation,
-                        true,
-                        Some(format!("Running search/discovery via bash is inefficient. Use the '{}' tool for better results and TUI display.", alternative)),
+                    return Ok(Self::immediate_tool_outcome(
+                        tool_call,
+                        &started_at,
+                        ToolResult::error_typed(
+                            format!("Command blocked: Use the dedicated '{}' tool instead of running '{}' via bash.", alternative, cmd_name),
+                            ToolErrorType::Validation,
+                            true,
+                            Some(format!("Running search/discovery via bash is inefficient. Use the '{}' tool for better results and TUI display.", alternative)),
+                        ),
                     ));
                 }
 
                 if CommandClassifier::classify(cmd) == CommandRiskLevel::Destructive {
-                    return Ok(ToolResult::error_typed(
-                        format!("Command blocked (destructive): {}", cmd),
-                        ToolErrorType::PermissionDeny,
-                        false,
-                        Some(
-                            "This command is classified as destructive and cannot be executed."
-                                .to_string(),
+                    self.last_permission_action = Some("deny".to_string());
+                    self.last_permission_explanation = Some(
+                        "Dangerous bash command blocked by destructive-command guard. Use a safer non-destructive probe first."
+                            .to_string(),
+                    );
+                    return Ok(Self::immediate_tool_outcome(
+                        tool_call,
+                        &started_at,
+                        ToolResult::error_typed(
+                            format!("Command blocked (destructive): {}", cmd),
+                            ToolErrorType::PermissionDeny,
+                            false,
+                            Some(
+                                "This command is classified as destructive and cannot be executed. Stop and propose a safer fallback such as `git status`, `git diff`, `ls`, or a dry-run variant before attempting any mutation again."
+                                    .to_string(),
+                            ),
                         ),
                     ));
                 }
@@ -3934,21 +4860,32 @@ impl AgentEngine {
                 let confirm_timeout = std::time::Duration::from_secs(90);
                 loop {
                     if confirm_start.elapsed() > confirm_timeout {
-                        return Ok(ToolResult::error_typed(
-                            format!("Confirmation timed out for tool '{}'", tool_call.name),
-                            ToolErrorType::Timeout,
-                            true,
-                            Some("No confirmation was received within 90s. Re-run or switch to a read-only alternative.".to_string()),
+                        return Ok(Self::immediate_tool_outcome(
+                            tool_call,
+                            &started_at,
+                            ToolResult::error_typed(
+                                format!("Confirmation timed out for tool '{}'", tool_call.name),
+                                ToolErrorType::Timeout,
+                                true,
+                                Some("No confirmation was received within 90s. Re-run or switch to a read-only alternative.".to_string()),
+                            ),
                         ));
                     }
 
                     if let Some(token) = cancel_token {
                         if token.is_cancelled() {
-                            return Ok(ToolResult::error_typed(
-                                format!("Tool confirmation cancelled: {}", tool_call.name),
-                                ToolErrorType::Timeout,
-                                true,
-                                Some("User cancelled while waiting for confirmation.".to_string()),
+                            return Ok(Self::immediate_tool_outcome(
+                                tool_call,
+                                &started_at,
+                                ToolResult::error_typed(
+                                    format!("Tool confirmation cancelled: {}", tool_call.name),
+                                    ToolErrorType::Timeout,
+                                    true,
+                                    Some(
+                                        "User cancelled while waiting for confirmation."
+                                            .to_string(),
+                                    ),
+                                ),
                             ));
                         }
                     }
@@ -3990,16 +4927,22 @@ impl AgentEngine {
                             };
                             self.execute_advisory_hooks(HookEvent::PermissionDenied, denied_ctx)
                                 .await;
-                            return Ok(ToolResult::error(
-                                "Tool execution denied by user.".to_string(),
+                            return Ok(Self::immediate_tool_outcome(
+                                tool_call,
+                                &started_at,
+                                ToolResult::error("Tool execution denied by user.".to_string()),
                             ));
                         }
                         Ok(None) => {
-                            return Ok(ToolResult::error_typed(
-                                "Confirmation channel closed.".to_string(),
-                                ToolErrorType::Execution,
-                                true,
-                                Some("Please retry the action. If this repeats, check TUI confirmation event handling.".to_string()),
+                            return Ok(Self::immediate_tool_outcome(
+                                tool_call,
+                                &started_at,
+                                ToolResult::error_typed(
+                                    "Confirmation channel closed.".to_string(),
+                                    ToolErrorType::Execution,
+                                    true,
+                                    Some("Please retry the action. If this repeats, check TUI confirmation event handling.".to_string()),
+                                ),
                             ));
                         }
                         Err(_) => {
@@ -4029,10 +4972,22 @@ impl AgentEngine {
                 };
                 self.execute_advisory_hooks(HookEvent::PermissionDenied, denied_ctx)
                     .await;
-                return Ok(ToolResult::error(format!(
-                    "Tool {} is not permitted.",
-                    tool_call.name
-                )));
+                return Ok(Self::immediate_tool_outcome(
+                    tool_call,
+                    &started_at,
+                    ToolResult::error_typed(
+                        format!(
+                            "Tool {} is not permitted. {}",
+                            tool_call.name, permission_explanation.reason
+                        ),
+                        ToolErrorType::PermissionDeny,
+                        false,
+                        Some(
+                            "Use a safer read-only tool first, or switch permission mode / rules explicitly before retrying."
+                                .to_string(),
+                        ),
+                    ),
+                ));
             }
         }
 
@@ -4060,27 +5015,35 @@ impl AgentEngine {
             && self.consecutive_failures >= 2
             && self.last_failed_signature.as_ref() == Some(&current_sig_text)
         {
-            return Ok(ToolResult::error_typed(
-                format!(
-                    "Blocked repeated failing call: {} is being retried with identical arguments after multiple failures.",
-                    tool_call.name
+            return Ok(Self::immediate_tool_outcome(
+                tool_call,
+                &started_at,
+                ToolResult::error_typed(
+                    format!(
+                        "Blocked repeated failing call: {} is being retried with identical arguments after multiple failures.",
+                        tool_call.name
+                    ),
+                    ToolErrorType::Validation,
+                    true,
+                    Some("Do not retry the same call. Re-anchor first (ls/glob/read), then change tool arguments.".to_string()),
                 ),
-                ToolErrorType::Validation,
-                true,
-                Some("Do not retry the same call. Re-anchor first (ls/glob/read), then change tool arguments.".to_string()),
             ));
         }
 
         if self.recent_tool_calls.contains(&call_sig) && !is_observer_tool {
-            return Ok(ToolResult::error_typed(
-                format!(
-                    "Duplicate tool call detected: {} was called with identical arguments recently. \
-                     If you are stuck, try a different approach, search for more information, or summarize your progress.",
-                    tool_call.name
+            return Ok(Self::immediate_tool_outcome(
+                tool_call,
+                &started_at,
+                ToolResult::error_typed(
+                    format!(
+                        "Duplicate tool call detected: {} was called with identical arguments recently. \
+                         If you are stuck, try a different approach, search for more information, or summarize your progress.",
+                        tool_call.name
+                    ),
+                    ToolErrorType::Validation,
+                    true,
+                    Some("Do NOT resend identical tool parameters. Re-anchor with a lightweight read/list action, then adjust arguments.".to_string()),
                 ),
-                ToolErrorType::Validation,
-                true,
-                Some("Do NOT resend identical tool parameters. Re-anchor with a lightweight read/list action, then adjust arguments.".to_string()),
             ));
         }
         self.recent_tool_calls.push(call_sig);
@@ -4101,8 +5064,16 @@ impl AgentEngine {
         let event_tx_inner = event_tx.clone();
         let tc_id = tool_call.id.clone();
         let tc_name = tool_call.name.clone();
+        let progress_counter = Arc::new(AtomicU64::new(0));
+        let progress_counter_inner = Arc::clone(&progress_counter);
+        let last_progress_message = Arc::new(std::sync::Mutex::new(None::<String>));
+        let last_progress_message_inner = Arc::clone(&last_progress_message);
         tokio::spawn(async move {
             while let Some(progress) = p_rx.recv().await {
+                progress_counter_inner.fetch_add(1, Ordering::Relaxed);
+                if let Ok(mut slot) = last_progress_message_inner.lock() {
+                    *slot = Some(progress.message.clone());
+                }
                 let _ = event_tx_inner.send(EngineEvent::ToolProgress {
                     id: tc_id.clone(),
                     name: tc_name.clone(),
@@ -4117,11 +5088,15 @@ impl AgentEngine {
         // so updatedInput/modified_input can take effect.
         let schema = tool.parameters_schema();
         if let Err(msg) = validation::validate_and_coerce(&schema, &mut params) {
-            return Ok(ToolResult::error_typed(
-                format!("Parameter validation failed: {}", msg),
-                ToolErrorType::Validation,
-                true,
-                Some(format!("Fix the parameters and retry. Schema: {}", schema)),
+            return Ok(Self::immediate_tool_outcome(
+                tool_call,
+                &started_at,
+                ToolResult::error_typed(
+                    format!("Parameter validation failed: {}", msg),
+                    ToolErrorType::Validation,
+                    true,
+                    Some(format!("Fix the parameters and retry. Schema: {}", schema)),
+                ),
             ));
         }
 
@@ -4145,9 +5120,6 @@ impl AgentEngine {
         };
         let elapsed = start_time.elapsed();
         debug!(tool = %tool_call.name, elapsed_ms = elapsed.as_millis() as u64, "Tool execution completed");
-
-        self.track_file_access(&tool_call.name, &result);
-        self.enforce_tool_budget(&mut result);
 
         // Append recovery suggestion to content so LLM can see it
         if result.is_error {
@@ -4183,7 +5155,26 @@ impl AgentEngine {
             }
         }
 
-        Ok(result)
+        let progress_updates = progress_counter.load(Ordering::Relaxed) as u32;
+        let last_progress_message = last_progress_message
+            .lock()
+            .ok()
+            .and_then(|slot| slot.clone());
+        self.record_tool_progress_summary(
+            &tool_call.name,
+            progress_updates,
+            last_progress_message.clone(),
+        );
+
+        Ok(ToolExecutionOutcome {
+            tool_call: tool_call.clone(),
+            result,
+            started_at,
+            duration_ms: elapsed.as_millis() as u64,
+            progress_updates,
+            last_progress_message,
+            parallel_batch: None,
+        })
     }
 
     /// Generate a prompt suggestion using LLM.
@@ -4531,7 +5522,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_parallel_returns_all_results_in_order() {
-        let engine = make_engine(
+        let mut engine = make_engine(
             vec![
                 Arc::new(MockReadTool { name: "a".into() }),
                 Arc::new(MockReadTool { name: "b".into() }),
@@ -4560,11 +5551,11 @@ mod tests {
         let results = engine.execute_tools_parallel(&tcs, &tx).await;
 
         assert_eq!(results.len(), 3);
-        assert_eq!(results[0].0.id, "x1");
-        assert_eq!(results[1].0.id, "x2");
-        assert_eq!(results[2].0.id, "x3");
-        for (_tc, r) in &results {
-            assert!(!r.is_error);
+        assert_eq!(results[0].tool_call.id, "x1");
+        assert_eq!(results[1].tool_call.id, "x2");
+        assert_eq!(results[2].tool_call.id, "x3");
+        for outcome in &results {
+            assert!(!outcome.result.is_error);
         }
 
         // Check events
@@ -4579,7 +5570,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_parallel_empty() {
-        let engine = make_engine(vec![], vec![]);
+        let mut engine = make_engine(vec![], vec![]);
         let (tx, _rx) = mpsc::unbounded_channel();
         let results = engine.execute_tools_parallel(&[], &tx).await;
         assert!(results.is_empty());
@@ -4798,6 +5789,9 @@ mod tests {
             Message::user("recent5"),
             Message::assistant("recent6"),
         ];
+        engine.recovery_state = RecoveryState::SingleStepMode;
+        engine.recovery_single_step_count = 2;
+        engine.last_failed_signature = Some("bash:{\"command\":\"cargo test\"}".to_string());
 
         let (tx, _rx) = mpsc::unbounded_channel();
         let _ = engine.force_compact(tx).await;
@@ -4812,6 +5806,16 @@ mod tests {
         assert!(runtime.contains_key("total_compactions"));
         assert!(runtime.contains_key("live_session_memory_initialized"));
         assert!(runtime.contains_key("session_memory_update_count"));
+        assert_eq!(
+            runtime.get("recovery_state").and_then(|v| v.as_str()),
+            Some("SingleStepMode")
+        );
+        assert_eq!(
+            runtime
+                .get("last_failed_signature")
+                .and_then(|v| v.as_str()),
+            Some("bash:{\"command\":\"cargo test\"}")
+        );
     }
 
     #[tokio::test]
@@ -4888,7 +5892,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(result.content, "path=new.txt");
+        assert_eq!(result.result.content, "path=new.txt");
     }
 
     #[tokio::test]
@@ -5026,6 +6030,58 @@ mod tests {
         assert_eq!(runtime.session_memory_update_count, 1);
     }
 
+    #[tokio::test]
+    async fn test_tool_runtime_state_and_artifact_are_recorded() {
+        let mut engine = make_engine(vec![], vec![]);
+        engine.reset_tool_turn_runtime();
+        engine.record_tool_progress_summary("write_file", 2, Some("writing".to_string()));
+        let batch_id = engine.register_parallel_batch(2);
+
+        let tool_call = ToolCall {
+            id: "tc-tool-runtime".into(),
+            name: "write_file".into(),
+            arguments: r#"{"file_path":"src/lib.rs","content":"fn main() {}\n"}"#.into(),
+        };
+        let raw_result = ToolResult::success_with_metadata(
+            "Successfully wrote 12 bytes".to_string(),
+            serde_json::json!({
+                "file_path": "src/lib.rs",
+                "line_count": 1,
+                "diff_preview": {
+                    "removed": [],
+                    "added": ["fn main() {}"],
+                    "more_removed": 0,
+                    "more_added": 0
+                }
+            }),
+        );
+
+        let _final = engine
+            .finalize_tool_result(
+                &tool_call,
+                raw_result,
+                Some("2026-04-09 10:00:00".to_string()),
+                42,
+                2,
+                Some(batch_id),
+            )
+            .await;
+
+        let runtime = engine.runtime_state();
+        assert_eq!(runtime.current_turn_tool_calls, 1);
+        assert_eq!(runtime.current_turn_tool_progress_events, 2);
+        assert_eq!(runtime.current_turn_parallel_batches, 1);
+        assert_eq!(runtime.tool_traces.len(), 1);
+        assert_eq!(runtime.tool_traces[0].tool_name, "write_file");
+        assert!(runtime.tool_traces[0].diff_preview.is_some());
+
+        engine.complete_tool_turn_artifact();
+        let runtime = engine.runtime_state();
+        assert!(runtime.last_tool_turn_artifact_path.is_some());
+        let path = runtime.last_tool_turn_artifact_path.unwrap();
+        assert!(std::path::Path::new(&path).exists());
+    }
+
     #[test]
     fn test_session_end_flush_writes_snapshot_without_threshold() {
         let mut engine = make_engine(vec![], vec![]);
@@ -5090,6 +6146,7 @@ pub struct SubAgentRunnerImpl {
     pub provider: Arc<dyn LlmProvider>,
     pub tools: Arc<ToolRegistry>,
     pub context: AgentContext,
+    pub runtime_tasks: Arc<Mutex<RuntimeTaskStore>>,
 }
 
 impl SubAgentRunner for SubAgentRunnerImpl {
@@ -5102,6 +6159,161 @@ impl SubAgentRunner for SubAgentRunnerImpl {
         let subagent_model = options.model.clone();
 
         Box::pin(async move {
+            if options.run_in_background {
+                let tasks_dir = self
+                    .context
+                    .working_dir_compat()
+                    .join(".yode")
+                    .join("tasks");
+                tokio::fs::create_dir_all(&tasks_dir).await?;
+                let output_path = tasks_dir.join(format!("agent-{}.log", uuid::Uuid::new_v4()));
+                let output_path_str = output_path.display().to_string();
+                let (task, mut cancel_rx) = {
+                    let mut store = self.runtime_tasks.lock().await;
+                    store.create(
+                        "agent".to_string(),
+                        "agent".to_string(),
+                        options.description.clone(),
+                        output_path_str.clone(),
+                    )
+                };
+
+                let provider = Arc::clone(&self.provider);
+                let tools = Arc::clone(&self.tools);
+                let mut sub_context = self.context.clone();
+                if let Some(m) = subagent_model.clone() {
+                    sub_context.model = m;
+                }
+                let runtime_tasks = Arc::clone(&self.runtime_tasks);
+                let turn_prompt = format!("[Sub-task: {}]\n\n{}", options.description, prompt);
+                let allowed_tools = allowed_tools.clone();
+                let task_id = task.id.clone();
+                tokio::spawn(async move {
+                    {
+                        let mut store = runtime_tasks.lock().await;
+                        store.mark_running(&task_id);
+                        store.update_progress(
+                            &task_id,
+                            format!("Running sub-agent task {}", options.description),
+                        );
+                    }
+
+                    let mut sub_registry = ToolRegistry::new();
+                    if allowed_tools.is_empty() {
+                        for tool in tools.list() {
+                            sub_registry.register(tool);
+                        }
+                    } else {
+                        for name in &allowed_tools {
+                            if let Some(tool) = tools.get(name) {
+                                sub_registry.register(tool);
+                            }
+                        }
+                    }
+
+                    let permissions = PermissionManager::permissive();
+                    let mut engine = AgentEngine::new(
+                        provider,
+                        Arc::new(sub_registry),
+                        permissions,
+                        sub_context,
+                    );
+                    let (_confirm_tx, confirm_rx) = mpsc::unbounded_channel();
+                    let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+                    let cancel_token = CancellationToken::new();
+                    let engine_cancel = cancel_token.clone();
+
+                    let engine_handle = tokio::spawn(async move {
+                        engine
+                            .run_turn_streaming(
+                                &turn_prompt,
+                                QuerySource::SubAgent,
+                                event_tx,
+                                confirm_rx,
+                                Some(engine_cancel),
+                            )
+                            .await
+                    });
+
+                    let mut result_text = String::new();
+                    let mut error_text = None::<String>;
+                    let mut cancelled = false;
+                    loop {
+                        tokio::select! {
+                            maybe_event = event_rx.recv() => {
+                                match maybe_event {
+                                    Some(EngineEvent::TextComplete(text)) => {
+                                        result_text = text;
+                                    }
+                                    Some(EngineEvent::Error(err)) => {
+                                        error_text = Some(err);
+                                    }
+                                    Some(EngineEvent::Done) | None => break,
+                                    _ => {}
+                                }
+                            }
+                            changed = cancel_rx.changed() => {
+                                if changed.is_ok() && *cancel_rx.borrow() {
+                                    cancelled = true;
+                                    cancel_token.cancel();
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    let engine_result = engine_handle.await;
+                    if cancelled {
+                        let _ = tokio::fs::write(&output_path, "Sub-agent task cancelled.\n").await;
+                        runtime_tasks.lock().await.mark_cancelled(&task_id);
+                        return;
+                    }
+
+                    match engine_result {
+                        Ok(Ok(())) => {
+                            let content = if result_text.is_empty() {
+                                "Sub-agent completed without text output.".to_string()
+                            } else {
+                                result_text
+                            };
+                            let _ = tokio::fs::write(&output_path, content).await;
+                            if let Some(error) = error_text {
+                                runtime_tasks.lock().await.mark_failed(&task_id, error);
+                            } else {
+                                runtime_tasks.lock().await.mark_completed(&task_id);
+                            }
+                        }
+                        Ok(Err(err)) => {
+                            let _ = tokio::fs::write(
+                                &output_path,
+                                format!("Sub-agent failed: {}", err),
+                            )
+                            .await;
+                            runtime_tasks
+                                .lock()
+                                .await
+                                .mark_failed(&task_id, format!("{}", err));
+                        }
+                        Err(err) => {
+                            let _ = tokio::fs::write(
+                                &output_path,
+                                format!("Sub-agent task join failure: {}", err),
+                            )
+                            .await;
+                            runtime_tasks
+                                .lock()
+                                .await
+                                .mark_failed(&task_id, format!("Join error: {}", err));
+                        }
+                    }
+                });
+
+                return Ok(format!(
+                    "Background sub-agent launched as {}. Output: {}",
+                    task.id, output_path_str
+                ));
+            }
+
             // Create a filtered tool registry for the sub-agent
             let mut sub_registry = ToolRegistry::new();
             if allowed_tools.is_empty() {
@@ -5136,17 +6348,10 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                 sub_context,
             );
 
-            // Run non-streaming turn
-            let (_event_tx, mut _event_rx) = mpsc::unbounded_channel::<EngineEvent>();
             let (_confirm_tx, confirm_rx) = mpsc::unbounded_channel();
-
-            // Handle description in system prompt or similar if needed
             let turn_prompt = format!("[Sub-task: {}]\n\n{}", options.description, prompt);
-
             let (result_tx, mut result_rx) = mpsc::unbounded_channel();
 
-            // Note: We currently don't have a clean way to get the final text from run_turn
-            // easily without streaming, but we can capture the TextComplete event.
             let engine_handle = tokio::spawn(async move {
                 engine
                     .run_turn(&turn_prompt, QuerySource::SubAgent, result_tx, confirm_rx)
