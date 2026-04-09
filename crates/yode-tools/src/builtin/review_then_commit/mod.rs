@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 
 use crate::builtin::git_commit::GitCommitTool;
-use crate::builtin::review_common::persist_review_artifact;
+use crate::builtin::review_common::{persist_review_artifact, review_output_has_findings};
 use crate::tool::{SubAgentOptions, Tool, ToolCapabilities, ToolContext, ToolErrorType, ToolResult};
 
 pub struct ReviewThenCommitTool;
@@ -139,7 +139,7 @@ impl Tool for ReviewThenCommitTool {
             .and_then(|dir| persist_review_artifact(dir, "pre-commit-review", focus, &review_output).ok())
             .map(|path| path.display().to_string());
 
-        if review_has_findings(&review_output) && !allow_findings_commit {
+        if review_output_has_findings(&review_output) && !allow_findings_commit {
             return Ok(ToolResult {
                 content: format!(
                     "Review detected findings. Commit aborted.\n\nReview output:\n{}\n\nReview artifact: {}",
@@ -197,20 +197,10 @@ impl Tool for ReviewThenCommitTool {
     }
 }
 
-fn review_has_findings(output: &str) -> bool {
-    let normalized = output.trim().to_lowercase();
-    if normalized.starts_with("no issues found.") || normalized.starts_with("no issues found") {
-        return false;
-    }
-    if normalized.starts_with("no findings") || normalized.contains("no issues found") {
-        return false;
-    }
-    true
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{review_has_findings, ReviewThenCommitTool};
+    use super::ReviewThenCommitTool;
+    use crate::builtin::review_common::review_output_has_findings;
     use serde_json::json;
     use crate::tool::{SubAgentOptions, SubAgentRunner, Tool, ToolContext};
     use std::pin::Pin;
@@ -252,8 +242,10 @@ mod tests {
 
     #[test]
     fn review_findings_heuristic_respects_clean_output() {
-        assert!(!review_has_findings("No issues found.\nResidual risk: none."));
-        assert!(review_has_findings("1. Missing test for edge case"));
+        assert!(!review_output_has_findings(
+            "No issues found.\nResidual risk: none."
+        ));
+        assert!(review_output_has_findings("1. Missing test for edge case"));
     }
 
     #[tokio::test]

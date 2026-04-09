@@ -25,6 +25,7 @@ pub mod project_map;
 pub mod read_file;
 pub mod review_common;
 pub mod review_changes;
+pub mod review_pipeline;
 pub mod review_then_commit;
 pub mod skill;
 pub mod task_output;
@@ -97,6 +98,7 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     registry.register(Arc::new(plan_mode::VerifyPlanExecutionTool));
     registry.register(Arc::new(verification_agent::VerificationAgentTool));
     registry.register(Arc::new(review_changes::ReviewChangesTool));
+    registry.register(Arc::new(review_pipeline::ReviewPipelineTool));
     registry.register(Arc::new(review_then_commit::ReviewThenCommitTool));
     registry.register(Arc::new(project_map::ProjectMapTool));
     registry.register(Arc::new(hypothesis::HypothesisTool));

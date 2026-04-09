@@ -24,3 +24,14 @@ pub fn persist_review_artifact(
         .with_context(|| format!("Failed to write review artifact: {}", path.display()))?;
     Ok(path)
 }
+
+pub fn review_output_has_findings(output: &str) -> bool {
+    let normalized = output.trim().to_lowercase();
+    if normalized.starts_with("no issues found.") || normalized.starts_with("no issues found") {
+        return false;
+    }
+    if normalized.starts_with("no findings") || normalized.contains("no issues found") {
+        return false;
+    }
+    true
+}
