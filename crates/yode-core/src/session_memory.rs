@@ -28,10 +28,20 @@ pub struct LiveSessionSnapshot {
     pub session_id: String,
     pub total_tool_calls: u32,
     pub message_count: usize,
-    pub user_goals: Vec<String>,
-    pub assistant_findings: Vec<String>,
+    pub goals: Vec<String>,
+    pub findings: Vec<String>,
+    pub decisions: Vec<String>,
+    pub open_questions: Vec<String>,
     pub files_read: Vec<String>,
     pub files_modified: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct StructuredMemorySections {
+    goals: Vec<String>,
+    findings: Vec<String>,
+    decisions: Vec<String>,
+    open_questions: Vec<String>,
 }
 
 pub fn persist_compaction_memory(
@@ -129,7 +139,7 @@ pub fn persist_live_session_memory_summary(
     content.push_str(LIVE_SESSION_MEMORY_HEADER);
     content.push_str("\n\n");
     content.push_str(&format!(
-        "## {} session {}\n\n- Total tool calls this session: {}\n- Current message count: {}\n\n{}\n",
+        "## {} session {}\n\n### Session Stats\n\n- Total tool calls this session: {}\n- Current message count: {}\n\n{}\n",
         chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
         snapshot.session_id.chars().take(8).collect::<String>(),
         snapshot.total_tool_calls,
@@ -166,6 +176,9 @@ fn render_entry(
     files_modified: &[String],
 ) -> String {
     let short_session_id: String = session_id.chars().take(8).collect();
+    let sections = structured_sections_from_compaction_summary(report.summary.as_deref());
+    let files_read_summary = summarize_read_files(project_root, files_read);
+    let files_modified_summary = summarize_modified_files(project_root, files_modified);
     let mut lines = vec![
         format!(
             "## {} session {}",
@@ -179,31 +192,14 @@ fn render_entry(
             "- Tool results truncated: {}",
             report.tool_results_truncated
         ),
+        String::new(),
     ];
-
-    if let Some(read_summary) = summarize_read_files(project_root, files_read) {
-        lines.push(format!("- Files read in current turn: {}", read_summary));
-    }
-
-    if let Some(modified_summary) = summarize_modified_files(project_root, files_modified) {
-        lines.push(format!(
-            "- Files modified in current turn: {}",
-            modified_summary
-        ));
-    }
-
-    lines.push(String::new());
-    lines.push("Summary:".to_string());
-
-    if let Some(summary) = report.summary.as_deref() {
-        lines.push("```text".to_string());
-        lines.push(summary.trim().to_string());
-        lines.push("```".to_string());
-    } else {
-        lines.push(
-            "Tool-result trimming reclaimed space without generating a summary anchor.".to_string(),
-        );
-    }
+    render_structured_sections(
+        &mut lines,
+        &sections,
+        files_read_summary.as_deref(),
+        files_modified_summary.as_deref(),
+    );
 
     lines.join("\n")
 }
@@ -293,28 +289,27 @@ pub fn build_live_snapshot(
 ) -> LiveSessionSnapshot {
     let mut user_goals = Vec::new();
     let mut assistant_findings = Vec::new();
+    let mut decisions = Vec::new();
+    let mut open_questions = Vec::new();
 
     for message in messages.iter().rev() {
         match message.role {
             Role::User => {
-                if user_goals.len() < 3 {
-                    if let Some(content) = message.content.as_deref() {
-                        if let Some(excerpt) = excerpt(content, 160) {
-                            if !user_goals.contains(&excerpt) {
-                                user_goals.push(excerpt);
-                            }
-                        }
+                if let Some(content) = message.content.as_deref() {
+                    push_unique_excerpt(&mut user_goals, content, 160, 3);
+                    if looks_like_open_question(content) {
+                        push_unique_excerpt(&mut open_questions, content, 180, 3);
                     }
                 }
             }
             Role::Assistant if message.tool_calls.is_empty() => {
-                if assistant_findings.len() < 3 {
-                    if let Some(content) = message.content.as_deref() {
-                        if let Some(excerpt) = excerpt(content, 180) {
-                            if !assistant_findings.contains(&excerpt) {
-                                assistant_findings.push(excerpt);
-                            }
-                        }
+                if let Some(content) = message.content.as_deref() {
+                    push_unique_excerpt(&mut assistant_findings, content, 180, 3);
+                    if looks_like_decision(content) {
+                        push_unique_excerpt(&mut decisions, content, 180, 3);
+                    }
+                    if looks_like_open_question(content) {
+                        push_unique_excerpt(&mut open_questions, content, 180, 3);
                     }
                 }
             }
@@ -326,8 +321,10 @@ pub fn build_live_snapshot(
         session_id: session_id.to_string(),
         total_tool_calls,
         message_count: messages.len(),
-        user_goals,
-        assistant_findings,
+        goals: user_goals,
+        findings: assistant_findings,
+        decisions,
+        open_questions,
         files_read: dedupe_entries(files_read),
         files_modified: dedupe_entries(files_modified),
     }
@@ -342,12 +339,13 @@ pub fn render_live_session_memory_prompt(
     prompt.push_str(
         "Update the session memory for an AI coding assistant.\n\
          Produce concise markdown with these sections in order:\n\
-         1. Goals\n2. Findings\n3. Files\n4. Open Questions\n\n\
+         1. Goals\n2. Findings\n3. Decisions\n4. Files\n5. Open Questions\n\n\
          Rules:\n\
          - Keep only verified facts and the current active direction.\n\
          - Prefer concrete file paths and technical constraints.\n\
+         - Use `- None` for empty sections.\n\
          - Omit chatter, duplicated history, and completed low-value details.\n\
-         - Keep the whole output under 220 words.\n\
+         - Keep the whole output under 260 words.\n\
          - Return markdown only.\n\n",
     );
 
@@ -380,37 +378,164 @@ fn render_live_snapshot(snapshot: &LiveSessionSnapshot) -> String {
             snapshot.total_tool_calls
         ),
         format!("- Current message count: {}", snapshot.message_count),
+        String::new(),
     ];
-
-    if !snapshot.user_goals.is_empty() {
-        lines.push(format!(
-            "- Recent user goals: {}",
-            snapshot.user_goals.join(" | ")
-        ));
-    }
-
-    if !snapshot.assistant_findings.is_empty() {
-        lines.push(format!(
-            "- Recent assistant findings: {}",
-            snapshot.assistant_findings.join(" | ")
-        ));
-    }
-
-    if !snapshot.files_read.is_empty() {
-        lines.push(format!(
-            "- Recently read files: {}",
-            summarize_entries(snapshot.files_read.clone()).unwrap_or_default()
-        ));
-    }
-
-    if !snapshot.files_modified.is_empty() {
-        lines.push(format!(
-            "- Recently modified files: {}",
-            summarize_entries(snapshot.files_modified.clone()).unwrap_or_default()
-        ));
-    }
+    let sections = StructuredMemorySections {
+        goals: snapshot.goals.clone(),
+        findings: snapshot.findings.clone(),
+        decisions: snapshot.decisions.clone(),
+        open_questions: snapshot.open_questions.clone(),
+    };
+    let files_read_summary = summarize_entries(snapshot.files_read.clone());
+    let files_modified_summary = summarize_entries(snapshot.files_modified.clone());
+    render_structured_sections(
+        &mut lines,
+        &sections,
+        files_read_summary.as_deref(),
+        files_modified_summary.as_deref(),
+    );
 
     lines.join("\n")
+}
+
+fn render_structured_sections(
+    lines: &mut Vec<String>,
+    sections: &StructuredMemorySections,
+    files_read_summary: Option<&str>,
+    files_modified_summary: Option<&str>,
+) {
+    push_bullet_section(lines, "Goals", &sections.goals);
+    push_bullet_section(lines, "Findings", &sections.findings);
+    push_bullet_section(lines, "Decisions", &sections.decisions);
+
+    lines.push("### Files".to_string());
+    lines.push(String::new());
+    let mut wrote_file_line = false;
+    if let Some(read_summary) = files_read_summary {
+        lines.push(format!("- Read: {}", read_summary));
+        wrote_file_line = true;
+    }
+    if let Some(modified_summary) = files_modified_summary {
+        lines.push(format!("- Modified: {}", modified_summary));
+        wrote_file_line = true;
+    }
+    if !wrote_file_line {
+        lines.push("- None".to_string());
+    }
+    lines.push(String::new());
+
+    push_bullet_section(lines, "Open Questions", &sections.open_questions);
+}
+
+fn push_bullet_section(lines: &mut Vec<String>, title: &str, items: &[String]) {
+    lines.push(format!("### {}", title));
+    lines.push(String::new());
+    if items.is_empty() {
+        lines.push("- None".to_string());
+    } else {
+        for item in items {
+            lines.push(format!("- {}", item));
+        }
+    }
+    lines.push(String::new());
+}
+
+fn structured_sections_from_compaction_summary(summary: Option<&str>) -> StructuredMemorySections {
+    let Some(summary) = summary else {
+        return StructuredMemorySections {
+            findings: vec![
+                "Tool-result trimming reclaimed space without generating a summary anchor."
+                    .to_string(),
+            ],
+            ..Default::default()
+        };
+    };
+
+    let mut sections = StructuredMemorySections::default();
+    for line in summary.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if let Some(value) = trimmed.strip_prefix("[Context summary]") {
+            let value = value.trim();
+            if !value.is_empty() {
+                sections.findings.push(value.to_string());
+            }
+        } else if let Some(value) = trimmed.strip_prefix("- Earlier user goals: ") {
+            sections.goals.extend(split_pipe_items(value));
+        } else if let Some(value) = trimmed.strip_prefix("- Earlier assistant findings: ") {
+            sections.findings.extend(split_pipe_items(value));
+        } else if let Some(value) = trimmed.strip_prefix("- Earlier tool activity: ") {
+            sections
+                .findings
+                .push(format!("Tool activity: {}", value.trim()));
+        } else if let Some(value) = trimmed.strip_prefix("- Tool results compacted: ") {
+            sections
+                .findings
+                .push(format!("Tool results compacted: {}", value.trim()));
+        }
+    }
+
+    if sections.goals.is_empty() && sections.findings.is_empty() {
+        sections.findings.push(summary.trim().to_string());
+    }
+
+    dedupe_section_items(&mut sections.goals);
+    dedupe_section_items(&mut sections.findings);
+    dedupe_section_items(&mut sections.decisions);
+    dedupe_section_items(&mut sections.open_questions);
+    sections
+}
+
+fn split_pipe_items(value: &str) -> Vec<String> {
+    value
+        .split('|')
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+fn dedupe_section_items(items: &mut Vec<String>) {
+    let mut seen = BTreeSet::new();
+    items.retain(|item| seen.insert(item.clone()));
+}
+
+fn push_unique_excerpt(target: &mut Vec<String>, content: &str, limit: usize, max_items: usize) {
+    if target.len() >= max_items {
+        return;
+    }
+    if let Some(excerpt) = excerpt(content, limit) {
+        if !target.contains(&excerpt) {
+            target.push(excerpt);
+        }
+    }
+}
+
+fn looks_like_decision(content: &str) -> bool {
+    let normalized = content.trim().to_lowercase();
+    normalized.starts_with("i will ")
+        || normalized.starts_with("we will ")
+        || normalized.starts_with("we'll ")
+        || normalized.starts_with("use ")
+        || normalized.starts_with("keep ")
+        || normalized.starts_with("switch ")
+        || normalized.starts_with("prefer ")
+        || normalized.contains(" decided ")
+        || normalized.contains(" decision ")
+        || normalized.contains(" plan is ")
+}
+
+fn looks_like_open_question(content: &str) -> bool {
+    let normalized = content.to_lowercase();
+    content.contains('?')
+        || normalized.contains("not sure")
+        || normalized.contains("unknown")
+        || normalized.contains("unclear")
+        || normalized.contains("need to verify")
+        || normalized.contains("follow up")
 }
 
 fn format_recent_messages(messages: &[Message]) -> String {
@@ -492,6 +617,11 @@ mod tests {
         let content = std::fs::read_to_string(path).unwrap();
         let first_idx = content.find("first summary").unwrap();
         let second_idx = content.find("second summary").unwrap();
+        assert!(content.contains("### Goals"));
+        assert!(content.contains("### Findings"));
+        assert!(content.contains("### Decisions"));
+        assert!(content.contains("### Files"));
+        assert!(content.contains("### Open Questions"));
         assert!(second_idx < first_idx);
     }
 
@@ -522,6 +652,7 @@ mod tests {
         .unwrap();
 
         let content = std::fs::read_to_string(path).unwrap();
+        assert!(content.contains("### Files"));
         assert!(content.contains("src/lib.rs (120 lines)"));
         assert!(content.contains("src/main.rs"));
     }
@@ -544,6 +675,11 @@ mod tests {
         let content = std::fs::read_to_string(path).unwrap();
 
         assert!(content.contains("Session Snapshot"));
+        assert!(content.contains("### Goals"));
+        assert!(content.contains("### Findings"));
+        assert!(content.contains("### Decisions"));
+        assert!(content.contains("### Files"));
+        assert!(content.contains("### Open Questions"));
         assert!(content.contains("resume bug"));
         assert!(content.contains("persisted message snapshot"));
         assert!(content.contains("Total tool calls this session: 4"));

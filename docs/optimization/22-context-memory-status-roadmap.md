@@ -4,6 +4,8 @@
 
 这份文档记录 Yode 在 2026-04-08 这一轮连续优化后，已经完成的上下文管理、session memory、hook 生命周期和诊断能力，并给出下一阶段的建议顺序。
 
+持续任务跟踪见：`docs/optimization/23-100-step-optimization-tracker.md`
+
 相关提交：
 
 - `7282e3d` `feat(context): 引入分层指令加载与安全 include 解析`
