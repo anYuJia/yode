@@ -42,12 +42,12 @@ impl Command for ReviewCommand {
             args.trim().to_string()
         };
         let prompt = format!(
-            "Use `verification_agent` to review the current workspace changes.\nGoal: verify the implementation is correct and identify regressions.\nFocus: {}.\nReport findings first, ordered by severity. If no issues are found, state that explicitly and mention residual risk or missing coverage.",
+            "Use `review_changes` to review the current workspace changes.\nFocus: {}.\nReport findings first, ordered by severity. If no issues are found, state that explicitly and mention residual risk or missing coverage.",
             focus
         );
         ctx.input.set_text(&prompt);
         Ok(CommandOutput::Message(
-            "Loaded a verification-agent review prompt into the input box.".to_string(),
+            "Loaded a review-agent prompt into the input box.".to_string(),
         ))
     }
 }

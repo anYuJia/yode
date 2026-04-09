@@ -22,6 +22,7 @@ pub mod notebook_edit;
 pub mod plan_mode;
 pub mod project_map;
 pub mod read_file;
+pub mod review_changes;
 pub mod skill;
 pub mod task_output;
 pub mod test_runner;
@@ -92,6 +93,7 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     registry.register(Arc::new(plan_mode::ExitPlanModeTool));
     registry.register(Arc::new(plan_mode::VerifyPlanExecutionTool));
     registry.register(Arc::new(verification_agent::VerificationAgentTool));
+    registry.register(Arc::new(review_changes::ReviewChangesTool));
     registry.register(Arc::new(project_map::ProjectMapTool));
     registry.register(Arc::new(hypothesis::HypothesisTool));
     registry.register(Arc::new(file_diff::FileDiffTool));

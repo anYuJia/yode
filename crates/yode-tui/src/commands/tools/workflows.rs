@@ -1,5 +1,8 @@
 use crate::commands::context::CommandContext;
-use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
+use crate::commands::{
+    ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
+    CommandResult,
+};
 
 pub struct WorkflowsCommand {
     meta: CommandMeta,
@@ -10,9 +13,22 @@ impl WorkflowsCommand {
         Self {
             meta: CommandMeta {
                 name: "workflows",
-                description: "List workflow scripts under .yode/workflows",
+                description: "List workflow scripts or load a workflow_run prompt",
                 aliases: &[],
-                args: vec![],
+                args: vec![
+                    ArgDef {
+                        name: "action".into(),
+                        required: false,
+                        hint: "[run <name>]".into(),
+                        completions: ArgCompletionSource::Static(vec!["run".to_string()]),
+                    },
+                    ArgDef {
+                        name: "name".into(),
+                        required: false,
+                        hint: "[workflow-name]".into(),
+                        completions: ArgCompletionSource::None,
+                    },
+                ],
                 category: CommandCategory::Tools,
                 hidden: false,
             },
@@ -25,10 +41,22 @@ impl Command for WorkflowsCommand {
         &self.meta
     }
 
-    fn execute(&self, _args: &str, ctx: &mut CommandContext<'_>) -> CommandResult {
+    fn execute(&self, args: &str, ctx: &mut CommandContext<'_>) -> CommandResult {
         let dir = std::path::PathBuf::from(&ctx.session.working_dir)
             .join(".yode")
             .join("workflows");
+        let parts = args.split_whitespace().collect::<Vec<_>>();
+        if let ["run", name] = parts.as_slice() {
+            ctx.input.set_text(&format!(
+                "Use `workflow_run` with name=\"{}\" and summarize the result.",
+                name
+            ));
+            return Ok(CommandOutput::Message(format!(
+                "Loaded a workflow_run prompt for '{}'.",
+                name
+            )));
+        }
+
         let entries = std::fs::read_dir(&dir)
             .ok()
             .into_iter()
@@ -48,7 +76,9 @@ impl Command for WorkflowsCommand {
         for path in entries {
             output.push_str(&format!("  - {}\n", path.display()));
         }
-        output.push_str("\nUse the `workflow_run` tool with `name` or `workflow_path` to execute one.");
+        output.push_str(
+            "\nUse `/workflows run <name>` to load a workflow_run prompt, or call the `workflow_run` tool directly.",
+        );
         Ok(CommandOutput::Message(output))
     }
 }
