@@ -40,6 +40,12 @@ impl Command for BriefCommand {
         let working_dir = std::path::PathBuf::from(&ctx.session.working_dir);
         let latest_review = latest_markdown_file(&working_dir.join(".yode").join("reviews"));
         let latest_transcript = latest_markdown_file(&working_dir.join(".yode").join("transcripts"));
+        let latest_review_preview = latest_review
+            .as_ref()
+            .and_then(|path| preview_markdown(path, "## Result"));
+        let latest_transcript_preview = latest_transcript
+            .as_ref()
+            .and_then(|path| preview_markdown(path, "## Summary Anchor"));
         let running_tasks = tasks
             .into_iter()
             .filter(|task| matches!(task.status, yode_tools::RuntimeTaskStatus::Running))
@@ -84,11 +90,15 @@ impl Command for BriefCommand {
             ));
         }
         output.push_str(&format!(
-            "  Latest review: {}\n",
+            "  Latest review: {}{}\n",
             latest_review
                 .as_ref()
                 .map(|path| path.display().to_string())
-                .unwrap_or_else(|| "none".to_string())
+                .unwrap_or_else(|| "none".to_string()),
+            latest_review_preview
+                .as_ref()
+                .map(|preview| format!("\n    {}", preview))
+                .unwrap_or_default()
         ));
         output.push_str(&format!(
             "  Latest tool artifact: {}\n",
@@ -98,11 +108,15 @@ impl Command for BriefCommand {
                 .unwrap_or("none")
         ));
         output.push_str(&format!(
-            "  Latest transcript: {}\n",
+            "  Latest transcript: {}{}\n",
             latest_transcript
                 .as_ref()
                 .map(|path| path.display().to_string())
-                .unwrap_or_else(|| "none".to_string())
+                .unwrap_or_else(|| "none".to_string()),
+            latest_transcript_preview
+                .as_ref()
+                .map(|preview| format!("\n    {}", preview))
+                .unwrap_or_default()
         ));
         output.push_str("\nUse /diagnostics, /tasks, /reviews, /tools, or /memory latest for detail.");
 
@@ -119,4 +133,30 @@ fn latest_markdown_file(dir: &std::path::Path) -> Option<std::path::PathBuf> {
         .collect::<Vec<_>>();
     entries.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
     entries.into_iter().next()
+}
+
+fn preview_markdown(path: &std::path::Path, section_hint: &str) -> Option<String> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let preview_source = if let Some(start) = content.find(section_hint) {
+        &content[start + section_hint.len()..]
+    } else {
+        &content
+    };
+    let squashed = preview_source
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#') && !line.starts_with("```"))
+        .take(3)
+        .collect::<Vec<_>>()
+        .join(" | ");
+    if squashed.is_empty() {
+        None
+    } else {
+        let preview = squashed.chars().take(180).collect::<String>();
+        Some(if squashed.chars().count() > 180 {
+            format!("{}...", preview)
+        } else {
+            preview
+        })
+    }
 }
