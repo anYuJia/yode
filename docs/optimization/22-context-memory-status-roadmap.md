@@ -161,11 +161,18 @@ live memory 现在支持：
 - 对不同记忆类型的拆分（user/project/feedback/decisions）
 - 从 compact 结果中自动抽稳定 facts
 
-### 2. transcript 检视仍偏文件浏览
+### 2. transcript 检视基础已收口
 
-虽然 `/memory` 已能看 transcript，但还缺：
+这一轮之后，transcript artifacts 的基础检视能力已经基本齐了：
 
-- summary / failed 组合过滤
+- mode 过滤
+- summary 过滤
+- failed 过滤
+- 组合过滤
+- 日期范围过滤
+- transcript 对比 + diff 预览
+
+下一步更值得投入的已经不是继续堆命令，而是提升 memory 本身的质量。
 
 ### 3. diagnostics 还停留在命令态
 
@@ -184,11 +191,13 @@ live memory 现在支持：
 
 ### 阶段 A：Artifacts 检视增强
 
-优先做：
+已完成：
 
-1. summary / failed 组合过滤
-2. compare 输出增强
-3. transcript 级内容 diff
+1. `/memory list summary`
+2. `/memory list failed`
+3. `/memory list summary failed`
+4. `/memory list <date-range>`
+5. `/memory compare <a> <b>`
 
 原因：
 
@@ -262,10 +271,10 @@ live memory 现在支持：
 
 如果继续按照当前节奏推进，我建议下一刀做：
 
-`/memory list summary failed`
+`structured live/session memory schema`
 
 原因：
 
-- 现在已经能按 mode / summary / failed 单独过滤、按日期范围过滤，也能两两 compare
-- 下一步更自然的是把多个筛选器组合起来，减少反复切命令
-- 仍然主要停留在 TUI command 层，风险低
+- artifacts 检视这一层已经够用
+- 下一步瓶颈是 memory 质量，而不是“能不能看到 transcript”
+- 继续做 structured memory 会比继续堆更多 `/memory list ...` 子命令更值

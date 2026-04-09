@@ -69,6 +69,7 @@ chrono = { version = "0.4", features = ["serde"] }
 regex = "1"
 globset = "0.4"
 dirs = "6"
+similar = "2"
 
 # Internal crates
 yode-core = { path = "crates/yode-core" }

@@ -1,4 +1,5 @@
 use chrono::{Duration, Local, NaiveDate, NaiveDateTime};
+use similar::{ChangeTag, DiffOp, TextDiff};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -24,7 +25,8 @@ impl MemoryCommand {
                 args: vec![ArgDef {
                     name: "target".to_string(),
                     required: false,
-                    hint: "[live|session|latest|list [recent|auto|manual|summary|failed|today|yesterday|YYYY-MM-DD[..YYYY-MM-DD]]|compare <a> <b>|<index>|<file>]".to_string(),
+                    hint: "[live|session|latest|list [filters...]|compare <a> <b>|<index>|<file>]"
+                        .to_string(),
                     completions: ArgCompletionSource::Static(vec![
                         "live".to_string(),
                         "session".to_string(),
@@ -35,6 +37,7 @@ impl MemoryCommand {
                         "list manual".to_string(),
                         "list summary".to_string(),
                         "list failed".to_string(),
+                        "list summary failed".to_string(),
                         "list today".to_string(),
                         "list yesterday".to_string(),
                         "compare".to_string(),
@@ -221,15 +224,19 @@ fn render_transcript_compare(dir: &Path, left_target: &str, right_target: &str) 
     )))
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum TranscriptFilter {
-    All,
-    Recent,
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+struct TranscriptListFilter {
+    recent_limit: Option<usize>,
+    mode: Option<TranscriptMode>,
+    require_summary: bool,
+    require_failed: bool,
+    date_range: Option<DateRangeFilter>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TranscriptMode {
     Auto,
     Manual,
-    Summary,
-    Failed,
-    DateRange(DateRangeFilter),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -275,9 +282,40 @@ impl DateRangeFilter {
     }
 }
 
-fn render_transcript_list(dir: &Path, filter: &TranscriptFilter) -> String {
+impl TranscriptListFilter {
+    fn label(&self) -> String {
+        let mut parts = Vec::new();
+
+        if let Some(mode) = self.mode {
+            parts.push(match mode {
+                TranscriptMode::Auto => "auto".to_string(),
+                TranscriptMode::Manual => "manual".to_string(),
+            });
+        }
+        if self.require_summary {
+            parts.push("summary".to_string());
+        }
+        if self.require_failed {
+            parts.push("failed".to_string());
+        }
+        if let Some(range) = &self.date_range {
+            parts.push(range.label());
+        }
+        if self.recent_limit.is_some() {
+            parts.push("recent".to_string());
+        }
+
+        if parts.is_empty() {
+            "all".to_string()
+        } else {
+            parts.join(" ")
+        }
+    }
+}
+
+fn render_transcript_list(dir: &Path, filter: &TranscriptListFilter) -> String {
     let entries = filtered_transcript_entries(dir, filter);
-    let label = transcript_filter_label(filter);
+    let label = filter.label();
     if entries.is_empty() {
         return format!(
             "No transcript backups matched '{}' in {}. Transcript artifacts are written only after a compaction that actually removes or truncates content.",
@@ -330,57 +368,64 @@ fn sorted_transcript_entries(dir: &Path) -> Vec<PathBuf> {
     entries
 }
 
-fn filtered_transcript_entries(dir: &Path, filter: &TranscriptFilter) -> Vec<PathBuf> {
+fn filtered_transcript_entries(dir: &Path, filter: &TranscriptListFilter) -> Vec<PathBuf> {
     let mut entries = sorted_transcript_entries(dir);
-    match filter {
-        TranscriptFilter::All => {}
-        TranscriptFilter::Recent => {
-            entries.truncate(5);
-        }
-        TranscriptFilter::Auto
-        | TranscriptFilter::Manual
-        | TranscriptFilter::Summary
-        | TranscriptFilter::Failed
-        | TranscriptFilter::DateRange(_) => {
-            entries.retain(|path| {
-                let meta = match read_transcript_metadata(path) {
-                    Some(meta) => meta,
-                    None => return false,
+    let needs_metadata = filter.mode.is_some()
+        || filter.require_summary
+        || filter.require_failed
+        || filter.date_range.is_some();
+
+    if needs_metadata {
+        entries.retain(|path| {
+            let meta = match read_transcript_metadata(path) {
+                Some(meta) => meta,
+                None => return false,
+            };
+
+            if let Some(mode) = filter.mode {
+                let expected = match mode {
+                    TranscriptMode::Auto => "auto",
+                    TranscriptMode::Manual => "manual",
                 };
-                match filter {
-                    TranscriptFilter::Auto => meta.mode.as_deref() == Some("auto"),
-                    TranscriptFilter::Manual => meta.mode.as_deref() == Some("manual"),
-                    TranscriptFilter::Summary => meta.has_summary,
-                    TranscriptFilter::Failed => meta.failed_tool_results.unwrap_or(0) > 0,
-                    TranscriptFilter::DateRange(range) => meta
-                        .timestamp
-                        .as_deref()
-                        .and_then(parse_transcript_date)
-                        .map(|date| range.contains(date))
-                        .unwrap_or(false),
-                    _ => true,
+                if meta.mode.as_deref() != Some(expected) {
+                    return false;
                 }
-            });
-        }
+            }
+
+            if filter.require_summary && !meta.has_summary {
+                return false;
+            }
+
+            if filter.require_failed && meta.failed_tool_results.unwrap_or(0) == 0 {
+                return false;
+            }
+
+            if let Some(range) = &filter.date_range {
+                let in_range = meta
+                    .timestamp
+                    .as_deref()
+                    .and_then(parse_transcript_date)
+                    .map(|date| range.contains(date))
+                    .unwrap_or(false);
+                if !in_range {
+                    return false;
+                }
+            }
+
+            true
+        });
     }
+
+    if let Some(limit) = filter.recent_limit {
+        entries.truncate(limit);
+    }
+
     entries
 }
 
-fn transcript_filter_label(filter: &TranscriptFilter) -> String {
-    match filter {
-        TranscriptFilter::All => "all".to_string(),
-        TranscriptFilter::Recent => "recent".to_string(),
-        TranscriptFilter::Auto => "auto".to_string(),
-        TranscriptFilter::Manual => "manual".to_string(),
-        TranscriptFilter::Summary => "summary".to_string(),
-        TranscriptFilter::Failed => "failed".to_string(),
-        TranscriptFilter::DateRange(range) => range.label(),
-    }
-}
-
-fn parse_list_filter(args: &str) -> Result<TranscriptFilter, String> {
+fn parse_list_filter(args: &str) -> Result<TranscriptListFilter, String> {
     if args == "list" {
-        return Ok(TranscriptFilter::All);
+        return Ok(TranscriptListFilter::default());
     }
 
     let spec = args
@@ -388,20 +433,48 @@ fn parse_list_filter(args: &str) -> Result<TranscriptFilter, String> {
         .ok_or_else(memory_list_usage)?
         .trim();
 
-    match spec {
-        "recent" => Ok(TranscriptFilter::Recent),
-        "auto" => Ok(TranscriptFilter::Auto),
-        "manual" => Ok(TranscriptFilter::Manual),
-        "summary" => Ok(TranscriptFilter::Summary),
-        "failed" => Ok(TranscriptFilter::Failed),
-        _ => parse_date_range_filter(spec)
-            .map(TranscriptFilter::DateRange)
-            .ok_or_else(memory_list_usage),
+    if spec.is_empty() {
+        return Ok(TranscriptListFilter::default());
     }
+
+    let mut filter = TranscriptListFilter::default();
+    for token in spec.split_whitespace() {
+        match token {
+            "all" => {}
+            "recent" => {
+                filter.recent_limit = Some(5);
+            }
+            "auto" => match filter.mode {
+                None => filter.mode = Some(TranscriptMode::Auto),
+                Some(TranscriptMode::Auto) => {}
+                Some(TranscriptMode::Manual) => return Err(memory_list_usage()),
+            },
+            "manual" => match filter.mode {
+                None => filter.mode = Some(TranscriptMode::Manual),
+                Some(TranscriptMode::Manual) => {}
+                Some(TranscriptMode::Auto) => return Err(memory_list_usage()),
+            },
+            "summary" => {
+                filter.require_summary = true;
+            }
+            "failed" => {
+                filter.require_failed = true;
+            }
+            _ => {
+                let range = parse_date_range_filter(token).ok_or_else(memory_list_usage)?;
+                if filter.date_range.is_some() {
+                    return Err(memory_list_usage());
+                }
+                filter.date_range = Some(range);
+            }
+        }
+    }
+
+    Ok(filter)
 }
 
 fn memory_list_usage() -> String {
-    "Usage: /memory list [recent|auto|manual|summary|failed|today|yesterday|YYYY-MM-DD|YYYY-MM-DD..YYYY-MM-DD|..YYYY-MM-DD|YYYY-MM-DD..]".to_string()
+    "Usage: /memory list [recent] [auto|manual] [summary] [failed] [today|yesterday|YYYY-MM-DD|YYYY-MM-DD..YYYY-MM-DD|..YYYY-MM-DD|YYYY-MM-DD..]".to_string()
 }
 
 fn parse_date_range_filter(spec: &str) -> Option<DateRangeFilter> {
@@ -636,6 +709,11 @@ fn build_transcript_compare_output(
     output.push_str(&format!("  A: {}\n", left_summary));
     output.push_str(&format!("  B: {}\n", right_summary));
 
+    if let Some(diff_preview) = build_diff_preview(left_content, right_content) {
+        output.push_str("\nContent diff:\n");
+        output.push_str(&diff_preview);
+    }
+
     if let Some((line_no, left_line, right_line)) = first_difference(left_content, right_content) {
         output.push_str("\nFirst difference:\n");
         output.push_str(&format!("  Line: {}\n", line_no));
@@ -650,6 +728,85 @@ fn build_transcript_compare_output(
     }
 
     output
+}
+
+fn build_diff_preview(left: &str, right: &str) -> Option<String> {
+    let diff = TextDiff::from_lines(left, right);
+    let groups = diff.grouped_ops(2);
+
+    let mut added = 0usize;
+    let mut removed = 0usize;
+    for op in diff.ops() {
+        for change in diff.iter_changes(op) {
+            match change.tag() {
+                ChangeTag::Insert => added += 1,
+                ChangeTag::Delete => removed += 1,
+                ChangeTag::Equal => {}
+            }
+        }
+    }
+
+    if added == 0 && removed == 0 {
+        return None;
+    }
+
+    let mut output = String::new();
+    output.push_str(&format!("  Changed lines: +{} / -{}\n", added, removed));
+
+    let mut shown_lines = 0usize;
+    for (idx, group) in groups.iter().take(3).enumerate() {
+        let (old_start, old_count, new_start, new_count) = diff_group_header(group);
+        output.push_str(&format!(
+            "  Hunk {} @@ -{},{} +{},{} @@\n",
+            idx + 1,
+            old_start,
+            old_count,
+            new_start,
+            new_count
+        ));
+
+        for op in group {
+            for change in diff.iter_changes(op) {
+                let prefix = match change.tag() {
+                    ChangeTag::Delete => '-',
+                    ChangeTag::Insert => '+',
+                    ChangeTag::Equal => ' ',
+                };
+                output.push_str(&format!(
+                    "    {}{}\n",
+                    prefix,
+                    summarize_compare_line(change.to_string().trim_end_matches('\n'))
+                ));
+                shown_lines += 1;
+                if shown_lines >= 60 {
+                    output.push_str("    ... diff preview truncated ...\n");
+                    return Some(output);
+                }
+            }
+        }
+    }
+
+    if groups.len() > 3 {
+        output.push_str(&format!(
+            "  ... {} more hunks omitted ...\n",
+            groups.len() - 3
+        ));
+    }
+
+    Some(output)
+}
+
+fn diff_group_header(group: &[DiffOp]) -> (usize, usize, usize, usize) {
+    let first = group.first().expect("diff group should not be empty");
+    let last = group.last().expect("diff group should not be empty");
+    let old = first.old_range().start..last.old_range().end;
+    let new = first.new_range().start..last.new_range().end;
+    (
+        old.start + 1,
+        old.end.saturating_sub(old.start),
+        new.start + 1,
+        new.end.saturating_sub(new.start),
+    )
 }
 
 fn format_compare_field(label: &str, left: &str, right: &str) -> String {
@@ -702,7 +859,7 @@ mod tests {
         build_transcript_compare_output, extract_summary_preview, filtered_transcript_entries,
         latest_transcript, parse_compare_targets, parse_date_range_filter, parse_list_filter,
         read_transcript_metadata, render_transcript_list, resolve_transcript_target,
-        truncate_for_display, TranscriptFilter, MAX_DISPLAY_CHARS,
+        truncate_for_display, TranscriptListFilter, TranscriptMode, MAX_DISPLAY_CHARS,
     };
 
     #[test]
@@ -743,7 +900,7 @@ mod tests {
         let by_name = resolve_transcript_target(&dir, "aaa-compact-20240101.md").unwrap();
         assert!(by_name.ends_with("aaa-compact-20240101.md"));
 
-        let listing = render_transcript_list(&dir, &TranscriptFilter::All);
+        let listing = render_transcript_list(&dir, &TranscriptListFilter::default());
         assert!(listing.contains("  1. "));
         assert!(listing.contains("  2. "));
 
@@ -799,11 +956,23 @@ mod tests {
         )
         .unwrap();
 
-        let auto = filtered_transcript_entries(&dir, &TranscriptFilter::Auto);
+        let auto = filtered_transcript_entries(
+            &dir,
+            &TranscriptListFilter {
+                mode: Some(TranscriptMode::Auto),
+                ..Default::default()
+            },
+        );
         assert_eq!(auto.len(), 1);
         assert!(auto[0].ends_with("auto.md"));
 
-        let manual_listing = render_transcript_list(&dir, &TranscriptFilter::Manual);
+        let manual_listing = render_transcript_list(
+            &dir,
+            &TranscriptListFilter {
+                mode: Some(TranscriptMode::Manual),
+                ..Default::default()
+            },
+        );
         assert!(manual_listing.contains("manual"));
         assert!(!manual_listing.contains("auto.md"));
 
@@ -828,11 +997,23 @@ mod tests {
         )
         .unwrap();
 
-        let summary = filtered_transcript_entries(&dir, &TranscriptFilter::Summary);
+        let summary = filtered_transcript_entries(
+            &dir,
+            &TranscriptListFilter {
+                require_summary: true,
+                ..Default::default()
+            },
+        );
         assert_eq!(summary.len(), 1);
         assert!(summary[0].ends_with("with-summary.md"));
 
-        let summary_listing = render_transcript_list(&dir, &TranscriptFilter::Summary);
+        let summary_listing = render_transcript_list(
+            &dir,
+            &TranscriptListFilter {
+                require_summary: true,
+                ..Default::default()
+            },
+        );
         assert!(summary_listing.contains("summary=yes"));
         assert!(!summary_listing.contains("without-summary.md"));
 
@@ -857,11 +1038,23 @@ mod tests {
         )
         .unwrap();
 
-        let failed = filtered_transcript_entries(&dir, &TranscriptFilter::Failed);
+        let failed = filtered_transcript_entries(
+            &dir,
+            &TranscriptListFilter {
+                require_failed: true,
+                ..Default::default()
+            },
+        );
         assert_eq!(failed.len(), 1);
         assert!(failed[0].ends_with("failed.md"));
 
-        let failed_listing = render_transcript_list(&dir, &TranscriptFilter::Failed);
+        let failed_listing = render_transcript_list(
+            &dir,
+            &TranscriptListFilter {
+                require_failed: true,
+                ..Default::default()
+            },
+        );
         assert!(failed_listing.contains("failed=2"));
         assert!(!failed_listing.contains("clean.md"));
 
@@ -872,19 +1065,31 @@ mod tests {
     fn parse_list_filter_supports_date_ranges() {
         assert!(matches!(
             parse_list_filter("list 2026-01-01").unwrap(),
-            TranscriptFilter::DateRange(_)
+            TranscriptListFilter {
+                date_range: Some(_),
+                ..
+            }
         ));
         assert!(matches!(
             parse_list_filter("list 2026-01-01..2026-01-03").unwrap(),
-            TranscriptFilter::DateRange(_)
+            TranscriptListFilter {
+                date_range: Some(_),
+                ..
+            }
         ));
         assert!(matches!(
             parse_list_filter("list ..2026-01-03").unwrap(),
-            TranscriptFilter::DateRange(_)
+            TranscriptListFilter {
+                date_range: Some(_),
+                ..
+            }
         ));
         assert!(matches!(
             parse_list_filter("list today").unwrap(),
-            TranscriptFilter::DateRange(_)
+            TranscriptListFilter {
+                date_range: Some(_),
+                ..
+            }
         ));
         assert!(parse_list_filter("list 2026-01-03..2026-01-01").is_err());
         assert!(parse_list_filter("list nope").is_err());
@@ -943,6 +1148,59 @@ mod tests {
     }
 
     #[test]
+    fn parse_list_filter_supports_combined_flags() {
+        let filter = parse_list_filter("list summary failed recent auto").unwrap();
+        assert_eq!(
+            filter,
+            TranscriptListFilter {
+                recent_limit: Some(5),
+                mode: Some(TranscriptMode::Auto),
+                require_summary: true,
+                require_failed: true,
+                date_range: None,
+            }
+        );
+        assert!(parse_list_filter("list auto manual").is_err());
+    }
+
+    #[test]
+    fn filtered_transcript_entries_supports_combined_filters() {
+        let dir = std::env::temp_dir().join(format!(
+            "yode-memory-command-combo-filter-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("match.md"),
+            "# Compaction Transcript\n\n- Mode: auto\n- Timestamp: 2026-01-03 10:00:00\n- Failed tool results: 2\n\n## Summary Anchor\n\n```text\nsummary\n```\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("no-failed.md"),
+            "# Compaction Transcript\n\n- Mode: auto\n- Timestamp: 2026-01-03 11:00:00\n- Failed tool results: 0\n\n## Summary Anchor\n\n```text\nsummary\n```\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("no-summary.md"),
+            "# Compaction Transcript\n\n- Mode: auto\n- Timestamp: 2026-01-03 12:00:00\n- Failed tool results: 1\n",
+        )
+        .unwrap();
+
+        let filter = parse_list_filter("list auto summary failed").unwrap();
+        let filtered = filtered_transcript_entries(&dir, &filter);
+        assert_eq!(filtered.len(), 1);
+        assert!(filtered[0].ends_with("match.md"));
+
+        let listing = render_transcript_list(&dir, &filter);
+        assert!(listing.contains("(auto summary failed)"));
+        assert!(listing.contains("match.md"));
+        assert!(!listing.contains("no-failed.md"));
+        assert!(!listing.contains("no-summary.md"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn parse_compare_targets_accepts_two_values() {
         assert_eq!(parse_compare_targets("compare 1 2"), Some(("1", "2")));
         assert_eq!(
@@ -973,6 +1231,9 @@ mod tests {
         assert!(output.contains("Failed tool results 1 -> 0"));
         assert!(output.contains("A: Left summary"));
         assert!(output.contains("B: Right summary"));
+        assert!(output.contains("Content diff:"));
+        assert!(output.contains("Changed lines:"));
+        assert!(output.contains("Hunk 1"));
         assert!(output.contains("First difference:"));
 
         std::fs::remove_dir_all(&dir).ok();
