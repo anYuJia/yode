@@ -3,6 +3,7 @@ pub mod ask_user;
 pub mod bash;
 pub mod batch;
 pub mod common;
+pub mod coordinator;
 pub mod cron;
 pub mod edit_file;
 pub mod file_diff;
@@ -107,6 +108,7 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     registry.register(Arc::new(common::SleepTool));
     registry.register(Arc::new(common::SendUserFileTool));
     registry.register(Arc::new(common::REPLTool));
+    registry.register(Arc::new(coordinator::CoordinateAgentsTool));
     registry.register(Arc::new(workflow::WorkflowRunTool));
 }
 
