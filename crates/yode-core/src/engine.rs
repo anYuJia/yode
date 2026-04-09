@@ -1,4 +1,5 @@
 use regex::Regex;
+use std::collections::HashSet;
 use std::pin::Pin;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
@@ -341,6 +342,8 @@ pub struct AgentEngine {
     error_buckets: std::collections::HashMap<ToolErrorType, u32>,
     /// Last failed path/command to detect identical retry loops.
     last_failed_signature: Option<String>,
+    /// Tool call ids whose latest result was an error in the current session.
+    failed_tool_call_ids: HashSet<String>,
     /// Whether the engine is in plan mode.
     plan_mode: Arc<Mutex<bool>>,
     /// Detected project kind for current session root.
@@ -540,6 +543,7 @@ impl AgentEngine {
             files_modified: Vec::new(),
             error_buckets: std::collections::HashMap::new(),
             last_failed_signature: None,
+            failed_tool_call_ids: HashSet::new(),
             plan_mode: Arc::new(Mutex::new(false)),
             project_kind: detected_project_kind,
             recovery_state: RecoveryState::Normal,
@@ -815,9 +819,9 @@ impl AgentEngine {
                 return Some(ToolResult::error_typed(
                     format!(
                         "Blocked by hook: {}",
-                        result.reason.unwrap_or_else(|| {
-                            format!("pre_tool_use rejected {}", tool_name)
-                        })
+                        result
+                            .reason
+                            .unwrap_or_else(|| { format!("pre_tool_use rejected {}", tool_name) })
                     ),
                     ToolErrorType::PermissionDeny,
                     false,
@@ -1185,6 +1189,7 @@ impl AgentEngine {
             &pre_compact_messages,
             &report,
             mode,
+            &self.failed_tool_call_ids,
         ) {
             Ok(path) => transcript_path = Some(path),
             Err(err) => warn!("Failed to write compaction transcript: {}", err),
@@ -1240,7 +1245,8 @@ impl AgentEngine {
             transcript_path: transcript_path_str.clone(),
         });
         self.last_compaction_mode = Some(mode.to_string());
-        self.last_compaction_at = Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
+        self.last_compaction_at =
+            Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
         self.last_compaction_summary_excerpt = report.summary.as_ref().map(|summary| {
             let excerpt: String = summary.chars().take(160).collect();
             if summary.chars().count() > 160 {
@@ -1290,6 +1296,7 @@ impl AgentEngine {
         // Keep the system prompt as the first message, then append restored messages
         let system_msg = self.messages.first().cloned();
         self.messages.clear();
+        self.failed_tool_call_ids.clear();
         if let Some(sys) = system_msg {
             self.messages.push(sys);
         }
@@ -1307,6 +1314,7 @@ impl AgentEngine {
         if self.messages.len() > 1 {
             let system_msg = self.messages.first().cloned();
             self.messages.clear();
+            self.failed_tool_call_ids.clear();
             if let Some(sys) = system_msg {
                 self.messages.push(sys);
             }
@@ -1353,6 +1361,14 @@ impl AgentEngine {
             if let Err(e) = db.touch_session(&self.context.session_id) {
                 warn!("Failed to touch session: {}", e);
             }
+        }
+    }
+
+    fn record_tool_result_status(&mut self, tool_call_id: &str, result: &ToolResult) {
+        if result.is_error {
+            self.failed_tool_call_ids.insert(tool_call_id.to_string());
+        } else {
+            self.failed_tool_call_ids.remove(tool_call_id);
         }
     }
 
@@ -1445,11 +1461,7 @@ impl AgentEngine {
                 Ok(path) => {
                     let updated_at = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
                     let path_str = path.display().to_string();
-                    self.set_shared_memory_status(
-                        Some(updated_at),
-                        Some(path_str.clone()),
-                        false,
-                    );
+                    self.set_shared_memory_status(Some(updated_at), Some(path_str.clone()), false);
                     self.rebuild_system_prompt();
                     if let Some(event_tx) = event_tx {
                         let _ = event_tx.send(EngineEvent::SessionMemoryUpdated {
@@ -1864,14 +1876,10 @@ impl AgentEngine {
                     self.inject_intelligence(&mut result, &tc.name, &tc.arguments);
                     let working_dir = self.current_runtime_working_dir().await;
                     let effective_input = Self::parse_tool_input(&tc.arguments);
-                    self.run_post_tool_use_hooks(
-                        tc,
-                        &effective_input,
-                        &working_dir,
-                        &mut result,
-                    )
-                    .await;
+                    self.run_post_tool_use_hooks(tc, &effective_input, &working_dir, &mut result)
+                        .await;
 
+                    self.record_tool_result_status(&tc.id, &result);
                     self.messages
                         .push(Message::tool_result(&tc.id, &result.content));
                     self.persist_message("tool", Some(&result.content), None, None, Some(&tc.id));
@@ -1903,6 +1911,7 @@ impl AgentEngine {
                     )
                     .await;
 
+                    self.record_tool_result_status(&tool_call.id, &result);
                     self.messages
                         .push(Message::tool_result(&tool_call.id, &result.content));
                     self.persist_message(
@@ -1938,9 +1947,9 @@ impl AgentEngine {
                 }
             }
 
-        self.maybe_refresh_live_session_memory(Some(&event_tx));
-        let _ = event_tx.send(EngineEvent::TurnComplete(response));
-        let _ = event_tx.send(EngineEvent::Done);
+            self.maybe_refresh_live_session_memory(Some(&event_tx));
+            let _ = event_tx.send(EngineEvent::TurnComplete(response));
+            let _ = event_tx.send(EngineEvent::Done);
             break;
         }
 
@@ -2591,6 +2600,7 @@ impl AgentEngine {
                         )
                         .await;
 
+                        self.record_tool_result_status(&tc.id, &result);
                         self.messages
                             .push(Message::tool_result(&tc.id, &result.content));
                         self.persist_message(
@@ -2639,6 +2649,7 @@ impl AgentEngine {
                     )
                     .await;
 
+                    self.record_tool_result_status(&tool_call.id, &result);
                     self.messages
                         .push(Message::tool_result(&tool_call.id, &result.content));
                     self.persist_message(
@@ -3377,7 +3388,12 @@ impl AgentEngine {
         let working_dir = self.current_runtime_working_dir().await;
 
         if let Some(blocked) = self
-            .run_pre_tool_use_hook(&tool_call.name, &tool_call.arguments, &working_dir, &mut params)
+            .run_pre_tool_use_hook(
+                &tool_call.name,
+                &tool_call.arguments,
+                &working_dir,
+                &mut params,
+            )
             .await
         {
             return Ok(blocked);
@@ -3605,7 +3621,11 @@ impl AgentEngine {
                             let denied_ctx = HookContext {
                                 event: HookEvent::PermissionDenied.to_string(),
                                 session_id: self.context.session_id.clone(),
-                                working_dir: self.context.working_dir_compat().display().to_string(),
+                                working_dir: self
+                                    .context
+                                    .working_dir_compat()
+                                    .display()
+                                    .to_string(),
                                 tool_name: Some(tool_call.name.clone()),
                                 tool_input: Some(params.clone()),
                                 tool_output: None,
@@ -4390,10 +4410,8 @@ mod tests {
     #[tokio::test]
     async fn test_pre_tool_use_hook_can_modify_input() {
         let mut engine = make_engine(vec![Arc::new(MockPathTool)], vec![]);
-        let hook_dir = std::env::temp_dir().join(format!(
-            "yode-modify-hook-test-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let hook_dir =
+            std::env::temp_dir().join(format!("yode-modify-hook-test-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&hook_dir).unwrap();
         let mut hook_mgr = crate::hooks::HookManager::new(hook_dir);
         hook_mgr.register(crate::hooks::HookDefinition {

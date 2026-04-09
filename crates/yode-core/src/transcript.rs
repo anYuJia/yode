@@ -1,3 +1,4 @@
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -14,6 +15,7 @@ pub fn write_compaction_transcript(
     messages: &[Message],
     report: &CompressionReport,
     mode: &str,
+    failed_tool_call_ids: &HashSet<String>,
 ) -> Result<PathBuf> {
     let dir = project_root.join(TRANSCRIPTS_DIR);
     fs::create_dir_all(&dir)
@@ -27,7 +29,7 @@ pub fn write_compaction_transcript(
     ));
     fs::write(
         &path,
-        render_compaction_transcript(session_id, messages, report, mode),
+        render_compaction_transcript(session_id, messages, report, mode, failed_tool_call_ids),
     )
     .with_context(|| format!("Failed to write transcript file: {}", path.display()))?;
 
@@ -39,7 +41,9 @@ fn render_compaction_transcript(
     messages: &[Message],
     report: &CompressionReport,
     mode: &str,
+    failed_tool_call_ids: &HashSet<String>,
 ) -> String {
+    let failure_summary = summarize_failed_tools(messages, failed_tool_call_ids);
     let mut output = String::new();
     output.push_str("# Compaction Transcript\n\n");
     output.push_str(&format!("- Session: {}\n", session_id));
@@ -53,6 +57,16 @@ fn render_compaction_transcript(
         "- Tool results truncated: {}\n",
         report.tool_results_truncated
     ));
+    output.push_str(&format!(
+        "- Failed tool results: {}\n",
+        failure_summary.failed_tool_results
+    ));
+    if !failure_summary.failed_tool_names.is_empty() {
+        output.push_str(&format!(
+            "- Failed tools: {}\n",
+            failure_summary.failed_tool_names.join(", ")
+        ));
+    }
     if let Some(summary) = report.summary.as_deref() {
         output.push_str("\n## Summary Anchor\n\n```text\n");
         output.push_str(summary.trim());
@@ -88,6 +102,9 @@ fn render_compaction_transcript(
 
         if let Some(tool_call_id) = message.tool_call_id.as_deref() {
             output.push_str(&format!("\nTool call id: `{}`\n", tool_call_id));
+            if failed_tool_call_ids.contains(tool_call_id) {
+                output.push_str("Tool result status: `error`\n");
+            }
         }
     }
 
@@ -107,10 +124,53 @@ fn role_label(role: &Role) -> &'static str {
     }
 }
 
+#[derive(Debug, Default)]
+struct FailedToolSummary {
+    failed_tool_results: usize,
+    failed_tool_names: Vec<String>,
+}
+
+fn summarize_failed_tools(
+    messages: &[Message],
+    failed_tool_call_ids: &HashSet<String>,
+) -> FailedToolSummary {
+    let mut tool_names_by_id = HashMap::new();
+    for message in messages {
+        for tool_call in &message.tool_calls {
+            tool_names_by_id.insert(tool_call.id.as_str(), tool_call.name.as_str());
+        }
+    }
+
+    let mut failed_tool_results = 0usize;
+    let mut failed_tool_names = BTreeSet::new();
+    for message in messages {
+        if !matches!(message.role, Role::Tool) {
+            continue;
+        }
+        let Some(tool_call_id) = message.tool_call_id.as_deref() else {
+            continue;
+        };
+        if !failed_tool_call_ids.contains(tool_call_id) {
+            continue;
+        }
+        failed_tool_results += 1;
+        if let Some(name) = tool_names_by_id.get(tool_call_id) {
+            failed_tool_names.insert((*name).to_string());
+        }
+    }
+
+    FailedToolSummary {
+        failed_tool_results,
+        failed_tool_names: failed_tool_names.into_iter().collect(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use tempfile::tempdir;
-    use yode_llm::types::Message;
+    use yode_llm::types::{Message, ToolCall};
 
     use super::write_compaction_transcript;
     use crate::context_manager::CompressionReport;
@@ -130,14 +190,52 @@ mod tests {
             &[Message::user("hello"), Message::assistant("world")],
             &report,
             "auto",
+            &HashSet::new(),
         )
         .unwrap();
 
         let content = std::fs::read_to_string(path).unwrap();
         assert!(content.contains("Compaction Transcript"));
         assert!(content.contains("- Mode: auto"));
+        assert!(content.contains("- Failed tool results: 0"));
         assert!(content.contains("summary anchor"));
         assert!(content.contains("### User"));
         assert!(content.contains("### Assistant"));
+    }
+
+    #[test]
+    fn writes_failed_tool_metadata_when_known() {
+        let temp = tempdir().unwrap();
+        let report = CompressionReport {
+            removed: 2,
+            tool_results_truncated: 0,
+            summary: None,
+        };
+
+        let mut assistant = Message::assistant("Running diagnostics");
+        assistant.tool_calls.push(ToolCall {
+            id: "tc1".to_string(),
+            name: "bash".to_string(),
+            arguments: "{\"command\":\"false\"}".to_string(),
+        });
+        let messages = vec![
+            assistant,
+            Message::tool_result("tc1", "Tool execution failed: boom"),
+        ];
+
+        let path = write_compaction_transcript(
+            temp.path(),
+            "session-1234",
+            &messages,
+            &report,
+            "manual",
+            &HashSet::from(["tc1".to_string()]),
+        )
+        .unwrap();
+
+        let content = std::fs::read_to_string(path).unwrap();
+        assert!(content.contains("- Failed tool results: 1"));
+        assert!(content.contains("- Failed tools: bash"));
+        assert!(content.contains("Tool result status: `error`"));
     }
 }

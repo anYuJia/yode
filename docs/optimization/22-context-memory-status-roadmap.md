@@ -136,6 +136,7 @@ live memory 现在支持：
 - `/memory list auto`
 - `/memory list manual`
 - `/memory list summary`
+- `/memory list failed`
 - `/memory <index>`
 - `/memory <filename>`
 
@@ -161,7 +162,6 @@ live memory 现在支持：
 虽然 `/memory` 已能看 transcript，但还缺：
 
 - transcript 级 diff / compare
-- error-only / failed-only 过滤
 - 按时间范围过滤
 
 ### 3. diagnostics 还停留在命令态
@@ -183,9 +183,9 @@ live memory 现在支持：
 
 优先做：
 
-1. `/memory list failed`
-2. `/memory compare <a> <b>`
-3. 按时间范围过滤
+1. `/memory compare <a> <b>`
+2. 按时间范围过滤
+3. summary / failed 组合过滤
 
 原因：
 
@@ -259,10 +259,10 @@ live memory 现在支持：
 
 如果继续按照当前节奏推进，我建议下一刀做：
 
-`/memory list failed`
+`/memory compare <a> <b>`
 
 原因：
 
-- 仍然主要停留在 transcript metadata 层
-- 可以复用这次 `summary` 过滤已经铺好的命令和测试结构
-- 能进一步缩短排查“哪次 compact 质量差/失败”的定位时间
+- 已经有 `summary` 和 `failed` 两类筛选
+- 下一步瓶颈是“两个 compact 产物怎么对照看”
+- compare 做完之后，时间范围和组合过滤会更顺手

@@ -23,7 +23,7 @@ impl MemoryCommand {
                 args: vec![ArgDef {
                     name: "target".to_string(),
                     required: false,
-                    hint: "[live|session|latest|list [recent|auto|manual|summary]|<index>|<file>]".to_string(),
+                    hint: "[live|session|latest|list [recent|auto|manual|summary|failed]|<index>|<file>]".to_string(),
                     completions: ArgCompletionSource::Static(vec![
                         "live".to_string(),
                         "session".to_string(),
@@ -33,6 +33,7 @@ impl MemoryCommand {
                         "list auto".to_string(),
                         "list manual".to_string(),
                         "list summary".to_string(),
+                        "list failed".to_string(),
                     ]),
                 }],
                 category: CommandCategory::Info,
@@ -93,6 +94,10 @@ impl Command for MemoryCommand {
             "list summary" => Ok(CommandOutput::Message(render_transcript_list(
                 &transcripts_dir,
                 TranscriptFilter::Summary,
+            ))),
+            "list failed" => Ok(CommandOutput::Message(render_transcript_list(
+                &transcripts_dir,
+                TranscriptFilter::Failed,
             ))),
             target => {
                 let transcript = resolve_transcript_target(&transcripts_dir, target)
@@ -172,8 +177,8 @@ fn render_memory_status(
 }
 
 fn render_file(label: &str, path: &Path) -> CommandResult {
-    let content = fs::read_to_string(path)
-        .map_err(|_| format!("{} not found: {}", label, path.display()))?;
+    let content =
+        fs::read_to_string(path).map_err(|_| format!("{} not found: {}", label, path.display()))?;
     let truncated = truncate_for_display(&content);
     Ok(CommandOutput::Message(format!(
         "{}\nPath: {}\n\n{}",
@@ -187,15 +192,17 @@ fn render_latest_transcript(path: &Path) -> CommandResult {
     let content = fs::read_to_string(path)
         .map_err(|_| format!("Latest transcript not found: {}", path.display()))?;
     let meta = read_transcript_metadata(path).unwrap_or_default();
-    let preview = extract_summary_preview(&content).unwrap_or_else(|| "No summary anchor".to_string());
+    let preview =
+        extract_summary_preview(&content).unwrap_or_else(|| "No summary anchor".to_string());
     let truncated = truncate_for_display(&content);
     Ok(CommandOutput::Message(format!(
-        "Latest transcript\nPath: {}\nMode: {}\nTimestamp: {}\nRemoved: {}\nTruncated: {}\nSummary preview: {}\n\n{}",
+        "Latest transcript\nPath: {}\nMode: {}\nTimestamp: {}\nRemoved: {}\nTruncated: {}\nFailed tool results: {}\nSummary preview: {}\n\n{}",
         path.display(),
         meta.mode.unwrap_or_else(|| "unknown".to_string()),
         meta.timestamp.unwrap_or_else(|| "unknown".to_string()),
         meta.removed.unwrap_or(0),
         meta.truncated.unwrap_or(0),
+        meta.failed_tool_results.unwrap_or(0),
         preview,
         truncated
     )))
@@ -208,6 +215,7 @@ enum TranscriptFilter {
     Auto,
     Manual,
     Summary,
+    Failed,
 }
 
 fn render_transcript_list(dir: &Path, filter: TranscriptFilter) -> String {
@@ -225,6 +233,7 @@ fn render_transcript_list(dir: &Path, filter: TranscriptFilter) -> String {
         TranscriptFilter::Auto => "auto",
         TranscriptFilter::Manual => "manual",
         TranscriptFilter::Summary => "summary",
+        TranscriptFilter::Failed => "failed",
     };
     let mut output = format!("Transcript backups in {} ({label}):\n", dir.display());
     for (idx, path) in entries.into_iter().take(10).enumerate() {
@@ -232,11 +241,12 @@ fn render_transcript_list(dir: &Path, filter: TranscriptFilter) -> String {
         output.push_str(&path.display().to_string());
         if let Some(meta) = read_transcript_metadata(&path) {
             output.push_str(&format!(
-                "\n      {} | mode={} | removed={} | truncated={}{}",
+                "\n      {} | mode={} | removed={} | truncated={} | failed={}{}",
                 meta.timestamp.unwrap_or_else(|| "unknown time".to_string()),
                 meta.mode.unwrap_or_else(|| "unknown".to_string()),
                 meta.removed.unwrap_or(0),
                 meta.truncated.unwrap_or(0),
+                meta.failed_tool_results.unwrap_or(0),
                 if meta.has_summary {
                     " | summary=yes"
                 } else {
@@ -276,7 +286,10 @@ fn filtered_transcript_entries(dir: &Path, filter: TranscriptFilter) -> Vec<Path
         TranscriptFilter::Recent => {
             entries.truncate(5);
         }
-        TranscriptFilter::Auto | TranscriptFilter::Manual | TranscriptFilter::Summary => {
+        TranscriptFilter::Auto
+        | TranscriptFilter::Manual
+        | TranscriptFilter::Summary
+        | TranscriptFilter::Failed => {
             entries.retain(|path| {
                 let meta = match read_transcript_metadata(path) {
                     Some(meta) => meta,
@@ -286,6 +299,7 @@ fn filtered_transcript_entries(dir: &Path, filter: TranscriptFilter) -> Vec<Path
                     TranscriptFilter::Auto => meta.mode.as_deref() == Some("auto"),
                     TranscriptFilter::Manual => meta.mode.as_deref() == Some("manual"),
                     TranscriptFilter::Summary => meta.has_summary,
+                    TranscriptFilter::Failed => meta.failed_tool_results.unwrap_or(0) > 0,
                     _ => true,
                 }
             });
@@ -337,6 +351,7 @@ struct TranscriptMetadata {
     mode: Option<String>,
     removed: Option<usize>,
     truncated: Option<usize>,
+    failed_tool_results: Option<usize>,
     has_summary: bool,
 }
 
@@ -344,7 +359,7 @@ fn read_transcript_metadata(path: &Path) -> Option<TranscriptMetadata> {
     let content = fs::read_to_string(path).ok()?;
     let mut meta = TranscriptMetadata::default();
 
-    for line in content.lines().take(8) {
+    for line in content.lines().take(10) {
         if let Some(value) = line.strip_prefix("- Timestamp: ") {
             meta.timestamp = Some(value.to_string());
         } else if let Some(value) = line.strip_prefix("- Mode: ") {
@@ -353,6 +368,8 @@ fn read_transcript_metadata(path: &Path) -> Option<TranscriptMetadata> {
             meta.removed = value.parse::<usize>().ok();
         } else if let Some(value) = line.strip_prefix("- Tool results truncated: ") {
             meta.truncated = value.parse::<usize>().ok();
+        } else if let Some(value) = line.strip_prefix("- Failed tool results: ") {
+            meta.failed_tool_results = value.parse::<usize>().ok();
         }
     }
 
@@ -389,10 +406,8 @@ mod tests {
 
     #[test]
     fn latest_transcript_prefers_newest_filename() {
-        let dir = std::env::temp_dir().join(format!(
-            "yode-memory-command-test-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("yode-memory-command-test-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("aaa-compact-20240101.md"), "old").unwrap();
         std::fs::write(dir.join("bbb-compact-20250101.md"), "new").unwrap();
@@ -436,15 +451,13 @@ mod tests {
 
     #[test]
     fn read_transcript_metadata_parses_header_fields() {
-        let dir = std::env::temp_dir().join(format!(
-            "yode-memory-command-meta-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("yode-memory-command-meta-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("sample.md");
         std::fs::write(
             &path,
-            "# Compaction Transcript\n\n- Session: abc\n- Mode: manual\n- Timestamp: 2026-01-01 10:00:00\n- Removed messages: 7\n- Tool results truncated: 2\n\n## Summary Anchor\n",
+            "# Compaction Transcript\n\n- Session: abc\n- Mode: manual\n- Timestamp: 2026-01-01 10:00:00\n- Removed messages: 7\n- Tool results truncated: 2\n- Failed tool results: 1\n\n## Summary Anchor\n",
         )
         .unwrap();
 
@@ -453,6 +466,7 @@ mod tests {
         assert_eq!(meta.timestamp.as_deref(), Some("2026-01-01 10:00:00"));
         assert_eq!(meta.removed, Some(7));
         assert_eq!(meta.truncated, Some(2));
+        assert_eq!(meta.failed_tool_results, Some(1));
         assert!(meta.has_summary);
 
         std::fs::remove_dir_all(&dir).ok();
@@ -520,6 +534,35 @@ mod tests {
         let summary_listing = render_transcript_list(&dir, TranscriptFilter::Summary);
         assert!(summary_listing.contains("summary=yes"));
         assert!(!summary_listing.contains("without-summary.md"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn filtered_transcript_entries_supports_failed_filter() {
+        let dir = std::env::temp_dir().join(format!(
+            "yode-memory-command-failed-filter-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("failed.md"),
+            "# Compaction Transcript\n\n- Mode: auto\n- Timestamp: 2026-01-01 10:00:00\n- Failed tool results: 2\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("clean.md"),
+            "# Compaction Transcript\n\n- Mode: manual\n- Timestamp: 2026-01-01 11:00:00\n- Failed tool results: 0\n",
+        )
+        .unwrap();
+
+        let failed = filtered_transcript_entries(&dir, TranscriptFilter::Failed);
+        assert_eq!(failed.len(), 1);
+        assert!(failed[0].ends_with("failed.md"));
+
+        let failed_listing = render_transcript_list(&dir, TranscriptFilter::Failed);
+        assert!(failed_listing.contains("failed=2"));
+        assert!(!failed_listing.contains("clean.md"));
 
         std::fs::remove_dir_all(&dir).ok();
     }
