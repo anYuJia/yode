@@ -2,6 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
+use crate::builtin::review_common::persist_review_artifact;
 use crate::tool::{SubAgentOptions, Tool, ToolCapabilities, ToolContext, ToolResult};
 
 pub struct ReviewChangesTool;
@@ -113,11 +114,21 @@ impl Tool for ReviewChangesTool {
             )
             .await?;
 
+        let artifact_path = if !run_in_background {
+            ctx.working_dir
+                .as_deref()
+                .and_then(|dir| persist_review_artifact(dir, "review", focus, &result).ok())
+                .map(|path| path.display().to_string())
+        } else {
+            None
+        };
+
         Ok(ToolResult::success_with_metadata(
             result,
             json!({
                 "focus": focus,
                 "run_in_background": run_in_background,
+                "review_artifact_path": artifact_path,
             }),
         ))
     }

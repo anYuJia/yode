@@ -22,6 +22,7 @@ pub mod notebook_edit;
 pub mod plan_mode;
 pub mod project_map;
 pub mod read_file;
+pub mod review_common;
 pub mod review_changes;
 pub mod skill;
 pub mod task_output;
