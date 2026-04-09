@@ -67,6 +67,8 @@ compact 之后现在会：
 
 结果：`--resume` 不会再把 compact 前的整段历史重新灌回上下文。
 
+另外，resume 之后现在会从磁盘重建 latest transcript / memory artifact 的运行时索引，`/status` 和 `/context` 不再回到全 `none`。
+
 ### 5. live session memory
 
 已经有两层：

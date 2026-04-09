@@ -136,6 +136,62 @@ fn max_retries_for(kind: ErrorKind) -> u32 {
     }
 }
 
+fn latest_transcript_runtime_state(
+    project_root: &std::path::Path,
+) -> Option<(std::path::PathBuf, TranscriptArtifactRuntimeState)> {
+    let dir = project_root.join(".yode").join("transcripts");
+    let mut entries = std::fs::read_dir(&dir)
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("md"))
+        .collect::<Vec<_>>();
+    entries.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
+    let path = entries.into_iter().next()?;
+    let content = std::fs::read_to_string(&path).ok()?;
+
+    let mut mode = None;
+    let mut timestamp = None;
+    let mut session_memory_path = None;
+    for line in content.lines().take(16) {
+        if let Some(value) = line.strip_prefix("- Mode: ") {
+            mode = Some(value.to_string());
+        } else if let Some(value) = line.strip_prefix("- Timestamp: ") {
+            timestamp = Some(value.to_string());
+        } else if let Some(value) = line.strip_prefix("- Session memory path: ") {
+            session_memory_path = Some(value.to_string());
+        }
+    }
+
+    let summary_excerpt = content
+        .find("## Summary Anchor")
+        .and_then(|start| content[start..].find("```text").map(|fence| (start, fence)))
+        .and_then(|(start, fence)| {
+            let block = &content[start..];
+            let after_fence = &block[fence + "```text".len()..];
+            after_fence.find("```").map(|end| after_fence[..end].trim())
+        })
+        .filter(|summary| !summary.is_empty())
+        .map(|summary| {
+            let excerpt: String = summary.chars().take(160).collect();
+            if summary.chars().count() > 160 {
+                format!("{}...", excerpt)
+            } else {
+                excerpt
+            }
+        });
+
+    Some((
+        path,
+        TranscriptArtifactRuntimeState {
+            mode,
+            timestamp,
+            summary_excerpt,
+            session_memory_path,
+        },
+    ))
+}
+
 /// Per-tool timeout for parallel execution (30 seconds)
 const PARALLEL_TOOL_TIMEOUT_SECS: u64 = 30;
 
@@ -308,6 +364,14 @@ const MAX_CONSECUTIVE_COMPACTION_FAILURES: u32 = 3;
 const SESSION_MEMORY_INIT_CHAR_THRESHOLD: usize = 8_000;
 const SESSION_MEMORY_CHAR_DELTA_THRESHOLD: usize = 4_000;
 const SESSION_MEMORY_TOOL_DELTA_THRESHOLD: u32 = 3;
+
+#[derive(Debug)]
+struct TranscriptArtifactRuntimeState {
+    mode: Option<String>,
+    timestamp: Option<String>,
+    summary_excerpt: Option<String>,
+    session_memory_path: Option<String>,
+}
 
 /// The core agent engine that drives the conversation loop.
 pub struct AgentEngine {
@@ -1337,6 +1401,7 @@ impl AgentEngine {
         }
         self.messages.extend(messages);
         self.reset_autocompact_state();
+        self.rebuild_runtime_artifact_state_from_disk();
         info!(
             "Restored {} messages from database",
             self.messages.len() - 1
@@ -1398,6 +1463,47 @@ impl AgentEngine {
             }
             if let Err(e) = db.touch_session(&self.context.session_id) {
                 warn!("Failed to touch session: {}", e);
+            }
+        }
+    }
+
+    fn rebuild_runtime_artifact_state_from_disk(&mut self) {
+        let project_root = self.context.working_dir_compat();
+        self.last_compaction_mode = None;
+        self.last_compaction_at = None;
+        self.last_compaction_summary_excerpt = None;
+        self.last_compaction_session_memory_path = None;
+        self.last_compaction_transcript_path = None;
+
+        if let Some((path, state)) = latest_transcript_runtime_state(&project_root) {
+            self.last_compaction_mode = state.mode;
+            self.last_compaction_at = state.timestamp;
+            self.last_compaction_summary_excerpt = state.summary_excerpt;
+            self.last_compaction_session_memory_path = state.session_memory_path.or_else(|| {
+                let session_path = crate::session_memory::session_memory_path(&project_root);
+                session_path
+                    .exists()
+                    .then(|| session_path.display().to_string())
+            });
+            self.last_compaction_transcript_path = Some(path.display().to_string());
+        } else {
+            let session_path = crate::session_memory::session_memory_path(&project_root);
+            if session_path.exists() {
+                self.last_compaction_session_memory_path = Some(session_path.display().to_string());
+            }
+        }
+
+        let live_path = crate::session_memory::live_session_memory_path(&project_root);
+        if let Ok(meta) = std::fs::metadata(&live_path) {
+            let updated_at = meta.modified().ok().map(|modified| {
+                chrono::DateTime::<chrono::Local>::from(modified)
+                    .format("%Y-%m-%d %H:%M:%S")
+                    .to_string()
+            });
+            if let Ok(mut state) = self.shared_memory_status.try_lock() {
+                state.last_session_memory_update_at = updated_at;
+                state.last_session_memory_update_path = Some(live_path.display().to_string());
+                state.last_session_memory_generated_summary = false;
             }
         }
     }
@@ -4549,6 +4655,46 @@ mod tests {
         let content = std::fs::read_to_string(live_path).unwrap();
         assert!(content.contains("Session Snapshot"));
         assert!(content.contains("Short session"));
+    }
+
+    #[test]
+    fn test_restore_messages_rebuilds_artifact_runtime_state() {
+        let mut engine = make_engine(vec![], vec![]);
+        let project_root = engine.context().working_dir_compat();
+        let transcript_dir = project_root.join(".yode").join("transcripts");
+        std::fs::create_dir_all(&transcript_dir).unwrap();
+        let transcript_path = transcript_dir.join("abc12345-compact-20260101-100000.md");
+        std::fs::write(
+            &transcript_path,
+            "# Compaction Transcript\n\n- Session: abc\n- Mode: manual\n- Timestamp: 2026-01-01 10:00:00\n- Removed messages: 7\n- Tool results truncated: 2\n- Failed tool results: 1\n- Session memory path: .yode/memory/session.md\n\n## Summary Anchor\n\n```text\nRecovered summary\n```\n",
+        )
+        .unwrap();
+
+        let live_path = crate::session_memory::live_session_memory_path(&project_root);
+        std::fs::create_dir_all(live_path.parent().unwrap()).unwrap();
+        std::fs::write(&live_path, "# Session Snapshot\n\nplaceholder").unwrap();
+
+        engine.restore_messages(vec![Message::user("resume")]);
+        let runtime = engine.runtime_state();
+        assert_eq!(runtime.last_compaction_mode.as_deref(), Some("manual"));
+        assert_eq!(
+            runtime.last_compaction_at.as_deref(),
+            Some("2026-01-01 10:00:00")
+        );
+        assert_eq!(
+            runtime.last_compaction_summary_excerpt.as_deref(),
+            Some("Recovered summary")
+        );
+        let transcript_path_str = transcript_path.display().to_string();
+        assert_eq!(
+            runtime.last_compaction_transcript_path.as_deref(),
+            Some(transcript_path_str.as_str())
+        );
+        let live_path_str = live_path.display().to_string();
+        assert_eq!(
+            runtime.last_session_memory_update_path.as_deref(),
+            Some(live_path_str.as_str())
+        );
     }
 }
 
