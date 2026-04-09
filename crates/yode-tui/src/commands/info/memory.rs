@@ -23,7 +23,7 @@ impl MemoryCommand {
                 args: vec![ArgDef {
                     name: "target".to_string(),
                     required: false,
-                    hint: "[live|session|latest|list [recent|auto|manual]|<index>|<file>]".to_string(),
+                    hint: "[live|session|latest|list [recent|auto|manual|summary]|<index>|<file>]".to_string(),
                     completions: ArgCompletionSource::Static(vec![
                         "live".to_string(),
                         "session".to_string(),
@@ -32,6 +32,7 @@ impl MemoryCommand {
                         "list recent".to_string(),
                         "list auto".to_string(),
                         "list manual".to_string(),
+                        "list summary".to_string(),
                     ]),
                 }],
                 category: CommandCategory::Info,
@@ -88,6 +89,10 @@ impl Command for MemoryCommand {
             "list manual" => Ok(CommandOutput::Message(render_transcript_list(
                 &transcripts_dir,
                 TranscriptFilter::Manual,
+            ))),
+            "list summary" => Ok(CommandOutput::Message(render_transcript_list(
+                &transcripts_dir,
+                TranscriptFilter::Summary,
             ))),
             target => {
                 let transcript = resolve_transcript_target(&transcripts_dir, target)
@@ -202,6 +207,7 @@ enum TranscriptFilter {
     Recent,
     Auto,
     Manual,
+    Summary,
 }
 
 fn render_transcript_list(dir: &Path, filter: TranscriptFilter) -> String {
@@ -218,6 +224,7 @@ fn render_transcript_list(dir: &Path, filter: TranscriptFilter) -> String {
         TranscriptFilter::Recent => "recent",
         TranscriptFilter::Auto => "auto",
         TranscriptFilter::Manual => "manual",
+        TranscriptFilter::Summary => "summary",
     };
     let mut output = format!("Transcript backups in {} ({label}):\n", dir.display());
     for (idx, path) in entries.into_iter().take(10).enumerate() {
@@ -269,16 +276,18 @@ fn filtered_transcript_entries(dir: &Path, filter: TranscriptFilter) -> Vec<Path
         TranscriptFilter::Recent => {
             entries.truncate(5);
         }
-        TranscriptFilter::Auto | TranscriptFilter::Manual => {
+        TranscriptFilter::Auto | TranscriptFilter::Manual | TranscriptFilter::Summary => {
             entries.retain(|path| {
-                read_transcript_metadata(path)
-                    .and_then(|meta| meta.mode)
-                    .map(|mode| match filter {
-                        TranscriptFilter::Auto => mode == "auto",
-                        TranscriptFilter::Manual => mode == "manual",
-                        _ => true,
-                    })
-                    .unwrap_or(false)
+                let meta = match read_transcript_metadata(path) {
+                    Some(meta) => meta,
+                    None => return false,
+                };
+                match filter {
+                    TranscriptFilter::Auto => meta.mode.as_deref() == Some("auto"),
+                    TranscriptFilter::Manual => meta.mode.as_deref() == Some("manual"),
+                    TranscriptFilter::Summary => meta.has_summary,
+                    _ => true,
+                }
             });
         }
     }
@@ -482,6 +491,35 @@ mod tests {
         let manual_listing = render_transcript_list(&dir, TranscriptFilter::Manual);
         assert!(manual_listing.contains("manual"));
         assert!(!manual_listing.contains("auto.md"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn filtered_transcript_entries_supports_summary_filter() {
+        let dir = std::env::temp_dir().join(format!(
+            "yode-memory-command-summary-filter-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("with-summary.md"),
+            "# Compaction Transcript\n\n- Mode: auto\n- Timestamp: 2026-01-01 10:00:00\n\n## Summary Anchor\n\n```text\nsummary\n```\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("without-summary.md"),
+            "# Compaction Transcript\n\n- Mode: manual\n- Timestamp: 2026-01-01 11:00:00\n",
+        )
+        .unwrap();
+
+        let summary = filtered_transcript_entries(&dir, TranscriptFilter::Summary);
+        assert_eq!(summary.len(), 1);
+        assert!(summary[0].ends_with("with-summary.md"));
+
+        let summary_listing = render_transcript_list(&dir, TranscriptFilter::Summary);
+        assert!(summary_listing.contains("summary=yes"));
+        assert!(!summary_listing.contains("without-summary.md"));
 
         std::fs::remove_dir_all(&dir).ok();
     }

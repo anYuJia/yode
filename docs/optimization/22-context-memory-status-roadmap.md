@@ -17,6 +17,7 @@
 - `669d953` `feat(memory): 增强 transcript 元数据与浏览`
 - `373d501` `feat(memory): 预览最新 transcript 摘要`
 - `1090a18` `fix(memory): 同步异步 session memory 状态`
+- `ec13e1b` `fix(memory): clarify compaction artifact expectations`
 
 ## 已完成
 
@@ -134,6 +135,7 @@ live memory 现在支持：
 - `/memory list recent`
 - `/memory list auto`
 - `/memory list manual`
+- `/memory list summary`
 - `/memory <index>`
 - `/memory <filename>`
 
@@ -159,7 +161,6 @@ live memory 现在支持：
 虽然 `/memory` 已能看 transcript，但还缺：
 
 - transcript 级 diff / compare
-- summary-only 过滤
 - error-only / failed-only 过滤
 - 按时间范围过滤
 
@@ -182,9 +183,9 @@ live memory 现在支持：
 
 优先做：
 
-1. `/memory list summary`
-2. `/memory list failed`
-3. `/memory compare <a> <b>`
+1. `/memory list failed`
+2. `/memory compare <a> <b>`
+3. 按时间范围过滤
 
 原因：
 
@@ -258,11 +259,10 @@ live memory 现在支持：
 
 如果继续按照当前节奏推进，我建议下一刀做：
 
-`/memory list summary`
+`/memory list failed`
 
 原因：
 
-- 最小改动
-- 能直接提升 transcript 的可用性
-- 不需要再动 engine 主循环
-- 可以顺手为后续 `compare` 和 `failed-only` 过滤打基础
+- 仍然主要停留在 transcript metadata 层
+- 可以复用这次 `summary` 过滤已经铺好的命令和测试结构
+- 能进一步缩短排查“哪次 compact 质量差/失败”的定位时间
