@@ -10,7 +10,7 @@ impl ReviewsCommand {
         Self {
             meta: CommandMeta {
                 name: "reviews",
-                description: "List or open review artifacts under .yode/reviews",
+                description: "List or open review artifacts under .yode/reviews, optionally filtered by kind",
                 aliases: &[],
                 args: vec![],
                 category: CommandCategory::Development,
@@ -39,22 +39,47 @@ impl Command for ReviewsCommand {
         entries.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
 
         let trimmed = args.trim();
-        if trimmed.is_empty() {
+        let parts = trimmed.split_whitespace().collect::<Vec<_>>();
+        let kind_filter = match parts.as_slice() {
+            ["latest", kind] => Some(*kind),
+            ["list", kind] => Some(*kind),
+            [kind] if !kind.chars().all(|c| c.is_ascii_digit()) && *kind != "latest" => Some(*kind),
+            _ => None,
+        };
+        if let Some(kind) = kind_filter {
+            entries.retain(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .map(|name| name.starts_with(&format!("{}-", kind)))
+                    .unwrap_or(false)
+            });
+        }
+
+        if trimmed.is_empty() || matches!(parts.as_slice(), ["list"] | ["list", _]) {
             if entries.is_empty() {
                 return Ok(CommandOutput::Message(format!(
-                    "No review artifacts found in {}.",
+                    "No review artifacts{} found in {}.",
+                    kind_filter
+                        .map(|kind| format!(" for '{}'", kind))
+                        .unwrap_or_default(),
                     dir.display()
                 )));
             }
-            let mut output = format!("Review artifacts in {}:\n", dir.display());
+            let mut output = format!(
+                "Review artifacts{} in {}:\n",
+                kind_filter
+                    .map(|kind| format!(" [{}]", kind))
+                    .unwrap_or_default(),
+                dir.display()
+            );
             for (idx, path) in entries.iter().take(12).enumerate() {
                 output.push_str(&format!("  {:>2}. {}\n", idx + 1, path.display()));
             }
-            output.push_str("\nUse /reviews <index> to open one.");
+            output.push_str("\nUse /reviews <index>, /reviews latest, or /reviews latest <kind>.");
             return Ok(CommandOutput::Message(output));
         }
 
-        if trimmed == "latest" {
+        if matches!(parts.as_slice(), ["latest"] | ["latest", _]) {
             if entries.is_empty() {
                 return Err("No review artifacts available.".to_string());
             }
@@ -62,7 +87,10 @@ impl Command for ReviewsCommand {
             let content = std::fs::read_to_string(path)
                 .map_err(|err| format!("Failed to read {}: {}", path.display(), err))?;
             return Ok(CommandOutput::Message(format!(
-                "Latest review artifact\nPath: {}\n\n{}",
+                "Latest review artifact{}\nPath: {}\n\n{}",
+                kind_filter
+                    .map(|kind| format!(" [{}]", kind))
+                    .unwrap_or_default(),
                 path.display(),
                 content
             )));
@@ -70,7 +98,10 @@ impl Command for ReviewsCommand {
 
         let index = trimmed
             .parse::<usize>()
-            .map_err(|_| "Usage: /reviews | /reviews latest | /reviews <index>".to_string())?;
+            .map_err(|_| {
+                "Usage: /reviews | /reviews list [kind] | /reviews latest [kind] | /reviews <index>"
+                    .to_string()
+            })?;
         if index == 0 || index > entries.len() {
             return Err(format!("Review artifact index out of range: {}", index));
         }
