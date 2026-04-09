@@ -18,11 +18,11 @@
 
 当前焦点：
 
-- `037 Session end hook 增加 memory flush metadata`
+- `041 Tool budget runtime counters`
 
 当前进度：
 
-- `36 / 100` 已完成
+- `40 / 100` 已完成
 
 ## 001-010 Structured Memory
 
@@ -71,10 +71,10 @@
 - `[x] 034 Async hook wake notification 基础框架`
 - `[x] 035 Long-running hook timeout / cancel tracing`
 - `[x] 036 Hook failure telemetry aggregation`
-- `[ ] 037 Session end hook 增加 memory flush metadata`
-- `[ ] 038 Permission hooks 增加 final effective input snapshot`
-- `[ ] 039 Hook additionalContext 注入优先级治理`
-- `[ ] 040 Hook diagnostics command`
+- `[x] 037 Session end hook 增加 memory flush metadata`
+- `[x] 038 Permission hooks 增加 final effective input snapshot`
+- `[x] 039 Hook additionalContext 注入优先级治理`
+- `[x] 040 Hook diagnostics command`
 
 ## 041-050 Tool Runtime / Budget
 

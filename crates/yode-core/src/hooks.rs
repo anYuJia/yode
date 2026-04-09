@@ -480,23 +480,7 @@ fn parse_structured_hook_output(stdout: &str) -> Option<HookResult> {
                 .cloned()
         });
 
-    let stdout = object
-        .get("systemMessage")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
-        .or_else(|| {
-            object
-                .get("additional_context")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-        })
-        .or_else(|| {
-            object
-                .get("hookSpecificOutput")
-                .and_then(|v| v.get("additionalContext"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-        });
+    let stdout = collect_hook_text_outputs(object);
     let wake_notification = object
         .get("wakeNotification")
         .and_then(|v| v.as_str())
@@ -512,12 +496,7 @@ fn parse_structured_hook_output(stdout: &str) -> Option<HookResult> {
         .get("hookSpecificOutput")
         .and_then(|v| v.get("memorySections"))
         .and_then(render_memory_sections_markdown);
-    let stdout = match (stdout, memory_sections) {
-        (Some(stdout), Some(memory)) => Some(format!("{}\n\n{}", stdout, memory)),
-        (Some(stdout), None) => Some(stdout),
-        (None, Some(memory)) => Some(memory),
-        (None, None) => None,
-    };
+    let stdout = merge_hook_output_parts(stdout, memory_sections);
 
     Some(HookResult {
         blocked,
@@ -526,6 +505,62 @@ fn parse_structured_hook_output(stdout: &str) -> Option<HookResult> {
         stdout,
         wake_notification,
     })
+}
+
+fn collect_hook_text_outputs(object: &serde_json::Map<String, Value>) -> Option<String> {
+    let mut parts = Vec::new();
+    push_unique_output(
+        &mut parts,
+        object
+            .get("systemMessage")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+    );
+    push_unique_output(
+        &mut parts,
+        object
+            .get("additional_context")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+    );
+    push_unique_output(
+        &mut parts,
+        object
+            .get("hookSpecificOutput")
+            .and_then(|v| v.get("additionalContext"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+    );
+
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("\n\n"))
+    }
+}
+
+fn merge_hook_output_parts(primary: Option<String>, secondary: Option<String>) -> Option<String> {
+    let mut parts = Vec::new();
+    push_unique_output(&mut parts, primary);
+    push_unique_output(&mut parts, secondary);
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("\n\n"))
+    }
+}
+
+fn push_unique_output(target: &mut Vec<String>, value: Option<String>) {
+    let Some(value) = value else {
+        return;
+    };
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    if !target.iter().any(|existing| existing == trimmed) {
+        target.push(trimmed.to_string());
+    }
 }
 
 fn render_memory_sections_markdown(value: &Value) -> Option<String> {
@@ -780,5 +815,21 @@ mod tests {
         assert!(stdout.contains("### Findings"));
         assert!(stdout.contains("- Finding one"));
         assert!(stdout.contains("### Confidence"));
+    }
+
+    #[test]
+    fn test_parse_structured_hook_output_merges_text_outputs_in_order() {
+        let output = parse_structured_hook_output(
+            "{\"systemMessage\":\"primary\",\"additional_context\":\"secondary\",\"hookSpecificOutput\":{\"additionalContext\":\"tertiary\",\"memorySections\":{\"goals\":[\"Goal one\"]}}}",
+        )
+        .unwrap();
+        let stdout = output.stdout.unwrap();
+        let primary_idx = stdout.find("primary").unwrap();
+        let secondary_idx = stdout.find("secondary").unwrap();
+        let tertiary_idx = stdout.find("tertiary").unwrap();
+        let goals_idx = stdout.find("### Goals").unwrap();
+        assert!(primary_idx < secondary_idx);
+        assert!(secondary_idx < tertiary_idx);
+        assert!(tertiary_idx < goals_idx);
     }
 }

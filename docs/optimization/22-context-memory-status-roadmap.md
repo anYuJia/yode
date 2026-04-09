@@ -130,6 +130,8 @@ live memory 现在支持：
 - hook 的 `hookSpecificOutput.memorySections` 可以直接返回结构化 memory markdown
 - hook 的 `wakeNotification` / exit code `2` 会进入异步 wake 基础框架
 - hook timeout / non-zero exit / execution error / wake 次数现在有聚合 telemetry
+- session_end hooks 带 memory flush metadata，permission hooks 带 effective input snapshot
+- 新增 `/hooks` 诊断命令
 
 ### 8. TUI / CLI 可观测性
 

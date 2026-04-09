@@ -1147,6 +1147,7 @@ impl AgentEngine {
         };
 
         let runtime_metadata = self.runtime_hook_metadata();
+        let memory_flush_metadata = self.session_end_memory_flush_metadata();
 
         let hook_ctx = HookContext {
             event: HookEvent::SessionEnd.to_string(),
@@ -1163,6 +1164,7 @@ impl AgentEngine {
                 "total_messages": self.messages.len(),
                 "total_tool_calls": self.session_tool_calls_total,
                 "runtime": runtime_metadata,
+                "memory_flush": memory_flush_metadata,
             })),
         };
 
@@ -1315,6 +1317,19 @@ impl AgentEngine {
             );
             self.messages.push(Message::system(&message));
             self.persist_message("system", Some(&message), None, None, None);
+        }
+    }
+
+    fn session_end_memory_flush_metadata(&self) -> Value {
+        if let Some(shared) = self.shared_memory_status.try_lock().ok() {
+            json!({
+                "path": shared.last_session_memory_update_path,
+                "updated_at": shared.last_session_memory_update_at,
+                "generated_summary": shared.last_session_memory_generated_summary,
+                "update_count": shared.session_memory_update_count,
+            })
+        } else {
+            Value::Null
         }
     }
 
@@ -3709,8 +3724,9 @@ impl AgentEngine {
         };
 
         // Parse arguments
-        let mut params: serde_json::Value = serde_json::from_str(&tool_call.arguments)
+        let original_params: serde_json::Value = serde_json::from_str(&tool_call.arguments)
             .unwrap_or_else(|_| serde_json::Value::Object(serde_json::Map::new()));
+        let mut params = original_params.clone();
         let working_dir = self.current_runtime_working_dir().await;
 
         if let Some(blocked) = self
@@ -3783,6 +3799,7 @@ impl AgentEngine {
         };
         let effective_arguments =
             serde_json::to_string(&params).unwrap_or_else(|_| tool_call.arguments.clone());
+        let input_changed_by_hook = params != original_params;
 
         // Unified project/command gate (Claude-style preflight): block mismatched
         // language-specific commands until project root assumptions are corrected.
@@ -3896,6 +3913,11 @@ impl AgentEngine {
                     user_prompt: None,
                     metadata: Some(json!({
                         "decision": "confirm",
+                        "effective_input_snapshot": params.clone(),
+                        "effective_arguments_snapshot": effective_arguments.clone(),
+                        "original_input_snapshot": original_params.clone(),
+                        "original_arguments_snapshot": tool_call.arguments.clone(),
+                        "input_changed_by_hook": input_changed_by_hook,
                     })),
                 };
                 self.execute_advisory_hooks(HookEvent::PermissionRequest, permission_request_ctx)
@@ -3959,6 +3981,11 @@ impl AgentEngine {
                                 user_prompt: None,
                                 metadata: Some(json!({
                                     "source": "user_confirmation",
+                                    "effective_input_snapshot": params.clone(),
+                                    "effective_arguments_snapshot": effective_arguments.clone(),
+                                    "original_input_snapshot": original_params.clone(),
+                                    "original_arguments_snapshot": tool_call.arguments.clone(),
+                                    "input_changed_by_hook": input_changed_by_hook,
                                 })),
                             };
                             self.execute_advisory_hooks(HookEvent::PermissionDenied, denied_ctx)
@@ -3993,6 +4020,11 @@ impl AgentEngine {
                     user_prompt: None,
                     metadata: Some(json!({
                         "source": "permission_manager",
+                        "effective_input_snapshot": params.clone(),
+                        "effective_arguments_snapshot": effective_arguments.clone(),
+                        "original_input_snapshot": original_params.clone(),
+                        "original_arguments_snapshot": tool_call.arguments.clone(),
+                        "input_changed_by_hook": input_changed_by_hook,
                     })),
                 };
                 self.execute_advisory_hooks(HookEvent::PermissionDenied, denied_ctx)
@@ -4860,6 +4892,67 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_permission_hook_metadata_uses_effective_input_snapshot() {
+        let mut engine = make_engine(vec![Arc::new(MockPathTool)], vec!["mock_path".into()]);
+        let hook_dir = std::env::temp_dir().join(format!(
+            "yode-permission-hook-metadata-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&hook_dir).unwrap();
+        let dump_path = hook_dir.join("permission-context.json");
+        let mut hook_mgr = crate::hooks::HookManager::new(hook_dir.clone());
+        hook_mgr.register(crate::hooks::HookDefinition {
+            command: format!(
+                "printf '%s' \"$YODE_HOOK_CONTEXT\" > {}",
+                dump_path.display()
+            ),
+            events: vec!["permission_request".into()],
+            tool_filter: Some(vec!["mock_path".into()]),
+            timeout_secs: 5,
+            can_block: false,
+        });
+        engine.set_hook_manager(hook_mgr);
+
+        let tool_call = ToolCall {
+            id: "tc1".into(),
+            name: "mock_path".into(),
+            arguments: "{\"path\":\"old.txt\"}".into(),
+        };
+        let (event_tx, _event_rx) = mpsc::unbounded_channel();
+        let (confirm_tx, mut confirm_rx) = mpsc::unbounded_channel();
+        confirm_tx.send(ConfirmResponse::Allow).unwrap();
+
+        let _ = engine
+            .handle_tool_call(&tool_call, &event_tx, &mut confirm_rx, None)
+            .await
+            .unwrap();
+
+        let value: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dump_path).unwrap()).unwrap();
+        let metadata = value.get("metadata").and_then(|v| v.as_object()).unwrap();
+        assert_eq!(
+            metadata
+                .get("effective_input_snapshot")
+                .and_then(|v| v.get("path"))
+                .and_then(|v| v.as_str()),
+            Some("old.txt")
+        );
+        assert_eq!(
+            metadata
+                .get("original_input_snapshot")
+                .and_then(|v| v.get("path"))
+                .and_then(|v| v.as_str()),
+            Some("old.txt")
+        );
+        assert_eq!(
+            metadata
+                .get("input_changed_by_hook")
+                .and_then(|v| v.as_bool()),
+            Some(false)
+        );
+    }
+
+    #[tokio::test]
     async fn test_session_end_hook_context_includes_runtime_metadata() {
         let mut engine = make_engine(vec![], vec![]);
         let hook_dir = std::env::temp_dir().join(format!(
@@ -4898,6 +4991,12 @@ mod tests {
         );
         assert!(runtime.contains_key("live_session_memory_path"));
         assert!(runtime.contains_key("tracked_failed_tool_results"));
+        let memory_flush = metadata
+            .get("memory_flush")
+            .and_then(|v| v.as_object())
+            .unwrap();
+        assert!(memory_flush.contains_key("path"));
+        assert!(memory_flush.contains_key("update_count"));
     }
 
     #[test]
