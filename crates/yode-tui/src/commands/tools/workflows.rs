@@ -50,6 +50,11 @@ impl Command for WorkflowsCommand {
             .join("workflows");
         let parts = args.split_whitespace().collect::<Vec<_>>();
         if let ["run", name] = parts.as_slice() {
+            let name = if *name == "latest" {
+                latest_workflow_name(&dir).ok_or_else(|| "No workflow scripts found.".to_string())?
+            } else {
+                (*name).to_string()
+            };
             ctx.input.set_text(&format!(
                 "Use `workflow_run` with name=\"{}\" and summarize the result.",
                 name
@@ -60,6 +65,11 @@ impl Command for WorkflowsCommand {
             )));
         }
         if let ["show", name] = parts.as_slice() {
+            let name = if *name == "latest" {
+                latest_workflow_name(&dir).ok_or_else(|| "No workflow scripts found.".to_string())?
+            } else {
+                (*name).to_string()
+            };
             let path = dir.join(format!("{}.json", name));
             let content = std::fs::read_to_string(&path)
                 .map_err(|err| format!("Failed to read {}: {}", path.display(), err))?;
@@ -73,7 +83,7 @@ impl Command for WorkflowsCommand {
                 "Workflow {}\nPath: {}\nDescription: {}\n\nSteps:\n",
                 json.get("name")
                     .and_then(|value| value.as_str())
-                    .unwrap_or(name),
+                    .unwrap_or(name.as_str()),
                 path.display(),
                 json.get("description")
                     .and_then(|value| value.as_str())
@@ -144,4 +154,19 @@ impl Command for WorkflowsCommand {
         );
         Ok(CommandOutput::Message(output))
     }
+}
+
+fn latest_workflow_name(dir: &std::path::Path) -> Option<String> {
+    let mut entries = std::fs::read_dir(dir)
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("json"))
+        .collect::<Vec<_>>();
+    entries.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
+    entries.into_iter().next().and_then(|path| {
+        path.file_stem()
+            .and_then(|stem| stem.to_str())
+            .map(|stem| stem.to_string())
+    })
 }

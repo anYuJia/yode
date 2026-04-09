@@ -28,8 +28,8 @@ impl TasksCommand {
                     ArgDef {
                         name: "task-id".into(),
                         required: false,
-                        hint: "<task-id>".into(),
-                        completions: ArgCompletionSource::None,
+                        hint: "<task-id|latest>".into(),
+                        completions: ArgCompletionSource::Static(vec!["latest".to_string()]),
                     },
                 ],
                 category: CommandCategory::Info,
@@ -48,6 +48,13 @@ impl Command for TasksCommand {
         let parts = args.split_whitespace().collect::<Vec<_>>();
         let Ok(engine) = ctx.engine.try_lock() else {
             return Err("Engine is busy, try again.".into());
+        };
+        let latest_task_id = || {
+            engine
+                .runtime_tasks_snapshot()
+                .into_iter()
+                .last()
+                .map(|task| task.id)
         };
 
         match parts.as_slice() {
@@ -77,7 +84,12 @@ impl Command for TasksCommand {
                 Ok(CommandOutput::Messages(lines))
             }
             ["stop", id] => {
-                if engine.cancel_runtime_task(id) {
+                let id = if *id == "latest" {
+                    latest_task_id().ok_or_else(|| "No runtime task available.".to_string())?
+                } else {
+                    id.to_string()
+                };
+                if engine.cancel_runtime_task(&id) {
                     Ok(CommandOutput::Message(format!(
                         "Cancellation requested for task {}.",
                         id
@@ -87,7 +99,12 @@ impl Command for TasksCommand {
                 }
             }
             ["read", id] => {
-                let Some(task) = engine.runtime_task_snapshot(id) else {
+                let id = if *id == "latest" {
+                    latest_task_id().ok_or_else(|| "No runtime task available.".to_string())?
+                } else {
+                    id.to_string()
+                };
+                let Some(task) = engine.runtime_task_snapshot(&id) else {
                     return Err(format!("Task '{}' not found.", id));
                 };
                 let content = std::fs::read_to_string(&task.output_path).map_err(|err| {
@@ -110,7 +127,12 @@ impl Command for TasksCommand {
                 )))
             }
             [id] => {
-                let Some(task) = engine.runtime_task_snapshot(id) else {
+                let id = if *id == "latest" {
+                    latest_task_id().ok_or_else(|| "No runtime task available.".to_string())?
+                } else {
+                    id.to_string()
+                };
+                let Some(task) = engine.runtime_task_snapshot(&id) else {
                     return Err(format!("Task '{}' not found.", id));
                 };
                 let output_preview = std::fs::read_to_string(&task.output_path)

@@ -54,9 +54,23 @@ impl Command for ReviewsCommand {
             return Ok(CommandOutput::Message(output));
         }
 
+        if trimmed == "latest" {
+            if entries.is_empty() {
+                return Err("No review artifacts available.".to_string());
+            }
+            let path = &entries[0];
+            let content = std::fs::read_to_string(path)
+                .map_err(|err| format!("Failed to read {}: {}", path.display(), err))?;
+            return Ok(CommandOutput::Message(format!(
+                "Latest review artifact\nPath: {}\n\n{}",
+                path.display(),
+                content
+            )));
+        }
+
         let index = trimmed
             .parse::<usize>()
-            .map_err(|_| "Usage: /reviews | /reviews <index>".to_string())?;
+            .map_err(|_| "Usage: /reviews | /reviews latest | /reviews <index>".to_string())?;
         if index == 0 || index > entries.len() {
             return Err(format!("Review artifact index out of range: {}", index));
         }
