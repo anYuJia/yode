@@ -18,11 +18,11 @@
 
 当前焦点：
 
-- `031 Hook context 增加 compact counters`
+- `034 Async hook wake notification 基础框架`
 
 当前进度：
 
-- `30 / 100` 已完成
+- `33 / 100` 已完成
 
 ## 001-010 Structured Memory
 
@@ -65,9 +65,9 @@
 
 ## 031-040 Hooks / Async Lifecycle
 
-- `[ ] 031 Hook context 增加 compact counters`
-- `[ ] 032 Hook context 增加 live memory status`
-- `[ ] 033 Hook output 支持 memory-specific structured fields`
+- `[x] 031 Hook context 增加 compact counters`
+- `[x] 032 Hook context 增加 live memory status`
+- `[x] 033 Hook output 支持 memory-specific structured fields`
 - `[ ] 034 Async hook wake notification 基础框架`
 - `[ ] 035 Long-running hook timeout / cancel tracing`
 - `[ ] 036 Hook failure telemetry aggregation`

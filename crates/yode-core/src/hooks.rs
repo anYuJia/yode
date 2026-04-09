@@ -223,7 +223,10 @@ impl HookManager {
                     if let Some(mut parsed) = structured {
                         if parsed.reason.is_none() {
                             parsed.reason = Some(if stderr.is_empty() {
-                                format!("Hook '{}' exited with code {}", hook.command, output.status)
+                                format!(
+                                    "Hook '{}' exited with code {}",
+                                    hook.command, output.status
+                                )
                             } else {
                                 stderr.trim().to_string()
                             });
@@ -234,7 +237,10 @@ impl HookManager {
                         HookResult {
                             blocked: true,
                             reason: Some(if stderr.is_empty() {
-                                format!("Hook '{}' exited with code {}", hook.command, output.status)
+                                format!(
+                                    "Hook '{}' exited with code {}",
+                                    hook.command, output.status
+                                )
                             } else {
                                 stderr.trim().to_string()
                             }),
@@ -324,6 +330,16 @@ fn parse_structured_hook_output(stdout: &str) -> Option<HookResult> {
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string())
         });
+    let memory_sections = object
+        .get("hookSpecificOutput")
+        .and_then(|v| v.get("memorySections"))
+        .and_then(render_memory_sections_markdown);
+    let stdout = match (stdout, memory_sections) {
+        (Some(stdout), Some(memory)) => Some(format!("{}\n\n{}", stdout, memory)),
+        (Some(stdout), None) => Some(stdout),
+        (None, Some(memory)) => Some(memory),
+        (None, None) => None,
+    };
 
     Some(HookResult {
         blocked,
@@ -331,6 +347,44 @@ fn parse_structured_hook_output(stdout: &str) -> Option<HookResult> {
         modified_input,
         stdout,
     })
+}
+
+fn render_memory_sections_markdown(value: &Value) -> Option<String> {
+    let object = value.as_object()?;
+    let mut lines = Vec::new();
+    let sections = [
+        ("goals", "Goals"),
+        ("findings", "Findings"),
+        ("decisions", "Decisions"),
+        ("files", "Files"),
+        ("open_questions", "Open Questions"),
+        ("freshness", "Freshness"),
+        ("confidence", "Confidence"),
+    ];
+
+    for (key, title) in sections {
+        let Some(items) = object.get(key).and_then(|v| v.as_array()) else {
+            continue;
+        };
+        lines.push(format!("### {}", title));
+        lines.push(String::new());
+        if items.is_empty() {
+            lines.push("- None".to_string());
+        } else {
+            for item in items {
+                if let Some(text) = item.as_str() {
+                    lines.push(format!("- {}", text));
+                }
+            }
+        }
+        lines.push(String::new());
+    }
+
+    if lines.is_empty() {
+        None
+    } else {
+        Some(lines.join("\n").trim().to_string())
+    }
 }
 
 // ─── Hook Config (for TOML) ────────────────────────────────────────────────
@@ -474,5 +528,19 @@ mod tests {
                 .and_then(|v| v.as_str()),
             Some("src/main.rs")
         );
+    }
+
+    #[test]
+    fn test_parse_structured_hook_output_supports_memory_sections() {
+        let output = parse_structured_hook_output(
+            "{\"hookSpecificOutput\":{\"memorySections\":{\"goals\":[\"Goal one\"],\"findings\":[\"Finding one\"],\"confidence\":[\"Medium\"]}}}",
+        )
+        .unwrap();
+        let stdout = output.stdout.unwrap();
+        assert!(stdout.contains("### Goals"));
+        assert!(stdout.contains("- Goal one"));
+        assert!(stdout.contains("### Findings"));
+        assert!(stdout.contains("- Finding one"));
+        assert!(stdout.contains("### Confidence"));
     }
 }

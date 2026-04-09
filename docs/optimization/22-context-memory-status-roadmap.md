@@ -124,6 +124,11 @@ live memory 现在支持：
 
 最重要的是：`pre_tool_use` 的 `updatedInput` 已经真正贯穿到执行链，后续 validation、permission、dedup 和 tool execute 都会基于修改后的参数。
 
+这一轮又补了：
+
+- compact / session_end hooks 会收到 compact counters、breaker reason、live memory status
+- hook 的 `hookSpecificOutput.memorySections` 可以直接返回结构化 memory markdown
+
 ### 8. TUI / CLI 可观测性
 
 现在用户可以直接看到：

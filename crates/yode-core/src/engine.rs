@@ -1060,6 +1060,8 @@ impl AgentEngine {
             return;
         };
 
+        let runtime_metadata = self.runtime_hook_metadata();
+
         let hook_ctx = HookContext {
             event: HookEvent::SessionStart.to_string(),
             session_id: self.context.session_id.clone(),
@@ -1072,6 +1074,7 @@ impl AgentEngine {
             metadata: Some(json!({
                 "reason": reason,
                 "resumed": self.context.is_resumed,
+                "runtime": runtime_metadata,
             })),
         };
 
@@ -1112,6 +1115,8 @@ impl AgentEngine {
             return;
         };
 
+        let runtime_metadata = self.runtime_hook_metadata();
+
         let hook_ctx = HookContext {
             event: HookEvent::SessionEnd.to_string(),
             session_id: self.context.session_id.clone(),
@@ -1126,6 +1131,7 @@ impl AgentEngine {
                 "resumed": self.context.is_resumed,
                 "total_messages": self.messages.len(),
                 "total_tool_calls": self.session_tool_calls_total,
+                "runtime": runtime_metadata,
             })),
         };
 
@@ -1150,6 +1156,10 @@ impl AgentEngine {
         metadata.insert(
             "files_modified".to_string(),
             json!(self.files_modified.len()),
+        );
+        metadata.insert(
+            "runtime".to_string(),
+            Value::Object(self.runtime_hook_metadata()),
         );
 
         if let Some(report) = report {
@@ -1188,6 +1198,79 @@ impl AgentEngine {
             user_prompt: None,
             metadata: Some(Value::Object(metadata)),
         }
+    }
+
+    fn runtime_hook_metadata(&self) -> Map<String, Value> {
+        let mut metadata = Map::new();
+        metadata.insert(
+            "compaction_failures".to_string(),
+            json!(self.compaction_failures),
+        );
+        metadata.insert(
+            "total_compactions".to_string(),
+            json!(self.total_compactions),
+        );
+        metadata.insert("auto_compactions".to_string(), json!(self.auto_compactions));
+        metadata.insert(
+            "manual_compactions".to_string(),
+            json!(self.manual_compactions),
+        );
+        metadata.insert(
+            "last_compaction_breaker_reason".to_string(),
+            self.last_compaction_breaker_reason
+                .as_ref()
+                .map(|reason| json!(reason))
+                .unwrap_or(Value::Null),
+        );
+        metadata.insert(
+            "live_session_memory_initialized".to_string(),
+            json!(self.session_memory_initialized),
+        );
+        metadata.insert(
+            "live_session_memory_updating".to_string(),
+            json!(self
+                .session_memory_update_in_progress
+                .load(Ordering::SeqCst)),
+        );
+        metadata.insert(
+            "live_session_memory_path".to_string(),
+            json!(live_session_memory_path(&self.context.working_dir_compat())
+                .display()
+                .to_string()),
+        );
+        metadata.insert(
+            "tracked_failed_tool_results".to_string(),
+            json!(self.failed_tool_call_ids.len()),
+        );
+
+        if let Some(shared) = self.shared_memory_status.try_lock().ok() {
+            metadata.insert(
+                "last_session_memory_update_at".to_string(),
+                shared
+                    .last_session_memory_update_at
+                    .as_ref()
+                    .map(|value| json!(value))
+                    .unwrap_or(Value::Null),
+            );
+            metadata.insert(
+                "last_session_memory_update_path".to_string(),
+                shared
+                    .last_session_memory_update_path
+                    .as_ref()
+                    .map(|value| json!(value))
+                    .unwrap_or(Value::Null),
+            );
+            metadata.insert(
+                "last_session_memory_generated_summary".to_string(),
+                json!(shared.last_session_memory_generated_summary),
+            );
+            metadata.insert(
+                "session_memory_update_count".to_string(),
+                json!(shared.session_memory_update_count),
+            );
+        }
+
+        metadata
     }
 
     async fn maybe_compact_context(
@@ -4567,6 +4650,56 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_pre_compact_hook_context_includes_runtime_metadata() {
+        let mut engine = make_engine(vec![], vec![]);
+        let hook_dir =
+            std::env::temp_dir().join(format!("yode-compact-hook-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&hook_dir).unwrap();
+        let dump_path = hook_dir.join("pre-compact-context.json");
+        let mut hook_mgr = crate::hooks::HookManager::new(hook_dir.clone());
+        hook_mgr.register(crate::hooks::HookDefinition {
+            command: format!(
+                "printf '%s' \"$YODE_HOOK_CONTEXT\" > {}",
+                dump_path.display()
+            ),
+            events: vec!["pre_compact".into()],
+            tool_filter: None,
+            timeout_secs: 5,
+            can_block: false,
+        });
+        engine.set_hook_manager(hook_mgr);
+        let big = "x".repeat(18_000);
+        engine.messages = vec![
+            Message::system("system"),
+            Message::user(&big),
+            Message::assistant(&big),
+            Message::tool_result("tc1", &big),
+            Message::user(&big),
+            Message::assistant(&big),
+            Message::user("recent1"),
+            Message::assistant("recent2"),
+            Message::user("recent3"),
+            Message::assistant("recent4"),
+            Message::user("recent5"),
+            Message::assistant("recent6"),
+        ];
+
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let _ = engine.force_compact(tx).await;
+
+        let value: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dump_path).unwrap()).unwrap();
+        let runtime = value
+            .get("metadata")
+            .and_then(|v| v.get("runtime"))
+            .and_then(|v| v.as_object())
+            .unwrap();
+        assert!(runtime.contains_key("total_compactions"));
+        assert!(runtime.contains_key("live_session_memory_initialized"));
+        assert!(runtime.contains_key("session_memory_update_count"));
+    }
+
+    #[tokio::test]
     async fn test_append_hook_outputs_as_system_message_injects_context() {
         let mut engine = make_engine(vec![], vec![]);
         let hook_dir = std::env::temp_dir().join(format!(
@@ -4641,6 +4774,47 @@ mod tests {
             .unwrap();
 
         assert_eq!(result.content, "path=new.txt");
+    }
+
+    #[tokio::test]
+    async fn test_session_end_hook_context_includes_runtime_metadata() {
+        let mut engine = make_engine(vec![], vec![]);
+        let hook_dir = std::env::temp_dir().join(format!(
+            "yode-session-end-hook-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&hook_dir).unwrap();
+        let dump_path = hook_dir.join("session-end-context.json");
+        let mut hook_mgr = crate::hooks::HookManager::new(hook_dir.clone());
+        hook_mgr.register(crate::hooks::HookDefinition {
+            command: format!(
+                "printf '%s' \"$YODE_HOOK_CONTEXT\" > {}",
+                dump_path.display()
+            ),
+            events: vec!["session_end".into()],
+            tool_filter: None,
+            timeout_secs: 5,
+            can_block: false,
+        });
+        engine.set_hook_manager(hook_mgr);
+        engine.messages = vec![
+            Message::system("system"),
+            Message::user("hello"),
+            Message::assistant("world"),
+        ];
+
+        engine.finalize_session_hooks("shutdown").await;
+
+        let value: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dump_path).unwrap()).unwrap();
+        let metadata = value.get("metadata").unwrap();
+        let runtime = metadata.get("runtime").and_then(|v| v.as_object()).unwrap();
+        assert_eq!(
+            metadata.get("reason").and_then(|v| v.as_str()),
+            Some("shutdown")
+        );
+        assert!(runtime.contains_key("live_session_memory_path"));
+        assert!(runtime.contains_key("tracked_failed_tool_results"));
     }
 
     #[test]
