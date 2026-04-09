@@ -414,6 +414,8 @@ pub struct App {
     pub suggestion_generating: bool,
     /// Last time a suggestion was generated (for cooldown)
     pub last_suggestion_time: Instant,
+    /// Last time a running background-task brief was surfaced.
+    pub last_task_brief_time: Instant,
 }
 
 impl App {
@@ -489,6 +491,7 @@ impl App {
             prompt_suggestion_enabled: true,
             suggestion_generating: false,
             last_suggestion_time: Instant::now(),
+            last_task_brief_time: Instant::now(),
         }
     }
 
@@ -858,6 +861,31 @@ async fn run_app(
                     ChatRole::System,
                     format!("[Task] {}", notification.message),
                 ));
+            }
+            if app.last_task_brief_time.elapsed() >= Duration::from_secs(45) {
+                let running = engine_guard
+                    .runtime_tasks_snapshot()
+                    .into_iter()
+                    .filter(|task| matches!(task.status, yode_tools::RuntimeTaskStatus::Running))
+                    .collect::<Vec<_>>();
+                if !running.is_empty() {
+                    let mut lines = vec!["Background tasks still running:".to_string()];
+                    for task in running.into_iter().take(3) {
+                        lines.push(format!(
+                            "  - {} [{}] {}{}",
+                            task.id,
+                            task.kind,
+                            task.description,
+                            task
+                                .last_progress
+                                .as_ref()
+                                .map(|progress| format!(" — {}", progress))
+                                .unwrap_or_default()
+                        ));
+                    }
+                    push_grouped_system_entry(app, "Background tasks still running", lines.join("\n"));
+                    app.last_task_brief_time = Instant::now();
+                }
             }
         }
 
@@ -1426,6 +1454,7 @@ fn handle_enter(
                 streaming_in_code_block: &mut app.streaming_in_code_block,
                 tools,
                 session: &mut app.session,
+                input: &mut app.input,
                 terminal_caps: &app.terminal_caps,
                 input_history: &app.history.entries(),
                 should_quit: &mut app.should_quit,

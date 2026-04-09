@@ -8,7 +8,7 @@ use yode_core::engine::{AgentEngine, EngineEvent};
 use yode_llm::registry::ProviderRegistry;
 use yode_tools::registry::ToolRegistry;
 
-use crate::app::{ChatEntry, SessionState};
+use crate::app::{input::InputState, ChatEntry, SessionState};
 use crate::terminal_caps::TerminalCaps;
 
 pub struct CommandContext<'a> {
@@ -24,6 +24,7 @@ pub struct CommandContext<'a> {
     pub streaming_in_code_block: &'a mut bool,
     pub tools: &'a Arc<ToolRegistry>,
     pub session: &'a mut SessionState,
+    pub input: &'a mut InputState,
     pub terminal_caps: &'a TerminalCaps,
     pub input_history: &'a [String],
     pub should_quit: &'a mut bool,
