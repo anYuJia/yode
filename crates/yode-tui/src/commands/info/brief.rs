@@ -40,12 +40,19 @@ impl Command for BriefCommand {
         let working_dir = std::path::PathBuf::from(&ctx.session.working_dir);
         let latest_review = latest_markdown_file(&working_dir.join(".yode").join("reviews"));
         let latest_transcript = latest_markdown_file(&working_dir.join(".yode").join("transcripts"));
+        let latest_tool_artifact = state
+            .last_tool_turn_artifact_path
+            .as_ref()
+            .map(std::path::PathBuf::from);
         let latest_review_preview = latest_review
             .as_ref()
             .and_then(|path| preview_markdown(path, "## Result"));
         let latest_transcript_preview = latest_transcript
             .as_ref()
             .and_then(|path| preview_markdown(path, "## Summary Anchor"));
+        let latest_tool_preview = latest_tool_artifact
+            .as_ref()
+            .and_then(|path| preview_markdown(path, "## Calls"));
         let running_tasks = tasks
             .into_iter()
             .filter(|task| matches!(task.status, yode_tools::RuntimeTaskStatus::Running))
@@ -101,11 +108,15 @@ impl Command for BriefCommand {
                 .unwrap_or_default()
         ));
         output.push_str(&format!(
-            "  Latest tool artifact: {}\n",
-            state
-                .last_tool_turn_artifact_path
-                .as_deref()
-                .unwrap_or("none")
+            "  Latest tool artifact: {}{}\n",
+            latest_tool_artifact
+                .as_ref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "none".to_string()),
+            latest_tool_preview
+                .as_ref()
+                .map(|preview| format!("\n    {}", preview))
+                .unwrap_or_default()
         ));
         output.push_str(&format!(
             "  Latest transcript: {}{}\n",
