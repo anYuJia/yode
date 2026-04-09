@@ -128,6 +128,7 @@ live memory 现在支持：
 
 - compact / session_end hooks 会收到 compact counters、breaker reason、live memory status
 - hook 的 `hookSpecificOutput.memorySections` 可以直接返回结构化 memory markdown
+- hook 的 `wakeNotification` / exit code `2` 会进入异步 wake 基础框架
 
 ### 8. TUI / CLI 可观测性
 

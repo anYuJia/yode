@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -82,6 +83,8 @@ pub struct HookResult {
     pub modified_input: Option<Value>,
     /// Stdout from the hook command.
     pub stdout: Option<String>,
+    /// Async wake notification requested by the hook.
+    pub wake_notification: Option<String>,
 }
 
 impl HookResult {
@@ -126,6 +129,14 @@ fn default_hook_timeout() -> u64 {
 pub struct HookManager {
     hooks: Vec<HookDefinition>,
     working_dir: PathBuf,
+    wake_notifications: Mutex<Vec<WakeNotification>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WakeNotification {
+    pub event: String,
+    pub hook_command: String,
+    pub message: String,
 }
 
 impl HookManager {
@@ -133,6 +144,7 @@ impl HookManager {
         Self {
             hooks: Vec::new(),
             working_dir,
+            wake_notifications: Mutex::new(Vec::new()),
         }
     }
 
@@ -169,6 +181,15 @@ impl HookManager {
 
         for hook in matching {
             let result = self.execute_hook(hook, context).await;
+            if let Some(message) = result.wake_notification.clone() {
+                if let Ok(mut notifications) = self.wake_notifications.lock() {
+                    notifications.push(WakeNotification {
+                        event: context.event.clone(),
+                        hook_command: hook.command.clone(),
+                        message,
+                    });
+                }
+            }
             results.push(result);
         }
 
@@ -183,6 +204,14 @@ impl HookManager {
     ) -> Option<HookResult> {
         let results = self.execute(event, context).await;
         results.into_iter().find(|r| r.blocked)
+    }
+
+    pub fn drain_wake_notifications(&self) -> Vec<WakeNotification> {
+        if let Ok(mut notifications) = self.wake_notifications.lock() {
+            std::mem::take(&mut *notifications)
+        } else {
+            Vec::new()
+        }
     }
 
     async fn execute_hook(&self, hook: &HookDefinition, context: &HookContext) -> HookResult {
@@ -219,6 +248,46 @@ impl HookManager {
                     }
                 }
 
+                if output.status.code() == Some(2) {
+                    let wake_message = structured
+                        .as_ref()
+                        .and_then(|parsed| parsed.wake_notification.clone())
+                        .or_else(|| {
+                            let trimmed = stdout.trim();
+                            if !trimmed.is_empty() {
+                                Some(trimmed.to_string())
+                            } else {
+                                let trimmed = stderr.trim();
+                                if !trimmed.is_empty() {
+                                    Some(trimmed.to_string())
+                                } else {
+                                    Some(format!(
+                                        "Hook '{}' requested wake notification",
+                                        hook.command
+                                    ))
+                                }
+                            }
+                        });
+
+                    if let Some(mut parsed) = structured {
+                        parsed.blocked = false;
+                        parsed.wake_notification = wake_message;
+                        return parsed;
+                    }
+
+                    return HookResult {
+                        blocked: false,
+                        reason: None,
+                        modified_input: None,
+                        stdout: if stdout.is_empty() {
+                            None
+                        } else {
+                            Some(stdout)
+                        },
+                        wake_notification: wake_message,
+                    };
+                }
+
                 if !output.status.success() && hook.can_block {
                     if let Some(mut parsed) = structured {
                         if parsed.reason.is_none() {
@@ -246,6 +315,7 @@ impl HookManager {
                             }),
                             modified_input: None,
                             stdout: Some(stdout),
+                            wake_notification: None,
                         }
                     }
                 } else if let Some(parsed) = structured {
@@ -260,6 +330,7 @@ impl HookManager {
                         } else {
                             Some(stdout)
                         },
+                        wake_notification: None,
                     }
                 }
             }
@@ -330,6 +401,17 @@ fn parse_structured_hook_output(stdout: &str) -> Option<HookResult> {
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string())
         });
+    let wake_notification = object
+        .get("wakeNotification")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .or_else(|| {
+            object
+                .get("hookSpecificOutput")
+                .and_then(|v| v.get("wakeNotification"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        });
     let memory_sections = object
         .get("hookSpecificOutput")
         .and_then(|v| v.get("memorySections"))
@@ -346,6 +428,7 @@ fn parse_structured_hook_output(stdout: &str) -> Option<HookResult> {
         reason,
         modified_input,
         stdout,
+        wake_notification,
     })
 }
 
@@ -528,6 +611,34 @@ mod tests {
                 .and_then(|v| v.as_str()),
             Some("src/main.rs")
         );
+    }
+
+    #[tokio::test]
+    async fn test_hook_manager_queues_wake_notifications() {
+        let mut mgr = HookManager::new(PathBuf::from("/tmp"));
+        mgr.register(HookDefinition {
+            command: "printf '%s' '{\"hookSpecificOutput\":{\"wakeNotification\":\"wake up\"}}' && exit 2".into(),
+            events: vec!["pre_tool_use".into()],
+            tool_filter: None,
+            timeout_secs: 5,
+            can_block: false,
+        });
+        let ctx = HookContext {
+            event: "pre_tool_use".into(),
+            session_id: "test".into(),
+            working_dir: "/tmp".into(),
+            tool_name: Some("bash".into()),
+            tool_input: None,
+            tool_output: None,
+            error: None,
+            user_prompt: None,
+            metadata: None,
+        };
+        let _ = mgr.execute(HookEvent::PreToolUse, &ctx).await;
+        let wake = mgr.drain_wake_notifications();
+        assert_eq!(wake.len(), 1);
+        assert_eq!(wake[0].message, "wake up");
+        assert_eq!(wake[0].event, "pre_tool_use");
     }
 
     #[test]

@@ -994,7 +994,7 @@ impl AgentEngine {
         }
     }
 
-    async fn execute_advisory_hooks(&self, event: HookEvent, context: HookContext) {
+    async fn execute_advisory_hooks(&mut self, event: HookEvent, context: HookContext) {
         let Some(hook_mgr) = self.hook_manager.as_ref() else {
             return;
         };
@@ -1015,6 +1015,8 @@ impl AgentEngine {
                 }
             }
         }
+
+        self.append_hook_wake_notifications_as_system_message();
     }
 
     async fn append_hook_outputs_as_system_message(
@@ -1053,6 +1055,8 @@ impl AgentEngine {
             self.messages.push(Message::system(&message));
             self.persist_message("system", Some(&message), None, None, None);
         }
+
+        self.append_hook_wake_notifications_as_system_message();
     }
 
     pub async fn initialize_session_hooks(&mut self, reason: &'static str) {
@@ -1106,6 +1110,8 @@ impl AgentEngine {
             self.messages.push(Message::system(&message));
             self.persist_message("system", Some(&message), None, None, None);
         }
+
+        self.append_hook_wake_notifications_as_system_message();
     }
 
     pub async fn finalize_session_hooks(&mut self, reason: &'static str) {
@@ -1271,6 +1277,20 @@ impl AgentEngine {
         }
 
         metadata
+    }
+
+    fn append_hook_wake_notifications_as_system_message(&mut self) {
+        let Some(hook_mgr) = self.hook_manager.as_ref() else {
+            return;
+        };
+        for wake in hook_mgr.drain_wake_notifications() {
+            let message = format!(
+                "[Hook Wake via {}: {}]\n{}",
+                wake.event, wake.hook_command, wake.message
+            );
+            self.messages.push(Message::system(&message));
+            self.persist_message("system", Some(&message), None, None, None);
+        }
     }
 
     async fn maybe_compact_context(
@@ -1987,6 +2007,7 @@ impl AgentEngine {
                     combined
                 )));
             }
+            self.append_hook_wake_notifications_as_system_message();
         }
 
         // Add user message
@@ -2293,6 +2314,7 @@ impl AgentEngine {
                     combined
                 )));
             }
+            self.append_hook_wake_notifications_as_system_message();
         }
 
         self.messages.push(Message::user(user_input));
@@ -4646,6 +4668,42 @@ mod tests {
                 .as_deref()
                 .unwrap_or_default()
                 .contains("session context")
+        }));
+    }
+
+    #[tokio::test]
+    async fn test_session_start_hook_wake_notification_is_injected() {
+        let mut engine = make_engine(vec![], vec![]);
+        let hook_dir = std::env::temp_dir().join(format!(
+            "yode-session-hook-wake-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&hook_dir).unwrap();
+        let mut hook_mgr = crate::hooks::HookManager::new(hook_dir);
+        hook_mgr.register(crate::hooks::HookDefinition {
+            command:
+                "printf '%s' '{\"hookSpecificOutput\":{\"wakeNotification\":\"background hook finished\"}}' && exit 2"
+                    .into(),
+            events: vec!["session_start".into()],
+            tool_filter: None,
+            timeout_secs: 5,
+            can_block: false,
+        });
+        engine.set_hook_manager(hook_mgr);
+
+        engine.initialize_session_hooks("startup").await;
+
+        assert!(engine.messages.iter().any(|msg| {
+            msg.content
+                .as_deref()
+                .unwrap_or_default()
+                .contains("[Hook Wake via session_start")
+        }));
+        assert!(engine.messages.iter().any(|msg| {
+            msg.content
+                .as_deref()
+                .unwrap_or_default()
+                .contains("background hook finished")
         }));
     }
 
