@@ -137,6 +137,7 @@ live memory 现在支持：
 - `/memory list manual`
 - `/memory list summary`
 - `/memory list failed`
+- `/memory compare <a> <b>`
 - `/memory <index>`
 - `/memory <filename>`
 
@@ -161,7 +162,6 @@ live memory 现在支持：
 
 虽然 `/memory` 已能看 transcript，但还缺：
 
-- transcript 级 diff / compare
 - 按时间范围过滤
 
 ### 3. diagnostics 还停留在命令态
@@ -183,9 +183,9 @@ live memory 现在支持：
 
 优先做：
 
-1. `/memory compare <a> <b>`
-2. 按时间范围过滤
-3. summary / failed 组合过滤
+1. 按时间范围过滤
+2. summary / failed 组合过滤
+3. compare 输出增强
 
 原因：
 
@@ -259,10 +259,10 @@ live memory 现在支持：
 
 如果继续按照当前节奏推进，我建议下一刀做：
 
-`/memory compare <a> <b>`
+`/memory list <date-range>`
 
 原因：
 
-- 已经有 `summary` 和 `failed` 两类筛选
-- 下一步瓶颈是“两个 compact 产物怎么对照看”
-- compare 做完之后，时间范围和组合过滤会更顺手
+- 现在已经能按 mode / summary / failed 过滤，也能两两 compare
+- 下一步更缺的是缩小时间窗口，避免 transcript 多起来之后列表过长
+- 时间范围过滤仍然主要停留在 TUI command 层，风险低

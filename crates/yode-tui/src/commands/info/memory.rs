@@ -23,7 +23,7 @@ impl MemoryCommand {
                 args: vec![ArgDef {
                     name: "target".to_string(),
                     required: false,
-                    hint: "[live|session|latest|list [recent|auto|manual|summary|failed]|<index>|<file>]".to_string(),
+                    hint: "[live|session|latest|list [recent|auto|manual|summary|failed]|compare <a> <b>|<index>|<file>]".to_string(),
                     completions: ArgCompletionSource::Static(vec![
                         "live".to_string(),
                         "session".to_string(),
@@ -34,6 +34,7 @@ impl MemoryCommand {
                         "list manual".to_string(),
                         "list summary".to_string(),
                         "list failed".to_string(),
+                        "compare".to_string(),
                     ]),
                 }],
                 category: CommandCategory::Info,
@@ -59,7 +60,15 @@ impl Command for MemoryCommand {
             .ok()
             .map(|engine| engine.runtime_state());
 
-        match args.trim() {
+        let args = args.trim();
+
+        if args == "compare" || args.starts_with("compare ") {
+            let compare = parse_compare_targets(args)
+                .ok_or_else(|| "Usage: /memory compare <a> <b>".to_string())?;
+            return render_transcript_compare(&transcripts_dir, compare.0, compare.1);
+        }
+
+        match args {
             "" => Ok(CommandOutput::Message(render_memory_status(
                 &live_path,
                 &session_path,
@@ -163,7 +172,7 @@ fn render_memory_status(
         })
         .unwrap_or_default();
     format!(
-        "Memory artifacts:\n  Live memory:       {}\n  Compaction memory: {}\n  Transcript dir:    {}\n  Transcript count:  {}\n  Latest transcript: {}{}\n\nUse /memory live, /memory session, /memory latest, /memory list, or /memory <index>.",
+        "Memory artifacts:\n  Live memory:       {}\n  Compaction memory: {}\n  Transcript dir:    {}\n  Transcript count:  {}\n  Latest transcript: {}{}\n\nUse /memory live, /memory session, /memory latest, /memory list, /memory compare <a> <b>, or /memory <index>.",
         describe_path(live_path),
         describe_path(session_path),
         transcripts_dir.display(),
@@ -205,6 +214,23 @@ fn render_latest_transcript(path: &Path) -> CommandResult {
         meta.failed_tool_results.unwrap_or(0),
         preview,
         truncated
+    )))
+}
+
+fn render_transcript_compare(dir: &Path, left_target: &str, right_target: &str) -> CommandResult {
+    let left_path = resolve_compare_target(dir, left_target)
+        .ok_or_else(|| format!("Unknown compare target: {}", left_target))?;
+    let right_path = resolve_compare_target(dir, right_target)
+        .ok_or_else(|| format!("Unknown compare target: {}", right_target))?;
+    let left_content = fs::read_to_string(&left_path)
+        .map_err(|_| format!("Transcript not found: {}", left_path.display()))?;
+    let right_content = fs::read_to_string(&right_path)
+        .map_err(|_| format!("Transcript not found: {}", right_path.display()))?;
+    Ok(CommandOutput::Message(build_transcript_compare_output(
+        &left_path,
+        &left_content,
+        &right_path,
+        &right_content,
     )))
 }
 
@@ -326,6 +352,25 @@ fn resolve_transcript_target(dir: &Path, target: &str) -> Option<PathBuf> {
     })
 }
 
+fn resolve_compare_target(dir: &Path, target: &str) -> Option<PathBuf> {
+    if target == "latest" {
+        latest_transcript(dir)
+    } else {
+        resolve_transcript_target(dir, target)
+    }
+}
+
+fn parse_compare_targets(args: &str) -> Option<(&str, &str)> {
+    let rest = args.strip_prefix("compare ")?;
+    let mut parts = rest.split_whitespace();
+    let left = parts.next()?;
+    let right = parts.next()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    Some((left, right))
+}
+
 fn describe_path(path: &Path) -> String {
     match fs::metadata(path) {
         Ok(meta) => format!("{} ({} bytes)", path.display(), meta.len()),
@@ -396,12 +441,151 @@ fn extract_summary_preview(content: &str) -> Option<String> {
     }
 }
 
+fn build_transcript_compare_output(
+    left_path: &Path,
+    left_content: &str,
+    right_path: &Path,
+    right_content: &str,
+) -> String {
+    let left_meta = read_transcript_metadata(left_path).unwrap_or_default();
+    let right_meta = read_transcript_metadata(right_path).unwrap_or_default();
+    let left_summary = extract_summary_preview(left_content).unwrap_or_else(|| "none".to_string());
+    let right_summary =
+        extract_summary_preview(right_content).unwrap_or_else(|| "none".to_string());
+    let left_lines = left_content.lines().count();
+    let right_lines = right_content.lines().count();
+    let left_chars = left_content.chars().count();
+    let right_chars = right_content.chars().count();
+    let left_messages = count_transcript_messages(left_content);
+    let right_messages = count_transcript_messages(right_content);
+    let identical = left_content == right_content;
+
+    let mut output = String::new();
+    output.push_str("Transcript comparison\n");
+    output.push_str(&format!("A: {}\n", left_path.display()));
+    output.push_str(&format!("B: {}\n", right_path.display()));
+    output.push_str(&format!(
+        "Status: {}\n\n",
+        if identical { "identical" } else { "different" }
+    ));
+
+    output.push_str("Metadata:\n");
+    output.push_str(&format_compare_field(
+        "Mode",
+        left_meta.mode.as_deref().unwrap_or("unknown"),
+        right_meta.mode.as_deref().unwrap_or("unknown"),
+    ));
+    output.push_str(&format_compare_field(
+        "Timestamp",
+        left_meta.timestamp.as_deref().unwrap_or("unknown"),
+        right_meta.timestamp.as_deref().unwrap_or("unknown"),
+    ));
+    output.push_str(&format_compare_field(
+        "Removed",
+        &left_meta.removed.unwrap_or(0).to_string(),
+        &right_meta.removed.unwrap_or(0).to_string(),
+    ));
+    output.push_str(&format_compare_field(
+        "Truncated",
+        &left_meta.truncated.unwrap_or(0).to_string(),
+        &right_meta.truncated.unwrap_or(0).to_string(),
+    ));
+    output.push_str(&format_compare_field(
+        "Failed tool results",
+        &left_meta.failed_tool_results.unwrap_or(0).to_string(),
+        &right_meta.failed_tool_results.unwrap_or(0).to_string(),
+    ));
+    output.push_str(&format_compare_field(
+        "Summary anchor",
+        if left_meta.has_summary { "yes" } else { "no" },
+        if right_meta.has_summary { "yes" } else { "no" },
+    ));
+    output.push_str(&format_compare_field(
+        "Message sections",
+        &left_messages.to_string(),
+        &right_messages.to_string(),
+    ));
+    output.push_str(&format_compare_field(
+        "Lines",
+        &left_lines.to_string(),
+        &right_lines.to_string(),
+    ));
+    output.push_str(&format_compare_field(
+        "Chars",
+        &left_chars.to_string(),
+        &right_chars.to_string(),
+    ));
+
+    output.push_str("\nSummary preview:\n");
+    output.push_str(&format!("  A: {}\n", left_summary));
+    output.push_str(&format!("  B: {}\n", right_summary));
+
+    if let Some((line_no, left_line, right_line)) = first_difference(left_content, right_content) {
+        output.push_str("\nFirst difference:\n");
+        output.push_str(&format!("  Line: {}\n", line_no));
+        output.push_str(&format!(
+            "  A: {}\n",
+            summarize_compare_line(left_line.unwrap_or("<no line>"))
+        ));
+        output.push_str(&format!(
+            "  B: {}\n",
+            summarize_compare_line(right_line.unwrap_or("<no line>"))
+        ));
+    }
+
+    output
+}
+
+fn format_compare_field(label: &str, left: &str, right: &str) -> String {
+    if left == right {
+        format!("  {:<18} {}\n", label, left)
+    } else {
+        format!("  {:<18} {} -> {}\n", label, left, right)
+    }
+}
+
+fn count_transcript_messages(content: &str) -> usize {
+    content
+        .lines()
+        .filter(|line| line.starts_with("### "))
+        .count()
+}
+
+fn first_difference<'a>(
+    left: &'a str,
+    right: &'a str,
+) -> Option<(usize, Option<&'a str>, Option<&'a str>)> {
+    let left_lines = left.lines().collect::<Vec<_>>();
+    let right_lines = right.lines().collect::<Vec<_>>();
+    let max_len = left_lines.len().max(right_lines.len());
+
+    for idx in 0..max_len {
+        let left_line = left_lines.get(idx).copied();
+        let right_line = right_lines.get(idx).copied();
+        if left_line != right_line {
+            return Some((idx + 1, left_line, right_line));
+        }
+    }
+
+    None
+}
+
+fn summarize_compare_line(line: &str) -> String {
+    let squashed = line.split_whitespace().collect::<Vec<_>>().join(" ");
+    if squashed.chars().count() <= 180 {
+        return squashed;
+    }
+
+    let truncated = squashed.chars().take(180).collect::<String>();
+    format!("{}...", truncated)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        extract_summary_preview, filtered_transcript_entries, latest_transcript,
-        read_transcript_metadata, render_transcript_list, resolve_transcript_target,
-        truncate_for_display, TranscriptFilter, MAX_DISPLAY_CHARS,
+        build_transcript_compare_output, extract_summary_preview, filtered_transcript_entries,
+        latest_transcript, parse_compare_targets, read_transcript_metadata, render_transcript_list,
+        resolve_transcript_target, truncate_for_display, TranscriptFilter, MAX_DISPLAY_CHARS,
     };
 
     #[test]
@@ -563,6 +747,42 @@ mod tests {
         let failed_listing = render_transcript_list(&dir, TranscriptFilter::Failed);
         assert!(failed_listing.contains("failed=2"));
         assert!(!failed_listing.contains("clean.md"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn parse_compare_targets_accepts_two_values() {
+        assert_eq!(parse_compare_targets("compare 1 2"), Some(("1", "2")));
+        assert_eq!(
+            parse_compare_targets("compare latest sample.md"),
+            Some(("latest", "sample.md"))
+        );
+        assert_eq!(parse_compare_targets("compare 1"), None);
+        assert_eq!(parse_compare_targets("list compare 1 2"), None);
+    }
+
+    #[test]
+    fn build_transcript_compare_output_highlights_differences() {
+        let dir = std::env::temp_dir().join(format!(
+            "yode-memory-command-compare-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let left_path = dir.join("left.md");
+        let right_path = dir.join("right.md");
+        let left = "# Compaction Transcript\n\n- Session: abc\n- Mode: auto\n- Timestamp: 2026-01-01 10:00:00\n- Removed messages: 7\n- Tool results truncated: 1\n- Failed tool results: 1\n\n## Summary Anchor\n\n```text\nLeft summary\n```\n\n## Messages\n\n### User\n\n```text\nhello\n```\n";
+        let right = "# Compaction Transcript\n\n- Session: abc\n- Mode: manual\n- Timestamp: 2026-01-01 11:00:00\n- Removed messages: 3\n- Tool results truncated: 0\n- Failed tool results: 0\n\n## Summary Anchor\n\n```text\nRight summary\n```\n\n## Messages\n\n### User\n\n```text\nhello\n```\n";
+        std::fs::write(&left_path, left).unwrap();
+        std::fs::write(&right_path, right).unwrap();
+
+        let output = build_transcript_compare_output(&left_path, left, &right_path, right);
+        assert!(output.contains("Status: different"));
+        assert!(output.contains("Mode               auto -> manual"));
+        assert!(output.contains("Failed tool results 1 -> 0"));
+        assert!(output.contains("A: Left summary"));
+        assert!(output.contains("B: Right summary"));
+        assert!(output.contains("First difference:"));
 
         std::fs::remove_dir_all(&dir).ok();
     }
