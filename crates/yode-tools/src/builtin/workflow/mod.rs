@@ -173,6 +173,9 @@ impl Tool for WorkflowRunTool {
                         | "git_log"
                         | "project_map"
                         | "memory"
+                        | "review_changes"
+                        | "verification_agent"
+                        | "coordinate_agents"
                 );
             if !allowed {
                 return Ok(ToolResult::error(format!(
@@ -301,6 +304,47 @@ mod tests {
             .unwrap();
         assert!(!result.is_error);
         assert!(result.content.contains("\"tool\": \"ls\""));
+    }
+
+    #[tokio::test]
+    async fn workflow_dry_run_returns_plan_without_execution() {
+        let dir = tempfile::tempdir().unwrap();
+        let workflow_dir = dir.path().join(".yode").join("workflows");
+        tokio::fs::create_dir_all(&workflow_dir).await.unwrap();
+        tokio::fs::write(
+            workflow_dir.join("plan.json"),
+            r#"{
+                "name": "plan",
+                "steps": [
+                    { "tool_name": "review_changes", "params": { "focus": "${focus}" } }
+                ]
+            }"#,
+        )
+        .await
+        .unwrap();
+
+        let mut registry = ToolRegistry::new();
+        crate::builtin::register_builtin_tools(&mut registry);
+
+        let mut ctx = ToolContext::empty();
+        ctx.registry = Some(Arc::new(registry));
+        ctx.working_dir = Some(dir.path().to_path_buf());
+
+        let tool = WorkflowRunTool;
+        let result = tool
+            .execute(
+                serde_json::json!({
+                    "name": "plan",
+                    "dry_run": true,
+                    "variables": { "focus": "regressions" }
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+        assert!(!result.is_error);
+        assert!(result.content.contains("\"tool\": \"review_changes\""));
+        assert!(result.content.contains("regressions"));
     }
 
     #[test]
