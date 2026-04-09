@@ -23,11 +23,14 @@ pub mod plan_mode;
 pub mod project_map;
 pub mod read_file;
 pub mod skill;
+pub mod task_output;
 pub mod test_runner;
+pub mod verification_agent;
 pub mod todo;
 pub mod tool_search;
 pub mod web_fetch;
 pub mod web_search;
+pub mod workflow;
 pub mod worktree;
 pub mod write_file;
 
@@ -72,6 +75,7 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     registry.register(Arc::new(batch::BatchTool));
     registry.register(Arc::new(ask_user::AskUserTool));
     registry.register(Arc::new(memory::MemoryTool));
+    registry.register(Arc::new(task_output::TaskOutputTool));
     registry.register(Arc::new(notebook_edit::NotebookEditTool));
     registry.register(Arc::new(worktree::EnterWorktreeTool));
     registry.register(Arc::new(worktree::ExitWorktreeTool));
@@ -87,6 +91,7 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     registry.register(Arc::new(plan_mode::EnterPlanModeTool));
     registry.register(Arc::new(plan_mode::ExitPlanModeTool));
     registry.register(Arc::new(plan_mode::VerifyPlanExecutionTool));
+    registry.register(Arc::new(verification_agent::VerificationAgentTool));
     registry.register(Arc::new(project_map::ProjectMapTool));
     registry.register(Arc::new(hypothesis::HypothesisTool));
     registry.register(Arc::new(file_diff::FileDiffTool));
@@ -99,6 +104,7 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     registry.register(Arc::new(common::SleepTool));
     registry.register(Arc::new(common::SendUserFileTool));
     registry.register(Arc::new(common::REPLTool));
+    registry.register(Arc::new(workflow::WorkflowRunTool));
 }
 
 /// Register the skill tool with the given skill store.
