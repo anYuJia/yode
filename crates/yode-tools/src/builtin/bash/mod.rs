@@ -436,8 +436,46 @@ impl BashTool {
                 }
             };
 
+            let (done_tx, mut done_rx) = tokio::sync::watch::channel(false);
+            let runtime_tasks_monitor = runtime_tasks.clone();
+            let task_id_monitor = task_id.clone();
+            let output_path_monitor = output_path_spawn.clone();
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(3));
+                let mut last_preview = String::new();
+                loop {
+                    tokio::select! {
+                        _ = interval.tick() => {
+                            if let Ok(content) = tokio::fs::read_to_string(&output_path_monitor).await {
+                                if let Some(line) = content.lines().rev().find(|line| !line.trim().is_empty()) {
+                                    let preview = if line.chars().count() > 120 {
+                                        let shortened = line.chars().take(120).collect::<String>();
+                                        format!("{}...", shortened)
+                                    } else {
+                                        line.to_string()
+                                    };
+                                    if preview != last_preview {
+                                        runtime_tasks_monitor
+                                            .lock()
+                                            .await
+                                            .update_progress(&task_id_monitor, preview.clone());
+                                        last_preview = preview;
+                                    }
+                                }
+                            }
+                        }
+                        changed = done_rx.changed() => {
+                            if changed.is_ok() && *done_rx.borrow() {
+                                break;
+                            }
+                        }
+                    }
+                }
+            });
+
             tokio::select! {
                 wait_result = child.wait() => {
+                    let _ = done_tx.send(true);
                     match wait_result {
                         Ok(status) if status.success() => {
                             runtime_tasks.lock().await.mark_completed(&task_id);
@@ -459,6 +497,7 @@ impl BashTool {
                 changed = cancel_rx.changed() => {
                     if changed.is_ok() && *cancel_rx.borrow() {
                         let _ = child.kill().await;
+                        let _ = done_tx.send(true);
                         runtime_tasks.lock().await.mark_cancelled(&task_id);
                     }
                 }
