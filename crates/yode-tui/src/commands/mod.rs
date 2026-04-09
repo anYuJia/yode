@@ -94,6 +94,7 @@ pub fn register_all(registry: &mut CommandRegistry) {
     // Tools
     registry.register(Box::new(tools::ToolsCommand::new()));
     registry.register(Box::new(tools::PermissionsCommand::new()));
+    registry.register(Box::new(tools::WorkflowsCommand::new()));
     // Info
     registry.register(Box::new(info::HelpCommand::new()));
     registry.register(Box::new(info::StatusCommand::new()));
@@ -110,6 +111,7 @@ pub fn register_all(registry: &mut CommandRegistry) {
     // Dev
     registry.register(Box::new(dev::DiffCommand::new()));
     registry.register(Box::new(dev::BugCommand::new()));
+    registry.register(Box::new(dev::ReviewCommand::new()));
     // Utility
     registry.register(Box::new(utility::CopyCommand::new()));
     registry.register(Box::new(utility::KeysCommand::new()));
