@@ -92,6 +92,18 @@ impl Command for MemoryCommand {
             ))),
             "live" => render_memory_file("Live session memory", &live_path),
             "session" => render_memory_file("Compaction memory", &session_path),
+            _ if args.starts_with("latest compare ") => parse_latest_compare_target(args)
+                .ok_or_else(|| "Usage: /memory latest compare <target>".to_string())
+                .and_then(|target| {
+                    render_transcript_compare(
+                        &transcripts_dir,
+                        &CompareArgs {
+                            left_target: "latest".to_string(),
+                            right_target: target.to_string(),
+                            options: CompareOptions::default(),
+                        },
+                    )
+                }),
             "latest" => {
                 let latest = latest_transcript(&transcripts_dir)
                     .ok_or_else(|| {
@@ -591,6 +603,9 @@ fn parse_iso_date(value: &str) -> Option<NaiveDate> {
 
 fn resolve_transcript_target(dir: &Path, target: &str) -> Option<PathBuf> {
     let entries = sorted_transcript_entries(dir);
+    if let Some(path) = resolve_latest_alias(dir, target) {
+        return Some(path);
+    }
     if let Ok(index) = target.parse::<usize>() {
         if index == 0 {
             return None;
@@ -598,13 +613,68 @@ fn resolve_transcript_target(dir: &Path, target: &str) -> Option<PathBuf> {
         return entries.get(index - 1).cloned();
     }
 
-    entries.into_iter().find(|path| {
-        path.file_name()
-            .and_then(|name| name.to_str())
-            .map(|name| name == target)
-            .unwrap_or(false)
-            || path.display().to_string() == target
-    })
+    entries
+        .into_iter()
+        .find(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name == target)
+                .unwrap_or(false)
+                || path.display().to_string() == target
+        })
+        .or_else(|| resolve_transcript_target_fuzzy(dir, target))
+}
+
+fn resolve_transcript_target_fuzzy(dir: &Path, target: &str) -> Option<PathBuf> {
+    let target = target.trim();
+    if target.is_empty() {
+        return None;
+    }
+
+    let entries = sorted_transcript_entries(dir);
+    let exact_basename = entries
+        .iter()
+        .filter(|path| {
+            path.file_stem()
+                .and_then(|name| name.to_str())
+                .map(|name| name == target)
+                .unwrap_or(false)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if exact_basename.len() == 1 {
+        return exact_basename.into_iter().next();
+    }
+
+    let prefix_matches = entries
+        .iter()
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.starts_with(target))
+                .unwrap_or(false)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if prefix_matches.len() == 1 {
+        return prefix_matches.into_iter().next();
+    }
+
+    let contains_matches = entries
+        .iter()
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.contains(target))
+                .unwrap_or(false)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if contains_matches.len() == 1 {
+        return contains_matches.into_iter().next();
+    }
+
+    None
 }
 
 fn resolve_compare_target(dir: &Path, target: &str) -> Option<PathBuf> {
@@ -669,6 +739,15 @@ fn parse_compare_args(args: &str) -> Option<CompareArgs> {
     }
 
     Some(compare)
+}
+
+fn parse_latest_compare_target(args: &str) -> Option<&str> {
+    let target = args.strip_prefix("latest compare ")?.trim();
+    if target.is_empty() {
+        None
+    } else {
+        Some(target)
+    }
 }
 
 fn describe_path(path: &Path) -> String {
@@ -1222,10 +1301,10 @@ mod tests {
     use super::{
         build_transcript_compare_output, extract_summary_preview, filtered_transcript_entries,
         latest_transcript, memory_entry_age, parse_compare_args, parse_date_range_filter,
-        parse_list_filter, parse_memory_document, read_transcript_metadata, render_memory_file,
-        render_transcript_list, resolve_compare_target, resolve_transcript_target,
-        truncate_for_display, CompareArgs, CompareOptions, TranscriptListFilter, TranscriptMode,
-        MAX_DISPLAY_CHARS,
+        parse_latest_compare_target, parse_list_filter, parse_memory_document,
+        read_transcript_metadata, render_memory_file, render_transcript_list,
+        resolve_compare_target, resolve_transcript_target, truncate_for_display, CompareArgs,
+        CompareOptions, TranscriptListFilter, TranscriptMode, MAX_DISPLAY_CHARS,
     };
     use crate::commands::CommandOutput;
 
@@ -1762,5 +1841,34 @@ mod tests {
         assert!(rendered.contains("legacy content"));
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn resolve_transcript_target_supports_unique_fuzzy_aliases() {
+        let dir = std::env::temp_dir().join(format!(
+            "yode-memory-command-fuzzy-target-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("abc12345-compact-20240101.md"), "old").unwrap();
+        std::fs::write(dir.join("def67890-compact-20250101.md"), "new").unwrap();
+
+        let fuzzy = resolve_transcript_target(&dir, "def67890-compact").unwrap();
+        assert!(fuzzy.ends_with("def67890-compact-20250101.md"));
+
+        let latest_alias = resolve_transcript_target(&dir, "latest-1").unwrap();
+        assert!(latest_alias.ends_with("abc12345-compact-20240101.md"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn parse_latest_compare_target_accepts_shortcut() {
+        assert_eq!(parse_latest_compare_target("latest compare 2"), Some("2"));
+        assert_eq!(
+            parse_latest_compare_target("latest compare latest-1"),
+            Some("latest-1")
+        );
+        assert_eq!(parse_latest_compare_target("latest compare "), None);
     }
 }

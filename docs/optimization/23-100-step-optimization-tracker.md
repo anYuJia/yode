@@ -18,11 +18,11 @@
 
 当前焦点：
 
-- `026 Transcript 目标解析支持更稳定的 fuzzy alias`
+- `028 Resume 后 transcript / memory artifact 索引重建`
 
 当前进度：
 
-- `25 / 100` 已完成
+- `27 / 100` 已完成
 
 ## 001-010 Structured Memory
 
@@ -57,8 +57,8 @@
 - `[x] 023 Transcript compare 支持 latest 别名组合`
 - `[x] 024 Transcript metadata 增加 session memory path`
 - `[x] 025 Transcript metadata 增加 file-touch summary`
-- `[ ] 026 Transcript 目标解析支持更稳定的 fuzzy alias`
-- `[ ] 027 `/memory latest` 增加 compare shortcut`
+- `[x] 026 Transcript 目标解析支持更稳定的 fuzzy alias`
+- `[x] 027 `/memory latest` 增加 compare shortcut`
 - `[ ] 028 Resume 后 transcript / memory artifact 索引重建`
 - `[ ] 029 `/sessions` 视图接入 latest transcript 摘要`
 - `[ ] 030 Session history 与 transcript artifacts 形成稳定关联`

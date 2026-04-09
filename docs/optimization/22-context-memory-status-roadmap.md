@@ -180,6 +180,7 @@ live memory 现在支持：
 - 日期范围过滤
 - transcript 对比 + section summary + diff flags/preview
 - transcript metadata: session memory path / file-touch summary
+- fuzzy alias / latest compare shortcut
 
 下一步更值得投入的已经不是继续堆命令，而是提升 memory 本身的质量。
 
