@@ -115,6 +115,7 @@ pub fn register_all(registry: &mut CommandRegistry) {
     registry.register(Box::new(dev::CoordinateCommand::new()));
     registry.register(Box::new(dev::ReviewCommand::new()));
     registry.register(Box::new(dev::ReviewsCommand::new()));
+    registry.register(Box::new(dev::ShipCommand::new()));
     // Utility
     registry.register(Box::new(utility::CopyCommand::new()));
     registry.register(Box::new(utility::KeysCommand::new()));
