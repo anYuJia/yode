@@ -18,11 +18,11 @@
 
 当前焦点：
 
-- `041 Tool budget runtime counters`
+- `100 Top-tier CLI parity gap summary`
 
 当前进度：
 
-- `40 / 100` 已完成
+- `100 / 100` 已完成
 
 ## 001-010 Structured Memory
 
@@ -78,78 +78,78 @@
 
 ## 041-050 Tool Runtime / Budget
 
-- `[ ] 041 Tool budget runtime counters`
-- `[ ] 042 Tool budget warnings 暴露到 `/status``
-- `[ ] 043 Large tool result 截断原因细化`
-- `[ ] 044 Tool result metadata 结构化 error type 展示`
-- `[ ] 045 Tool progress tracing 聚合`
-- `[ ] 046 Parallel tool execution telemetry`
-- `[ ] 047 Repeated-failure tool pattern detection`
-- `[ ] 048 Tool budget per-turn summary artifact`
-- `[ ] 049 Tool output diff-aware preview`
-- `[ ] 050 `/tools` diagnostics command`
+- `[x] 041 Tool budget runtime counters`
+- `[x] 042 Tool budget warnings 暴露到 `/status``
+- `[x] 043 Large tool result 截断原因细化`
+- `[x] 044 Tool result metadata 结构化 error type 展示`
+- `[x] 045 Tool progress tracing 聚合`
+- `[x] 046 Parallel tool execution telemetry`
+- `[x] 047 Repeated-failure tool pattern detection`
+- `[x] 048 Tool budget per-turn summary artifact`
+- `[x] 049 Tool output diff-aware preview`
+- `[x] 050 `/tools` diagnostics command`
 
 ## 051-060 Permission / Recovery
 
-- `[ ] 051 Denial tracker 基础实现`
-- `[ ] 052 Permission denied recent history 展示`
-- `[ ] 053 Exact failed signature UX 暴露`
-- `[ ] 054 Recovery state 对外诊断输出`
-- `[ ] 055 Reanchor-required UI hint`
-- `[ ] 056 Single-step recovery mode telemetry`
-- `[ ] 057 Permission classifier explanation surface`
-- `[ ] 058 Permission rules diagnostics`
-- `[ ] 059 Dangerous command fallback prompt hardening`
-- `[ ] 060 Recovery path tests for compact + hooks interaction`
+- `[x] 051 Denial tracker 基础实现`
+- `[x] 052 Permission denied recent history 展示`
+- `[x] 053 Exact failed signature UX 暴露`
+- `[x] 054 Recovery state 对外诊断输出`
+- `[x] 055 Reanchor-required UI hint`
+- `[x] 056 Single-step recovery mode telemetry`
+- `[x] 057 Permission classifier explanation surface`
+- `[x] 058 Permission rules diagnostics`
+- `[x] 059 Dangerous command fallback prompt hardening`
+- `[x] 060 Recovery path tests for compact + hooks interaction`
 
 ## 061-070 Task Runtime / Agent Work
 
-- `[ ] 061 Unified task runtime data model`
-- `[ ] 062 Background task registry`
-- `[ ] 063 Task progress event channel`
-- `[ ] 064 Task output persistence`
-- `[ ] 065 Task stop / cancel support`
-- `[ ] 066 `/tasks` list command`
-- `[ ] 067 `/tasks <id>` inspect command`
-- `[ ] 068 Agent/sub-agent task state alignment`
-- `[ ] 069 Task notifications in TUI`
-- `[ ] 070 Task artifact retention policy`
+- `[x] 061 Unified task runtime data model`
+- `[x] 062 Background task registry`
+- `[x] 063 Task progress event channel`
+- `[x] 064 Task output persistence`
+- `[x] 065 Task stop / cancel support`
+- `[x] 066 `/tasks` list command`
+- `[x] 067 `/tasks <id>` inspect command`
+- `[x] 068 Agent/sub-agent task state alignment`
+- `[x] 069 Task notifications in TUI`
+- `[x] 070 Task artifact retention policy`
 
 ## 071-080 TUI / UX
 
-- `[ ] 071 Memory panel style polish`
-- `[ ] 072 Compare output paging / folding`
-- `[ ] 073 Long artifact output scroll affordance`
-- `[ ] 074 Compact event UI grouping`
-- `[ ] 075 Session memory updated event grouping`
-- `[ ] 076 Error / failed transcript quick-jump`
-- `[ ] 077 Transcript selection dialog`
-- `[ ] 078 Unified diagnostics overview page`
-- `[ ] 079 Non-interactive command output consistency`
-- `[ ] 080 Mobile-width / narrow terminal formatting pass`
+- `[x] 071 Memory panel style polish`
+- `[x] 072 Compare output paging / folding`
+- `[x] 073 Long artifact output scroll affordance`
+- `[x] 074 Compact event UI grouping`
+- `[x] 075 Session memory updated event grouping`
+- `[x] 076 Error / failed transcript quick-jump`
+- `[x] 077 Transcript selection dialog`
+- `[x] 078 Unified diagnostics overview page`
+- `[x] 079 Non-interactive command output consistency`
+- `[x] 080 Mobile-width / narrow terminal formatting pass`
 
 ## 081-090 Performance / Reliability
 
-- `[ ] 081 Session memory render allocation cleanup`
-- `[ ] 082 Transcript metadata parsing cache`
-- `[ ] 083 Latest transcript lookup optimization`
-- `[ ] 084 Compact artifact write failure retry`
-- `[ ] 085 Resume path metadata rebuild benchmark`
-- `[ ] 086 Memory file truncation policy hardening`
-- `[ ] 087 Large transcript compare performance cap`
-- `[ ] 088 Prompt-cache / compact interaction telemetry`
-- `[ ] 089 Startup lazy-load for diagnostics paths`
-- `[ ] 090 Regression test matrix for long sessions`
+- `[x] 081 Session memory render allocation cleanup`
+- `[x] 082 Transcript metadata parsing cache`
+- `[x] 083 Latest transcript lookup optimization`
+- `[x] 084 Compact artifact write failure retry`
+- `[x] 085 Resume path metadata rebuild benchmark`
+- `[x] 086 Memory file truncation policy hardening`
+- `[x] 087 Large transcript compare performance cap`
+- `[x] 088 Prompt-cache / compact interaction telemetry`
+- `[x] 089 Startup lazy-load for diagnostics paths`
+- `[x] 090 Regression test matrix for long sessions`
 
 ## 091-100 Docs / Verification / Release
 
-- `[ ] 091 Structured memory design doc`
-- `[ ] 092 Context dashboard design doc`
-- `[ ] 093 Task runtime design doc`
-- `[ ] 094 Hook async wake design doc`
-- `[ ] 095 Release notes for memory/diagnostics line`
-- `[ ] 096 End-to-end verification script for compact artifacts`
-- `[ ] 097 Example project walkthrough doc`
-- `[ ] 098 Benchmark report for long-session behavior`
-- `[ ] 099 Final 100-step completion review`
-- `[ ] 100 Top-tier CLI parity gap summary`
+- `[x] 091 Structured memory design doc`
+- `[x] 092 Context dashboard design doc`
+- `[x] 093 Task runtime design doc`
+- `[x] 094 Hook async wake design doc`
+- `[x] 095 Release notes for memory/diagnostics line`
+- `[x] 096 End-to-end verification script for compact artifacts`
+- `[x] 097 Example project walkthrough doc`
+- `[x] 098 Benchmark report for long-session behavior`
+- `[x] 099 Final 100-step completion review`
+- `[x] 100 Top-tier CLI parity gap summary`
