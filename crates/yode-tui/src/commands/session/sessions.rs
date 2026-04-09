@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use yode_core::db::Database;
+use yode_core::db::{Database, SessionArtifacts};
 
 use crate::commands::context::CommandContext;
 use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
@@ -38,13 +38,14 @@ impl Command for SessionsCommand {
             .join(".yode")
             .join("transcripts");
         match Database::open(&db_path) {
-            Ok(db) => match db.list_sessions(10) {
+            Ok(db) => match db.list_sessions_with_artifacts(10) {
                 Ok(sessions) if sessions.is_empty() => Ok(CommandOutput::Message(
                     "No saved sessions found.".to_string(),
                 )),
                 Ok(sessions) => {
                     let mut lines = String::from("Recent sessions:\n");
-                    for s in &sessions {
+                    for entry in &sessions {
+                        let s = &entry.session;
                         let id_short = &s.id[..s.id.len().min(8)];
                         let age = chrono::Utc::now().signed_duration_since(s.updated_at);
                         let age_str = if age.num_days() > 0 {
@@ -59,9 +60,11 @@ impl Command for SessionsCommand {
                             "  {}  {:<12} {:<8} {}\n",
                             id_short, s.model, age_str, name
                         ));
-                        if let Some(preview) =
-                            latest_transcript_preview_for_session(&transcripts_dir, &s.id)
-                        {
+                        if let Some(preview) = latest_transcript_preview_for_session(
+                            &entry.artifacts,
+                            &transcripts_dir,
+                            &s.id,
+                        ) {
                             lines.push_str(&format!(
                                 "      transcript: {} · {} · {}\n",
                                 preview.mode.unwrap_or_else(|| "unknown".to_string()),
@@ -92,9 +95,20 @@ struct SessionTranscriptPreview {
 }
 
 fn latest_transcript_preview_for_session(
+    artifacts: &SessionArtifacts,
     transcripts_dir: &std::path::Path,
     session_id: &str,
 ) -> Option<SessionTranscriptPreview> {
+    if artifacts.last_compaction_transcript_path.is_some()
+        || artifacts.last_compaction_summary_excerpt.is_some()
+    {
+        return Some(SessionTranscriptPreview {
+            mode: artifacts.last_compaction_mode.clone(),
+            timestamp: artifacts.last_compaction_at.clone(),
+            summary_preview: artifacts.last_compaction_summary_excerpt.clone(),
+        });
+    }
+
     let short_id = session_id.chars().take(8).collect::<String>();
     let mut entries = std::fs::read_dir(transcripts_dir)
         .ok()?
@@ -150,36 +164,26 @@ fn extract_summary_preview(content: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use yode_core::db::SessionArtifacts;
+
     use super::latest_transcript_preview_for_session;
 
     #[test]
-    fn latest_transcript_preview_uses_matching_session_prefix() {
-        let dir = std::env::temp_dir().join(format!(
-            "yode-sessions-transcript-preview-{}",
-            uuid::Uuid::new_v4()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(
-            dir.join("abc12345-compact-20250101.md"),
-            "# Compaction Transcript\n\n- Mode: auto\n- Timestamp: 2026-01-01 10:00:00\n\n## Summary Anchor\n\n```text\nolder\n```\n",
+    fn latest_transcript_preview_prefers_db_artifact_link() {
+        let preview = latest_transcript_preview_for_session(
+            &SessionArtifacts {
+                last_compaction_mode: Some("manual".to_string()),
+                last_compaction_at: Some("2026-01-02 10:00:00".to_string()),
+                last_compaction_summary_excerpt: Some("newer summary".to_string()),
+                last_compaction_transcript_path: Some("/tmp/transcript.md".to_string()),
+                ..Default::default()
+            },
+            std::path::Path::new("."),
+            "abc12345-long-session",
         )
         .unwrap();
-        std::fs::write(
-            dir.join("abc12345-compact-20260101.md"),
-            "# Compaction Transcript\n\n- Mode: manual\n- Timestamp: 2026-01-02 10:00:00\n\n## Summary Anchor\n\n```text\nnewer summary\n```\n",
-        )
-        .unwrap();
-        std::fs::write(
-            dir.join("zzz99999-compact-20270101.md"),
-            "# Compaction Transcript\n\n- Mode: auto\n- Timestamp: 2026-01-03 10:00:00\n",
-        )
-        .unwrap();
-
-        let preview = latest_transcript_preview_for_session(&dir, "abc12345-long-session").unwrap();
         assert_eq!(preview.mode.as_deref(), Some("manual"));
         assert_eq!(preview.timestamp.as_deref(), Some("2026-01-02 10:00:00"));
         assert_eq!(preview.summary_preview.as_deref(), Some("newer summary"));
-
-        std::fs::remove_dir_all(&dir).ok();
     }
 }

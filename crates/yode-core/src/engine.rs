@@ -27,7 +27,7 @@ use yode_tools::validation;
 use crate::context::{AgentContext, EffortLevel, QuerySource};
 use crate::context_manager::{CompressionReport, ContextManager};
 use crate::cost_tracker::CostTracker;
-use crate::db::Database;
+use crate::db::{Database, SessionArtifacts};
 use crate::hooks::{HookContext, HookEvent, HookManager};
 use crate::instructions::{load_instruction_context, load_memory_context};
 use crate::permission::{CommandClassifier, CommandRiskLevel, PermissionAction, PermissionManager};
@@ -1356,6 +1356,7 @@ impl AgentEngine {
         } else {
             self.manual_compactions = self.manual_compactions.saturating_add(1);
         }
+        self.persist_session_artifacts();
         true
     }
 
@@ -1467,6 +1468,35 @@ impl AgentEngine {
         }
     }
 
+    fn persist_session_artifacts(&self) {
+        let Some(ref db) = self.db else {
+            return;
+        };
+
+        let shared = self.shared_memory_status.try_lock().ok().map(|state| {
+            (
+                state.last_session_memory_update_at.clone(),
+                state.last_session_memory_update_path.clone(),
+                state.last_session_memory_generated_summary,
+            )
+        });
+
+        let artifacts = SessionArtifacts {
+            last_compaction_mode: self.last_compaction_mode.clone(),
+            last_compaction_at: self.last_compaction_at.clone(),
+            last_compaction_summary_excerpt: self.last_compaction_summary_excerpt.clone(),
+            last_compaction_session_memory_path: self.last_compaction_session_memory_path.clone(),
+            last_compaction_transcript_path: self.last_compaction_transcript_path.clone(),
+            last_session_memory_update_at: shared.as_ref().and_then(|s| s.0.clone()),
+            last_session_memory_update_path: shared.as_ref().and_then(|s| s.1.clone()),
+            last_session_memory_generated_summary: shared.map(|s| s.2).unwrap_or(false),
+        };
+
+        if let Err(err) = db.upsert_session_artifacts(&self.context.session_id, &artifacts) {
+            warn!("Failed to persist session artifacts: {}", err);
+        }
+    }
+
     fn rebuild_runtime_artifact_state_from_disk(&mut self) {
         let project_root = self.context.working_dir_compat();
         self.last_compaction_mode = None;
@@ -1555,6 +1585,7 @@ impl AgentEngine {
                     .saturating_add(count_delta);
             }
         }
+        self.persist_session_artifacts();
     }
 
     fn current_message_char_count(&self) -> usize {

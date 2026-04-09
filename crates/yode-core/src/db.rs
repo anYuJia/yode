@@ -27,6 +27,24 @@ pub struct StoredMessage {
     pub created_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct SessionArtifacts {
+    pub last_compaction_mode: Option<String>,
+    pub last_compaction_at: Option<String>,
+    pub last_compaction_summary_excerpt: Option<String>,
+    pub last_compaction_session_memory_path: Option<String>,
+    pub last_compaction_transcript_path: Option<String>,
+    pub last_session_memory_update_at: Option<String>,
+    pub last_session_memory_update_path: Option<String>,
+    pub last_session_memory_generated_summary: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct SessionListEntry {
+    pub session: Session,
+    pub artifacts: SessionArtifacts,
+}
+
 impl Database {
     /// Open or create the database at the given path.
     pub fn open(path: &Path) -> Result<Self> {
@@ -64,6 +82,19 @@ impl Database {
                 tool_calls_json TEXT,
                 tool_call_id TEXT,
                 created_at TEXT NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES sessions(id)
+            );
+            CREATE TABLE IF NOT EXISTS session_artifacts (
+                session_id TEXT PRIMARY KEY,
+                last_compaction_mode TEXT,
+                last_compaction_at TEXT,
+                last_compaction_summary_excerpt TEXT,
+                last_compaction_session_memory_path TEXT,
+                last_compaction_transcript_path TEXT,
+                last_session_memory_update_at TEXT,
+                last_session_memory_update_path TEXT,
+                last_session_memory_generated_summary INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL,
                 FOREIGN KEY (session_id) REFERENCES sessions(id)
             );
             CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);",
@@ -155,6 +186,109 @@ impl Database {
             .collect::<std::result::Result<Vec<_>, _>>()?;
 
         Ok(sessions)
+    }
+
+    pub fn list_sessions_with_artifacts(&self, limit: usize) -> Result<Vec<SessionListEntry>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT
+                s.id, s.name, s.provider, s.model, s.created_at, s.updated_at,
+                a.last_compaction_mode, a.last_compaction_at, a.last_compaction_summary_excerpt,
+                a.last_compaction_session_memory_path, a.last_compaction_transcript_path,
+                a.last_session_memory_update_at, a.last_session_memory_update_path,
+                a.last_session_memory_generated_summary
+             FROM sessions s
+             LEFT JOIN session_artifacts a ON a.session_id = s.id
+             ORDER BY s.updated_at DESC
+             LIMIT ?1",
+        )?;
+
+        let entries = stmt
+            .query_map(params![limit as i64], |row| {
+                Ok(SessionListEntry {
+                    session: Session {
+                        id: row.get(0)?,
+                        name: row.get(1)?,
+                        provider: row.get(2)?,
+                        model: row.get(3)?,
+                        created_at: DateTime::parse_from_rfc3339(
+                            &row.get::<_, String>(4).unwrap_or_default(),
+                        )
+                        .map(|dt| dt.with_timezone(&Utc))
+                        .unwrap_or_else(|_| Utc::now()),
+                        updated_at: DateTime::parse_from_rfc3339(
+                            &row.get::<_, String>(5).unwrap_or_default(),
+                        )
+                        .map(|dt| dt.with_timezone(&Utc))
+                        .unwrap_or_else(|_| Utc::now()),
+                    },
+                    artifacts: SessionArtifacts {
+                        last_compaction_mode: row.get(6)?,
+                        last_compaction_at: row.get(7)?,
+                        last_compaction_summary_excerpt: row.get(8)?,
+                        last_compaction_session_memory_path: row.get(9)?,
+                        last_compaction_transcript_path: row.get(10)?,
+                        last_session_memory_update_at: row.get(11)?,
+                        last_session_memory_update_path: row.get(12)?,
+                        last_session_memory_generated_summary: row
+                            .get::<_, Option<i64>>(13)?
+                            .unwrap_or(0)
+                            != 0,
+                    },
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        Ok(entries)
+    }
+
+    pub fn upsert_session_artifacts(
+        &self,
+        session_id: &str,
+        artifacts: &SessionArtifacts,
+    ) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO session_artifacts (
+                session_id,
+                last_compaction_mode,
+                last_compaction_at,
+                last_compaction_summary_excerpt,
+                last_compaction_session_memory_path,
+                last_compaction_transcript_path,
+                last_session_memory_update_at,
+                last_session_memory_update_path,
+                last_session_memory_generated_summary,
+                updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+             ON CONFLICT(session_id) DO UPDATE SET
+                last_compaction_mode = excluded.last_compaction_mode,
+                last_compaction_at = excluded.last_compaction_at,
+                last_compaction_summary_excerpt = excluded.last_compaction_summary_excerpt,
+                last_compaction_session_memory_path = excluded.last_compaction_session_memory_path,
+                last_compaction_transcript_path = excluded.last_compaction_transcript_path,
+                last_session_memory_update_at = excluded.last_session_memory_update_at,
+                last_session_memory_update_path = excluded.last_session_memory_update_path,
+                last_session_memory_generated_summary = excluded.last_session_memory_generated_summary,
+                updated_at = excluded.updated_at",
+            params![
+                session_id,
+                artifacts.last_compaction_mode,
+                artifacts.last_compaction_at,
+                artifacts.last_compaction_summary_excerpt,
+                artifacts.last_compaction_session_memory_path,
+                artifacts.last_compaction_transcript_path,
+                artifacts.last_session_memory_update_at,
+                artifacts.last_session_memory_update_path,
+                if artifacts.last_session_memory_generated_summary {
+                    1
+                } else {
+                    0
+                },
+                Utc::now().to_rfc3339(),
+            ],
+        )?;
+        Ok(())
     }
 
     pub fn save_message(
@@ -263,7 +397,7 @@ mod tests {
     use tempfile::tempdir;
     use yode_llm::types::Message;
 
-    use super::Database;
+    use super::{Database, SessionArtifacts};
     use crate::session::Session;
 
     #[test]
@@ -298,5 +432,50 @@ mod tests {
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0].content.as_deref(), Some("new user"));
         assert_eq!(messages[1].content.as_deref(), Some("new assistant"));
+    }
+
+    #[test]
+    fn upsert_session_artifacts_persists_and_lists_metadata() {
+        let temp = tempdir().unwrap();
+        let db = Database::open(&temp.path().join("sessions.db")).unwrap();
+        db.create_session(&Session {
+            id: "session-1".to_string(),
+            name: Some("demo".to_string()),
+            provider: "mock".to_string(),
+            model: "mock-model".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        })
+        .unwrap();
+
+        db.upsert_session_artifacts(
+            "session-1",
+            &SessionArtifacts {
+                last_compaction_mode: Some("manual".to_string()),
+                last_compaction_at: Some("2026-01-01 10:00:00".to_string()),
+                last_compaction_summary_excerpt: Some("summary".to_string()),
+                last_compaction_session_memory_path: Some("/tmp/session.md".to_string()),
+                last_compaction_transcript_path: Some("/tmp/transcript.md".to_string()),
+                last_session_memory_update_at: Some("2026-01-01 10:05:00".to_string()),
+                last_session_memory_update_path: Some("/tmp/live.md".to_string()),
+                last_session_memory_generated_summary: true,
+            },
+        )
+        .unwrap();
+
+        let sessions = db.list_sessions_with_artifacts(10).unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(
+            sessions[0].artifacts.last_compaction_mode.as_deref(),
+            Some("manual")
+        );
+        assert_eq!(
+            sessions[0]
+                .artifacts
+                .last_compaction_transcript_path
+                .as_deref(),
+            Some("/tmp/transcript.md")
+        );
+        assert!(sessions[0].artifacts.last_session_memory_generated_summary);
     }
 }

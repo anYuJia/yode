@@ -184,6 +184,7 @@ live memory 现在支持：
 - transcript metadata: session memory path / file-touch summary
 - fuzzy alias / latest compare shortcut
 - `/sessions` 接入 latest transcript 摘要
+- session history 与 transcript artifacts 通过持久化 metadata 稳定关联
 
 下一步更值得投入的已经不是继续堆命令，而是提升 memory 本身的质量。
 
