@@ -178,7 +178,8 @@ live memory 现在支持：
 - failed 过滤
 - 组合过滤
 - 日期范围过滤
-- transcript 对比 + diff 预览
+- transcript 对比 + section summary + diff flags/preview
+- transcript metadata: session memory path / file-touch summary
 
 下一步更值得投入的已经不是继续堆命令，而是提升 memory 本身的质量。
 

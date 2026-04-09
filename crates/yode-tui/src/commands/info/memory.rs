@@ -25,8 +25,7 @@ impl MemoryCommand {
                 args: vec![ArgDef {
                     name: "target".to_string(),
                     required: false,
-                    hint: "[live|session|latest|list [filters...]|compare <a> <b>|<index>|<file>]"
-                        .to_string(),
+                    hint: "[live|session|latest|list [filters...]|compare <a> <b> [--no-diff|--hunks N|--lines N]|<index>|<file>]".to_string(),
                     completions: ArgCompletionSource::Static(vec![
                         "live".to_string(),
                         "session".to_string(),
@@ -41,6 +40,7 @@ impl MemoryCommand {
                         "list today".to_string(),
                         "list yesterday".to_string(),
                         "compare".to_string(),
+                        "compare latest latest-1".to_string(),
                     ]),
                 }],
                 category: CommandCategory::Info,
@@ -69,9 +69,10 @@ impl Command for MemoryCommand {
         let args = args.trim();
 
         if args == "compare" || args.starts_with("compare ") {
-            let compare = parse_compare_targets(args)
-                .ok_or_else(|| "Usage: /memory compare <a> <b>".to_string())?;
-            return render_transcript_compare(&transcripts_dir, compare.0, compare.1);
+            let compare = parse_compare_args(args).ok_or_else(|| {
+                "Usage: /memory compare <a> <b> [--no-diff] [--hunks N] [--lines N]".to_string()
+            })?;
+            return render_transcript_compare(&transcripts_dir, &compare);
         }
 
         if args == "list" || args.starts_with("list ") {
@@ -239,23 +240,50 @@ fn render_latest_transcript(path: &Path) -> CommandResult {
         extract_summary_preview(&content).unwrap_or_else(|| "No summary anchor".to_string());
     let truncated = truncate_for_display(&content);
     Ok(CommandOutput::Message(format!(
-        "Latest transcript\nPath: {}\nMode: {}\nTimestamp: {}\nRemoved: {}\nTruncated: {}\nFailed tool results: {}\nSummary preview: {}\n\n{}",
+        "Latest transcript\nPath: {}\nMode: {}\nTimestamp: {}\nRemoved: {}\nTruncated: {}\nFailed tool results: {}\nSession memory path: {}\nFiles read: {}\nFiles modified: {}\nSummary preview: {}\n\n{}",
         path.display(),
         meta.mode.unwrap_or_else(|| "unknown".to_string()),
         meta.timestamp.unwrap_or_else(|| "unknown".to_string()),
         meta.removed.unwrap_or(0),
         meta.truncated.unwrap_or(0),
         meta.failed_tool_results.unwrap_or(0),
+        meta.session_memory_path.unwrap_or_else(|| "none".to_string()),
+        meta.files_read_summary.unwrap_or_else(|| "none".to_string()),
+        meta.files_modified_summary.unwrap_or_else(|| "none".to_string()),
         preview,
         truncated
     )))
 }
 
-fn render_transcript_compare(dir: &Path, left_target: &str, right_target: &str) -> CommandResult {
-    let left_path = resolve_compare_target(dir, left_target)
-        .ok_or_else(|| format!("Unknown compare target: {}", left_target))?;
-    let right_path = resolve_compare_target(dir, right_target)
-        .ok_or_else(|| format!("Unknown compare target: {}", right_target))?;
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CompareArgs {
+    left_target: String,
+    right_target: String,
+    options: CompareOptions,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CompareOptions {
+    diff_enabled: bool,
+    max_hunks: usize,
+    max_lines: usize,
+}
+
+impl Default for CompareOptions {
+    fn default() -> Self {
+        Self {
+            diff_enabled: true,
+            max_hunks: 3,
+            max_lines: 60,
+        }
+    }
+}
+
+fn render_transcript_compare(dir: &Path, compare: &CompareArgs) -> CommandResult {
+    let left_path = resolve_compare_target(dir, &compare.left_target)
+        .ok_or_else(|| format!("Unknown compare target: {}", compare.left_target))?;
+    let right_path = resolve_compare_target(dir, &compare.right_target)
+        .ok_or_else(|| format!("Unknown compare target: {}", compare.right_target))?;
     let left_content = fs::read_to_string(&left_path)
         .map_err(|_| format!("Transcript not found: {}", left_path.display()))?;
     let right_content = fs::read_to_string(&right_path)
@@ -265,6 +293,7 @@ fn render_transcript_compare(dir: &Path, left_target: &str, right_target: &str) 
         &left_content,
         &right_path,
         &right_content,
+        &compare.options,
     )))
 }
 
@@ -579,22 +608,67 @@ fn resolve_transcript_target(dir: &Path, target: &str) -> Option<PathBuf> {
 }
 
 fn resolve_compare_target(dir: &Path, target: &str) -> Option<PathBuf> {
-    if target == "latest" {
-        latest_transcript(dir)
+    if let Some(path) = resolve_latest_alias(dir, target) {
+        Some(path)
     } else {
         resolve_transcript_target(dir, target)
     }
 }
 
-fn parse_compare_targets(args: &str) -> Option<(&str, &str)> {
+fn resolve_latest_alias(dir: &Path, target: &str) -> Option<PathBuf> {
+    if target == "latest" {
+        return latest_transcript(dir);
+    }
+
+    let suffix = target.strip_prefix("latest-")?;
+    let offset = suffix.parse::<usize>().ok()?;
+    if offset == 0 {
+        return latest_transcript(dir);
+    }
+
+    sorted_transcript_entries(dir).into_iter().nth(offset)
+}
+
+fn parse_compare_args(args: &str) -> Option<CompareArgs> {
     let rest = args.strip_prefix("compare ")?;
-    let mut parts = rest.split_whitespace();
-    let left = parts.next()?;
-    let right = parts.next()?;
-    if parts.next().is_some() {
+    let tokens = rest.split_whitespace().collect::<Vec<_>>();
+    if tokens.len() < 2 {
         return None;
     }
-    Some((left, right))
+    let mut compare = CompareArgs {
+        left_target: tokens[0].to_string(),
+        right_target: tokens[1].to_string(),
+        options: CompareOptions::default(),
+    };
+
+    let mut idx = 2usize;
+    while idx < tokens.len() {
+        match tokens[idx] {
+            "--no-diff" => {
+                compare.options.diff_enabled = false;
+                idx += 1;
+            }
+            "--hunks" => {
+                let value = tokens.get(idx + 1)?.parse::<usize>().ok()?;
+                if value == 0 {
+                    return None;
+                }
+                compare.options.max_hunks = value;
+                idx += 2;
+            }
+            "--lines" => {
+                let value = tokens.get(idx + 1)?.parse::<usize>().ok()?;
+                if value == 0 {
+                    return None;
+                }
+                compare.options.max_lines = value;
+                idx += 2;
+            }
+            _ => return None,
+        }
+    }
+
+    Some(compare)
 }
 
 fn describe_path(path: &Path) -> String {
@@ -623,6 +697,9 @@ struct TranscriptMetadata {
     removed: Option<usize>,
     truncated: Option<usize>,
     failed_tool_results: Option<usize>,
+    session_memory_path: Option<String>,
+    files_read_summary: Option<String>,
+    files_modified_summary: Option<String>,
     has_summary: bool,
 }
 
@@ -630,7 +707,7 @@ fn read_transcript_metadata(path: &Path) -> Option<TranscriptMetadata> {
     let content = fs::read_to_string(path).ok()?;
     let mut meta = TranscriptMetadata::default();
 
-    for line in content.lines().take(10) {
+    for line in content.lines().take(14) {
         if let Some(value) = line.strip_prefix("- Timestamp: ") {
             meta.timestamp = Some(value.to_string());
         } else if let Some(value) = line.strip_prefix("- Mode: ") {
@@ -641,6 +718,12 @@ fn read_transcript_metadata(path: &Path) -> Option<TranscriptMetadata> {
             meta.truncated = value.parse::<usize>().ok();
         } else if let Some(value) = line.strip_prefix("- Failed tool results: ") {
             meta.failed_tool_results = value.parse::<usize>().ok();
+        } else if let Some(value) = line.strip_prefix("- Session memory path: ") {
+            meta.session_memory_path = Some(value.to_string());
+        } else if let Some(value) = line.strip_prefix("- Files read: ") {
+            meta.files_read_summary = Some(value.to_string());
+        } else if let Some(value) = line.strip_prefix("- Files modified: ") {
+            meta.files_modified_summary = Some(value.to_string());
         }
     }
 
@@ -679,6 +762,7 @@ fn build_transcript_compare_output(
     left_content: &str,
     right_path: &Path,
     right_content: &str,
+    options: &CompareOptions,
 ) -> String {
     let left_meta = read_transcript_metadata(left_path).unwrap_or_default();
     let right_meta = read_transcript_metadata(right_path).unwrap_or_default();
@@ -729,6 +813,27 @@ fn build_transcript_compare_output(
         &right_meta.failed_tool_results.unwrap_or(0).to_string(),
     ));
     output.push_str(&format_compare_field(
+        "Session memory path",
+        left_meta.session_memory_path.as_deref().unwrap_or("none"),
+        right_meta.session_memory_path.as_deref().unwrap_or("none"),
+    ));
+    output.push_str(&format_compare_field(
+        "Files read",
+        left_meta.files_read_summary.as_deref().unwrap_or("none"),
+        right_meta.files_read_summary.as_deref().unwrap_or("none"),
+    ));
+    output.push_str(&format_compare_field(
+        "Files modified",
+        left_meta
+            .files_modified_summary
+            .as_deref()
+            .unwrap_or("none"),
+        right_meta
+            .files_modified_summary
+            .as_deref()
+            .unwrap_or("none"),
+    ));
+    output.push_str(&format_compare_field(
         "Summary anchor",
         if left_meta.has_summary { "yes" } else { "no" },
         if right_meta.has_summary { "yes" } else { "no" },
@@ -753,9 +858,17 @@ fn build_transcript_compare_output(
     output.push_str(&format!("  A: {}\n", left_summary));
     output.push_str(&format!("  B: {}\n", right_summary));
 
-    if let Some(diff_preview) = build_diff_preview(left_content, right_content) {
+    output.push_str("\nSection summary:\n");
+    output.push_str(&build_section_summary(left_content, right_content));
+
+    if options.diff_enabled {
+        if let Some(diff_preview) = build_diff_preview(left_content, right_content, options) {
+            output.push_str("\nContent diff:\n");
+            output.push_str(&diff_preview);
+        }
+    } else {
         output.push_str("\nContent diff:\n");
-        output.push_str(&diff_preview);
+        output.push_str("  disabled by flag\n");
     }
 
     if let Some((line_no, left_line, right_line)) = first_difference(left_content, right_content) {
@@ -774,7 +887,7 @@ fn build_transcript_compare_output(
     output
 }
 
-fn build_diff_preview(left: &str, right: &str) -> Option<String> {
+fn build_diff_preview(left: &str, right: &str, options: &CompareOptions) -> Option<String> {
     let diff = TextDiff::from_lines(left, right);
     let groups = diff.grouped_ops(2);
 
@@ -798,7 +911,7 @@ fn build_diff_preview(left: &str, right: &str) -> Option<String> {
     output.push_str(&format!("  Changed lines: +{} / -{}\n", added, removed));
 
     let mut shown_lines = 0usize;
-    for (idx, group) in groups.iter().take(3).enumerate() {
+    for (idx, group) in groups.iter().take(options.max_hunks).enumerate() {
         let (old_start, old_count, new_start, new_count) = diff_group_header(group);
         output.push_str(&format!(
             "  Hunk {} @@ -{},{} +{},{} @@\n",
@@ -822,7 +935,7 @@ fn build_diff_preview(left: &str, right: &str) -> Option<String> {
                     summarize_compare_line(change.to_string().trim_end_matches('\n'))
                 ));
                 shown_lines += 1;
-                if shown_lines >= 60 {
+                if shown_lines >= options.max_lines {
                     output.push_str("    ... diff preview truncated ...\n");
                     return Some(output);
                 }
@@ -830,14 +943,89 @@ fn build_diff_preview(left: &str, right: &str) -> Option<String> {
         }
     }
 
-    if groups.len() > 3 {
+    if groups.len() > options.max_hunks {
         output.push_str(&format!(
             "  ... {} more hunks omitted ...\n",
-            groups.len() - 3
+            groups.len() - options.max_hunks
         ));
     }
 
     Some(output)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TranscriptSectionStats {
+    summary_anchor_lines: usize,
+    message_lines: usize,
+    role_counts: std::collections::BTreeMap<String, usize>,
+}
+
+fn build_section_summary(left: &str, right: &str) -> String {
+    let left_stats = transcript_section_stats(left);
+    let right_stats = transcript_section_stats(right);
+
+    let mut lines = Vec::new();
+    lines.push(format!(
+        "  Summary Anchor lines: {} -> {}",
+        left_stats.summary_anchor_lines, right_stats.summary_anchor_lines
+    ));
+    lines.push(format!(
+        "  Messages lines:       {} -> {}",
+        left_stats.message_lines, right_stats.message_lines
+    ));
+
+    let mut roles = left_stats
+        .role_counts
+        .keys()
+        .chain(right_stats.role_counts.keys())
+        .cloned()
+        .collect::<Vec<_>>();
+    roles.sort();
+    roles.dedup();
+    for role in roles {
+        let left_count = left_stats.role_counts.get(&role).copied().unwrap_or(0);
+        let right_count = right_stats.role_counts.get(&role).copied().unwrap_or(0);
+        lines.push(format!(
+            "  {} blocks: {} -> {}",
+            role, left_count, right_count
+        ));
+    }
+
+    format!("{}\n", lines.join("\n"))
+}
+
+fn transcript_section_stats(content: &str) -> TranscriptSectionStats {
+    let mut stats = TranscriptSectionStats {
+        summary_anchor_lines: 0,
+        message_lines: 0,
+        role_counts: std::collections::BTreeMap::new(),
+    };
+
+    let mut current_section: Option<&str> = None;
+    for line in content.lines() {
+        if let Some(section) = line.strip_prefix("## ") {
+            current_section = Some(section.trim());
+            continue;
+        }
+
+        match current_section {
+            Some("Summary Anchor") if !line.trim().is_empty() => {
+                stats.summary_anchor_lines += 1;
+            }
+            Some("Messages") if !line.trim().is_empty() => {
+                stats.message_lines += 1;
+                if let Some(role) = line.strip_prefix("### ") {
+                    *stats
+                        .role_counts
+                        .entry(role.trim().to_string())
+                        .or_insert(0) += 1;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    stats
 }
 
 fn diff_group_header(group: &[DiffOp]) -> (usize, usize, usize, usize) {
@@ -1033,10 +1221,11 @@ mod tests {
 
     use super::{
         build_transcript_compare_output, extract_summary_preview, filtered_transcript_entries,
-        latest_transcript, memory_entry_age, parse_compare_targets, parse_date_range_filter,
+        latest_transcript, memory_entry_age, parse_compare_args, parse_date_range_filter,
         parse_list_filter, parse_memory_document, read_transcript_metadata, render_memory_file,
-        render_transcript_list, resolve_transcript_target, truncate_for_display,
-        TranscriptListFilter, TranscriptMode, MAX_DISPLAY_CHARS,
+        render_transcript_list, resolve_compare_target, resolve_transcript_target,
+        truncate_for_display, CompareArgs, CompareOptions, TranscriptListFilter, TranscriptMode,
+        MAX_DISPLAY_CHARS,
     };
     use crate::commands::CommandOutput;
 
@@ -1093,7 +1282,7 @@ mod tests {
         let path = dir.join("sample.md");
         std::fs::write(
             &path,
-            "# Compaction Transcript\n\n- Session: abc\n- Mode: manual\n- Timestamp: 2026-01-01 10:00:00\n- Removed messages: 7\n- Tool results truncated: 2\n- Failed tool results: 1\n\n## Summary Anchor\n",
+            "# Compaction Transcript\n\n- Session: abc\n- Mode: manual\n- Timestamp: 2026-01-01 10:00:00\n- Removed messages: 7\n- Tool results truncated: 2\n- Failed tool results: 1\n- Session memory path: .yode/memory/session.md\n- Files read: src/lib.rs (120 lines)\n- Files modified: src/main.rs\n\n## Summary Anchor\n",
         )
         .unwrap();
 
@@ -1103,6 +1292,15 @@ mod tests {
         assert_eq!(meta.removed, Some(7));
         assert_eq!(meta.truncated, Some(2));
         assert_eq!(meta.failed_tool_results, Some(1));
+        assert_eq!(
+            meta.session_memory_path.as_deref(),
+            Some(".yode/memory/session.md")
+        );
+        assert_eq!(
+            meta.files_read_summary.as_deref(),
+            Some("src/lib.rs (120 lines)")
+        );
+        assert_eq!(meta.files_modified_summary.as_deref(), Some("src/main.rs"));
         assert!(meta.has_summary);
 
         std::fs::remove_dir_all(&dir).ok();
@@ -1379,14 +1577,40 @@ mod tests {
     }
 
     #[test]
-    fn parse_compare_targets_accepts_two_values() {
-        assert_eq!(parse_compare_targets("compare 1 2"), Some(("1", "2")));
+    fn parse_compare_args_accepts_two_values_and_flags() {
         assert_eq!(
-            parse_compare_targets("compare latest sample.md"),
-            Some(("latest", "sample.md"))
+            parse_compare_args("compare 1 2"),
+            Some(CompareArgs {
+                left_target: "1".to_string(),
+                right_target: "2".to_string(),
+                options: CompareOptions::default(),
+            })
         );
-        assert_eq!(parse_compare_targets("compare 1"), None);
-        assert_eq!(parse_compare_targets("list compare 1 2"), None);
+        assert_eq!(
+            parse_compare_args("compare latest sample.md --hunks 2 --lines 20"),
+            Some(CompareArgs {
+                left_target: "latest".to_string(),
+                right_target: "sample.md".to_string(),
+                options: CompareOptions {
+                    diff_enabled: true,
+                    max_hunks: 2,
+                    max_lines: 20,
+                },
+            })
+        );
+        assert_eq!(
+            parse_compare_args("compare latest latest-1 --no-diff"),
+            Some(CompareArgs {
+                left_target: "latest".to_string(),
+                right_target: "latest-1".to_string(),
+                options: CompareOptions {
+                    diff_enabled: false,
+                    ..CompareOptions::default()
+                },
+            })
+        );
+        assert_eq!(parse_compare_args("compare 1"), None);
+        assert_eq!(parse_compare_args("list compare 1 2"), None);
     }
 
     #[test]
@@ -1403,16 +1627,73 @@ mod tests {
         std::fs::write(&left_path, left).unwrap();
         std::fs::write(&right_path, right).unwrap();
 
-        let output = build_transcript_compare_output(&left_path, left, &right_path, right);
+        let output = build_transcript_compare_output(
+            &left_path,
+            left,
+            &right_path,
+            right,
+            &CompareOptions::default(),
+        );
         assert!(output.contains("Status: different"));
         assert!(output.contains("Mode               auto -> manual"));
         assert!(output.contains("Failed tool results 1 -> 0"));
         assert!(output.contains("A: Left summary"));
         assert!(output.contains("B: Right summary"));
+        assert!(output.contains("Section summary:"));
+        assert!(output.contains("User blocks:"));
         assert!(output.contains("Content diff:"));
         assert!(output.contains("Changed lines:"));
         assert!(output.contains("Hunk 1"));
         assert!(output.contains("First difference:"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn build_transcript_compare_output_respects_no_diff_flag() {
+        let dir = std::env::temp_dir().join(format!(
+            "yode-memory-command-compare-nodiff-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let left_path = dir.join("left.md");
+        let right_path = dir.join("right.md");
+        let left = "# Compaction Transcript\n\n## Summary Anchor\n\n```text\nLeft summary\n```\n\n## Messages\n\n### Assistant\n\n```text\nhello\n```\n";
+        let right = "# Compaction Transcript\n\n## Summary Anchor\n\n```text\nRight summary\n```\n\n## Messages\n\n### Assistant\n\n```text\nworld\n```\n";
+        std::fs::write(&left_path, left).unwrap();
+        std::fs::write(&right_path, right).unwrap();
+
+        let output = build_transcript_compare_output(
+            &left_path,
+            left,
+            &right_path,
+            right,
+            &CompareOptions {
+                diff_enabled: false,
+                ..CompareOptions::default()
+            },
+        );
+        assert!(output.contains("Content diff:\n  disabled by flag"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn resolve_compare_target_supports_latest_alias_offsets() {
+        let dir = std::env::temp_dir().join(format!(
+            "yode-memory-command-latest-alias-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("aaa-compact-20240101.md"), "old").unwrap();
+        std::fs::write(dir.join("bbb-compact-20250101.md"), "mid").unwrap();
+        std::fs::write(dir.join("ccc-compact-20260101.md"), "new").unwrap();
+
+        let latest = resolve_compare_target(&dir, "latest").unwrap();
+        assert!(latest.ends_with("ccc-compact-20260101.md"));
+
+        let previous = resolve_compare_target(&dir, "latest-1").unwrap();
+        assert!(previous.ends_with("bbb-compact-20250101.md"));
 
         std::fs::remove_dir_all(&dir).ok();
     }

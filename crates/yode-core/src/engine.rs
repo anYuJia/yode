@@ -1216,6 +1216,9 @@ impl AgentEngine {
             &report,
             mode,
             &self.failed_tool_call_ids,
+            session_memory_path.as_deref(),
+            &self.files_read,
+            &self.files_modified,
         ) {
             Ok(path) => transcript_path = Some(path),
             Err(err) => warn!("Failed to write compaction transcript: {}", err),

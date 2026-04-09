@@ -18,11 +18,11 @@
 
 当前焦点：
 
-- `021 Transcript compare 增加 section-level summary`
+- `026 Transcript 目标解析支持更稳定的 fuzzy alias`
 
 当前进度：
 
-- `20 / 100` 已完成
+- `25 / 100` 已完成
 
 ## 001-010 Structured Memory
 
@@ -52,11 +52,11 @@
 
 ## 021-030 Transcript / History
 
-- `[ ] 021 Transcript compare 增加 section-level summary`
-- `[ ] 022 Transcript compare 增加 content diff limits/flags`
-- `[ ] 023 Transcript compare 支持 latest 别名组合`
-- `[ ] 024 Transcript metadata 增加 session memory path`
-- `[ ] 025 Transcript metadata 增加 file-touch summary`
+- `[x] 021 Transcript compare 增加 section-level summary`
+- `[x] 022 Transcript compare 增加 content diff limits/flags`
+- `[x] 023 Transcript compare 支持 latest 别名组合`
+- `[x] 024 Transcript metadata 增加 session memory path`
+- `[x] 025 Transcript metadata 增加 file-touch summary`
 - `[ ] 026 Transcript 目标解析支持更稳定的 fuzzy alias`
 - `[ ] 027 `/memory latest` 增加 compare shortcut`
 - `[ ] 028 Resume 后 transcript / memory artifact 索引重建`

@@ -16,6 +16,9 @@ pub fn write_compaction_transcript(
     report: &CompressionReport,
     mode: &str,
     failed_tool_call_ids: &HashSet<String>,
+    session_memory_path: Option<&Path>,
+    files_read: &HashMap<String, usize>,
+    files_modified: &[String],
 ) -> Result<PathBuf> {
     let dir = project_root.join(TRANSCRIPTS_DIR);
     fs::create_dir_all(&dir)
@@ -29,7 +32,17 @@ pub fn write_compaction_transcript(
     ));
     fs::write(
         &path,
-        render_compaction_transcript(session_id, messages, report, mode, failed_tool_call_ids),
+        render_compaction_transcript(
+            project_root,
+            session_id,
+            messages,
+            report,
+            mode,
+            failed_tool_call_ids,
+            session_memory_path,
+            files_read,
+            files_modified,
+        ),
     )
     .with_context(|| format!("Failed to write transcript file: {}", path.display()))?;
 
@@ -37,13 +50,19 @@ pub fn write_compaction_transcript(
 }
 
 fn render_compaction_transcript(
+    project_root: &Path,
     session_id: &str,
     messages: &[Message],
     report: &CompressionReport,
     mode: &str,
     failed_tool_call_ids: &HashSet<String>,
+    session_memory_path: Option<&Path>,
+    files_read: &HashMap<String, usize>,
+    files_modified: &[String],
 ) -> String {
     let failure_summary = summarize_failed_tools(messages, failed_tool_call_ids);
+    let files_read_summary = summarize_read_files(project_root, files_read);
+    let files_modified_summary = summarize_modified_files(project_root, files_modified);
     let mut output = String::new();
     output.push_str("# Compaction Transcript\n\n");
     output.push_str(&format!("- Session: {}\n", session_id));
@@ -66,6 +85,15 @@ fn render_compaction_transcript(
             "- Failed tools: {}\n",
             failure_summary.failed_tool_names.join(", ")
         ));
+    }
+    if let Some(path) = session_memory_path {
+        output.push_str(&format!("- Session memory path: {}\n", path.display()));
+    }
+    if let Some(summary) = files_read_summary {
+        output.push_str(&format!("- Files read: {}\n", summary));
+    }
+    if let Some(summary) = files_modified_summary {
+        output.push_str(&format!("- Files modified: {}\n", summary));
     }
     if let Some(summary) = report.summary.as_deref() {
         output.push_str("\n## Summary Anchor\n\n```text\n");
@@ -165,8 +193,60 @@ fn summarize_failed_tools(
     }
 }
 
+fn summarize_read_files(
+    project_root: &Path,
+    files_read: &HashMap<String, usize>,
+) -> Option<String> {
+    if files_read.is_empty() {
+        return None;
+    }
+    let mut entries = files_read
+        .iter()
+        .map(|(path, lines)| format!("{} ({} lines)", display_path(project_root, path), lines))
+        .collect::<Vec<_>>();
+    entries.sort();
+    summarize_entries(entries)
+}
+
+fn summarize_modified_files(project_root: &Path, files_modified: &[String]) -> Option<String> {
+    if files_modified.is_empty() {
+        return None;
+    }
+    let mut entries = files_modified
+        .iter()
+        .map(|path| display_path(project_root, path))
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    entries.sort();
+    summarize_entries(entries)
+}
+
+fn summarize_entries(mut entries: Vec<String>) -> Option<String> {
+    if entries.is_empty() {
+        return None;
+    }
+    const MAX_LISTED_FILES: usize = 8;
+    let extra = entries.len().saturating_sub(MAX_LISTED_FILES);
+    entries.truncate(MAX_LISTED_FILES);
+    let mut summary = entries.join(", ");
+    if extra > 0 {
+        summary.push_str(&format!(", +{} more", extra));
+    }
+    Some(summary)
+}
+
+fn display_path(project_root: &Path, raw_path: &str) -> String {
+    let path = Path::new(raw_path);
+    if let Ok(relative) = path.strip_prefix(project_root) {
+        return relative.display().to_string();
+    }
+    raw_path.to_string()
+}
+
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use std::collections::HashSet;
 
     use tempfile::tempdir;
@@ -191,6 +271,9 @@ mod tests {
             &report,
             "auto",
             &HashSet::new(),
+            None,
+            &HashMap::new(),
+            &[],
         )
         .unwrap();
 
@@ -230,6 +313,9 @@ mod tests {
             &report,
             "manual",
             &HashSet::from(["tc1".to_string()]),
+            None,
+            &HashMap::new(),
+            &[],
         )
         .unwrap();
 
@@ -237,5 +323,39 @@ mod tests {
         assert!(content.contains("- Failed tool results: 1"));
         assert!(content.contains("- Failed tools: bash"));
         assert!(content.contains("Tool result status: `error`"));
+    }
+
+    #[test]
+    fn writes_session_memory_path_and_file_summaries() {
+        let temp = tempdir().unwrap();
+        let report = CompressionReport {
+            removed: 1,
+            tool_results_truncated: 0,
+            summary: Some("summary".to_string()),
+        };
+        let mut files_read = HashMap::new();
+        files_read.insert(
+            temp.path().join("src/lib.rs").display().to_string(),
+            120usize,
+        );
+        let files_modified = vec![temp.path().join("src/main.rs").display().to_string()];
+
+        let path = write_compaction_transcript(
+            temp.path(),
+            "session-1234",
+            &[Message::assistant("hello")],
+            &report,
+            "auto",
+            &HashSet::new(),
+            Some(temp.path().join(".yode/memory/session.md").as_path()),
+            &files_read,
+            &files_modified,
+        )
+        .unwrap();
+
+        let content = std::fs::read_to_string(path).unwrap();
+        assert!(content.contains("- Session memory path:"));
+        assert!(content.contains("- Files read: src/lib.rs (120 lines)"));
+        assert!(content.contains("- Files modified: src/main.rs"));
     }
 }
