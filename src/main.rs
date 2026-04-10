@@ -86,6 +86,15 @@ enum UpdateAction {
     Status,
     /// 发布前检查（工作树、版本、编译、核心测试）
     Preflight,
+    /// 生成从某个 tag 到 HEAD 的发布说明草稿
+    Notes {
+        /// 起始 tag，默认使用最新本地 release tag
+        #[arg(long)]
+        from: Option<String>,
+        /// 最多显示多少条提交
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+    },
 }
 
 #[derive(clap::Subcommand)]
@@ -350,6 +359,42 @@ async fn main() -> Result<()> {
                         }
 
                         println!("  [ok] 发布前检查通过");
+                    }
+                    UpdateAction::Notes { from, limit } => {
+                        let base = from
+                            .or_else(yode_core::updater::latest_local_release_tag)
+                            .unwrap_or_else(|| "HEAD~20".to_string());
+                        let range = format!("{}..HEAD", base);
+                        let output = std::process::Command::new("git")
+                            .args([
+                                "log",
+                                "--pretty=format:- %s",
+                                "--no-merges",
+                                &format!("--max-count={}", limit),
+                                &range,
+                            ])
+                            .output();
+                        match output {
+                            Ok(output) if output.status.success() => {
+                                let notes = String::from_utf8_lossy(&output.stdout);
+                                println!("# Release notes draft\n");
+                                println!("Range: {}\n", range);
+                                if notes.trim().is_empty() {
+                                    println!("No commits found.");
+                                } else {
+                                    println!("{}", notes);
+                                }
+                            }
+                            Ok(output) => {
+                                anyhow::bail!(
+                                    "failed to generate release notes: {}",
+                                    String::from_utf8_lossy(&output.stderr)
+                                );
+                            }
+                            Err(err) => {
+                                anyhow::bail!("failed to run git log: {}", err);
+                            }
+                        }
                     }
                 }
                 return Ok(());
