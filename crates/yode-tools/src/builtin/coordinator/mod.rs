@@ -139,14 +139,20 @@ impl Tool for CoordinateAgentsTool {
 
         if dry_run {
             let plan = render_phase_plan(&phases, max_parallel);
+            let timeline = render_phase_timeline(&phases, max_parallel);
             return Ok(ToolResult::success_with_metadata(
-                serde_json::to_string_pretty(&plan)?,
+                format!(
+                    "Coordinator phase timeline\n{}\n\nJSON plan\n{}\n",
+                    timeline,
+                    serde_json::to_string_pretty(&plan)?
+                ),
                 json!({
                     "goal": goal,
                     "dry_run": true,
                     "phase_count": phases.len(),
                     "workstream_count": normalized.len(),
                     "max_parallel": max_parallel_label(max_parallel),
+                    "timeline": timeline,
                     "plan": plan,
                 }),
             ));
@@ -385,6 +391,29 @@ fn render_phase_plan(phases: &[Vec<NormalizedWorkstream>], max_parallel: usize) 
         .collect()
 }
 
+fn render_phase_timeline(phases: &[Vec<NormalizedWorkstream>], max_parallel: usize) -> String {
+    let mut lines = Vec::new();
+    for (phase_index, workstreams) in phases.iter().enumerate() {
+        lines.push(format!(
+            "  Phase {} [{} workstream(s)]",
+            phase_index + 1,
+            workstreams.len()
+        ));
+        for (batch_index, batch) in workstreams.chunks(max_parallel).enumerate() {
+            lines.push(format!(
+                "    Batch {}: {}",
+                batch_index + 1,
+                batch
+                    .iter()
+                    .map(|workstream| format!("{} ({})", workstream.id, workstream.description))
+                    .collect::<Vec<_>>()
+                    .join(" | ")
+            ));
+        }
+    }
+    lines.join("\n")
+}
+
 fn max_parallel_label(max_parallel: usize) -> Value {
     if max_parallel == usize::MAX {
         Value::String("all".to_string())
@@ -408,6 +437,7 @@ struct NormalizedWorkstream {
 #[cfg(test)]
 mod tests {
     use super::CoordinateAgentsTool;
+    use super::NormalizedWorkstream;
     use crate::tool::{SubAgentOptions, SubAgentRunner, Tool, ToolContext};
     use std::pin::Pin;
     use std::sync::{Arc, Mutex};
@@ -496,9 +526,53 @@ mod tests {
             .unwrap();
 
         assert!(!result.is_error);
+        assert!(result.content.contains("Coordinator phase timeline"));
         assert!(result.content.contains("\"phase\": 1"));
         assert!(result.content.contains("\"phase\": 2"));
         assert_eq!(result.metadata.unwrap()["dry_run"], true);
+    }
+
+    #[test]
+    fn render_phase_timeline_groups_batches() {
+        let phases = vec![
+            vec![
+                NormalizedWorkstream {
+                    id: "review".to_string(),
+                    description: "review".to_string(),
+                    prompt: "review".to_string(),
+                    subagent_type: None,
+                    model: None,
+                    run_in_background: Some(false),
+                    allowed_tools: vec![],
+                    depends_on: vec![],
+                },
+                NormalizedWorkstream {
+                    id: "verify".to_string(),
+                    description: "verify".to_string(),
+                    prompt: "verify".to_string(),
+                    subagent_type: None,
+                    model: None,
+                    run_in_background: Some(false),
+                    allowed_tools: vec![],
+                    depends_on: vec![],
+                },
+            ],
+            vec![NormalizedWorkstream {
+                id: "ship".to_string(),
+                description: "ship".to_string(),
+                prompt: "ship".to_string(),
+                subagent_type: None,
+                model: None,
+                run_in_background: Some(false),
+                allowed_tools: vec![],
+                depends_on: vec!["review".to_string()],
+            }],
+        ];
+        let timeline = super::render_phase_timeline(&phases, 1);
+        assert!(timeline.contains("Phase 1"));
+        assert!(timeline.contains("Batch 1: review (review)"));
+        assert!(timeline.contains("Batch 2: verify (verify)"));
+        assert!(timeline.contains("Phase 2"));
     }
 
     #[tokio::test]
