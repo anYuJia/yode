@@ -182,6 +182,9 @@ pub struct SessionState {
     /// Tokens used in the current turn only.
     pub turn_input_tokens: u32,
     pub turn_output_tokens: u32,
+    /// Resume-time warmup stats for transcript caches, when available.
+    pub(crate) resume_cache_warmup:
+        Option<crate::commands::info::ResumeTranscriptCacheWarmupStats>,
 }
 
 // ── Turn Status Line ───────────────────────────────────────────────
@@ -449,6 +452,7 @@ impl App {
                 input_estimated: false,
                 turn_input_tokens: 0,
                 turn_output_tokens: 0,
+                resume_cache_warmup: None,
             },
             chat_entries: Vec::new(),
             printed_count: 0,
@@ -604,6 +608,11 @@ pub async fn run(
         provider_registry,
         tools.clone(),
     );
+    if is_resumed {
+        app.session.resume_cache_warmup = Some(crate::commands::info::warm_resume_transcript_caches(
+            &context.working_dir_compat(),
+        ));
+    }
     app.cmd_completion.dynamic_commands = skill_commands.clone();
 
     // Register all built-in commands

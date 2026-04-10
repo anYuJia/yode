@@ -43,6 +43,20 @@ impl Command for StatusCommand {
         );
         let working_dir = std::path::PathBuf::from(&ctx.session.working_dir);
         let latest_review = latest_review_summary(&working_dir.join(".yode").join("reviews"));
+        let resume_warmup = ctx
+            .session
+            .resume_cache_warmup
+            .as_ref()
+            .map(|stats| {
+                format!(
+                    "{} transcripts / {} metadata / latest={} / {} ms",
+                    stats.transcript_count,
+                    stats.metadata_entries_warmed,
+                    if stats.latest_lookup_cached { "yes" } else { "no" },
+                    stats.duration_ms
+                )
+            })
+            .unwrap_or_else(|| "none".to_string());
         let runtime = ctx
             .engine
             .try_lock()
@@ -280,7 +294,7 @@ impl Command for StatusCommand {
         };
 
         Ok(CommandOutput::Message(format!(
-            "Session status:\n  Session:         {}\n  Model:           {}\n  Working dir:     {}\n  Permission mode: {}\n  Tokens:          {} (in: {}, out: {})\n  Tool calls:      {}\n  Est. cost:       ${:.4}\n  Terminal:        {}{}",
+            "Session status:\n  Session:         {}\n  Model:           {}\n  Working dir:     {}\n  Permission mode: {}\n  Tokens:          {} (in: {}, out: {})\n  Tool calls:      {}\n  Resume warmup:   {}\n  Est. cost:       ${:.4}\n  Terminal:        {}{}",
             session_short,
             ctx.session.model,
             ctx.session.working_dir,
@@ -289,6 +303,7 @@ impl Command for StatusCommand {
             ctx.session.input_tokens,
             ctx.session.output_tokens,
             ctx.session.tool_call_count,
+            resume_warmup,
             cost,
             ctx.terminal_caps.summary(),
             runtime_sections,

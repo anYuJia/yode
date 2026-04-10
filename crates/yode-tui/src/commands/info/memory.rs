@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
+use std::time::Instant;
 
 use crate::commands::context::CommandContext;
 use crate::commands::{
@@ -20,6 +21,14 @@ static TRANSCRIPT_META_CACHE: LazyLock<Mutex<HashMap<PathBuf, (u64, TranscriptMe
     LazyLock::new(|| Mutex::new(HashMap::new()));
 static LATEST_TRANSCRIPT_CACHE: LazyLock<Mutex<HashMap<PathBuf, (u64, Option<PathBuf>)>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct ResumeTranscriptCacheWarmupStats {
+    pub transcript_count: usize,
+    pub metadata_entries_warmed: usize,
+    pub latest_lookup_cached: bool,
+    pub duration_ms: u64,
+}
 
 pub struct MemoryCommand {
     meta: CommandMeta,
@@ -100,6 +109,7 @@ impl Command for MemoryCommand {
                 &session_path,
                 &transcripts_dir,
                 runtime.as_ref(),
+                ctx.session.resume_cache_warmup.as_ref(),
             ))),
             "live" => render_memory_file("Live session memory", &live_path),
             "session" => render_memory_file("Compaction memory", &session_path),
@@ -139,6 +149,7 @@ fn render_memory_status(
     session_path: &Path,
     transcripts_dir: &Path,
     runtime: Option<&yode_core::engine::EngineRuntimeState>,
+    resume_warmup: Option<&ResumeTranscriptCacheWarmupStats>,
 ) -> String {
     let latest = latest_transcript(transcripts_dir);
     let latest_failed = filtered_transcript_entries(
@@ -198,8 +209,19 @@ fn render_memory_status(
             )
         })
         .unwrap_or_default();
+    let resume_warmup_line = resume_warmup
+        .map(|stats| {
+            format!(
+                "\n  Resume warmup:    {} transcripts / {} metadata / latest={} / {} ms",
+                stats.transcript_count,
+                stats.metadata_entries_warmed,
+                if stats.latest_lookup_cached { "yes" } else { "no" },
+                stats.duration_ms
+            )
+        })
+        .unwrap_or_default();
     format!(
-        "Memory artifacts:\n  Live memory:       {}\n  Compaction memory: {}\n  Transcript dir:    {}\n  Transcript count:  {}\n  Latest transcript: {}\n  Latest failed:     {}{}\n\nQuick jumps:\n  /memory latest\n  /memory list failed\n  /memory pick\n  /memory compare <a> <b>\n  /memory <index>",
+        "Memory artifacts:\n  Live memory:       {}\n  Compaction memory: {}\n  Transcript dir:    {}\n  Transcript count:  {}\n  Latest transcript: {}\n  Latest failed:     {}{}{}\n\nQuick jumps:\n  /memory latest\n  /memory list failed\n  /memory pick\n  /memory compare <a> <b>\n  /memory <index>",
         describe_path(live_path),
         describe_path(session_path),
         transcripts_dir.display(),
@@ -212,6 +234,7 @@ fn render_memory_status(
             .as_ref()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| "none".to_string()),
+        resume_warmup_line,
         runtime_lines,
     )
 }
@@ -514,6 +537,36 @@ fn latest_transcript(dir: &Path) -> Option<PathBuf> {
         cache.insert(dir.to_path_buf(), (stamp, latest.clone()));
     }
     latest
+}
+
+pub(crate) fn warm_resume_transcript_caches(
+    project_root: &Path,
+) -> ResumeTranscriptCacheWarmupStats {
+    let started_at = Instant::now();
+    let transcripts_dir = project_root.join(".yode").join("transcripts");
+    let entries = sorted_transcript_entries(&transcripts_dir);
+    let transcript_count = entries.len();
+    let latest = entries.first().cloned();
+
+    if let Some(stamp) = file_cache_stamp(&transcripts_dir) {
+        if let Ok(mut cache) = LATEST_TRANSCRIPT_CACHE.lock() {
+            cache.insert(transcripts_dir.clone(), (stamp, latest.clone()));
+        }
+    }
+
+    let mut metadata_entries_warmed = 0;
+    for path in &entries {
+        if read_transcript_metadata(path).is_some() {
+            metadata_entries_warmed += 1;
+        }
+    }
+
+    ResumeTranscriptCacheWarmupStats {
+        transcript_count,
+        metadata_entries_warmed,
+        latest_lookup_cached: latest.is_some(),
+        duration_ms: started_at.elapsed().as_millis() as u64,
+    }
 }
 
 fn transcript_entries(dir: &Path) -> Vec<PathBuf> {
@@ -1465,8 +1518,8 @@ mod tests {
         parse_date_range_filter, parse_latest_compare_target, parse_list_filter,
         parse_memory_document, read_transcript_metadata, render_memory_file,
         render_transcript_list, resolve_compare_target, resolve_transcript_target,
-        truncate_for_display, CompareArgs, CompareOptions, TranscriptListFilter,
-        TranscriptMode, MAX_DISPLAY_CHARS,
+        truncate_for_display, warm_resume_transcript_caches, CompareArgs, CompareOptions,
+        TranscriptListFilter, TranscriptMode, MAX_DISPLAY_CHARS,
     };
     use crate::commands::CommandOutput;
 
@@ -1506,6 +1559,33 @@ mod tests {
         assert!(folded.contains("## Messages Preview"));
         assert!(folded.contains("transcript preview folded"));
         assert!(folded.contains("Message 79"));
+    }
+
+    #[test]
+    fn warm_resume_transcript_caches_reports_warmed_entries() {
+        let project_root = std::env::temp_dir().join(format!(
+            "yode-memory-warmup-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let transcript_dir = project_root.join(".yode").join("transcripts");
+        std::fs::create_dir_all(&transcript_dir).unwrap();
+        std::fs::write(
+            transcript_dir.join("aaa-compact-20260101.md"),
+            "# Compaction Transcript\n\n- Mode: auto\n",
+        )
+        .unwrap();
+        std::fs::write(
+            transcript_dir.join("bbb-compact-20260102.md"),
+            "# Compaction Transcript\n\n- Mode: manual\n",
+        )
+        .unwrap();
+
+        let stats = warm_resume_transcript_caches(&project_root);
+        assert_eq!(stats.transcript_count, 2);
+        assert_eq!(stats.metadata_entries_warmed, 2);
+        assert!(stats.latest_lookup_cached);
+
+        std::fs::remove_dir_all(&project_root).ok();
     }
 
     #[test]

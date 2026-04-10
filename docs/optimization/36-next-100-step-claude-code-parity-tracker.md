@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `039 resume-time cache warmup stats`
+- `040 long-session benchmark command`
 
 当前进度：
 
-- `62 / 100` 已完成
+- `63 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -81,7 +81,7 @@
 - `[x] 036 live memory pending-update indicator`
 - `[x] 037 transcript artifact preview folding`
 - `[x] 038 context breaker mitigation hints`
-- `[ ] 039 resume-time cache warmup stats`
+- `[x] 039 resume-time cache warmup stats`
 - `[ ] 040 long-session benchmark command`
 
 ## 041-050 Permission / Safety / Recovery
