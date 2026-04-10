@@ -21,7 +21,8 @@ impl PermissionsCommand {
                         required: false,
                         hint: "<mode|tool-name|reset>".into(),
                         completions: ArgCompletionSource::Dynamic(|ctx| {
-                            let mut names: Vec<String> = vec!["mode".into(), "reset".into()];
+                            let mut names: Vec<String> =
+                                vec!["mode".into(), "reset".into(), "explain".into()];
                             names.extend(ctx.tools.definitions().iter().map(|d| d.name.clone()));
                             names.sort();
                             names
@@ -158,6 +159,56 @@ impl Command for PermissionsCommand {
                     "Permissions reset to defaults.".into(),
                 ))
             }
+            // /permissions explain <tool> [content]
+            ["explain", tool, content @ ..] => {
+                let content = (!content.is_empty()).then(|| content.join(" "));
+                let explanation = engine
+                    .permissions()
+                    .explain_with_content(tool, content.as_deref());
+                Ok(CommandOutput::Message(format!(
+                    "Permission explanation for '{}':\n  Action:      {}\n  Mode:        {}\n  Reason:      {}\n  Matched rule: {}\n  Risk:        {}\n  Denials:     {}{}\n",
+                    tool,
+                    explanation.action.label(),
+                    explanation.mode,
+                    explanation.reason,
+                    explanation.matched_rule.as_deref().unwrap_or("none"),
+                    explanation
+                        .classifier_risk
+                        .map(|risk| format!("{:?}", risk))
+                        .unwrap_or_else(|| "none".to_string()),
+                    explanation.denial_count,
+                    if explanation.auto_skip_due_to_denials {
+                        " (auto-skip active)"
+                    } else {
+                        ""
+                    }
+                )))
+            }
+            // /permissions <tool> explain [content]
+            [tool, "explain", content @ ..] => {
+                let content = (!content.is_empty()).then(|| content.join(" "));
+                let explanation = engine
+                    .permissions()
+                    .explain_with_content(tool, content.as_deref());
+                Ok(CommandOutput::Message(format!(
+                    "Permission explanation for '{}':\n  Action:      {}\n  Mode:        {}\n  Reason:      {}\n  Matched rule: {}\n  Risk:        {}\n  Denials:     {}{}\n",
+                    tool,
+                    explanation.action.label(),
+                    explanation.mode,
+                    explanation.reason,
+                    explanation.matched_rule.as_deref().unwrap_or("none"),
+                    explanation
+                        .classifier_risk
+                        .map(|risk| format!("{:?}", risk))
+                        .unwrap_or_else(|| "none".to_string()),
+                    explanation.denial_count,
+                    if explanation.auto_skip_due_to_denials {
+                        " (auto-skip active)"
+                    } else {
+                        ""
+                    }
+                )))
+            }
             // /permissions <tool> allow
             [tool, "allow"] => {
                 engine.permissions_mut().allow(tool);
@@ -172,7 +223,7 @@ impl Command for PermissionsCommand {
                     "Tool '{tool}' set to deny."
                 )))
             }
-            _ => Err("Usage: /permissions [mode <mode>] | [tool allow|deny] | [reset]".into()),
+            _ => Err("Usage: /permissions [mode <mode>] | [explain <tool> [content]] | [tool allow|deny|explain] | [reset]".into()),
         }
     }
 }
