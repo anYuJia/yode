@@ -144,9 +144,9 @@ impl Tool for TaskOutputTool {
             .and_then(|value| value.as_u64())
             .map(|value| value.saturating_sub(1) as usize)
             .unwrap_or_else(|| total_lines.saturating_sub(limit));
-        let end = (start + limit).min(total_lines);
-        let selected = lines[start.min(total_lines)..end].join("\n");
-        let was_truncated = start > 0 || end < total_lines;
+        let explicit_offset = params.get("offset").is_some();
+        let (selected, start_line, end_line, was_truncated, folded_agent_output) =
+            select_task_output_lines(&task.kind, &lines, start, limit, explicit_offset);
         let mut output = String::new();
         output.push_str(&format!(
             "Task {} [{} / {}]\nDescription: {}\nOutput path: {}\n\n",
@@ -163,8 +163,8 @@ impl Tool for TaskOutputTool {
         if was_truncated {
             output.push_str(&format!(
                 "\n\n... (showing lines {}-{} of {} total; use offset/limit to inspect more)",
-                start + 1,
-                end,
+                start_line,
+                end_line,
                 total_lines
             ));
         }
@@ -184,9 +184,10 @@ impl Tool for TaskOutputTool {
                 "follow": follow,
                 "follow_timed_out": follow_timed_out,
                 "total_lines": total_lines,
-                "start_line": start + 1,
-                "end_line": end,
+                "start_line": start_line,
+                "end_line": end_line,
                 "was_truncated": was_truncated,
+                "folded_agent_output": folded_agent_output,
             }),
         ))
     }
@@ -200,9 +201,40 @@ fn is_unfinished_task(status: &crate::runtime_tasks::RuntimeTaskStatus) -> bool 
     )
 }
 
+fn select_task_output_lines(
+    task_kind: &str,
+    lines: &[&str],
+    start: usize,
+    limit: usize,
+    explicit_offset: bool,
+) -> (String, usize, usize, bool, bool) {
+    let total_lines = lines.len();
+    if task_kind == "agent" && !explicit_offset && total_lines > limit && limit >= 40 {
+        let head_count = 12usize.min(limit / 3);
+        let tail_count = limit.saturating_sub(head_count);
+        let mut selected = lines[..head_count].join("\n");
+        selected.push_str(&format!(
+            "\n\n... [agent output folded: {} middle lines omitted] ...\n\n",
+            total_lines.saturating_sub(head_count + tail_count)
+        ));
+        selected.push_str(&lines[total_lines - tail_count..].join("\n"));
+        return (selected, 1, total_lines, true, true);
+    }
+
+    let bounded_start = start.min(total_lines);
+    let end = (bounded_start + limit).min(total_lines);
+    (
+        lines[bounded_start..end].join("\n"),
+        bounded_start + 1,
+        end,
+        bounded_start > 0 || end < total_lines,
+        false,
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use super::TaskOutputTool;
+    use super::{select_task_output_lines, TaskOutputTool};
     use crate::runtime_tasks::RuntimeTaskStore;
     use crate::tool::{Tool, ToolContext};
     use serde_json::json;
@@ -285,5 +317,22 @@ mod tests {
         assert!(!result.is_error);
         assert!(result.content.contains("line2"));
         assert_eq!(result.metadata.unwrap()["follow_timed_out"], false);
+    }
+
+    #[test]
+    fn folds_long_agent_output_by_default() {
+        let lines = (0..120)
+            .map(|i| format!("line {}", i))
+            .collect::<Vec<_>>();
+        let refs = lines.iter().map(String::as_str).collect::<Vec<_>>();
+        let (selected, start, end, truncated, folded) =
+            select_task_output_lines("agent", &refs, 0, 60, false);
+        assert_eq!(start, 1);
+        assert_eq!(end, 120);
+        assert!(truncated);
+        assert!(folded);
+        assert!(selected.contains("line 0"));
+        assert!(selected.contains("line 119"));
+        assert!(selected.contains("agent output folded"));
     }
 }

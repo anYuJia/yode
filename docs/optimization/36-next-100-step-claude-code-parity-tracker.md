@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `029 background sub-agent output folding`
+- `030 task-to-transcript backlinks`
 
 当前进度：
 
-- `49 / 100` 已完成
+- `50 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -68,7 +68,7 @@
 - `[x] 026 /tasks filters by kind and status`
 - `[x] 027 /tasks tail follow mode`
 - `[x] 028 notification severity classes for tasks`
-- `[ ] 029 background sub-agent output folding`
+- `[x] 029 background sub-agent output folding`
 - `[ ] 030 task-to-transcript backlinks`
 
 ## 031-040 Context / Prompt Cache / Memory
