@@ -30,7 +30,7 @@
 
 当前进度：
 
-- `28 / 100` 已完成
+- `29 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -146,7 +146,7 @@
 - `[ ] 086 artifact index smoke test`
 - `[ ] 087 updater channel diagnostics`
 - `[ ] 088 package metadata consistency checks`
-- `[ ] 089 integration-test gating cleanup`
+- `[x] 089 integration-test gating cleanup`
 - `[ ] 090 release checklist automation`
 
 ## 091-100 Docs / Tracking / Closeout

@@ -3,15 +3,27 @@ use yode_llm::provider::LlmProvider;
 use yode_llm::providers::anthropic::AnthropicProvider;
 use yode_llm::types::{ChatRequest, Message, StreamEvent, ToolDefinition};
 
-#[tokio::test]
-async fn test_anthropic_chat() {
-    let api_key = std::env::var("ANTHROPIC_AUTH_TOKEN")
+fn anthropic_test_config(default_model: &str) -> Option<(String, String, String)> {
+    let api_key = match std::env::var("ANTHROPIC_AUTH_TOKEN")
         .or_else(|_| std::env::var("ANTHROPIC_API_KEY"))
-        .expect("Set ANTHROPIC_AUTH_TOKEN or ANTHROPIC_API_KEY");
+    {
+        Ok(api_key) => api_key,
+        Err(_) => {
+            eprintln!("skipping integration test: set ANTHROPIC_AUTH_TOKEN or ANTHROPIC_API_KEY");
+            return None;
+        }
+    };
     let base_url = std::env::var("ANTHROPIC_BASE_URL")
         .unwrap_or_else(|_| "https://api.anthropic.com".to_string());
-    let model =
-        std::env::var("ANTHROPIC_MODEL").unwrap_or_else(|_| "claude-sonnet-4-20250514".to_string());
+    let model = std::env::var("ANTHROPIC_MODEL").unwrap_or_else(|_| default_model.to_string());
+    Some((api_key, base_url, model))
+}
+
+#[tokio::test]
+async fn test_anthropic_chat() {
+    let Some((api_key, base_url, model)) = anthropic_test_config("claude-sonnet-4-20250514") else {
+        return;
+    };
 
     let provider = AnthropicProvider::new("anthropic", api_key, base_url);
     assert_eq!(provider.name(), "anthropic");
@@ -42,13 +54,9 @@ async fn test_anthropic_chat() {
 
 #[tokio::test]
 async fn test_anthropic_stream() {
-    let api_key = std::env::var("ANTHROPIC_AUTH_TOKEN")
-        .or_else(|_| std::env::var("ANTHROPIC_API_KEY"))
-        .expect("Set ANTHROPIC_AUTH_TOKEN or ANTHROPIC_API_KEY");
-    let base_url = std::env::var("ANTHROPIC_BASE_URL")
-        .unwrap_or_else(|_| "https://api.anthropic.com".to_string());
-    let model =
-        std::env::var("ANTHROPIC_MODEL").unwrap_or_else(|_| "claude-sonnet-4-20250514".to_string());
+    let Some((api_key, base_url, model)) = anthropic_test_config("claude-sonnet-4-20250514") else {
+        return;
+    };
 
     let provider = AnthropicProvider::new("anthropic", api_key, base_url);
 
@@ -107,13 +115,9 @@ async fn test_anthropic_stream() {
 #[tokio::test]
 async fn test_dashscope_simple_input() {
     // Test what DashScope returns for a simple input like "1"
-    let api_key = std::env::var("ANTHROPIC_AUTH_TOKEN")
-        .or_else(|_| std::env::var("ANTHROPIC_API_KEY"))
-        .expect("Set ANTHROPIC_AUTH_TOKEN or ANTHROPIC_API_KEY");
-    let base_url = std::env::var("ANTHROPIC_BASE_URL")
-        .unwrap_or_else(|_| "https://api.anthropic.com".to_string());
-    // Use DashScope's qwen model
-    let model = std::env::var("ANTHROPIC_MODEL").unwrap_or_else(|_| "qwen3.5-plus".to_string());
+    let Some((api_key, base_url, model)) = anthropic_test_config("qwen3.5-plus") else {
+        return;
+    };
 
     let provider = AnthropicProvider::new("anthropic", api_key, base_url);
 
@@ -161,13 +165,9 @@ async fn test_dashscope_simple_input() {
 
 #[tokio::test]
 async fn test_anthropic_tool_call() {
-    let api_key = std::env::var("ANTHROPIC_AUTH_TOKEN")
-        .or_else(|_| std::env::var("ANTHROPIC_API_KEY"))
-        .expect("Set ANTHROPIC_AUTH_TOKEN or ANTHROPIC_API_KEY");
-    let base_url = std::env::var("ANTHROPIC_BASE_URL")
-        .unwrap_or_else(|_| "https://api.anthropic.com".to_string());
-    let model =
-        std::env::var("ANTHROPIC_MODEL").unwrap_or_else(|_| "claude-sonnet-4-20250514".to_string());
+    let Some((api_key, base_url, model)) = anthropic_test_config("claude-sonnet-4-20250514") else {
+        return;
+    };
 
     let provider = AnthropicProvider::new("anthropic", api_key, base_url);
 
