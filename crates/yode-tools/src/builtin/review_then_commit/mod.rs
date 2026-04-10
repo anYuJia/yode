@@ -4,7 +4,8 @@ use serde_json::{json, Value};
 
 use crate::builtin::git_commit::GitCommitTool;
 use crate::builtin::review_common::{
-    persist_review_artifact, review_findings_count, review_output_has_findings,
+    persist_review_artifact, persist_review_status, review_findings_count,
+    review_output_has_findings,
 };
 use crate::tool::{SubAgentOptions, Tool, ToolCapabilities, ToolContext, ToolErrorType, ToolResult};
 
@@ -141,6 +142,12 @@ impl Tool for ReviewThenCommitTool {
             .and_then(|dir| persist_review_artifact(dir, "pre-commit-review", focus, &review_output).ok())
             .map(|path| path.display().to_string());
         let findings_count = review_findings_count(&review_output);
+        if let (Some(dir), Some(path)) = (
+            ctx.working_dir.as_deref(),
+            artifact_path.as_deref().map(std::path::Path::new),
+        ) {
+            let _ = persist_review_status(dir, "pre-commit-review", focus, &review_output, Some(path));
+        }
 
         if review_output_has_findings(&review_output) && !allow_findings_commit {
             return Ok(ToolResult {

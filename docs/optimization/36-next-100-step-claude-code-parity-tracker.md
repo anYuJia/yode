@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `015 commit gate driven by review artifact status`
+- `016 test command presets in /pipeline`
 
 当前进度：
 
-- `12 / 100` 已完成
+- `13 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -51,7 +51,7 @@
 - `[x] 012 review artifact status badges`
 - `[x] 013 latest review summary in /status`
 - `[x] 014 structured findings count metadata`
-- `[ ] 015 commit gate driven by review artifact status`
+- `[x] 015 commit gate driven by review artifact status`
 - `[ ] 016 test command presets in /pipeline`
 - `[ ] 017 CI export command for review pipeline`
 - `[ ] 018 GitHub Actions scaffold for review gate`

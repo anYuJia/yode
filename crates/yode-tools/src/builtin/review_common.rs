@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 pub fn persist_review_artifact(
@@ -22,6 +23,46 @@ pub fn persist_review_artifact(
     );
     std::fs::write(&path, content)
         .with_context(|| format!("Failed to write review artifact: {}", path.display()))?;
+    Ok(path)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReviewStatusSnapshot {
+    pub kind: String,
+    pub title: String,
+    pub timestamp: String,
+    pub status: String,
+    pub findings_count: usize,
+    pub artifact_path: Option<String>,
+}
+
+pub fn persist_review_status(
+    working_dir: &Path,
+    kind: &str,
+    title: &str,
+    body: &str,
+    artifact_path: Option<&Path>,
+) -> Result<PathBuf> {
+    let dir = working_dir.join(".yode").join("reviews");
+    std::fs::create_dir_all(&dir)
+        .with_context(|| format!("Failed to create review status dir: {}", dir.display()))?;
+
+    let path = dir.join("latest-status.json");
+    let findings_count = review_findings_count(body);
+    let snapshot = ReviewStatusSnapshot {
+        kind: kind.to_string(),
+        title: title.to_string(),
+        timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+        status: if findings_count == 0 {
+            "clean".to_string()
+        } else {
+            "findings".to_string()
+        },
+        findings_count,
+        artifact_path: artifact_path.map(|path| path.display().to_string()),
+    };
+    std::fs::write(&path, serde_json::to_string_pretty(&snapshot)?)
+        .with_context(|| format!("Failed to write review status file: {}", path.display()))?;
     Ok(path)
 }
 
@@ -72,7 +113,7 @@ fn is_structured_finding_line(line: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::review_findings_count;
+    use super::{persist_review_status, review_findings_count};
 
     #[test]
     fn review_findings_count_detects_clean_output() {
@@ -93,5 +134,22 @@ mod tests {
     #[test]
     fn review_findings_count_defaults_to_one_for_unstructured_findings() {
         assert_eq!(review_findings_count("Missing regression test"), 1);
+    }
+
+    #[test]
+    fn persist_review_status_marks_findings() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = persist_review_status(
+            dir.path(),
+            "review",
+            "current changes",
+            "1. Missing regression test",
+            None,
+        )
+        .unwrap();
+        let snapshot: super::ReviewStatusSnapshot =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(snapshot.status, "findings");
+        assert_eq!(snapshot.findings_count, 1);
     }
 }

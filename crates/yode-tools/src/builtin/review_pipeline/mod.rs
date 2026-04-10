@@ -4,7 +4,8 @@ use serde_json::{json, Value};
 
 use crate::builtin::git_commit::GitCommitTool;
 use crate::builtin::review_common::{
-    persist_review_artifact, review_findings_count, review_output_has_findings,
+    persist_review_artifact, persist_review_status, review_findings_count,
+    review_output_has_findings,
 };
 use crate::builtin::review_changes::ReviewChangesTool;
 use crate::builtin::test_runner::TestRunnerTool;
@@ -202,6 +203,12 @@ impl Tool for ReviewPipelineTool {
             .as_deref()
             .and_then(|dir| persist_review_artifact(dir, "review-pipeline", focus, &summary).ok())
             .map(|path| path.display().to_string());
+        if let (Some(dir), Some(path)) = (
+            ctx.working_dir.as_deref(),
+            pipeline_artifact.as_deref().map(std::path::Path::new),
+        ) {
+            let _ = persist_review_status(dir, "review-pipeline", focus, &summary, Some(path));
+        }
 
         if should_stop_for_findings {
             return Ok(ToolResult {
