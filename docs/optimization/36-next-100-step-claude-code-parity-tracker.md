@@ -30,7 +30,7 @@
 
 当前进度：
 
-- `7 / 100` 已完成
+- `8 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -43,7 +43,7 @@
 - `[x] 007 sub-agent result artifact backlinks`
 - `[ ] 008 workflow approval checkpoints for multi-step mutations`
 - `[ ] 009 workflow nested invocation guard UX`
-- `[ ] 010 pipeline command presets for review / verify / ship`
+- `[x] 010 pipeline command presets for review / verify / ship`
 
 ## 011-020 Review / CI / Commit Flow
 
