@@ -3,7 +3,9 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 
 use crate::builtin::git_commit::GitCommitTool;
-use crate::builtin::review_common::{persist_review_artifact, review_output_has_findings};
+use crate::builtin::review_common::{
+    persist_review_artifact, review_findings_count, review_output_has_findings,
+};
 use crate::tool::{SubAgentOptions, Tool, ToolCapabilities, ToolContext, ToolErrorType, ToolResult};
 
 pub struct ReviewThenCommitTool;
@@ -138,6 +140,7 @@ impl Tool for ReviewThenCommitTool {
             .as_deref()
             .and_then(|dir| persist_review_artifact(dir, "pre-commit-review", focus, &review_output).ok())
             .map(|path| path.display().to_string());
+        let findings_count = review_findings_count(&review_output);
 
         if review_output_has_findings(&review_output) && !allow_findings_commit {
             return Ok(ToolResult {
@@ -155,6 +158,7 @@ impl Tool for ReviewThenCommitTool {
                 ),
                 metadata: Some(json!({
                     "review_output": review_output,
+                    "findings_count": findings_count,
                     "review_artifact_path": artifact_path,
                     "commit_skipped": true,
                 })),
@@ -179,6 +183,7 @@ impl Tool for ReviewThenCommitTool {
             .unwrap_or_else(|| json!({}));
         if let Some(object) = metadata.as_object_mut() {
             object.insert("review_output".to_string(), json!(review_output));
+            object.insert("findings_count".to_string(), json!(findings_count));
             object.insert("review_artifact_path".to_string(), json!(artifact_path));
         }
 

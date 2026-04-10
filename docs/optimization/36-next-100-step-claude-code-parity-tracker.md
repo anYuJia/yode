@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `014 structured findings count metadata`
+- `015 commit gate driven by review artifact status`
 
 当前进度：
 
-- `11 / 100` 已完成
+- `12 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -50,7 +50,7 @@
 - `[x] 011 review pipeline presets for staged vs all changes`
 - `[x] 012 review artifact status badges`
 - `[x] 013 latest review summary in /status`
-- `[ ] 014 structured findings count metadata`
+- `[x] 014 structured findings count metadata`
 - `[ ] 015 commit gate driven by review artifact status`
 - `[ ] 016 test command presets in /pipeline`
 - `[ ] 017 CI export command for review pipeline`

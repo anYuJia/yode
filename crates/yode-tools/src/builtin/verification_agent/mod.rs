@@ -2,7 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-use crate::builtin::review_common::persist_review_artifact;
+use crate::builtin::review_common::{persist_review_artifact, review_findings_count};
 use crate::tool::{SubAgentOptions, Tool, ToolCapabilities, ToolContext, ToolResult};
 
 pub struct VerificationAgentTool;
@@ -132,6 +132,7 @@ impl Tool for VerificationAgentTool {
         } else {
             None
         };
+        let findings_count = review_findings_count(&result);
 
         Ok(ToolResult::success_with_metadata(
             result,
@@ -139,6 +140,7 @@ impl Tool for VerificationAgentTool {
                 "goal": goal,
                 "focus": focus,
                 "run_in_background": run_in_background,
+                "findings_count": findings_count,
                 "review_artifact_path": artifact_path,
             }),
         ))

@@ -3,7 +3,9 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 
 use crate::builtin::git_commit::GitCommitTool;
-use crate::builtin::review_common::{persist_review_artifact, review_output_has_findings};
+use crate::builtin::review_common::{
+    persist_review_artifact, review_findings_count, review_output_has_findings,
+};
 use crate::builtin::review_changes::ReviewChangesTool;
 use crate::builtin::test_runner::TestRunnerTool;
 use crate::builtin::verification_agent::VerificationAgentTool;
@@ -125,6 +127,7 @@ impl Tool for ReviewPipelineTool {
             .await?;
         let review_output = review_result.content.clone();
         let review_failed = review_output_has_findings(&review_output);
+        let review_findings = review_findings_count(&review_output);
 
         let verification_tool = VerificationAgentTool;
         let verification_result = verification_tool
@@ -140,6 +143,7 @@ impl Tool for ReviewPipelineTool {
             .await?;
         let verification_output = verification_result.content.clone();
         let verification_failed = review_output_has_findings(&verification_output);
+        let verification_findings = review_findings_count(&verification_output);
 
         let mut test_result = None;
         if let Some(command) = test_command {
@@ -215,7 +219,10 @@ impl Tool for ReviewPipelineTool {
                 metadata: Some(json!({
                     "focus": focus,
                     "review_output": review_output,
+                    "review_findings_count": review_findings,
                     "verification_output": verification_output,
+                    "verification_findings_count": verification_findings,
+                    "total_findings_count": review_findings + verification_findings,
                     "pipeline_artifact_path": pipeline_artifact,
                     "commit_skipped": true,
                 })),
@@ -227,7 +234,10 @@ impl Tool for ReviewPipelineTool {
             json!({
                 "focus": focus,
                 "review_output": review_output,
+                "review_findings_count": review_findings,
                 "verification_output": verification_output,
+                "verification_findings_count": verification_findings,
+                "total_findings_count": review_findings + verification_findings,
                 "pipeline_artifact_path": pipeline_artifact,
                 "test_ran": test_result.is_some(),
                 "committed": commit_result.is_some(),
