@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `062 review artifact preview pager`
+- `063 workflow plan preview dialog`
 
 当前进度：
 
-- `73 / 100` 已完成
+- `74 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -113,7 +113,7 @@
 ## 061-070 TUI / UX / Narrow Layout
 
 - `[x] 061 transcript picker with folding`
-- `[ ] 062 review artifact preview pager`
+- `[x] 062 review artifact preview pager`
 - `[ ] 063 workflow plan preview dialog`
 - `[ ] 064 coordinator phase timeline widget`
 - `[ ] 065 narrow-width status bar compaction`

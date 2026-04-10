@@ -2,6 +2,10 @@ use crate::commands::context::CommandContext;
 use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
 use yode_tools::builtin::review_common::review_output_has_findings;
 
+const REVIEW_ARTIFACT_PREVIEW_HEAD_LINES: usize = 80;
+const REVIEW_ARTIFACT_PREVIEW_TAIL_LINES: usize = 30;
+const REVIEW_ARTIFACT_PREVIEW_MAX_LINES: usize = 140;
+
 pub struct ReviewsCommand {
     meta: CommandMeta,
 }
@@ -118,7 +122,7 @@ impl Command for ReviewsCommand {
                     .unwrap_or_default(),
                 review_artifact_badge(&content),
                 path.display(),
-                content
+                fold_review_artifact_preview(&content)
             )));
         }
 
@@ -139,7 +143,7 @@ impl Command for ReviewsCommand {
             index,
             review_artifact_badge(&content),
             path.display(),
-            content
+            fold_review_artifact_preview(&content)
         )))
     }
 }
@@ -204,9 +208,32 @@ fn summarize_review_artifacts(entries: &[std::path::PathBuf]) -> String {
     output
 }
 
+fn fold_review_artifact_preview(content: &str) -> String {
+    let lines = content.lines().collect::<Vec<_>>();
+    if lines.len() <= REVIEW_ARTIFACT_PREVIEW_MAX_LINES {
+        return content.to_string();
+    }
+
+    let head_count = REVIEW_ARTIFACT_PREVIEW_HEAD_LINES.min(lines.len());
+    let tail_count = REVIEW_ARTIFACT_PREVIEW_TAIL_LINES.min(lines.len().saturating_sub(head_count));
+    let omitted = lines.len().saturating_sub(head_count + tail_count);
+    let mut output = lines[..head_count].join("\n");
+    output.push_str(&format!(
+        "\n\n... [review artifact preview folded: {} middle lines omitted] ...\n\n",
+        omitted
+    ));
+    if tail_count > 0 {
+        output.push_str(&lines[lines.len() - tail_count..].join("\n"));
+    }
+    output
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{extract_review_result_body, review_artifact_badge, summarize_review_artifacts};
+    use super::{
+        extract_review_result_body, fold_review_artifact_preview, review_artifact_badge,
+        summarize_review_artifacts,
+    };
 
     #[test]
     fn review_artifact_badge_detects_clean_output() {
@@ -249,5 +276,17 @@ mod tests {
         assert!(output.contains("review: 1"));
         assert!(output.contains("verification: 1"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn review_artifact_preview_folds_long_output() {
+        let mut content = String::from("# Review Artifact\n\n");
+        for i in 0..200 {
+            content.push_str(&format!("line {}\n", i));
+        }
+
+        let folded = fold_review_artifact_preview(&content);
+        assert!(folded.contains("review artifact preview folded"));
+        assert!(folded.contains("line 199"));
     }
 }
