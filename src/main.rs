@@ -271,6 +271,23 @@ async fn main() -> Result<()> {
                         println!("更新配置状态:");
                         println!("  自动检查: {}", config.update.auto_check);
                         println!("  自动下载: {}", config.update.auto_download);
+                        println!("  当前版本: {}", yode_core::updater::CURRENT_VERSION);
+                        match yode_core::updater::latest_local_release_tag() {
+                            Some(tag) => {
+                                let status = if yode_core::updater::release_version_matches_tag(
+                                    &tag,
+                                    yode_core::updater::CURRENT_VERSION,
+                                ) {
+                                    "匹配"
+                                } else {
+                                    "不匹配"
+                                };
+                                println!("  最新本地 tag: {} ({})", tag, status);
+                            }
+                            None => {
+                                println!("  最新本地 tag: 未找到");
+                            }
+                        }
                     }
                     UpdateAction::Preflight => {
                         println!("正在运行发布前检查...");
