@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `008 workflow approval checkpoints for multi-step mutations`
+- `012 review artifact status badges`
 
 当前进度：
 
-- `8 / 100` 已完成
+- `9 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -47,7 +47,7 @@
 
 ## 011-020 Review / CI / Commit Flow
 
-- `[ ] 011 review pipeline presets for staged vs all changes`
+- `[x] 011 review pipeline presets for staged vs all changes`
 - `[ ] 012 review artifact status badges`
 - `[ ] 013 latest review summary in /status`
 - `[ ] 014 structured findings count metadata`

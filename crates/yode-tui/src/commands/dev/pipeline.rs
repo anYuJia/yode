@@ -21,6 +21,10 @@ impl PipelineCommand {
                     hint: "[focus]".to_string(),
                     completions: ArgCompletionSource::Static(vec![
                         "ship".to_string(),
+                        "ship-all".to_string(),
+                        "ship-staged".to_string(),
+                        "staged".to_string(),
+                        "all".to_string(),
                         "test".to_string(),
                         "verify".to_string(),
                         "current changes".to_string(),
@@ -66,6 +70,50 @@ fn build_pipeline_prompt(args: &str) -> String {
                 message
             )
         }
+        ["ship-all", message @ ..] => {
+            let message = if message.is_empty() {
+                "describe the current change".to_string()
+            } else {
+                message.join(" ")
+            };
+            format!(
+                "Use `review_pipeline` with focus=\"all tracked workspace changes\", commit_message=\"{}\", and all=true. Commit only when review, verification, and any requested tests are clean.",
+                message
+            )
+        }
+        ["ship-staged", message @ ..] => {
+            let message = if message.is_empty() {
+                "describe the staged change".to_string()
+            } else {
+                message.join(" ")
+            };
+            format!(
+                "Use `review_pipeline` with focus=\"staged changes only\" and commit_message=\"{}\". Do not set all=true and do not add extra files; commit only if the staged review and verification are clean.",
+                message
+            )
+        }
+        ["staged", focus @ ..] => {
+            let focus = if focus.is_empty() {
+                "staged changes only".to_string()
+            } else {
+                format!("staged changes: {}", focus.join(" "))
+            };
+            format!(
+                "Use `review_pipeline` with focus=\"{}\". Do not set all=true and do not add extra files.",
+                focus
+            )
+        }
+        ["all", focus @ ..] => {
+            let focus = if focus.is_empty() {
+                "all tracked workspace changes".to_string()
+            } else {
+                format!("all tracked workspace changes: {}", focus.join(" "))
+            };
+            format!(
+                "Use `review_pipeline` with focus=\"{}\". If a commit is requested, set all=true so all tracked modified files are staged.",
+                focus
+            )
+        }
         ["test", command @ ..] => {
             let command = if command.is_empty() {
                 "cargo test".to_string()
@@ -107,6 +155,20 @@ mod tests {
         let prompt = build_pipeline_prompt("ship release 0.2.1");
         assert!(prompt.contains("commit_message=\"release 0.2.1\""));
         assert!(prompt.contains("review_pipeline"));
+    }
+
+    #[test]
+    fn pipeline_prompt_supports_ship_all_preset() {
+        let prompt = build_pipeline_prompt("ship-all release 0.2.1");
+        assert!(prompt.contains("commit_message=\"release 0.2.1\""));
+        assert!(prompt.contains("all=true"));
+    }
+
+    #[test]
+    fn pipeline_prompt_supports_staged_preset() {
+        let prompt = build_pipeline_prompt("staged release notes");
+        assert!(prompt.contains("focus=\"staged changes: release notes\""));
+        assert!(prompt.contains("Do not set all=true"));
     }
 
     #[test]
