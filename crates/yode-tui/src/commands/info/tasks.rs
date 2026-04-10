@@ -158,7 +158,7 @@ impl Command for TasksCommand {
                         .join("\n")
                 };
                 Ok(CommandOutput::Message(format!(
-                    "Task {}:\n  Kind:        {}\n  Source tool: {}\n  Status:      {:?}\n  Description: {}\n  Created:     {}\n  Started:     {}\n  Completed:   {}\n  Progress:    {}\n  Error:       {}\n  Output:      {}\n  Recent progress:\n{}\n\n  Output preview:\n{}\n\nUse `/tasks read {}` for the full tail.",
+                    "Task {}:\n  Kind:        {}\n  Source tool: {}\n  Status:      {:?}\n  Description: {}\n  Created:     {}\n  Started:     {}\n  Completed:   {}\n  Progress:    {}\n  Progress at: {}\n  Error:       {}\n  Output:      {}\n  Recent progress:\n{}\n\n  Output preview:\n{}\n\nUse `/tasks read {}` for the full tail.",
                     task.id,
                     task.kind,
                     task.source_tool,
@@ -168,6 +168,7 @@ impl Command for TasksCommand {
                     task.started_at.as_deref().unwrap_or("none"),
                     task.completed_at.as_deref().unwrap_or("none"),
                     task.last_progress.as_deref().unwrap_or("none"),
+                    task.last_progress_at.as_deref().unwrap_or("none"),
                     task.error.as_deref().unwrap_or("none"),
                     task.output_path,
                     progress_history,

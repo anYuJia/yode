@@ -139,6 +139,7 @@ impl Tool for TaskOutputTool {
                 "task_status": format!("{:?}", task.status),
                 "output_path": task.output_path,
                 "last_progress": task.last_progress,
+                "last_progress_at": task.last_progress_at,
                 "progress_history": task.progress_history,
                 "total_lines": total_lines,
                 "start_line": start + 1,

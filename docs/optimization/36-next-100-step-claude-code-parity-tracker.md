@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `022 runtime task phase timestamps`
+- `023 runtime task retry metadata`
 
 当前进度：
 
-- `15 / 100` 已完成
+- `16 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -61,7 +61,7 @@
 ## 021-030 Task Runtime / Background Work
 
 - `[x] 021 richer background bash progress streaming`
-- `[ ] 022 runtime task phase timestamps`
+- `[x] 022 runtime task phase timestamps`
 - `[ ] 023 runtime task retry metadata`
 - `[ ] 024 runtime task artifact retention config`
 - `[ ] 025 /tasks latest / latest-by-kind shortcuts`

@@ -27,6 +27,7 @@ pub struct RuntimeTask {
     pub started_at: Option<String>,
     pub completed_at: Option<String>,
     pub last_progress: Option<String>,
+    pub last_progress_at: Option<String>,
     pub progress_history: Vec<String>,
     pub error: Option<String>,
 }
@@ -76,6 +77,7 @@ impl RuntimeTaskStore {
             started_at: None,
             completed_at: None,
             last_progress: None,
+            last_progress_at: None,
             progress_history: Vec::new(),
             error: None,
         };
@@ -109,6 +111,7 @@ impl RuntimeTaskStore {
                 return;
             }
             task.last_progress = Some(message.clone());
+            task.last_progress_at = Some(now_string());
             if task.progress_history.last() != Some(&message) {
                 task.progress_history.push(message);
                 if task.progress_history.len() > MAX_PROGRESS_HISTORY {
@@ -230,6 +233,7 @@ mod tests {
         let snapshot = store.get(&task.id).unwrap();
         assert_eq!(snapshot.status, RuntimeTaskStatus::Completed);
         assert_eq!(snapshot.last_progress.as_deref(), Some("running"));
+        assert!(snapshot.last_progress_at.is_some());
         assert_eq!(snapshot.progress_history, vec!["running".to_string()]);
 
         let notifications = store.drain_notifications();
@@ -255,6 +259,7 @@ mod tests {
 
         let snapshot = store.get(&task.id).unwrap();
         assert_eq!(snapshot.last_progress.as_deref(), Some("line 11"));
+        assert!(snapshot.last_progress_at.is_some());
         assert_eq!(snapshot.progress_history.len(), 8);
         assert_eq!(snapshot.progress_history.first().map(String::as_str), Some("line 4"));
         assert_eq!(snapshot.progress_history.last().map(String::as_str), Some("line 11"));
