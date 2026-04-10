@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `084 benchmark snapshots in CI`
+- `075 read-file history introspection`
 
 当前进度：
 
-- `87 / 100` 已完成
+- `91 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -141,7 +141,7 @@
 - `[x] 081 release preflight command`
 - `[x] 082 version / tag consistency doctor check`
 - `[x] 083 release note generation helper`
-- `[ ] 084 benchmark snapshots in CI`
+- `[x] 084 benchmark snapshots in CI`
 - `[x] 085 workflow template smoke tests in CI`
 - `[x] 086 artifact index smoke test`
 - `[x] 087 updater channel diagnostics`
@@ -152,12 +152,12 @@
 ## 091-100 Docs / Tracking / Closeout
 
 - `[x] 091 parity tracker weekly summary script`
-- `[ ] 092 architecture gap map refresh`
+- `[x] 092 architecture gap map refresh`
 - `[x] 093 workflow authoring guide`
 - `[x] 094 coordinator usage guide`
 - `[x] 095 review pipeline cookbook`
 - `[x] 096 task runtime troubleshooting guide`
-- `[ ] 097 prompt-cache telemetry doc`
-- `[ ] 098 Claude Code parity changelog`
+- `[x] 097 prompt-cache telemetry doc`
+- `[x] 098 Claude Code parity changelog`
 - `[ ] 099 next-100 completion review`
-- `[ ] 100 top-tier parity delta refresh`
+- `[x] 100 top-tier parity delta refresh`

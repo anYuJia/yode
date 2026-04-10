@@ -1735,6 +1735,54 @@ mod tests {
     }
 
     #[test]
+    fn print_long_session_benchmark_snapshot() {
+        let project_root = std::env::temp_dir().join(format!(
+            "yode-memory-bench-snapshot-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let transcript_dir = project_root.join(".yode").join("transcripts");
+        std::fs::create_dir_all(&transcript_dir).unwrap();
+        for index in 0..120 {
+            std::fs::write(
+                transcript_dir.join(format!("snap-compact-202601{:02}.md", index + 1)),
+                format!(
+                    "# Compaction Transcript\n\n- Mode: auto\n- Timestamp: 2026-01-{:02} 10:00:00\n\n## Summary Anchor\n\n```text\nsnapshot {}\n```\n\n## Messages\n\n### User\n\n```text\nhello {}\n```\n",
+                    (index % 28) + 1,
+                    index,
+                    index
+                ),
+            )
+            .unwrap();
+        }
+
+        let report = run_long_session_benchmark(&project_root);
+        println!("# Long Session Benchmark Snapshot");
+        println!();
+        println!("- Transcript count: {}", report.transcript_count);
+        println!(
+            "- Latest lookup: cold {} ms / hot {} ms",
+            report.cold_latest_lookup_ms, report.hot_latest_lookup_ms
+        );
+        println!(
+            "- Failed filter: cold {} ms / hot {} ms",
+            report.cold_failed_filter_ms, report.hot_failed_filter_ms
+        );
+        println!(
+            "- Resume warmup: {} ms / {} metadata",
+            report.resume_warmup.duration_ms, report.resume_warmup.metadata_entries_warmed
+        );
+        if let Some(compare_ms) = report.compare_ms {
+            println!(
+                "- Compare latest pair: {} ms (summary-only={})",
+                compare_ms,
+                report.compare_summary_only.unwrap_or(false)
+            );
+        }
+
+        std::fs::remove_dir_all(&project_root).ok();
+    }
+
+    #[test]
     fn resolve_transcript_target_supports_index_and_filename() {
         let dir = std::env::temp_dir().join(format!(
             "yode-memory-command-resolve-{}",

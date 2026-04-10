@@ -35,3 +35,13 @@ jobs:
 
       - name: Artifact smoke verification
         run: bash scripts/verify-compact-artifacts.sh
+
+      - name: Benchmark snapshot
+        run: bash scripts/benchmark-snapshot.sh
+
+      - name: Upload benchmark snapshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yode-benchmark-snapshot
+          path: .yode/benchmarks/long-session-benchmark.md

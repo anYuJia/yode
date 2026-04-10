@@ -20,21 +20,26 @@
 - unified diagnostics overview
 - transcript compare guardrails
 - workflow write-capable approval flow
+- prompt-cache hit/miss + token telemetry
+- system-prompt token segment breakdown
+- compaction cause histogram
+- transcript preview folding + picker previews
+- MCP auth/cache/latency/reconnect diagnostics
+- long-session benchmark command + CI benchmark snapshot
+- remote doctor surfaces for env/review/artifacts
 
 ## Remaining gap candidates
 
-- richer background bash progress streaming
-- interactive transcript picker / folding UI beyond command output
-- review-agent automation in CICD / commit flow
-- richer coordinator orchestration and dependency management
-- deeper prompt-cache-aware context telemetry
-- startup-time artifact indexing benchmarks in CI
-- more aggressive mobile-width layout tuning
+- workflow approval checkpoints across multi-step mutations
+- nested workflow guard UX with better recovery hints
+- read history / command-vs-tool / batch-artifact diagnostics
+- hook + tool unified timeline
+- final docs closeout and parity review
 
 ## Recommendation
 
 下一轮优先级应放在：
 
 1. review-agent automation and CI integration
-2. richer coordinator orchestration and task dependency handling
-3. deeper prompt-cache-aware context telemetry
+2. workflow + coordinator orchestration safeguards
+3. tool-runtime diagnostics and final parity closeout
