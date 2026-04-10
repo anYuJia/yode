@@ -128,7 +128,7 @@ pub struct CostConfig {
 
 // ─── Update Config ────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct UpdateConfig {
     /// Whether to automatically check for updates on startup
     #[serde(default = "default_true")]
@@ -148,6 +148,17 @@ fn default_true() -> bool {
     true
 }
 
+impl Default for UpdateConfig {
+    fn default() -> Self {
+        Self {
+            auto_check: true,
+            auto_download: true,
+            last_checked: None,
+            last_downloaded_version: None,
+        }
+    }
+}
+
 // ─── Config Loading ─────────────────────────────────────────────────────────
 
 impl Config {
@@ -163,15 +174,28 @@ impl Config {
             .join(".yode")
             .join("config.toml");
 
-        let config_str = if let Some(p) = path {
-            std::fs::read_to_string(p)?
+        let default_value: toml::Value = toml::from_str(include_str!("../../../config/default.toml"))?;
+
+        let (config_value, should_persist_migration) = if let Some(p) = path {
+            let user_value: toml::Value = toml::from_str(&std::fs::read_to_string(p)?)?;
+            (merge_config_values(default_value, user_value), None)
         } else if home_config.exists() {
-            std::fs::read_to_string(home_config)?
+            let user_config_str = std::fs::read_to_string(&home_config)?;
+            let user_value: toml::Value = toml::from_str(&user_config_str)?;
+            let merged = merge_config_values(default_value, user_value.clone());
+            let should_persist = (merged != user_value).then_some(home_config.clone());
+            (merged, should_persist)
         } else {
-            include_str!("../../../config/default.toml").to_string()
+            (default_value, None)
         };
 
-        let config: Config = toml::from_str(&config_str)?;
+        let config: Config = config_value.clone().try_into()?;
+        if let Some(path) = should_persist_migration {
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::write(path, toml::to_string_pretty(&config_value)?)?;
+        }
         Ok(config)
     }
 
@@ -205,6 +229,22 @@ impl Config {
 // Include default config at compile time as fallback
 const _DEFAULT_CONFIG: &str = include_str!("../../../config/default.toml");
 
+fn merge_config_values(default: toml::Value, user: toml::Value) -> toml::Value {
+    match (default, user) {
+        (toml::Value::Table(mut default_table), toml::Value::Table(user_table)) => {
+            for (key, user_value) in user_table {
+                let merged = default_table
+                    .remove(&key)
+                    .map(|default_value| merge_config_values(default_value, user_value.clone()))
+                    .unwrap_or(user_value);
+                default_table.insert(key, merged);
+            }
+            toml::Value::Table(default_table)
+        }
+        (_, user_value) => user_value,
+    }
+}
+
 /// Configuration for a single MCP server.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct McpServerConfig {
@@ -220,4 +260,57 @@ pub struct McpServerConfig {
 pub struct McpConfig {
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub servers: HashMap<String, McpServerConfig>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{merge_config_values, Config};
+
+    #[test]
+    fn missing_update_section_uses_enabled_defaults() {
+        let config = toml::from_str::<Config>(
+            r#"
+[llm]
+default_provider = "openai"
+default_model = "gpt-4o"
+
+[tools]
+bash_timeout = 120
+require_confirmation = ["bash"]
+
+[session]
+db_path = ""
+
+[ui]
+language = "zh-CN"
+theme = "dark"
+"#,
+        )
+        .unwrap();
+
+        assert!(config.update.auto_check);
+        assert!(config.update.auto_download);
+    }
+
+    #[test]
+    fn merge_config_values_preserves_user_values_and_adds_defaults() {
+        let defaults = toml::toml! {
+            [update]
+            auto_check = true
+            auto_download = true
+
+            [ui]
+            language = "zh-CN"
+            theme = "dark"
+        };
+        let user = toml::toml! {
+            [ui]
+            theme = "light"
+        };
+
+        let merged = merge_config_values(toml::Value::Table(defaults), toml::Value::Table(user));
+        assert_eq!(merged["ui"]["theme"].as_str(), Some("light"));
+        assert_eq!(merged["ui"]["language"].as_str(), Some("zh-CN"));
+        assert_eq!(merged["update"]["auto_check"].as_bool(), Some(true));
+    }
 }

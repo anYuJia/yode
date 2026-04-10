@@ -233,27 +233,36 @@ async fn main() -> Result<()> {
                         let updater = yode_core::updater::Updater::new(
                             config_dir,
                             true,
-                            config.update.auto_download,
+                            true,
                         );
                         match updater.check_for_updates().await {
                             Ok(Some(result)) => {
                                 println!("✨ 发现新版本: {}", result.latest_version);
                                 println!("   当前版本: {}", yode_core::updater::CURRENT_VERSION);
                                 println!("\n发布日志:\n{}", result.release_notes);
-
-                                if config.update.auto_download {
-                                    println!("\n正在下载更新...");
-                                    match updater.download_update(&result).await {
-                                        Ok(_) => {
-                                            println!("✓ 更新已下载。请重启 yode 以完成安装。");
+                                println!("\n正在下载并安装更新...");
+                                match updater.download_update(&result).await {
+                                    Ok(_) => match updater.apply_downloaded_update() {
+                                        Ok(true) => {
+                                            println!(
+                                                "✓ 更新已安装完成。新版本: {}",
+                                                result.latest_version
+                                            );
+                                        }
+                                        Ok(false) => {
+                                            println!(
+                                                "✗ 更新已下载，但未能自动应用。请重新运行 yode，或手动执行安装脚本。"
+                                            );
                                         }
                                         Err(e) => {
-                                            println!("✗ 下载失败: {}", e);
+                                            println!("✗ 更新已下载，但自动应用失败: {}", e);
                                         }
+                                    },
+                                    Err(e) => {
+                                        println!("✗ 下载失败: {}", e);
+                                        println!("\n你可以手动更新:");
+                                        println!("  curl -fsSL https://raw.githubusercontent.com/anYuJia/yode/main/install.sh | bash");
                                     }
-                                } else {
-                                    println!("\n你可以运行以下命令更新:");
-                                    println!("  curl -fsSL https://raw.githubusercontent.com/anYuJia/yode/main/install.sh | bash");
                                 }
                             }
                             Ok(None) => {
