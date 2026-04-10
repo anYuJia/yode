@@ -83,6 +83,8 @@ impl QuerySource {
 pub struct AgentContext {
     /// Unique session identifier
     pub session_id: String,
+    /// Immutable root of the project/workspace.
+    pub project_root: PathBuf,
     /// Managed session runtime state
     pub runtime: Arc<Mutex<SessionRuntime>>,
     /// Model being used
@@ -101,6 +103,7 @@ impl AgentContext {
     pub fn new(working_dir: PathBuf, provider: String, model: String) -> Self {
         Self {
             session_id: Uuid::new_v4().to_string(),
+            project_root: working_dir.clone(),
             runtime: Arc::new(Mutex::new(SessionRuntime::new(working_dir))),
             model,
             provider,
@@ -130,6 +133,7 @@ impl AgentContext {
     ) -> Self {
         Self {
             session_id,
+            project_root: working_dir.clone(),
             runtime: Arc::new(Mutex::new(SessionRuntime::new(working_dir))),
             model,
             provider,
@@ -141,6 +145,6 @@ impl AgentContext {
 
     /// Synchronously get the root directory (only for initialization or compat).
     pub fn working_dir_compat(&self) -> PathBuf {
-        futures::executor::block_on(async { self.runtime.lock().await.project_root.clone() })
+        self.project_root.clone()
     }
 }

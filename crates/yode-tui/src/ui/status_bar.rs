@@ -249,19 +249,14 @@ fn running_task_count(app: &App) -> usize {
 }
 
 fn tool_budget_badge(app: &App, density: StatusBarDensity) -> Option<String> {
-    let state = app
-        .engine
-        .as_ref()
-        .and_then(|engine| engine.try_lock().ok())
-        .map(|engine| engine.runtime_state())?;
-    if state.current_turn_budget_warning_emitted {
+    if app.turn_tool_count >= 25 {
         return Some(match density {
             StatusBarDensity::Wide => "budget warning ".to_string(),
             StatusBarDensity::Medium => "budget! ".to_string(),
             StatusBarDensity::Narrow => "!b ".to_string(),
         });
     }
-    if state.current_turn_budget_notice_emitted {
+    if app.turn_tool_count >= 15 {
         return Some(match density {
             StatusBarDensity::Wide => "budget notice ".to_string(),
             StatusBarDensity::Medium => "budget ".to_string(),
