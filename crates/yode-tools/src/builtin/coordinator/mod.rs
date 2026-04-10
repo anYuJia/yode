@@ -89,6 +89,11 @@ impl Tool for CoordinateAgentsTool {
                     "type": "boolean",
                     "default": false,
                     "description": "If true, return the dependency phases without launching sub-agents."
+                },
+                "max_parallel": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Maximum number of workstreams to run concurrently inside each dependency phase. Defaults to all ready workstreams."
                 }
             },
             "required": ["goal", "workstreams"]
@@ -125,10 +130,15 @@ impl Tool for CoordinateAgentsTool {
             .get("dry_run")
             .and_then(|value| value.as_bool())
             .unwrap_or(false);
+        let max_parallel = params
+            .get("max_parallel")
+            .and_then(|value| value.as_u64())
+            .map(|value| value.max(1) as usize)
+            .unwrap_or(usize::MAX);
         let phases = build_execution_phases(&normalized)?;
 
         if dry_run {
-            let plan = render_phase_plan(&phases);
+            let plan = render_phase_plan(&phases, max_parallel);
             return Ok(ToolResult::success_with_metadata(
                 serde_json::to_string_pretty(&plan)?,
                 json!({
@@ -136,6 +146,7 @@ impl Tool for CoordinateAgentsTool {
                     "dry_run": true,
                     "phase_count": phases.len(),
                     "workstream_count": normalized.len(),
+                    "max_parallel": max_parallel_label(max_parallel),
                     "plan": plan,
                 }),
             ));
@@ -150,65 +161,69 @@ impl Tool for CoordinateAgentsTool {
         let mut rendered = Vec::new();
 
         for (phase_index, phase_workstreams) in phases.iter().enumerate() {
-            let futures = phase_workstreams.iter().map(|workstream| {
-                let prerequisite_summary = if workstream.depends_on.is_empty() {
-                    "No prerequisite workstreams.".to_string()
-                } else {
-                    workstream
-                        .depends_on
-                        .iter()
-                        .filter_map(|dependency| {
-                            completed_outputs.get(dependency).map(|output| {
-                                let preview: String = output.chars().take(240).collect();
-                                format!("{} => {}", dependency, preview)
+            for (batch_index, batch) in phase_workstreams.chunks(max_parallel).enumerate() {
+                let futures = batch.iter().map(|workstream| {
+                    let prerequisite_summary = if workstream.depends_on.is_empty() {
+                        "No prerequisite workstreams.".to_string()
+                    } else {
+                        workstream
+                            .depends_on
+                            .iter()
+                            .filter_map(|dependency| {
+                                completed_outputs.get(dependency).map(|output| {
+                                    let preview: String = output.chars().take(240).collect();
+                                    format!("{} => {}", dependency, preview)
+                                })
                             })
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                };
-                let prompt = format!(
-                    "Coordinator goal:\n{}\n\nWorkstream ID: {}\nWorkstream:\n{}\n\nPrerequisite outputs:\n{}\n\nTask:\n{}",
-                    goal,
-                    workstream.id,
-                    workstream.description,
-                    prerequisite_summary,
-                    workstream.prompt
-                );
-                runner.run_sub_agent(
-                    prompt,
-                    SubAgentOptions {
-                        description: workstream.description.clone(),
-                        subagent_type: workstream.subagent_type.clone(),
-                        model: workstream.model.clone(),
-                        run_in_background: workstream.run_in_background.unwrap_or(true),
-                        isolation: None,
-                        cwd: None,
-                        allowed_tools: workstream.allowed_tools.clone(),
-                    },
-                )
-            });
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    };
+                    let prompt = format!(
+                        "Coordinator goal:\n{}\n\nWorkstream ID: {}\nWorkstream:\n{}\n\nPrerequisite outputs:\n{}\n\nTask:\n{}",
+                        goal,
+                        workstream.id,
+                        workstream.description,
+                        prerequisite_summary,
+                        workstream.prompt
+                    );
+                    runner.run_sub_agent(
+                        prompt,
+                        SubAgentOptions {
+                            description: workstream.description.clone(),
+                            subagent_type: workstream.subagent_type.clone(),
+                            model: workstream.model.clone(),
+                            run_in_background: workstream.run_in_background.unwrap_or(true),
+                            isolation: None,
+                            cwd: None,
+                            allowed_tools: workstream.allowed_tools.clone(),
+                        },
+                    )
+                });
 
-            let results = join_all(futures).await;
-            for (workstream, result) in phase_workstreams.iter().zip(results.into_iter()) {
-                match result {
-                    Ok(output) => {
-                        completed_outputs.insert(workstream.id.clone(), output.clone());
-                        rendered.push(json!({
-                            "phase": phase_index + 1,
-                            "id": workstream.id,
-                            "description": workstream.description,
-                            "status": "ok",
-                            "output": output,
-                        }));
-                    }
-                    Err(err) => {
-                        rendered.push(json!({
-                            "phase": phase_index + 1,
-                            "id": workstream.id,
-                            "description": workstream.description,
-                            "status": "error",
-                            "output": format!("{}", err),
-                        }));
+                let results = join_all(futures).await;
+                for (workstream, result) in batch.iter().zip(results.into_iter()) {
+                    match result {
+                        Ok(output) => {
+                            completed_outputs.insert(workstream.id.clone(), output.clone());
+                            rendered.push(json!({
+                                "phase": phase_index + 1,
+                                "batch": batch_index + 1,
+                                "id": workstream.id,
+                                "description": workstream.description,
+                                "status": "ok",
+                                "output": output,
+                            }));
+                        }
+                        Err(err) => {
+                            rendered.push(json!({
+                                "phase": phase_index + 1,
+                                "batch": batch_index + 1,
+                                "id": workstream.id,
+                                "description": workstream.description,
+                                "status": "error",
+                                "output": format!("{}", err),
+                            }));
+                        }
                     }
                 }
             }
@@ -227,6 +242,7 @@ impl Tool for CoordinateAgentsTool {
                 "goal": goal,
                 "workstream_count": normalized.len(),
                 "phase_count": phases.len(),
+                "max_parallel": max_parallel_label(max_parallel),
                 "coordination_artifact_path": artifact_path,
                 "results": rendered,
             }),
@@ -332,13 +348,26 @@ fn build_execution_phases(
     Ok(phases)
 }
 
-fn render_phase_plan(phases: &[Vec<NormalizedWorkstream>]) -> Vec<Value> {
+fn render_phase_plan(phases: &[Vec<NormalizedWorkstream>], max_parallel: usize) -> Vec<Value> {
     phases
         .iter()
         .enumerate()
         .map(|(phase_index, workstreams)| {
             json!({
                 "phase": phase_index + 1,
+                "batches": workstreams
+                    .chunks(max_parallel)
+                    .enumerate()
+                    .map(|(batch_index, batch)| {
+                        json!({
+                            "batch": batch_index + 1,
+                            "workstreams": batch
+                                .iter()
+                                .map(|workstream| workstream.id.clone())
+                                .collect::<Vec<_>>(),
+                        })
+                    })
+                    .collect::<Vec<_>>(),
                 "workstreams": workstreams
                     .iter()
                     .map(|workstream| {
@@ -354,6 +383,14 @@ fn render_phase_plan(phases: &[Vec<NormalizedWorkstream>]) -> Vec<Value> {
             })
         })
         .collect()
+}
+
+fn max_parallel_label(max_parallel: usize) -> Value {
+    if max_parallel == usize::MAX {
+        Value::String("all".to_string())
+    } else {
+        json!(max_parallel)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -462,6 +499,38 @@ mod tests {
         assert!(result.content.contains("\"phase\": 1"));
         assert!(result.content.contains("\"phase\": 2"));
         assert_eq!(result.metadata.unwrap()["dry_run"], true);
+    }
+
+    #[tokio::test]
+    async fn coordinate_agents_respects_max_parallel_batches() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let mut ctx = ToolContext::empty();
+        ctx.sub_agent_runner = Some(Arc::new(MockRunner {
+            seen: Arc::clone(&seen),
+        }));
+
+        let tool = CoordinateAgentsTool;
+        let result = tool
+            .execute(
+                serde_json::json!({
+                    "goal": "ship the feature",
+                    "max_parallel": 2,
+                    "workstreams": [
+                        { "id": "a", "description": "a", "prompt": "a" },
+                        { "id": "b", "description": "b", "prompt": "b" },
+                        { "id": "c", "description": "c", "prompt": "c" }
+                    ]
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("\"batch\": 1"));
+        assert!(result.content.contains("\"batch\": 2"));
+        assert_eq!(result.metadata.unwrap()["max_parallel"], 2);
+        assert_eq!(seen.lock().unwrap().len(), 3);
     }
 
     #[test]

@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `006 coordinator concurrency budget / phased parallelism`
+- `007 sub-agent result artifact backlinks`
 
 当前进度：
 
-- `5 / 100` 已完成
+- `6 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -39,7 +39,7 @@
 - `[x] 003 review shipping workflow templates`
 - `[x] 004 coordinator dry-run dependency planner`
 - `[x] 005 coordinator failure diagnostics with blocked dependency detail`
-- `[ ] 006 coordinator concurrency budget / phased parallelism`
+- `[x] 006 coordinator concurrency budget / phased parallelism`
 - `[ ] 007 sub-agent result artifact backlinks`
 - `[ ] 008 workflow approval checkpoints for multi-step mutations`
 - `[ ] 009 workflow nested invocation guard UX`
