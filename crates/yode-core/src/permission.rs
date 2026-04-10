@@ -305,6 +305,47 @@ impl CommandClassifier {
     }
 }
 
+fn bash_risk_rationale(command: &str, risk: CommandRiskLevel) -> &'static str {
+    let cmd_lower = command.to_lowercase();
+    match risk {
+        CommandRiskLevel::Destructive => {
+            if cmd_lower.contains("rm -rf") {
+                "It performs recursive deletion and may irreversibly remove files."
+            } else if cmd_lower.contains("git reset --hard")
+                || cmd_lower.contains("git checkout --")
+            {
+                "It discards local changes and can permanently destroy uncommitted work."
+            } else if (cmd_lower.contains("curl ") || cmd_lower.contains("wget "))
+                && (cmd_lower.contains("| sh")
+                    || cmd_lower.contains("| bash")
+                    || cmd_lower.contains("|sh")
+                    || cmd_lower.contains("|bash"))
+            {
+                "It pipes remote content directly into a shell, which is high-risk code execution."
+            } else {
+                "It matches a destructive command pattern that can cause irreversible changes."
+            }
+        }
+        CommandRiskLevel::PotentiallyRisky => {
+            if cmd_lower.contains("git push --force") || cmd_lower.contains("git push -f") {
+                "It rewrites remote history and can disrupt collaborators."
+            } else if cmd_lower.contains("cargo publish") || cmd_lower.contains("npm publish") {
+                "It publishes artifacts externally and may have irreversible distribution effects."
+            } else if cmd_lower.contains("sudo") {
+                "It escalates privileges and can bypass normal workspace safety boundaries."
+            } else {
+                "It matches a risky command pattern that can mutate state outside a safe read-only flow."
+            }
+        }
+        CommandRiskLevel::Safe => {
+            "It matches a safe read-only command prefix."
+        }
+        CommandRiskLevel::Unknown => {
+            "Its safety could not be classified confidently."
+        }
+    }
+}
+
 // ─── Denial Tracking ────────────────────────────────────────────────────────
 
 #[derive(Debug)]
@@ -576,8 +617,10 @@ impl PermissionManager {
                     CommandRiskLevel::Safe => {
                         return PermissionExplanation {
                             action: PermissionAction::Allow,
-                            reason: "Auto mode classifier marked this bash command as safe."
-                                .to_string(),
+                            reason: format!(
+                                "Auto mode classifier marked this bash command as safe. {}",
+                                bash_risk_rationale(cmd, risk)
+                            ),
                             mode: self.mode,
                             classifier_risk: Some(risk),
                             matched_rule: None,
@@ -588,8 +631,10 @@ impl PermissionManager {
                     CommandRiskLevel::Destructive => {
                         return PermissionExplanation {
                             action: PermissionAction::Deny,
-                            reason: "Auto mode classifier marked this bash command as destructive."
-                                .to_string(),
+                            reason: format!(
+                                "Auto mode classifier marked this bash command as destructive. {}",
+                                bash_risk_rationale(cmd, risk)
+                            ),
                             mode: self.mode,
                             classifier_risk: Some(risk),
                             matched_rule: None,
@@ -600,9 +645,10 @@ impl PermissionManager {
                     CommandRiskLevel::PotentiallyRisky => {
                         return PermissionExplanation {
                             action: PermissionAction::Confirm,
-                            reason:
-                                "Auto mode classifier marked this bash command as potentially risky."
-                                    .to_string(),
+                            reason: format!(
+                                "Auto mode classifier marked this bash command as potentially risky. {}",
+                                bash_risk_rationale(cmd, risk)
+                            ),
                             mode: self.mode,
                             classifier_risk: Some(risk),
                             matched_rule: None,
@@ -999,6 +1045,7 @@ mod tests {
             Some(CommandRiskLevel::PotentiallyRisky)
         );
         assert!(explanation.reason.contains("potentially risky"));
+        assert!(explanation.reason.contains("rewrites remote history"));
     }
 
     #[test]

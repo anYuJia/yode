@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `047 dangerous command rationale improvements`
+- `048 permission hook snapshot export`
 
 当前进度：
 
-- `46 / 100` 已完成
+- `47 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -92,7 +92,7 @@
 - `[x] 044 multi-step recovery breadcrumbs`
 - `[x] 045 recovery state artifact`
 - `[x] 046 plan-mode blocked-tool suggestions`
-- `[ ] 047 dangerous command rationale improvements`
+- `[x] 047 dangerous command rationale improvements`
 - `[ ] 048 permission hook snapshot export`
 - `[x] 049 workflow write-mode confirmation summary`
 - `[x] 050 safety-focused doctor checks`
