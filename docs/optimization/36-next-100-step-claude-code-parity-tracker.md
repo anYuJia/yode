@@ -30,7 +30,7 @@
 
 当前进度：
 
-- `18 / 100` 已完成
+- `19 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -63,7 +63,7 @@
 - `[x] 021 richer background bash progress streaming`
 - `[x] 022 runtime task phase timestamps`
 - `[ ] 023 runtime task retry metadata`
-- `[ ] 024 runtime task artifact retention config`
+- `[x] 024 runtime task artifact retention config`
 - `[x] 025 /tasks latest / latest-by-kind shortcuts`
 - `[x] 026 /tasks filters by kind and status`
 - `[ ] 027 /tasks tail follow mode`

@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 
 const MAX_PROGRESS_HISTORY: usize = 8;
+const DEFAULT_MAX_COMPLETED_TASKS: usize = 20;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -176,7 +177,7 @@ impl RuntimeTaskStore {
     }
 
     fn prune_completed(&mut self) {
-        const MAX_COMPLETED_TASKS: usize = 20;
+        let max_completed_tasks = max_completed_task_retention();
 
         let mut finished = self
             .tasks
@@ -191,12 +192,12 @@ impl RuntimeTaskStore {
             })
             .cloned()
             .collect::<Vec<_>>();
-        if finished.len() <= MAX_COMPLETED_TASKS {
+        if finished.len() <= max_completed_tasks {
             return;
         }
 
         finished.sort_by(|a, b| a.completed_at.cmp(&b.completed_at));
-        let remove_count = finished.len().saturating_sub(MAX_COMPLETED_TASKS);
+        let remove_count = finished.len().saturating_sub(max_completed_tasks);
         for task in finished.into_iter().take(remove_count) {
             if !task.output_path.is_empty() {
                 let _ = std::fs::remove_file(&task.output_path);
@@ -211,9 +212,20 @@ fn now_string() -> String {
     chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
 }
 
+fn max_completed_task_retention() -> usize {
+    retention_from_env(std::env::var("YODE_MAX_COMPLETED_RUNTIME_TASKS").ok().as_deref())
+}
+
+fn retention_from_env(value: Option<&str>) -> usize {
+    value
+        .and_then(|raw| raw.parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_MAX_COMPLETED_TASKS)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{RuntimeTaskStatus, RuntimeTaskStore};
+    use super::{retention_from_env, RuntimeTaskStatus, RuntimeTaskStore};
 
     #[test]
     fn runtime_task_store_tracks_lifecycle_and_notifications() {
@@ -263,5 +275,13 @@ mod tests {
         assert_eq!(snapshot.progress_history.len(), 8);
         assert_eq!(snapshot.progress_history.first().map(String::as_str), Some("line 4"));
         assert_eq!(snapshot.progress_history.last().map(String::as_str), Some("line 11"));
+    }
+
+    #[test]
+    fn runtime_task_retention_env_parser_defaults_safely() {
+        assert_eq!(retention_from_env(None), 20);
+        assert_eq!(retention_from_env(Some("0")), 20);
+        assert_eq!(retention_from_env(Some("invalid")), 20);
+        assert_eq!(retention_from_env(Some("7")), 7);
     }
 }
