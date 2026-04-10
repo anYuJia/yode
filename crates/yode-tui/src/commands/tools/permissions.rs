@@ -21,8 +21,12 @@ impl PermissionsCommand {
                         required: false,
                         hint: "<mode|tool-name|reset>".into(),
                         completions: ArgCompletionSource::Dynamic(|ctx| {
-                            let mut names: Vec<String> =
-                                vec!["mode".into(), "reset".into(), "explain".into()];
+                            let mut names: Vec<String> = vec![
+                                "mode".into(),
+                                "reset".into(),
+                                "explain".into(),
+                                "denials".into(),
+                            ];
                             names.extend(ctx.tools.definitions().iter().map(|d| d.name.clone()));
                             names.sort();
                             names
@@ -159,6 +163,32 @@ impl Command for PermissionsCommand {
                     "Permissions reset to defaults.".into(),
                 ))
             }
+            // /permissions denials [tool]
+            ["denials"] | ["denials", _] => {
+                let filter = parts.get(1).copied();
+                let denials = engine.permissions().recent_denials(20);
+                let filtered = denials
+                    .into_iter()
+                    .filter(|denial| {
+                        filter
+                            .map(|tool| denial.tool_name == tool)
+                            .unwrap_or(true)
+                    })
+                    .collect::<Vec<_>>();
+                if filtered.is_empty() {
+                    return Ok(CommandOutput::Message(
+                        "Recent denials: none".to_string(),
+                    ));
+                }
+                let mut lines = vec!["Recent denials grouped by tool:".to_string()];
+                for denial in filtered {
+                    lines.push(format!(
+                        "  {} -> count={} consecutive={} last_at={}",
+                        denial.tool_name, denial.count, denial.consecutive, denial.last_at
+                    ));
+                }
+                Ok(CommandOutput::Messages(lines))
+            }
             // /permissions explain <tool> [content]
             ["explain", tool, content @ ..] => {
                 let content = (!content.is_empty()).then(|| content.join(" "));
@@ -223,7 +253,7 @@ impl Command for PermissionsCommand {
                     "Tool '{tool}' set to deny."
                 )))
             }
-            _ => Err("Usage: /permissions [mode <mode>] | [explain <tool> [content]] | [tool allow|deny|explain] | [reset]".into()),
+            _ => Err("Usage: /permissions [mode <mode>] | [denials [tool]] | [explain <tool> [content]] | [tool allow|deny|explain] | [reset]".into()),
         }
     }
 }

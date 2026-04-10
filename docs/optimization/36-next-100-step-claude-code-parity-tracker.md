@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `042 deny history grouped by tool`
+- `043 bash safe-rewrite suggestions`
 
 当前进度：
 
-- `36 / 100` 已完成
+- `37 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -87,7 +87,7 @@
 ## 041-050 Permission / Safety / Recovery
 
 - `[x] 041 permission explanation links to effective rule`
-- `[ ] 042 deny history grouped by tool`
+- `[x] 042 deny history grouped by tool`
 - `[ ] 043 bash safe-rewrite suggestions`
 - `[ ] 044 multi-step recovery breadcrumbs`
 - `[ ] 045 recovery state artifact`
