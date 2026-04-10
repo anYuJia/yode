@@ -1,5 +1,7 @@
 use super::*;
 
+use crate::tool_runtime::ToolResultTruncationView;
+
 impl AgentEngine {
     /// Partition tool calls into (parallel, sequential) based on permission and read_only.
     pub(super) fn partition_tool_calls(&self, tool_calls: &[ToolCall]) -> (Vec<ToolCall>, Vec<ToolCall>) {
