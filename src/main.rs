@@ -306,6 +306,31 @@ async fn main() -> Result<()> {
                     println!("  [ok] {} providers configured", config.llm.providers.len());
                 }
 
+                match yode_core::updater::latest_local_release_tag() {
+                    Some(tag)
+                        if yode_core::updater::release_version_matches_tag(
+                            &tag,
+                            yode_core::updater::CURRENT_VERSION,
+                        ) =>
+                    {
+                        println!(
+                            "  [ok] Version matches latest local tag: {} == {}",
+                            yode_core::updater::CURRENT_VERSION,
+                            tag
+                        );
+                    }
+                    Some(tag) => {
+                        println!(
+                            "  [!!] Version/tag mismatch: Cargo={} latest-tag={}",
+                            yode_core::updater::CURRENT_VERSION,
+                            tag
+                        );
+                    }
+                    None => {
+                        println!("  [--] Could not determine latest local release tag");
+                    }
+                }
+
                 println!(
                     "\nPlatform: {} {}",
                     std::env::consts::OS,

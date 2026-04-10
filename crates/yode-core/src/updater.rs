@@ -632,6 +632,25 @@ fn parse_version(version: &str) -> Vec<u32> {
     version.split('.').filter_map(|s| s.parse().ok()).collect()
 }
 
+pub fn latest_local_release_tag() -> Option<String> {
+    let output = std::process::Command::new("git")
+        .args(["tag", "--list", "v*", "--sort=-version:refname"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(|line| line.to_string())
+}
+
+pub fn release_version_matches_tag(tag: &str, version: &str) -> bool {
+    tag.strip_prefix('v').unwrap_or(tag) == version
+}
+
 /// Get the target triple for current platform
 fn get_target_triple() -> String {
     let os = std::env::consts::OS;
@@ -668,5 +687,12 @@ mod tests {
         assert_eq!(parse_version("0.2.0"), vec![0, 2, 0]);
         assert_eq!(parse_version("1.0.0"), vec![1, 0, 0]);
         assert_eq!(parse_version("invalid"), v);
+    }
+
+    #[test]
+    fn test_release_version_matches_tag() {
+        assert!(release_version_matches_tag("v0.2.1", "0.2.1"));
+        assert!(release_version_matches_tag("0.2.1", "0.2.1"));
+        assert!(!release_version_matches_tag("v0.2.0", "0.2.1"));
     }
 }

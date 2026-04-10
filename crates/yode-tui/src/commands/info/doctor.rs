@@ -1,5 +1,6 @@
 use crate::commands::context::CommandContext;
 use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
+use yode_core::updater::{latest_local_release_tag, release_version_matches_tag, CURRENT_VERSION};
 
 pub struct DoctorCommand {
     meta: CommandMeta,
@@ -222,6 +223,24 @@ impl Command for DoctorCommand {
             }
         } else {
             checks.push("  [--] Engine runtime busy; skipped context/memory checks".to_string());
+        }
+
+        match latest_local_release_tag() {
+            Some(tag) if release_version_matches_tag(&tag, CURRENT_VERSION) => {
+                checks.push(format!(
+                    "  [ok] Version matches latest local tag: {} == {}",
+                    CURRENT_VERSION, tag
+                ));
+            }
+            Some(tag) => {
+                checks.push(format!(
+                    "  [!!] Version/tag mismatch: Cargo={} latest-tag={}",
+                    CURRENT_VERSION, tag
+                ));
+            }
+            None => {
+                checks.push("  [--] Could not determine latest local release tag".to_string());
+            }
         }
 
         Ok(CommandOutput::Message(format!(

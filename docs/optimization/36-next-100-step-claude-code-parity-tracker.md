@@ -30,7 +30,7 @@
 
 当前进度：
 
-- `26 / 100` 已完成
+- `27 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -139,7 +139,7 @@
 ## 081-090 Release / CI / Performance
 
 - `[ ] 081 release preflight command`
-- `[ ] 082 version / tag consistency doctor check`
+- `[x] 082 version / tag consistency doctor check`
 - `[ ] 083 release note generation helper`
 - `[ ] 084 benchmark snapshots in CI`
 - `[ ] 085 workflow template smoke tests in CI`
