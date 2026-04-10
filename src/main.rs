@@ -84,6 +84,8 @@ enum UpdateAction {
     Check,
     /// 查看更新配置状态
     Status,
+    /// 发布前检查（工作树、版本、编译、核心测试）
+    Preflight,
 }
 
 #[derive(clap::Subcommand)]
@@ -260,6 +262,94 @@ async fn main() -> Result<()> {
                         println!("更新配置状态:");
                         println!("  自动检查: {}", config.update.auto_check);
                         println!("  自动下载: {}", config.update.auto_download);
+                    }
+                    UpdateAction::Preflight => {
+                        println!("正在运行发布前检查...");
+                        let mut has_failure = false;
+
+                        let git_status = std::process::Command::new("git")
+                            .args(["status", "--porcelain"])
+                            .output();
+                        match git_status {
+                            Ok(output) if output.status.success() => {
+                                let dirty = !String::from_utf8_lossy(&output.stdout).trim().is_empty();
+                                if dirty {
+                                    has_failure = true;
+                                    println!("  [!!] 工作树不干净，请先提交或清理改动");
+                                } else {
+                                    println!("  [ok] 工作树干净");
+                                }
+                            }
+                            _ => {
+                                has_failure = true;
+                                println!("  [!!] 无法检查 git 工作树状态");
+                            }
+                        }
+
+                        match yode_core::updater::latest_local_release_tag() {
+                            Some(tag)
+                                if yode_core::updater::release_version_matches_tag(
+                                    &tag,
+                                    yode_core::updater::CURRENT_VERSION,
+                                ) =>
+                            {
+                                println!(
+                                    "  [ok] 版本与最新 tag 一致: {} == {}",
+                                    yode_core::updater::CURRENT_VERSION,
+                                    tag
+                                );
+                            }
+                            Some(tag) => {
+                                has_failure = true;
+                                println!(
+                                    "  [!!] 版本与最新 tag 不一致: Cargo={} latest-tag={}",
+                                    yode_core::updater::CURRENT_VERSION,
+                                    tag
+                                );
+                            }
+                            None => {
+                                println!("  [--] 未找到本地 release tag，跳过版本对比");
+                            }
+                        }
+
+                        for (label, mut command) in [
+                            (
+                                "cargo check",
+                                {
+                                    let mut cmd = std::process::Command::new("cargo");
+                                    cmd.arg("check");
+                                    cmd
+                                },
+                            ),
+                            (
+                                "cargo test -p yode-tools",
+                                {
+                                    let mut cmd = std::process::Command::new("cargo");
+                                    cmd.args(["test", "-p", "yode-tools"]);
+                                    cmd
+                                },
+                            ),
+                        ] {
+                            match command.status() {
+                                Ok(status) if status.success() => {
+                                    println!("  [ok] {}", label);
+                                }
+                                Ok(_) => {
+                                    has_failure = true;
+                                    println!("  [!!] {} 失败", label);
+                                }
+                                Err(err) => {
+                                    has_failure = true;
+                                    println!("  [!!] 无法运行 {}: {}", label, err);
+                                }
+                            }
+                        }
+
+                        if has_failure {
+                            anyhow::bail!("发布前检查失败");
+                        }
+
+                        println!("  [ok] 发布前检查通过");
                     }
                 }
                 return Ok(());
