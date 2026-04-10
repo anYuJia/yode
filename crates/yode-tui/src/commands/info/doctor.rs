@@ -32,7 +32,18 @@ impl Command for DoctorCommand {
             .engine
             .try_lock()
             .ok()
-            .map(|engine| engine.runtime_state());
+            .map(|engine| {
+                (
+                    engine.runtime_state(),
+                    engine.permissions().mode(),
+                    engine
+                        .permissions()
+                        .confirmable_tools()
+                        .into_iter()
+                        .map(|tool| tool.to_string())
+                        .collect::<Vec<_>>(),
+                )
+            });
         let project_root = std::path::PathBuf::from(&ctx.session.working_dir);
 
         // 1. Check providers
@@ -105,7 +116,7 @@ impl Command for DoctorCommand {
         }
 
         // 6. Check context/memory runtime health
-        if let Some(state) = runtime {
+        if let Some((state, permission_mode, confirmable_tools)) = runtime {
             checks.push(format!(
                 "  [ok] Compact count: {} (auto {}, manual {})",
                 state.total_compactions, state.auto_compactions, state.manual_compactions
@@ -220,6 +231,26 @@ impl Command for DoctorCommand {
                 ));
             } else {
                 checks.push("  [ok] No hook timeouts observed".to_string());
+            }
+
+            if matches!(permission_mode, yode_core::PermissionMode::Bypass) {
+                checks.push("  [!!] Permission mode is bypass — destructive tools are fully unlocked".to_string());
+            } else {
+                checks.push(format!("  [ok] Permission mode: {}", permission_mode));
+            }
+
+            for critical_tool in ["bash", "write_file", "edit_file"] {
+                if confirmable_tools.iter().any(|tool| tool == critical_tool) {
+                    checks.push(format!(
+                        "  [ok] {} still requires confirmation",
+                        critical_tool
+                    ));
+                } else {
+                    checks.push(format!(
+                        "  [!!] {} no longer requires confirmation",
+                        critical_tool
+                    ));
+                }
             }
         } else {
             checks.push("  [--] Engine runtime busy; skipped context/memory checks".to_string());
