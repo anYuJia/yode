@@ -114,6 +114,13 @@ impl Tool for TaskOutputTool {
             "Task {} [{} / {}]\nDescription: {}\nOutput path: {}\n\n",
             task.id, task.kind, format!("{:?}", task.status), task.description, task.output_path
         ));
+        if !task.progress_history.is_empty() {
+            output.push_str("Recent progress:\n");
+            for progress in &task.progress_history {
+                output.push_str(&format!("  - {}\n", progress));
+            }
+            output.push('\n');
+        }
         output.push_str(&selected);
         if was_truncated {
             output.push_str(&format!(
@@ -131,6 +138,8 @@ impl Tool for TaskOutputTool {
                 "task_kind": task.kind,
                 "task_status": format!("{:?}", task.status),
                 "output_path": task.output_path,
+                "last_progress": task.last_progress,
+                "progress_history": task.progress_history,
                 "total_lines": total_lines,
                 "start_line": start + 1,
                 "end_line": end,

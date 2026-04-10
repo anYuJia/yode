@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 
+const MAX_PROGRESS_HISTORY: usize = 8;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RuntimeTaskStatus {
@@ -25,6 +27,7 @@ pub struct RuntimeTask {
     pub started_at: Option<String>,
     pub completed_at: Option<String>,
     pub last_progress: Option<String>,
+    pub progress_history: Vec<String>,
     pub error: Option<String>,
 }
 
@@ -73,6 +76,7 @@ impl RuntimeTaskStore {
             started_at: None,
             completed_at: None,
             last_progress: None,
+            progress_history: Vec::new(),
             error: None,
         };
         self.tasks.insert(id.clone(), task.clone());
@@ -101,7 +105,17 @@ impl RuntimeTaskStore {
 
     pub fn update_progress(&mut self, id: &str, message: String) {
         if let Some(task) = self.tasks.get_mut(id) {
-            task.last_progress = Some(message);
+            if message.trim().is_empty() {
+                return;
+            }
+            task.last_progress = Some(message.clone());
+            if task.progress_history.last() != Some(&message) {
+                task.progress_history.push(message);
+                if task.progress_history.len() > MAX_PROGRESS_HISTORY {
+                    let extra = task.progress_history.len() - MAX_PROGRESS_HISTORY;
+                    task.progress_history.drain(0..extra);
+                }
+            }
         }
     }
 
@@ -216,9 +230,33 @@ mod tests {
         let snapshot = store.get(&task.id).unwrap();
         assert_eq!(snapshot.status, RuntimeTaskStatus::Completed);
         assert_eq!(snapshot.last_progress.as_deref(), Some("running"));
+        assert_eq!(snapshot.progress_history, vec!["running".to_string()]);
 
         let notifications = store.drain_notifications();
         assert_eq!(notifications.len(), 1);
         assert!(notifications[0].message.contains("completed"));
+    }
+
+    #[test]
+    fn runtime_task_store_keeps_bounded_progress_history() {
+        let mut store = RuntimeTaskStore::new();
+        let (task, _cancel_rx) = store.create(
+            "bash".to_string(),
+            "bash".to_string(),
+            "background build".to_string(),
+            "/tmp/task.log".to_string(),
+        );
+
+        for i in 0..12 {
+            store.update_progress(&task.id, format!("line {}", i));
+        }
+        store.update_progress(&task.id, "line 11".to_string());
+        store.update_progress(&task.id, "".to_string());
+
+        let snapshot = store.get(&task.id).unwrap();
+        assert_eq!(snapshot.last_progress.as_deref(), Some("line 11"));
+        assert_eq!(snapshot.progress_history.len(), 8);
+        assert_eq!(snapshot.progress_history.first().map(String::as_str), Some("line 4"));
+        assert_eq!(snapshot.progress_history.last().map(String::as_str), Some("line 11"));
     }
 }

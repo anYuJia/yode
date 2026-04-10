@@ -143,8 +143,17 @@ impl Command for TasksCommand {
                         lines[preview_start..].join("\n")
                     })
                     .unwrap_or_else(|| "(unavailable)".to_string());
+                let progress_history = if task.progress_history.is_empty() {
+                    "none".to_string()
+                } else {
+                    task.progress_history
+                        .iter()
+                        .map(|progress| format!("    - {}", progress))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                };
                 Ok(CommandOutput::Message(format!(
-                    "Task {}:\n  Kind:        {}\n  Source tool: {}\n  Status:      {:?}\n  Description: {}\n  Created:     {}\n  Started:     {}\n  Completed:   {}\n  Progress:    {}\n  Error:       {}\n  Output:      {}\n\n  Output preview:\n{}\n\nUse `/tasks read {}` for the full tail.",
+                    "Task {}:\n  Kind:        {}\n  Source tool: {}\n  Status:      {:?}\n  Description: {}\n  Created:     {}\n  Started:     {}\n  Completed:   {}\n  Progress:    {}\n  Error:       {}\n  Output:      {}\n  Recent progress:\n{}\n\n  Output preview:\n{}\n\nUse `/tasks read {}` for the full tail.",
                     task.id,
                     task.kind,
                     task.source_tool,
@@ -156,6 +165,7 @@ impl Command for TasksCommand {
                     task.last_progress.as_deref().unwrap_or("none"),
                     task.error.as_deref().unwrap_or("none"),
                     task.output_path,
+                    progress_history,
                     output_preview,
                     task.id,
                 )))
