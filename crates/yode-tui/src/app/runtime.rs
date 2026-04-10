@@ -24,12 +24,13 @@ use crate::event::{self, AppEvent};
 use crate::ui;
 
 use super::engine_events::handle_engine_event;
+use super::key_dispatch::handle_key_event;
 use super::lifecycle::print_exit_summary;
 use super::scrollback::{
     flush_entries_to_scrollback, print_entries_to_stdout, print_header_to_stdout,
 };
 use super::{
-    handle_key_event, push_grouped_system_entry, App, ChatEntry, ChatRole, SkillCommandWrapper,
+    push_grouped_system_entry, App, ChatEntry, ChatRole, SkillCommandWrapper,
 };
 
 /// Run the TUI application.
