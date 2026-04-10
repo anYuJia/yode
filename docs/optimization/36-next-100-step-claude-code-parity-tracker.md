@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `060 MCP / browser parity design notes`
+- `061 transcript picker with folding`
 
 当前进度：
 
-- `71 / 100` 已完成
+- `72 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -108,7 +108,7 @@
 - `[x] 057 MCP reconnect backoff diagnostics`
 - `[x] 058 multi-server tool source badges`
 - `[x] 059 remote session artifact index`
-- `[ ] 060 MCP / browser parity design notes`
+- `[x] 060 MCP / browser parity design notes`
 
 ## 061-070 TUI / UX / Narrow Layout
 
