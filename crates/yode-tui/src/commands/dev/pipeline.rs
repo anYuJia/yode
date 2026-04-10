@@ -23,6 +23,7 @@ impl PipelineCommand {
                         "ship".to_string(),
                         "ship-all".to_string(),
                         "ship-staged".to_string(),
+                        "export-gh".to_string(),
                         "staged".to_string(),
                         "all".to_string(),
                         "test".to_string(),
@@ -45,6 +46,36 @@ impl Command for PipelineCommand {
     }
 
     fn execute(&self, args: &str, ctx: &mut CommandContext) -> CommandResult {
+        let parts = args.split_whitespace().collect::<Vec<_>>();
+        if let ["export-gh", name @ ..] = parts.as_slice() {
+            let file_name = if name.is_empty() {
+                "yode-review-gate.yml".to_string()
+            } else {
+                let raw = name.join("-");
+                if raw.ends_with(".yml") || raw.ends_with(".yaml") {
+                    raw
+                } else {
+                    format!("{}.yml", raw)
+                }
+            };
+            let workflow_dir = std::path::PathBuf::from(&ctx.session.working_dir)
+                .join(".github")
+                .join("workflows");
+            std::fs::create_dir_all(&workflow_dir).map_err(|err| {
+                format!(
+                    "Failed to create GitHub workflow directory {}: {}",
+                    workflow_dir.display(),
+                    err
+                )
+            })?;
+            let path = workflow_dir.join(&file_name);
+            std::fs::write(&path, github_review_gate_workflow())
+                .map_err(|err| format!("Failed to write {}: {}", path.display(), err))?;
+            return Ok(CommandOutput::Message(format!(
+                "Exported GitHub review gate scaffold to {}.\nCustomize the prompt, test command, and secret names before enabling it in CI.",
+                path.display()
+            )));
+        }
         ctx.input.set_text(&build_pipeline_prompt(args));
         Ok(CommandOutput::Message(
             "Loaded a review-pipeline prompt into the input box.".to_string(),
@@ -146,9 +177,41 @@ fn build_pipeline_prompt(args: &str) -> String {
     }
 }
 
+fn github_review_gate_workflow() -> &'static str {
+    r#"name: Yode Review Gate
+
+on:
+  pull_request:
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Yode
+        run: curl -fsSL https://raw.githubusercontent.com/anYuJia/yode/main/install.sh | bash
+
+      - name: Run review pipeline
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          yode --chat "Use review_pipeline with focus=\"pull request changes\" and test_command=\"cargo test\". Report findings first, stay concise, and do not commit." > yode-review.txt
+
+      - name: Upload review artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yode-review
+          path: |
+            yode-review.txt
+            .yode/reviews/*
+"#
+}
+
 #[cfg(test)]
 mod tests {
-    use super::build_pipeline_prompt;
+    use super::{build_pipeline_prompt, github_review_gate_workflow};
 
     #[test]
     fn pipeline_prompt_supports_ship_preset() {
@@ -182,5 +245,12 @@ mod tests {
         let prompt = build_pipeline_prompt("verify regressions");
         assert!(prompt.contains("verification_goal=\"verify the implementation is correct\""));
         assert!(prompt.contains("focus=\"regressions\""));
+    }
+
+    #[test]
+    fn github_review_gate_template_mentions_review_pipeline() {
+        let workflow = github_review_gate_workflow();
+        assert!(workflow.contains("review_pipeline"));
+        assert!(workflow.contains("upload-artifact"));
     }
 }

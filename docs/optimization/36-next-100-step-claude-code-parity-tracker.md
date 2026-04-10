@@ -30,7 +30,7 @@
 
 当前进度：
 
-- `20 / 100` 已完成
+- `22 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -53,8 +53,8 @@
 - `[x] 014 structured findings count metadata`
 - `[x] 015 commit gate driven by review artifact status`
 - `[x] 016 test command presets in /pipeline`
-- `[ ] 017 CI export command for review pipeline`
-- `[ ] 018 GitHub Actions scaffold for review gate`
+- `[x] 017 CI export command for review pipeline`
+- `[x] 018 GitHub Actions scaffold for review gate`
 - `[ ] 019 review artifact diff backlinks`
 - `[ ] 020 multi-review session aggregation`
 
