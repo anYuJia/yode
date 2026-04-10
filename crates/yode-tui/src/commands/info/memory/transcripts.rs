@@ -5,10 +5,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
 use std::time::Instant;
 
-use super::{
-    build_transcript_compare_output, CompareOptions, MAX_DISPLAY_CHARS,
-    TRANSCRIPT_PREVIEW_MESSAGE_HEAD_LINES, TRANSCRIPT_PREVIEW_TAIL_LINES,
-};
+use super::compare::{build_transcript_compare_output, CompareOptions};
+use super::{MAX_DISPLAY_CHARS, TRANSCRIPT_PREVIEW_MESSAGE_HEAD_LINES, TRANSCRIPT_PREVIEW_TAIL_LINES};
 
 static TRANSCRIPT_META_CACHE: LazyLock<Mutex<HashMap<PathBuf, (u64, TranscriptMetadata)>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
