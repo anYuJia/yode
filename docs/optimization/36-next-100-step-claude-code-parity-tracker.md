@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `070 theme / branding parity polish`
+- `074 file-edit fallback explanation improvements`
 
 当前进度：
 
-- `81 / 100` 已完成
+- `85 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -121,13 +121,13 @@
 - `[x] 067 history search preview polish`
 - `[x] 068 command suggestion ranking tweaks`
 - `[x] 069 attachment preview polish`
-- `[ ] 070 theme / branding parity polish`
+- `[x] 070 theme / branding parity polish`
 
 ## 071-080 Tool Runtime / Diagnostics
 
-- `[ ] 071 recent tool failure cluster detection`
-- `[ ] 072 richer tool output preview formatting`
-- `[ ] 073 diff preview line-budget telemetry`
+- `[x] 071 recent tool failure cluster detection`
+- `[x] 072 richer tool output preview formatting`
+- `[x] 073 diff preview line-budget telemetry`
 - `[ ] 074 file-edit fallback explanation improvements`
 - `[ ] 075 read-file history introspection`
 - `[ ] 076 command vs tool duplication diagnostics`

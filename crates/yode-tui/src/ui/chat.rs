@@ -20,7 +20,7 @@ pub const DIM: Color = Color::Gray; // ANSI 7 — adapts to terminal theme
 pub const WHITE: Color = Color::Indexed(231); // RGB #FFFFFF - pure white
 pub const CODE_BG: Color = Color::Indexed(234); // #1c1c1c
 pub const INLINE_CODE_BG: Color = Color::Indexed(236); // #303030
-pub const ACCENT: Color = Color::LightMagenta; // ANSI 13 — bright purple // purple for ⏺
+pub const ACCENT: Color = Color::LightCyan; // ANSI 14 — crisp terminal cyan
 
 // ── Main Render ─────────────────────────────────────────────────────
 pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
@@ -576,16 +576,16 @@ pub fn render_header(app: &App, width: usize) -> Vec<Line<'static>> {
         "   ╚═╝    ╚═════╝ ╚═════╝ ╚══════╝",
     ];
     let logo_w = 34usize;
-    // Gradient colors for border + logo (purple range, ANSI 256)
+    // Gradient colors for border + logo (cyan/blue/green range, ANSI 256)
     let gradient: [Color; 8] = [
-        Color::Indexed(57),  // top border
-        Color::Indexed(57),  // row 0 (logo[0])
-        Color::Indexed(99),  // row 1 (logo[1])
-        Color::Indexed(135), // row 2 (logo[2])
-        Color::Indexed(141), // row 3 (logo[3])
-        Color::Indexed(177), // row 4 (logo[4])
-        Color::Indexed(183), // row 5 (logo[5])
-        Color::Indexed(183), // bottom border
+        Color::Indexed(37),  // top border
+        Color::Indexed(37),  // row 0 (logo[0])
+        Color::Indexed(44),  // row 1 (logo[1])
+        Color::Indexed(45),  // row 2 (logo[2])
+        Color::Indexed(81),  // row 3 (logo[3])
+        Color::Indexed(115), // row 4 (logo[4])
+        Color::Indexed(120), // row 5 (logo[5])
+        Color::Indexed(120), // bottom border
     ];
 
     let inner_w = width.saturating_sub(4);
@@ -662,6 +662,7 @@ pub fn render_header(app: &App, width: usize) -> Vec<Line<'static>> {
     lines.push(make_row(
         vec![
             Span::styled(" ", Style::default()),
+            Span::styled("agentic terminal · ", Style::default().fg(ACCENT)),
             Span::styled(format!("session {}", session_short), dim),
         ],
         Some(3),

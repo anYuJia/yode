@@ -89,6 +89,7 @@ impl Command for ToolsCommand {
                 .collect::<Vec<_>>()
                 .join(", ")
         };
+        let failure_clusters = failure_cluster_summary(&state.tool_traces);
 
         let mut traces = String::new();
         if state.tool_traces.is_empty() {
@@ -108,21 +109,29 @@ impl Command for ToolsCommand {
                     .map(|item| item.reason.as_str())
                     .unwrap_or("-");
                 let diff = trace.diff_preview.as_deref().unwrap_or("-");
+                let diff_lines = trace
+                    .diff_preview
+                    .as_ref()
+                    .map(|diff| diff.lines().count())
+                    .unwrap_or(0);
+                let preview = tool_output_preview_line(trace.output_preview.as_str());
                 traces.push_str(&format!(
-                    "    - {} [{}] {}ms progress={} err={} trunc={} diff={}\n",
+                    "    - {} [{}] {}ms progress={} err={} trunc={} diff_lines={} diff={} out={}\n",
                     trace.tool_name,
                     status,
                     trace.duration_ms,
                     trace.progress_updates,
                     error,
                     truncation,
+                    diff_lines,
                     diff.lines().next().unwrap_or(diff),
+                    preview,
                 ));
             }
         }
 
         Ok(CommandOutput::Message(format!(
-            "Tool diagnostics:\n  Registry tools:  {}\n  Session calls:    {}\n  Current turn:     {} calls / {} bytes / {} progress\n  Budget notices:   {} (warnings {})\n  Budget active:    notice={} warning={}\n  Parallel:         {} batches / {} calls (max {})\n  Truncations:      {} (last: {})\n  Error types:      {}\n  Repeat failures:  {}\n  Last progress:    {} / {}\n  Last progress at: {}\n  Last artifact:    {}\n  Last turn done:   {}\n{}\
+            "Tool diagnostics:\n  Registry tools:  {}\n  Session calls:    {}\n  Current turn:     {} calls / {} bytes / {} progress\n  Budget notices:   {} (warnings {})\n  Budget active:    notice={} warning={}\n  Parallel:         {} batches / {} calls (max {})\n  Truncations:      {} (last: {})\n  Error types:      {}\n  Failure clusters: {}\n  Repeat failures:  {}\n  Last progress:    {} / {}\n  Last progress at: {}\n  Last artifact:    {}\n  Last turn done:   {}\n{}\
 \nUse `/tools list` or `/tools verbose` to inspect the full registry.",
             ctx.tools.definitions().len(),
             state.session_tool_calls_total,
@@ -142,6 +151,7 @@ impl Command for ToolsCommand {
                 .as_deref()
                 .unwrap_or("none"),
             error_counts,
+            failure_clusters,
             state
                 .latest_repeated_tool_failure
                 .as_deref()
@@ -168,5 +178,69 @@ impl Command for ToolsCommand {
                 .unwrap_or("none"),
             traces,
         )))
+    }
+}
+
+fn tool_output_preview_line(output: &str) -> String {
+    let squashed = output
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or("-")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    if squashed.chars().count() <= 80 {
+        squashed
+    } else {
+        format!("{}...", squashed.chars().take(80).collect::<String>())
+    }
+}
+
+fn failure_cluster_summary(traces: &[yode_core::tool_runtime::ToolRuntimeCallView]) -> String {
+    let mut counts = std::collections::BTreeMap::<String, u32>::new();
+    for trace in traces.iter().filter(|trace| !trace.success) {
+        let key = format!(
+            "{}:{}",
+            trace.tool_name,
+            trace.error_type.as_deref().unwrap_or("unknown")
+        );
+        *counts.entry(key).or_insert(0) += 1;
+    }
+    if counts.is_empty() {
+        return "none".to_string();
+    }
+    counts
+        .into_iter()
+        .map(|(key, count)| format!("{} x{}", key, count))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{failure_cluster_summary, tool_output_preview_line};
+
+    #[test]
+    fn tool_output_preview_line_uses_first_non_empty_line() {
+        assert_eq!(tool_output_preview_line("\n  hello   world\nnext"), "hello world");
+    }
+
+    #[test]
+    fn failure_cluster_summary_groups_failed_tools() {
+        let traces = vec![
+            yode_core::tool_runtime::ToolRuntimeCallView {
+                tool_name: "bash".to_string(),
+                success: false,
+                error_type: Some("Execution".to_string()),
+                ..Default::default()
+            },
+            yode_core::tool_runtime::ToolRuntimeCallView {
+                tool_name: "bash".to_string(),
+                success: false,
+                error_type: Some("Execution".to_string()),
+                ..Default::default()
+            },
+        ];
+        assert_eq!(failure_cluster_summary(&traces), "bash:Execution x2");
     }
 }
