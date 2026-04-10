@@ -30,7 +30,7 @@
 
 当前进度：
 
-- `47 / 100` 已完成
+- `48 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -93,7 +93,7 @@
 - `[x] 045 recovery state artifact`
 - `[x] 046 plan-mode blocked-tool suggestions`
 - `[x] 047 dangerous command rationale improvements`
-- `[ ] 048 permission hook snapshot export`
+- `[x] 048 permission hook snapshot export`
 - `[x] 049 workflow write-mode confirmation summary`
 - `[x] 050 safety-focused doctor checks`
 

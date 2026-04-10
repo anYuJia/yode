@@ -377,6 +377,7 @@ pub struct EngineRuntimeState {
     pub last_permission_tool: Option<String>,
     pub last_permission_action: Option<String>,
     pub last_permission_explanation: Option<String>,
+    pub last_permission_artifact_path: Option<String>,
     pub recent_permission_denials: Vec<String>,
     pub current_turn_tool_calls: u32,
     pub current_turn_tool_output_bytes: usize,
@@ -596,6 +597,7 @@ pub struct AgentEngine {
     last_permission_tool: Option<String>,
     last_permission_action: Option<String>,
     last_permission_explanation: Option<String>,
+    last_permission_artifact_path: Option<String>,
     /// Tool call ids whose latest result was an error in the current session.
     failed_tool_call_ids: HashSet<String>,
     /// Whether the engine is in plan mode.
@@ -878,6 +880,45 @@ impl AgentEngine {
         }
     }
 
+    fn write_permission_artifact(
+        &mut self,
+        source: &str,
+        tool_name: &str,
+        decision: &str,
+        reason: &str,
+        effective_input: &serde_json::Value,
+        effective_arguments: &str,
+        original_input: &serde_json::Value,
+        original_arguments: &str,
+        input_changed_by_hook: bool,
+    ) {
+        let dir = self.context.working_dir_compat().join(".yode").join("hooks");
+        if std::fs::create_dir_all(&dir).is_err() {
+            return;
+        }
+        let path = dir.join("latest-permission.json");
+        let payload = serde_json::json!({
+            "updated_at": Self::now_timestamp(),
+            "source": source,
+            "tool": tool_name,
+            "decision": decision,
+            "reason": reason,
+            "effective_input_snapshot": effective_input,
+            "effective_arguments_snapshot": effective_arguments,
+            "original_input_snapshot": original_input,
+            "original_arguments_snapshot": original_arguments,
+            "input_changed_by_hook": input_changed_by_hook,
+        });
+        if std::fs::write(
+            &path,
+            serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()),
+        )
+        .is_ok()
+        {
+            self.last_permission_artifact_path = Some(path.display().to_string());
+        }
+    }
+
     fn language_command_mismatch(
         &self,
         tool_name: &str,
@@ -986,6 +1027,7 @@ impl AgentEngine {
             last_permission_tool: None,
             last_permission_action: None,
             last_permission_explanation: None,
+            last_permission_artifact_path: None,
             failed_tool_call_ids: HashSet::new(),
             plan_mode: Arc::new(Mutex::new(false)),
             project_kind: detected_project_kind,
@@ -1251,6 +1293,7 @@ impl AgentEngine {
             last_permission_tool: self.last_permission_tool.clone(),
             last_permission_action: self.last_permission_action.clone(),
             last_permission_explanation: self.last_permission_explanation.clone(),
+            last_permission_artifact_path: self.last_permission_artifact_path.clone(),
             recent_permission_denials,
             current_turn_tool_calls: self.tool_call_count,
             current_turn_tool_output_bytes: self.total_tool_results_bytes,
@@ -4796,6 +4839,17 @@ impl AgentEngine {
         self.last_permission_tool = Some(tool_call.name.clone());
         self.last_permission_action = Some(permission_explanation.action.label().to_string());
         self.last_permission_explanation = Some(permission_explanation.reason.clone());
+        self.write_permission_artifact(
+            "permission_manager",
+            &tool_call.name,
+            permission_explanation.action.label(),
+            &permission_explanation.reason,
+            &params,
+            &effective_arguments,
+            &original_params,
+            &tool_call.arguments,
+            input_changed_by_hook,
+        );
         let action = permission_explanation.action.clone();
 
         // For bash: additional security check via command classifier
@@ -4852,6 +4906,17 @@ impl AgentEngine {
                     self.last_permission_explanation = Some(
                         "Dangerous bash command blocked by destructive-command guard. Use a safer non-destructive probe first."
                             .to_string(),
+                    );
+                    self.write_permission_artifact(
+                        "destructive_guard",
+                        &tool_call.name,
+                        "deny",
+                        "Dangerous bash command blocked by destructive-command guard. Use a safer non-destructive probe first.",
+                        &params,
+                        &effective_arguments,
+                        &original_params,
+                        &tool_call.arguments,
+                        input_changed_by_hook,
                     );
                     return Ok(Self::immediate_tool_outcome(
                         tool_call,
@@ -4958,6 +5023,17 @@ impl AgentEngine {
                         Ok(Some(ConfirmResponse::Deny)) => {
                             info!("Tool {} denied by user", tool_call.name);
                             self.permissions.record_denial(&tool_call.name);
+                            self.write_permission_artifact(
+                                "user_confirmation",
+                                &tool_call.name,
+                                "deny",
+                                "Tool execution denied by user.",
+                                &params,
+                                &effective_arguments,
+                                &original_params,
+                                &tool_call.arguments,
+                                input_changed_by_hook,
+                            );
                             let denied_ctx = HookContext {
                                 event: HookEvent::PermissionDenied.to_string(),
                                 session_id: self.context.session_id.clone(),
