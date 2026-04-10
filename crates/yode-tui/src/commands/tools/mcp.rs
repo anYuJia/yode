@@ -81,6 +81,16 @@ impl Command for McpCommand {
                 }
             ));
         }
+        let cache_stats = yode_tools::mcp_resource_cache_stats();
+        lines.push(format!(
+            "  Cache stats: list hit/miss {}/{} · read hit/miss {}/{} · cached entries list={} read={}",
+            cache_stats.list_hits,
+            cache_stats.list_misses,
+            cache_stats.read_hits,
+            cache_stats.read_misses,
+            cache_stats.cached_list_entries,
+            cache_stats.cached_read_entries
+        ));
         Ok(CommandOutput::Messages(lines))
     }
 }
