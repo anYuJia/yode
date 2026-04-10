@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `052 MCP auth status in /mcp`
+- `053 MCP resource cache stats`
 
 当前进度：
 
-- `64 / 100` 已完成
+- `65 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -100,7 +100,7 @@
 ## 051-060 MCP / Remote / Integration
 
 - `[x] 051 MCP server health summary cards`
-- `[ ] 052 MCP auth status in /mcp`
+- `[x] 052 MCP auth status in /mcp`
 - `[ ] 053 MCP resource cache stats`
 - `[ ] 054 MCP tool latency telemetry`
 - `[ ] 055 remote env setup verification command`
