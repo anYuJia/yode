@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `048 permission hook snapshot export`
+- `029 background sub-agent output folding`
 
 当前进度：
 
-- `48 / 100` 已完成
+- `49 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -151,7 +151,7 @@
 
 ## 091-100 Docs / Tracking / Closeout
 
-- `[ ] 091 parity tracker weekly summary script`
+- `[x] 091 parity tracker weekly summary script`
 - `[ ] 092 architecture gap map refresh`
 - `[ ] 093 workflow authoring guide`
 - `[ ] 094 coordinator usage guide`
