@@ -30,7 +30,7 @@
 
 当前进度：
 
-- `23 / 100` 已完成
+- `24 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -55,7 +55,7 @@
 - `[x] 016 test command presets in /pipeline`
 - `[x] 017 CI export command for review pipeline`
 - `[x] 018 GitHub Actions scaffold for review gate`
-- `[ ] 019 review artifact diff backlinks`
+- `[x] 019 review artifact diff backlinks`
 - `[ ] 020 multi-review session aggregation`
 
 ## 021-030 Task Runtime / Background Work

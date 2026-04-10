@@ -14,16 +14,41 @@ pub fn persist_review_artifact(
 
     let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
     let path = dir.join(format!("{}-{}.md", kind, timestamp));
+    let diff_path = dir.join(format!("{}-{}.diff.txt", kind, timestamp));
+    let diff_artifact_path = capture_diff_artifact(working_dir, &diff_path).ok();
     let content = format!(
-        "# Review Artifact\n\n- Kind: {}\n- Title: {}\n- Timestamp: {}\n\n## Result\n\n```text\n{}\n```\n",
+        "# Review Artifact\n\n- Kind: {}\n- Title: {}\n- Timestamp: {}\n- Diff Artifact: {}\n\n## Result\n\n```text\n{}\n```\n",
         kind,
         title,
         chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+        diff_artifact_path
+            .as_ref()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "none".to_string()),
         body.trim()
     );
     std::fs::write(&path, content)
         .with_context(|| format!("Failed to write review artifact: {}", path.display()))?;
     Ok(path)
+}
+
+fn capture_diff_artifact(working_dir: &Path, diff_path: &Path) -> Result<PathBuf> {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(working_dir)
+        .args(["diff", "--stat"])
+        .output()
+        .with_context(|| format!("Failed to run git diff in {}", working_dir.display()))?;
+    if !output.status.success() {
+        anyhow::bail!("git diff --stat failed");
+    }
+    let diff = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if diff.is_empty() {
+        anyhow::bail!("empty diff");
+    }
+    std::fs::write(diff_path, diff)
+        .with_context(|| format!("Failed to write diff artifact: {}", diff_path.display()))?;
+    Ok(diff_path.to_path_buf())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,7 +138,7 @@ fn is_structured_finding_line(line: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{persist_review_status, review_findings_count};
+    use super::{persist_review_artifact, persist_review_status, review_findings_count};
 
     #[test]
     fn review_findings_count_detects_clean_output() {
@@ -151,5 +176,43 @@ mod tests {
             serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
         assert_eq!(snapshot.status, "findings");
         assert_eq!(snapshot.findings_count, 1);
+    }
+
+    #[test]
+    fn persist_review_artifact_writes_diff_backlink_when_git_diff_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        std::process::Command::new("git")
+            .arg("init")
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        std::fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
+        std::process::Command::new("git")
+            .args(["add", "a.txt"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["commit", "-m", "baseline"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        std::fs::write(dir.path().join("a.txt"), "hello\nworld\n").unwrap();
+
+        let artifact = persist_review_artifact(dir.path(), "review", "changes", "No issues found.")
+            .unwrap();
+        let content = std::fs::read_to_string(&artifact).unwrap();
+        assert!(content.contains("Diff Artifact: "));
+        assert!(content.contains(".diff.txt"));
     }
 }
