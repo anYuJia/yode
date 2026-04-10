@@ -365,6 +365,9 @@ fn render_transcript_picker(dir: &Path) -> String {
             if meta.has_summary { "yes" } else { "no" },
             path.display()
         ));
+        if let Some(preview) = transcript_picker_summary_preview(&path) {
+            output.push_str(&format!("      preview: {}\n", preview));
+        }
     }
     output.push_str("\nUse /memory <index> to open one, or /memory compare <a> <b> to diff two.");
     output
@@ -1134,6 +1137,16 @@ fn extract_summary_preview(content: &str) -> Option<String> {
     }
 }
 
+fn transcript_picker_summary_preview(path: &Path) -> Option<String> {
+    let content = fs::read_to_string(path).ok()?;
+    let preview = extract_summary_preview(&content)?;
+    if preview.chars().count() <= 100 {
+        Some(preview)
+    } else {
+        Some(format!("{}...", preview.chars().take(100).collect::<String>()))
+    }
+}
+
 fn parse_transcript_date(timestamp: &str) -> Option<NaiveDate> {
     NaiveDateTime::parse_from_str(timestamp, "%Y-%m-%d %H:%M:%S")
         .ok()
@@ -1625,7 +1638,7 @@ mod tests {
         render_transcript_list, resolve_compare_target, resolve_transcript_target,
         run_long_session_benchmark, truncate_for_display, warm_resume_transcript_caches,
         CompareArgs, CompareOptions, TranscriptListFilter, TranscriptMode,
-        MAX_DISPLAY_CHARS,
+        MAX_DISPLAY_CHARS, render_transcript_picker,
     };
     use crate::commands::CommandOutput;
 
@@ -1740,6 +1753,25 @@ mod tests {
         let listing = render_transcript_list(&dir, &TranscriptListFilter::default());
         assert!(listing.contains("  1. "));
         assert!(listing.contains("  2. "));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn transcript_picker_includes_folded_summary_preview() {
+        let dir = std::env::temp_dir().join(format!(
+            "yode-memory-picker-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("aaa-compact-20240101.md"),
+            "# Compaction Transcript\n\n- Mode: auto\n- Timestamp: 2026-01-01 10:00:00\n\n## Summary Anchor\n\n```text\nThis is a long summary preview for picker rendering.\n```\n",
+        )
+        .unwrap();
+
+        let picker = render_transcript_picker(&dir);
+        assert!(picker.contains("preview: This is a long summary preview"));
 
         std::fs::remove_dir_all(&dir).ok();
     }
