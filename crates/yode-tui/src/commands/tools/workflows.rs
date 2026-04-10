@@ -19,9 +19,10 @@ impl WorkflowsCommand {
                     ArgDef {
                         name: "action".into(),
                         required: false,
-                        hint: "[run|show|init <name>]".into(),
+                        hint: "[run|run-write|show|init <name>]".into(),
                         completions: ArgCompletionSource::Static(vec![
                             "run".to_string(),
+                            "run-write".to_string(),
                             "show".to_string(),
                             "init".to_string(),
                         ]),
@@ -52,7 +53,8 @@ impl Command for WorkflowsCommand {
         let parts = args.split_whitespace().collect::<Vec<_>>();
         if let ["run", name] = parts.as_slice() {
             let name = if *name == "latest" {
-                latest_workflow_name(&dir).ok_or_else(|| "No workflow scripts found.".to_string())?
+                latest_workflow_name(&dir)
+                    .ok_or_else(|| "No workflow scripts found.".to_string())?
             } else {
                 (*name).to_string()
             };
@@ -65,9 +67,26 @@ impl Command for WorkflowsCommand {
                 name
             )));
         }
+        if let ["run-write", name] = parts.as_slice() {
+            let name = if *name == "latest" {
+                latest_workflow_name(&dir)
+                    .ok_or_else(|| "No workflow scripts found.".to_string())?
+            } else {
+                (*name).to_string()
+            };
+            ctx.input.set_text(&format!(
+                "Use `workflow_run_with_writes` with name=\"{}\". Explain why this workflow needs mutating tools, then summarize every file or git-side effect clearly.",
+                name
+            ));
+            return Ok(CommandOutput::Message(format!(
+                "Loaded a write-enabled workflow prompt for '{}'.",
+                name
+            )));
+        }
         if let ["show", name] = parts.as_slice() {
             let name = if *name == "latest" {
-                latest_workflow_name(&dir).ok_or_else(|| "No workflow scripts found.".to_string())?
+                latest_workflow_name(&dir)
+                    .ok_or_else(|| "No workflow scripts found.".to_string())?
             } else {
                 (*name).to_string()
             };
@@ -109,7 +128,7 @@ impl Command for WorkflowsCommand {
                 ));
             }
             output.push_str(
-                "\nUse `/workflows run <name>` to load a workflow_run prompt, or call `workflow_run` with dry_run=true.",
+                "\nUse `/workflows run <name>` for safe workflows, `/workflows run-write <name>` for confirmed write-capable workflows, or call `workflow_run` with dry_run=true.",
             );
             return Ok(CommandOutput::Message(output));
         }
@@ -153,7 +172,9 @@ impl Command for WorkflowsCommand {
                         .get("name")
                         .and_then(|value| value.as_str())
                         .unwrap_or_else(|| {
-                            path.file_stem().and_then(|value| value.to_str()).unwrap_or("workflow")
+                            path.file_stem()
+                                .and_then(|value| value.to_str())
+                                .unwrap_or("workflow")
                         });
                     let description = json
                         .get("description")
@@ -165,7 +186,7 @@ impl Command for WorkflowsCommand {
             output.push_str(&format!("  - {} ({})\n", label, path.display()));
         }
         output.push_str(
-            "\nUse `/workflows run <name>` to load a workflow_run prompt, or call the `workflow_run` tool directly.",
+            "\nUse `/workflows run <name>` for safe workflows or `/workflows run-write <name>` for confirmed write-capable workflows.",
         );
         Ok(CommandOutput::Message(output))
     }

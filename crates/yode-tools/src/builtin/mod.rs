@@ -114,6 +114,7 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     registry.register(Arc::new(common::REPLTool));
     registry.register(Arc::new(coordinator::CoordinateAgentsTool));
     registry.register(Arc::new(workflow::WorkflowRunTool));
+    registry.register(Arc::new(workflow::WorkflowRunWithWritesTool));
 }
 
 /// Register the skill tool with the given skill store.

@@ -19,13 +19,13 @@
 - minimal coordinator-style multi-agent delegation
 - unified diagnostics overview
 - transcript compare guardrails
+- workflow write-capable approval flow
 
 ## Remaining gap candidates
 
 - richer background bash progress streaming
 - interactive transcript picker / folding UI beyond command output
 - review-agent automation in CICD / commit flow
-- workflow write-capable approval flow
 - richer coordinator orchestration and dependency management
 - deeper prompt-cache-aware context telemetry
 - startup-time artifact indexing benchmarks in CI
@@ -36,5 +36,5 @@
 下一轮优先级应放在：
 
 1. review-agent automation and CI integration
-2. workflow scripts beyond read-only safe mode
-3. richer coordinator orchestration and task dependency handling
+2. richer coordinator orchestration and task dependency handling
+3. deeper prompt-cache-aware context telemetry
