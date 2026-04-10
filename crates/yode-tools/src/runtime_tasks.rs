@@ -38,7 +38,28 @@ pub struct RuntimeTask {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeTaskNotification {
     pub task_id: String,
+    pub severity: RuntimeTaskNotificationSeverity,
     pub message: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeTaskNotificationSeverity {
+    Info,
+    Success,
+    Warning,
+    Error,
+}
+
+impl RuntimeTaskNotificationSeverity {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Info => "info",
+            Self::Success => "success",
+            Self::Warning => "warning",
+            Self::Error => "error",
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -150,6 +171,7 @@ impl RuntimeTaskStore {
             task.completed_at = Some(now_string());
             self.notifications.push(RuntimeTaskNotification {
                 task_id: id.to_string(),
+                severity: RuntimeTaskNotificationSeverity::Success,
                 message: format!("Task {} completed: {}", id, task.description),
             });
         }
@@ -164,6 +186,7 @@ impl RuntimeTaskStore {
             task.error = Some(error.clone());
             self.notifications.push(RuntimeTaskNotification {
                 task_id: id.to_string(),
+                severity: RuntimeTaskNotificationSeverity::Error,
                 message: format!("Task {} failed: {}", id, error),
             });
         }
@@ -177,6 +200,7 @@ impl RuntimeTaskStore {
             task.completed_at = Some(now_string());
             self.notifications.push(RuntimeTaskNotification {
                 task_id: id.to_string(),
+                severity: RuntimeTaskNotificationSeverity::Warning,
                 message: format!("Task {} cancelled.", id),
             });
         }
@@ -246,7 +270,9 @@ fn retention_from_env(value: Option<&str>) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{retention_from_env, RuntimeTaskStatus, RuntimeTaskStore};
+    use super::{
+        retention_from_env, RuntimeTaskNotificationSeverity, RuntimeTaskStatus, RuntimeTaskStore,
+    };
 
     #[test]
     fn runtime_task_store_tracks_lifecycle_and_notifications() {
@@ -272,6 +298,7 @@ mod tests {
 
         let notifications = store.drain_notifications();
         assert_eq!(notifications.len(), 1);
+        assert_eq!(notifications[0].severity, RuntimeTaskNotificationSeverity::Success);
         assert!(notifications[0].message.contains("completed"));
     }
 

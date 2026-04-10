@@ -859,7 +859,11 @@ async fn run_app(
             for notification in engine_guard.drain_runtime_task_notifications() {
                 app.chat_entries.push(ChatEntry::new(
                     ChatRole::System,
-                    format!("[Task] {}", notification.message),
+                    format!(
+                        "[Task:{}] {}",
+                        notification.severity.label(),
+                        notification.message
+                    ),
                 ));
             }
             if app.last_task_brief_time.elapsed() >= Duration::from_secs(45) {
