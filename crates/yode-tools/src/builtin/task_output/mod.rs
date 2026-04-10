@@ -149,9 +149,13 @@ impl Tool for TaskOutputTool {
             select_task_output_lines(&task.kind, &lines, start, limit, explicit_offset);
         let mut output = String::new();
         output.push_str(&format!(
-            "Task {} [{} / {}]\nDescription: {}\nOutput path: {}\n\n",
+            "Task {} [{} / {}]\nDescription: {}\nOutput path: {}\n",
             task.id, task.kind, format!("{:?}", task.status), task.description, task.output_path
         ));
+        if let Some(transcript_path) = &task.transcript_path {
+            output.push_str(&format!("Transcript: {}\n", transcript_path));
+        }
+        output.push('\n');
         if !task.progress_history.is_empty() {
             output.push_str("Recent progress:\n");
             for progress in &task.progress_history {
@@ -178,6 +182,7 @@ impl Tool for TaskOutputTool {
                 "attempt": task.attempt,
                 "retry_of": task.retry_of,
                 "output_path": task.output_path,
+                "transcript_path": task.transcript_path,
                 "last_progress": task.last_progress,
                 "last_progress_at": task.last_progress_at,
                 "progress_history": task.progress_history,
@@ -317,6 +322,42 @@ mod tests {
         assert!(!result.is_error);
         assert!(result.content.contains("line2"));
         assert_eq!(result.metadata.unwrap()["follow_timed_out"], false);
+    }
+
+    #[tokio::test]
+    async fn includes_transcript_backlink_in_output_and_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("task.log");
+        tokio::fs::write(&output, "line1\n").await.unwrap();
+
+        let store = Arc::new(Mutex::new(RuntimeTaskStore::new()));
+        let task_id = {
+            let mut guard = store.lock().await;
+            let (task, _cancel_rx) = guard.create_with_transcript(
+                "agent".to_string(),
+                "agent".to_string(),
+                "demo task".to_string(),
+                output.display().to_string(),
+                Some("/tmp/transcript.md".to_string()),
+            );
+            guard.mark_completed(&task.id);
+            task.id
+        };
+
+        let mut ctx = ToolContext::empty();
+        ctx.runtime_tasks = Some(store);
+
+        let tool = TaskOutputTool;
+        let result = tool
+            .execute(json!({ "task_id": task_id }), &ctx)
+            .await
+            .unwrap();
+        assert!(!result.is_error);
+        assert!(result.content.contains("Transcript: /tmp/transcript.md"));
+        assert_eq!(
+            result.metadata.as_ref().unwrap()["transcript_path"],
+            "/tmp/transcript.md"
+        );
     }
 
     #[test]

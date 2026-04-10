@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `052 MCP auth status in /mcp`
+- `031 prompt-cache telemetry per turn`
 
 当前进度：
 
-- `56 / 100` 已完成
+- `57 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -69,7 +69,7 @@
 - `[x] 027 /tasks tail follow mode`
 - `[x] 028 notification severity classes for tasks`
 - `[x] 029 background sub-agent output folding`
-- `[ ] 030 task-to-transcript backlinks`
+- `[x] 030 task-to-transcript backlinks`
 
 ## 031-040 Context / Prompt Cache / Memory
 

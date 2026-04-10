@@ -19,7 +19,9 @@ use yode_llm::types::{
     ToolDefinition as LlmToolDefinition,
 };
 use yode_tools::registry::ToolRegistry;
-use yode_tools::runtime_tasks::{RuntimeTask, RuntimeTaskNotification, RuntimeTaskStore};
+use yode_tools::runtime_tasks::{
+    latest_transcript_artifact_path, RuntimeTask, RuntimeTaskNotification, RuntimeTaskStore,
+};
 use yode_tools::state::TaskStore;
 use yode_tools::tool::{
     SubAgentOptions, SubAgentRunner, ToolContext, ToolErrorType, ToolResult, UserQuery,
@@ -6316,13 +6318,16 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                 tokio::fs::create_dir_all(&tasks_dir).await?;
                 let output_path = tasks_dir.join(format!("agent-{}.log", uuid::Uuid::new_v4()));
                 let output_path_str = output_path.display().to_string();
+                let transcript_path =
+                    latest_transcript_artifact_path(&self.context.working_dir_compat());
                 let (task, mut cancel_rx) = {
                     let mut store = self.runtime_tasks.lock().await;
-                    store.create(
+                    store.create_with_transcript(
                         "agent".to_string(),
                         "agent".to_string(),
                         options.description.clone(),
                         output_path_str.clone(),
+                        transcript_path,
                     )
                 };
 

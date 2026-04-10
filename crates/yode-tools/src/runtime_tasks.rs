@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
@@ -26,6 +27,8 @@ pub struct RuntimeTask {
     pub attempt: u32,
     pub retry_of: Option<String>,
     pub output_path: String,
+    #[serde(default)]
+    pub transcript_path: Option<String>,
     pub created_at: String,
     pub started_at: Option<String>,
     pub completed_at: Option<String>,
@@ -87,6 +90,17 @@ impl RuntimeTaskStore {
         description: String,
         output_path: String,
     ) -> (RuntimeTask, watch::Receiver<bool>) {
+        self.create_with_transcript(kind, source_tool, description, output_path, None)
+    }
+
+    pub fn create_with_transcript(
+        &mut self,
+        kind: String,
+        source_tool: String,
+        description: String,
+        output_path: String,
+        transcript_path: Option<String>,
+    ) -> (RuntimeTask, watch::Receiver<bool>) {
         let retry_parent = self
             .tasks
             .values()
@@ -116,6 +130,7 @@ impl RuntimeTaskStore {
                 .unwrap_or(1),
             retry_of: retry_parent.as_ref().map(|task| task.id.clone()),
             output_path,
+            transcript_path,
             created_at: now_string(),
             started_at: None,
             completed_at: None,
@@ -257,6 +272,35 @@ fn now_string() -> String {
     chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
 }
 
+pub fn latest_transcript_artifact_path(project_root: &Path) -> Option<String> {
+    let dir = project_root.join(".yode").join("transcripts");
+    let mut entries = std::fs::read_dir(&dir)
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("md"))
+        .collect::<Vec<_>>();
+    entries.sort_by(|a, b| transcript_sort_key(b).cmp(&transcript_sort_key(a)));
+    entries
+        .into_iter()
+        .next()
+        .map(|path| path.display().to_string())
+}
+
+fn transcript_sort_key(path: &Path) -> (Option<String>, String) {
+    let timestamp = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .and_then(|stem| stem.rsplit_once("-compact-").map(|(_, timestamp)| timestamp))
+        .map(str::to_string);
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default()
+        .to_string();
+    (timestamp, file_name)
+}
+
 fn max_completed_task_retention() -> usize {
     retention_from_env(std::env::var("YODE_MAX_COMPLETED_RUNTIME_TASKS").ok().as_deref())
 }
@@ -271,7 +315,8 @@ fn retention_from_env(value: Option<&str>) -> usize {
 #[cfg(test)]
 mod tests {
     use super::{
-        retention_from_env, RuntimeTaskNotificationSeverity, RuntimeTaskStatus, RuntimeTaskStore,
+        latest_transcript_artifact_path, retention_from_env, RuntimeTaskNotificationSeverity,
+        RuntimeTaskStatus, RuntimeTaskStore,
     };
 
     #[test]
@@ -346,6 +391,38 @@ mod tests {
 
         assert_eq!(retry.attempt, 2);
         assert_eq!(retry.retry_of.as_deref(), Some(first.id.as_str()));
+    }
+
+    #[test]
+    fn runtime_task_store_keeps_transcript_backlink() {
+        let mut store = RuntimeTaskStore::new();
+        let (task, _cancel_rx) = store.create_with_transcript(
+            "agent".to_string(),
+            "agent".to_string(),
+            "background review".to_string(),
+            "/tmp/task.log".to_string(),
+            Some("/tmp/transcript.md".to_string()),
+        );
+
+        let snapshot = store.get(&task.id).unwrap();
+        assert_eq!(
+            snapshot.transcript_path.as_deref(),
+            Some("/tmp/transcript.md")
+        );
+    }
+
+    #[test]
+    fn latest_transcript_artifact_prefers_newest_compaction_timestamp() {
+        let dir = tempfile::tempdir().unwrap();
+        let transcript_dir = dir.path().join(".yode").join("transcripts");
+        std::fs::create_dir_all(&transcript_dir).unwrap();
+        let older = transcript_dir.join("zzzzzzzz-compact-20260101-100000.md");
+        let newer = transcript_dir.join("aaaaaaaa-compact-20260102-090000.md");
+        std::fs::write(&older, "# older").unwrap();
+        std::fs::write(&newer, "# newer").unwrap();
+
+        let latest = latest_transcript_artifact_path(dir.path()).unwrap();
+        assert_eq!(latest, newer.display().to_string());
     }
 
     #[test]

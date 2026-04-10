@@ -147,9 +147,10 @@ impl Command for TasksCommand {
                 let preview_start = lines.len().saturating_sub(40);
                 let preview = lines[preview_start..].join("\n");
                 Ok(CommandOutput::Message(format!(
-                    "Task output {}\nPath: {}\nShowing lines {}-{} of {}\n\n{}",
+                    "Task output {}\nPath: {}\nTranscript: {}\nShowing lines {}-{} of {}\n\n{}",
                     task.id,
                     task.output_path,
+                    task.transcript_path.as_deref().unwrap_or("none"),
                     preview_start + 1,
                     lines.len(),
                     lines.len(),
@@ -233,7 +234,7 @@ fn render_task_detail(engine: &yode_core::engine::AgentEngine, id: &str) -> Comm
             .join("\n")
     };
     Ok(CommandOutput::Message(format!(
-        "Task {}:\n  Kind:        {}\n  Source tool: {}\n  Status:      {:?}\n  Description: {}\n  Attempt:     {}{}\n  Created:     {}\n  Started:     {}\n  Completed:   {}\n  Progress:    {}\n  Progress at: {}\n  Error:       {}\n  Output:      {}\n  Recent progress:\n{}\n\n  Output preview:\n{}\n\nUse `/tasks read {}` for the full tail.",
+        "Task {}:\n  Kind:        {}\n  Source tool: {}\n  Status:      {:?}\n  Description: {}\n  Attempt:     {}{}\n  Created:     {}\n  Started:     {}\n  Completed:   {}\n  Progress:    {}\n  Progress at: {}\n  Error:       {}\n  Output:      {}\n  Transcript:  {}\n  Recent progress:\n{}\n\n  Output preview:\n{}\n\nUse `/tasks read {}` for the full tail.",
         task.id,
         task.kind,
         task.source_tool,
@@ -252,6 +253,7 @@ fn render_task_detail(engine: &yode_core::engine::AgentEngine, id: &str) -> Comm
         task.last_progress_at.as_deref().unwrap_or("none"),
         task.error.as_deref().unwrap_or("none"),
         task.output_path,
+        task.transcript_path.as_deref().unwrap_or("none"),
         progress_history,
         output_preview,
         task.id,
@@ -306,6 +308,7 @@ mod tests {
             attempt: 1,
             retry_of: None,
             output_path: "/tmp/task.log".to_string(),
+            transcript_path: Some("/tmp/transcript.md".to_string()),
             created_at: "2026-01-01 00:00:00".to_string(),
             started_at: Some("2026-01-01 00:00:01".to_string()),
             completed_at: None,

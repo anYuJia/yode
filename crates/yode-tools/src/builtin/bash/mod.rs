@@ -370,17 +370,20 @@ impl BashTool {
         tokio::fs::create_dir_all(&tasks_dir).await?;
         let output_path = tasks_dir.join(format!("bash-{}.log", Uuid::new_v4()));
         let output_path_str = output_path.display().to_string();
+        let transcript_path =
+            crate::runtime_tasks::latest_transcript_artifact_path(working_dir);
         let description = format!(
             "Background bash: {}",
             command.chars().take(60).collect::<String>()
         );
         let (task, mut cancel_rx) = {
             let mut store = runtime_tasks.lock().await;
-            store.create(
+            store.create_with_transcript(
                 "bash".to_string(),
                 "bash".to_string(),
                 description,
                 output_path_str.clone(),
+                transcript_path.clone(),
             )
         };
 
@@ -510,6 +513,7 @@ impl BashTool {
                 "task_id": task.id,
                 "task_kind": "bash",
                 "output_path": output_path_str,
+                "transcript_path": transcript_path,
                 "run_in_background": true,
             }),
         ))
