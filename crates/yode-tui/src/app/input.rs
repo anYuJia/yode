@@ -21,6 +21,7 @@ pub struct InputAttachment {
     pub name: String,
     pub content: String,
     pub line_count: usize,
+    pub char_count: usize,
 }
 
 impl InputState {
@@ -90,7 +91,7 @@ impl InputState {
     /// Get the display text for a pill/attachment at the given index.
     pub fn pill_display_text(&self, index: usize) -> String {
         if let Some(att) = self.attachments.get(index) {
-            format!("[{} +{} lines]", att.name, att.line_count)
+            format!("[{} · {}L · {}C]", att.name, att.line_count, att.char_count)
         } else {
             "[paste]".to_string()
         }
@@ -115,12 +116,14 @@ impl InputState {
         // Normalize line endings: \r\n → \n, bare \r → \n
         let normalized = content.replace("\r\n", "\n").replace('\r', "\n");
         let line_count = count_lines(&normalized);
+        let char_count = normalized.chars().count();
         let id = self.attachments.len() + 1;
         self.attachments.push(InputAttachment {
             id,
             name: format!("Pasted text #{}", id),
             content: normalized,
             line_count,
+            char_count,
         });
         // Insert placeholder at cursor
         self.insert_char(PLACEHOLDER);
@@ -399,4 +402,18 @@ pub fn count_lines(text: &str) -> usize {
 /// Should this pasted text be folded into a pill attachment?
 pub fn should_fold_paste(text: &str) -> bool {
     count_lines(text) > 2 || text.len() > 200
+}
+
+#[cfg(test)]
+mod tests {
+    use super::InputState;
+
+    #[test]
+    fn attachment_pill_includes_line_and_char_counts() {
+        let mut input = InputState::new();
+        input.insert_attachment("alpha\nbeta".to_string());
+        let pill = input.pill_display_text(0);
+        assert!(pill.contains("2L"));
+        assert!(pill.contains("10C"));
+    }
 }

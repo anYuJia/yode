@@ -86,11 +86,22 @@ impl CommandRegistry {
                     continue;
                 }
                 let name_lower = meta.name.to_lowercase();
-
-                // Score 0: exact prefix
-                if name_lower.starts_with(&prefix_lower) {
+                if name_lower == prefix_lower {
                     scored_results.push((
                         0,
+                        CommandSuggestion {
+                            name: meta.name.to_string(),
+                            description: meta.description.to_string(),
+                            is_alias: false,
+                        },
+                    ));
+                    continue;
+                }
+
+                // Score 1: prefix
+                if name_lower.starts_with(&prefix_lower) {
+                    scored_results.push((
+                        1,
                         CommandSuggestion {
                             name: meta.name.to_string(),
                             description: meta.description.to_string(),
@@ -103,9 +114,22 @@ impl CommandRegistry {
                 // Score 1: alias prefix
                 let mut alias_matched = false;
                 for alias in meta.aliases {
-                    if alias.to_lowercase().starts_with(&prefix_lower) {
+                    let alias_lower = alias.to_lowercase();
+                    if alias_lower == prefix_lower {
                         scored_results.push((
-                            1,
+                            2,
+                            CommandSuggestion {
+                                name: alias.to_string(),
+                                description: meta.description.to_string(),
+                                is_alias: true,
+                            },
+                        ));
+                        alias_matched = true;
+                        break;
+                    }
+                    if alias_lower.starts_with(&prefix_lower) {
+                        scored_results.push((
+                            3,
                             CommandSuggestion {
                                 name: alias.to_string(),
                                 description: meta.description.to_string(),
@@ -120,10 +144,23 @@ impl CommandRegistry {
                     continue;
                 }
 
-                // Score 2: substring
+                // Score 4: segment-start substring
+                if is_boundary_match(&name_lower, &prefix_lower) {
+                    scored_results.push((
+                        4,
+                        CommandSuggestion {
+                            name: meta.name.to_string(),
+                            description: meta.description.to_string(),
+                            is_alias: false,
+                        },
+                    ));
+                    continue;
+                }
+
+                // Score 5: substring
                 if name_lower.contains(&prefix_lower) {
                     scored_results.push((
-                        2,
+                        5,
                         CommandSuggestion {
                             name: meta.name.to_string(),
                             description: meta.description.to_string(),
@@ -138,7 +175,7 @@ impl CommandRegistry {
                     let dist = levenshtein(&prefix_lower, &name_lower);
                     if dist <= 2 {
                         scored_results.push((
-                            3 + dist,
+                            6 + dist,
                             CommandSuggestion {
                                 name: meta.name.to_string(),
                                 description: meta.description.to_string(),
@@ -256,6 +293,22 @@ fn levenshtein(a: &str, b: &str) -> usize {
     dp[a.len()][b.len()]
 }
 
+fn is_boundary_match(name: &str, needle: &str) -> bool {
+    if needle.is_empty() {
+        return false;
+    }
+    name.match_indices(needle).any(|(index, _)| {
+        index == 0
+            || matches!(
+                name.as_bytes()
+                    .get(index.saturating_sub(1))
+                    .copied()
+                    .map(char::from),
+                Some('-' | '_' | '/')
+            )
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -357,6 +410,32 @@ mod tests {
         let results = reg.complete_command("pac");
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].name, "compact");
+    }
+
+    #[test]
+    fn test_complete_command_exact_match_beats_prefix_neighbor() {
+        let mut reg = CommandRegistry::new();
+        reg.register(Box::new(DummyCommand::new(
+            "review",
+            "Review changes",
+            &["rev"],
+            CommandCategory::Development,
+        )));
+        reg.register(Box::new(DummyCommand::new(
+            "reviews",
+            "Review artifacts",
+            &[],
+            CommandCategory::Development,
+        )));
+
+        let results = reg.complete_command("review");
+        assert_eq!(results[0].name, "review");
+    }
+
+    #[test]
+    fn test_boundary_match_prefers_segment_start() {
+        assert!(is_boundary_match("theme-pack", "pack"));
+        assert!(!is_boundary_match("themepack", "pack"));
     }
 
     #[test]

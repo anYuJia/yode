@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `067 history search preview polish`
+- `070 theme / branding parity polish`
 
 当前进度：
 
-- `78 / 100` 已完成
+- `81 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -118,9 +118,9 @@
 - `[x] 064 coordinator phase timeline widget`
 - `[x] 065 narrow-width status bar compaction`
 - `[x] 066 task badge compression for mobile-width terminals`
-- `[ ] 067 history search preview polish`
-- `[ ] 068 command suggestion ranking tweaks`
-- `[ ] 069 attachment preview polish`
+- `[x] 067 history search preview polish`
+- `[x] 068 command suggestion ranking tweaks`
+- `[x] 069 attachment preview polish`
 - `[ ] 070 theme / branding parity polish`
 
 ## 071-080 Tool Runtime / Diagnostics

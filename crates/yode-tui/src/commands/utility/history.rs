@@ -74,9 +74,11 @@ impl Command for HistoryCommand {
                 let mut found = 0;
                 for (idx, entry) in entries.iter().enumerate().rev() {
                     if entry.to_lowercase().contains(&needle) {
-                        let preview: String = entry.chars().take(100).collect();
-                        let ellipsis = if entry.len() > 100 { "..." } else { "" };
-                        lines.push_str(&format!("  {:>3}. {}{}\n", idx + 1, preview, ellipsis));
+                        lines.push_str(&format!(
+                            "  {:>3}. {}\n",
+                            idx + 1,
+                            history_preview(entry, Some(&needle), 110)
+                        ));
                         found += 1;
                         if found >= 12 {
                             break;
@@ -95,13 +97,10 @@ impl Command for HistoryCommand {
                 let start = entries.len().saturating_sub(count);
                 let mut lines = String::from("History picker:\n");
                 for (i, entry) in entries[start..].iter().enumerate() {
-                    let preview: String = entry.chars().take(100).collect();
-                    let ellipsis = if entry.len() > 100 { "..." } else { "" };
                     lines.push_str(&format!(
-                        "  {:>3}. {}{}\n",
+                        "  {:>3}. {}\n",
                         start + i + 1,
-                        preview,
-                        ellipsis
+                        history_preview(entry, None, 100)
                     ));
                 }
                 lines.push_str("\nUse /history use <index> to load one into the input box.\n");
@@ -112,13 +111,10 @@ impl Command for HistoryCommand {
                 let start = entries.len().saturating_sub(count);
                 let mut lines = String::from("Recent input history:\n");
                 for (i, entry) in entries[start..].iter().enumerate() {
-                    let preview: String = entry.chars().take(80).collect();
-                    let ellipsis = if entry.len() > 80 { "..." } else { "" };
                     lines.push_str(&format!(
-                        "  {:>3}. {}{}\n",
+                        "  {:>3}. {}\n",
                         start + i + 1,
-                        preview,
-                        ellipsis
+                        history_preview(entry, None, 80)
                     ));
                 }
                 lines.push_str("\nUse /history pick, /history search <text>, or /history use <index>.\n");
@@ -126,5 +122,53 @@ impl Command for HistoryCommand {
             }
             _ => Err("Usage: /history [count|pick|use <index>|search <text>]".to_string()),
         }
+    }
+}
+
+fn history_preview(entry: &str, query: Option<&str>, max_chars: usize) -> String {
+    let squashed = entry.split_whitespace().collect::<Vec<_>>().join(" ");
+    let query = query.filter(|query| !query.is_empty());
+    let preview = if let Some(query) = query {
+        let lower = squashed.to_lowercase();
+        if let Some(match_index) = lower.find(query) {
+            let char_positions = squashed.char_indices().map(|(idx, _)| idx).collect::<Vec<_>>();
+            let start_char = lower[..match_index].chars().count().saturating_sub(max_chars / 3);
+            let end_char = (lower[..match_index].chars().count()
+                + query.chars().count()
+                + max_chars / 2)
+                .min(squashed.chars().count());
+            let start = *char_positions.get(start_char).unwrap_or(&0);
+            let end = char_positions
+                .get(end_char)
+                .copied()
+                .unwrap_or_else(|| squashed.len());
+            let snippet = squashed[start..end].to_string();
+            let prefix = if start > 0 { "..." } else { "" };
+            let suffix = if end < squashed.len() { "..." } else { "" };
+            format!("{}{}{}", prefix, snippet, suffix)
+        } else {
+            squashed
+        }
+    } else {
+        squashed
+    };
+
+    if preview.chars().count() <= max_chars {
+        preview
+    } else {
+        format!("{}...", preview.chars().take(max_chars).collect::<String>())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::history_preview;
+
+    #[test]
+    fn history_preview_focuses_on_query_context() {
+        let entry = "first step second step compile failure third step final note";
+        let preview = history_preview(entry, Some("failure"), 30);
+        assert!(preview.contains("failure"));
+        assert!(preview.starts_with("...") || preview.contains("compile"));
     }
 }
