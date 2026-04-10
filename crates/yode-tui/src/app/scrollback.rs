@@ -13,7 +13,7 @@ use super::rendering::{
     strip_ansi, truncate_line,
 };
 use super::{App, ChatEntry, ChatRole};
-use crate::ui;
+use crate::ui::chat_layout::render_header;
 
 /// Print lines to terminal scrollback.
 fn raw_print_lines(
@@ -119,7 +119,7 @@ pub(crate) fn format_duration(d: Duration) -> String {
 /// Print the welcome header into terminal stdout before starting TUI.
 pub(super) fn print_header_to_stdout(app: &App) -> Result<()> {
     let width = crossterm::terminal::size()?.0 as usize;
-    let header_lines = ui::chat::render_header(app, width);
+    let header_lines = render_header(app, width);
 
     let mut stdout = io::stdout();
     stdout.execute(Clear(ClearType::CurrentLine))?;

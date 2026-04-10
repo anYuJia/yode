@@ -1,5 +1,6 @@
 pub mod chat;
 mod chat_entries;
+pub(crate) mod chat_layout;
 mod chat_markdown;
 pub mod input;
 pub mod status_bar;
