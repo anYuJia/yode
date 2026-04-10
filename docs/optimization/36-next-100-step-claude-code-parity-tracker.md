@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `074 file-edit fallback explanation improvements`
+- `080 diagnostics export bundle`
 
 当前进度：
 
-- `85 / 100` 已完成
+- `86 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -128,7 +128,7 @@
 - `[x] 071 recent tool failure cluster detection`
 - `[x] 072 richer tool output preview formatting`
 - `[x] 073 diff preview line-budget telemetry`
-- `[ ] 074 file-edit fallback explanation improvements`
+- `[x] 074 file-edit fallback explanation improvements`
 - `[ ] 075 read-file history introspection`
 - `[ ] 076 command vs tool duplication diagnostics`
 - `[ ] 077 parallel tool batch artifacts`

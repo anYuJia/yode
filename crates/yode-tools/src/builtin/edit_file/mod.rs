@@ -97,7 +97,11 @@ Usage:
                     format!("File '{}' has not been read yet. You must use 'read_file' at least once in the conversation before editing.", file_path),
                     crate::tool::ToolErrorType::Validation,
                     true,
-                    Some(format!("Call read_file(file_path=\"{}\") first.", file_path)),
+                    Some(format!(
+                        "Call read_file(file_path=\"{}\") first. If the file is large, use snip(file_path=\"{}\", start_line=..., end_line=...) to capture the exact section you plan to edit.",
+                        file_path,
+                        file_path
+                    )),
                 ));
             }
         }
@@ -136,7 +140,8 @@ Usage:
         if count == 0 {
             return Ok(ToolResult::error(format!(
                 "The exact string to replace was not found in '{}'. \
-                 Ensure you provided the EXACT text including indentation and quotes as seen in 'read_file' output.",
+                 Ensure you provided the EXACT text including indentation and quotes as seen in 'read_file' output. \
+                 Fallbacks: re-read the file, use snip on a narrower line range, or include more surrounding context in old_string.",
                 file_path
             )));
         }
@@ -144,7 +149,8 @@ Usage:
         if count > 1 && !replace_all {
             return Ok(ToolResult::error(format!(
                 "Found {} matches of the string to replace in '{}', but replace_all is false. \
-                 Please provide more context to uniquely identify the instance or set replace_all=true.",
+                 Please provide more context to uniquely identify the instance or set replace_all=true. \
+                 Fallbacks: extend old_string with neighboring lines, narrow the target with snip, or intentionally switch to replace_all=true for broad renames.",
                 count, file_path
             )));
         }
