@@ -571,9 +571,49 @@ impl BashTool {
             "generic"
         };
         metadata["command_type"] = json!(cmd_type);
+        let rewrite_suggestion = suggest_safe_rewrite(command, cmd_base);
+        if let Some(suggestion) = rewrite_suggestion.as_deref() {
+            metadata["rewrite_suggestion"] = json!(suggestion);
+        }
 
-        Ok(ToolResult::success_with_metadata(combined, metadata))
+        Ok(ToolResult {
+            content: combined,
+            is_error: false,
+            error_type: None,
+            recoverable: false,
+            suggestion: rewrite_suggestion,
+            metadata: Some(metadata),
+        })
     }
+}
+
+fn suggest_safe_rewrite(command: &str, cmd_base: &str) -> Option<String> {
+    if ["grep", "rg", "find", "ag", "ack"].contains(&cmd_base) {
+        return Some(
+            "Prefer `grep` or `glob` tools for search work so results stay structured and reviewable."
+                .to_string(),
+        );
+    }
+    if ["cat", "head", "tail", "less", "more"].contains(&cmd_base) {
+        return Some(
+            "Prefer `read_file` for file reads so the agent keeps precise file context."
+                .to_string(),
+        );
+    }
+    if ["sed", "awk"].contains(&cmd_base) {
+        return Some(
+            "Prefer `edit_file` for text edits so replacements are validated and diff-aware."
+                .to_string(),
+        );
+    }
+    if ["echo", "printf"].contains(&cmd_base) && (command.contains(" >") || command.contains(" >>"))
+    {
+        return Some(
+            "Prefer `write_file` for file creation/overwrite instead of shell redirection."
+                .to_string(),
+        );
+    }
+    None
 }
 
 /// Check if the tail of output looks like the command is waiting for interactive input.
@@ -611,6 +651,23 @@ mod tests {
         ));
         assert!(!looks_like_interactive_prompt(""));
         assert!(!looks_like_interactive_prompt("  \n  \n"));
+    }
+
+    #[test]
+    fn test_suggest_safe_rewrite_detects_better_tool_paths() {
+        assert!(suggest_safe_rewrite("grep -R foo src", "grep")
+            .unwrap()
+            .contains("grep"));
+        assert!(suggest_safe_rewrite("cat Cargo.toml", "cat")
+            .unwrap()
+            .contains("read_file"));
+        assert!(suggest_safe_rewrite("sed -i '' 's/a/b/' file.txt", "sed")
+            .unwrap()
+            .contains("edit_file"));
+        assert!(suggest_safe_rewrite("echo hi > out.txt", "echo")
+            .unwrap()
+            .contains("write_file"));
+        assert!(suggest_safe_rewrite("git status", "git").is_none());
     }
 
     #[tokio::test]

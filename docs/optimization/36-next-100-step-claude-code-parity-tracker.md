@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `043 bash safe-rewrite suggestions`
+- `044 multi-step recovery breadcrumbs`
 
 当前进度：
 
-- `37 / 100` 已完成
+- `38 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -88,7 +88,7 @@
 
 - `[x] 041 permission explanation links to effective rule`
 - `[x] 042 deny history grouped by tool`
-- `[ ] 043 bash safe-rewrite suggestions`
+- `[x] 043 bash safe-rewrite suggestions`
 - `[ ] 044 multi-step recovery breadcrumbs`
 - `[ ] 045 recovery state artifact`
 - `[ ] 046 plan-mode blocked-tool suggestions`
