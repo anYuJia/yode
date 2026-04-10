@@ -5,9 +5,10 @@ use tokio::sync::{mpsc, Mutex};
 
 use yode_core::engine::{AgentEngine, ConfirmResponse, EngineEvent};
 
+use super::turn_flow::try_process_next;
 use super::{
-    find_case_insensitive, push_grouped_system_entry, strip_internal_tags, try_process_next, App,
-    ChatEntry, ChatRole, PendingConfirmation, PermissionMode, TurnStatus, TAG_RE,
+    find_case_insensitive, push_grouped_system_entry, strip_internal_tags, App, ChatEntry,
+    ChatRole, PendingConfirmation, PermissionMode, TurnStatus, TAG_RE,
 };
 
 pub(super) fn handle_engine_event(

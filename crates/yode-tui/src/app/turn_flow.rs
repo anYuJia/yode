@@ -13,9 +13,9 @@ use tracing::error;
 use yode_core::engine::{AgentEngine, EngineEvent};
 use yode_tools::registry::ToolRegistry;
 
+use super::scrollback::print_header_to_stdout;
 use super::{
-    print_header_to_stdout, reload_provider_from_config, App, ChatEntry, ChatRole, PermissionMode,
-    TurnStatus,
+    reload_provider_from_config, App, ChatEntry, ChatRole, PermissionMode, TurnStatus,
 };
 
 pub(super) fn handle_enter(
