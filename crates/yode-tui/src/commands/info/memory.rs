@@ -13,6 +13,8 @@ use crate::commands::{
 
 const MAX_DISPLAY_CHARS: usize = 12_000;
 const MAX_COMPARE_CONTENT_CHARS: usize = 200_000;
+const TRANSCRIPT_PREVIEW_MESSAGE_HEAD_LINES: usize = 18;
+const TRANSCRIPT_PREVIEW_TAIL_LINES: usize = 12;
 
 static TRANSCRIPT_META_CACHE: LazyLock<Mutex<HashMap<PathBuf, (u64, TranscriptMetadata)>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -126,7 +128,7 @@ impl Command for MemoryCommand {
             target => {
                 let transcript = resolve_transcript_target(&transcripts_dir, target)
                     .ok_or_else(|| format!("Unknown memory target: {}", target))?;
-                render_file("Transcript", &transcript)
+                render_transcript_file(&transcript)
             }
         }
     }
@@ -226,6 +228,16 @@ fn render_file(label: &str, path: &Path) -> CommandResult {
     )))
 }
 
+fn render_transcript_file(path: &Path) -> CommandResult {
+    let content =
+        fs::read_to_string(path).map_err(|_| format!("Transcript not found: {}", path.display()))?;
+    Ok(CommandOutput::Message(format!(
+        "Transcript\nPath: {}\n\n{}",
+        path.display(),
+        fold_transcript_preview(&content)
+    )))
+}
+
 fn render_memory_file(label: &str, path: &Path) -> CommandResult {
     let content =
         fs::read_to_string(path).map_err(|_| format!("{} not found: {}", label, path.display()))?;
@@ -281,7 +293,7 @@ fn render_latest_transcript(path: &Path) -> CommandResult {
     let meta = read_transcript_metadata(path).unwrap_or_default();
     let preview =
         extract_summary_preview(&content).unwrap_or_else(|| "No summary anchor".to_string());
-    let truncated = truncate_for_display(&content);
+    let truncated = fold_transcript_preview(&content);
     Ok(CommandOutput::Message(format!(
         "Latest transcript\nPath: {}\nMode: {}\nTimestamp: {}\nRemoved: {}\nTruncated: {}\nFailed tool results: {}\nSession memory path: {}\nFiles read: {}\nFiles modified: {}\nSummary preview: {}\n\n{}",
         path.display(),
@@ -836,6 +848,51 @@ fn truncate_for_display(content: &str) -> String {
     let budget = MAX_DISPLAY_CHARS.saturating_sub(notice.chars().count() + 2);
     let truncated = content.chars().take(budget).collect::<String>();
     format!("{}\n\n{}", truncated, notice)
+}
+
+fn fold_transcript_preview(content: &str) -> String {
+    let lines = content.lines().collect::<Vec<_>>();
+    let Some(messages_idx) = lines.iter().position(|line| *line == "## Messages") else {
+        return truncate_for_display(content);
+    };
+
+    if content.chars().count() <= MAX_DISPLAY_CHARS
+        && lines.len()
+            <= messages_idx + TRANSCRIPT_PREVIEW_MESSAGE_HEAD_LINES + TRANSCRIPT_PREVIEW_TAIL_LINES
+    {
+        return content.to_string();
+    }
+
+    let tail_start = lines
+        .len()
+        .saturating_sub(TRANSCRIPT_PREVIEW_TAIL_LINES)
+        .max(messages_idx + 1);
+    let message_preview_end =
+        (messages_idx + TRANSCRIPT_PREVIEW_MESSAGE_HEAD_LINES).min(tail_start);
+
+    let mut output = String::new();
+    let pre_messages = lines[..messages_idx].join("\n");
+    if !pre_messages.trim().is_empty() {
+        output.push_str(pre_messages.trim_end());
+        output.push_str("\n\n");
+    }
+
+    output.push_str("## Messages Preview\n\n");
+    output.push_str(&lines[messages_idx..message_preview_end].join("\n"));
+
+    if tail_start > message_preview_end {
+        output.push_str(&format!(
+            "\n\n... [transcript preview folded: {} middle lines omitted] ...\n\n",
+            tail_start - message_preview_end
+        ));
+        output.push_str(&lines[tail_start..].join("\n"));
+    }
+
+    if output.chars().count() > MAX_DISPLAY_CHARS {
+        truncate_for_display(&output)
+    } else {
+        output
+    }
 }
 
 fn file_cache_stamp(path: &Path) -> Option<u64> {
@@ -1404,11 +1461,12 @@ mod tests {
 
     use super::{
         build_transcript_compare_output, extract_summary_preview, filtered_transcript_entries,
-        latest_transcript, memory_entry_age, parse_compare_args, parse_date_range_filter,
-        parse_latest_compare_target, parse_list_filter, parse_memory_document,
-        read_transcript_metadata, render_memory_file, render_transcript_list,
-        resolve_compare_target, resolve_transcript_target, truncate_for_display, CompareArgs,
-        CompareOptions, TranscriptListFilter, TranscriptMode, MAX_DISPLAY_CHARS,
+        fold_transcript_preview, latest_transcript, memory_entry_age, parse_compare_args,
+        parse_date_range_filter, parse_latest_compare_target, parse_list_filter,
+        parse_memory_document, read_transcript_metadata, render_memory_file,
+        render_transcript_list, resolve_compare_target, resolve_transcript_target,
+        truncate_for_display, CompareArgs, CompareOptions, TranscriptListFilter,
+        TranscriptMode, MAX_DISPLAY_CHARS,
     };
     use crate::commands::CommandOutput;
 
@@ -1432,6 +1490,22 @@ mod tests {
         let truncated = truncate_for_display(&text);
         assert!(truncated.contains("Truncated for display"));
         assert!(truncated.len() < text.len());
+    }
+
+    #[test]
+    fn fold_transcript_preview_preserves_summary_and_folds_messages() {
+        let mut content = String::from(
+            "# Compaction Transcript\n\n- Mode: auto\n- Timestamp: 2026-01-01 10:00:00\n\n## Summary Anchor\n\n```text\nsummary line\n```\n\n## Messages\n",
+        );
+        for i in 0..80 {
+            content.push_str(&format!("### Message {}\n\n```text\nline {}\n```\n\n", i, i));
+        }
+
+        let folded = fold_transcript_preview(&content);
+        assert!(folded.contains("## Summary Anchor"));
+        assert!(folded.contains("## Messages Preview"));
+        assert!(folded.contains("transcript preview folded"));
+        assert!(folded.contains("Message 79"));
     }
 
     #[test]

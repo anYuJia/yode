@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `037 transcript artifact preview folding`
+- `039 resume-time cache warmup stats`
 
 当前进度：
 
-- `61 / 100` 已完成
+- `62 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -79,7 +79,7 @@
 - `[x] 034 compaction cause histogram`
 - `[x] 035 memory freshness score in status`
 - `[x] 036 live memory pending-update indicator`
-- `[ ] 037 transcript artifact preview folding`
+- `[x] 037 transcript artifact preview folding`
 - `[x] 038 context breaker mitigation hints`
 - `[ ] 039 resume-time cache warmup stats`
 - `[ ] 040 long-session benchmark command`
