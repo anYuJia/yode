@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `045 recovery state artifact`
+- `046 plan-mode blocked-tool suggestions`
 
 当前进度：
 
-- `43 / 100` 已完成
+- `45 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -89,8 +89,8 @@
 - `[x] 041 permission explanation links to effective rule`
 - `[x] 042 deny history grouped by tool`
 - `[x] 043 bash safe-rewrite suggestions`
-- `[ ] 044 multi-step recovery breadcrumbs`
-- `[ ] 045 recovery state artifact`
+- `[x] 044 multi-step recovery breadcrumbs`
+- `[x] 045 recovery state artifact`
 - `[ ] 046 plan-mode blocked-tool suggestions`
 - `[ ] 047 dangerous command rationale improvements`
 - `[ ] 048 permission hook snapshot export`

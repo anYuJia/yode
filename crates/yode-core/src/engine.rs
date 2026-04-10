@@ -372,6 +372,8 @@ pub struct EngineRuntimeState {
     pub recovery_reanchor_count: u32,
     pub recovery_need_user_guidance_count: u32,
     pub last_failed_signature: Option<String>,
+    pub recovery_breadcrumbs: Vec<String>,
+    pub last_recovery_artifact_path: Option<String>,
     pub last_permission_tool: Option<String>,
     pub last_permission_action: Option<String>,
     pub last_permission_explanation: Option<String>,
@@ -588,6 +590,8 @@ pub struct AgentEngine {
     recovery_single_step_count: u32,
     recovery_reanchor_count: u32,
     recovery_need_user_guidance_count: u32,
+    recovery_breadcrumbs: Vec<String>,
+    last_recovery_artifact_path: Option<String>,
     /// Most recent permission decision explanation surfaced to diagnostics.
     last_permission_tool: Option<String>,
     last_permission_action: Option<String>,
@@ -809,6 +813,19 @@ impl AgentEngine {
         };
 
         if next_state != self.recovery_state {
+            let breadcrumb = format!(
+                "{}: {:?} -> {:?} (consecutive_failures={}, last_signature={})",
+                Self::now_timestamp(),
+                self.recovery_state,
+                next_state,
+                self.consecutive_failures,
+                self.last_failed_signature.as_deref().unwrap_or("none")
+            );
+            self.recovery_breadcrumbs.push(breadcrumb);
+            if self.recovery_breadcrumbs.len() > 8 {
+                let extra = self.recovery_breadcrumbs.len() - 8;
+                self.recovery_breadcrumbs.drain(0..extra);
+            }
             match next_state {
                 RecoveryState::SingleStepMode => {
                     self.recovery_single_step_count =
@@ -825,6 +842,40 @@ impl AgentEngine {
             }
         };
         self.recovery_state = next_state;
+        self.write_recovery_artifact();
+    }
+
+    fn write_recovery_artifact(&mut self) {
+        let dir = self.context.working_dir_compat().join(".yode").join("recovery");
+        if std::fs::create_dir_all(&dir).is_err() {
+            return;
+        }
+        let path = dir.join("latest-recovery.md");
+        let breadcrumbs = if self.recovery_breadcrumbs.is_empty() {
+            "- none".to_string()
+        } else {
+            self.recovery_breadcrumbs
+                .iter()
+                .map(|line| format!("- {}", line))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        let body = format!(
+            "# Recovery State\n\n- State: {:?}\n- Updated At: {}\n- Consecutive failures: {}\n- Single-step count: {}\n- Reanchor count: {}\n- Need-guidance count: {}\n- Last failed signature: {}\n- Last permission tool: {}\n- Last permission action: {}\n\n## Breadcrumbs\n\n{}\n",
+            self.recovery_state,
+            Self::now_timestamp(),
+            self.consecutive_failures,
+            self.recovery_single_step_count,
+            self.recovery_reanchor_count,
+            self.recovery_need_user_guidance_count,
+            self.last_failed_signature.as_deref().unwrap_or("none"),
+            self.last_permission_tool.as_deref().unwrap_or("none"),
+            self.last_permission_action.as_deref().unwrap_or("none"),
+            breadcrumbs
+        );
+        if std::fs::write(&path, body).is_ok() {
+            self.last_recovery_artifact_path = Some(path.display().to_string());
+        }
     }
 
     fn language_command_mismatch(
@@ -930,6 +981,8 @@ impl AgentEngine {
             recovery_single_step_count: 0,
             recovery_reanchor_count: 0,
             recovery_need_user_guidance_count: 0,
+            recovery_breadcrumbs: Vec::new(),
+            last_recovery_artifact_path: None,
             last_permission_tool: None,
             last_permission_action: None,
             last_permission_explanation: None,
@@ -1193,6 +1246,8 @@ impl AgentEngine {
             recovery_reanchor_count: self.recovery_reanchor_count,
             recovery_need_user_guidance_count: self.recovery_need_user_guidance_count,
             last_failed_signature: self.last_failed_signature.clone(),
+            recovery_breadcrumbs: self.recovery_breadcrumbs.clone(),
+            last_recovery_artifact_path: self.last_recovery_artifact_path.clone(),
             last_permission_tool: self.last_permission_tool.clone(),
             last_permission_action: self.last_permission_action.clone(),
             last_permission_explanation: self.last_permission_explanation.clone(),
@@ -5612,6 +5667,23 @@ mod tests {
             Some("compression made no changes")
         );
         assert!(matches!(rx.try_recv(), Ok(EngineEvent::Error(_))));
+    }
+
+    #[test]
+    fn test_recovery_artifact_written_on_state_transition() {
+        let mut engine = make_engine(vec![], vec![]);
+        engine.last_failed_signature = Some("bash:{\"command\":\"cargo test\"}".to_string());
+        engine.error_buckets.insert(ToolErrorType::Validation, 2);
+        engine.update_recovery_state();
+
+        assert_eq!(engine.recovery_state, RecoveryState::SingleStepMode);
+        let artifact = engine
+            .last_recovery_artifact_path
+            .as_ref()
+            .expect("recovery artifact should exist");
+        let content = std::fs::read_to_string(artifact).unwrap();
+        assert!(content.contains("SingleStepMode"));
+        assert!(content.contains("Breadcrumbs"));
     }
 
     #[tokio::test]
