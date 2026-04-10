@@ -538,7 +538,10 @@ impl PermissionManager {
             }
             return PermissionExplanation {
                 action: PermissionAction::Deny,
-                reason: "Plan mode blocks mutating tools.".to_string(),
+                reason: format!(
+                    "Plan mode blocks mutating tools. {}",
+                    plan_mode_alternative_hint(tool_name)
+                ),
                 mode: self.mode,
                 classifier_risk: None,
                 matched_rule: None,
@@ -756,6 +759,27 @@ impl PermissionManager {
         tools.sort();
         tools.dedup();
         tools
+    }
+}
+
+fn plan_mode_alternative_hint(tool_name: &str) -> &'static str {
+    match tool_name {
+        "write_file" | "edit_file" | "multi_edit" | "notebook_edit" => {
+            "Use read_file / grep / project_map first to refine the plan before making edits."
+        }
+        "bash" => {
+            "Use grep / glob / git_status / git_diff / project_map to gather evidence before mutating shell commands."
+        }
+        "git_commit" | "review_then_commit" | "review_pipeline" => {
+            "Finish planning first, then exit plan mode before commit or review/ship pipelines."
+        }
+        "workflow_run_with_writes" => {
+            "Use workflow_run dry-run or safe mode while planning; reserve write-capable workflows for execution mode."
+        }
+        "agent" | "coordinate_agents" => {
+            "Prefer dry-run planning or read-only exploration until the execution plan is approved."
+        }
+        _ => "Switch to a read-only discovery step or exit plan mode before executing mutations.",
     }
 }
 
@@ -1020,6 +1044,14 @@ mod tests {
         let pm = PermissionManager::permissive();
         assert_eq!(pm.check("bash"), PermissionAction::Allow);
         assert_eq!(pm.check("anything"), PermissionAction::Allow);
+    }
+
+    #[test]
+    fn test_plan_mode_explanation_includes_alternative_hint() {
+        let pm = PermissionManager::new(PermissionMode::Plan);
+        let explanation = pm.explain_with_content("bash", None);
+        assert_eq!(explanation.action, PermissionAction::Deny);
+        assert!(explanation.reason.contains("grep / glob / git_status"));
     }
 
     #[test]

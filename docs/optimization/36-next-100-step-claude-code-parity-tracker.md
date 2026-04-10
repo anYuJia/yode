@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `046 plan-mode blocked-tool suggestions`
+- `047 dangerous command rationale improvements`
 
 当前进度：
 
-- `45 / 100` 已完成
+- `46 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -91,7 +91,7 @@
 - `[x] 043 bash safe-rewrite suggestions`
 - `[x] 044 multi-step recovery breadcrumbs`
 - `[x] 045 recovery state artifact`
-- `[ ] 046 plan-mode blocked-tool suggestions`
+- `[x] 046 plan-mode blocked-tool suggestions`
 - `[ ] 047 dangerous command rationale improvements`
 - `[ ] 048 permission hook snapshot export`
 - `[x] 049 workflow write-mode confirmation summary`
