@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `055 remote env setup verification command`
+- `056 remote review prerequisite diagnostics`
 
 当前进度：
 
-- `67 / 100` 已完成
+- `68 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -103,7 +103,7 @@
 - `[x] 052 MCP auth status in /mcp`
 - `[x] 053 MCP resource cache stats`
 - `[x] 054 MCP tool latency telemetry`
-- `[ ] 055 remote env setup verification command`
+- `[x] 055 remote env setup verification command`
 - `[ ] 056 remote review prerequisite diagnostics`
 - `[ ] 057 MCP reconnect backoff diagnostics`
 - `[x] 058 multi-server tool source badges`

@@ -1,5 +1,8 @@
 use crate::commands::context::CommandContext;
-use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
+use crate::commands::{
+    ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
+    CommandResult,
+};
 use yode_core::updater::{latest_local_release_tag, release_version_matches_tag, CURRENT_VERSION};
 
 pub struct DoctorCommand {
@@ -13,7 +16,12 @@ impl DoctorCommand {
                 name: "doctor",
                 description: "Run environment health check",
                 aliases: &[],
-                args: vec![],
+                args: vec![ArgDef {
+                    name: "target".to_string(),
+                    required: false,
+                    hint: "[remote]".to_string(),
+                    completions: ArgCompletionSource::Static(vec!["remote".to_string()]),
+                }],
                 category: CommandCategory::Info,
                 hidden: false,
             },
@@ -26,7 +34,11 @@ impl Command for DoctorCommand {
         &self.meta
     }
 
-    fn execute(&self, _args: &str, ctx: &mut CommandContext) -> CommandResult {
+    fn execute(&self, args: &str, ctx: &mut CommandContext) -> CommandResult {
+        if args.trim() == "remote" {
+            return Ok(CommandOutput::Message(render_remote_env_check(ctx)));
+        }
+
         let mut checks = Vec::new();
         let runtime = ctx
             .engine
@@ -282,5 +294,102 @@ impl Command for DoctorCommand {
             env!("CARGO_PKG_VERSION"),
             &ctx.session.session_id[..8],
         )))
+    }
+}
+
+fn render_remote_env_check(ctx: &mut CommandContext) -> String {
+    let project_root = std::path::PathBuf::from(&ctx.session.working_dir);
+    let mut checks = Vec::new();
+
+    checks.push(format!("  [ok] Working dir: {}", project_root.display()));
+    checks.push(format!(
+        "  [{}] SSH context: {}",
+        if ctx.terminal_caps.in_ssh { "ok" } else { "--" },
+        ssh_context_label(
+            std::env::var("SSH_TTY").ok().as_deref(),
+            std::env::var("SSH_CONNECTION").ok().as_deref(),
+        )
+    ));
+
+    for (command, version_arg) in [("ssh", "-V"), ("git", "--version"), ("sh", "--version")] {
+        if command_available(command, version_arg) {
+            checks.push(format!("  [ok] {} available", command));
+        } else {
+            checks.push(format!("  [!!] {} not found in PATH", command));
+        }
+    }
+    checks.push(if command_available("rsync", "--version") {
+        "  [ok] rsync available".to_string()
+    } else {
+        "  [--] rsync not found (optional; scp/tar fallback may still work)".to_string()
+    });
+
+    let origin = std::process::Command::new("git")
+        .args(["remote", "get-url", "origin"])
+        .current_dir(&project_root)
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+        .filter(|value| !value.is_empty());
+    checks.push(match origin {
+        Some(origin) => format!("  [ok] Git origin remote: {}", origin),
+        None => "  [--] Git origin remote not configured".to_string(),
+    });
+
+    let remote_dir = project_root.join(".yode").join("remote");
+    match std::fs::create_dir_all(&remote_dir).and_then(|_| {
+        let probe = remote_dir.join(".remote-env-check");
+        std::fs::write(&probe, b"ok")?;
+        std::fs::remove_file(probe)?;
+        Ok(())
+    }) {
+        Ok(()) => checks.push(format!(
+            "  [ok] Remote artifact dir writable: {}",
+            remote_dir.display()
+        )),
+        Err(err) => checks.push(format!(
+            "  [!!] Remote artifact dir not writable: {} ({})",
+            remote_dir.display(),
+            err
+        )),
+    }
+
+    match std::env::current_exe() {
+        Ok(path) => checks.push(format!("  [ok] Current yode executable: {}", path.display())),
+        Err(err) => checks.push(format!("  [!!] Could not resolve current executable: {}", err)),
+    }
+
+    format!(
+        "Remote Environment Verification:\n\n{}\n\nNext steps:\n  Use this before launching remote review/worktree flows.\n  Fix [!!] items before relying on remote execution.",
+        checks.join("\n")
+    )
+}
+
+fn command_available(command: &str, version_arg: &str) -> bool {
+    std::process::Command::new(command)
+        .arg(version_arg)
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
+fn ssh_context_label(ssh_tty: Option<&str>, ssh_connection: Option<&str>) -> &'static str {
+    if ssh_tty.is_some() || ssh_connection.is_some() {
+        "ssh"
+    } else {
+        "local"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ssh_context_label;
+
+    #[test]
+    fn ssh_context_label_detects_remote_env() {
+        assert_eq!(ssh_context_label(Some("/dev/ttys001"), None), "ssh");
+        assert_eq!(ssh_context_label(None, Some("client server 22")), "ssh");
+        assert_eq!(ssh_context_label(None, None), "local");
     }
 }
