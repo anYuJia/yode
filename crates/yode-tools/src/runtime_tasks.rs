@@ -23,6 +23,8 @@ pub struct RuntimeTask {
     pub source_tool: String,
     pub description: String,
     pub status: RuntimeTaskStatus,
+    pub attempt: u32,
+    pub retry_of: Option<String>,
     pub output_path: String,
     pub created_at: String,
     pub started_at: Option<String>,
@@ -64,6 +66,20 @@ impl RuntimeTaskStore {
         description: String,
         output_path: String,
     ) -> (RuntimeTask, watch::Receiver<bool>) {
+        let retry_parent = self
+            .tasks
+            .values()
+            .filter(|task| {
+                task.kind == kind
+                    && task.source_tool == source_tool
+                    && task.description == description
+                    && matches!(
+                        task.status,
+                        RuntimeTaskStatus::Failed | RuntimeTaskStatus::Cancelled
+                    )
+            })
+            .max_by_key(|task| task.id.clone())
+            .cloned();
         let id = format!("task-{}", self.next_id);
         self.next_id += 1;
         let (cancel_tx, cancel_rx) = watch::channel(false);
@@ -73,6 +89,11 @@ impl RuntimeTaskStore {
             source_tool,
             description,
             status: RuntimeTaskStatus::Pending,
+            attempt: retry_parent
+                .as_ref()
+                .map(|task| task.attempt.saturating_add(1))
+                .unwrap_or(1),
+            retry_of: retry_parent.as_ref().map(|task| task.id.clone()),
             output_path,
             created_at: now_string(),
             started_at: None,
@@ -244,6 +265,7 @@ mod tests {
 
         let snapshot = store.get(&task.id).unwrap();
         assert_eq!(snapshot.status, RuntimeTaskStatus::Completed);
+        assert_eq!(snapshot.attempt, 1);
         assert_eq!(snapshot.last_progress.as_deref(), Some("running"));
         assert!(snapshot.last_progress_at.is_some());
         assert_eq!(snapshot.progress_history, vec!["running".to_string()]);
@@ -275,6 +297,28 @@ mod tests {
         assert_eq!(snapshot.progress_history.len(), 8);
         assert_eq!(snapshot.progress_history.first().map(String::as_str), Some("line 4"));
         assert_eq!(snapshot.progress_history.last().map(String::as_str), Some("line 11"));
+    }
+
+    #[test]
+    fn runtime_task_store_tracks_retry_lineage() {
+        let mut store = RuntimeTaskStore::new();
+        let (first, _cancel_rx) = store.create(
+            "bash".to_string(),
+            "bash".to_string(),
+            "background build".to_string(),
+            "/tmp/task-1.log".to_string(),
+        );
+        store.mark_failed(&first.id, "boom".to_string());
+
+        let (retry, _cancel_rx) = store.create(
+            "bash".to_string(),
+            "bash".to_string(),
+            "background build".to_string(),
+            "/tmp/task-2.log".to_string(),
+        );
+
+        assert_eq!(retry.attempt, 2);
+        assert_eq!(retry.retry_of.as_deref(), Some(first.id.as_str()));
     }
 
     #[test]

@@ -137,6 +137,8 @@ impl Tool for TaskOutputTool {
                 "task_id": task.id,
                 "task_kind": task.kind,
                 "task_status": format!("{:?}", task.status),
+                "attempt": task.attempt,
+                "retry_of": task.retry_of,
                 "output_path": task.output_path,
                 "last_progress": task.last_progress,
                 "last_progress_at": task.last_progress_at,

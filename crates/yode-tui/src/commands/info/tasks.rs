@@ -170,7 +170,7 @@ fn render_task_list(tasks: Vec<yode_tools::RuntimeTask>) -> CommandResult {
     let mut lines = vec![format!("Runtime tasks ({}):", tasks.len())];
     for task in tasks {
         lines.push(format!(
-            "  {} [{}:{}] {}{}",
+            "  {} [{}:{}] {}{}{}",
             task.id,
             task.kind,
             match task.status {
@@ -181,6 +181,11 @@ fn render_task_list(tasks: Vec<yode_tools::RuntimeTask>) -> CommandResult {
                 yode_tools::RuntimeTaskStatus::Cancelled => "cancelled",
             },
             task.description,
+            if task.attempt > 1 {
+                format!(" (attempt {}, retry of {})", task.attempt, task.retry_of.as_deref().unwrap_or("unknown"))
+            } else {
+                String::new()
+            },
             task.last_progress
                 .as_ref()
                 .map(|progress| format!(" — {}", progress))
@@ -212,12 +217,18 @@ fn render_task_detail(engine: &yode_core::engine::AgentEngine, id: &str) -> Comm
             .join("\n")
     };
     Ok(CommandOutput::Message(format!(
-        "Task {}:\n  Kind:        {}\n  Source tool: {}\n  Status:      {:?}\n  Description: {}\n  Created:     {}\n  Started:     {}\n  Completed:   {}\n  Progress:    {}\n  Progress at: {}\n  Error:       {}\n  Output:      {}\n  Recent progress:\n{}\n\n  Output preview:\n{}\n\nUse `/tasks read {}` for the full tail.",
+        "Task {}:\n  Kind:        {}\n  Source tool: {}\n  Status:      {:?}\n  Description: {}\n  Attempt:     {}{}\n  Created:     {}\n  Started:     {}\n  Completed:   {}\n  Progress:    {}\n  Progress at: {}\n  Error:       {}\n  Output:      {}\n  Recent progress:\n{}\n\n  Output preview:\n{}\n\nUse `/tasks read {}` for the full tail.",
         task.id,
         task.kind,
         task.source_tool,
         task.status,
         task.description,
+        task.attempt,
+        task
+            .retry_of
+            .as_ref()
+            .map(|id| format!(" (retry of {})", id))
+            .unwrap_or_default(),
         task.created_at,
         task.started_at.as_deref().unwrap_or("none"),
         task.completed_at.as_deref().unwrap_or("none"),
@@ -276,6 +287,8 @@ mod tests {
             source_tool: "bash".to_string(),
             description: "demo".to_string(),
             status: yode_tools::RuntimeTaskStatus::Running,
+            attempt: 1,
+            retry_of: None,
             output_path: "/tmp/task.log".to_string(),
             created_at: "2026-01-01 00:00:00".to_string(),
             started_at: Some("2026-01-01 00:00:01".to_string()),
