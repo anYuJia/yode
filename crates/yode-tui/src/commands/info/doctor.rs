@@ -19,8 +19,11 @@ impl DoctorCommand {
                 args: vec![ArgDef {
                     name: "target".to_string(),
                     required: false,
-                    hint: "[remote]".to_string(),
-                    completions: ArgCompletionSource::Static(vec!["remote".to_string()]),
+                    hint: "[remote|remote-review]".to_string(),
+                    completions: ArgCompletionSource::Static(vec![
+                        "remote".to_string(),
+                        "remote-review".to_string(),
+                    ]),
                 }],
                 category: CommandCategory::Info,
                 hidden: false,
@@ -37,6 +40,9 @@ impl Command for DoctorCommand {
     fn execute(&self, args: &str, ctx: &mut CommandContext) -> CommandResult {
         if args.trim() == "remote" {
             return Ok(CommandOutput::Message(render_remote_env_check(ctx)));
+        }
+        if args.trim() == "remote-review" {
+            return Ok(CommandOutput::Message(render_remote_review_prereqs(ctx)));
         }
 
         let mut checks = Vec::new();
@@ -362,6 +368,90 @@ fn render_remote_env_check(ctx: &mut CommandContext) -> String {
 
     format!(
         "Remote Environment Verification:\n\n{}\n\nNext steps:\n  Use this before launching remote review/worktree flows.\n  Fix [!!] items before relying on remote execution.",
+        checks.join("\n")
+    )
+}
+
+fn render_remote_review_prereqs(ctx: &mut CommandContext) -> String {
+    let project_root = std::path::PathBuf::from(&ctx.session.working_dir);
+    let mut checks = Vec::new();
+
+    checks.push(format!(
+        "  [{}] Provider models available: {}",
+        if ctx.all_provider_models.is_empty() { "!!" } else { "ok" },
+        if ctx.all_provider_models.is_empty() {
+            "none".to_string()
+        } else {
+            ctx.all_provider_models
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ")
+        }
+    ));
+
+    checks.push(if project_root.join(".git").exists() {
+        format!("  [ok] Git repo detected: {}", project_root.display())
+    } else {
+        format!("  [!!] Not a git repo: {}", project_root.display())
+    });
+
+    let git_status = std::process::Command::new("git")
+        .args(["status", "--short"])
+        .current_dir(&project_root)
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string());
+    checks.push(match git_status {
+        Some(status) if status.is_empty() => "  [ok] Working tree clean".to_string(),
+        Some(status) => format!(
+            "  [--] Working tree has changes (remote review still possible): {}",
+            status.lines().take(3).collect::<Vec<_>>().join(" | ")
+        ),
+        None => "  [!!] Could not read git status".to_string(),
+    });
+
+    let review_dir = project_root.join(".yode").join("reviews");
+    match std::fs::create_dir_all(&review_dir).and_then(|_| {
+        let probe = review_dir.join(".remote-review-check");
+        std::fs::write(&probe, b"ok")?;
+        std::fs::remove_file(probe)?;
+        Ok(())
+    }) {
+        Ok(()) => checks.push(format!(
+            "  [ok] Review artifact dir writable: {}",
+            review_dir.display()
+        )),
+        Err(err) => checks.push(format!(
+            "  [!!] Review artifact dir not writable: {} ({})",
+            review_dir.display(),
+            err
+        )),
+    }
+
+    let tool_names = ctx
+        .tools
+        .definitions()
+        .into_iter()
+        .map(|def| def.name)
+        .collect::<std::collections::BTreeSet<_>>();
+    for tool_name in ["review_changes", "review_pipeline", "review_then_commit"] {
+        checks.push(if tool_names.contains(tool_name) {
+            format!("  [ok] {} tool registered", tool_name)
+        } else {
+            format!("  [!!] {} tool missing", tool_name)
+        });
+    }
+
+    checks.push(format!(
+        "  [{}] Terminal transport: {}",
+        if ctx.terminal_caps.in_ssh { "ok" } else { "--" },
+        if ctx.terminal_caps.in_ssh { "ssh" } else { "local" }
+    ));
+
+    format!(
+        "Remote Review Prerequisites:\n\n{}\n\nNext steps:\n  Use `/doctor remote` for base transport checks.\n  Fix [!!] items before relying on remote review automation.",
         checks.join("\n")
     )
 }
