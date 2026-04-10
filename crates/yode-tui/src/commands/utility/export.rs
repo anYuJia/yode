@@ -4,7 +4,10 @@ use std::path::PathBuf;
 
 use crate::app::ChatRole;
 use crate::commands::context::CommandContext;
-use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
+use crate::commands::{
+    ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
+    CommandResult,
+};
 
 pub struct ExportCommand {
     meta: CommandMeta,
@@ -15,9 +18,14 @@ impl ExportCommand {
         Self {
             meta: CommandMeta {
                 name: "export",
-                description: "Export conversation to a file",
+                description: "Export conversation or diagnostics bundle",
                 aliases: &[],
-                args: vec![],
+                args: vec![ArgDef {
+                    name: "target".to_string(),
+                    required: false,
+                    hint: "[file|diagnostics [name]]".to_string(),
+                    completions: ArgCompletionSource::Static(vec!["diagnostics".to_string()]),
+                }],
                 category: CommandCategory::Utility,
                 hidden: false,
             },
@@ -35,6 +43,10 @@ impl Command for ExportCommand {
             return Ok(CommandOutput::Message(
                 "No conversation to export.".to_string(),
             ));
+        }
+        let parts = args.split_whitespace().collect::<Vec<_>>();
+        if matches!(parts.as_slice(), ["diagnostics"] | ["diagnostics", ..]) {
+            return export_diagnostics_bundle(parts.get(1).copied(), ctx);
         }
 
         // Generate default filename from first user message or timestamp
@@ -141,6 +153,109 @@ fn render_conversation(ctx: &CommandContext) -> String {
     ));
 
     output
+}
+
+fn export_diagnostics_bundle(
+    custom_name: Option<&str>,
+    ctx: &mut CommandContext,
+) -> CommandResult {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let bundle_name = custom_name
+        .map(sanitize_filename)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| format!("diagnostics-{}", timestamp_filename()));
+    let bundle_dir = cwd.join(bundle_name);
+    std::fs::create_dir_all(&bundle_dir)
+        .map_err(|err| format!("Failed to create diagnostics bundle dir: {}", err))?;
+
+    let conversation_path = bundle_dir.join("conversation.txt");
+    std::fs::write(&conversation_path, render_conversation(ctx))
+        .map_err(|err| format!("Failed to write {}: {}", conversation_path.display(), err))?;
+
+    let diagnostics_path = bundle_dir.join("runtime-summary.txt");
+    let runtime = ctx
+        .engine
+        .try_lock()
+        .ok()
+        .map(|engine| engine.runtime_state());
+    let runtime_summary = if let Some(state) = runtime {
+        format!(
+            "Runtime summary\n  Query source: {}\n  Tool calls: {}\n  Tool progress: {}\n  Parallel batches: {}\n  Last tool artifact: {}\n  Last transcript: {}\n  Last compact summary: {}\n  Prompt cache turns: {}\n  System prompt est tokens: {}\n",
+            state.query_source,
+            state.session_tool_calls_total,
+            state.tool_progress_event_count,
+            state.parallel_tool_batch_count,
+            state.last_tool_turn_artifact_path.unwrap_or_else(|| "none".to_string()),
+            state.last_compaction_transcript_path.unwrap_or_else(|| "none".to_string()),
+            state.last_compaction_summary_excerpt.unwrap_or_else(|| "none".to_string()),
+            state.prompt_cache.reported_turns,
+            state.system_prompt_estimated_tokens,
+        )
+    } else {
+        "Runtime summary unavailable: engine busy.".to_string()
+    };
+    std::fs::write(&diagnostics_path, runtime_summary)
+        .map_err(|err| format!("Failed to write {}: {}", diagnostics_path.display(), err))?;
+
+    let mut copied = Vec::new();
+    for path in latest_artifact_candidates(ctx) {
+        if path.exists() {
+            let dest = bundle_dir.join(
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("artifact.txt"),
+            );
+            if std::fs::copy(&path, &dest).is_ok() {
+                copied.push(dest.display().to_string());
+            }
+        }
+    }
+
+    Ok(CommandOutput::Message(format!(
+        "Diagnostics bundle exported to: {}\n  Conversation: {}\n  Runtime: {}\n  Copied artifacts: {}",
+        bundle_dir.display(),
+        conversation_path.display(),
+        diagnostics_path.display(),
+        if copied.is_empty() {
+            "none".to_string()
+        } else {
+            copied.join(", ")
+        }
+    )))
+}
+
+fn latest_artifact_candidates(ctx: &mut CommandContext) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    if let Ok(engine) = ctx.engine.try_lock() {
+        let runtime = engine.runtime_state();
+        for maybe_path in [
+            runtime.last_tool_turn_artifact_path,
+            runtime.last_compaction_transcript_path,
+            runtime.last_compaction_session_memory_path,
+            runtime.last_recovery_artifact_path,
+            runtime.last_permission_artifact_path,
+        ] {
+            if let Some(path) = maybe_path {
+                paths.push(PathBuf::from(path));
+            }
+        }
+    }
+
+    let review_dir = PathBuf::from(&ctx.session.working_dir)
+        .join(".yode")
+        .join("reviews");
+    let mut reviews = std::fs::read_dir(&review_dir)
+        .ok()
+        .into_iter()
+        .flat_map(|entries| entries.filter_map(Result::ok))
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("md"))
+        .collect::<Vec<_>>();
+    reviews.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
+    if let Some(latest_review) = reviews.into_iter().next() {
+        paths.push(latest_review);
+    }
+    paths
 }
 
 /// Sanitize string for use as filename

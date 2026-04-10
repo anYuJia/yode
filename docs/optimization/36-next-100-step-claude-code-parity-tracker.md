@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `080 diagnostics export bundle`
+- `084 benchmark snapshots in CI`
 
 当前进度：
 
-- `86 / 100` 已完成
+- `87 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -134,7 +134,7 @@
 - `[ ] 077 parallel tool batch artifacts`
 - `[ ] 078 hook / tool combined timeline`
 - `[ ] 079 tool budget soft warnings in TUI`
-- `[ ] 080 diagnostics export bundle`
+- `[x] 080 diagnostics export bundle`
 
 ## 081-090 Release / CI / Performance
 
