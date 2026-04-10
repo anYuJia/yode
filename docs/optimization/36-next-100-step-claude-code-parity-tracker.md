@@ -30,7 +30,7 @@
 
 当前进度：
 
-- `50 / 100` 已完成
+- `54 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -153,10 +153,10 @@
 
 - `[x] 091 parity tracker weekly summary script`
 - `[ ] 092 architecture gap map refresh`
-- `[ ] 093 workflow authoring guide`
-- `[ ] 094 coordinator usage guide`
-- `[ ] 095 review pipeline cookbook`
-- `[ ] 096 task runtime troubleshooting guide`
+- `[x] 093 workflow authoring guide`
+- `[x] 094 coordinator usage guide`
+- `[x] 095 review pipeline cookbook`
+- `[x] 096 task runtime troubleshooting guide`
 - `[ ] 097 prompt-cache telemetry doc`
 - `[ ] 098 Claude Code parity changelog`
 - `[ ] 099 next-100 completion review`
