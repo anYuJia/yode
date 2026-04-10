@@ -409,6 +409,8 @@ pub struct EngineRuntimeState {
     pub tool_truncation_count: u32,
     pub last_tool_truncation_reason: Option<String>,
     pub latest_repeated_tool_failure: Option<String>,
+    pub read_file_history: Vec<String>,
+    pub command_tool_duplication_hints: Vec<String>,
     pub last_tool_turn_completed_at: Option<String>,
     pub last_tool_turn_artifact_path: Option<String>,
     pub tool_error_type_counts: BTreeMap<String, u32>,
@@ -1401,12 +1403,39 @@ impl AgentEngine {
             tool_truncation_count: self.tool_truncation_count,
             last_tool_truncation_reason: self.last_tool_truncation_reason.clone(),
             latest_repeated_tool_failure: self.latest_repeated_tool_failure.clone(),
+            read_file_history: self.read_file_history_preview(),
+            command_tool_duplication_hints: self.command_tool_duplication_hints(),
             last_tool_turn_completed_at: self.last_tool_turn_completed_at.clone(),
             last_tool_turn_artifact_path: self.last_tool_turn_artifact_path.clone(),
             tool_error_type_counts: self.tool_error_type_counts.clone(),
             tool_trace_scope,
             tool_traces,
         }
+    }
+
+    fn read_file_history_preview(&self) -> Vec<String> {
+        let mut entries = self
+            .files_read
+            .iter()
+            .map(|(path, lines)| format!("{} ({} lines)", path, lines))
+            .collect::<Vec<_>>();
+        entries.sort();
+        entries.into_iter().take(8).collect()
+    }
+
+    fn command_tool_duplication_hints(&self) -> Vec<String> {
+        self.last_tool_turn_traces
+            .iter()
+            .chain(self.current_tool_execution_traces.iter())
+            .filter(|trace| trace.tool_name == "bash")
+            .filter_map(|trace| {
+                let summary = trace.metadata_summary.as_deref()?;
+                summary
+                    .contains("rewrite_suggestion=")
+                    .then(|| summary.to_string())
+            })
+            .take(6)
+            .collect()
     }
 
     pub fn runtime_tasks_snapshot(&self) -> Vec<RuntimeTask> {
@@ -1661,6 +1690,7 @@ impl AgentEngine {
             "replacements",
             "applied_edits",
             "command_type",
+            "rewrite_suggestion",
             "url",
             "count",
         ] {

@@ -90,6 +90,21 @@ impl Command for ToolsCommand {
                 .join(", ")
         };
         let failure_clusters = failure_cluster_summary(&state.tool_traces);
+        let read_history = if state.read_file_history.is_empty() {
+            "none".to_string()
+        } else {
+            state.read_file_history.join(" | ")
+        };
+        let duplication_hints = if state.command_tool_duplication_hints.is_empty() {
+            "none".to_string()
+        } else {
+            state.command_tool_duplication_hints.join(" | ")
+        };
+        let hook_tool_timeline = format!(
+            "{} hook run(s) / {} recent tool call(s)",
+            state.hook_total_executions,
+            state.tool_traces.len()
+        );
 
         let mut traces = String::new();
         if state.tool_traces.is_empty() {
@@ -116,10 +131,14 @@ impl Command for ToolsCommand {
                     .unwrap_or(0);
                 let preview = tool_output_preview_line(trace.output_preview.as_str());
                 traces.push_str(&format!(
-                    "    - {} [{}] {}ms progress={} err={} trunc={} diff_lines={} diff={} out={}\n",
+                    "    - {} [{}] {}ms batch={} progress={} err={} trunc={} diff_lines={} diff={} out={}\n",
                     trace.tool_name,
                     status,
                     trace.duration_ms,
+                    trace
+                        .parallel_batch
+                        .map(|batch| batch.to_string())
+                        .unwrap_or_else(|| "-".to_string()),
                     trace.progress_updates,
                     error,
                     truncation,
@@ -131,7 +150,7 @@ impl Command for ToolsCommand {
         }
 
         Ok(CommandOutput::Message(format!(
-            "Tool diagnostics:\n  Registry tools:  {}\n  Session calls:    {}\n  Current turn:     {} calls / {} bytes / {} progress\n  Budget notices:   {} (warnings {})\n  Budget active:    notice={} warning={}\n  Parallel:         {} batches / {} calls (max {})\n  Truncations:      {} (last: {})\n  Error types:      {}\n  Failure clusters: {}\n  Repeat failures:  {}\n  Last progress:    {} / {}\n  Last progress at: {}\n  Last artifact:    {}\n  Last turn done:   {}\n{}\
+            "Tool diagnostics:\n  Registry tools:  {}\n  Session calls:    {}\n  Current turn:     {} calls / {} bytes / {} progress\n  Budget notices:   {} (warnings {})\n  Budget active:    notice={} warning={}\n  Parallel:         {} batches / {} calls (max {})\n  Read history:     {}\n  Duplication hints: {}\n  Hook/tool line:   {}\n  Truncations:      {} (last: {})\n  Error types:      {}\n  Failure clusters: {}\n  Repeat failures:  {}\n  Last progress:    {} / {}\n  Last progress at: {}\n  Last artifact:    {}\n  Last turn done:   {}\n{}\
 \nUse `/tools list` or `/tools verbose` to inspect the full registry.",
             ctx.tools.definitions().len(),
             state.session_tool_calls_total,
@@ -145,6 +164,9 @@ impl Command for ToolsCommand {
             state.parallel_tool_batch_count,
             state.parallel_tool_call_count,
             state.max_parallel_batch_size,
+            read_history,
+            duplication_hints,
+            hook_tool_timeline,
             state.tool_truncation_count,
             state
                 .last_tool_truncation_reason

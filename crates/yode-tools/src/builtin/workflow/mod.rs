@@ -192,18 +192,7 @@ async fn execute_workflow(
         .unwrap_or(false);
 
         if dry_run {
-            let write_steps = workflow
-                .steps
-                .iter()
-                .enumerate()
-                .filter(|(_, step)| is_write_capable_tool(&step.tool_name))
-                .map(|(index, step)| {
-                    json!({
-                        "index": index + 1,
-                        "tool": step.tool_name,
-                    })
-                })
-                .collect::<Vec<_>>();
+            let write_steps = workflow_write_checkpoints(&workflow.steps);
             let plan = workflow
                 .steps
                 .iter()
@@ -246,7 +235,7 @@ async fn execute_workflow(
         let caps = tool.capabilities();
         if is_workflow_tool(&step.tool_name) {
             return Ok(ToolResult::error(format!(
-                    "Workflow step {} recursively invokes '{}', which is blocked to avoid nested workflow execution.",
+                    "Workflow step {} recursively invokes '{}', which is blocked to avoid nested workflow execution. Recovery: run `/workflows show <nested-name>` separately, or inline the nested workflow steps into this workflow after reviewing them with `/workflows preview`.",
                     index + 1,
                     step.tool_name
                 )));
@@ -262,6 +251,16 @@ async fn execute_workflow(
         }
 
         let resolved_params = apply_variables(step.params.clone(), &variables);
+        if matches!(mode, WorkflowExecutionMode::ConfirmedWrites)
+            && is_write_capable_tool(&step.tool_name)
+        {
+            step_outputs.push(json!({
+                "index": index + 1,
+                "tool": step.tool_name,
+                "approval_checkpoint": true,
+                "checkpoint": format!("Mutating step {} ({}) runs under workflow_run_with_writes confirmation.", index + 1, step.tool_name),
+            }));
+        }
         let step_ctx = ToolContext {
             registry: ctx.registry.clone(),
             tasks: ctx.tasks.clone(),
@@ -317,9 +316,25 @@ async fn execute_workflow(
                         })
                     })
                     .collect::<Vec<_>>(),
+                "approval_checkpoints": workflow_write_checkpoints(&workflow.steps),
                 "results": step_outputs,
             }),
         ))
+}
+
+fn workflow_write_checkpoints(steps: &[WorkflowStep]) -> Vec<Value> {
+    steps
+        .iter()
+        .enumerate()
+        .filter(|(_, step)| is_write_capable_tool(&step.tool_name))
+        .map(|(index, step)| {
+            json!({
+                "index": index + 1,
+                "tool": step.tool_name,
+                "requires": "workflow_run_with_writes confirmation",
+            })
+        })
+        .collect()
 }
 
 fn workflow_mode_label(mode: WorkflowExecutionMode) -> &'static str {
@@ -467,6 +482,7 @@ mod tests {
         assert!(!result.is_error);
         assert!(result.content.contains("\"tool\": \"review_changes\""));
         assert!(result.content.contains("regressions"));
+        assert!(result.metadata.unwrap()["write_steps"].is_array());
     }
 
     #[test]
@@ -577,7 +593,9 @@ mod tests {
             tokio::fs::read_to_string(&output_path).await.unwrap(),
             "hello"
         );
-        assert_eq!(result.metadata.unwrap()["mode"], "confirmed_writes");
+        let metadata = result.metadata.unwrap();
+        assert_eq!(metadata["mode"], "confirmed_writes");
+        assert!(metadata["approval_checkpoints"].is_array());
     }
 
     #[tokio::test]
@@ -614,5 +632,6 @@ mod tests {
         assert!(result
             .content
             .contains("blocked to avoid nested workflow execution"));
+        assert!(result.content.contains("/workflows preview"));
     }
 }

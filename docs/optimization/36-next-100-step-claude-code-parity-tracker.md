@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `075 read-file history introspection`
+- `100 completed`
 
 当前进度：
 
-- `91 / 100` 已完成
+- `100 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -41,8 +41,8 @@
 - `[x] 005 coordinator failure diagnostics with blocked dependency detail`
 - `[x] 006 coordinator concurrency budget / phased parallelism`
 - `[x] 007 sub-agent result artifact backlinks`
-- `[ ] 008 workflow approval checkpoints for multi-step mutations`
-- `[ ] 009 workflow nested invocation guard UX`
+- `[x] 008 workflow approval checkpoints for multi-step mutations`
+- `[x] 009 workflow nested invocation guard UX`
 - `[x] 010 pipeline command presets for review / verify / ship`
 
 ## 011-020 Review / CI / Commit Flow
@@ -129,11 +129,11 @@
 - `[x] 072 richer tool output preview formatting`
 - `[x] 073 diff preview line-budget telemetry`
 - `[x] 074 file-edit fallback explanation improvements`
-- `[ ] 075 read-file history introspection`
-- `[ ] 076 command vs tool duplication diagnostics`
-- `[ ] 077 parallel tool batch artifacts`
-- `[ ] 078 hook / tool combined timeline`
-- `[ ] 079 tool budget soft warnings in TUI`
+- `[x] 075 read-file history introspection`
+- `[x] 076 command vs tool duplication diagnostics`
+- `[x] 077 parallel tool batch artifacts`
+- `[x] 078 hook / tool combined timeline`
+- `[x] 079 tool budget soft warnings in TUI`
 - `[x] 080 diagnostics export bundle`
 
 ## 081-090 Release / CI / Performance
@@ -159,5 +159,5 @@
 - `[x] 096 task runtime troubleshooting guide`
 - `[x] 097 prompt-cache telemetry doc`
 - `[x] 098 Claude Code parity changelog`
-- `[ ] 099 next-100 completion review`
+- `[x] 099 next-100 completion review`
 - `[x] 100 top-tier parity delta refresh`

@@ -152,6 +152,14 @@ pub fn render_info_line(frame: &mut Frame, area: Rect, app: &App) {
         parts.push(Span::styled("· ", Style::default().fg(SEP)));
     }
 
+    if let Some(budget_badge) = tool_budget_badge(app, density) {
+        parts.push(Span::styled(
+            budget_badge,
+            Style::default().fg(Color::LightYellow),
+        ));
+        parts.push(Span::styled("· ", Style::default().fg(SEP)));
+    }
+
     // Shortcuts hint
     match density {
         StatusBarDensity::Wide => {
@@ -238,6 +246,29 @@ fn running_task_count(app: &App) -> usize {
                 .count()
         })
         .unwrap_or(0)
+}
+
+fn tool_budget_badge(app: &App, density: StatusBarDensity) -> Option<String> {
+    let state = app
+        .engine
+        .as_ref()
+        .and_then(|engine| engine.try_lock().ok())
+        .map(|engine| engine.runtime_state())?;
+    if state.current_turn_budget_warning_emitted {
+        return Some(match density {
+            StatusBarDensity::Wide => "budget warning ".to_string(),
+            StatusBarDensity::Medium => "budget! ".to_string(),
+            StatusBarDensity::Narrow => "!b ".to_string(),
+        });
+    }
+    if state.current_turn_budget_notice_emitted {
+        return Some(match density {
+            StatusBarDensity::Wide => "budget notice ".to_string(),
+            StatusBarDensity::Medium => "budget ".to_string(),
+            StatusBarDensity::Narrow => "b ".to_string(),
+        });
+    }
+    None
 }
 
 #[cfg(test)]
