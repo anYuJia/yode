@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `016 test command presets in /pipeline`
+- `022 runtime task phase timestamps`
 
 当前进度：
 
-- `13 / 100` 已完成
+- `15 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -52,7 +52,7 @@
 - `[x] 013 latest review summary in /status`
 - `[x] 014 structured findings count metadata`
 - `[x] 015 commit gate driven by review artifact status`
-- `[ ] 016 test command presets in /pipeline`
+- `[x] 016 test command presets in /pipeline`
 - `[ ] 017 CI export command for review pipeline`
 - `[ ] 018 GitHub Actions scaffold for review gate`
 - `[ ] 019 review artifact diff backlinks`
@@ -60,7 +60,7 @@
 
 ## 021-030 Task Runtime / Background Work
 
-- `[ ] 021 richer background bash progress streaming`
+- `[x] 021 richer background bash progress streaming`
 - `[ ] 022 runtime task phase timestamps`
 - `[ ] 023 runtime task retry metadata`
 - `[ ] 024 runtime task artifact retention config`

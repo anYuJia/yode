@@ -68,7 +68,7 @@ impl Command for TasksCommand {
                 let mut lines = vec![format!("Runtime tasks ({}):", tasks.len())];
                 for task in tasks {
                     lines.push(format!(
-                        "  {} [{}:{}] {}",
+                        "  {} [{}:{}] {}{}",
                         task.id,
                         task.kind,
                         match task.status {
@@ -78,7 +78,12 @@ impl Command for TasksCommand {
                             yode_tools::RuntimeTaskStatus::Failed => "failed",
                             yode_tools::RuntimeTaskStatus::Cancelled => "cancelled",
                         },
-                        task.description
+                        task.description,
+                        task
+                            .last_progress
+                            .as_ref()
+                            .map(|progress| format!(" — {}", progress))
+                            .unwrap_or_default()
                     ));
                 }
                 Ok(CommandOutput::Messages(lines))
