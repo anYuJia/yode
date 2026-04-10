@@ -371,6 +371,7 @@ pub struct EngineRuntimeState {
     pub last_hook_timeout_command: Option<String>,
     pub last_compaction_prompt_tokens: Option<u32>,
     pub avg_compaction_prompt_tokens: Option<u32>,
+    pub compaction_cause_histogram: BTreeMap<String, u32>,
     pub system_prompt_estimated_tokens: usize,
     pub system_prompt_segments: Vec<SystemPromptSegmentRuntimeState>,
     pub prompt_cache: PromptCacheRuntimeState,
@@ -686,6 +687,8 @@ pub struct AgentEngine {
     compaction_prompt_tokens_total: u64,
     /// Sample count for compaction-trigger prompt token telemetry.
     compaction_prompt_token_samples: u32,
+    /// Histogram of compaction outcomes and skip reasons.
+    compaction_cause_histogram: BTreeMap<String, u32>,
     /// Prompt cache telemetry accumulated across turns.
     prompt_cache_runtime: PromptCacheRuntimeState,
     /// Estimated token footprint for the current system prompt.
@@ -1096,6 +1099,7 @@ impl AgentEngine {
             last_compaction_prompt_tokens: None,
             compaction_prompt_tokens_total: 0,
             compaction_prompt_token_samples: 0,
+            compaction_cause_histogram: BTreeMap::new(),
             prompt_cache_runtime: PromptCacheRuntimeState::default(),
             system_prompt_estimated_tokens: system_prompt_build.estimated_tokens,
             system_prompt_segments: system_prompt_build.segments,
@@ -1359,6 +1363,7 @@ impl AgentEngine {
                 (self.compaction_prompt_tokens_total / self.compaction_prompt_token_samples as u64)
                     as u32
             }),
+            compaction_cause_histogram: self.compaction_cause_histogram.clone(),
             system_prompt_estimated_tokens: self.system_prompt_estimated_tokens,
             system_prompt_segments: self.system_prompt_segments.clone(),
             prompt_cache: self.prompt_cache_runtime.clone(),
@@ -1514,6 +1519,13 @@ impl AgentEngine {
         self.prompt_cache_runtime.last_turn_completion_tokens = None;
         self.prompt_cache_runtime.last_turn_cache_write_tokens = None;
         self.prompt_cache_runtime.last_turn_cache_read_tokens = None;
+    }
+
+    fn record_compaction_cause(&mut self, cause: &str) {
+        *self
+            .compaction_cause_histogram
+            .entry(cause.to_string())
+            .or_insert(0) += 1;
     }
 
     fn record_response_usage(
@@ -2238,6 +2250,10 @@ impl AgentEngine {
                 .unwrap_or(Value::Null),
         );
         metadata.insert(
+            "compaction_cause_histogram".to_string(),
+            json!(self.compaction_cause_histogram),
+        );
+        metadata.insert(
             "live_session_memory_initialized".to_string(),
             json!(self.session_memory_initialized),
         );
@@ -2355,6 +2371,7 @@ impl AgentEngine {
         let mode = if force { "manual" } else { "auto" };
 
         if !force && !self.current_query_source.allows_auto_compaction() {
+            self.record_compaction_cause("skipped_query_source");
             debug!(
                 "Skipping auto-compaction for query source {:?}",
                 self.current_query_source
@@ -2363,11 +2380,13 @@ impl AgentEngine {
         }
 
         if !force && self.autocompact_disabled {
+            self.record_compaction_cause("skipped_breaker_open");
             debug!("Skipping auto-compaction because the circuit breaker is open");
             return false;
         }
 
         if self.compaction_in_progress {
+            self.record_compaction_cause("skipped_nested");
             warn!("Skipping nested auto-compaction attempt");
             return false;
         }
@@ -2377,6 +2396,7 @@ impl AgentEngine {
                 .context_manager
                 .should_compress(prompt_tokens, &self.messages)
         {
+            self.record_compaction_cause("skipped_below_threshold");
             return false;
         }
 
@@ -2399,6 +2419,7 @@ impl AgentEngine {
             .compress_with_report(&mut self.messages);
         if report.removed == 0 && report.tool_results_truncated == 0 {
             self.compaction_in_progress = false;
+            self.record_compaction_cause("failed_no_change");
             if !force {
                 self.record_compaction_failure("compression made no changes", event_tx);
             }
@@ -2464,6 +2485,7 @@ impl AgentEngine {
         self.compaction_in_progress = false;
 
         if still_above_threshold && !force {
+            self.record_compaction_cause("failed_above_threshold");
             self.record_compaction_failure(
                 "context remains above the safety threshold after compaction",
                 event_tx,
@@ -2507,8 +2529,10 @@ impl AgentEngine {
         self.total_compactions = self.total_compactions.saturating_add(1);
         if mode == "auto" {
             self.auto_compactions = self.auto_compactions.saturating_add(1);
+            self.record_compaction_cause("success_auto");
         } else {
             self.manual_compactions = self.manual_compactions.saturating_add(1);
+            self.record_compaction_cause("success_manual");
         }
         self.persist_session_artifacts();
         true
@@ -2556,6 +2580,7 @@ impl AgentEngine {
         }
         self.messages.extend(messages);
         self.reset_autocompact_state();
+        self.compaction_cause_histogram.clear();
         self.rebuild_runtime_artifact_state_from_disk();
         info!(
             "Restored {} messages from database",
@@ -2590,6 +2615,7 @@ impl AgentEngine {
         self.total_compactions = 0;
         self.auto_compactions = 0;
         self.manual_compactions = 0;
+        self.compaction_cause_histogram.clear();
         self.set_shared_memory_status(None, None, false, 0);
         self.sync_persisted_messages_snapshot();
         self.rebuild_system_prompt();
@@ -6358,6 +6384,25 @@ mod tests {
             .system_prompt_segments
             .iter()
             .any(|segment| segment.label == "Environment"));
+    }
+
+    #[test]
+    fn test_compaction_cause_histogram_tracks_counts() {
+        let mut engine = make_engine(vec![], vec![]);
+
+        engine.record_compaction_cause("skipped_below_threshold");
+        engine.record_compaction_cause("skipped_below_threshold");
+        engine.record_compaction_cause("success_manual");
+
+        let runtime = engine.runtime_state();
+        assert_eq!(
+            runtime.compaction_cause_histogram.get("skipped_below_threshold"),
+            Some(&2)
+        );
+        assert_eq!(
+            runtime.compaction_cause_histogram.get("success_manual"),
+            Some(&1)
+        );
     }
 
     #[tokio::test]

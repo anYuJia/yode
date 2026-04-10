@@ -68,12 +68,14 @@ impl Command for StatusCommand {
             );
             let breaker_hint =
                 compact_breaker_hint(state.last_compaction_breaker_reason.as_deref());
+            let compaction_histogram =
+                compaction_cause_histogram(&state.compaction_cause_histogram);
             let prompt_cache_last_turn = prompt_cache_last_turn_status(&state.prompt_cache);
             let prompt_cache_miss_turns = prompt_cache_miss_turns(&state.prompt_cache);
             let system_prompt_breakdown =
                 system_prompt_segment_breakdown(&state.system_prompt_segments);
             format!(
-                "\n\nCompact:\n  Query source:    {}\n  Autocompact:     {}\n  Compact fails:   {}\n  Compact count:   {} (auto {}, manual {})\n  Breaker reason:  {}\n  Breaker hint:    {}\n  Last compact:    {}\n  Compact at:      {}\n  Compact summary: {}\n  Last compact mem: {}\n  Last transcript: {}\n\nSystem Prompt:\n  Total est:       {} tokens\n{}\n\nPrompt Cache:\n  Last turn:       {}\n  Last tokens:     {} prompt / {} completion\n  Last cache:      {} write / {} read\n  Cache turns:     {} reported / {} hit / {} miss / {} fill\n  Cache tokens:    {} write / {} read\n\nMemory:\n  Live memory:     {}{}\n  Live memory file: {}\n  Memory updates:  {}\n  Last memory update: {}\n  Freshness:       {}\n  Pending update:  {}\n\nRecovery:\n  State:           {}\n  Single-step:     {}\n  Reanchor:        {}\n  Need guidance:   {}\n  Last signature:  {}\n  Breadcrumbs:     {}\n  Artifact:        {}\n  Last permission: {} [{}]\n  Permission why:  {}\n  Permission artifact: {}\n  Recent denials:  {}\n\nTools:\n  Session tools:   {}\n  Current turn:    {} calls / {} bytes\n  Budget notices:  {} (warning {})\n  Budget active:   notice={} warning={}\n  Progress events: {} (last: {} / {})\n  Parallel:        {} batches / {} calls (max {})\n  Truncations:     {} (last: {})\n  Error types:     {}\n  Repeat fail:     {}\n  Tool traces:     {} turn / {} calls\n  Tool artifact:   {}\n  Tool turn done:  {}\n  Failed tools:    {}\n  Always-allow:    {}\n\nReviews:\n  Latest review:   {}\n  Review status:   {}\n  Review preview:  {}\n\nHooks:\n  Hook runs:       {}\n  Hook timeouts:   {}\n  Hook exec errs:  {}\n  Hook exits!=0:   {}\n  Hook wakes:      {}\n  Last hook fail:  {}\n  Last hook at:    {}\n  Last hook timeout: {}",
+                "\n\nCompact:\n  Query source:    {}\n  Autocompact:     {}\n  Compact fails:   {}\n  Compact count:   {} (auto {}, manual {})\n  Breaker reason:  {}\n  Breaker hint:    {}\n  Cause histogram: {}\n  Last compact:    {}\n  Compact at:      {}\n  Compact summary: {}\n  Last compact mem: {}\n  Last transcript: {}\n\nSystem Prompt:\n  Total est:       {} tokens\n{}\n\nPrompt Cache:\n  Last turn:       {}\n  Last tokens:     {} prompt / {} completion\n  Last cache:      {} write / {} read\n  Cache turns:     {} reported / {} hit / {} miss / {} fill\n  Cache tokens:    {} write / {} read\n\nMemory:\n  Live memory:     {}{}\n  Live memory file: {}\n  Memory updates:  {}\n  Last memory update: {}\n  Freshness:       {}\n  Pending update:  {}\n\nRecovery:\n  State:           {}\n  Single-step:     {}\n  Reanchor:        {}\n  Need guidance:   {}\n  Last signature:  {}\n  Breadcrumbs:     {}\n  Artifact:        {}\n  Last permission: {} [{}]\n  Permission why:  {}\n  Permission artifact: {}\n  Recent denials:  {}\n\nTools:\n  Session tools:   {}\n  Current turn:    {} calls / {} bytes\n  Budget notices:  {} (warning {})\n  Budget active:   notice={} warning={}\n  Progress events: {} (last: {} / {})\n  Parallel:        {} batches / {} calls (max {})\n  Truncations:     {} (last: {})\n  Error types:     {}\n  Repeat fail:     {}\n  Tool traces:     {} turn / {} calls\n  Tool artifact:   {}\n  Tool turn done:  {}\n  Failed tools:    {}\n  Always-allow:    {}\n\nReviews:\n  Latest review:   {}\n  Review status:   {}\n  Review preview:  {}\n\nHooks:\n  Hook runs:       {}\n  Hook timeouts:   {}\n  Hook exec errs:  {}\n  Hook exits!=0:   {}\n  Hook wakes:      {}\n  Last hook fail:  {}\n  Last hook at:    {}\n  Last hook timeout: {}",
                 state.query_source,
                 if state.autocompact_disabled {
                     "disabled"
@@ -89,6 +91,7 @@ impl Command for StatusCommand {
                     .as_deref()
                     .unwrap_or("none"),
                 breaker_hint,
+                compaction_histogram,
                 state
                     .last_compaction_mode
                     .as_deref()
@@ -434,14 +437,26 @@ fn system_prompt_segment_breakdown(
         .join("\n")
 }
 
+fn compaction_cause_histogram(histogram: &std::collections::BTreeMap<String, u32>) -> String {
+    if histogram.is_empty() {
+        return "none".to_string();
+    }
+
+    histogram
+        .iter()
+        .map(|(cause, count)| format!("{}={}", cause, count))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 #[cfg(test)]
 mod tests {
     use chrono::Local;
     use yode_core::engine::{PromptCacheRuntimeState, SystemPromptSegmentRuntimeState};
     use super::{
-        compact_breaker_hint, latest_review_summary, memory_freshness_label,
-        memory_update_pending, prompt_cache_last_turn_status, prompt_cache_miss_turns,
-        system_prompt_segment_breakdown,
+        compact_breaker_hint, compaction_cause_histogram, latest_review_summary,
+        memory_freshness_label, memory_update_pending, prompt_cache_last_turn_status,
+        prompt_cache_miss_turns, system_prompt_segment_breakdown,
     };
 
     #[test]
@@ -528,5 +543,16 @@ mod tests {
 
         assert!(rendered.contains("Base prompt: 1000 tok / 4000 chars"));
         assert!(rendered.contains("Environment: 30 tok / 120 chars"));
+    }
+
+    #[test]
+    fn compaction_histogram_renders_counts() {
+        let rendered = compaction_cause_histogram(&std::collections::BTreeMap::from([
+            ("failed_no_change".to_string(), 2),
+            ("success_auto".to_string(), 5),
+        ]));
+
+        assert!(rendered.contains("failed_no_change=2"));
+        assert!(rendered.contains("success_auto=5"));
     }
 }

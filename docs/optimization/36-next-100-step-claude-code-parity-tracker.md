@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `034 compaction cause histogram`
+- `037 transcript artifact preview folding`
 
 当前进度：
 
-- `60 / 100` 已完成
+- `61 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -76,7 +76,7 @@
 - `[x] 031 prompt-cache telemetry per turn`
 - `[x] 032 cache hit / miss status surface`
 - `[x] 033 system-prompt segment token breakdown`
-- `[ ] 034 compaction cause histogram`
+- `[x] 034 compaction cause histogram`
 - `[x] 035 memory freshness score in status`
 - `[x] 036 live memory pending-update indicator`
 - `[ ] 037 transcript artifact preview folding`
