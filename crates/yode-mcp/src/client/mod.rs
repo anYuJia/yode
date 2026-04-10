@@ -14,7 +14,7 @@ use tracing::info;
 use crate::config::McpServerConfig;
 use yode_tools::registry::ToolRegistry;
 
-pub use tool_wrapper::McpToolWrapper;
+pub use tool_wrapper::{mcp_tool_latency_stats, McpToolLatencyEntry, McpToolWrapper};
 
 /// A connected MCP client managing one external server.
 pub struct McpClient {

@@ -32,6 +32,7 @@ impl Command for McpCommand {
             .as_ref()
             .map(|cfg| cfg.mcp.servers.clone())
             .unwrap_or_default();
+        let latency_stats = yode_mcp::mcp_tool_latency_stats();
         let mut by_server = BTreeMap::<String, Vec<String>>::new();
         for tool in ctx.tools.definitions() {
             if let Some((server, original_name)) = parse_mcp_tool_name(&tool.name) {
@@ -59,6 +60,7 @@ impl Command for McpCommand {
             tools.sort();
             let preview = tools.iter().take(6).cloned().collect::<Vec<_>>().join(", ");
             let more = tools.len().saturating_sub(6);
+            let latency = server_latency_summary(&latency_stats, &server);
             let config_state = if let Some(server_config) = configured_servers.get(&server) {
                 format!(
                     "configured, auth={}, cmd={}",
@@ -69,10 +71,11 @@ impl Command for McpCommand {
                 "registered-only, auth=unknown".to_string()
             };
             lines.push(format!(
-                "  - {} [{} | {} tool(s)] {}{}",
+                "  - {} [{} | {} tool(s) | latency={}] {}{}",
                 server,
                 config_state,
                 tools.len(),
+                latency,
                 preview,
                 if more > 0 {
                     format!(" (+{} more)", more)
@@ -138,9 +141,36 @@ fn auth_status_label(config: &yode_core::config::McpServerConfig) -> String {
     }
 }
 
+fn server_latency_summary(stats: &[yode_mcp::McpToolLatencyEntry], server: &str) -> String {
+    let mut matching = stats
+        .iter()
+        .filter(|entry| entry.server == server)
+        .cloned()
+        .collect::<Vec<_>>();
+    if matching.is_empty() {
+        return "no-calls".to_string();
+    }
+
+    matching.sort_by(|a, b| b.last_ms.cmp(&a.last_ms));
+    let total_calls = matching.iter().map(|entry| entry.calls).sum::<u64>();
+    let avg_ms = matching
+        .iter()
+        .map(|entry| entry.avg_ms.saturating_mul(entry.calls))
+        .sum::<u64>()
+        .checked_div(total_calls)
+        .unwrap_or(0);
+    let hottest = matching
+        .iter()
+        .take(3)
+        .map(|entry| format!("{}:{}ms", entry.tool, entry.last_ms))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("avg {}ms / {}", avg_ms, hottest)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{auth_status_label, parse_mcp_tool_name};
+    use super::{auth_status_label, parse_mcp_tool_name, server_latency_summary};
     use yode_core::config::McpServerConfig;
 
     #[test]
@@ -173,5 +203,24 @@ mod tests {
             )]),
         };
         assert!(auth_status_label(&missing).contains("missing YODE_MISSING_TOKEN"));
+    }
+
+    #[test]
+    fn server_latency_summary_aggregates_recent_stats() {
+        let rendered = server_latency_summary(
+            &[yode_mcp::McpToolLatencyEntry {
+                server: "github".to_string(),
+                tool: "list_prs".to_string(),
+                calls: 2,
+                errors: 0,
+                avg_ms: 25,
+                max_ms: 40,
+                last_ms: 40,
+            }],
+            "github",
+        );
+
+        assert!(rendered.contains("avg 25ms"));
+        assert!(rendered.contains("list_prs:40ms"));
     }
 }

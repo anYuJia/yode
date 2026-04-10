@@ -12,6 +12,7 @@ categories.workspace = true
 [dependencies]
 yode-core = { workspace = true }
 yode-llm = { workspace = true }
+yode-mcp = { workspace = true }
 yode-tools = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
