@@ -1,4 +1,5 @@
 pub mod chat;
+mod chat_markdown;
 pub mod input;
 pub mod status_bar;
 pub mod tool_confirm;
