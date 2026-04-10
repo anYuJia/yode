@@ -829,11 +829,13 @@ fn truncate_for_display(content: &str) -> String {
         return content.to_string();
     }
 
-    let truncated = content.chars().take(MAX_DISPLAY_CHARS).collect::<String>();
-    format!(
-        "{}\n\n[Truncated for display at {} chars. Scroll for earlier content if your terminal keeps history, or open the file path directly.]",
-        truncated, MAX_DISPLAY_CHARS
-    )
+    let notice = format!(
+        "[Truncated for display at {} chars. Scroll for earlier content if your terminal keeps history, or open the file path directly.]",
+        MAX_DISPLAY_CHARS
+    );
+    let budget = MAX_DISPLAY_CHARS.saturating_sub(notice.chars().count() + 2);
+    let truncated = content.chars().take(budget).collect::<String>();
+    format!("{}\n\n{}", truncated, notice)
 }
 
 fn file_cache_stamp(path: &Path) -> Option<u64> {
