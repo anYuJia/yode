@@ -19,11 +19,12 @@ impl WorkflowsCommand {
                     ArgDef {
                         name: "action".into(),
                         required: false,
-                        hint: "[run|run-write|show|init <name>]".into(),
+                        hint: "[run|run-write|show|preview|init <name>]".into(),
                         completions: ArgCompletionSource::Static(vec![
                             "run".to_string(),
                             "run-write".to_string(),
                             "show".to_string(),
+                            "preview".to_string(),
                             "init".to_string(),
                         ]),
                     },
@@ -90,16 +91,8 @@ impl Command for WorkflowsCommand {
             } else {
                 (*name).to_string()
             };
-            let path = dir.join(format!("{}.json", name));
-            let content = std::fs::read_to_string(&path)
-                .map_err(|err| format!("Failed to read {}: {}", path.display(), err))?;
-            let json: serde_json::Value = serde_json::from_str(&content)
-                .map_err(|err| format!("Invalid workflow JSON {}: {}", path.display(), err))?;
-            let steps = json
-                .get("steps")
-                .and_then(|value| value.as_array())
-                .ok_or_else(|| format!("Workflow {} has no steps array.", path.display()))?;
-            let write_capable = workflow_requires_write_mode(steps);
+            let (path, json, steps) = load_workflow_definition(&dir, &name)?;
+            let write_capable = workflow_requires_write_mode(&steps);
             let write_steps = steps
                 .iter()
                 .enumerate()
@@ -157,6 +150,64 @@ impl Command for WorkflowsCommand {
             }
             output.push_str(
                 "\nUse `/workflows run <name>` for safe workflows, `/workflows run-write <name>` for confirmed write-capable workflows, or call `workflow_run` with dry_run=true.",
+            );
+            return Ok(CommandOutput::Message(output));
+        }
+        if let ["preview", name] = parts.as_slice() {
+            let name = if *name == "latest" {
+                latest_workflow_name(&dir)
+                    .ok_or_else(|| "No workflow scripts found.".to_string())?
+            } else {
+                (*name).to_string()
+            };
+            let (path, json, steps) = load_workflow_definition(&dir, &name)?;
+            let mut output = format!(
+                "Workflow plan preview\nName: {}\nPath: {}\nMode: {}\nDescription: {}\n\nPlan:\n",
+                json.get("name")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or(name.as_str()),
+                path.display(),
+                if workflow_requires_write_mode(&steps) {
+                    "write-capable"
+                } else {
+                    "safe read-only"
+                },
+                json.get("description")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("none"),
+            );
+            for (index, step) in steps.iter().enumerate() {
+                let tool_name = step
+                    .get("tool_name")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("unknown");
+                let params_preview = step
+                    .get("params")
+                    .map(compact_json_preview)
+                    .unwrap_or_else(|| "{}".to_string());
+                output.push_str(&format!(
+                    "  {}. {} [{}]{}\n     params: {}\n",
+                    index + 1,
+                    tool_name,
+                    if is_safe_workflow_step(tool_name) {
+                        "safe"
+                    } else {
+                        "write"
+                    },
+                    if step
+                        .get("continue_on_error")
+                        .and_then(|value| value.as_bool())
+                        .unwrap_or(false)
+                    {
+                        " continue_on_error"
+                    } else {
+                        ""
+                    },
+                    params_preview
+                ));
+            }
+            output.push_str(
+                "\nUse `/workflows show <name>` for the raw definition, `/workflows run <name>` for safe execution, or `/workflows run-write <name>` after confirming mutating steps.",
             );
             return Ok(CommandOutput::Message(output));
         }
@@ -249,6 +300,32 @@ fn latest_workflow_name(dir: &std::path::Path) -> Option<String> {
             .and_then(|stem| stem.to_str())
             .map(|stem| stem.to_string())
     })
+}
+
+fn load_workflow_definition(
+    dir: &std::path::Path,
+    name: &str,
+) -> Result<(std::path::PathBuf, serde_json::Value, Vec<serde_json::Value>), String> {
+    let path = dir.join(format!("{}.json", name));
+    let content = std::fs::read_to_string(&path)
+        .map_err(|err| format!("Failed to read {}: {}", path.display(), err))?;
+    let json: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|err| format!("Invalid workflow JSON {}: {}", path.display(), err))?;
+    let steps = json
+        .get("steps")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .ok_or_else(|| format!("Workflow {} has no steps array.", path.display()))?;
+    Ok((path, json, steps))
+}
+
+fn compact_json_preview(value: &serde_json::Value) -> String {
+    let raw = serde_json::to_string(value).unwrap_or_else(|_| "{}".to_string());
+    if raw.chars().count() > 120 {
+        format!("{}...", raw.chars().take(120).collect::<String>())
+    } else {
+        raw
+    }
 }
 
 fn workflow_template_names() -> Vec<&'static str> {
@@ -383,7 +460,7 @@ fn is_safe_workflow_step(tool_name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{workflow_requires_write_mode, workflow_template};
+    use super::{compact_json_preview, workflow_requires_write_mode, workflow_template};
 
     #[test]
     fn workflow_mode_detection_distinguishes_safe_and_write_steps() {
@@ -403,5 +480,13 @@ mod tests {
     fn workflow_templates_include_ship_flows() {
         assert!(workflow_template("review-then-commit").is_some());
         assert!(workflow_template("ship-pipeline").is_some());
+    }
+
+    #[test]
+    fn compact_json_preview_truncates_long_params() {
+        let preview = compact_json_preview(&serde_json::json!({
+            "focus": "x".repeat(200)
+        }));
+        assert!(preview.ends_with("..."));
     }
 }

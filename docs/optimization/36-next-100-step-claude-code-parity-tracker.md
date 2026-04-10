@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `063 workflow plan preview dialog`
+- `064 coordinator phase timeline widget`
 
 当前进度：
 
-- `74 / 100` 已完成
+- `75 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -114,7 +114,7 @@
 
 - `[x] 061 transcript picker with folding`
 - `[x] 062 review artifact preview pager`
-- `[ ] 063 workflow plan preview dialog`
+- `[x] 063 workflow plan preview dialog`
 - `[ ] 064 coordinator phase timeline widget`
 - `[ ] 065 narrow-width status bar compaction`
 - `[ ] 066 task badge compression for mobile-width terminals`
