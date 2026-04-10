@@ -1,5 +1,6 @@
 use crate::commands::context::CommandContext;
 use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
+use yode_tools::builtin::review_common::review_output_has_findings;
 
 use super::cost::estimate_cost;
 
@@ -39,6 +40,8 @@ impl Command for StatusCommand {
             ctx.session.input_tokens,
             ctx.session.output_tokens,
         );
+        let working_dir = std::path::PathBuf::from(&ctx.session.working_dir);
+        let latest_review = latest_review_summary(&working_dir.join(".yode").join("reviews"));
         let runtime = ctx
             .engine
             .try_lock()
@@ -56,7 +59,7 @@ impl Command for StatusCommand {
                     .join(", ")
             };
             format!(
-                "\n\nCompact:\n  Query source:    {}\n  Autocompact:     {}\n  Compact fails:   {}\n  Compact count:   {} (auto {}, manual {})\n  Breaker reason:  {}\n  Last compact:    {}\n  Compact at:      {}\n  Compact summary: {}\n  Last compact mem: {}\n  Last transcript: {}\n\nMemory:\n  Live memory:     {}{}\n  Live memory file: {}\n  Memory updates:  {}\n  Last memory update: {}\n\nRecovery:\n  State:           {}\n  Single-step:     {}\n  Reanchor:        {}\n  Need guidance:   {}\n  Last signature:  {}\n  Last permission: {} [{}]\n  Permission why:  {}\n  Recent denials:  {}\n\nTools:\n  Session tools:   {}\n  Current turn:    {} calls / {} bytes\n  Budget notices:  {} (warning {})\n  Budget active:   notice={} warning={}\n  Progress events: {} (last: {} / {})\n  Parallel:        {} batches / {} calls (max {})\n  Truncations:     {} (last: {})\n  Error types:     {}\n  Repeat fail:     {}\n  Tool traces:     {} turn / {} calls\n  Tool artifact:   {}\n  Tool turn done:  {}\n  Failed tools:    {}\n  Always-allow:    {}\n\nHooks:\n  Hook runs:       {}\n  Hook timeouts:   {}\n  Hook exec errs:  {}\n  Hook exits!=0:   {}\n  Hook wakes:      {}\n  Last hook fail:  {}\n  Last hook at:    {}\n  Last hook timeout: {}",
+                "\n\nCompact:\n  Query source:    {}\n  Autocompact:     {}\n  Compact fails:   {}\n  Compact count:   {} (auto {}, manual {})\n  Breaker reason:  {}\n  Last compact:    {}\n  Compact at:      {}\n  Compact summary: {}\n  Last compact mem: {}\n  Last transcript: {}\n\nMemory:\n  Live memory:     {}{}\n  Live memory file: {}\n  Memory updates:  {}\n  Last memory update: {}\n\nRecovery:\n  State:           {}\n  Single-step:     {}\n  Reanchor:        {}\n  Need guidance:   {}\n  Last signature:  {}\n  Last permission: {} [{}]\n  Permission why:  {}\n  Recent denials:  {}\n\nTools:\n  Session tools:   {}\n  Current turn:    {} calls / {} bytes\n  Budget notices:  {} (warning {})\n  Budget active:   notice={} warning={}\n  Progress events: {} (last: {} / {})\n  Parallel:        {} batches / {} calls (max {})\n  Truncations:     {} (last: {})\n  Error types:     {}\n  Repeat fail:     {}\n  Tool traces:     {} turn / {} calls\n  Tool artifact:   {}\n  Tool turn done:  {}\n  Failed tools:    {}\n  Always-allow:    {}\n\nReviews:\n  Latest review:   {}\n  Review status:   {}\n  Review preview:  {}\n\nHooks:\n  Hook runs:       {}\n  Hook timeouts:   {}\n  Hook exec errs:  {}\n  Hook exits!=0:   {}\n  Hook wakes:      {}\n  Last hook fail:  {}\n  Last hook at:    {}\n  Last hook timeout: {}",
                 state.query_source,
                 if state.autocompact_disabled {
                     "disabled"
@@ -179,6 +182,18 @@ impl Command for StatusCommand {
                     .unwrap_or("none"),
                 state.tracked_failed_tool_results,
                 always_allow,
+                latest_review
+                    .as_ref()
+                    .map(|summary| summary.path.display().to_string())
+                    .unwrap_or_else(|| "none".to_string()),
+                latest_review
+                    .as_ref()
+                    .map(|summary| summary.status)
+                    .unwrap_or("none"),
+                latest_review
+                    .as_ref()
+                    .map(|summary| summary.preview.as_str())
+                    .unwrap_or("none"),
                 state.hook_total_executions,
                 state.hook_timeout_count,
                 state.hook_execution_error_count,
@@ -232,5 +247,86 @@ impl Command for StatusCommand {
             ctx.terminal_caps.summary(),
             runtime_sections,
         )))
+    }
+}
+
+struct ReviewSummary {
+    path: std::path::PathBuf,
+    status: &'static str,
+    preview: String,
+}
+
+fn latest_review_summary(dir: &std::path::Path) -> Option<ReviewSummary> {
+    let path = latest_markdown_file(dir)?;
+    let content = std::fs::read_to_string(&path).ok()?;
+    let body = extract_review_result_body(&content).unwrap_or(content.as_str());
+    let status = if body.trim().is_empty() {
+        "unknown"
+    } else if review_output_has_findings(body) {
+        "findings"
+    } else {
+        "clean"
+    };
+    let preview = body
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with("```"))
+        .take(2)
+        .collect::<Vec<_>>()
+        .join(" | ");
+    let preview = if preview.is_empty() {
+        "none".to_string()
+    } else if preview.chars().count() > 160 {
+        format!("{}...", preview.chars().take(160).collect::<String>())
+    } else {
+        preview
+    };
+    Some(ReviewSummary {
+        path,
+        status,
+        preview,
+    })
+}
+
+fn latest_markdown_file(dir: &std::path::Path) -> Option<std::path::PathBuf> {
+    let mut entries = std::fs::read_dir(dir)
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("md"))
+        .collect::<Vec<_>>();
+    entries.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
+    entries.into_iter().next()
+}
+
+fn extract_review_result_body(content: &str) -> Option<&str> {
+    let start = content.find("```text\n")?;
+    let body_start = start + "```text\n".len();
+    let end = content[body_start..].find("\n```")?;
+    Some(&content[body_start..body_start + end])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::latest_review_summary;
+
+    #[test]
+    fn latest_review_summary_detects_clean_artifact() {
+        let review_dir = std::env::temp_dir().join(format!(
+            "yode-status-review-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&review_dir);
+        std::fs::create_dir_all(&review_dir).unwrap();
+        std::fs::write(
+            review_dir.join("review-20260101.md"),
+            "# Review Artifact\n\n## Result\n\n```text\nNo issues found.\nResidual risk: none.\n```\n",
+        )
+        .unwrap();
+
+        let summary = latest_review_summary(&review_dir).unwrap();
+        assert_eq!(summary.status, "clean");
+        assert!(summary.preview.contains("No issues found."));
+        let _ = std::fs::remove_dir_all(&review_dir);
     }
 }
