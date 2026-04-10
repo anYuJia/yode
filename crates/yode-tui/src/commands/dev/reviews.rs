@@ -42,6 +42,7 @@ impl Command for ReviewsCommand {
         let trimmed = args.trim();
         let parts = trimmed.split_whitespace().collect::<Vec<_>>();
         let kind_filter = match parts.as_slice() {
+            ["summary", kind] => Some(*kind),
             ["latest", kind] => Some(*kind),
             ["list", kind] => Some(*kind),
             [kind] if !kind.chars().all(|c| c.is_ascii_digit()) && *kind != "latest" => Some(*kind),
@@ -87,6 +88,20 @@ impl Command for ReviewsCommand {
             }
             output.push_str("\nUse /reviews <index>, /reviews latest, or /reviews latest <kind>.");
             return Ok(CommandOutput::Message(output));
+        }
+
+        if matches!(parts.as_slice(), ["summary"] | ["summary", _]) {
+            if entries.is_empty() {
+                return Ok(CommandOutput::Message(format!(
+                    "No review artifacts{} found in {}.",
+                    kind_filter
+                        .map(|kind| format!(" for '{}'", kind))
+                        .unwrap_or_default(),
+                    dir.display()
+                )));
+            }
+            let summary = summarize_review_artifacts(&entries);
+            return Ok(CommandOutput::Message(summary));
         }
 
         if matches!(parts.as_slice(), ["latest"] | ["latest", _]) {
@@ -148,9 +163,50 @@ fn extract_review_result_body(content: &str) -> Option<&str> {
     Some(&content[body_start..body_start + end])
 }
 
+fn summarize_review_artifacts(entries: &[std::path::PathBuf]) -> String {
+    let mut clean = 0usize;
+    let mut findings = 0usize;
+    let mut unknown = 0usize;
+    let mut by_kind = std::collections::BTreeMap::<String, usize>::new();
+
+    for path in entries {
+        let kind = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .and_then(|name| name.split('-').next())
+            .unwrap_or("unknown")
+            .to_string();
+        *by_kind.entry(kind).or_default() += 1;
+
+        match std::fs::read_to_string(path)
+            .ok()
+            .map(|content| review_artifact_badge(&content))
+            .unwrap_or("unknown")
+        {
+            "clean" => clean += 1,
+            "findings" => findings += 1,
+            _ => unknown += 1,
+        }
+    }
+
+    let mut output = format!(
+        "Review artifact summary:\n  Total:    {}\n  Clean:    {}\n  Findings: {}\n  Unknown:  {}\n",
+        entries.len(),
+        clean,
+        findings,
+        unknown
+    );
+    output.push_str("\nBy kind:\n");
+    for (kind, count) in by_kind {
+        output.push_str(&format!("  - {}: {}\n", kind, count));
+    }
+    output.push_str("\nUse /reviews latest [kind] to inspect the latest artifact.");
+    output
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{extract_review_result_body, review_artifact_badge};
+    use super::{extract_review_result_body, review_artifact_badge, summarize_review_artifacts};
 
     #[test]
     fn review_artifact_badge_detects_clean_output() {
@@ -168,5 +224,30 @@ mod tests {
     fn extract_review_result_body_reads_text_fence() {
         let content = "before\n```text\nhello\nworld\n```\nafter";
         assert_eq!(extract_review_result_body(content), Some("hello\nworld"));
+    }
+
+    #[test]
+    fn summarize_review_artifacts_counts_statuses_and_kinds() {
+        let dir = std::env::temp_dir().join(format!("yode-review-summary-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let clean = dir.join("review-20260101.md");
+        let finding = dir.join("verification-20260102.md");
+        std::fs::write(
+            &clean,
+            "# Review Artifact\n\n## Result\n\n```text\nNo issues found.\n```\n",
+        )
+        .unwrap();
+        std::fs::write(
+            &finding,
+            "# Review Artifact\n\n## Result\n\n```text\n1. Missing test\n```\n",
+        )
+        .unwrap();
+        let output = summarize_review_artifacts(&[clean, finding]);
+        assert!(output.contains("Clean:    1"));
+        assert!(output.contains("Findings: 1"));
+        assert!(output.contains("review: 1"));
+        assert!(output.contains("verification: 1"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
