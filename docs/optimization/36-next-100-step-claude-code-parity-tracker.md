@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `044 multi-step recovery breadcrumbs`
+- `045 recovery state artifact`
 
 当前进度：
 
-- `40 / 100` 已完成
+- `43 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -77,10 +77,10 @@
 - `[ ] 032 cache hit / miss status surface`
 - `[ ] 033 system-prompt segment token breakdown`
 - `[ ] 034 compaction cause histogram`
-- `[ ] 035 memory freshness score in status`
-- `[ ] 036 live memory pending-update indicator`
+- `[x] 035 memory freshness score in status`
+- `[x] 036 live memory pending-update indicator`
 - `[ ] 037 transcript artifact preview folding`
-- `[ ] 038 context breaker mitigation hints`
+- `[x] 038 context breaker mitigation hints`
 - `[ ] 039 resume-time cache warmup stats`
 - `[ ] 040 long-session benchmark command`
 

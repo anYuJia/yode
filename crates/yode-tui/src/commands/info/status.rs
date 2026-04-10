@@ -1,5 +1,6 @@
 use crate::commands::context::CommandContext;
 use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
+use chrono::{Local, NaiveDateTime};
 use yode_tools::builtin::review_common::review_output_has_findings;
 
 use super::cost::estimate_cost;
@@ -58,8 +59,17 @@ impl Command for StatusCommand {
                     .collect::<Vec<_>>()
                     .join(", ")
             };
+            let memory_freshness =
+                memory_freshness_label(state.last_session_memory_update_at.as_deref());
+            let memory_pending = memory_update_pending(
+                state.live_session_memory_updating,
+                state.last_session_memory_update_at.as_deref(),
+                state.last_tool_turn_completed_at.as_deref(),
+            );
+            let breaker_hint =
+                compact_breaker_hint(state.last_compaction_breaker_reason.as_deref());
             format!(
-                "\n\nCompact:\n  Query source:    {}\n  Autocompact:     {}\n  Compact fails:   {}\n  Compact count:   {} (auto {}, manual {})\n  Breaker reason:  {}\n  Last compact:    {}\n  Compact at:      {}\n  Compact summary: {}\n  Last compact mem: {}\n  Last transcript: {}\n\nMemory:\n  Live memory:     {}{}\n  Live memory file: {}\n  Memory updates:  {}\n  Last memory update: {}\n\nRecovery:\n  State:           {}\n  Single-step:     {}\n  Reanchor:        {}\n  Need guidance:   {}\n  Last signature:  {}\n  Last permission: {} [{}]\n  Permission why:  {}\n  Recent denials:  {}\n\nTools:\n  Session tools:   {}\n  Current turn:    {} calls / {} bytes\n  Budget notices:  {} (warning {})\n  Budget active:   notice={} warning={}\n  Progress events: {} (last: {} / {})\n  Parallel:        {} batches / {} calls (max {})\n  Truncations:     {} (last: {})\n  Error types:     {}\n  Repeat fail:     {}\n  Tool traces:     {} turn / {} calls\n  Tool artifact:   {}\n  Tool turn done:  {}\n  Failed tools:    {}\n  Always-allow:    {}\n\nReviews:\n  Latest review:   {}\n  Review status:   {}\n  Review preview:  {}\n\nHooks:\n  Hook runs:       {}\n  Hook timeouts:   {}\n  Hook exec errs:  {}\n  Hook exits!=0:   {}\n  Hook wakes:      {}\n  Last hook fail:  {}\n  Last hook at:    {}\n  Last hook timeout: {}",
+                "\n\nCompact:\n  Query source:    {}\n  Autocompact:     {}\n  Compact fails:   {}\n  Compact count:   {} (auto {}, manual {})\n  Breaker reason:  {}\n  Breaker hint:    {}\n  Last compact:    {}\n  Compact at:      {}\n  Compact summary: {}\n  Last compact mem: {}\n  Last transcript: {}\n\nMemory:\n  Live memory:     {}{}\n  Live memory file: {}\n  Memory updates:  {}\n  Last memory update: {}\n  Freshness:       {}\n  Pending update:  {}\n\nRecovery:\n  State:           {}\n  Single-step:     {}\n  Reanchor:        {}\n  Need guidance:   {}\n  Last signature:  {}\n  Last permission: {} [{}]\n  Permission why:  {}\n  Recent denials:  {}\n\nTools:\n  Session tools:   {}\n  Current turn:    {} calls / {} bytes\n  Budget notices:  {} (warning {})\n  Budget active:   notice={} warning={}\n  Progress events: {} (last: {} / {})\n  Parallel:        {} batches / {} calls (max {})\n  Truncations:     {} (last: {})\n  Error types:     {}\n  Repeat fail:     {}\n  Tool traces:     {} turn / {} calls\n  Tool artifact:   {}\n  Tool turn done:  {}\n  Failed tools:    {}\n  Always-allow:    {}\n\nReviews:\n  Latest review:   {}\n  Review status:   {}\n  Review preview:  {}\n\nHooks:\n  Hook runs:       {}\n  Hook timeouts:   {}\n  Hook exec errs:  {}\n  Hook exits!=0:   {}\n  Hook wakes:      {}\n  Last hook fail:  {}\n  Last hook at:    {}\n  Last hook timeout: {}",
                 state.query_source,
                 if state.autocompact_disabled {
                     "disabled"
@@ -74,6 +84,7 @@ impl Command for StatusCommand {
                     .last_compaction_breaker_reason
                     .as_deref()
                     .unwrap_or("none"),
+                breaker_hint,
                 state
                     .last_compaction_mode
                     .as_deref()
@@ -125,6 +136,8 @@ impl Command for StatusCommand {
                         )
                     })
                     .unwrap_or_else(|| "none".to_string()),
+                memory_freshness,
+                if memory_pending { "yes" } else { "no" },
                 state.recovery_state,
                 state.recovery_single_step_count,
                 state.recovery_reanchor_count,
@@ -306,9 +319,61 @@ fn extract_review_result_body(content: &str) -> Option<&str> {
     Some(&content[body_start..body_start + end])
 }
 
+fn parse_runtime_timestamp(value: Option<&str>) -> Option<NaiveDateTime> {
+    value.and_then(|value| NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S").ok())
+}
+
+fn memory_freshness_label(last_update_at: Option<&str>) -> &'static str {
+    let Some(last_update) = parse_runtime_timestamp(last_update_at) else {
+        return "unknown";
+    };
+    let age = Local::now().naive_local() - last_update;
+    if age.num_minutes() <= 10 {
+        "fresh"
+    } else if age.num_minutes() <= 60 {
+        "warm"
+    } else {
+        "stale"
+    }
+}
+
+fn memory_update_pending(
+    live_session_memory_updating: bool,
+    last_session_memory_update_at: Option<&str>,
+    last_tool_turn_completed_at: Option<&str>,
+) -> bool {
+    if live_session_memory_updating {
+        return true;
+    }
+    let Some(last_tool_turn) = parse_runtime_timestamp(last_tool_turn_completed_at) else {
+        return false;
+    };
+    let Some(last_memory_update) = parse_runtime_timestamp(last_session_memory_update_at) else {
+        return true;
+    };
+    last_tool_turn > last_memory_update
+}
+
+fn compact_breaker_hint(reason: Option<&str>) -> &'static str {
+    match reason {
+        Some(reason) if reason.contains("compression made no changes") => {
+            "Try /compact after a larger turn or clear older context."
+        }
+        Some(reason) if reason.contains("timeout") => {
+            "Reduce turn scope before retrying compaction."
+        }
+        Some(_) => "Shorten the next turn or clear stale context before retrying.",
+        None => "none",
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::latest_review_summary;
+    use chrono::Local;
+    use super::{
+        compact_breaker_hint, latest_review_summary, memory_freshness_label,
+        memory_update_pending,
+    };
 
     #[test]
     fn latest_review_summary_detects_clean_artifact() {
@@ -328,5 +393,21 @@ mod tests {
         assert_eq!(summary.status, "clean");
         assert!(summary.preview.contains("No issues found."));
         let _ = std::fs::remove_dir_all(&review_dir);
+    }
+
+    #[test]
+    fn memory_helpers_surface_freshness_and_pending() {
+        let now = Local::now().naive_local();
+        let fresh = now.format("%Y-%m-%d %H:%M:%S").to_string();
+        let stale = (now - chrono::Duration::minutes(90))
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string();
+        assert_eq!(memory_freshness_label(Some(&fresh)), "fresh");
+        assert_eq!(memory_freshness_label(Some(&stale)), "stale");
+        assert!(memory_update_pending(false, Some(&stale), Some(&fresh)));
+        assert_eq!(
+            compact_breaker_hint(Some("compression made no changes")),
+            "Try /compact after a larger turn or clear older context."
+        );
     }
 }
