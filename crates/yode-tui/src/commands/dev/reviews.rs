@@ -1,5 +1,6 @@
 use crate::commands::context::CommandContext;
 use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
+use yode_tools::builtin::review_common::review_output_has_findings;
 
 pub struct ReviewsCommand {
     meta: CommandMeta,
@@ -73,7 +74,16 @@ impl Command for ReviewsCommand {
                 dir.display()
             );
             for (idx, path) in entries.iter().take(12).enumerate() {
-                output.push_str(&format!("  {:>2}. {}\n", idx + 1, path.display()));
+                let badge = std::fs::read_to_string(path)
+                    .ok()
+                    .map(|content| review_artifact_badge(&content))
+                    .unwrap_or("unknown");
+                output.push_str(&format!(
+                    "  {:>2}. [{}] {}\n",
+                    idx + 1,
+                    badge,
+                    path.display()
+                ));
             }
             output.push_str("\nUse /reviews <index>, /reviews latest, or /reviews latest <kind>.");
             return Ok(CommandOutput::Message(output));
@@ -87,10 +97,11 @@ impl Command for ReviewsCommand {
             let content = std::fs::read_to_string(path)
                 .map_err(|err| format!("Failed to read {}: {}", path.display(), err))?;
             return Ok(CommandOutput::Message(format!(
-                "Latest review artifact{}\nPath: {}\n\n{}",
+                "Latest review artifact{} [{}]\nPath: {}\n\n{}",
                 kind_filter
                     .map(|kind| format!(" [{}]", kind))
                     .unwrap_or_default(),
+                review_artifact_badge(&content),
                 path.display(),
                 content
             )));
@@ -109,10 +120,53 @@ impl Command for ReviewsCommand {
         let content = std::fs::read_to_string(path)
             .map_err(|err| format!("Failed to read {}: {}", path.display(), err))?;
         Ok(CommandOutput::Message(format!(
-            "Review artifact {}\nPath: {}\n\n{}",
+            "Review artifact {} [{}]\nPath: {}\n\n{}",
             index,
+            review_artifact_badge(&content),
             path.display(),
             content
         )))
+    }
+}
+
+fn review_artifact_badge(content: &str) -> &'static str {
+    let body = extract_review_result_body(content).unwrap_or(content);
+    if body.trim().is_empty() {
+        return "unknown";
+    }
+    if review_output_has_findings(body) {
+        "findings"
+    } else {
+        "clean"
+    }
+}
+
+fn extract_review_result_body(content: &str) -> Option<&str> {
+    let start = content.find("```text\n")?;
+    let body_start = start + "```text\n".len();
+    let end = content[body_start..].find("\n```")?;
+    Some(&content[body_start..body_start + end])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{extract_review_result_body, review_artifact_badge};
+
+    #[test]
+    fn review_artifact_badge_detects_clean_output() {
+        let content = "# Review Artifact\n\n## Result\n\n```text\nNo issues found.\nResidual risk: none.\n```\n";
+        assert_eq!(review_artifact_badge(content), "clean");
+    }
+
+    #[test]
+    fn review_artifact_badge_detects_findings_output() {
+        let content = "# Review Artifact\n\n## Result\n\n```text\n1. Missing regression test\n```\n";
+        assert_eq!(review_artifact_badge(content), "findings");
+    }
+
+    #[test]
+    fn extract_review_result_body_reads_text_fence() {
+        let content = "before\n```text\nhello\nworld\n```\nafter";
+        assert_eq!(extract_review_result_body(content), Some("hello\nworld"));
     }
 }

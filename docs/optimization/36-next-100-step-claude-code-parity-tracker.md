@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `012 review artifact status badges`
+- `013 latest review summary in /status`
 
 当前进度：
 
-- `9 / 100` 已完成
+- `10 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -48,7 +48,7 @@
 ## 011-020 Review / CI / Commit Flow
 
 - `[x] 011 review pipeline presets for staged vs all changes`
-- `[ ] 012 review artifact status badges`
+- `[x] 012 review artifact status badges`
 - `[ ] 013 latest review summary in /status`
 - `[ ] 014 structured findings count metadata`
 - `[ ] 015 commit gate driven by review artifact status`
