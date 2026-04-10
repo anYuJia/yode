@@ -19,10 +19,11 @@ impl DoctorCommand {
                 args: vec![ArgDef {
                     name: "target".to_string(),
                     required: false,
-                    hint: "[remote|remote-review]".to_string(),
+                    hint: "[remote|remote-review|remote-artifacts]".to_string(),
                     completions: ArgCompletionSource::Static(vec![
                         "remote".to_string(),
                         "remote-review".to_string(),
+                        "remote-artifacts".to_string(),
                     ]),
                 }],
                 category: CommandCategory::Info,
@@ -43,6 +44,9 @@ impl Command for DoctorCommand {
         }
         if args.trim() == "remote-review" {
             return Ok(CommandOutput::Message(render_remote_review_prereqs(ctx)));
+        }
+        if args.trim() == "remote-artifacts" {
+            return Ok(CommandOutput::Message(render_remote_artifact_index(ctx)));
         }
 
         let mut checks = Vec::new();
@@ -454,6 +458,49 @@ fn render_remote_review_prereqs(ctx: &mut CommandContext) -> String {
         "Remote Review Prerequisites:\n\n{}\n\nNext steps:\n  Use `/doctor remote` for base transport checks.\n  Fix [!!] items before relying on remote review automation.",
         checks.join("\n")
     )
+}
+
+fn render_remote_artifact_index(ctx: &mut CommandContext) -> String {
+    let remote_dir = std::path::PathBuf::from(&ctx.session.working_dir)
+        .join(".yode")
+        .join("remote");
+    let mut entries = std::fs::read_dir(&remote_dir)
+        .ok()
+        .into_iter()
+        .flat_map(|iter| iter.filter_map(Result::ok))
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file())
+        .collect::<Vec<_>>();
+    entries.sort();
+
+    if entries.is_empty() {
+        return format!(
+            "Remote Session Artifact Index:\n\n  [--] No remote artifacts found in {}\n\nNext steps:\n  Run `/doctor remote` first to verify the base remote workspace path.",
+            remote_dir.display()
+        );
+    }
+
+    let mut lines = vec![format!(
+        "Remote Session Artifact Index:\n\n  Directory: {}\n  Files:     {}",
+        remote_dir.display(),
+        entries.len()
+    )];
+    for path in entries.into_iter().take(20) {
+        let meta = std::fs::metadata(&path).ok();
+        let size = meta.as_ref().map(|meta| meta.len()).unwrap_or(0);
+        let modified = meta
+            .and_then(|meta| meta.modified().ok())
+            .and_then(|stamp| stamp.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|stamp| stamp.as_secs().to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+        lines.push(format!(
+            "  - {} ({} bytes, mtime={})",
+            path.display(),
+            size,
+            modified
+        ));
+    }
+    lines.join("\n")
 }
 
 fn command_available(command: &str, version_arg: &str) -> bool {

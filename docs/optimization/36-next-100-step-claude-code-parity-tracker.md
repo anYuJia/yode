@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `059 remote session artifact index`
+- `060 MCP / browser parity design notes`
 
 当前进度：
 
-- `70 / 100` 已完成
+- `71 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -107,7 +107,7 @@
 - `[x] 056 remote review prerequisite diagnostics`
 - `[x] 057 MCP reconnect backoff diagnostics`
 - `[x] 058 multi-server tool source badges`
-- `[ ] 059 remote session artifact index`
+- `[x] 059 remote session artifact index`
 - `[ ] 060 MCP / browser parity design notes`
 
 ## 061-070 TUI / UX / Narrow Layout
