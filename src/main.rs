@@ -338,6 +338,14 @@ async fn main() -> Result<()> {
                             }
                         }
 
+                        match check_workspace_package_versions() {
+                            Ok(()) => println!("  [ok] workspace package versions consistent"),
+                            Err(err) => {
+                                has_failure = true;
+                                println!("  [!!] workspace package version check failed: {}", err);
+                            }
+                        }
+
                         for (label, mut command) in [
                             (
                                 "cargo check",
@@ -1028,6 +1036,45 @@ async fn main() -> Result<()> {
     }
 
     info!("Yode exiting.");
+    Ok(())
+}
+
+fn check_workspace_package_versions() -> Result<()> {
+    let output = std::process::Command::new("cargo")
+        .args(["metadata", "--no-deps", "--format-version", "1"])
+        .output()
+        .context("failed to run cargo metadata")?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "cargo metadata failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let metadata: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .context("failed to parse cargo metadata output")?;
+    let packages = metadata
+        .get("packages")
+        .and_then(|value| value.as_array())
+        .ok_or_else(|| anyhow::anyhow!("cargo metadata missing packages array"))?;
+    let mismatches = packages
+        .iter()
+        .filter_map(|package| {
+            let name = package.get("name").and_then(|value| value.as_str())?;
+            if name != "yode" && !name.starts_with("yode-") {
+                return None;
+            }
+            let version = package.get("version").and_then(|value| value.as_str())?;
+            (version != yode_core::updater::CURRENT_VERSION)
+                .then(|| format!("{}={}", name, version))
+        })
+        .collect::<Vec<_>>();
+    if !mismatches.is_empty() {
+        anyhow::bail!(
+            "expected {}, mismatches: {}",
+            yode_core::updater::CURRENT_VERSION,
+            mismatches.join(", ")
+        );
+    }
     Ok(())
 }
 

@@ -30,7 +30,7 @@
 
 当前进度：
 
-- `33 / 100` 已完成
+- `34 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -145,7 +145,7 @@
 - `[x] 085 workflow template smoke tests in CI`
 - `[x] 086 artifact index smoke test`
 - `[x] 087 updater channel diagnostics`
-- `[ ] 088 package metadata consistency checks`
+- `[x] 088 package metadata consistency checks`
 - `[x] 089 integration-test gating cleanup`
 - `[ ] 090 release checklist automation`
 
