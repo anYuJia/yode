@@ -371,6 +371,8 @@ pub struct EngineRuntimeState {
     pub last_hook_timeout_command: Option<String>,
     pub last_compaction_prompt_tokens: Option<u32>,
     pub avg_compaction_prompt_tokens: Option<u32>,
+    pub system_prompt_estimated_tokens: usize,
+    pub system_prompt_segments: Vec<SystemPromptSegmentRuntimeState>,
     pub prompt_cache: PromptCacheRuntimeState,
     pub recovery_state: String,
     pub recovery_single_step_count: u32,
@@ -424,6 +426,20 @@ pub struct PromptCacheRuntimeState {
     pub cache_read_turns: u32,
     pub cache_write_tokens_total: u64,
     pub cache_read_tokens_total: u64,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SystemPromptSegmentRuntimeState {
+    pub label: String,
+    pub chars: usize,
+    pub estimated_tokens: usize,
+}
+
+#[derive(Debug, Clone, Default)]
+struct SystemPromptBuild {
+    prompt: String,
+    segments: Vec<SystemPromptSegmentRuntimeState>,
+    estimated_tokens: usize,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -672,6 +688,10 @@ pub struct AgentEngine {
     compaction_prompt_token_samples: u32,
     /// Prompt cache telemetry accumulated across turns.
     prompt_cache_runtime: PromptCacheRuntimeState,
+    /// Estimated token footprint for the current system prompt.
+    system_prompt_estimated_tokens: usize,
+    /// Segment breakdown for the current system prompt.
+    system_prompt_segments: Vec<SystemPromptSegmentRuntimeState>,
 }
 
 /// Convert yode-tools ToolDefinition to yode-llm ToolDefinition.
@@ -978,7 +998,8 @@ impl AgentEngine {
         permissions: PermissionManager,
         context: AgentContext,
     ) -> Self {
-        let system_prompt = Self::build_system_prompt_for_context(&context);
+        let system_prompt_build = Self::build_system_prompt_for_context(&context);
+        let system_prompt = system_prompt_build.prompt.clone();
 
         let messages = vec![Message::system(&system_prompt)];
 
@@ -1076,6 +1097,8 @@ impl AgentEngine {
             compaction_prompt_tokens_total: 0,
             compaction_prompt_token_samples: 0,
             prompt_cache_runtime: PromptCacheRuntimeState::default(),
+            system_prompt_estimated_tokens: system_prompt_build.estimated_tokens,
+            system_prompt_segments: system_prompt_build.segments,
         }
     }
 
@@ -1102,9 +1125,12 @@ impl AgentEngine {
     /// Rebuild the system prompt with current context (model, provider, etc.)
     /// and update the first message in the conversation history.
     fn rebuild_system_prompt(&mut self) {
-        let system_prompt = Self::build_system_prompt_for_context(&self.context);
+        let system_prompt_build = Self::build_system_prompt_for_context(&self.context);
+        let system_prompt = system_prompt_build.prompt;
 
         self.system_prompt = system_prompt.clone();
+        self.system_prompt_estimated_tokens = system_prompt_build.estimated_tokens;
+        self.system_prompt_segments = system_prompt_build.segments;
 
         // Update the system message in conversation history
         if let Some(first) = self.messages.first_mut() {
@@ -1115,12 +1141,19 @@ impl AgentEngine {
         }
     }
 
-    fn build_system_prompt_for_context(context: &AgentContext) -> String {
-        let mut system_prompt = include_str!("../../../prompts/system.md").to_string();
+    fn build_system_prompt_for_context(context: &AgentContext) -> SystemPromptBuild {
+        let mut segments = Vec::new();
         let cwd = context.working_dir_compat();
+        let mut push_segment = |label: &str, content: String| {
+            if !content.trim().is_empty() {
+                segments.push((label.to_string(), content));
+            }
+        };
 
-        system_prompt.push_str("\n\n# Environment\n\n");
-        system_prompt.push_str(&format!(
+        push_segment("Base prompt", include_str!("../../../prompts/system.md").to_string());
+
+        let mut environment = String::from("# Environment\n\n");
+        environment.push_str(&format!(
             "- Working directory: {}\n- Project root: {}\n- Platform: {} ({})\n- Date: {}\n- Model: {}\n- Provider: {}\n",
             cwd.display(),
             cwd.display(),
@@ -1132,7 +1165,7 @@ impl AgentEngine {
         ));
 
         if cwd.join(".git").exists() {
-            system_prompt.push_str("- Git repo: yes\n");
+            environment.push_str("- Git repo: yes\n");
             if let Ok(output) = std::process::Command::new("git")
                 .args(["branch", "--show-current"])
                 .current_dir(&cwd)
@@ -1140,46 +1173,68 @@ impl AgentEngine {
             {
                 let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
                 if !branch.is_empty() {
-                    system_prompt.push_str(&format!("- Branch: {}\n", branch));
+                    environment.push_str(&format!("- Branch: {}\n", branch));
                 }
             }
         }
+        push_segment("Environment", environment);
 
         if let Some(instruction_content) = load_instruction_context(&cwd) {
-            system_prompt.push_str("\n\n");
-            system_prompt.push_str(&instruction_content);
+            push_segment("Instruction memory", instruction_content);
         }
 
         if let Some(memory_content) = load_memory_context(&cwd) {
-            system_prompt.push_str("\n\n");
-            system_prompt.push_str(&memory_content);
+            push_segment("Persistent memory", memory_content);
         }
 
         if context.output_style != "default" {
-            system_prompt.push_str("\n\n# Output Style\n\n");
+            let mut output_style = String::from("# Output Style\n\n");
             match context.output_style.as_str() {
                 "explanatory" => {
-                    system_prompt.push_str("You are in **Explanatory Mode**. Before and after writing code, provide brief educational insights about implementation choices.\n");
-                    system_prompt.push_str("Include 2-3 key educational points explaining WHY you chose this approach.\n");
-                    system_prompt.push_str(
+                    output_style.push_str("You are in **Explanatory Mode**. Before and after writing code, provide brief educational insights about implementation choices.\n");
+                    output_style.push_str("Include 2-3 key educational points explaining WHY you chose this approach.\n");
+                    output_style.push_str(
                         "These insights should be in the conversation, not in the codebase.\n",
                     );
                 }
                 "learning" => {
-                    system_prompt.push_str("You are in **Learning Mode**. Help the user learn through hands-on practice.\n");
-                    system_prompt
+                    output_style.push_str("You are in **Learning Mode**. Help the user learn through hands-on practice.\n");
+                    output_style
                         .push_str("- Request user input for meaningful design decisions\n");
-                    system_prompt.push_str("- Ask the user to write small code pieces (2-10 lines) for key decisions\n");
-                    system_prompt.push_str(
+                    output_style.push_str("- Ask the user to write small code pieces (2-10 lines) for key decisions\n");
+                    output_style.push_str(
                         "- Frame contributions as valuable design decisions, not busy work\n",
                     );
-                    system_prompt.push_str("- Wait for user implementation before proceeding\n");
+                    output_style.push_str("- Wait for user implementation before proceeding\n");
                 }
                 _ => {}
             }
+            push_segment("Output style", output_style);
         }
 
-        system_prompt
+        let prompt = segments
+            .iter()
+            .map(|(_, content)| content.trim_end().to_string())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        let estimator = ContextManager::new(&context.model);
+        let runtime_segments = segments
+            .into_iter()
+            .map(|(label, content)| SystemPromptSegmentRuntimeState {
+                chars: content.chars().count(),
+                estimated_tokens: estimator.estimate_tokens_for_messages(&[Message::system(
+                    content.clone(),
+                )]),
+                label,
+            })
+            .collect::<Vec<_>>();
+
+        SystemPromptBuild {
+            estimated_tokens: estimator
+                .estimate_tokens_for_messages(&[Message::system(prompt.clone())]),
+            prompt,
+            segments: runtime_segments,
+        }
     }
 
     pub fn set_effort(&mut self, level: EffortLevel) {
@@ -1304,6 +1359,8 @@ impl AgentEngine {
                 (self.compaction_prompt_tokens_total / self.compaction_prompt_token_samples as u64)
                     as u32
             }),
+            system_prompt_estimated_tokens: self.system_prompt_estimated_tokens,
+            system_prompt_segments: self.system_prompt_segments.clone(),
             prompt_cache: self.prompt_cache_runtime.clone(),
             recovery_state: format!("{:?}", self.recovery_state),
             recovery_single_step_count: self.recovery_single_step_count,
@@ -6284,6 +6341,23 @@ mod tests {
         assert_eq!(runtime.prompt_cache.cache_read_turns, 1);
         assert_eq!(runtime.prompt_cache.cache_write_tokens_total, 300);
         assert_eq!(runtime.prompt_cache.cache_read_tokens_total, 200);
+    }
+
+    #[test]
+    fn test_system_prompt_runtime_state_tracks_segment_breakdown() {
+        let engine = make_engine(vec![], vec![]);
+        let runtime = engine.runtime_state();
+
+        assert!(runtime.system_prompt_estimated_tokens > 0);
+        assert!(runtime.system_prompt_segments.len() >= 2);
+        assert!(runtime
+            .system_prompt_segments
+            .iter()
+            .any(|segment| segment.label == "Base prompt"));
+        assert!(runtime
+            .system_prompt_segments
+            .iter()
+            .any(|segment| segment.label == "Environment"));
     }
 
     #[tokio::test]

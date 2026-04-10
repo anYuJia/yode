@@ -70,8 +70,10 @@ impl Command for StatusCommand {
                 compact_breaker_hint(state.last_compaction_breaker_reason.as_deref());
             let prompt_cache_last_turn = prompt_cache_last_turn_status(&state.prompt_cache);
             let prompt_cache_miss_turns = prompt_cache_miss_turns(&state.prompt_cache);
+            let system_prompt_breakdown =
+                system_prompt_segment_breakdown(&state.system_prompt_segments);
             format!(
-                "\n\nCompact:\n  Query source:    {}\n  Autocompact:     {}\n  Compact fails:   {}\n  Compact count:   {} (auto {}, manual {})\n  Breaker reason:  {}\n  Breaker hint:    {}\n  Last compact:    {}\n  Compact at:      {}\n  Compact summary: {}\n  Last compact mem: {}\n  Last transcript: {}\n\nPrompt Cache:\n  Last turn:       {}\n  Last tokens:     {} prompt / {} completion\n  Last cache:      {} write / {} read\n  Cache turns:     {} reported / {} hit / {} miss / {} fill\n  Cache tokens:    {} write / {} read\n\nMemory:\n  Live memory:     {}{}\n  Live memory file: {}\n  Memory updates:  {}\n  Last memory update: {}\n  Freshness:       {}\n  Pending update:  {}\n\nRecovery:\n  State:           {}\n  Single-step:     {}\n  Reanchor:        {}\n  Need guidance:   {}\n  Last signature:  {}\n  Breadcrumbs:     {}\n  Artifact:        {}\n  Last permission: {} [{}]\n  Permission why:  {}\n  Permission artifact: {}\n  Recent denials:  {}\n\nTools:\n  Session tools:   {}\n  Current turn:    {} calls / {} bytes\n  Budget notices:  {} (warning {})\n  Budget active:   notice={} warning={}\n  Progress events: {} (last: {} / {})\n  Parallel:        {} batches / {} calls (max {})\n  Truncations:     {} (last: {})\n  Error types:     {}\n  Repeat fail:     {}\n  Tool traces:     {} turn / {} calls\n  Tool artifact:   {}\n  Tool turn done:  {}\n  Failed tools:    {}\n  Always-allow:    {}\n\nReviews:\n  Latest review:   {}\n  Review status:   {}\n  Review preview:  {}\n\nHooks:\n  Hook runs:       {}\n  Hook timeouts:   {}\n  Hook exec errs:  {}\n  Hook exits!=0:   {}\n  Hook wakes:      {}\n  Last hook fail:  {}\n  Last hook at:    {}\n  Last hook timeout: {}",
+                "\n\nCompact:\n  Query source:    {}\n  Autocompact:     {}\n  Compact fails:   {}\n  Compact count:   {} (auto {}, manual {})\n  Breaker reason:  {}\n  Breaker hint:    {}\n  Last compact:    {}\n  Compact at:      {}\n  Compact summary: {}\n  Last compact mem: {}\n  Last transcript: {}\n\nSystem Prompt:\n  Total est:       {} tokens\n{}\n\nPrompt Cache:\n  Last turn:       {}\n  Last tokens:     {} prompt / {} completion\n  Last cache:      {} write / {} read\n  Cache turns:     {} reported / {} hit / {} miss / {} fill\n  Cache tokens:    {} write / {} read\n\nMemory:\n  Live memory:     {}{}\n  Live memory file: {}\n  Memory updates:  {}\n  Last memory update: {}\n  Freshness:       {}\n  Pending update:  {}\n\nRecovery:\n  State:           {}\n  Single-step:     {}\n  Reanchor:        {}\n  Need guidance:   {}\n  Last signature:  {}\n  Breadcrumbs:     {}\n  Artifact:        {}\n  Last permission: {} [{}]\n  Permission why:  {}\n  Permission artifact: {}\n  Recent denials:  {}\n\nTools:\n  Session tools:   {}\n  Current turn:    {} calls / {} bytes\n  Budget notices:  {} (warning {})\n  Budget active:   notice={} warning={}\n  Progress events: {} (last: {} / {})\n  Parallel:        {} batches / {} calls (max {})\n  Truncations:     {} (last: {})\n  Error types:     {}\n  Repeat fail:     {}\n  Tool traces:     {} turn / {} calls\n  Tool artifact:   {}\n  Tool turn done:  {}\n  Failed tools:    {}\n  Always-allow:    {}\n\nReviews:\n  Latest review:   {}\n  Review status:   {}\n  Review preview:  {}\n\nHooks:\n  Hook runs:       {}\n  Hook timeouts:   {}\n  Hook exec errs:  {}\n  Hook exits!=0:   {}\n  Hook wakes:      {}\n  Last hook fail:  {}\n  Last hook at:    {}\n  Last hook timeout: {}",
                 state.query_source,
                 if state.autocompact_disabled {
                     "disabled"
@@ -107,6 +109,8 @@ impl Command for StatusCommand {
                     .last_compaction_transcript_path
                     .as_deref()
                     .unwrap_or("none"),
+                state.system_prompt_estimated_tokens,
+                system_prompt_breakdown,
                 prompt_cache_last_turn,
                 state.prompt_cache.last_turn_prompt_tokens.unwrap_or(0),
                 state.prompt_cache.last_turn_completion_tokens.unwrap_or(0),
@@ -411,13 +415,33 @@ fn prompt_cache_miss_turns(cache: &yode_core::engine::PromptCacheRuntimeState) -
     cache.reported_turns.saturating_sub(cache.cache_read_turns)
 }
 
+fn system_prompt_segment_breakdown(
+    segments: &[yode_core::engine::SystemPromptSegmentRuntimeState],
+) -> String {
+    if segments.is_empty() {
+        return "  Segments:       none".to_string();
+    }
+
+    segments
+        .iter()
+        .map(|segment| {
+            format!(
+                "  {}: {} tok / {} chars",
+                segment.label, segment.estimated_tokens, segment.chars
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 #[cfg(test)]
 mod tests {
     use chrono::Local;
-    use yode_core::engine::PromptCacheRuntimeState;
+    use yode_core::engine::{PromptCacheRuntimeState, SystemPromptSegmentRuntimeState};
     use super::{
         compact_breaker_hint, latest_review_summary, memory_freshness_label,
         memory_update_pending, prompt_cache_last_turn_status, prompt_cache_miss_turns,
+        system_prompt_segment_breakdown,
     };
 
     #[test]
@@ -485,5 +509,24 @@ mod tests {
         };
         assert_eq!(prompt_cache_last_turn_status(&miss), "miss");
         assert_eq!(prompt_cache_miss_turns(&miss), 2);
+    }
+
+    #[test]
+    fn system_prompt_breakdown_formats_segment_lines() {
+        let rendered = system_prompt_segment_breakdown(&[
+            SystemPromptSegmentRuntimeState {
+                label: "Base prompt".to_string(),
+                chars: 4000,
+                estimated_tokens: 1000,
+            },
+            SystemPromptSegmentRuntimeState {
+                label: "Environment".to_string(),
+                chars: 120,
+                estimated_tokens: 30,
+            },
+        ]);
+
+        assert!(rendered.contains("Base prompt: 1000 tok / 4000 chars"));
+        assert!(rendered.contains("Environment: 30 tok / 120 chars"));
     }
 }
