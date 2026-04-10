@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `031 prompt-cache telemetry per turn`
+- `032 cache hit / miss status surface`
 
 当前进度：
 
-- `57 / 100` 已完成
+- `58 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -73,7 +73,7 @@
 
 ## 031-040 Context / Prompt Cache / Memory
 
-- `[ ] 031 prompt-cache telemetry per turn`
+- `[x] 031 prompt-cache telemetry per turn`
 - `[ ] 032 cache hit / miss status surface`
 - `[ ] 033 system-prompt segment token breakdown`
 - `[ ] 034 compaction cause histogram`

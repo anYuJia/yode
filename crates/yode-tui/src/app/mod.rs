@@ -2317,13 +2317,17 @@ fn handle_engine_event(
             estimated_cost,
             input_tokens,
             output_tokens,
+            cache_write_tokens,
+            cache_read_tokens,
         } => {
             // Update status bar with cost info (silently)
             tracing::debug!(
-                "Cost: ${:.4} ({}in/{}out)",
+                "Cost: ${:.4} ({}in/{}out, {} cache_write/{} cache_read)",
                 estimated_cost,
                 input_tokens,
-                output_tokens
+                output_tokens,
+                cache_write_tokens,
+                cache_read_tokens
             );
         }
         EngineEvent::BudgetExceeded { cost, limit } => {

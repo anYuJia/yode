@@ -117,6 +117,10 @@ struct AnthropicUsage {
     #[serde(default)]
     input_tokens: u32,
     #[serde(default)]
+    cache_creation_input_tokens: u32,
+    #[serde(default)]
+    cache_read_input_tokens: u32,
+    #[serde(default)]
     output_tokens: u32,
 }
 
@@ -489,11 +493,7 @@ impl LlmProvider for AnthropicProvider {
 
         let usage = api_resp
             .usage
-            .map(|u| Usage {
-                prompt_tokens: u.input_tokens,
-                completion_tokens: u.output_tokens,
-                total_tokens: u.input_tokens + u.output_tokens,
-            })
+            .map(|u| anthropic_usage_to_usage(&u))
             .unwrap_or_default();
 
         let message = Message {
@@ -649,14 +649,8 @@ impl LlmProvider for AnthropicProvider {
                 AnthropicStreamEvent::MessageStart { message } => {
                     model = message.model;
                     if let Some(u) = message.usage {
-                        final_usage.prompt_tokens = u.input_tokens;
-                        let _ = tx
-                            .send(StreamEvent::UsageUpdate(Usage {
-                                prompt_tokens: u.input_tokens,
-                                completion_tokens: 0,
-                                total_tokens: u.input_tokens,
-                            }))
-                            .await;
+                        final_usage = anthropic_usage_to_usage(&u);
+                        let _ = tx.send(StreamEvent::UsageUpdate(final_usage.clone())).await;
                     }
                 }
                 AnthropicStreamEvent::ContentBlockStart {
@@ -828,20 +822,8 @@ impl LlmProvider for AnthropicProvider {
                     }
 
                     if let Some(u) = usage {
-                        final_usage.completion_tokens = u.output_tokens;
-                        if u.input_tokens > 0 {
-                            final_usage.prompt_tokens = u.input_tokens;
-                        }
-                        final_usage.total_tokens =
-                            final_usage.prompt_tokens + final_usage.completion_tokens;
-
-                        let _ = tx
-                            .send(StreamEvent::UsageUpdate(Usage {
-                                prompt_tokens: final_usage.prompt_tokens,
-                                completion_tokens: final_usage.completion_tokens,
-                                total_tokens: final_usage.total_tokens,
-                            }))
-                            .await;
+                        final_usage = anthropic_usage_to_usage(&u);
+                        let _ = tx.send(StreamEvent::UsageUpdate(final_usage.clone())).await;
                     }
                 }
                 AnthropicStreamEvent::MessageStop {} => {
@@ -954,5 +936,19 @@ impl LlmProvider for AnthropicProvider {
                 provider: self.name.clone(),
             },
         ])
+    }
+}
+
+fn anthropic_usage_to_usage(usage: &AnthropicUsage) -> Usage {
+    let prompt_tokens = usage
+        .input_tokens
+        .saturating_add(usage.cache_creation_input_tokens)
+        .saturating_add(usage.cache_read_input_tokens);
+    Usage {
+        prompt_tokens,
+        completion_tokens: usage.output_tokens,
+        total_tokens: prompt_tokens.saturating_add(usage.output_tokens),
+        cache_write_tokens: usage.cache_creation_input_tokens,
+        cache_read_tokens: usage.cache_read_input_tokens,
     }
 }

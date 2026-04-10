@@ -107,9 +107,20 @@ struct OpenAiChoice {
 
 #[derive(Debug, Deserialize)]
 struct OpenAiUsage {
+    #[serde(default)]
     prompt_tokens: u32,
+    #[serde(default)]
     completion_tokens: u32,
+    #[serde(default)]
     total_tokens: u32,
+    #[serde(default)]
+    prompt_tokens_details: Option<OpenAiPromptTokensDetails>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAiPromptTokensDetails {
+    #[serde(default)]
+    cached_tokens: u32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -372,11 +383,7 @@ impl LlmProvider for OpenAiProvider {
 
         let usage = api_resp
             .usage
-            .map(|u| Usage {
-                prompt_tokens: u.prompt_tokens,
-                completion_tokens: u.completion_tokens,
-                total_tokens: u.total_tokens,
-            })
+            .map(|u| openai_usage_to_usage(&u))
             .unwrap_or_default();
 
         debug!(
@@ -506,6 +513,12 @@ impl LlmProvider for OpenAiProvider {
                     prompt_tokens: prompt,
                     completion_tokens: u.completion_tokens,
                     total_tokens: u.total_tokens,
+                    cache_write_tokens: 0,
+                    cache_read_tokens: u
+                        .prompt_tokens_details
+                        .as_ref()
+                        .map(|details| details.cached_tokens)
+                        .unwrap_or(0),
                 };
             }
 
@@ -755,5 +768,19 @@ impl LlmProvider for OpenAiProvider {
             .collect();
 
         Ok(models)
+    }
+}
+
+fn openai_usage_to_usage(usage: &OpenAiUsage) -> Usage {
+    Usage {
+        prompt_tokens: usage.prompt_tokens,
+        completion_tokens: usage.completion_tokens,
+        total_tokens: usage.total_tokens,
+        cache_write_tokens: 0,
+        cache_read_tokens: usage
+            .prompt_tokens_details
+            .as_ref()
+            .map(|details| details.cached_tokens)
+            .unwrap_or(0),
     }
 }

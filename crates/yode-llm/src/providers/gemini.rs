@@ -108,6 +108,8 @@ struct GeminiUsage {
     candidates_token_count: u32,
     #[serde(default)]
     total_token_count: u32,
+    #[serde(default)]
+    cached_content_token_count: u32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -298,11 +300,7 @@ fn parse_response(resp: &GeminiResponse, _model: &str) -> (Message, Usage) {
     let usage = resp
         .usage_metadata
         .as_ref()
-        .map(|u| Usage {
-            prompt_tokens: u.prompt_token_count,
-            completion_tokens: u.candidates_token_count,
-            total_tokens: u.total_token_count,
-        })
+        .map(gemini_usage_to_usage)
         .unwrap_or_default();
 
     let message = Message {
@@ -448,11 +446,7 @@ impl LlmProvider for GeminiProvider {
             };
 
             if let Some(ref u) = chunk.usage_metadata {
-                final_usage = Usage {
-                    prompt_tokens: u.prompt_token_count,
-                    completion_tokens: u.candidates_token_count,
-                    total_tokens: u.total_token_count,
-                };
+                final_usage = gemini_usage_to_usage(u);
             }
 
             if let Some(ref candidates) = chunk.candidates {
@@ -571,5 +565,15 @@ impl LlmProvider for GeminiProvider {
                 }
             })
             .collect())
+    }
+}
+
+fn gemini_usage_to_usage(usage: &GeminiUsage) -> Usage {
+    Usage {
+        prompt_tokens: usage.prompt_token_count,
+        completion_tokens: usage.candidates_token_count,
+        total_tokens: usage.total_token_count,
+        cache_write_tokens: 0,
+        cache_read_tokens: usage.cached_content_token_count,
     }
 }

@@ -305,6 +305,8 @@ pub enum EngineEvent {
         estimated_cost: f64,
         input_tokens: u64,
         output_tokens: u64,
+        cache_write_tokens: u64,
+        cache_read_tokens: u64,
     },
     /// Budget limit exceeded
     BudgetExceeded { cost: f64, limit: f64 },
@@ -369,6 +371,7 @@ pub struct EngineRuntimeState {
     pub last_hook_timeout_command: Option<String>,
     pub last_compaction_prompt_tokens: Option<u32>,
     pub avg_compaction_prompt_tokens: Option<u32>,
+    pub prompt_cache: PromptCacheRuntimeState,
     pub recovery_state: String,
     pub recovery_single_step_count: u32,
     pub recovery_reanchor_count: u32,
@@ -408,6 +411,19 @@ pub struct EngineRuntimeState {
     pub tool_error_type_counts: BTreeMap<String, u32>,
     pub tool_trace_scope: String,
     pub tool_traces: Vec<ToolRuntimeCallView>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct PromptCacheRuntimeState {
+    pub last_turn_prompt_tokens: Option<u32>,
+    pub last_turn_completion_tokens: Option<u32>,
+    pub last_turn_cache_write_tokens: Option<u32>,
+    pub last_turn_cache_read_tokens: Option<u32>,
+    pub reported_turns: u32,
+    pub cache_write_turns: u32,
+    pub cache_read_turns: u32,
+    pub cache_write_tokens_total: u64,
+    pub cache_read_tokens_total: u64,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -654,6 +670,8 @@ pub struct AgentEngine {
     compaction_prompt_tokens_total: u64,
     /// Sample count for compaction-trigger prompt token telemetry.
     compaction_prompt_token_samples: u32,
+    /// Prompt cache telemetry accumulated across turns.
+    prompt_cache_runtime: PromptCacheRuntimeState,
 }
 
 /// Convert yode-tools ToolDefinition to yode-llm ToolDefinition.
@@ -1057,6 +1075,7 @@ impl AgentEngine {
             last_compaction_prompt_tokens: None,
             compaction_prompt_tokens_total: 0,
             compaction_prompt_token_samples: 0,
+            prompt_cache_runtime: PromptCacheRuntimeState::default(),
         }
     }
 
@@ -1285,6 +1304,7 @@ impl AgentEngine {
                 (self.compaction_prompt_tokens_total / self.compaction_prompt_token_samples as u64)
                     as u32
             }),
+            prompt_cache: self.prompt_cache_runtime.clone(),
             recovery_state: format!("{:?}", self.recovery_state),
             recovery_single_step_count: self.recovery_single_step_count,
             recovery_reanchor_count: self.recovery_reanchor_count,
@@ -1430,6 +1450,73 @@ impl AgentEngine {
         self.current_tool_execution_traces.clear();
         self.total_tool_results_bytes = 0;
         self.tool_call_count = 0;
+    }
+
+    fn reset_prompt_cache_turn_runtime(&mut self) {
+        self.prompt_cache_runtime.last_turn_prompt_tokens = None;
+        self.prompt_cache_runtime.last_turn_completion_tokens = None;
+        self.prompt_cache_runtime.last_turn_cache_write_tokens = None;
+        self.prompt_cache_runtime.last_turn_cache_read_tokens = None;
+    }
+
+    fn record_response_usage(
+        &mut self,
+        usage: &yode_llm::types::Usage,
+        event_tx: &mpsc::UnboundedSender<EngineEvent>,
+    ) {
+        self.cost_tracker.record_usage(
+            usage.uncached_prompt_tokens() as u64,
+            usage.completion_tokens as u64,
+        );
+        if usage.cache_write_tokens > 0 || usage.cache_read_tokens > 0 {
+            self.cost_tracker.record_cache_usage(
+                usage.cache_write_tokens as u64,
+                usage.cache_read_tokens as u64,
+            );
+        }
+
+        if usage.has_reported_tokens() {
+            self.prompt_cache_runtime.last_turn_prompt_tokens = Some(usage.prompt_tokens);
+            self.prompt_cache_runtime.last_turn_completion_tokens =
+                Some(usage.completion_tokens);
+            self.prompt_cache_runtime.last_turn_cache_write_tokens =
+                Some(usage.cache_write_tokens);
+            self.prompt_cache_runtime.last_turn_cache_read_tokens =
+                Some(usage.cache_read_tokens);
+            self.prompt_cache_runtime.reported_turns =
+                self.prompt_cache_runtime.reported_turns.saturating_add(1);
+            if usage.cache_write_tokens > 0 {
+                self.prompt_cache_runtime.cache_write_turns =
+                    self.prompt_cache_runtime.cache_write_turns.saturating_add(1);
+            }
+            if usage.cache_read_tokens > 0 {
+                self.prompt_cache_runtime.cache_read_turns =
+                    self.prompt_cache_runtime.cache_read_turns.saturating_add(1);
+            }
+            self.prompt_cache_runtime.cache_write_tokens_total = self
+                .prompt_cache_runtime
+                .cache_write_tokens_total
+                .saturating_add(usage.cache_write_tokens as u64);
+            self.prompt_cache_runtime.cache_read_tokens_total = self
+                .prompt_cache_runtime
+                .cache_read_tokens_total
+                .saturating_add(usage.cache_read_tokens as u64);
+        }
+
+        let _ = event_tx.send(EngineEvent::CostUpdate {
+            estimated_cost: self.cost_tracker.estimated_cost(),
+            input_tokens: self.cost_tracker.usage().input_tokens,
+            output_tokens: self.cost_tracker.usage().output_tokens,
+            cache_write_tokens: self.cost_tracker.usage().cache_write_tokens,
+            cache_read_tokens: self.cost_tracker.usage().cache_read_tokens,
+        });
+
+        if self.cost_tracker.is_over_budget() {
+            let _ = event_tx.send(EngineEvent::BudgetExceeded {
+                cost: self.cost_tracker.estimated_cost(),
+                limit: self.cost_tracker.remaining_budget().unwrap_or(0.0),
+            });
+        }
     }
 
     fn record_tool_progress_summary(
@@ -2923,6 +3010,7 @@ impl AgentEngine {
 
         // Reset tool/runtime counters for this turn
         self.reset_tool_turn_runtime();
+        self.reset_prompt_cache_turn_runtime();
         self.recent_tool_calls.clear();
         self.consecutive_failures = 0;
         self.violation_retries = 0;
@@ -2950,26 +3038,7 @@ impl AgentEngine {
             // Call LLM with timeout and retry
             let response = self.call_llm_with_retry(request).await?;
 
-            // Track cost
-            self.cost_tracker.record_usage(
-                response.usage.prompt_tokens as u64,
-                response.usage.completion_tokens as u64,
-            );
-
-            // Emit cost update
-            let _ = event_tx.send(EngineEvent::CostUpdate {
-                estimated_cost: self.cost_tracker.estimated_cost(),
-                input_tokens: self.cost_tracker.usage().input_tokens,
-                output_tokens: self.cost_tracker.usage().output_tokens,
-            });
-
-            // Check budget
-            if self.cost_tracker.is_over_budget() {
-                let _ = event_tx.send(EngineEvent::BudgetExceeded {
-                    cost: self.cost_tracker.estimated_cost(),
-                    limit: self.cost_tracker.remaining_budget().unwrap_or(0.0),
-                });
-            }
+            self.record_response_usage(&response.usage, &event_tx);
 
             self.maybe_compact_context(response.usage.prompt_tokens, &event_tx)
                 .await;
@@ -3222,6 +3291,7 @@ impl AgentEngine {
 
         // Reset tool/runtime counters for this turn
         self.reset_tool_turn_runtime();
+        self.reset_prompt_cache_turn_runtime();
         self.recent_tool_calls.clear();
         self.consecutive_failures = 0;
         self.violation_retries = 0;
@@ -3645,6 +3715,7 @@ impl AgentEngine {
             }
 
             if let Some(ref resp) = final_response {
+                self.record_response_usage(&resp.usage, &event_tx);
                 self.maybe_compact_context(resp.usage.prompt_tokens, &event_tx)
                     .await;
             }
@@ -6178,6 +6249,41 @@ mod tests {
         assert!(engine.last_session_memory_tool_count >= 3);
         let runtime = engine.runtime_state();
         assert_eq!(runtime.session_memory_update_count, 1);
+    }
+
+    #[test]
+    fn test_record_response_usage_tracks_prompt_cache_telemetry() {
+        let mut engine = make_engine(vec![], vec![]);
+        let (tx, _rx) = mpsc::unbounded_channel();
+
+        engine.reset_prompt_cache_turn_runtime();
+        engine.record_response_usage(
+            &yode_llm::types::Usage {
+                prompt_tokens: 1_200,
+                completion_tokens: 180,
+                total_tokens: 1_380,
+                cache_write_tokens: 300,
+                cache_read_tokens: 200,
+            },
+            &tx,
+        );
+
+        let usage = engine.cost_tracker().usage().clone();
+        assert_eq!(usage.input_tokens, 700);
+        assert_eq!(usage.output_tokens, 180);
+        assert_eq!(usage.cache_write_tokens, 300);
+        assert_eq!(usage.cache_read_tokens, 200);
+
+        let runtime = engine.runtime_state();
+        assert_eq!(runtime.prompt_cache.last_turn_prompt_tokens, Some(1_200));
+        assert_eq!(runtime.prompt_cache.last_turn_completion_tokens, Some(180));
+        assert_eq!(runtime.prompt_cache.last_turn_cache_write_tokens, Some(300));
+        assert_eq!(runtime.prompt_cache.last_turn_cache_read_tokens, Some(200));
+        assert_eq!(runtime.prompt_cache.reported_turns, 1);
+        assert_eq!(runtime.prompt_cache.cache_write_turns, 1);
+        assert_eq!(runtime.prompt_cache.cache_read_turns, 1);
+        assert_eq!(runtime.prompt_cache.cache_write_tokens_total, 300);
+        assert_eq!(runtime.prompt_cache.cache_read_tokens_total, 200);
     }
 
     #[tokio::test]
