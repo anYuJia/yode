@@ -1,3 +1,4 @@
+use super::mcp::parse_mcp_tool_name;
 use crate::commands::context::CommandContext;
 use crate::commands::{
     ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
@@ -35,13 +36,18 @@ impl ToolsCommand {
         let defs = ctx.tools.definitions();
         let mut lines = vec![format!("Registered tools ({}):", defs.len())];
         for def in &defs {
+            let display_name = if let Some((server, tool)) = parse_mcp_tool_name(&def.name) {
+                format!("{} [mcp:{}]", tool, server)
+            } else {
+                def.name.clone()
+            };
             if verbose {
                 lines.push(format!(
                     "  {} — {}\n    schema: {}",
-                    def.name, def.description, def.parameters
+                    display_name, def.description, def.parameters
                 ));
             } else {
-                lines.push(format!("  {} — {}", def.name, def.description));
+                lines.push(format!("  {} — {}", display_name, def.description));
             }
         }
         lines.join("\n")

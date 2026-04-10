@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `030 task-to-transcript backlinks`
+- `052 MCP auth status in /mcp`
 
 当前进度：
 
-- `54 / 100` 已完成
+- `56 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -99,14 +99,14 @@
 
 ## 051-060 MCP / Remote / Integration
 
-- `[ ] 051 MCP server health summary cards`
+- `[x] 051 MCP server health summary cards`
 - `[ ] 052 MCP auth status in /mcp`
 - `[ ] 053 MCP resource cache stats`
 - `[ ] 054 MCP tool latency telemetry`
 - `[ ] 055 remote env setup verification command`
 - `[ ] 056 remote review prerequisite diagnostics`
 - `[ ] 057 MCP reconnect backoff diagnostics`
-- `[ ] 058 multi-server tool source badges`
+- `[x] 058 multi-server tool source badges`
 - `[ ] 059 remote session artifact index`
 - `[ ] 060 MCP / browser parity design notes`
 
