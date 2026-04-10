@@ -43,6 +43,16 @@ impl Tool for TaskOutputTool {
                 "limit": {
                     "type": "integer",
                     "description": "Maximum number of lines to return. Defaults to 200."
+                },
+                "follow": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "If true and the task is still running, wait until it finishes or timeout_secs elapses before reading output."
+                },
+                "timeout_secs": {
+                    "type": "integer",
+                    "default": 60,
+                    "description": "Maximum seconds to wait when follow=true."
                 }
             }
         })
@@ -61,7 +71,7 @@ impl Tool for TaskOutputTool {
             return Ok(ToolResult::error("Runtime task store not available.".to_string()));
         };
 
-        let task_snapshot = {
+        let mut task_snapshot = {
             let store = runtime_tasks.lock().await;
             if let Some(task_id) = params.get("task_id").and_then(|value| value.as_str()) {
                 store.get(task_id)
@@ -70,7 +80,7 @@ impl Tool for TaskOutputTool {
             }
         };
 
-        let Some(task) = task_snapshot else {
+        let Some(mut task) = task_snapshot.take() else {
             return Ok(ToolResult::error_typed(
                 "No runtime task found.".to_string(),
                 ToolErrorType::NotFound,
@@ -78,6 +88,34 @@ impl Tool for TaskOutputTool {
                 Some("Run /tasks to inspect available task IDs first.".to_string()),
             ));
         };
+
+        let follow = params
+            .get("follow")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
+        let timeout_secs = params
+            .get("timeout_secs")
+            .and_then(|value| value.as_u64())
+            .unwrap_or(60)
+            .min(600);
+        let mut follow_timed_out = false;
+        if follow && is_unfinished_task(&task.status) {
+            let deadline = tokio::time::Instant::now()
+                + std::time::Duration::from_secs(timeout_secs);
+            while is_unfinished_task(&task.status) {
+                if tokio::time::Instant::now() >= deadline {
+                    follow_timed_out = true;
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                let next_snapshot = runtime_tasks.lock().await.get(&task.id);
+                if let Some(next_task) = next_snapshot {
+                    task = next_task;
+                } else {
+                    break;
+                }
+            }
+        }
 
         let content = match tokio::fs::read_to_string(&task.output_path).await {
             Ok(content) => content,
@@ -143,6 +181,8 @@ impl Tool for TaskOutputTool {
                 "last_progress": task.last_progress,
                 "last_progress_at": task.last_progress_at,
                 "progress_history": task.progress_history,
+                "follow": follow,
+                "follow_timed_out": follow_timed_out,
                 "total_lines": total_lines,
                 "start_line": start + 1,
                 "end_line": end,
@@ -150,6 +190,14 @@ impl Tool for TaskOutputTool {
             }),
         ))
     }
+}
+
+fn is_unfinished_task(status: &crate::runtime_tasks::RuntimeTaskStatus) -> bool {
+    matches!(
+        status,
+        crate::runtime_tasks::RuntimeTaskStatus::Pending
+            | crate::runtime_tasks::RuntimeTaskStatus::Running
+    )
 }
 
 #[cfg(test)]
@@ -191,5 +239,51 @@ mod tests {
         assert!(!result.is_error);
         assert!(result.content.contains("line2"));
         assert!(result.content.contains("line3"));
+    }
+
+    #[tokio::test]
+    async fn follows_running_task_until_completion() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("task.log");
+        tokio::fs::write(&output, "line1\n").await.unwrap();
+
+        let store = Arc::new(Mutex::new(RuntimeTaskStore::new()));
+        let task_id = {
+            let mut guard = store.lock().await;
+            let (task, _cancel_rx) = guard.create(
+                "bash".to_string(),
+                "bash".to_string(),
+                "demo task".to_string(),
+                output.display().to_string(),
+            );
+            guard.mark_running(&task.id);
+            task.id
+        };
+
+        let store_for_task = Arc::clone(&store);
+        let task_id_for_task = task_id.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            tokio::fs::write(&output, "line1\nline2\n").await.unwrap();
+            store_for_task
+                .lock()
+                .await
+                .mark_completed(&task_id_for_task);
+        });
+
+        let mut ctx = ToolContext::empty();
+        ctx.runtime_tasks = Some(store);
+
+        let tool = TaskOutputTool;
+        let result = tool
+            .execute(
+                json!({ "task_id": task_id, "follow": true, "timeout_secs": 2 }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+        assert!(!result.is_error);
+        assert!(result.content.contains("line2"));
+        assert_eq!(result.metadata.unwrap()["follow_timed_out"], false);
     }
 }

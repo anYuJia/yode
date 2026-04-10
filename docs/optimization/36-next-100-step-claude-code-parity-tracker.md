@@ -30,7 +30,7 @@
 
 当前进度：
 
-- `25 / 100` 已完成
+- `26 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -66,7 +66,7 @@
 - `[x] 024 runtime task artifact retention config`
 - `[x] 025 /tasks latest / latest-by-kind shortcuts`
 - `[x] 026 /tasks filters by kind and status`
-- `[ ] 027 /tasks tail follow mode`
+- `[x] 027 /tasks tail follow mode`
 - `[x] 028 notification severity classes for tasks`
 - `[ ] 029 background sub-agent output folding`
 - `[ ] 030 task-to-transcript backlinks`

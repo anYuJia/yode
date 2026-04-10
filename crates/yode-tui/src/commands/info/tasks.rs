@@ -29,6 +29,7 @@ impl TasksCommand {
                         completions: ArgCompletionSource::Static(vec![
                             "stop".to_string(),
                             "read".to_string(),
+                            "follow".to_string(),
                             "list".to_string(),
                             "latest".to_string(),
                             "running".to_string(),
@@ -155,8 +156,23 @@ impl Command for TasksCommand {
                     preview
                 )))
             }
+            ["follow", id] => {
+                let id = if *id == "latest" {
+                    latest_task_id().ok_or_else(|| "No runtime task available.".to_string())?
+                } else {
+                    id.to_string()
+                };
+                ctx.input.set_text(&format!(
+                    "Use `task_output` with task_id=\"{}\", follow=true, and timeout_secs=120. Summarize the final status and important output.",
+                    id
+                ));
+                Ok(CommandOutput::Message(format!(
+                    "Loaded a task_output follow prompt for task {}.",
+                    id
+                )))
+            }
             [id] => render_task_detail(&engine, id),
-            _ => Err("Usage: /tasks | /tasks list [filter] | /tasks latest [filter] | /tasks <task-id> | /tasks read <task-id> | /tasks stop <task-id>".into()),
+            _ => Err("Usage: /tasks | /tasks list [filter] | /tasks latest [filter] | /tasks <task-id> | /tasks read <task-id> | /tasks follow <task-id> | /tasks stop <task-id>".into()),
         }
     }
 }
