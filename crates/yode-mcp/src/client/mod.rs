@@ -1,7 +1,7 @@
 mod tool_wrapper;
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use anyhow::Result;
 use rmcp::model::CallToolRequestParams;
@@ -15,6 +15,56 @@ use crate::config::McpServerConfig;
 use yode_tools::registry::ToolRegistry;
 
 pub use tool_wrapper::{mcp_tool_latency_stats, McpToolLatencyEntry, McpToolWrapper};
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct McpReconnectDiagnostic {
+    pub server: String,
+    pub attempts: u64,
+    pub failures: u64,
+    pub last_error: Option<String>,
+    pub next_backoff_secs: u64,
+}
+
+static MCP_RECONNECT_DIAGNOSTICS: LazyLock<Mutex<BTreeMap<String, McpReconnectDiagnostic>>> =
+    LazyLock::new(|| Mutex::new(BTreeMap::new()));
+
+pub fn mcp_reconnect_diagnostics() -> Vec<McpReconnectDiagnostic> {
+    MCP_RECONNECT_DIAGNOSTICS
+        .lock()
+        .map(|state| state.values().cloned().collect())
+        .unwrap_or_default()
+}
+
+fn reconnect_backoff_secs(failure_count: u64) -> u64 {
+    match failure_count {
+        0 => 0,
+        1 => 1,
+        2 => 2,
+        3 => 4,
+        4 => 8,
+        _ => 16,
+    }
+}
+
+fn record_mcp_connect_result(server: &str, success: bool, error: Option<String>) {
+    if let Ok(mut state) = MCP_RECONNECT_DIAGNOSTICS.lock() {
+        let entry = state
+            .entry(server.to_string())
+            .or_insert_with(|| McpReconnectDiagnostic {
+                server: server.to_string(),
+                ..McpReconnectDiagnostic::default()
+            });
+        entry.attempts = entry.attempts.saturating_add(1);
+        if success {
+            entry.last_error = None;
+            entry.next_backoff_secs = 0;
+        } else {
+            entry.failures = entry.failures.saturating_add(1);
+            entry.last_error = error;
+            entry.next_backoff_secs = reconnect_backoff_secs(entry.failures);
+        }
+    }
+}
 
 /// A connected MCP client managing one external server.
 pub struct McpClient {
@@ -45,7 +95,7 @@ impl McpClient {
         let args = config.args.clone();
         let command = config.command.clone();
 
-        let service = ()
+        let service = match ()
             .serve(TokioChildProcess::new(Command::new(&command).configure(
                 |cmd| {
                     cmd.args(&args);
@@ -54,7 +104,17 @@ impl McpClient {
                     }
                 },
             ))?)
-            .await?;
+            .await
+        {
+            Ok(service) => {
+                record_mcp_connect_result(name, true, None);
+                service
+            }
+            Err(err) => {
+                record_mcp_connect_result(name, false, Some(err.to_string()));
+                return Err(err.into());
+            }
+        };
 
         let peer_info = service.peer_info();
         if let Some(info) = peer_info {
@@ -177,5 +237,34 @@ impl McpClient {
             }
         }
         Ok(output)
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn reset_mcp_reconnect_diagnostics() {
+    if let Ok(mut state) = MCP_RECONNECT_DIAGNOSTICS.lock() {
+        state.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        mcp_reconnect_diagnostics, record_mcp_connect_result, reset_mcp_reconnect_diagnostics,
+    };
+
+    #[test]
+    fn reconnect_diagnostics_track_failures_and_backoff() {
+        reset_mcp_reconnect_diagnostics();
+        record_mcp_connect_result("github", false, Some("timeout".to_string()));
+        record_mcp_connect_result("github", false, Some("timeout".to_string()));
+        record_mcp_connect_result("github", true, None);
+
+        let stats = mcp_reconnect_diagnostics();
+        assert_eq!(stats.len(), 1);
+        assert_eq!(stats[0].attempts, 3);
+        assert_eq!(stats[0].failures, 2);
+        assert_eq!(stats[0].next_backoff_secs, 0);
+        assert_eq!(stats[0].last_error, None);
     }
 }

@@ -33,6 +33,7 @@ impl Command for McpCommand {
             .map(|cfg| cfg.mcp.servers.clone())
             .unwrap_or_default();
         let latency_stats = yode_mcp::mcp_tool_latency_stats();
+        let reconnect_stats = yode_mcp::mcp_reconnect_diagnostics();
         let mut by_server = BTreeMap::<String, Vec<String>>::new();
         for tool in ctx.tools.definitions() {
             if let Some((server, original_name)) = parse_mcp_tool_name(&tool.name) {
@@ -61,6 +62,7 @@ impl Command for McpCommand {
             let preview = tools.iter().take(6).cloned().collect::<Vec<_>>().join(", ");
             let more = tools.len().saturating_sub(6);
             let latency = server_latency_summary(&latency_stats, &server);
+            let reconnect = server_reconnect_summary(&reconnect_stats, &server);
             let config_state = if let Some(server_config) = configured_servers.get(&server) {
                 format!(
                     "configured, auth={}, cmd={}",
@@ -71,11 +73,12 @@ impl Command for McpCommand {
                 "registered-only, auth=unknown".to_string()
             };
             lines.push(format!(
-                "  - {} [{} | {} tool(s) | latency={}] {}{}",
+                "  - {} [{} | {} tool(s) | latency={} | reconnect={}] {}{}",
                 server,
                 config_state,
                 tools.len(),
                 latency,
+                reconnect,
                 preview,
                 if more > 0 {
                     format!(" (+{} more)", more)
@@ -168,9 +171,30 @@ fn server_latency_summary(stats: &[yode_mcp::McpToolLatencyEntry], server: &str)
     format!("avg {}ms / {}", avg_ms, hottest)
 }
 
+fn server_reconnect_summary(stats: &[yode_mcp::McpReconnectDiagnostic], server: &str) -> String {
+    let Some(entry) = stats.iter().find(|entry| entry.server == server) else {
+        return "no-attempts".to_string();
+    };
+    if entry.failures == 0 {
+        return format!("stable ({} attempts)", entry.attempts);
+    }
+    format!(
+        "failures={} next={}s{}",
+        entry.failures,
+        entry.next_backoff_secs,
+        entry
+            .last_error
+            .as_deref()
+            .map(|error| format!(" last={}", error))
+            .unwrap_or_default()
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{auth_status_label, parse_mcp_tool_name, server_latency_summary};
+    use super::{
+        auth_status_label, parse_mcp_tool_name, server_latency_summary, server_reconnect_summary,
+    };
     use yode_core::config::McpServerConfig;
 
     #[test]
@@ -222,5 +246,23 @@ mod tests {
 
         assert!(rendered.contains("avg 25ms"));
         assert!(rendered.contains("list_prs:40ms"));
+    }
+
+    #[test]
+    fn server_reconnect_summary_formats_backoff_state() {
+        let rendered = server_reconnect_summary(
+            &[yode_mcp::McpReconnectDiagnostic {
+                server: "github".to_string(),
+                attempts: 3,
+                failures: 2,
+                last_error: Some("timeout".to_string()),
+                next_backoff_secs: 4,
+            }],
+            "github",
+        );
+
+        assert!(rendered.contains("failures=2"));
+        assert!(rendered.contains("next=4s"));
+        assert!(rendered.contains("timeout"));
     }
 }
