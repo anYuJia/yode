@@ -84,6 +84,11 @@ impl Tool for CoordinateAgentsTool {
                         },
                         "required": ["description", "prompt"]
                     }
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "If true, return the dependency phases without launching sub-agents."
                 }
             },
             "required": ["goal", "workstreams"]
@@ -116,42 +121,36 @@ impl Tool for CoordinateAgentsTool {
         }
 
         let normalized = normalize_workstreams(workstreams)?;
+        let dry_run = params
+            .get("dry_run")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
+        let phases = build_execution_phases(&normalized)?;
+
+        if dry_run {
+            let plan = render_phase_plan(&phases);
+            return Ok(ToolResult::success_with_metadata(
+                serde_json::to_string_pretty(&plan)?,
+                json!({
+                    "goal": goal,
+                    "dry_run": true,
+                    "phase_count": phases.len(),
+                    "workstream_count": normalized.len(),
+                    "plan": plan,
+                }),
+            ));
+        }
+
         let runner = ctx
             .sub_agent_runner
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Sub-agent runner not available"))?;
 
         let mut completed_outputs: HashMap<String, String> = HashMap::new();
-        let mut finished: HashSet<String> = HashSet::new();
-        let mut pending = normalized.clone();
-        let mut phase = 0usize;
         let mut rendered = Vec::new();
 
-        while !pending.is_empty() {
-            phase += 1;
-            let mut ready = Vec::new();
-            let mut still_pending = Vec::new();
-
-            for workstream in pending.into_iter() {
-                if workstream
-                    .depends_on
-                    .iter()
-                    .all(|dependency| finished.contains(dependency))
-                {
-                    ready.push(workstream);
-                } else {
-                    still_pending.push(workstream);
-                }
-            }
-
-            if ready.is_empty() {
-                return Ok(ToolResult::error(
-                    "Coordinator could not resolve workstream dependencies. Check for cycles or missing dependency IDs."
-                        .to_string(),
-                ));
-            }
-
-            let futures = ready.iter().map(|workstream| {
+        for (phase_index, phase_workstreams) in phases.iter().enumerate() {
+            let futures = phase_workstreams.iter().map(|workstream| {
                 let prerequisite_summary = if workstream.depends_on.is_empty() {
                     "No prerequisite workstreams.".to_string()
                 } else {
@@ -190,13 +189,12 @@ impl Tool for CoordinateAgentsTool {
             });
 
             let results = join_all(futures).await;
-            for (workstream, result) in ready.into_iter().zip(results.into_iter()) {
+            for (workstream, result) in phase_workstreams.iter().zip(results.into_iter()) {
                 match result {
                     Ok(output) => {
                         completed_outputs.insert(workstream.id.clone(), output.clone());
-                        finished.insert(workstream.id.clone());
                         rendered.push(json!({
-                            "phase": phase,
+                            "phase": phase_index + 1,
                             "id": workstream.id,
                             "description": workstream.description,
                             "status": "ok",
@@ -204,9 +202,8 @@ impl Tool for CoordinateAgentsTool {
                         }));
                     }
                     Err(err) => {
-                        finished.insert(workstream.id.clone());
                         rendered.push(json!({
-                            "phase": phase,
+                            "phase": phase_index + 1,
                             "id": workstream.id,
                             "description": workstream.description,
                             "status": "error",
@@ -215,8 +212,6 @@ impl Tool for CoordinateAgentsTool {
                     }
                 }
             }
-
-            pending = still_pending;
         }
 
         let rendered_text = serde_json::to_string_pretty(&rendered)?;
@@ -231,7 +226,7 @@ impl Tool for CoordinateAgentsTool {
             json!({
                 "goal": goal,
                 "workstream_count": normalized.len(),
-                "phase_count": phase,
+                "phase_count": phases.len(),
                 "coordination_artifact_path": artifact_path,
                 "results": rendered,
             }),
@@ -282,6 +277,83 @@ fn normalize_workstreams(workstreams: Vec<Workstream>) -> Result<Vec<NormalizedW
     }
 
     Ok(normalized)
+}
+
+fn build_execution_phases(
+    workstreams: &[NormalizedWorkstream],
+) -> Result<Vec<Vec<NormalizedWorkstream>>> {
+    let mut finished: HashSet<String> = HashSet::new();
+    let mut pending = workstreams.to_vec();
+    let mut phases = Vec::new();
+
+    while !pending.is_empty() {
+        let mut ready = Vec::new();
+        let mut still_pending = Vec::new();
+
+        for workstream in pending.into_iter() {
+            if workstream
+                .depends_on
+                .iter()
+                .all(|dependency| finished.contains(dependency))
+            {
+                ready.push(workstream);
+            } else {
+                still_pending.push(workstream);
+            }
+        }
+
+        if ready.is_empty() {
+            let blocked = still_pending
+                .iter()
+                .map(|workstream| {
+                    let missing = workstream
+                        .depends_on
+                        .iter()
+                        .filter(|dependency| !finished.contains(*dependency))
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    format!("{} -> waiting for {}", workstream.id, missing.join(", "))
+                })
+                .collect::<Vec<_>>()
+                .join("; ");
+            return Err(anyhow::anyhow!(
+                "Coordinator could not resolve workstream dependencies. Blocked set: {}",
+                blocked
+            ));
+        }
+
+        for workstream in &ready {
+            finished.insert(workstream.id.clone());
+        }
+        phases.push(ready);
+        pending = still_pending;
+    }
+
+    Ok(phases)
+}
+
+fn render_phase_plan(phases: &[Vec<NormalizedWorkstream>]) -> Vec<Value> {
+    phases
+        .iter()
+        .enumerate()
+        .map(|(phase_index, workstreams)| {
+            json!({
+                "phase": phase_index + 1,
+                "workstreams": workstreams
+                    .iter()
+                    .map(|workstream| {
+                        json!({
+                            "id": workstream.id,
+                            "description": workstream.description,
+                            "depends_on": workstream.depends_on,
+                            "run_in_background": workstream.run_in_background.unwrap_or(true),
+                            "allowed_tools": workstream.allowed_tools,
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            })
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone)]
@@ -357,6 +429,41 @@ mod tests {
         assert!(result.content.contains("\"phase\": 2"));
     }
 
+    #[tokio::test]
+    async fn coordinate_agents_dry_run_returns_phase_plan() {
+        let ctx = ToolContext::empty();
+
+        let tool = CoordinateAgentsTool;
+        let result = tool
+            .execute(
+                serde_json::json!({
+                    "goal": "ship the feature",
+                    "dry_run": true,
+                    "workstreams": [
+                        {
+                            "id": "review",
+                            "description": "review",
+                            "prompt": "review the patch"
+                        },
+                        {
+                            "id": "verify",
+                            "description": "verify",
+                            "prompt": "run validation",
+                            "depends_on": ["review"]
+                        }
+                    ]
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("\"phase\": 1"));
+        assert!(result.content.contains("\"phase\": 2"));
+        assert_eq!(result.metadata.unwrap()["dry_run"], true);
+    }
+
     #[test]
     fn coordinator_rejects_unknown_dependency() {
         let result = super::normalize_workstreams(vec![super::Workstream {
@@ -370,5 +477,35 @@ mod tests {
             depends_on: vec!["missing".to_string()],
         }]);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn coordinator_reports_blocked_cycle_details() {
+        let workstreams = vec![
+            super::NormalizedWorkstream {
+                id: "a".to_string(),
+                description: "a".to_string(),
+                prompt: "a".to_string(),
+                subagent_type: None,
+                model: None,
+                run_in_background: None,
+                allowed_tools: Vec::new(),
+                depends_on: vec!["b".to_string()],
+            },
+            super::NormalizedWorkstream {
+                id: "b".to_string(),
+                description: "b".to_string(),
+                prompt: "b".to_string(),
+                subagent_type: None,
+                model: None,
+                run_in_background: None,
+                allowed_tools: Vec::new(),
+                depends_on: vec!["a".to_string()],
+            },
+        ];
+
+        let err = super::build_execution_phases(&workstreams).unwrap_err();
+        assert!(err.to_string().contains("a -> waiting for b"));
+        assert!(err.to_string().contains("b -> waiting for a"));
     }
 }

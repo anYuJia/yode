@@ -40,7 +40,7 @@ impl Command for CoordinateCommand {
             args.trim().to_string()
         };
         ctx.input.set_text(&format!(
-            "Use `coordinate_agents` for goal=\"{}\" with 2-3 independent workstreams. Ask one workstream to inspect code, one to verify behavior, and one to summarize risks if useful.",
+            "Use `coordinate_agents` for goal=\"{}\" with 2-3 independent workstreams. If you need to preview execution order first, call it with dry_run=true. Ask one workstream to inspect code, one to verify behavior, and one to summarize risks if useful.",
             goal
         ));
         Ok(CommandOutput::Message(
