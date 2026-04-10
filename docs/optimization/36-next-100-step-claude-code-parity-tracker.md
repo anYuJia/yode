@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `040 long-session benchmark command`
+- `052 MCP auth status in /mcp`
 
 当前进度：
 
-- `63 / 100` 已完成
+- `64 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -82,7 +82,7 @@
 - `[x] 037 transcript artifact preview folding`
 - `[x] 038 context breaker mitigation hints`
 - `[x] 039 resume-time cache warmup stats`
-- `[ ] 040 long-session benchmark command`
+- `[x] 040 long-session benchmark command`
 
 ## 041-050 Permission / Safety / Recovery
 

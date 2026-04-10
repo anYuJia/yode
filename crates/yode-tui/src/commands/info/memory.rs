@@ -30,6 +30,20 @@ pub(crate) struct ResumeTranscriptCacheWarmupStats {
     pub duration_ms: u64,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct LongSessionBenchmarkReport {
+    pub transcript_dir: PathBuf,
+    pub transcript_count: usize,
+    pub cold_latest_lookup_ms: u64,
+    pub hot_latest_lookup_ms: u64,
+    pub cold_failed_filter_ms: u64,
+    pub hot_failed_filter_ms: u64,
+    pub resume_warmup: ResumeTranscriptCacheWarmupStats,
+    pub compare_pair: Option<(String, String)>,
+    pub compare_ms: Option<u64>,
+    pub compare_summary_only: Option<bool>,
+}
+
 pub struct MemoryCommand {
     meta: CommandMeta,
 }
@@ -569,6 +583,82 @@ pub(crate) fn warm_resume_transcript_caches(
     }
 }
 
+pub(crate) fn run_long_session_benchmark(project_root: &Path) -> LongSessionBenchmarkReport {
+    let transcripts_dir = project_root.join(".yode").join("transcripts");
+    let entries = sorted_transcript_entries(&transcripts_dir);
+    let transcript_count = entries.len();
+
+    clear_transcript_caches();
+    let cold_latest_lookup_ms = measure_ms(|| {
+        let _ = latest_transcript(&transcripts_dir);
+    });
+    let hot_latest_lookup_ms = measure_ms(|| {
+        let _ = latest_transcript(&transcripts_dir);
+    });
+
+    clear_transcript_caches();
+    let failed_filter = TranscriptListFilter {
+        require_failed: true,
+        ..TranscriptListFilter::default()
+    };
+    let cold_failed_filter_ms = measure_ms(|| {
+        let _ = filtered_transcript_entries(&transcripts_dir, &failed_filter);
+    });
+    let hot_failed_filter_ms = measure_ms(|| {
+        let _ = filtered_transcript_entries(&transcripts_dir, &failed_filter);
+    });
+
+    let resume_warmup = warm_resume_transcript_caches(project_root);
+
+    let compare_pair = if entries.len() >= 2 {
+        Some((
+            entries[0].display().to_string(),
+            entries[1].display().to_string(),
+        ))
+    } else {
+        None
+    };
+    let (compare_ms, compare_summary_only) = if entries.len() >= 2 {
+        let left_path = &entries[0];
+        let right_path = &entries[1];
+        match (
+            fs::read_to_string(left_path),
+            fs::read_to_string(right_path),
+        ) {
+            (Ok(left_content), Ok(right_content)) => {
+                let mut summary_only = false;
+                let elapsed = measure_ms(|| {
+                    let output = build_transcript_compare_output(
+                        left_path,
+                        &left_content,
+                        right_path,
+                        &right_content,
+                        &CompareOptions::default(),
+                    );
+                    summary_only = output.contains("skipped: content too large");
+                });
+                (Some(elapsed), Some(summary_only))
+            }
+            _ => (None, None),
+        }
+    } else {
+        (None, None)
+    };
+
+    LongSessionBenchmarkReport {
+        transcript_dir: transcripts_dir,
+        transcript_count,
+        cold_latest_lookup_ms,
+        hot_latest_lookup_ms,
+        cold_failed_filter_ms,
+        hot_failed_filter_ms,
+        resume_warmup,
+        compare_pair,
+        compare_ms,
+        compare_summary_only,
+    }
+}
+
 fn transcript_entries(dir: &Path) -> Vec<PathBuf> {
     fs::read_dir(dir)
         .ok()
@@ -901,6 +991,21 @@ fn truncate_for_display(content: &str) -> String {
     let budget = MAX_DISPLAY_CHARS.saturating_sub(notice.chars().count() + 2);
     let truncated = content.chars().take(budget).collect::<String>();
     format!("{}\n\n{}", truncated, notice)
+}
+
+fn clear_transcript_caches() {
+    if let Ok(mut cache) = TRANSCRIPT_META_CACHE.lock() {
+        cache.clear();
+    }
+    if let Ok(mut cache) = LATEST_TRANSCRIPT_CACHE.lock() {
+        cache.clear();
+    }
+}
+
+fn measure_ms(f: impl FnOnce()) -> u64 {
+    let started_at = Instant::now();
+    f();
+    started_at.elapsed().as_millis() as u64
 }
 
 fn fold_transcript_preview(content: &str) -> String {
@@ -1518,8 +1623,9 @@ mod tests {
         parse_date_range_filter, parse_latest_compare_target, parse_list_filter,
         parse_memory_document, read_transcript_metadata, render_memory_file,
         render_transcript_list, resolve_compare_target, resolve_transcript_target,
-        truncate_for_display, warm_resume_transcript_caches, CompareArgs, CompareOptions,
-        TranscriptListFilter, TranscriptMode, MAX_DISPLAY_CHARS,
+        run_long_session_benchmark, truncate_for_display, warm_resume_transcript_caches,
+        CompareArgs, CompareOptions, TranscriptListFilter, TranscriptMode,
+        MAX_DISPLAY_CHARS,
     };
     use crate::commands::CommandOutput;
 
@@ -1584,6 +1690,33 @@ mod tests {
         assert_eq!(stats.transcript_count, 2);
         assert_eq!(stats.metadata_entries_warmed, 2);
         assert!(stats.latest_lookup_cached);
+
+        std::fs::remove_dir_all(&project_root).ok();
+    }
+
+    #[test]
+    fn long_session_benchmark_reports_hot_and_cold_paths() {
+        let project_root = std::env::temp_dir().join(format!(
+            "yode-memory-bench-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let transcript_dir = project_root.join(".yode").join("transcripts");
+        std::fs::create_dir_all(&transcript_dir).unwrap();
+        std::fs::write(
+            transcript_dir.join("aaa-compact-20260101.md"),
+            "# Compaction Transcript\n\n- Mode: auto\n\n## Summary Anchor\n\n```text\nleft\n```\n\n## Messages\n\n### User\n\n```text\nhello\n```\n",
+        )
+        .unwrap();
+        std::fs::write(
+            transcript_dir.join("bbb-compact-20260102.md"),
+            "# Compaction Transcript\n\n- Mode: manual\n\n## Summary Anchor\n\n```text\nright\n```\n\n## Messages\n\n### User\n\n```text\nworld\n```\n",
+        )
+        .unwrap();
+
+        let report = run_long_session_benchmark(&project_root);
+        assert_eq!(report.transcript_count, 2);
+        assert!(report.compare_pair.is_some());
+        assert!(report.compare_ms.is_some());
 
         std::fs::remove_dir_all(&project_root).ok();
     }

@@ -21,7 +21,9 @@ pub use doctor::DoctorCommand;
 pub use help::HelpCommand;
 pub use hooks_cmd::HooksCommand;
 pub use memory::MemoryCommand;
-pub(crate) use memory::{warm_resume_transcript_caches, ResumeTranscriptCacheWarmupStats};
+pub(crate) use memory::{
+    run_long_session_benchmark, warm_resume_transcript_caches, ResumeTranscriptCacheWarmupStats,
+};
 pub use status::StatusCommand;
 pub use tasks::TasksCommand;
 pub use update::UpdateCommand;

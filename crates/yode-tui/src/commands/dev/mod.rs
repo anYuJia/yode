@@ -1,3 +1,4 @@
+mod bench;
 mod bug;
 mod coordinate;
 mod diff;
@@ -6,6 +7,7 @@ mod review;
 mod reviews;
 mod ship;
 
+pub use bench::BenchCommand;
 pub use bug::BugCommand;
 pub use coordinate::CoordinateCommand;
 pub use diff::DiffCommand;
