@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `007 sub-agent result artifact backlinks`
+- `008 workflow approval checkpoints for multi-step mutations`
 
 当前进度：
 
-- `6 / 100` 已完成
+- `7 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -40,7 +40,7 @@
 - `[x] 004 coordinator dry-run dependency planner`
 - `[x] 005 coordinator failure diagnostics with blocked dependency detail`
 - `[x] 006 coordinator concurrency budget / phased parallelism`
-- `[ ] 007 sub-agent result artifact backlinks`
+- `[x] 007 sub-agent result artifact backlinks`
 - `[ ] 008 workflow approval checkpoints for multi-step mutations`
 - `[ ] 009 workflow nested invocation guard UX`
 - `[ ] 010 pipeline command presets for review / verify / ship`
