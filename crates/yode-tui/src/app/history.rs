@@ -1,5 +1,13 @@
 /// Input history state and Ctrl+R search mode.
 
+#[derive(Default)]
+struct SearchState {
+    mode: bool,
+    query: String,
+    results: Vec<String>,
+    index: Option<usize>,
+}
+
 /// Input history manager with search functionality.
 pub struct HistoryState {
     /// All input history entries
@@ -10,14 +18,7 @@ pub struct HistoryState {
     browse_index: Option<usize>,
     /// Saved input when user starts browsing history
     saved_input: Option<Vec<String>>,
-    /// Whether in Ctrl+R search mode
-    pub search_mode: bool,
-    /// Current search query
-    pub search_query: String,
-    /// Filtered search results (most recent first)
-    pub search_results: Vec<String>,
-    /// Selected index in search results
-    pub search_index: Option<usize>,
+    search: SearchState,
 }
 
 impl HistoryState {
@@ -27,10 +28,7 @@ impl HistoryState {
             max_size: 500,
             browse_index: None,
             saved_input: None,
-            search_mode: false,
-            search_query: String::new(),
-            search_results: Vec::new(),
-            search_index: None,
+            search: SearchState::default(),
         }
     }
 
@@ -111,38 +109,48 @@ impl HistoryState {
 
     /// Enter search mode.
     pub fn enter_search(&mut self) {
-        self.search_mode = true;
-        self.search_query.clear();
-        self.search_results = self.entries.iter().rev().cloned().collect();
-        self.search_index = if self.search_results.is_empty() {
-            None
-        } else {
-            Some(0)
-        };
+        self.search.mode = true;
+        self.search.query.clear();
+        self.refresh_search();
     }
 
-    /// Update search filter.
-    pub fn update_search(&mut self) {
-        let query = self.search_query.to_lowercase();
-        self.search_results = self
-            .entries
-            .iter()
-            .rev()
-            .filter(|h| h.to_lowercase().contains(&query))
-            .cloned()
-            .collect();
-        self.search_index = if self.search_results.is_empty() {
-            None
-        } else {
-            Some(0)
-        };
+    pub fn is_searching(&self) -> bool {
+        self.search.mode
+    }
+
+    pub fn search_query(&self) -> &str {
+        &self.search.query
+    }
+
+    pub fn search_results(&self) -> &[String] {
+        &self.search.results
+    }
+
+    pub fn search_index(&self) -> Option<usize> {
+        self.search.index
+    }
+
+    pub fn current_search_result(&self) -> Option<&str> {
+        self.search
+            .index
+            .and_then(|idx| self.search.results.get(idx).map(String::as_str))
+    }
+
+    pub fn append_search_char(&mut self, c: char) {
+        self.search.query.push(c);
+        self.refresh_search();
+    }
+
+    pub fn pop_search_char(&mut self) {
+        self.search.query.pop();
+        self.refresh_search();
     }
 
     /// Cycle to next search result.
     pub fn search_next(&mut self) {
-        if let Some(idx) = self.search_index {
-            if idx + 1 < self.search_results.len() {
-                self.search_index = Some(idx + 1);
+        if let Some(idx) = self.search.index {
+            if idx + 1 < self.search.results.len() {
+                self.search.index = Some(idx + 1);
             }
         }
     }
@@ -150,16 +158,30 @@ impl HistoryState {
     /// Exit search mode. Returns selected text if accepted.
     pub fn exit_search(&mut self, accept: bool) -> Option<String> {
         let result = if accept {
-            self.search_index
-                .and_then(|idx| self.search_results.get(idx).cloned())
+            self.search
+                .index
+                .and_then(|idx| self.search.results.get(idx).cloned())
         } else {
             None
         };
-        self.search_mode = false;
-        self.search_query.clear();
-        self.search_results.clear();
-        self.search_index = None;
+        self.search = SearchState::default();
         result
+    }
+
+    fn refresh_search(&mut self) {
+        let query = self.search.query.to_lowercase();
+        self.search.results = self
+            .entries
+            .iter()
+            .rev()
+            .filter(|h| h.to_lowercase().contains(&query))
+            .cloned()
+            .collect();
+        self.search.index = if self.search.results.is_empty() {
+            None
+        } else {
+            Some(0)
+        };
     }
 }
 
@@ -167,4 +189,55 @@ pub enum BrowseResult {
     Entry(String),
     Restore(Vec<String>),
     None,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BrowseResult, HistoryState};
+
+    #[test]
+    fn push_deduplicates_only_consecutive_entries() {
+        let mut history = HistoryState::new();
+        history.push("a".into());
+        history.push("a".into());
+        history.push("b".into());
+        history.push("a".into());
+
+        assert_eq!(history.entries(), &["a".to_string(), "b".to_string(), "a".to_string()]);
+    }
+
+    #[test]
+    fn browse_restores_saved_input_after_latest_entry() {
+        let mut history = HistoryState::new();
+        history.push("first".into());
+        history.push("second".into());
+
+        history.start_browse(vec!["draft".into()]);
+        assert_eq!(history.current_browse_entry(), Some("second"));
+
+        match history.browse_next() {
+            BrowseResult::Restore(lines) => assert_eq!(lines, vec!["draft".to_string()]),
+            _ => panic!("expected restore after moving past the newest history entry"),
+        }
+    }
+
+    #[test]
+    fn search_state_filters_and_resets_cleanly() {
+        let mut history = HistoryState::new();
+        history.push("cargo test".into());
+        history.push("git status".into());
+
+        history.enter_search();
+        assert!(history.is_searching());
+        history.append_search_char('g');
+        history.append_search_char('i');
+
+        assert_eq!(history.search_results(), &["git status".to_string()]);
+        assert_eq!(history.current_search_result(), Some("git status"));
+
+        let selected = history.exit_search(true);
+        assert_eq!(selected.as_deref(), Some("git status"));
+        assert!(!history.is_searching());
+        assert!(history.search_results().is_empty());
+    }
 }

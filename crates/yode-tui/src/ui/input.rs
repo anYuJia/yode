@@ -19,7 +19,7 @@ pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
     }
 
     // History search mode
-    if app.history.search_mode {
+    if app.history.is_searching() {
         render_history_search(frame, area, app);
         return;
     }
@@ -507,33 +507,26 @@ fn render_file_popup(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_history_search(frame: &mut Frame, area: Rect, app: &App) {
-    let match_info = if app.history.search_results.is_empty() {
+    let match_info = if app.history.search_results().is_empty() {
         "0 results".to_string()
     } else {
-        let idx = app.history.search_index.unwrap_or(0) + 1;
-        format!("{}/{}", idx, app.history.search_results.len())
+        let idx = app.history.search_index().unwrap_or(0) + 1;
+        format!("{}/{}", idx, app.history.search_results().len())
     };
 
-    let line = if let Some(idx) = app.history.search_index {
-        if let Some(result) = app.history.search_results.get(idx) {
-            Line::from(vec![
-                Span::styled("bck: ", Style::default().fg(Color::LightBlue)),
-                Span::styled(
-                    format!("({}) ", match_info),
-                    Style::default().fg(HINT_COLOR),
-                ),
-                Span::styled(result.as_str(), Style::default().fg(TEXT_COLOR)),
-            ])
-        } else {
-            Line::from(Span::styled(
-                "bck: (no match)",
+    let line = if let Some(result) = app.history.current_search_result() {
+        Line::from(vec![
+            Span::styled("bck: ", Style::default().fg(Color::LightBlue)),
+            Span::styled(
+                format!("({}) ", match_info),
                 Style::default().fg(HINT_COLOR),
-            ))
-        }
+            ),
+            Span::styled(result, Style::default().fg(TEXT_COLOR)),
+        ])
     } else {
         Line::from(vec![
             Span::styled("bck: ", Style::default().fg(Color::LightBlue)),
-            Span::styled(&app.history.search_query, Style::default().fg(TEXT_COLOR)),
+            Span::styled(app.history.search_query(), Style::default().fg(TEXT_COLOR)),
             Span::styled("█", Style::default().fg(Color::LightBlue)),
         ])
     };
