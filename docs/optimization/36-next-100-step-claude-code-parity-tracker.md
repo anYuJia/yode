@@ -26,11 +26,11 @@
 
 当前焦点：
 
-- `032 cache hit / miss status surface`
+- `033 system-prompt segment token breakdown`
 
 当前进度：
 
-- `58 / 100` 已完成
+- `59 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -74,7 +74,7 @@
 ## 031-040 Context / Prompt Cache / Memory
 
 - `[x] 031 prompt-cache telemetry per turn`
-- `[ ] 032 cache hit / miss status surface`
+- `[x] 032 cache hit / miss status surface`
 - `[ ] 033 system-prompt segment token breakdown`
 - `[ ] 034 compaction cause histogram`
 - `[x] 035 memory freshness score in status`
