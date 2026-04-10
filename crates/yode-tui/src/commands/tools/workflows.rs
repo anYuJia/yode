@@ -99,8 +99,9 @@ impl Command for WorkflowsCommand {
                 .get("steps")
                 .and_then(|value| value.as_array())
                 .ok_or_else(|| format!("Workflow {} has no steps array.", path.display()))?;
+            let write_capable = workflow_requires_write_mode(steps);
             let mut output = format!(
-                "Workflow {}\nPath: {}\nDescription: {}\n\nSteps:\n",
+                "Workflow {}\nPath: {}\nDescription: {}\nMode: {}\n\nSteps:\n",
                 json.get("name")
                     .and_then(|value| value.as_str())
                     .unwrap_or(name.as_str()),
@@ -108,14 +109,26 @@ impl Command for WorkflowsCommand {
                 json.get("description")
                     .and_then(|value| value.as_str())
                     .unwrap_or("none"),
+                if write_capable {
+                    "write-capable (use /workflows run-write)"
+                } else {
+                    "safe read-only (use /workflows run)"
+                },
             );
             for (index, step) in steps.iter().enumerate() {
+                let tool_name = step
+                    .get("tool_name")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("unknown");
                 output.push_str(&format!(
-                    "  {}. {} {}\n",
+                    "  {}. {} [{}] {}\n",
                     index + 1,
-                    step.get("tool_name")
-                        .and_then(|value| value.as_str())
-                        .unwrap_or("unknown"),
+                    tool_name,
+                    if is_safe_workflow_step(tool_name) {
+                        "safe"
+                    } else {
+                        "write"
+                    },
                     if step
                         .get("continue_on_error")
                         .and_then(|value| value.as_bool())
@@ -135,8 +148,13 @@ impl Command for WorkflowsCommand {
         if let ["init", template] = parts.as_slice() {
             std::fs::create_dir_all(&dir)
                 .map_err(|err| format!("Failed to create {}: {}", dir.display(), err))?;
-            let (file_name, content) = workflow_template(template)
-                .ok_or_else(|| format!("Unknown workflow template: {}", template))?;
+            let (file_name, content) = workflow_template(template).ok_or_else(|| {
+                format!(
+                    "Unknown workflow template: {}. Available: {}",
+                    template,
+                    workflow_template_names().join(", ")
+                )
+            })?;
             let path = dir.join(file_name);
             std::fs::write(&path, content)
                 .map_err(|err| format!("Failed to write {}: {}", path.display(), err))?;
@@ -168,6 +186,17 @@ impl Command for WorkflowsCommand {
                 .ok()
                 .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok())
                 .map(|json| {
+                    let mode = json
+                        .get("steps")
+                        .and_then(|value| value.as_array())
+                        .map(|steps| {
+                            if workflow_requires_write_mode(steps) {
+                                "write"
+                            } else {
+                                "safe"
+                            }
+                        })
+                        .unwrap_or("unknown");
                     let name = json
                         .get("name")
                         .and_then(|value| value.as_str())
@@ -180,7 +209,7 @@ impl Command for WorkflowsCommand {
                         .get("description")
                         .and_then(|value| value.as_str())
                         .unwrap_or("no description");
-                    format!("{} — {}", name, description)
+                    format!("{} [{}] — {}", name, mode, description)
                 })
                 .unwrap_or_else(|| path.display().to_string());
             output.push_str(&format!("  - {} ({})\n", label, path.display()));
@@ -207,6 +236,15 @@ fn latest_workflow_name(dir: &std::path::Path) -> Option<String> {
     })
 }
 
+fn workflow_template_names() -> Vec<&'static str> {
+    vec![
+        "review-pipeline",
+        "review-then-commit",
+        "ship-pipeline",
+        "coordinator-review",
+    ]
+}
+
 fn workflow_template(name: &str) -> Option<(&'static str, &'static str)> {
     match name {
         "review-pipeline" => Some((
@@ -226,6 +264,41 @@ fn workflow_template(name: &str) -> Option<(&'static str, &'static str)> {
       "params": {
         "goal": "verify the current implementation is correct",
         "focus": "${focus}"
+      }
+    }
+  ]
+}"#,
+        )),
+        "review-then-commit" => Some((
+            "review-then-commit.json",
+            r#"{
+  "name": "review-then-commit",
+  "description": "Review current changes and commit only when the review is clean",
+  "steps": [
+    {
+      "tool_name": "review_then_commit",
+      "params": {
+        "message": "${message}",
+        "focus": "${focus}",
+        "files": []
+      }
+    }
+  ]
+}"#,
+        )),
+        "ship-pipeline" => Some((
+            "ship-pipeline.json",
+            r#"{
+  "name": "ship-pipeline",
+  "description": "Run review, verification, and commit only when checks are clean",
+  "steps": [
+    {
+      "tool_name": "review_pipeline",
+      "params": {
+        "focus": "${focus}",
+        "verification_goal": "verify the current implementation is correct",
+        "commit_message": "${commit_message}",
+        "files": []
       }
     }
   ]
@@ -262,5 +335,58 @@ fn workflow_template(name: &str) -> Option<(&'static str, &'static str)> {
 }"#,
         )),
         _ => None,
+    }
+}
+
+fn workflow_requires_write_mode(steps: &[serde_json::Value]) -> bool {
+    steps.iter().any(|step| {
+        step.get("tool_name")
+            .and_then(|value| value.as_str())
+            .map(|tool_name| !is_safe_workflow_step(tool_name))
+            .unwrap_or(true)
+    })
+}
+
+fn is_safe_workflow_step(tool_name: &str) -> bool {
+    matches!(
+        tool_name,
+        "task_output"
+            | "read_file"
+            | "glob"
+            | "grep"
+            | "ls"
+            | "git_status"
+            | "git_diff"
+            | "git_log"
+            | "project_map"
+            | "memory"
+            | "review_changes"
+            | "verification_agent"
+            | "coordinate_agents"
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{workflow_requires_write_mode, workflow_template};
+
+    #[test]
+    fn workflow_mode_detection_distinguishes_safe_and_write_steps() {
+        let safe = serde_json::json!([
+            { "tool_name": "review_changes" },
+            { "tool_name": "verification_agent" }
+        ]);
+        let write = serde_json::json!([
+            { "tool_name": "review_pipeline" }
+        ]);
+
+        assert!(!workflow_requires_write_mode(safe.as_array().unwrap()));
+        assert!(workflow_requires_write_mode(write.as_array().unwrap()));
+    }
+
+    #[test]
+    fn workflow_templates_include_ship_flows() {
+        assert!(workflow_template("review-then-commit").is_some());
+        assert!(workflow_template("ship-pipeline").is_some());
     }
 }
