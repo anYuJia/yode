@@ -12,7 +12,7 @@ use yode_tools::registry::ToolRegistry;
 
 use crate::event;
 
-use super::engine_events::reload_provider_from_config;
+use super::engine_events::provider::reload_provider_from_config;
 use super::key_handlers::{handle_char, handle_down, handle_tab, handle_up};
 use super::turn_flow::handle_enter;
 use super::{input, App, ChatEntry, ChatRole};

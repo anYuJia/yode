@@ -13,7 +13,7 @@ use tracing::error;
 use yode_core::engine::{AgentEngine, EngineEvent};
 use yode_tools::registry::ToolRegistry;
 
-use super::engine_events::reload_provider_from_config;
+use super::engine_events::provider::reload_provider_from_config;
 use super::scrollback::print_header_to_stdout;
 use super::{
     App, ChatEntry, ChatRole, PermissionMode, TurnStatus,
