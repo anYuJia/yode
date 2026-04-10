@@ -30,7 +30,7 @@
 
 当前进度：
 
-- `39 / 100` 已完成
+- `40 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -94,7 +94,7 @@
 - `[ ] 046 plan-mode blocked-tool suggestions`
 - `[ ] 047 dangerous command rationale improvements`
 - `[ ] 048 permission hook snapshot export`
-- `[ ] 049 workflow write-mode confirmation summary`
+- `[x] 049 workflow write-mode confirmation summary`
 - `[x] 050 safety-focused doctor checks`
 
 ## 051-060 MCP / Remote / Integration

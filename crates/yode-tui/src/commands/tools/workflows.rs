@@ -100,6 +100,15 @@ impl Command for WorkflowsCommand {
                 .and_then(|value| value.as_array())
                 .ok_or_else(|| format!("Workflow {} has no steps array.", path.display()))?;
             let write_capable = workflow_requires_write_mode(steps);
+            let write_steps = steps
+                .iter()
+                .enumerate()
+                .filter_map(|(index, step)| {
+                    let tool_name = step.get("tool_name").and_then(|value| value.as_str())?;
+                    (!is_safe_workflow_step(tool_name))
+                        .then(|| format!("{}. {}", index + 1, tool_name))
+                })
+                .collect::<Vec<_>>();
             let mut output = format!(
                 "Workflow {}\nPath: {}\nDescription: {}\nMode: {}\n\nSteps:\n",
                 json.get("name")
@@ -139,6 +148,12 @@ impl Command for WorkflowsCommand {
                         ""
                     }
                 ));
+            }
+            if !write_steps.is_empty() {
+                output.push_str("\nWrite-capable steps:\n");
+                for step in write_steps {
+                    output.push_str(&format!("  - {}\n", step));
+                }
             }
             output.push_str(
                 "\nUse `/workflows run <name>` for safe workflows, `/workflows run-write <name>` for confirmed write-capable workflows, or call `workflow_run` with dry_run=true.",

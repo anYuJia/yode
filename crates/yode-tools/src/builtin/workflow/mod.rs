@@ -191,10 +191,22 @@ async fn execute_workflow(
         .and_then(|value| value.as_bool())
         .unwrap_or(false);
 
-    if dry_run {
-        let plan = workflow
-            .steps
-            .iter()
+        if dry_run {
+            let write_steps = workflow
+                .steps
+                .iter()
+                .enumerate()
+                .filter(|(_, step)| is_write_capable_tool(&step.tool_name))
+                .map(|(index, step)| {
+                    json!({
+                        "index": index + 1,
+                        "tool": step.tool_name,
+                    })
+                })
+                .collect::<Vec<_>>();
+            let plan = workflow
+                .steps
+                .iter()
             .enumerate()
             .map(|(index, step)| {
                 json!({
@@ -212,13 +224,14 @@ async fn execute_workflow(
                 "workflow_path": workflow_path,
                 "workflow_name": workflow.name,
                 "description": workflow.description,
-                "variables": variables,
-                "dry_run": true,
-                "mode": workflow_mode_label(mode),
-                "plan": plan,
-            }),
-        ));
-    }
+                    "variables": variables,
+                    "dry_run": true,
+                    "mode": workflow_mode_label(mode),
+                    "write_steps": write_steps,
+                    "plan": plan,
+                }),
+            ));
+        }
 
     let mut step_outputs = Vec::new();
     for (index, step) in workflow.steps.iter().enumerate() {
@@ -283,18 +296,30 @@ async fn execute_workflow(
         }
     }
 
-    Ok(ToolResult::success_with_metadata(
-        serde_json::to_string_pretty(&step_outputs)?,
-        json!({
-            "workflow_path": workflow_path,
-            "workflow_name": workflow.name,
-            "description": workflow.description,
-            "step_count": workflow.steps.len(),
-            "variables": variables,
-            "mode": workflow_mode_label(mode),
-            "results": step_outputs,
-        }),
-    ))
+        Ok(ToolResult::success_with_metadata(
+            serde_json::to_string_pretty(&step_outputs)?,
+            json!({
+                "workflow_path": workflow_path,
+                "workflow_name": workflow.name,
+                "description": workflow.description,
+                "step_count": workflow.steps.len(),
+                "variables": variables,
+                "mode": workflow_mode_label(mode),
+                "write_steps": workflow
+                    .steps
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, step)| is_write_capable_tool(&step.tool_name))
+                    .map(|(index, step)| {
+                        json!({
+                            "index": index + 1,
+                            "tool": step.tool_name,
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+                "results": step_outputs,
+            }),
+        ))
 }
 
 fn workflow_mode_label(mode: WorkflowExecutionMode) -> &'static str {
