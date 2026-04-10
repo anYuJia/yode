@@ -32,3 +32,6 @@ jobs:
 
       - name: Provider integration tests
         run: cargo test --test anthropic_integration
+
+      - name: Artifact smoke verification
+        run: bash scripts/verify-compact-artifacts.sh
