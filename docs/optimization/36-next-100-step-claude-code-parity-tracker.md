@@ -30,7 +30,7 @@
 
 当前进度：
 
-- `34 / 100` 已完成
+- `35 / 100` 已完成
 
 ## 001-010 Agent Loop / Orchestration
 
@@ -147,7 +147,7 @@
 - `[x] 087 updater channel diagnostics`
 - `[x] 088 package metadata consistency checks`
 - `[x] 089 integration-test gating cleanup`
-- `[ ] 090 release checklist automation`
+- `[x] 090 release checklist automation`
 
 ## 091-100 Docs / Tracking / Closeout
 
