@@ -97,6 +97,7 @@ impl App {
                 model,
                 session_id,
                 working_dir,
+                startup_profile: None,
                 input_tokens: 0,
                 output_tokens: 0,
                 total_tokens: 0,

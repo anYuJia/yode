@@ -1,7 +1,9 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::Result;
+use futures::future::join_all;
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 
@@ -20,6 +22,87 @@ pub(crate) struct ToolingBootstrap {
     pub(crate) tool_registry: Arc<ToolRegistry>,
     pub(crate) skill_registry: SkillRegistry,
     pub(crate) mcp_clients: Vec<yode_mcp::McpClient>,
+    pub(crate) metrics: ToolingSetupMetrics,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ToolingSetupMetrics {
+    pub(crate) builtin_register_ms: u64,
+    pub(crate) mcp_connect_ms: u64,
+    pub(crate) mcp_register_ms: u64,
+    pub(crate) skill_discovery_ms: u64,
+    pub(crate) total_ms: u64,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct StartupPhaseTiming {
+    pub(crate) label: &'static str,
+    pub(crate) duration_ms: u64,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct StartupProfiler {
+    started_at: Instant,
+    last_checkpoint: Instant,
+    phases: Vec<StartupPhaseTiming>,
+}
+
+impl StartupProfiler {
+    pub(crate) fn new() -> Self {
+        let now = Instant::now();
+        Self {
+            started_at: now,
+            last_checkpoint: now,
+            phases: Vec::new(),
+        }
+    }
+
+    pub(crate) fn checkpoint(&mut self, label: &'static str) {
+        let now = Instant::now();
+        self.phases.push(StartupPhaseTiming {
+            label,
+            duration_ms: now.duration_since(self.last_checkpoint).as_millis() as u64,
+        });
+        self.last_checkpoint = now;
+    }
+
+    fn total_ms(&self) -> u64 {
+        self.started_at.elapsed().as_millis() as u64
+    }
+
+    pub(crate) fn summary(&self, mode: &'static str, tooling: &ToolingSetupMetrics) -> String {
+        let phases = self
+            .phases
+            .iter()
+            .map(|phase| format!("{}={}ms", phase.label, phase.duration_ms))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            "mode={} total={}ms tooling[builtin={}ms mcp_connect={}ms mcp_register={}ms skills={}ms total={}ms] phases[{}]",
+            mode,
+            self.total_ms(),
+            tooling.builtin_register_ms,
+            tooling.mcp_connect_ms,
+            tooling.mcp_register_ms,
+            tooling.skill_discovery_ms,
+            tooling.total_ms,
+            phases
+        )
+    }
+
+    pub(crate) fn log_summary(&self, mode: &'static str, tooling: &ToolingSetupMetrics) {
+        info!(
+            startup_mode = mode,
+            total_ms = self.total_ms(),
+            builtin_register_ms = tooling.builtin_register_ms,
+            mcp_connect_ms = tooling.mcp_connect_ms,
+            mcp_register_ms = tooling.mcp_register_ms,
+            skill_discovery_ms = tooling.skill_discovery_ms,
+            tooling_total_ms = tooling.total_ms,
+            summary = %self.summary(mode, tooling),
+            "Startup profile"
+        );
+    }
 }
 
 pub(crate) fn init_logging() -> Result<()> {
@@ -39,36 +122,75 @@ pub(crate) fn init_logging() -> Result<()> {
 }
 
 pub(crate) async fn setup_tooling(config: &Config, workdir: &Path) -> Result<ToolingBootstrap> {
+    let total_started = Instant::now();
     let mut tool_registry = ToolRegistry::new();
+    let builtin_started = Instant::now();
     builtin::register_builtin_tools(&mut tool_registry);
+    let builtin_register_ms = builtin_started.elapsed().as_millis() as u64;
 
-    let mut mcp_clients = Vec::new();
+    let skill_paths = SkillRegistry::default_paths(workdir);
+    let skill_started = Instant::now();
+    let skill_discovery_task =
+        tokio::task::spawn_blocking(move || SkillRegistry::discover(&skill_paths));
+
+    let mcp_started = Instant::now();
+    let mut mcp_connect_set = tokio::task::JoinSet::new();
     for (name, server_config) in &config.mcp.servers {
-        let mcp_config = yode_mcp::McpServerConfig {
-            command: server_config.command.clone(),
-            args: server_config.args.clone(),
-            env: server_config.env.clone(),
-        };
-        match yode_mcp::McpClient::connect(name, &mcp_config).await {
-            Ok(client) => {
-                match client.discover_and_register(&mut tool_registry).await {
-                    Ok(count) => {
-                        info!(server = %name, tools = count, "MCP server tools registered");
-                    }
-                    Err(err) => {
-                        warn!(server = %name, error = %err, "Failed to discover MCP tools");
-                    }
+        let name = name.clone();
+        let server_config = server_config.clone();
+        mcp_connect_set.spawn(async move {
+            let mcp_config = yode_mcp::McpServerConfig {
+                command: server_config.command,
+                args: server_config.args,
+                env: server_config.env,
+            };
+            let result = yode_mcp::McpClient::connect(&name, &mcp_config).await;
+            (name, result)
+        });
+    }
+
+    let mut mcp_clients: Vec<yode_mcp::McpClient> = Vec::new();
+    while let Some(joined) = mcp_connect_set.join_next().await {
+        match joined {
+            Ok((name, result)) => match result {
+                Ok(client) => {
+                    mcp_clients.push(client);
                 }
-                mcp_clients.push(client);
-            }
+                Err(err) => {
+                    warn!(server = %name, error = %err, "Failed to connect to MCP server");
+                }
+            },
             Err(err) => {
-                warn!(server = %name, error = %err, "Failed to connect to MCP server");
+                warn!(error = %err, "MCP connect task failed");
             }
         }
     }
+    let mcp_connect_ms = mcp_started.elapsed().as_millis() as u64;
 
-    let skill_paths = SkillRegistry::default_paths(workdir);
-    let skill_registry = SkillRegistry::discover(&skill_paths);
+    let mcp_register_started = Instant::now();
+    let discovery_results = join_all(mcp_clients.iter().map(|client| async move {
+        let server_name = client.server_name.clone();
+        let result = client.discover_wrapped_tools().await;
+        (server_name, result)
+    }))
+    .await;
+    for (server_name, result) in discovery_results {
+        match result {
+            Ok(wrappers) => {
+                let count = wrappers.len();
+                for wrapper in wrappers {
+                    tool_registry.register(wrapper);
+                }
+                info!(server = %server_name, tools = count, "MCP server tools registered");
+            }
+            Err(err) => {
+                warn!(server = %server_name, error = %err, "Failed to discover MCP tools");
+            }
+        }
+    }
+    let mcp_register_ms = mcp_register_started.elapsed().as_millis() as u64;
+
+    let skill_registry = skill_discovery_task.await?;
     {
         use yode_tools::builtin::skill::SkillStore;
 
@@ -84,11 +206,19 @@ pub(crate) async fn setup_tooling(config: &Config, workdir: &Path) -> Result<Too
         builtin::register_skill_tool(&mut tool_registry, store);
     }
     info!("Discovered {} skills", skill_registry.list().len());
+    let skill_discovery_ms = skill_started.elapsed().as_millis() as u64;
 
     Ok(ToolingBootstrap {
         tool_registry: Arc::new(tool_registry),
         skill_registry,
         mcp_clients,
+        metrics: ToolingSetupMetrics {
+            builtin_register_ms,
+            mcp_connect_ms,
+            mcp_register_ms,
+            skill_discovery_ms,
+            total_ms: total_started.elapsed().as_millis() as u64,
+        },
     })
 }
 

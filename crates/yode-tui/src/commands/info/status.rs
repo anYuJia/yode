@@ -63,6 +63,11 @@ impl Command for StatusCommand {
                 )
             })
             .unwrap_or_else(|| "none".to_string());
+        let startup_profile = ctx
+            .session
+            .startup_profile
+            .as_deref()
+            .unwrap_or("none");
         let runtime = ctx
             .engine
             .try_lock()
@@ -76,6 +81,7 @@ impl Command for StatusCommand {
             &runtime_sections,
             cost,
             &resume_warmup,
+            startup_profile,
         )))
     }
 }

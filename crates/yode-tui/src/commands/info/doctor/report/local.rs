@@ -73,6 +73,11 @@ pub(super) fn render_doctor_report(ctx: &mut CommandContext) -> String {
             checks.push("  [!!] Config file missing".to_string());
         }
     }
+    if let Some(profile) = ctx.session.startup_profile.as_deref() {
+        checks.push(format!("  [ok] Startup profile: {}", profile));
+    } else {
+        checks.push("  [--] Startup profile unavailable".to_string());
+    }
 
     if let Some((state, permission_mode, confirmable_tools)) = runtime {
         checks.extend(runtime_health_checks(

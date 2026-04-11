@@ -104,6 +104,7 @@ pub struct SessionState {
     pub model: String,
     pub session_id: String,
     pub working_dir: String,
+    pub startup_profile: Option<String>,
     pub input_tokens: u32,
     pub output_tokens: u32,
     pub total_tokens: u32,

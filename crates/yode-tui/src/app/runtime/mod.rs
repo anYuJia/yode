@@ -33,6 +33,7 @@ pub async fn run(
     restored_messages: Option<Vec<Message>>,
     skill_commands: Vec<(String, String)>,
     all_provider_models: HashMap<String, Vec<String>>,
+    startup_profile: Option<String>,
 ) -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -49,6 +50,7 @@ pub async fn run(
         restored_messages,
         skill_commands,
         all_provider_models,
+        startup_profile,
     )
     .await?;
 

@@ -13,6 +13,7 @@ use tracing::info;
 
 use crate::config::McpServerConfig;
 use yode_tools::registry::ToolRegistry;
+use yode_tools::tool::Tool;
 
 pub use tool_wrapper::{mcp_tool_latency_stats, McpToolLatencyEntry, McpToolWrapper};
 
@@ -138,6 +139,15 @@ impl McpClient {
 
     /// Discover tools from the connected server and register them as wrapped Tool implementations.
     pub async fn discover_and_register(&self, registry: &mut ToolRegistry) -> Result<usize> {
+        let wrappers = self.discover_wrapped_tools().await?;
+        let count = wrappers.len();
+        for wrapper in wrappers {
+            registry.register(wrapper);
+        }
+        Ok(count)
+    }
+
+    pub async fn discover_wrapped_tools(&self) -> Result<Vec<Arc<dyn Tool>>> {
         let tools_result = self.peer.list_tools(Default::default()).await?;
         let tools = tools_result.tools;
         let count = tools.len();
@@ -148,6 +158,7 @@ impl McpClient {
             "Discovered MCP tools"
         );
 
+        let mut wrappers: Vec<Arc<dyn Tool>> = Vec::with_capacity(count);
         for tool in tools {
             let name = format!("mcp__{}_{}", self.server_name, tool.name);
             let wrapper = McpToolWrapper {
@@ -162,10 +173,10 @@ impl McpClient {
                 server_name: self.server_name.clone(),
                 peer: self.peer.clone(),
             };
-            registry.register(Arc::new(wrapper));
+            wrappers.push(Arc::new(wrapper));
         }
 
-        Ok(count)
+        Ok(wrappers)
     }
 
     /// Call a tool on this MCP server.

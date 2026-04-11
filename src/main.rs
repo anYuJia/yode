@@ -17,7 +17,7 @@ use yode_core::setup::{has_api_keys_configured, run_setup_interactive};
 
 use crate::app_bootstrap::{
     configure_permissions, ensure_session_exists, init_logging, restore_or_create_context,
-    setup_tooling, shutdown_mcp_clients,
+    setup_tooling, shutdown_mcp_clients, StartupProfiler,
 };
 
 #[derive(Parser)]
@@ -111,6 +111,7 @@ enum ProviderAction {
 async fn main() -> Result<()> {
     init_logging()?;
     info!("Yode starting...");
+    let mut startup_profiler = StartupProfiler::new();
 
     // Check for pending updates and apply them before doing anything else
     let config_dir = dirs::home_dir()
@@ -153,6 +154,7 @@ async fn main() -> Result<()> {
     }
 
     let cli = Cli::parse();
+    startup_profiler.checkpoint("cli_parse");
 
     // Check if API keys are configured, if not run setup
     if !has_api_keys_configured() {
@@ -162,6 +164,7 @@ async fn main() -> Result<()> {
     // Load config
     let mut config =
         Config::load_from(cli.config.as_deref()).context("Failed to load configuration")?;
+    startup_profiler.checkpoint("config_load");
 
     if let Some(command) = cli.command {
         cli_commands::handle_cli_command(command, &mut config).await?;
@@ -173,23 +176,26 @@ async fn main() -> Result<()> {
         .clone()
         .unwrap_or_else(|| env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
     let tooling = setup_tooling(&config, &workdir).await?;
+    startup_profiler.checkpoint("tooling_setup");
 
     // If --serve-mcp, run as MCP server and exit
     if cli.serve_mcp {
+        startup_profiler.checkpoint("ready_serve_mcp");
+        startup_profiler.log_summary("serve_mcp", &tooling.metrics);
         info!("Running in MCP server mode");
         yode_mcp::run_mcp_server(Arc::clone(&tooling.tool_registry)).await?;
         return Ok(());
     }
 
-    // Open database
     let db_path = config.session_db_path();
-    let db = Database::open(&db_path).context("Failed to open session database")?;
+    let db_open_task = tokio::task::spawn_blocking(move || Database::open(&db_path));
 
     let provider_bootstrap = provider_bootstrap::bootstrap_provider_registry(
         cli.provider.clone(),
         cli.model.clone(),
         &config,
     )?;
+    startup_profiler.checkpoint("provider_bootstrap");
     let provider_registry = provider_bootstrap.provider_registry;
     let provider_name = provider_bootstrap.provider_name;
     let _provider_models = provider_bootstrap.provider_models;
@@ -197,13 +203,23 @@ async fn main() -> Result<()> {
     let provider = provider_bootstrap.provider;
     let model = provider_bootstrap.model;
 
+    let db = db_open_task
+        .await
+        .context("Database open task failed")?
+        .context("Failed to open session database")?;
+    startup_profiler.checkpoint("db_ready");
+
     let permissions = configure_permissions(&config);
+    startup_profiler.checkpoint("permission_setup");
     let (context, restored_messages) =
         restore_or_create_context(&cli, &db, workdir, provider_name.clone(), model.clone())?;
     ensure_session_exists(&db, &context)?;
+    startup_profiler.checkpoint("session_bootstrap");
 
     // If --chat, run a single non-interactive turn and exit
     if let Some(chat_message) = cli.chat_message.as_deref() {
+        startup_profiler.checkpoint("ready_chat");
+        startup_profiler.log_summary("chat", &tooling.metrics);
         return chat_mode::run_noninteractive_chat(
             chat_message,
             provider,
@@ -222,6 +238,9 @@ async fn main() -> Result<()> {
         "Starting TUI with provider={}, model={}, session={}",
         context.provider, context.model, context.session_id
     );
+    startup_profiler.checkpoint("ready_tui");
+    let startup_summary = startup_profiler.summary("tui", &tooling.metrics);
+    startup_profiler.log_summary("tui", &tooling.metrics);
 
     let skill_cmds: Vec<(String, String)> = tooling
         .skill_registry
@@ -239,6 +258,7 @@ async fn main() -> Result<()> {
         restored_messages,
         skill_cmds,
         all_provider_models,
+        Some(startup_summary),
     )
     .await?;
 

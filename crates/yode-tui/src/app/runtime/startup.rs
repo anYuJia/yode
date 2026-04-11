@@ -33,6 +33,7 @@ pub(super) async fn prepare_runtime(
     restored_messages: Option<Vec<Message>>,
     skill_commands: Vec<(String, String)>,
     all_provider_models: HashMap<String, Vec<String>>,
+    startup_profile: Option<String>,
 ) -> Result<RuntimeStartup> {
     let working_dir = context.working_dir_compat().display().to_string();
     let is_resumed = context.is_resumed;
@@ -51,6 +52,7 @@ pub(super) async fn prepare_runtime(
         provider_registry,
         Arc::clone(&tools),
     );
+    app.session.startup_profile = startup_profile;
     if is_resumed {
         app.session.resume_cache_warmup = Some(
             crate::commands::info::warm_resume_transcript_caches(&context.working_dir_compat()),
