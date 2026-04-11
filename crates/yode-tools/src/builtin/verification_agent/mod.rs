@@ -131,19 +131,9 @@ impl Tool for VerificationAgentTool {
                 .as_deref()
                 .and_then(|dir| persist_review_artifact(dir, "verification", focus, &result).ok())
                 .inspect(|path| {
-                    let _ = ctx
-                        .working_dir
-                        .as_deref()
-                        .and_then(|dir| {
-                            persist_review_status(
-                                dir,
-                                "verification",
-                                focus,
-                                &result,
-                                Some(path),
-                            )
-                            .ok()
-                        });
+                    let _ = ctx.working_dir.as_deref().and_then(|dir| {
+                        persist_review_status(dir, "verification", focus, &result, Some(path)).ok()
+                    });
                 })
                 .map(|path| path.display().to_string())
         } else {
@@ -180,7 +170,8 @@ mod tests {
             &self,
             prompt: String,
             options: SubAgentOptions,
-        ) -> Pin<Box<dyn std::future::Future<Output = anyhow::Result<String>> + Send + '_>> {
+        ) -> Pin<Box<dyn std::future::Future<Output = anyhow::Result<String>> + Send + '_>>
+        {
             self.seen.lock().unwrap().push((prompt, options));
             Box::pin(async { Ok("verification ok".to_string()) })
         }
@@ -212,7 +203,11 @@ mod tests {
         let seen = seen.lock().unwrap();
         assert_eq!(seen.len(), 1);
         assert!(seen[0].0.contains("verify a bug fix"));
-        assert!(seen[0].1.allowed_tools.iter().any(|tool| tool == "task_output"));
+        assert!(seen[0]
+            .1
+            .allowed_tools
+            .iter()
+            .any(|tool| tool == "task_output"));
         assert!(seen[0].1.run_in_background);
     }
 }

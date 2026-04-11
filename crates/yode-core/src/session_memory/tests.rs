@@ -24,8 +24,9 @@ fn prepends_newer_session_memory_entries() {
     };
 
     persist_compaction_memory(project_root, "session-one", &first, &HashMap::new(), &[]).unwrap();
-    let path = persist_compaction_memory(project_root, "session-two", &second, &HashMap::new(), &[])
-        .unwrap();
+    let path =
+        persist_compaction_memory(project_root, "session-two", &second, &HashMap::new(), &[])
+            .unwrap();
 
     let content = std::fs::read_to_string(path).unwrap();
     let first_idx = content.find("first summary").unwrap();

@@ -15,7 +15,8 @@ impl ReviewsCommand {
         Self {
             meta: CommandMeta {
                 name: "reviews",
-                description: "List or open review artifacts under .yode/reviews, optionally filtered by kind",
+                description:
+                    "List or open review artifacts under .yode/reviews, optionally filtered by kind",
                 aliases: &[],
                 args: vec![],
                 category: CommandCategory::Development,
@@ -126,12 +127,10 @@ impl Command for ReviewsCommand {
             )));
         }
 
-        let index = trimmed
-            .parse::<usize>()
-            .map_err(|_| {
-                "Usage: /reviews | /reviews list [kind] | /reviews latest [kind] | /reviews <index>"
-                    .to_string()
-            })?;
+        let index = trimmed.parse::<usize>().map_err(|_| {
+            "Usage: /reviews | /reviews list [kind] | /reviews latest [kind] | /reviews <index>"
+                .to_string()
+        })?;
         if index == 0 || index > entries.len() {
             return Err(format!("Review artifact index out of range: {}", index));
         }
@@ -243,7 +242,8 @@ mod tests {
 
     #[test]
     fn review_artifact_badge_detects_findings_output() {
-        let content = "# Review Artifact\n\n## Result\n\n```text\n1. Missing regression test\n```\n";
+        let content =
+            "# Review Artifact\n\n## Result\n\n```text\n1. Missing regression test\n```\n";
         assert_eq!(review_artifact_badge(content), "findings");
     }
 

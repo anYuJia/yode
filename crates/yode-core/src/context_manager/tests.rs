@@ -67,10 +67,19 @@ fn test_compress_truncates_tool_results() {
 
 #[test]
 fn test_message_priority() {
-    assert_eq!(super::runtime::message_priority(&Message::system("sys")), 99);
+    assert_eq!(
+        super::runtime::message_priority(&Message::system("sys")),
+        99
+    );
     assert_eq!(super::runtime::message_priority(&Message::user("hi")), 1);
-    assert_eq!(super::runtime::message_priority(&Message::assistant("ok")), 1);
-    assert_eq!(super::runtime::message_priority(&Message::tool_result("id", "res")), 2);
+    assert_eq!(
+        super::runtime::message_priority(&Message::assistant("ok")),
+        1
+    );
+    assert_eq!(
+        super::runtime::message_priority(&Message::tool_result("id", "res")),
+        2
+    );
     assert_eq!(
         super::runtime::message_priority(&Message::system("[Context summary] previous turns")),
         2

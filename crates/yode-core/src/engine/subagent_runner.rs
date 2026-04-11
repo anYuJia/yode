@@ -185,9 +185,11 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                             }
                         }
                         Ok(Err(err)) => {
-                            let _ =
-                                tokio::fs::write(&output_path, format!("Sub-agent failed: {}", err))
-                                    .await;
+                            let _ = tokio::fs::write(
+                                &output_path,
+                                format!("Sub-agent failed: {}", err),
+                            )
+                            .await;
                             runtime_tasks
                                 .lock()
                                 .await

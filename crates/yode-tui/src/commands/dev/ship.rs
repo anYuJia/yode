@@ -100,7 +100,8 @@ mod tests {
 
     #[test]
     fn latest_review_status_reads_snapshot() {
-        let path = std::env::temp_dir().join(format!("yode-ship-status-{}.json", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("yode-ship-status-{}.json", std::process::id()));
         let snapshot = ReviewStatusSnapshot {
             kind: "review".to_string(),
             title: "current changes".to_string(),

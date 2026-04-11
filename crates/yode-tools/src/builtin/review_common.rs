@@ -209,8 +209,8 @@ mod tests {
             .unwrap();
         std::fs::write(dir.path().join("a.txt"), "hello\nworld\n").unwrap();
 
-        let artifact = persist_review_artifact(dir.path(), "review", "changes", "No issues found.")
-            .unwrap();
+        let artifact =
+            persist_review_artifact(dir.path(), "review", "changes", "No issues found.").unwrap();
         let content = std::fs::read_to_string(&artifact).unwrap();
         assert!(content.contains("Diff Artifact: "));
         assert!(content.contains(".diff.txt"));

@@ -148,23 +148,24 @@ pub(crate) fn bootstrap_provider_registry(
         .get(&provider_name)
         .cloned()
         .unwrap_or_default();
-    let model = {
-        let requested = cli_model.unwrap_or_else(|| config.llm.default_model.clone());
-        if !provider_models.is_empty() && !provider_models.contains(&requested) {
-            let first = provider_models[0].clone();
-            tracing::warn!(
+    let model =
+        {
+            let requested = cli_model.unwrap_or_else(|| config.llm.default_model.clone());
+            if !provider_models.is_empty() && !provider_models.contains(&requested) {
+                let first = provider_models[0].clone();
+                tracing::warn!(
                 "Model '{}' not in provider '{}' model list, using '{}' instead. Available: {:?}",
                 requested, provider_name, first, provider_models
             );
-            eprintln!(
-                "⚠ Model '{}' not available for provider '{}', using '{}' instead.",
-                requested, provider_name, first
-            );
-            first
-        } else {
-            requested
-        }
-    };
+                eprintln!(
+                    "⚠ Model '{}' not available for provider '{}', using '{}' instead.",
+                    requested, provider_name, first
+                );
+                first
+            } else {
+                requested
+            }
+        };
 
     let provider_registry = Arc::new(provider_registry);
     let provider = provider_registry.get(&provider_name).context(format!(

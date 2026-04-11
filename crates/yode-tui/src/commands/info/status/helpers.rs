@@ -171,10 +171,8 @@ mod tests {
 
     #[test]
     fn latest_review_summary_detects_clean_artifact() {
-        let review_dir = std::env::temp_dir().join(format!(
-            "yode-status-review-test-{}",
-            std::process::id()
-        ));
+        let review_dir =
+            std::env::temp_dir().join(format!("yode-status-review-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&review_dir);
         std::fs::create_dir_all(&review_dir).unwrap();
         std::fs::write(

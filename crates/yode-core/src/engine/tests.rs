@@ -152,18 +152,14 @@ impl Tool for MockPathTool {
     }
 }
 
-pub(super) fn make_engine(
-    tools: Vec<Arc<dyn Tool>>,
-    confirm_tools: Vec<String>,
-) -> AgentEngine {
+pub(super) fn make_engine(tools: Vec<Arc<dyn Tool>>, confirm_tools: Vec<String>) -> AgentEngine {
     let mut registry = ToolRegistry::new();
     for t in tools {
         registry.register(t);
     }
     let provider: Arc<dyn yode_llm::provider::LlmProvider> = Arc::new(MockProvider);
     let permissions = PermissionManager::from_confirmation_list(confirm_tools);
-    let workdir =
-        std::env::temp_dir().join(format!("yode-engine-test-{}", uuid::Uuid::new_v4()));
+    let workdir = std::env::temp_dir().join(format!("yode-engine-test-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&workdir).unwrap();
     let context = AgentContext::new(workdir, "mock".to_string(), "claude-sonnet-4".to_string());
     AgentEngine::new(provider, Arc::new(registry), permissions, context)

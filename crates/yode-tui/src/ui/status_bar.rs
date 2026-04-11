@@ -54,7 +54,9 @@ pub fn render_info_line(frame: &mut Frame, area: Rect, app: &App) {
         match density {
             StatusBarDensity::Wide => format!("{} {} ", mode_icon, mode.to_lowercase()),
             StatusBarDensity::Medium => format!("{} {} ", mode_icon, mode.to_lowercase()),
-            StatusBarDensity::Narrow => format!("{}{} ", mode_icon, mode.chars().next().unwrap_or('m')),
+            StatusBarDensity::Narrow => {
+                format!("{}{} ", mode_icon, mode.chars().next().unwrap_or('m'))
+            }
         },
         Style::default().fg(mode_color),
     ));

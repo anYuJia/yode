@@ -2,8 +2,8 @@ use std::io;
 use std::sync::Arc;
 use std::time::Instant;
 
-use crossterm::ExecutableCommand;
 use crossterm::event::KeyModifiers;
+use crossterm::ExecutableCommand;
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 use tokio::sync::{mpsc, Mutex};
@@ -15,9 +15,7 @@ use yode_tools::registry::ToolRegistry;
 
 use super::engine_events::provider::reload_provider_from_config;
 use super::scrollback::print_header_to_stdout;
-use super::{
-    App, ChatEntry, ChatRole, PermissionMode, TurnStatus,
-};
+use super::{App, ChatEntry, ChatRole, PermissionMode, TurnStatus};
 
 pub(super) fn handle_enter(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,

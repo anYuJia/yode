@@ -226,9 +226,7 @@ pub(super) fn build_add_provider_wizard() -> Wizard {
     }))
 }
 
-pub(super) fn build_edit_provider_wizard(
-    name: &str,
-) -> Result<crate::app::wizard::Wizard, String> {
+pub(super) fn build_edit_provider_wizard(name: &str) -> Result<crate::app::wizard::Wizard, String> {
     let config = yode_core::config::Config::load().map_err(|e| e.to_string())?;
     let p = config
         .llm

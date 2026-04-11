@@ -35,8 +35,10 @@ async fn test_initialize_session_hooks_injects_system_context() {
 #[tokio::test]
 async fn test_session_start_hook_wake_notification_is_injected() {
     let mut engine = make_engine(vec![], vec![]);
-    let hook_dir =
-        std::env::temp_dir().join(format!("yode-session-hook-wake-test-{}", uuid::Uuid::new_v4()));
+    let hook_dir = std::env::temp_dir().join(format!(
+        "yode-session-hook-wake-test-{}",
+        uuid::Uuid::new_v4()
+    ));
     std::fs::create_dir_all(&hook_dir).unwrap();
     let mut hook_mgr = crate::hooks::HookManager::new(hook_dir);
     hook_mgr.register(crate::hooks::HookDefinition {
@@ -132,8 +134,10 @@ async fn test_pre_compact_hook_context_includes_runtime_metadata() {
 #[tokio::test]
 async fn test_append_hook_outputs_as_system_message_injects_context() {
     let mut engine = make_engine(vec![], vec![]);
-    let hook_dir =
-        std::env::temp_dir().join(format!("yode-user-prompt-hook-test-{}", uuid::Uuid::new_v4()));
+    let hook_dir = std::env::temp_dir().join(format!(
+        "yode-user-prompt-hook-test-{}",
+        uuid::Uuid::new_v4()
+    ));
     std::fs::create_dir_all(&hook_dir).unwrap();
     let mut hook_mgr = crate::hooks::HookManager::new(hook_dir);
     hook_mgr.register(crate::hooks::HookDefinition {

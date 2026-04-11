@@ -1,14 +1,14 @@
-use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::Paragraph;
-use ratatui::Frame;
-use crate::app::{App, ChatRole};
 use super::chat_entries::{
     render_assistant, render_standalone_result, render_tool_call, render_user,
 };
 use super::chat_layout::{manual_wrap, render_header};
 use super::chat_markdown::render_markdown_impl;
+use crate::app::{App, ChatRole};
+use ratatui::layout::Rect;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
+use ratatui::Frame;
 
 // ── Colors ──────────────────────────────────────────────────────────
 // Use standard ANSI colors for grays — adapts to user's terminal color scheme.

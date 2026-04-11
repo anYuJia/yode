@@ -12,7 +12,9 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tracing::{debug, error, trace, warn};
 
-use self::conversion::{message_to_openai, openai_message_to_internal, openai_usage_to_usage, tool_to_openai};
+use self::conversion::{
+    message_to_openai, openai_message_to_internal, openai_usage_to_usage, tool_to_openai,
+};
 
 use crate::provider::LlmProvider;
 use crate::types::{

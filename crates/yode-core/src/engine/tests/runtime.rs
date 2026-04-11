@@ -91,7 +91,9 @@ fn test_compaction_cause_histogram_tracks_counts() {
 
     let runtime = engine.runtime_state();
     assert_eq!(
-        runtime.compaction_cause_histogram.get("skipped_below_threshold"),
+        runtime
+            .compaction_cause_histogram
+            .get("skipped_below_threshold"),
         Some(&2)
     );
     assert_eq!(

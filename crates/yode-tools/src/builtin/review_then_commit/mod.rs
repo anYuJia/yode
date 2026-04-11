@@ -7,7 +7,9 @@ use crate::builtin::review_common::{
     persist_review_artifact, persist_review_status, review_findings_count,
     review_output_has_findings,
 };
-use crate::tool::{SubAgentOptions, Tool, ToolCapabilities, ToolContext, ToolErrorType, ToolResult};
+use crate::tool::{
+    SubAgentOptions, Tool, ToolCapabilities, ToolContext, ToolErrorType, ToolResult,
+};
 
 pub struct ReviewThenCommitTool;
 
@@ -26,7 +28,10 @@ impl Tool for ReviewThenCommitTool {
             .get("message")
             .and_then(|value| value.as_str())
             .unwrap_or("commit");
-        format!("Reviewing and committing: {}", message.lines().next().unwrap_or(message))
+        format!(
+            "Reviewing and committing: {}",
+            message.lines().next().unwrap_or(message)
+        )
     }
 
     fn description(&self) -> &str {
@@ -139,14 +144,17 @@ impl Tool for ReviewThenCommitTool {
         let artifact_path = ctx
             .working_dir
             .as_deref()
-            .and_then(|dir| persist_review_artifact(dir, "pre-commit-review", focus, &review_output).ok())
+            .and_then(|dir| {
+                persist_review_artifact(dir, "pre-commit-review", focus, &review_output).ok()
+            })
             .map(|path| path.display().to_string());
         let findings_count = review_findings_count(&review_output);
         if let (Some(dir), Some(path)) = (
             ctx.working_dir.as_deref(),
             artifact_path.as_deref().map(std::path::Path::new),
         ) {
-            let _ = persist_review_status(dir, "pre-commit-review", focus, &review_output, Some(path));
+            let _ =
+                persist_review_status(dir, "pre-commit-review", focus, &review_output, Some(path));
         }
 
         if review_output_has_findings(&review_output) && !allow_findings_commit {
@@ -184,10 +192,7 @@ impl Tool for ReviewThenCommitTool {
             )
             .await?;
 
-        let mut metadata = commit_result
-            .metadata
-            .clone()
-            .unwrap_or_else(|| json!({}));
+        let mut metadata = commit_result.metadata.clone().unwrap_or_else(|| json!({}));
         if let Some(object) = metadata.as_object_mut() {
             object.insert("review_output".to_string(), json!(review_output));
             object.insert("findings_count".to_string(), json!(findings_count));
@@ -213,8 +218,8 @@ impl Tool for ReviewThenCommitTool {
 mod tests {
     use super::ReviewThenCommitTool;
     use crate::builtin::review_common::review_output_has_findings;
-    use serde_json::json;
     use crate::tool::{SubAgentOptions, SubAgentRunner, Tool, ToolContext};
+    use serde_json::json;
     use std::pin::Pin;
     use std::process::Command;
     use std::sync::Arc;
@@ -228,7 +233,8 @@ mod tests {
             &self,
             _prompt: String,
             _options: SubAgentOptions,
-        ) -> Pin<Box<dyn std::future::Future<Output = anyhow::Result<String>> + Send + '_>> {
+        ) -> Pin<Box<dyn std::future::Future<Output = anyhow::Result<String>> + Send + '_>>
+        {
             let output = self.output.clone();
             Box::pin(async move { Ok(output) })
         }

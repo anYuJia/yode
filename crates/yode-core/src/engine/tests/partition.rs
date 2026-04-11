@@ -95,7 +95,11 @@ fn test_partition_read_only_needing_confirm() {
         arguments: "{}".into(),
     }];
     let (par, seq) = engine.partition_tool_calls(&tcs);
-    assert_eq!(par.len(), 0, "Confirm-required tools must not be parallelized");
+    assert_eq!(
+        par.len(),
+        0,
+        "Confirm-required tools must not be parallelized"
+    );
     assert_eq!(seq.len(), 1);
 }
 

@@ -132,7 +132,9 @@ async fn test_hook_manager_parses_structured_json_output() {
 async fn test_hook_manager_queues_wake_notifications() {
     let mut mgr = HookManager::new(PathBuf::from("/tmp"));
     mgr.register(HookDefinition {
-        command: "printf '%s' '{\"hookSpecificOutput\":{\"wakeNotification\":\"wake up\"}}' && exit 2".into(),
+        command:
+            "printf '%s' '{\"hookSpecificOutput\":{\"wakeNotification\":\"wake up\"}}' && exit 2"
+                .into(),
         events: vec!["pre_tool_use".into()],
         tool_filter: None,
         timeout_secs: 5,

@@ -4,7 +4,10 @@ use anyhow::Result;
 
 use crate::{check_workspace_package_versions, Cli, Commands, ProviderAction, UpdateAction};
 
-pub(crate) async fn handle_cli_command(command: Commands, config: &mut yode_core::config::Config) -> Result<()> {
+pub(crate) async fn handle_cli_command(
+    command: Commands,
+    config: &mut yode_core::config::Config,
+) -> Result<()> {
     match command {
         Commands::Provider { action } => {
             match action {
@@ -66,7 +69,10 @@ pub(crate) async fn handle_cli_command(command: Commands, config: &mut yode_core
                             match updater.download_update(&result).await {
                                 Ok(_) => match updater.apply_downloaded_update() {
                                     Ok(true) => {
-                                        println!("✓ 更新已安装完成。新版本: {}", result.latest_version);
+                                        println!(
+                                            "✓ 更新已安装完成。新版本: {}",
+                                            result.latest_version
+                                        );
                                     }
                                     Ok(false) => {
                                         println!(
@@ -175,22 +181,16 @@ pub(crate) async fn handle_cli_command(command: Commands, config: &mut yode_core
                     }
 
                     for (label, mut command) in [
-                        (
-                            "cargo check",
-                            {
-                                let mut cmd = std::process::Command::new("cargo");
-                                cmd.arg("check");
-                                cmd
-                            },
-                        ),
-                        (
-                            "cargo test -p yode-tools",
-                            {
-                                let mut cmd = std::process::Command::new("cargo");
-                                cmd.args(["test", "-p", "yode-tools"]);
-                                cmd
-                            },
-                        ),
+                        ("cargo check", {
+                            let mut cmd = std::process::Command::new("cargo");
+                            cmd.arg("check");
+                            cmd
+                        }),
+                        ("cargo test -p yode-tools", {
+                            let mut cmd = std::process::Command::new("cargo");
+                            cmd.args(["test", "-p", "yode-tools"]);
+                            cmd
+                        }),
                     ] {
                         match command.status() {
                             Ok(status) if status.success() => println!("  [ok] {}", label),

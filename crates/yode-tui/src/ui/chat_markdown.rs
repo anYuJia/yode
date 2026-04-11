@@ -3,10 +3,7 @@ use ratatui::text::{Line, Span};
 
 use super::chat::{CODE_BG, DIM, INLINE_CODE_BG, WHITE, YELLOW};
 
-pub(super) fn render_markdown_impl(
-    text: &str,
-    default_fg: Option<Color>,
-) -> Vec<Line<'static>> {
+pub(super) fn render_markdown_impl(text: &str, default_fg: Option<Color>) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     let mut in_code_block = false;
     let mut code_block_lines: Vec<String> = Vec::new();
@@ -42,7 +39,10 @@ pub(super) fn render_markdown_impl(
                         Style::default().fg(DIM),
                     )));
                 } else {
-                    lines.push(Line::from(Span::styled("  ┌──────", Style::default().fg(DIM))));
+                    lines.push(Line::from(Span::styled(
+                        "  ┌──────",
+                        Style::default().fg(DIM),
+                    )));
                 }
                 in_code_block = true;
             }
@@ -198,7 +198,10 @@ pub(super) fn render_markdown_impl(
                 Style::default().fg(WHITE).bg(CODE_BG),
             )));
         }
-        lines.push(Line::from(Span::styled("  └──────", Style::default().fg(DIM))));
+        lines.push(Line::from(Span::styled(
+            "  └──────",
+            Style::default().fg(DIM),
+        )));
     }
     if in_table && !table_rows.is_empty() {
         render_table(&mut lines, &table_rows);

@@ -155,10 +155,7 @@ fn render_conversation(ctx: &CommandContext) -> String {
     output
 }
 
-fn export_diagnostics_bundle(
-    custom_name: Option<&str>,
-    ctx: &mut CommandContext,
-) -> CommandResult {
+fn export_diagnostics_bundle(custom_name: Option<&str>, ctx: &mut CommandContext) -> CommandResult {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let bundle_name = custom_name
         .map(sanitize_filename)

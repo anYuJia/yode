@@ -145,7 +145,11 @@ impl OpenAiProvider {
                 if let Some(content) = &delta.content {
                     if !content.is_empty() {
                         full_content.push_str(content);
-                        if tx.send(StreamEvent::TextDelta(content.clone())).await.is_err() {
+                        if tx
+                            .send(StreamEvent::TextDelta(content.clone()))
+                            .await
+                            .is_err()
+                        {
                             debug!("Stream receiver dropped, stopping");
                             return Ok(());
                         }

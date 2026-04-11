@@ -1,5 +1,5 @@
-use super::*;
 use super::output::looks_like_interactive_prompt;
+use super::*;
 
 use tokio::io::AsyncReadExt;
 

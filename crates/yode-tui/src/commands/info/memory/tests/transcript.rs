@@ -2,7 +2,8 @@ use super::*;
 
 #[test]
 fn latest_transcript_prefers_newest_filename() {
-    let dir = std::env::temp_dir().join(format!("yode-memory-command-test-{}", uuid::Uuid::new_v4()));
+    let dir =
+        std::env::temp_dir().join(format!("yode-memory-command-test-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("aaa-compact-20240101.md"), "old").unwrap();
     std::fs::write(dir.join("bbb-compact-20250101.md"), "new").unwrap();
@@ -27,7 +28,10 @@ fn fold_transcript_preview_preserves_summary_and_folds_messages() {
         "# Compaction Transcript\n\n- Mode: auto\n- Timestamp: 2026-01-01 10:00:00\n\n## Summary Anchor\n\n```text\nsummary line\n```\n\n## Messages\n",
     );
     for i in 0..80 {
-        content.push_str(&format!("### Message {}\n\n```text\nline {}\n```\n\n", i, i));
+        content.push_str(&format!(
+            "### Message {}\n\n```text\nline {}\n```\n\n",
+            i, i
+        ));
     }
 
     let folded = fold_transcript_preview(&content);
@@ -39,10 +43,8 @@ fn fold_transcript_preview_preserves_summary_and_folds_messages() {
 
 #[test]
 fn warm_resume_transcript_caches_reports_warmed_entries() {
-    let project_root = std::env::temp_dir().join(format!(
-        "yode-memory-warmup-{}",
-        uuid::Uuid::new_v4()
-    ));
+    let project_root =
+        std::env::temp_dir().join(format!("yode-memory-warmup-{}", uuid::Uuid::new_v4()));
     let transcript_dir = project_root.join(".yode").join("transcripts");
     std::fs::create_dir_all(&transcript_dir).unwrap();
     std::fs::write(
@@ -66,10 +68,8 @@ fn warm_resume_transcript_caches_reports_warmed_entries() {
 
 #[test]
 fn long_session_benchmark_reports_hot_and_cold_paths() {
-    let project_root = std::env::temp_dir().join(format!(
-        "yode-memory-bench-{}",
-        uuid::Uuid::new_v4()
-    ));
+    let project_root =
+        std::env::temp_dir().join(format!("yode-memory-bench-{}", uuid::Uuid::new_v4()));
     let transcript_dir = project_root.join(".yode").join("transcripts");
     std::fs::create_dir_all(&transcript_dir).unwrap();
     std::fs::write(
@@ -164,10 +164,7 @@ fn resolve_transcript_target_supports_index_and_filename() {
 
 #[test]
 fn transcript_picker_includes_folded_summary_preview() {
-    let dir = std::env::temp_dir().join(format!(
-        "yode-memory-picker-{}",
-        uuid::Uuid::new_v4()
-    ));
+    let dir = std::env::temp_dir().join(format!("yode-memory-picker-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(
         dir.join("aaa-compact-20240101.md"),
@@ -183,10 +180,8 @@ fn transcript_picker_includes_folded_summary_preview() {
 
 #[test]
 fn read_transcript_metadata_parses_header_fields() {
-    let dir = std::env::temp_dir().join(format!(
-        "yode-memory-command-meta-{}",
-        uuid::Uuid::new_v4()
-    ));
+    let dir =
+        std::env::temp_dir().join(format!("yode-memory-command-meta-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("sample.md");
     std::fs::write(
@@ -217,7 +212,8 @@ fn read_transcript_metadata_parses_header_fields() {
 
 #[test]
 fn extract_summary_preview_reads_summary_anchor_block() {
-    let content = "# Compaction Transcript\n\n## Summary Anchor\n\n```text\nFirst line\nSecond line\n```\n";
+    let content =
+        "# Compaction Transcript\n\n## Summary Anchor\n\n```text\nFirst line\nSecond line\n```\n";
     let preview = extract_summary_preview(content).unwrap();
     assert!(preview.contains("First line"));
     assert!(preview.contains("Second line"));

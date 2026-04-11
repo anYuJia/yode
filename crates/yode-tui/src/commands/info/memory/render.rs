@@ -7,9 +7,9 @@ use super::compare::{build_transcript_compare_output, CompareArgs};
 use super::document::{memory_entry_age, parse_memory_document};
 use super::transcripts::{
     describe_path, extract_summary_preview, filtered_transcript_entries, fold_transcript_preview,
-    latest_transcript, read_transcript_metadata, resolve_compare_target,
-    sorted_transcript_entries, transcript_entries, transcript_picker_summary_preview,
-    truncate_for_display, ResumeTranscriptCacheWarmupStats, TranscriptListFilter,
+    latest_transcript, read_transcript_metadata, resolve_compare_target, sorted_transcript_entries,
+    transcript_entries, transcript_picker_summary_preview, truncate_for_display,
+    ResumeTranscriptCacheWarmupStats, TranscriptListFilter,
 };
 use super::MAX_DISPLAY_CHARS;
 
@@ -78,7 +78,11 @@ pub(super) fn render_memory_status(
                 "\n  Resume warmup:    {} transcripts / {} metadata / latest={} / {} ms",
                 stats.transcript_count,
                 stats.metadata_entries_warmed,
-                if stats.latest_lookup_cached { "yes" } else { "no" },
+                if stats.latest_lookup_cached {
+                    "yes"
+                } else {
+                    "no"
+                },
                 stats.duration_ms
             )
         })
@@ -115,8 +119,8 @@ fn render_file(label: &str, path: &Path) -> CommandResult {
 }
 
 pub(super) fn render_transcript_file(path: &Path) -> CommandResult {
-    let content =
-        fs::read_to_string(path).map_err(|_| format!("Transcript not found: {}", path.display()))?;
+    let content = fs::read_to_string(path)
+        .map_err(|_| format!("Transcript not found: {}", path.display()))?;
     Ok(CommandOutput::Message(format!(
         "Transcript\nPath: {}\n\n{}",
         path.display(),

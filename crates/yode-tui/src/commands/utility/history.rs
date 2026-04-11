@@ -117,7 +117,9 @@ impl Command for HistoryCommand {
                         history_preview(entry, None, 80)
                     ));
                 }
-                lines.push_str("\nUse /history pick, /history search <text>, or /history use <index>.\n");
+                lines.push_str(
+                    "\nUse /history pick, /history search <text>, or /history use <index>.\n",
+                );
                 Ok(CommandOutput::Message(lines))
             }
             _ => Err("Usage: /history [count|pick|use <index>|search <text>]".to_string()),
@@ -131,12 +133,17 @@ fn history_preview(entry: &str, query: Option<&str>, max_chars: usize) -> String
     let preview = if let Some(query) = query {
         let lower = squashed.to_lowercase();
         if let Some(match_index) = lower.find(query) {
-            let char_positions = squashed.char_indices().map(|(idx, _)| idx).collect::<Vec<_>>();
-            let start_char = lower[..match_index].chars().count().saturating_sub(max_chars / 3);
-            let end_char = (lower[..match_index].chars().count()
-                + query.chars().count()
-                + max_chars / 2)
-                .min(squashed.chars().count());
+            let char_positions = squashed
+                .char_indices()
+                .map(|(idx, _)| idx)
+                .collect::<Vec<_>>();
+            let start_char = lower[..match_index]
+                .chars()
+                .count()
+                .saturating_sub(max_chars / 3);
+            let end_char =
+                (lower[..match_index].chars().count() + query.chars().count() + max_chars / 2)
+                    .min(squashed.chars().count());
             let start = *char_positions.get(start_char).unwrap_or(&0);
             let end = char_positions
                 .get(end_char)

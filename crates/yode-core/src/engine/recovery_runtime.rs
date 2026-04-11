@@ -17,9 +17,18 @@ impl AgentEngine {
     }
 
     pub(super) fn update_recovery_state(&mut self) {
-        let not_found = *self.error_buckets.get(&ToolErrorType::NotFound).unwrap_or(&0);
-        let validation = *self.error_buckets.get(&ToolErrorType::Validation).unwrap_or(&0);
-        let timeout = *self.error_buckets.get(&ToolErrorType::Timeout).unwrap_or(&0);
+        let not_found = *self
+            .error_buckets
+            .get(&ToolErrorType::NotFound)
+            .unwrap_or(&0);
+        let validation = *self
+            .error_buckets
+            .get(&ToolErrorType::Validation)
+            .unwrap_or(&0);
+        let timeout = *self
+            .error_buckets
+            .get(&ToolErrorType::Timeout)
+            .unwrap_or(&0);
 
         let next_state = if self.consecutive_failures >= 3 {
             RecoveryState::NeedUserGuidance
@@ -65,7 +74,11 @@ impl AgentEngine {
     }
 
     fn write_recovery_artifact(&mut self) {
-        let dir = self.context.working_dir_compat().join(".yode").join("recovery");
+        let dir = self
+            .context
+            .working_dir_compat()
+            .join(".yode")
+            .join("recovery");
         if std::fs::create_dir_all(&dir).is_err() {
             return;
         }
@@ -109,7 +122,11 @@ impl AgentEngine {
         original_arguments: &str,
         input_changed_by_hook: bool,
     ) {
-        let dir = self.context.working_dir_compat().join(".yode").join("hooks");
+        let dir = self
+            .context
+            .working_dir_compat()
+            .join(".yode")
+            .join("hooks");
         if std::fs::create_dir_all(&dir).is_err() {
             return;
         }

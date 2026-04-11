@@ -199,7 +199,11 @@ fn render_task_list(tasks: Vec<yode_tools::RuntimeTask>) -> CommandResult {
             },
             task.description,
             if task.attempt > 1 {
-                format!(" (attempt {}, retry of {})", task.attempt, task.retry_of.as_deref().unwrap_or("unknown"))
+                format!(
+                    " (attempt {}, retry of {})",
+                    task.attempt,
+                    task.retry_of.as_deref().unwrap_or("unknown")
+                )
             } else {
                 String::new()
             },

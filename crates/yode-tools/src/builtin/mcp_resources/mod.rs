@@ -224,12 +224,12 @@ mod tests {
         mcp_resource_cache_stats, reset_mcp_resource_cache, ListMcpResourcesTool,
         ReadMcpResourceTool,
     };
-    use anyhow::Result;
     use crate::tool::{McpResource, McpResourceProvider, Tool, ToolContext};
+    use anyhow::Result;
     use serde_json::json;
     use std::pin::Pin;
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
     struct MockMcpProvider {
         list_calls: AtomicUsize,
@@ -249,7 +249,8 @@ mod tests {
         fn list_resources(
             &self,
             server: Option<&str>,
-        ) -> Pin<Box<dyn std::future::Future<Output = Result<Vec<McpResource>>> + Send + '_>> {
+        ) -> Pin<Box<dyn std::future::Future<Output = Result<Vec<McpResource>>> + Send + '_>>
+        {
             let server = server.unwrap_or("all").to_string();
             self.list_calls.fetch_add(1, Ordering::SeqCst);
             Box::pin(async move {

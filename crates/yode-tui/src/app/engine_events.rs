@@ -63,9 +63,10 @@ pub(super) fn handle_engine_event(
                 return;
             }
 
-            let existing = app.chat_entries.iter_mut().rev().take(10).find(
-                |e| matches!(&e.role, ChatRole::ToolCall { id: ref eid, .. } if eid == &id),
-            );
+            let existing =
+                app.chat_entries.iter_mut().rev().take(10).find(
+                    |e| matches!(&e.role, ChatRole::ToolCall { id: ref eid, .. } if eid == &id),
+                );
 
             if let Some(entry) = existing {
                 entry.content = arguments;
@@ -81,9 +82,10 @@ pub(super) fn handle_engine_event(
             name,
             arguments,
         } => {
-            let existing = app.chat_entries.iter_mut().rev().take(10).find(
-                |e| matches!(&e.role, ChatRole::ToolCall { id: ref eid, .. } if eid == &id),
-            );
+            let existing =
+                app.chat_entries.iter_mut().rev().take(10).find(
+                    |e| matches!(&e.role, ChatRole::ToolCall { id: ref eid, .. } if eid == &id),
+                );
 
             if let Some(entry) = existing {
                 if entry.content.is_empty() {
@@ -114,16 +116,24 @@ pub(super) fn handle_engine_event(
                 app.confirm_selected = 0;
             }
         }
-        EngineEvent::ToolProgress { id, name: _, progress } => {
-            let existing = app.chat_entries.iter_mut().rev().take(15).find(
-                |e| matches!(&e.role, ChatRole::ToolCall { id: ref eid, .. } if eid == &id),
-            );
+        EngineEvent::ToolProgress {
+            id,
+            name: _,
+            progress,
+        } => {
+            let existing =
+                app.chat_entries.iter_mut().rev().take(15).find(
+                    |e| matches!(&e.role, ChatRole::ToolCall { id: ref eid, .. } if eid == &id),
+                );
             if let Some(entry) = existing {
                 entry.progress = Some(progress);
             }
         }
         EngineEvent::ToolResult { id, name, result } => {
-            let duration = app.tool_call_starts.remove(&id).map(|start| start.elapsed());
+            let duration = app
+                .tool_call_starts
+                .remove(&id)
+                .map(|start| start.elapsed());
             let mut entry = ChatEntry::new(
                 ChatRole::ToolResult {
                     id,

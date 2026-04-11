@@ -174,7 +174,8 @@ impl Config {
             .join(".yode")
             .join("config.toml");
 
-        let default_value: toml::Value = toml::from_str(include_str!("../../../config/default.toml"))?;
+        let default_value: toml::Value =
+            toml::from_str(include_str!("../../../config/default.toml"))?;
 
         let (config_value, should_persist_migration) = if let Some(p) = path {
             let user_value: toml::Value = toml::from_str(&std::fs::read_to_string(p)?)?;

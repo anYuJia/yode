@@ -203,7 +203,10 @@ mod tests {
         history.push("b".into());
         history.push("a".into());
 
-        assert_eq!(history.entries(), &["a".to_string(), "b".to_string(), "a".to_string()]);
+        assert_eq!(
+            history.entries(),
+            &["a".to_string(), "b".to_string(), "a".to_string()]
+        );
     }
 
     #[test]

@@ -21,9 +21,12 @@ fn loads_layered_instructions_in_priority_order() {
     fs::write(project.join(".claude").join("rules").join("a.md"), "rule a").unwrap();
     fs::write(project.join("CLAUDE.local.md"), "local rule").unwrap();
 
-    let loaded =
-        load_instruction_context_with_sources_test(&project, Some(home.clone()), Some(admin.clone()))
-            .unwrap();
+    let loaded = load_instruction_context_with_sources_test(
+        &project,
+        Some(home.clone()),
+        Some(admin.clone()),
+    )
+    .unwrap();
 
     let admin_idx = loaded.find("admin rule").unwrap();
     let user_idx = loaded.find("user rule").unwrap();

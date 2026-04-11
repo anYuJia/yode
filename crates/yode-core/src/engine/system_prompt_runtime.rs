@@ -28,7 +28,10 @@ impl AgentEngine {
             }
         };
 
-        push_segment("Base prompt", include_str!("../../../../prompts/system.md").to_string());
+        push_segment(
+            "Base prompt",
+            include_str!("../../../../prompts/system.md").to_string(),
+        );
 
         let mut environment = String::from("# Environment\n\n");
         environment.push_str(&format!(
@@ -77,8 +80,7 @@ impl AgentEngine {
                 }
                 "learning" => {
                     output_style.push_str("You are in **Learning Mode**. Help the user learn through hands-on practice.\n");
-                    output_style
-                        .push_str("- Request user input for meaningful design decisions\n");
+                    output_style.push_str("- Request user input for meaningful design decisions\n");
                     output_style.push_str("- Ask the user to write small code pieces (2-10 lines) for key decisions\n");
                     output_style.push_str(
                         "- Frame contributions as valuable design decisions, not busy work\n",
@@ -100,9 +102,8 @@ impl AgentEngine {
             .into_iter()
             .map(|(label, content)| SystemPromptSegmentRuntimeState {
                 chars: content.chars().count(),
-                estimated_tokens: estimator.estimate_tokens_for_messages(&[Message::system(
-                    content.clone(),
-                )]),
+                estimated_tokens: estimator
+                    .estimate_tokens_for_messages(&[Message::system(content.clone())]),
                 label,
             })
             .collect::<Vec<_>>();

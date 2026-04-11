@@ -244,7 +244,10 @@ mod tests {
 
     #[test]
     fn tool_output_preview_line_uses_first_non_empty_line() {
-        assert_eq!(tool_output_preview_line("\n  hello   world\nnext"), "hello world");
+        assert_eq!(
+            tool_output_preview_line("\n  hello   world\nnext"),
+            "hello world"
+        );
     }
 
     #[test]

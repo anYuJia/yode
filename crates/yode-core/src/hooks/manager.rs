@@ -151,7 +151,11 @@ impl HookManager {
                         blocked: false,
                         reason: None,
                         modified_input: None,
-                        stdout: if stdout.is_empty() { None } else { Some(stdout) },
+                        stdout: if stdout.is_empty() {
+                            None
+                        } else {
+                            Some(stdout)
+                        },
                         wake_notification: wake_message,
                     };
                 }
@@ -211,7 +215,11 @@ impl HookManager {
                         blocked: false,
                         reason: None,
                         modified_input: None,
-                        stdout: if stdout.is_empty() { None } else { Some(stdout) },
+                        stdout: if stdout.is_empty() {
+                            None
+                        } else {
+                            Some(stdout)
+                        },
                         wake_notification: None,
                     }
                 }

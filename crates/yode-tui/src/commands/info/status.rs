@@ -4,9 +4,9 @@ mod render;
 use crate::commands::context::CommandContext;
 use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
 
-use super::cost::estimate_cost;
 use self::helpers::latest_review_summary;
 use self::render::{build_runtime_sections, build_status_message};
+use super::cost::estimate_cost;
 
 pub struct StatusCommand {
     meta: CommandMeta,
@@ -54,7 +54,11 @@ impl Command for StatusCommand {
                     "{} transcripts / {} metadata / latest={} / {} ms",
                     stats.transcript_count,
                     stats.metadata_entries_warmed,
-                    if stats.latest_lookup_cached { "yes" } else { "no" },
+                    if stats.latest_lookup_cached {
+                        "yes"
+                    } else {
+                        "no"
+                    },
                     stats.duration_ms
                 )
             })

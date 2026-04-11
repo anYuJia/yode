@@ -29,9 +29,18 @@ pub(super) fn print_exit_summary(app: &App) {
         session_short, session_short
     );
     eprintln!("  Duration:      {}", duration_str);
-    eprintln!("  Input tokens:  {}", format_number(app.session.input_tokens));
-    eprintln!("  Output tokens: {}", format_number(app.session.output_tokens));
-    eprintln!("  Total tokens:  {}", format_number(app.session.total_tokens));
+    eprintln!(
+        "  Input tokens:  {}",
+        format_number(app.session.input_tokens)
+    );
+    eprintln!(
+        "  Output tokens: {}",
+        format_number(app.session.output_tokens)
+    );
+    eprintln!(
+        "  Total tokens:  {}",
+        format_number(app.session.total_tokens)
+    );
     eprintln!("  Tool calls:    {}", app.session.tool_call_count);
     eprintln!("  Est. cost:     ${:.4}", cost);
     eprintln!("────────────────────────────────────────");

@@ -2,9 +2,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
 use crate::app::{ChatEntry, ChatRole};
-use crate::ui::chat::{
-    render_markdown_white, ACCENT, CYAN, DIM, GREEN, RED, WHITE, YELLOW,
-};
+use crate::ui::chat::{render_markdown_white, ACCENT, CYAN, DIM, GREEN, RED, WHITE, YELLOW};
 
 // Claude Code style: just bold white text, no heavy decoration
 pub(super) fn render_user(lines: &mut Vec<Line<'static>>, entry: &ChatEntry) {
@@ -16,16 +14,10 @@ pub(super) fn render_user(lines: &mut Vec<Line<'static>>, entry: &ChatEntry) {
                     "> ",
                     Style::default().fg(GREEN).add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(
-                    line.to_string(),
-                    user_style.add_modifier(Modifier::BOLD),
-                ),
+                Span::styled(line.to_string(), user_style.add_modifier(Modifier::BOLD)),
             ]));
         } else {
-            lines.push(Line::from(Span::styled(
-                format!("  {}", line),
-                user_style,
-            )));
+            lines.push(Line::from(Span::styled(format!("  {}", line), user_style)));
         }
     }
 }

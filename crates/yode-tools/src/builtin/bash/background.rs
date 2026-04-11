@@ -24,8 +24,7 @@ impl BashTool {
         tokio::fs::create_dir_all(&tasks_dir).await?;
         let output_path = tasks_dir.join(format!("bash-{}.log", Uuid::new_v4()));
         let output_path_str = output_path.display().to_string();
-        let transcript_path =
-            crate::runtime_tasks::latest_transcript_artifact_path(working_dir);
+        let transcript_path = crate::runtime_tasks::latest_transcript_artifact_path(working_dir);
         let description = format!(
             "Background bash: {}",
             command.chars().take(60).collect::<String>()

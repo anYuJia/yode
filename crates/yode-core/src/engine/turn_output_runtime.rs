@@ -37,7 +37,13 @@ impl AgentEngine {
             .await;
         self.messages
             .push(Message::tool_result(&tool_call_id, &result.content));
-        self.persist_message("tool", Some(&result.content), None, None, Some(&tool_call_id));
+        self.persist_message(
+            "tool",
+            Some(&result.content),
+            None,
+            None,
+            Some(&tool_call_id),
+        );
 
         let _ = event_tx.send(EngineEvent::ToolResult {
             id: tool_call_id,

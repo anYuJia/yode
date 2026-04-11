@@ -121,12 +121,9 @@ impl Tool for ReviewChangesTool {
                 .as_deref()
                 .and_then(|dir| persist_review_artifact(dir, "review", focus, &result).ok())
                 .inspect(|path| {
-                    let _ = ctx
-                        .working_dir
-                        .as_deref()
-                        .and_then(|dir| {
-                            persist_review_status(dir, "review", focus, &result, Some(path)).ok()
-                        });
+                    let _ = ctx.working_dir.as_deref().and_then(|dir| {
+                        persist_review_status(dir, "review", focus, &result, Some(path)).ok()
+                    });
                 })
                 .map(|path| path.display().to_string())
         } else {
@@ -162,7 +159,8 @@ mod tests {
             &self,
             prompt: String,
             options: SubAgentOptions,
-        ) -> Pin<Box<dyn std::future::Future<Output = anyhow::Result<String>> + Send + '_>> {
+        ) -> Pin<Box<dyn std::future::Future<Output = anyhow::Result<String>> + Send + '_>>
+        {
             self.seen.lock().unwrap().push((prompt, options));
             Box::pin(async { Ok("review ok".to_string()) })
         }
@@ -193,6 +191,10 @@ mod tests {
         let seen = seen.lock().unwrap();
         assert_eq!(seen.len(), 1);
         assert!(seen[0].0.contains("review agent"));
-        assert!(seen[0].1.allowed_tools.iter().any(|tool| tool == "git_diff"));
+        assert!(seen[0]
+            .1
+            .allowed_tools
+            .iter()
+            .any(|tool| tool == "git_diff"));
     }
 }

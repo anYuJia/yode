@@ -234,9 +234,9 @@ impl Command for ProviderCommand {
             }
 
             // /provider edit <name> — interactive edit wizard with current values as defaults
-            ["edit", name] => {
-                Ok(CommandOutput::StartWizard(build_edit_provider_wizard(name)?))
-            }
+            ["edit", name] => Ok(CommandOutput::StartWizard(build_edit_provider_wizard(
+                name,
+            )?)),
 
             // /provider edit <name> format <value>
             ["edit", name, "format", value] => {

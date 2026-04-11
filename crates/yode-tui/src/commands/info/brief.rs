@@ -39,7 +39,8 @@ impl Command for BriefCommand {
 
         let working_dir = std::path::PathBuf::from(&ctx.session.working_dir);
         let latest_review = latest_markdown_file(&working_dir.join(".yode").join("reviews"));
-        let latest_transcript = latest_markdown_file(&working_dir.join(".yode").join("transcripts"));
+        let latest_transcript =
+            latest_markdown_file(&working_dir.join(".yode").join("transcripts"));
         let latest_tool_artifact = state
             .last_tool_turn_artifact_path
             .as_ref()
@@ -79,18 +80,14 @@ impl Command for BriefCommand {
             state.tool_progress_event_count,
             state.tool_truncation_count
         ));
-        output.push_str(&format!(
-            "  Tasks:     {} running\n",
-            running_tasks.len()
-        ));
+        output.push_str(&format!("  Tasks:     {} running\n", running_tasks.len()));
         for task in running_tasks.iter().take(3) {
             output.push_str(&format!(
                 "    - {} [{}] {}{}\n",
                 task.id,
                 task.kind,
                 task.description,
-                task
-                    .last_progress
+                task.last_progress
                     .as_ref()
                     .map(|progress| format!(" — {}", progress))
                     .unwrap_or_default()
@@ -129,7 +126,9 @@ impl Command for BriefCommand {
                 .map(|preview| format!("\n    {}", preview))
                 .unwrap_or_default()
         ));
-        output.push_str("\nUse /diagnostics, /tasks, /reviews, /tools, or /memory latest for detail.");
+        output.push_str(
+            "\nUse /diagnostics, /tasks, /reviews, /tools, or /memory latest for detail.",
+        );
 
         Ok(CommandOutput::Message(output))
     }

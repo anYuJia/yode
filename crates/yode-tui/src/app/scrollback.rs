@@ -10,12 +10,10 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::style::{Color, Modifier};
 use ratatui::Terminal;
 
-use super::rendering::{
-    highlight_code_line, is_code_block_line, process_md_line, strip_ansi,
-};
+use self::entry_formatting::{format_entry_as_strings, md_line_color};
+use super::rendering::{highlight_code_line, is_code_block_line, process_md_line, strip_ansi};
 use super::{App, ChatRole};
 use crate::ui::chat_layout::render_header;
-use self::entry_formatting::{format_entry_as_strings, md_line_color};
 
 /// Print lines to terminal scrollback.
 fn raw_print_lines(

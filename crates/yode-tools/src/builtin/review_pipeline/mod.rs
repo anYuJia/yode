@@ -3,11 +3,11 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 
 use crate::builtin::git_commit::GitCommitTool;
+use crate::builtin::review_changes::ReviewChangesTool;
 use crate::builtin::review_common::{
     persist_review_artifact, persist_review_status, review_findings_count,
     review_output_has_findings,
 };
-use crate::builtin::review_changes::ReviewChangesTool;
 use crate::builtin::test_runner::TestRunnerTool;
 use crate::builtin::verification_agent::VerificationAgentTool;
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolErrorType, ToolResult};
@@ -109,7 +109,9 @@ impl Tool for ReviewPipelineTool {
             .and_then(|value| value.as_str())
             .unwrap_or("");
         let test_command = params.get("test_command").and_then(|value| value.as_str());
-        let commit_message = params.get("commit_message").and_then(|value| value.as_str());
+        let commit_message = params
+            .get("commit_message")
+            .and_then(|value| value.as_str());
         let allow_findings_commit = params
             .get("allow_findings_commit")
             .and_then(|value| value.as_bool())
@@ -153,7 +155,9 @@ impl Tool for ReviewPipelineTool {
                 runner
                     .execute(json!({ "command": command }), ctx)
                     .await
-                    .unwrap_or_else(|err| ToolResult::error(format!("Test runner failed: {}", err))),
+                    .unwrap_or_else(|err| {
+                        ToolResult::error(format!("Test runner failed: {}", err))
+                    }),
             );
         }
 
@@ -271,7 +275,8 @@ mod tests {
             &self,
             _prompt: String,
             _options: SubAgentOptions,
-        ) -> Pin<Box<dyn std::future::Future<Output = anyhow::Result<String>> + Send + '_>> {
+        ) -> Pin<Box<dyn std::future::Future<Output = anyhow::Result<String>> + Send + '_>>
+        {
             let output = self.outputs.lock().unwrap().remove(0);
             Box::pin(async move { Ok(output) })
         }

@@ -5,31 +5,31 @@ mod transcripts;
 
 use std::path::PathBuf;
 
-use crate::commands::context::CommandContext;
-use crate::commands::{
-    ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
-    CommandResult,
-};
+#[cfg(test)]
+use self::compare::build_transcript_compare_output;
 use self::compare::{parse_compare_args, CompareArgs, CompareOptions};
+#[cfg(test)]
+use self::document::{memory_entry_age, parse_memory_document};
 use self::render::{
     render_latest_transcript, render_memory_file, render_memory_status, render_transcript_compare,
     render_transcript_file, render_transcript_list, render_transcript_picker,
 };
-pub(crate) use self::transcripts::{
-    run_long_session_benchmark, warm_resume_transcript_caches, ResumeTranscriptCacheWarmupStats,
-};
-use self::transcripts::{
-    latest_transcript, parse_latest_compare_target, parse_list_filter, resolve_transcript_target,
-};
-#[cfg(test)]
-use self::compare::build_transcript_compare_output;
-#[cfg(test)]
-use self::document::{memory_entry_age, parse_memory_document};
 #[cfg(test)]
 use self::transcripts::{
     extract_summary_preview, filtered_transcript_entries, fold_transcript_preview,
     parse_date_range_filter, read_transcript_metadata, resolve_compare_target,
     truncate_for_display, TranscriptListFilter, TranscriptMode,
+};
+use self::transcripts::{
+    latest_transcript, parse_latest_compare_target, parse_list_filter, resolve_transcript_target,
+};
+pub(crate) use self::transcripts::{
+    run_long_session_benchmark, warm_resume_transcript_caches, ResumeTranscriptCacheWarmupStats,
+};
+use crate::commands::context::CommandContext;
+use crate::commands::{
+    ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
+    CommandResult,
 };
 
 const MAX_DISPLAY_CHARS: usize = 12_000;

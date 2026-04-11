@@ -155,11 +155,7 @@ impl Tool for AgentTool {
 
                 Ok(ToolResult::success_with_metadata(
                     if let Some(path) = &artifact_path {
-                        format!(
-                            "{}\n\nSub-agent artifact: {}",
-                            result,
-                            path
-                        )
+                        format!("{}\n\nSub-agent artifact: {}", result, path)
                     } else {
                         result
                     },
@@ -212,7 +208,8 @@ mod tests {
             &self,
             _prompt: String,
             _options: SubAgentOptions,
-        ) -> Pin<Box<dyn std::future::Future<Output = anyhow::Result<String>> + Send + '_>> {
+        ) -> Pin<Box<dyn std::future::Future<Output = anyhow::Result<String>> + Send + '_>>
+        {
             Box::pin(async { Ok("sub-agent done".to_string()) })
         }
     }
