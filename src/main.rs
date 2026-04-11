@@ -202,6 +202,7 @@ async fn main() -> Result<()> {
     let all_provider_models = provider_bootstrap.all_provider_models;
     let provider = provider_bootstrap.provider;
     let model = provider_bootstrap.model;
+    let provider_metrics = provider_bootstrap.metrics;
 
     let db = db_open_task
         .await
@@ -239,7 +240,11 @@ async fn main() -> Result<()> {
         context.provider, context.model, context.session_id
     );
     startup_profiler.checkpoint("ready_tui");
-    let startup_summary = startup_profiler.summary("tui", &tooling.metrics);
+    let startup_summary = format!(
+        "{} {}",
+        startup_profiler.summary("tui", &tooling.metrics),
+        provider_metrics.summary()
+    );
     startup_profiler.log_summary("tui", &tooling.metrics);
 
     let skill_cmds: Vec<(String, String)> = tooling

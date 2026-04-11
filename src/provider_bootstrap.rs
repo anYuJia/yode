@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::{Context, Result};
 
@@ -15,6 +16,27 @@ pub(crate) struct ProviderBootstrapResult {
     pub all_provider_models: std::collections::HashMap<String, Vec<String>>,
     pub provider: Arc<dyn yode_llm::provider::LlmProvider>,
     pub model: String,
+    pub metrics: ProviderBootstrapMetrics,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ProviderBootstrapMetrics {
+    pub configured_registered: usize,
+    pub env_detected_registered: usize,
+    pub total_registered: usize,
+    pub duration_ms: u64,
+}
+
+impl ProviderBootstrapMetrics {
+    pub(crate) fn summary(&self) -> String {
+        format!(
+            "providers[configured={} env_detected={} total={} duration={}ms]",
+            self.configured_registered,
+            self.env_detected_registered,
+            self.total_registered,
+            self.duration_ms
+        )
+    }
 }
 
 pub(crate) fn bootstrap_provider_registry(
@@ -22,7 +44,10 @@ pub(crate) fn bootstrap_provider_registry(
     cli_model: Option<String>,
     config: &Config,
 ) -> Result<ProviderBootstrapResult> {
+    let started_at = Instant::now();
     let provider_registry = ProviderRegistry::new();
+    let mut configured_registered = 0usize;
+    let mut env_detected_registered = 0usize;
 
     for (name, p_config) in &config.llm.providers {
         let env_prefix = name.to_uppercase().replace("-", "_");
@@ -102,6 +127,7 @@ pub(crate) fn bootstrap_provider_registry(
                     .register(Arc::new(OpenAiProvider::new(name, &api_key, &base_url)));
             }
         }
+        configured_registered += 1;
     }
 
     for info in yode_llm::detect_available_providers() {
@@ -132,6 +158,7 @@ pub(crate) fn bootstrap_provider_registry(
                 )));
             }
         }
+        env_detected_registered += 1;
     }
 
     let provider_name = cli_provider.unwrap_or_else(|| config.llm.default_provider.clone());
@@ -182,5 +209,11 @@ pub(crate) fn bootstrap_provider_registry(
         all_provider_models,
         provider,
         model,
+        metrics: ProviderBootstrapMetrics {
+            configured_registered,
+            env_detected_registered,
+            total_registered: configured_registered + env_detected_registered,
+            duration_ms: started_at.elapsed().as_millis() as u64,
+        },
     })
 }
