@@ -80,6 +80,20 @@ pub enum StreamEvent {
     Error(String),
 }
 
+pub fn stream_done(
+    message: Message,
+    usage: Usage,
+    model: String,
+    stop_reason: Option<StopReason>,
+) -> StreamEvent {
+    StreamEvent::Done(ChatResponse {
+        message,
+        usage,
+        model,
+        stop_reason,
+    })
+}
+
 #[derive(Debug, Clone)]
 pub struct ModelInfo {
     pub id: String,

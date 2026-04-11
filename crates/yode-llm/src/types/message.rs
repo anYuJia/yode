@@ -125,6 +125,34 @@ impl Message {
         }
     }
 
+    /// Create an assistant message with reasoning and tool calls.
+    pub fn assistant_with_reasoning_and_tools(
+        content: Option<String>,
+        reasoning: Option<String>,
+        tool_calls: Vec<ToolCall>,
+    ) -> Self {
+        let mut message = Self::assistant_with_reasoning(content, reasoning);
+        message.tool_calls = tool_calls;
+        message.normalized()
+    }
+
+    /// Create an assistant message from already-assembled content blocks.
+    pub fn assistant_from_blocks(
+        content_blocks: Vec<ContentBlock>,
+        tool_calls: Vec<ToolCall>,
+    ) -> Self {
+        Self {
+            role: Role::Assistant,
+            content: None,
+            content_blocks,
+            reasoning: None,
+            tool_calls,
+            tool_call_id: None,
+            images: Vec::new(),
+        }
+        .normalized()
+    }
+
     pub fn tool_result(tool_call_id: impl Into<String>, content: impl Into<String>) -> Self {
         let text = content.into();
         Self {

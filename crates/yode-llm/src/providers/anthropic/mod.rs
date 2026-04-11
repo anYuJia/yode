@@ -15,9 +15,7 @@ use self::types::{
 };
 
 use crate::provider::LlmProvider;
-use crate::types::{
-    ChatRequest, ChatResponse, Message, ModelInfo, Role, StreamEvent, ToolCall,
-};
+use crate::types::{ChatRequest, ChatResponse, Message, ModelInfo, StreamEvent, ToolCall};
 
 /// ── Provider implementation ─────────────────────────────────────────────────
 
@@ -151,24 +149,23 @@ impl LlmProvider for AnthropicProvider {
             .map(|usage| anthropic_usage_to_usage(&usage))
             .unwrap_or_default();
 
-        let message = Message {
-            role: Role::Assistant,
-            content: if text_content.is_empty() {
-                None
-            } else {
-                Some(text_content)
-            },
-            reasoning: if reasoning_content.is_empty() {
-                None
-            } else {
-                Some(reasoning_content)
-            },
-            content_blocks,
-            tool_calls,
-            tool_call_id: None,
-            images: Vec::new(),
-        }
-        .normalized();
+        let message = if content_blocks.is_empty() {
+            Message::assistant_with_reasoning_and_tools(
+                if text_content.is_empty() {
+                    None
+                } else {
+                    Some(text_content)
+                },
+                if reasoning_content.is_empty() {
+                    None
+                } else {
+                    Some(reasoning_content)
+                },
+                tool_calls,
+            )
+        } else {
+            Message::assistant_from_blocks(content_blocks, tool_calls)
+        };
 
         let stop_reason = match api_resp.stop_reason.as_deref() {
             Some("end_turn") => Some(crate::types::StopReason::EndTurn),

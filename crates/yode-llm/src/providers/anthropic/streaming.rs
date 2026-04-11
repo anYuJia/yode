@@ -5,7 +5,7 @@ use futures::StreamExt;
 use tokio::sync::mpsc;
 use tracing::{debug, error, warn};
 
-use crate::types::{ChatRequest, ChatResponse, Message, Role, StreamEvent, ToolCall, Usage};
+use crate::types::{stream_done, ChatRequest, Message, StreamEvent, ToolCall, Usage};
 
 use super::types::{
     AnthropicErrorResponse, AnthropicRequest, AnthropicStreamEvent, AnthropicThinkingConfig,
@@ -342,33 +342,11 @@ impl AnthropicProvider {
             }
         }
 
-        let final_message = Message {
-            role: Role::Assistant,
-            content: if full_text.is_empty() {
-                None
-            } else {
-                Some(full_text)
-            },
-            reasoning: if full_reasoning.is_empty() {
-                None
-            } else {
-                Some(full_reasoning)
-            },
-            content_blocks: final_content_blocks,
-            tool_calls,
-            tool_call_id: None,
-            images: Vec::new(),
-        }
-        .normalized();
+        let final_message = Message::assistant_from_blocks(final_content_blocks, tool_calls);
 
-        let response = ChatResponse {
-            message: final_message,
-            usage: final_usage,
-            model,
-            stop_reason,
-        };
-
-        let _ = tx.send(StreamEvent::Done(response)).await;
+        let _ = tx
+            .send(stream_done(final_message, final_usage, model, stop_reason))
+            .await;
         debug!(
             "Sent StreamEvent::Done - stream complete (reason={}, saw_message_stop={}, events={})",
             finalize_reason, saw_message_stop, event_count

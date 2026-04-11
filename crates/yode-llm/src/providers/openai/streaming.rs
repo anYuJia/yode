@@ -267,48 +267,28 @@ impl OpenAiProvider {
         let final_tool_calls: Vec<ToolCall> =
             tool_calls_sorted.into_iter().map(|(_, tc)| tc).collect();
 
-        let content = if full_content.is_empty() {
-            None
-        } else {
-            Some(full_content)
-        };
+        let final_message = Message::assistant_with_reasoning_and_tools(
+            if full_content.is_empty() {
+                None
+            } else {
+                Some(full_content)
+            },
+            if full_reasoning.is_empty() {
+                None
+            } else {
+                Some(full_reasoning)
+            },
+            final_tool_calls,
+        );
 
-        let reasoning = if full_reasoning.is_empty() {
-            None
-        } else {
-            Some(full_reasoning)
-        };
-
-        let mut blocks = Vec::new();
-        if let Some(ref r) = reasoning {
-            blocks.push(crate::types::ContentBlock::Thinking {
-                thinking: r.clone(),
-                signature: None,
-            });
-        }
-        if let Some(ref t) = content {
-            blocks.push(crate::types::ContentBlock::Text { text: t.clone() });
-        }
-
-        let final_message = Message {
-            role: Role::Assistant,
-            content,
-            reasoning,
-            content_blocks: blocks,
-            tool_calls: final_tool_calls,
-            tool_call_id: None,
-            images: Vec::new(),
-        }
-        .normalized();
-
-        let response = ChatResponse {
-            message: final_message,
-            usage: final_usage,
-            model,
-            stop_reason,
-        };
-
-        let _ = tx.send(StreamEvent::Done(response)).await;
+        let _ = tx
+            .send(crate::types::stream_done(
+                final_message,
+                final_usage,
+                model,
+                stop_reason,
+            ))
+            .await;
         debug!(
             "OpenAI stream finalized (reason={}, saw_done_sentinel={}, saw_finish_reason={}, chunks={})",
             finalize_reason,

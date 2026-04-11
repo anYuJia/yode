@@ -1,6 +1,4 @@
-use crate::types::{
-    ChatResponse, ContentBlock, Message, Role, StreamEvent, ToolCall, ToolDefinition, Usage,
-};
+use crate::types::{stream_done, Message, Role, StreamEvent, ToolCall, ToolDefinition, Usage};
 
 use super::types::{
     GeminiContent, GeminiFunctionCall, GeminiFunctionDecl, GeminiFunctionResponse, GeminiPart,
@@ -166,31 +164,13 @@ pub(super) async fn send_tool_call_events(
 }
 
 pub(super) fn done_event(message: Message, usage: Usage, model: String) -> StreamEvent {
-    StreamEvent::Done(ChatResponse {
-        message,
-        usage,
-        model,
-        stop_reason: None,
-    })
+    stream_done(message, usage, model, None)
 }
 
 pub(super) fn assistant_message(text: String, tool_calls: Vec<ToolCall>) -> Message {
-    Message {
-        role: Role::Assistant,
-        content: if text.is_empty() {
-            None
-        } else {
-            Some(text.clone())
-        },
-        content_blocks: if text.is_empty() {
-            vec![]
-        } else {
-            vec![ContentBlock::Text { text }]
-        },
-        reasoning: None,
+    Message::assistant_with_reasoning_and_tools(
+        if text.is_empty() { None } else { Some(text) },
+        None,
         tool_calls,
-        tool_call_id: None,
-        images: Vec::new(),
-    }
-    .normalized()
+    )
 }
