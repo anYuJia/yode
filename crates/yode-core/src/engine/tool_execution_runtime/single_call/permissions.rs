@@ -46,6 +46,10 @@ impl AgentEngine {
         confirm_rx: &mut mpsc::UnboundedReceiver<ConfirmResponse>,
         cancel_token: Option<&CancellationToken>,
     ) -> Result<Option<ToolExecutionOutcome>> {
+        self.permissions.record_confirmation_request(
+            &tool_call.name,
+            prepared.command_content.as_deref(),
+        );
         let permission_request_ctx = HookContext {
             event: HookEvent::PermissionRequest.to_string(),
             session_id: self.context.session_id.clone(),

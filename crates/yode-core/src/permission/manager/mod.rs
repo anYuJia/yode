@@ -1,5 +1,7 @@
 mod explain;
 
+use std::collections::HashMap;
+
 use super::{
     CommandRiskLevel, DenialClusterView, DenialRecordView, DenialTracker, PermissionAction, PermissionMode,
     PermissionRule, RuleBehavior, RuleSource,
@@ -22,6 +24,7 @@ pub struct PermissionManager {
     mode: PermissionMode,
     rules: Vec<PermissionRule>,
     denial_tracker: DenialTracker,
+    confirmation_prefix_counts: HashMap<String, u32>,
     /// Read-only tool names that are always allowed in plan mode
     readonly_tools: Vec<String>,
 }
@@ -32,6 +35,7 @@ impl PermissionManager {
             mode,
             rules: Vec::new(),
             denial_tracker: DenialTracker::new(),
+            confirmation_prefix_counts: HashMap::new(),
             readonly_tools: vec![
                 "read_file".into(),
                 "glob".into(),
@@ -129,6 +133,15 @@ impl PermissionManager {
         }
     }
 
+    pub fn record_confirmation_request(&mut self, tool_name: &str, content: Option<&str>) {
+        if tool_name != "bash" {
+            return;
+        }
+        if let Some(prefix) = content.and_then(crate::permission::bash::command_prefix) {
+            *self.confirmation_prefix_counts.entry(prefix).or_insert(0) += 1;
+        }
+    }
+
     pub fn recent_denials(&self, limit: usize) -> Vec<DenialRecordView> {
         self.denial_tracker.recent_entries(limit)
     }
@@ -139,6 +152,30 @@ impl PermissionManager {
 
     pub fn safe_readonly_shell_prefixes(&self) -> &'static [&'static str] {
         crate::permission::bash::safe_readonly_prefixes()
+    }
+
+    pub fn confirmation_rule_suggestions(&self, min_count: u32) -> Vec<String> {
+        let safe_prefixes = self.safe_readonly_shell_prefixes();
+        let mut suggestions = self
+            .confirmation_prefix_counts
+            .iter()
+            .filter(|(_, count)| **count >= min_count)
+            .map(|(prefix, count)| {
+                if safe_prefixes.iter().any(|item| item == prefix) {
+                    format!(
+                        "{} x{} -> consider adding an allow rule like `{{ tool = \"bash\", pattern = \"{}*\" }}` to always_allow",
+                        prefix, count, prefix
+                    )
+                } else {
+                    format!(
+                        "{} x{} -> consider adding a scoped bash rule if this confirmation is expected repeatedly",
+                        prefix, count
+                    )
+                }
+            })
+            .collect::<Vec<_>>();
+        suggestions.sort();
+        suggestions
     }
 
     pub fn rules_snapshot(&self) -> Vec<PermissionRule> {

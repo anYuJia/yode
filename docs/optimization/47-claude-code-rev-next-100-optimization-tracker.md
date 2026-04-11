@@ -22,7 +22,7 @@
 
 当前进度：
 
-- `44 / 100` 已完成
+- `45 / 100` 已完成
 
 ## 001-010 Startup / Warmup
 
@@ -60,7 +60,7 @@
 - `[x]` 026 shell rule explanation surface for pattern matches
 - `[x]` 027 shell permission artifact includes classifier rationale field
 - `[x]` 028 shell deny clustering by command prefix
-- `[ ]` 029 shell rule suggestion engine for repeated confirmations
+- `[x]` 029 shell rule suggestion engine for repeated confirmations
 - `[x]` 030 shell safe-readonly prefix inventory for diagnostics
 
 ## 031-040 Provider / Streaming

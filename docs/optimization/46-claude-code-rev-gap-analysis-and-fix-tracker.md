@@ -100,6 +100,7 @@
     - permission artifact 已附带 bash classifier risk / rationale
     - shell denial 已按 command prefix 聚类并接到 `/permissions`、`/doctor`
     - safe readonly shell prefix inventory 已接到权限诊断面
+    - repeated confirmation 的 bash prefix 已会产出规则化建议，避免用户长期手动重复确认
 
 - `[ ]` P1.2 provider streaming 事件拼装进一步统一
   - 减少 Anthropic/OpenAI/Gemini 在 stream -> internal event 上的重复逻辑。

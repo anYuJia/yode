@@ -74,6 +74,7 @@ impl Command for PermissionsCommand {
                 let denials = engine.permissions().recent_denials(5);
                 let denial_prefixes = engine.permissions().recent_denial_prefixes(5);
                 let safe_prefixes = engine.permissions().safe_readonly_shell_prefixes();
+                let confirmation_suggestions = engine.permissions().confirmation_rule_suggestions(3);
                 let runtime = engine.runtime_state();
                 let mut lines = vec![
                     format!("Permission mode: {}", mode),
@@ -134,6 +135,14 @@ impl Command for PermissionsCommand {
                     "Safe bash readonly prefixes: {}",
                     safe_prefixes.join(", ")
                 ));
+                if confirmation_suggestions.is_empty() {
+                    lines.push("Repeated confirmation suggestions: none".into());
+                } else {
+                    lines.push("Repeated confirmation suggestions:".into());
+                    for suggestion in confirmation_suggestions {
+                        lines.push(format!("  {}", suggestion));
+                    }
+                }
                 lines.push(format!(
                     "Last permission decision: {} [{}]",
                     runtime.last_permission_tool.as_deref().unwrap_or("none"),

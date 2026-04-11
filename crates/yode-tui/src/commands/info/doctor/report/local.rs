@@ -16,6 +16,7 @@ pub(super) fn render_doctor_report(ctx: &mut CommandContext) -> String {
                 .collect::<Vec<_>>(),
             engine.permissions().recent_denial_prefixes(5),
             engine.permissions().safe_readonly_shell_prefixes().join(", "),
+            engine.permissions().confirmation_rule_suggestions(3),
         )
     });
     let project_root = std::path::PathBuf::from(&ctx.session.working_dir);
@@ -136,7 +137,7 @@ pub(super) fn render_doctor_report(ctx: &mut CommandContext) -> String {
         checks.push("  [--] Startup profile unavailable".to_string());
     }
 
-    if let Some((state, permission_mode, confirmable_tools, denial_prefixes, safe_prefixes)) = runtime {
+    if let Some((state, permission_mode, confirmable_tools, denial_prefixes, safe_prefixes, confirmation_suggestions)) = runtime {
         checks.extend(runtime_health_checks(
             &project_root,
             &state,
@@ -152,6 +153,7 @@ pub(super) fn render_doctor_report(ctx: &mut CommandContext) -> String {
                 })
                 .collect::<Vec<_>>(),
             &safe_prefixes,
+            &confirmation_suggestions,
         ));
     } else {
         checks.push("  [--] Engine runtime busy; skipped context/memory checks".to_string());
@@ -210,6 +212,7 @@ fn runtime_health_checks(
     confirmable_tools: &[String],
     denial_prefixes: &[String],
     safe_prefixes: &str,
+    confirmation_suggestions: &[String],
 ) -> Vec<String> {
     let mut checks = Vec::new();
     checks.push(format!(
@@ -286,6 +289,14 @@ fn runtime_health_checks(
         checks.push(format!(
             "  [--] Bash denial prefixes: {}",
             denial_prefixes.join(" | ")
+        ));
+    }
+    if confirmation_suggestions.is_empty() {
+        checks.push("  [ok] No repeated confirmation suggestions".to_string());
+    } else {
+        checks.push(format!(
+            "  [--] Repeated confirmation suggestions: {}",
+            confirmation_suggestions.join(" | ")
         ));
     }
     checks.push(format!(

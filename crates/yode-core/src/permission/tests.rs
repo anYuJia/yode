@@ -204,6 +204,19 @@ fn test_safe_readonly_shell_prefixes_include_git_status() {
 }
 
 #[test]
+fn test_repeated_confirmation_suggestions_surface_safe_prefix_rule_hint() {
+    let mut pm = PermissionManager::new(PermissionMode::Default);
+    for _ in 0..3 {
+        pm.record_confirmation_request("bash", Some("git status --short"));
+    }
+
+    let suggestions = pm.confirmation_rule_suggestions(3);
+    assert_eq!(suggestions.len(), 1);
+    assert!(suggestions[0].contains("git status"));
+    assert!(suggestions[0].contains("always_allow"));
+}
+
+#[test]
 fn test_glob_match() {
     assert!(glob_match("cargo *", "cargo build"));
     assert!(glob_match("cargo *", "cargo test --release"));
