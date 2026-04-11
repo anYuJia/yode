@@ -9,6 +9,7 @@ use reqwest::Client;
 use tokio::sync::mpsc;
 use tracing::debug;
 
+use crate::providers::streaming_shared::map_stop_reason;
 use self::request_conversion::anthropic_usage_to_usage;
 use self::types::{
     AnthropicErrorResponse, AnthropicRequest, AnthropicResponse, AnthropicThinkingConfig,
@@ -168,14 +169,7 @@ impl LlmProvider for AnthropicProvider {
             Message::assistant_from_blocks(content_blocks, tool_calls)
         };
 
-        let stop_reason = match api_resp.stop_reason.as_deref() {
-            Some("end_turn") => Some(crate::types::StopReason::EndTurn),
-            Some("tool_use") => Some(crate::types::StopReason::ToolUse),
-            Some("max_tokens") => Some(crate::types::StopReason::MaxTokens),
-            Some("stop_sequence") => Some(crate::types::StopReason::StopSequence),
-            Some(other) => Some(crate::types::StopReason::Other(other.to_string())),
-            None => None,
-        };
+        let stop_reason = api_resp.stop_reason.as_deref().map(map_stop_reason);
 
         Ok(ChatResponse {
             message,

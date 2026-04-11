@@ -1,4 +1,7 @@
-use crate::types::{stream_done, Message, Role, StreamEvent, ToolCall, ToolDefinition, Usage};
+use crate::providers::streaming_shared::{
+    emit_tool_call_end, emit_tool_call_start,
+};
+use crate::types::{Message, Role, StreamEvent, ToolCall, ToolDefinition, Usage};
 
 use super::types::{
     GeminiContent, GeminiFunctionCall, GeminiFunctionDecl, GeminiFunctionResponse, GeminiPart,
@@ -144,27 +147,14 @@ pub(super) async fn send_tool_call_events(
     tx: &tokio::sync::mpsc::Sender<StreamEvent>,
     tool_call: &ToolCall,
 ) {
-    let _ = tx
-        .send(StreamEvent::ToolCallStart {
-            id: tool_call.id.clone(),
-            name: tool_call.name.clone(),
-        })
-        .await;
+    emit_tool_call_start(tx, tool_call.id.clone(), tool_call.name.clone()).await;
     let _ = tx
         .send(StreamEvent::ToolCallDelta {
             id: tool_call.id.clone(),
             arguments: tool_call.arguments.clone(),
         })
         .await;
-    let _ = tx
-        .send(StreamEvent::ToolCallEnd {
-            id: tool_call.id.clone(),
-        })
-        .await;
-}
-
-pub(super) fn done_event(message: Message, usage: Usage, model: String) -> StreamEvent {
-    stream_done(message, usage, model, None)
+    emit_tool_call_end(tx, tool_call.id.clone()).await;
 }
 
 pub(super) fn assistant_message(text: String, tool_calls: Vec<ToolCall>) -> Message {

@@ -22,7 +22,7 @@
 
 当前进度：
 
-- `45 / 100` 已完成
+- `50 / 100` 已完成
 
 ## 001-010 Startup / Warmup
 
@@ -68,12 +68,12 @@
 - `[x]` 031 shared assistant stream finalization helper
 - `[x]` 032 anthropic streaming helper extraction
 - `[x]` 033 openai provider request/response types split
-- `[ ]` 034 openai streaming helper extraction
-- `[ ]` 035 provider shared stream state trait / helper surface
+- `[x]` 034 openai streaming helper extraction
+- `[x]` 035 provider shared stream state trait / helper surface
 - `[ ]` 036 shared provider error-normalization helper
-- `[ ]` 037 shared stop-reason mapping helper
-- `[ ]` 038 shared usage-update emission helper
-- `[ ]` 039 shared tool-call delta aggregation helper
+- `[x]` 037 shared stop-reason mapping helper
+- `[x]` 038 shared usage-update emission helper
+- `[x]` 039 shared tool-call delta aggregation helper
 - `[ ]` 040 provider startup capability summary in diagnostics
 
 ## 041-050 Session / Resume

@@ -4,9 +4,9 @@ use futures::StreamExt;
 use tokio::sync::mpsc;
 use tracing::warn;
 
-use super::conversion::{
-    assistant_message, done_event, gemini_usage_to_usage, send_tool_call_events,
-};
+use crate::providers::streaming_shared::{emit_done_event, emit_stream_error};
+
+use super::conversion::{assistant_message, gemini_usage_to_usage, send_tool_call_events};
 use super::types::{GeminiError, GeminiPart, GeminiResponse};
 
 use crate::types::{StreamEvent, ToolCall, Usage};
@@ -23,7 +23,7 @@ pub(super) async fn stream_response(
             Ok(err) => format!("Gemini API error ({}): {}", status, err.error.message),
             Err(_) => format!("Gemini API error ({}): {}", status, text),
         };
-        let _ = tx.send(StreamEvent::Error(message.clone())).await;
+        emit_stream_error(&tx, message.clone()).await;
         return Err(anyhow!(message));
     }
 
@@ -83,6 +83,6 @@ pub(super) async fn stream_response(
     }
 
     let message = assistant_message(full_text, all_tool_calls);
-    let _ = tx.send(done_event(message, final_usage, model)).await;
+    emit_done_event(&tx, message, final_usage, model, None).await;
     Ok(())
 }

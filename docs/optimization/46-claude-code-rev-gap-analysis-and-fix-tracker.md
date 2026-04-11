@@ -104,6 +104,10 @@
 
 - `[ ]` P1.2 provider streaming 事件拼装进一步统一
   - 减少 Anthropic/OpenAI/Gemini 在 stream -> internal event 上的重复逻辑。
+  - 当前完成：
+    - OpenAI streaming 已抽出独立 `streaming_support.rs`
+    - provider 层新增 shared streaming helpers，统一 stop-reason 映射、usage update、tool-call delta append、stream done/error 发射
+    - Anthropic / OpenAI / Gemini streaming 已开始复用同一批 helper
 
 - `[~]` P1.3 resume / transcript 缓存增强
   - 增量索引、热路径缓存、恢复时 warmup 分层。

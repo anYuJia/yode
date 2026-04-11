@@ -4,12 +4,14 @@ use anyhow::Result;
 use tokio::sync::mpsc;
 use tracing::{debug, error, warn};
 
-use crate::types::{stream_done, Message, StopReason, StreamEvent, ToolCall, Usage};
+use crate::providers::streaming_shared::{
+    append_tool_call_delta, emit_done_event, emit_stream_error, emit_tool_call_end,
+    emit_tool_call_start, emit_usage_update, map_stop_reason,
+};
+use crate::types::{Message, StopReason, StreamEvent, ToolCall, Usage};
 
 use super::request_conversion::anthropic_usage_to_usage;
-use super::types::{
-    AnthropicStreamEvent, ContentBlockDelta, ContentBlockStart,
-};
+use super::types::{AnthropicStreamEvent, ContentBlockDelta, ContentBlockStart};
 
 pub(super) struct AnthropicStreamState {
     pub(super) content_blocks: BTreeMap<u32, crate::types::ContentBlock>,
@@ -57,9 +59,7 @@ pub(super) async fn handle_stream_event(
             state.model = message.model;
             if let Some(usage) = message.usage {
                 state.final_usage = anthropic_usage_to_usage(&usage);
-                let _ = tx
-                    .send(StreamEvent::UsageUpdate(state.final_usage.clone()))
-                    .await;
+                emit_usage_update(tx, &state.final_usage).await;
             }
         }
         AnthropicStreamEvent::ContentBlockStart {
@@ -71,14 +71,18 @@ pub(super) async fn handle_stream_event(
                     state.first_block_text = text.clone();
                 }
 
-                state
-                    .content_blocks
-                    .insert(index, crate::types::ContentBlock::Text { text: text.clone() });
+                state.content_blocks.insert(
+                    index,
+                    crate::types::ContentBlock::Text { text: text.clone() },
+                );
                 if !text.is_empty() {
                     let _ = tx.send(StreamEvent::TextDelta(text)).await;
                 }
             }
-            ContentBlockStart::Thinking { thinking, signature } => {
+            ContentBlockStart::Thinking {
+                thinking,
+                signature,
+            } => {
                 state.first_block_is_thinking = true;
                 state.content_blocks.insert(
                     index,
@@ -98,7 +102,7 @@ pub(super) async fn handle_stream_event(
                     name: name.clone(),
                     arguments: String::new(),
                 });
-                let _ = tx.send(StreamEvent::ToolCallStart { id, name }).await;
+                emit_tool_call_start(tx, id, name).await;
             }
             ContentBlockStart::Unknown => {}
         },
@@ -106,7 +110,10 @@ pub(super) async fn handle_stream_event(
             ContentBlockDelta::TextDelta { text } => {
                 handle_text_delta(state, index, text, tx).await?;
             }
-            ContentBlockDelta::ThinkingDelta { thinking, signature } => {
+            ContentBlockDelta::ThinkingDelta {
+                thinking,
+                signature,
+            } => {
                 state.first_block_is_thinking = true;
                 if let Some(crate::types::ContentBlock::Thinking {
                     thinking: current,
@@ -118,55 +125,40 @@ pub(super) async fn handle_stream_event(
                         *current_signature = signature.clone();
                     }
                 }
-                if tx.send(StreamEvent::ReasoningDelta(thinking)).await.is_err() {
+                if tx
+                    .send(StreamEvent::ReasoningDelta(thinking))
+                    .await
+                    .is_err()
+                {
                     return Ok(true);
                 }
             }
             ContentBlockDelta::InputJsonDelta { partial_json } => {
                 if let Some(tool_id) = state.tool_ids_by_index.get(&index) {
-                    if let Some(tool_call) = state.tool_calls.iter_mut().find(|call| call.id == *tool_id)
+                    if let Some(tool_call) =
+                        state.tool_calls.iter_mut().find(|call| call.id == *tool_id)
                     {
-                        tool_call.arguments.push_str(&partial_json);
-                        let _ = tx
-                            .send(StreamEvent::ToolCallDelta {
-                                id: tool_call.id.clone(),
-                                arguments: partial_json,
-                            })
-                            .await;
+                        let _ = append_tool_call_delta(tx, tool_call, &partial_json).await;
                     }
                 } else if let Some(tool_call) = state.tool_calls.last_mut() {
-                    tool_call.arguments.push_str(&partial_json);
-                    let _ = tx
-                        .send(StreamEvent::ToolCallDelta {
-                            id: tool_call.id.clone(),
-                            arguments: partial_json,
-                        })
-                        .await;
+                    let _ = append_tool_call_delta(tx, tool_call, &partial_json).await;
                 }
             }
             ContentBlockDelta::Unknown => {}
         },
         AnthropicStreamEvent::ContentBlockStop { index } => {
             if let Some(tool_id) = state.tool_ids_by_index.remove(&index) {
-                let _ = tx.send(StreamEvent::ToolCallEnd { id: tool_id }).await;
+                emit_tool_call_end(tx, tool_id).await;
             }
         }
         AnthropicStreamEvent::MessageDelta { delta, usage } => {
             if let Some(reason) = delta.stop_reason {
-                state.stop_reason = Some(match reason.as_str() {
-                    "end_turn" => StopReason::EndTurn,
-                    "tool_use" => StopReason::ToolUse,
-                    "max_tokens" => StopReason::MaxTokens,
-                    "stop_sequence" => StopReason::StopSequence,
-                    _ => StopReason::Other(reason),
-                });
+                state.stop_reason = Some(map_stop_reason(&reason));
             }
 
             if let Some(usage) = usage {
                 state.final_usage = anthropic_usage_to_usage(&usage);
-                let _ = tx
-                    .send(StreamEvent::UsageUpdate(state.final_usage.clone()))
-                    .await;
+                emit_usage_update(tx, &state.final_usage).await;
             }
         }
         AnthropicStreamEvent::MessageStop {} => {
@@ -179,7 +171,7 @@ pub(super) async fn handle_stream_event(
         AnthropicStreamEvent::Error { error: err } => {
             let msg = format!("Anthropic stream error: {}", err.message);
             error!("{}", msg);
-            let _ = tx.send(StreamEvent::Error(msg)).await;
+            emit_stream_error(tx, msg).await;
             state.finalize_reason = "stream_error_event";
             return Ok(true);
         }
@@ -254,7 +246,7 @@ pub(super) async fn finalize_stream(
 
     let dangling_tool_count = state.tool_ids_by_index.len();
     for (_, tool_id) in state.tool_ids_by_index.drain() {
-        let _ = tx.send(StreamEvent::ToolCallEnd { id: tool_id }).await;
+        emit_tool_call_end(tx, tool_id).await;
     }
     if dangling_tool_count > 0 {
         debug!(
@@ -267,19 +259,10 @@ pub(super) async fn finalize_stream(
         state.content_blocks.into_values().collect();
     let final_message = Message::assistant_from_blocks(final_content_blocks, state.tool_calls);
 
-    let _ = tx
-        .send(stream_done(
-            final_message,
-            state.final_usage,
-            state.model,
-            state.stop_reason,
-        ))
-        .await;
+    emit_done_event(tx, final_message, state.final_usage, state.model, state.stop_reason).await;
     debug!(
         "Sent StreamEvent::Done - stream complete (reason={}, saw_message_stop={}, events={})",
-        state.finalize_reason,
-        state.saw_message_stop,
-        state.event_count
+        state.finalize_reason, state.saw_message_stop, state.event_count
     );
 
     Ok(())

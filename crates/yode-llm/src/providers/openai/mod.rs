@@ -1,5 +1,6 @@
 mod conversion;
 mod streaming;
+mod streaming_support;
 mod types;
 
 use anyhow::{anyhow, Context, Result};
@@ -8,6 +9,7 @@ use reqwest::Client;
 use tokio::sync::mpsc;
 use tracing::{debug, trace};
 
+use crate::providers::streaming_shared::map_stop_reason;
 use self::conversion::{
     message_to_openai, openai_message_to_internal, openai_usage_to_usage, tool_to_openai,
 };
@@ -17,9 +19,7 @@ use self::types::{
 };
 
 use crate::provider::LlmProvider;
-use crate::types::{
-    ChatRequest, ChatResponse, ModelInfo, StopReason, StreamEvent,
-};
+use crate::types::{ChatRequest, ChatResponse, ModelInfo, StreamEvent};
 
 // ── Provider implementation ─────────────────────────────────────────────────
 
@@ -57,8 +57,7 @@ impl OpenAiProvider {
 
     fn build_request(&self, request: &ChatRequest, stream: bool) -> OpenAiRequest {
         let tools: Vec<OpenAiTool> = request.tools.iter().map(tool_to_openai).collect();
-        let messages: Vec<OpenAiMessage> =
-            request.messages.iter().map(message_to_openai).collect();
+        let messages: Vec<OpenAiMessage> = request.messages.iter().map(message_to_openai).collect();
 
         OpenAiRequest {
             model: request.model.clone(),
@@ -67,7 +66,9 @@ impl OpenAiProvider {
             temperature: request.temperature,
             max_tokens: request.max_tokens,
             stream,
-            stream_options: stream.then_some(StreamOptions { include_usage: true }),
+            stream_options: stream.then_some(StreamOptions {
+                include_usage: true,
+            }),
         }
     }
 }
@@ -119,14 +120,7 @@ impl LlmProvider for OpenAiProvider {
 
         let message = openai_message_to_internal(&choice.message);
 
-        let stop_reason = match choice.finish_reason.as_deref() {
-            Some("stop") => Some(StopReason::EndTurn),
-            Some("tool_calls") => Some(StopReason::ToolUse),
-            Some("length") => Some(StopReason::MaxTokens),
-            Some("content_filter") => Some(StopReason::ContentFilter),
-            Some(other) => Some(StopReason::Other(other.to_string())),
-            None => None,
-        };
+        let stop_reason = choice.finish_reason.as_deref().map(map_stop_reason);
 
         let usage = api_resp
             .usage
