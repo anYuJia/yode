@@ -58,11 +58,7 @@ impl AgentEngine {
         }
 
         if let Some(action) = self
-            .handle_protocol_violation(
-                &mut assistant_msg,
-                &mut buffers.tool_calls,
-                event_tx,
-            )
+            .handle_protocol_violation(&mut assistant_msg, &mut buffers.tool_calls, event_tx)
             .await?
         {
             return Ok(action);
@@ -138,6 +134,7 @@ impl AgentEngine {
                 debug!("Streaming turn complete with no tool calls; finishing turn.");
                 self.maybe_refresh_live_session_memory(Some(event_tx));
                 self.complete_tool_turn_artifact();
+                self.complete_turn_runtime_artifact(response.stop_reason.as_ref());
                 let _ = event_tx.send(EngineEvent::TurnComplete(response));
                 let _ = event_tx.send(EngineEvent::Done);
                 return Ok(StreamFinalizeAction::Break);
@@ -152,6 +149,7 @@ impl AgentEngine {
         }
 
         self.complete_tool_turn_artifact();
+        self.complete_turn_runtime_artifact(None);
         let _ = event_tx.send(EngineEvent::Done);
         Ok(StreamFinalizeAction::Break)
     }
@@ -167,7 +165,10 @@ impl AgentEngine {
             return Ok(None);
         };
 
-        if assistant_msg.tool_calls.is_empty() && !full_text.is_empty() && self.is_protocol_violation(full_text) {
+        if assistant_msg.tool_calls.is_empty()
+            && !full_text.is_empty()
+            && self.is_protocol_violation(full_text)
+        {
             let recovered = self.recover_leaked_tool_calls(full_text);
             if !recovered.is_empty() {
                 info!(

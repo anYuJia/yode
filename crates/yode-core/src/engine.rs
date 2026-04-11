@@ -212,6 +212,14 @@ pub struct AgentEngine {
     recovery_state: RecoveryState,
     /// Current query source, used for context-management policy decisions.
     current_query_source: QuerySource,
+    /// Start time for the current top-level user turn.
+    current_turn_started_at: Option<std::time::Instant>,
+    /// Duration of the most recently completed top-level turn.
+    last_turn_duration_ms: Option<u64>,
+    /// Stop reason of the most recently completed top-level turn.
+    last_turn_stop_reason: Option<String>,
+    /// Artifact path for the most recently completed top-level turn.
+    last_turn_artifact_path: Option<String>,
     /// Consecutive auto-compaction failures for circuit breaking.
     compaction_failures: u32,
     /// Successful compactions in the current session.

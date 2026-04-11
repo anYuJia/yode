@@ -58,6 +58,7 @@ impl AgentEngine {
     }
 
     pub(super) fn reset_turn_runtime_state(&mut self) {
+        self.current_turn_started_at = Some(std::time::Instant::now());
         self.reset_tool_turn_runtime();
         self.reset_prompt_cache_turn_runtime();
         self.recent_tool_calls.clear();

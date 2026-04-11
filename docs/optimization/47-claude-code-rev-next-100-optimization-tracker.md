@@ -22,7 +22,7 @@
 
 当前进度：
 
-- `71 / 100` 已完成
+- `74 / 100` 已完成
 
 ## 001-010 Startup / Warmup
 
@@ -109,11 +109,11 @@
 - `[ ]` 063 protocol-violation retry helper isolated from stream finalization
 - `[ ]` 064 tool-call execution continuation helper isolated from stream finalization
 - `[ ]` 065 partial-stream recovery path tested independently
-- `[ ]` 066 engine runtime timing aggregation per turn
+- `[x]` 066 engine runtime timing aggregation per turn
 - `[ ]` 067 stream watchdog diagnostics enriched with stage label
 - `[ ]` 068 stream retry reason histogram
-- `[ ]` 069 turn-complete artifact with response stop reason
-- `[ ]` 070 engine startup vs turn-runtime metrics separated in status
+- `[x]` 069 turn-complete artifact with response stop reason
+- `[x]` 070 engine startup vs turn-runtime metrics separated in status
 
 ## 071-080 Tool Modules
 
