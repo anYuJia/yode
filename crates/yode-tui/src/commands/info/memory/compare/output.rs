@@ -2,76 +2,11 @@ use std::path::Path;
 
 use similar::{ChangeTag, DiffOp, TextDiff};
 
-use super::transcripts::{extract_summary_preview, read_transcript_metadata};
-use super::MAX_COMPARE_CONTENT_CHARS;
+use super::args::CompareOptions;
+use super::super::transcripts::{extract_summary_preview, read_transcript_metadata};
+use super::super::MAX_COMPARE_CONTENT_CHARS;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct CompareArgs {
-    pub left_target: String,
-    pub right_target: String,
-    pub options: CompareOptions,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct CompareOptions {
-    pub diff_enabled: bool,
-    pub max_hunks: usize,
-    pub max_lines: usize,
-}
-
-impl Default for CompareOptions {
-    fn default() -> Self {
-        Self {
-            diff_enabled: true,
-            max_hunks: 3,
-            max_lines: 60,
-        }
-    }
-}
-
-pub(super) fn parse_compare_args(args: &str) -> Option<CompareArgs> {
-    let rest = args.strip_prefix("compare ")?;
-    let tokens = rest.split_whitespace().collect::<Vec<_>>();
-    if tokens.len() < 2 {
-        return None;
-    }
-    let mut compare = CompareArgs {
-        left_target: tokens[0].to_string(),
-        right_target: tokens[1].to_string(),
-        options: CompareOptions::default(),
-    };
-
-    let mut idx = 2usize;
-    while idx < tokens.len() {
-        match tokens[idx] {
-            "--no-diff" => {
-                compare.options.diff_enabled = false;
-                idx += 1;
-            }
-            "--hunks" => {
-                let value = tokens.get(idx + 1)?.parse::<usize>().ok()?;
-                if value == 0 {
-                    return None;
-                }
-                compare.options.max_hunks = value;
-                idx += 2;
-            }
-            "--lines" => {
-                let value = tokens.get(idx + 1)?.parse::<usize>().ok()?;
-                if value == 0 {
-                    return None;
-                }
-                compare.options.max_lines = value;
-                idx += 2;
-            }
-            _ => return None,
-        }
-    }
-
-    Some(compare)
-}
-
-pub(super) fn build_transcript_compare_output(
+pub(in crate::commands::info::memory) fn build_transcript_compare_output(
     left_path: &Path,
     left_content: &str,
     right_path: &Path,
@@ -231,11 +166,11 @@ fn build_diff_preview(left: &str, right: &str, options: &CompareOptions) -> Opti
     output.push_str(&format!("  Changed lines: +{} / -{}\n", added, removed));
 
     let mut shown_lines = 0usize;
-    for (idx, group) in groups.iter().take(options.max_hunks).enumerate() {
+    for (index, group) in groups.iter().take(options.max_hunks).enumerate() {
         let (old_start, old_count, new_start, new_count) = diff_group_header(group);
         output.push_str(&format!(
             "  Hunk {} @@ -{},{} +{},{} @@\n",
-            idx + 1,
+            index + 1,
             old_start,
             old_count,
             new_start,
@@ -307,10 +242,7 @@ fn build_section_summary(left: &str, right: &str) -> String {
     for role in roles {
         let left_count = left_stats.role_counts.get(&role).copied().unwrap_or(0);
         let right_count = right_stats.role_counts.get(&role).copied().unwrap_or(0);
-        lines.push(format!(
-            "  {} blocks: {} -> {}",
-            role, left_count, right_count
-        ));
+        lines.push(format!("  {} blocks: {} -> {}", role, left_count, right_count));
     }
 
     format!("{}\n", lines.join("\n"))
@@ -337,10 +269,7 @@ fn transcript_section_stats(content: &str) -> TranscriptSectionStats {
             Some("Messages") if !line.trim().is_empty() => {
                 stats.message_lines += 1;
                 if let Some(role) = line.strip_prefix("### ") {
-                    *stats
-                        .role_counts
-                        .entry(role.trim().to_string())
-                        .or_insert(0) += 1;
+                    *stats.role_counts.entry(role.trim().to_string()).or_insert(0) += 1;
                 }
             }
             _ => {}
@@ -386,11 +315,11 @@ fn first_difference<'a>(
     let right_lines = right.lines().collect::<Vec<_>>();
     let max_len = left_lines.len().max(right_lines.len());
 
-    for idx in 0..max_len {
-        let left_line = left_lines.get(idx).copied();
-        let right_line = right_lines.get(idx).copied();
+    for index in 0..max_len {
+        let left_line = left_lines.get(index).copied();
+        let right_line = right_lines.get(index).copied();
         if left_line != right_line {
-            return Some((idx + 1, left_line, right_line));
+            return Some((index + 1, left_line, right_line));
         }
     }
 

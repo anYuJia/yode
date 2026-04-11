@@ -1,3 +1,6 @@
+use std::fs;
+use std::time::Instant;
+
 use super::*;
 
 pub(in crate::commands::info::memory) fn read_transcript_metadata(
@@ -43,9 +46,7 @@ pub(in crate::commands::info::memory) fn read_transcript_metadata(
     Some(meta)
 }
 
-pub(in crate::commands::info::memory) fn extract_summary_preview(
-    content: &str,
-) -> Option<String> {
+pub(in crate::commands::info::memory) fn extract_summary_preview(content: &str) -> Option<String> {
     let start = content.find("## Summary Anchor")?;
     let summary_block = &content[start..];
     let fenced_start = summary_block.find("```text")?;
@@ -72,7 +73,10 @@ pub(in crate::commands::info::memory) fn transcript_picker_summary_preview(
     if preview.chars().count() <= 100 {
         Some(preview)
     } else {
-        Some(format!("{}...", preview.chars().take(100).collect::<String>()))
+        Some(format!(
+            "{}...",
+            preview.chars().take(100).collect::<String>()
+        ))
     }
 }
 
@@ -144,7 +148,10 @@ pub(crate) fn run_long_session_benchmark(project_root: &Path) -> LongSessionBenc
     let (compare_ms, compare_summary_only) = if entries.len() >= 2 {
         let left_path = &entries[0];
         let right_path = &entries[1];
-        match (fs::read_to_string(left_path), fs::read_to_string(right_path)) {
+        match (
+            fs::read_to_string(left_path),
+            fs::read_to_string(right_path),
+        ) {
             (Ok(left_content), Ok(right_content)) => {
                 let mut summary_only = false;
                 let elapsed = measure_ms(|| {

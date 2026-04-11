@@ -1,183 +1,3 @@
-pub(super) fn truncate_line(line: &str, max_chars: usize) -> String {
-    let chars: Vec<char> = line.chars().collect();
-    if chars.len() <= max_chars {
-        return line.to_string();
-    }
-    if max_chars <= 1 {
-        return "…".to_string();
-    }
-    let kept: String = chars.into_iter().take(max_chars - 1).collect();
-    format!("{}…", kept)
-}
-
-pub(super) fn strip_ansi(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let bytes = s.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == 0x1b {
-            i += 1;
-            if i < bytes.len() && bytes[i] == b'[' {
-                i += 1;
-                while i < bytes.len() {
-                    let b = bytes[i];
-                    i += 1;
-                    if (0x40..=0x7e).contains(&b) {
-                        break;
-                    }
-                }
-            }
-        } else {
-            out.push(bytes[i] as char);
-            i += 1;
-        }
-    }
-    out
-}
-
-pub(super) fn is_code_block_line(text: &str) -> bool {
-    text.starts_with("    ") || text.starts_with("─── ")
-}
-
-pub(super) fn highlight_code_line(line: &str) -> String {
-    const RESET: &str = "\x1b[0m";
-    const BASE: &str = "\x1b[38;2;220;220;220m";
-    const STRC: &str = "\x1b[38;2;206;145;120m";
-    const NUM: &str = "\x1b[38;2;181;206;168m";
-    const KW: &str = "\x1b[38;2;86;156;214m";
-    const CMT: &str = "\x1b[38;2;106;153;85m";
-    const DEC: &str = "\x1b[38;2;78;201;176m";
-    const OP: &str = "\x1b[38;2;212;212;212m";
-
-    let mut result = String::new();
-    result.push_str(BASE);
-
-    let chars: Vec<char> = line.chars().collect();
-    let len = chars.len();
-    let mut i = 0;
-    while i < len {
-        if chars[i] == '@' {
-            result.push_str(DEC);
-            result.push(chars[i]);
-            i += 1;
-            while i < len && (chars[i].is_alphanumeric() || chars[i] == '_') {
-                result.push(chars[i]);
-                i += 1;
-            }
-            result.push_str(RESET);
-            result.push_str(BASE);
-            continue;
-        }
-
-        if chars[i] == '"' || chars[i] == '\'' || chars[i] == '`' {
-            let quote = chars[i];
-            result.push_str(STRC);
-            result.push(quote);
-            i += 1;
-            while i < len {
-                if chars[i] == '\\' && i + 1 < len {
-                    result.push(chars[i]);
-                    result.push(chars[i + 1]);
-                    i += 2;
-                } else if chars[i] == quote {
-                    break;
-                } else {
-                    result.push(chars[i]);
-                    i += 1;
-                }
-            }
-            if i < len {
-                result.push(quote);
-                i += 1;
-            }
-            result.push_str(RESET);
-            result.push_str(BASE);
-            continue;
-        }
-
-        if chars[i] == '#' || (chars[i] == '/' && i + 1 < len && chars[i + 1] == '/') {
-            result.push_str(CMT);
-            while i < len {
-                result.push(chars[i]);
-                i += 1;
-            }
-            break;
-        }
-
-        if chars[i].is_alphabetic() || chars[i] == '_' || chars[i] == '@' {
-            let start = i;
-            while i < len && (chars[i].is_alphanumeric() || chars[i] == '_') {
-                i += 1;
-            }
-            let word: String = chars[start..i].iter().collect();
-            if is_code_keyword(&word) {
-                result.push_str(KW);
-                result.push_str(&word);
-                result.push_str(RESET);
-                result.push_str(BASE);
-            } else {
-                result.push_str(&word);
-            }
-            continue;
-        }
-
-        if chars[i].is_ascii_digit() {
-            result.push_str(NUM);
-            while i < len && (chars[i].is_ascii_digit() || chars[i] == '.' || chars[i] == 'x') {
-                result.push(chars[i]);
-                i += 1;
-            }
-            result.push_str(RESET);
-            result.push_str(BASE);
-            continue;
-        }
-
-        if matches!(chars[i], '=' | '+' | '-' | '*' | '/' | '!' | '<' | '>' | '|') {
-            result.push_str(OP);
-            result.push(chars[i]);
-            i += 1;
-            result.push_str(RESET);
-            result.push_str(BASE);
-            continue;
-        }
-
-        result.push(chars[i]);
-        i += 1;
-    }
-
-    result.push_str(RESET);
-    result
-}
-
-fn is_code_keyword(word: &str) -> bool {
-    matches!(
-        word,
-        "def" | "class" | "if" | "elif" | "else" | "for" | "while" | "return" |
-        "import" | "from" | "with" | "try" | "except" | "finally" |
-        "raise" | "pass" | "break" | "continue" | "and" | "or" | "not" |
-        "None" | "True" | "False" | "self" | "async" | "await" |
-        "yield" | "lambda" | "in" | "is" | "as" |
-        "const" | "let" | "var" | "function" | "new" | "this" | "typeof" |
-        "instanceof" | "export" | "default" | "switch" | "case" |
-        "null" | "undefined" | "true" | "false" | "throw" | "catch" |
-        "extends" | "implements" | "interface" | "readonly" | "abstract" |
-        "fn" | "mut" | "pub" | "struct" | "enum" | "impl" | "trait" |
-        "use" | "mod" | "match" | "crate" | "super" | "move" | "dyn" |
-        "unsafe" | "extern" | "ref" | "where" | "type" |
-        "func" | "package" | "defer" | "chan" | "select" | "range" |
-        "void" | "static" | "final" | "private" | "protected" | "public" |
-        "override" | "do" | "int" | "string" | "bool" | "float"
-    )
-}
-
-pub(super) fn capitalize(s: &str) -> String {
-    let mut c = s.chars();
-    match c.next() {
-        None => String::new(),
-        Some(f) => f.to_uppercase().to_string() + c.as_str(),
-    }
-}
-
 pub(super) fn markdown_to_plain(text: &str) -> String {
     let mut result = String::new();
     let mut in_code_block = false;
@@ -221,7 +41,7 @@ pub(super) fn markdown_to_plain(text: &str) -> String {
             if !is_separator {
                 let cells: Vec<String> = inner
                     .split('|')
-                    .map(|c| strip_inline_md(c.trim()))
+                    .map(|cell| strip_inline_md(cell.trim()))
                     .collect();
                 table_rows.push(cells);
             }
@@ -321,27 +141,27 @@ fn render_table(rows: &[Vec<String>]) -> String {
         return String::new();
     }
 
-    let num_cols = rows.iter().map(|r| r.len()).max().unwrap_or(0);
+    let num_cols = rows.iter().map(|row| row.len()).max().unwrap_or(0);
     let mut widths = vec![0usize; num_cols];
     for row in rows {
-        for (i, cell) in row.iter().enumerate() {
-            if i < num_cols {
-                widths[i] = widths[i].max(UnicodeWidthStr::width(cell.as_str()));
+        for (index, cell) in row.iter().enumerate() {
+            if index < num_cols {
+                widths[index] = widths[index].max(UnicodeWidthStr::width(cell.as_str()));
             }
         }
     }
 
     let mut result = String::new();
-    for (row_idx, row) in rows.iter().enumerate() {
+    for (row_index, row) in rows.iter().enumerate() {
         result.push_str("  ");
-        for (i, cell) in row.iter().enumerate() {
-            if i >= num_cols {
+        for (index, cell) in row.iter().enumerate() {
+            if index >= num_cols {
                 break;
             }
-            let w = widths[i];
-            let cell_w = UnicodeWidthStr::width(cell.as_str());
-            let pad = w.saturating_sub(cell_w);
-            if i > 0 {
+            let width = widths[index];
+            let cell_width = UnicodeWidthStr::width(cell.as_str());
+            let pad = width.saturating_sub(cell_width);
+            if index > 0 {
                 result.push_str(" │ ");
             }
             result.push_str(cell);
@@ -349,13 +169,13 @@ fn render_table(rows: &[Vec<String>]) -> String {
         }
         result.push('\n');
 
-        if row_idx == 0 && rows.len() > 1 {
+        if row_index == 0 && rows.len() > 1 {
             result.push_str("  ");
-            for (i, w) in widths.iter().enumerate() {
-                if i > 0 {
+            for (index, width) in widths.iter().enumerate() {
+                if index > 0 {
                     result.push_str("─┼─");
                 }
-                result.push_str(&"─".repeat(*w));
+                result.push_str(&"─".repeat(*width));
             }
             result.push('\n');
         }
@@ -401,7 +221,7 @@ pub(super) fn process_md_line(line: &str, in_code_block: &mut bool) -> String {
         }
         let cells: Vec<String> = inner
             .split('|')
-            .map(|c| render_inline_md(c.trim(), true))
+            .map(|cell| render_inline_md(cell.trim(), true))
             .collect();
         return format!("  {}", cells.join("  │  "));
     }
@@ -457,16 +277,16 @@ fn render_inline_md(text: &str, ansi: bool) -> String {
     let mut result = String::new();
     let chars: Vec<char> = text.chars().collect();
     let len = chars.len();
-    let mut i = 0;
+    let mut index = 0;
 
-    while i < len {
-        if i + 1 < len && chars[i] == '*' && chars[i + 1] == '*' {
-            i += 2;
-            let start = i;
-            while i + 1 < len && !(chars[i] == '*' && chars[i + 1] == '*') {
-                i += 1;
+    while index < len {
+        if index + 1 < len && chars[index] == '*' && chars[index + 1] == '*' {
+            index += 2;
+            let start = index;
+            while index + 1 < len && !(chars[index] == '*' && chars[index + 1] == '*') {
+                index += 1;
             }
-            let content: String = chars[start..i].iter().collect();
+            let content: String = chars[start..index].iter().collect();
             if ansi {
                 result.push_str(BOLD_ON);
                 result.push_str(&content);
@@ -474,16 +294,16 @@ fn render_inline_md(text: &str, ansi: bool) -> String {
             } else {
                 result.push_str(&content);
             }
-            if i + 1 < len {
-                i += 2;
+            if index + 1 < len {
+                index += 2;
             }
-        } else if chars[i] == '`' {
-            i += 1;
-            let start = i;
-            while i < len && chars[i] != '`' {
-                i += 1;
+        } else if chars[index] == '`' {
+            index += 1;
+            let start = index;
+            while index < len && chars[index] != '`' {
+                index += 1;
             }
-            let content: String = chars[start..i].iter().collect();
+            let content: String = chars[start..index].iter().collect();
             if ansi {
                 result.push_str(CODE_COLOR);
                 result.push_str(&content);
@@ -491,23 +311,23 @@ fn render_inline_md(text: &str, ansi: bool) -> String {
             } else {
                 result.push_str(&content);
             }
-            if i < len {
-                i += 1;
+            if index < len {
+                index += 1;
             }
-        } else if chars[i] == '[' {
-            let bracket_start = i + 1;
-            let mut j = bracket_start;
-            while j < len && chars[j] != ']' {
-                j += 1;
+        } else if chars[index] == '[' {
+            let bracket_start = index + 1;
+            let mut end = bracket_start;
+            while end < len && chars[end] != ']' {
+                end += 1;
             }
-            if j + 1 < len && chars[j] == ']' && chars[j + 1] == '(' {
-                let link_text: String = chars[bracket_start..j].iter().collect();
-                j += 2;
-                while j < len && chars[j] != ')' {
-                    j += 1;
+            if end + 1 < len && chars[end] == ']' && chars[end + 1] == '(' {
+                let link_text: String = chars[bracket_start..end].iter().collect();
+                end += 2;
+                while end < len && chars[end] != ')' {
+                    end += 1;
                 }
-                if j < len {
-                    j += 1;
+                if end < len {
+                    end += 1;
                 }
                 if ansi {
                     result.push_str(LINK_COLOR);
@@ -516,14 +336,14 @@ fn render_inline_md(text: &str, ansi: bool) -> String {
                 } else {
                     result.push_str(&link_text);
                 }
-                i = j;
+                index = end;
             } else {
-                result.push(chars[i]);
-                i += 1;
+                result.push(chars[index]);
+                index += 1;
             }
         } else {
-            result.push(chars[i]);
-            i += 1;
+            result.push(chars[index]);
+            index += 1;
         }
     }
     result
