@@ -110,6 +110,19 @@ pub fn review_metadata_payload(
     })
 }
 
+pub fn render_review_artifact_message(
+    heading: &str,
+    body: &str,
+    artifact_path: Option<&str>,
+) -> String {
+    format!(
+        "{}\n\n{}\n\nReview artifact: {}",
+        heading,
+        body,
+        artifact_path.unwrap_or("none")
+    )
+}
+
 pub fn review_output_has_findings(output: &str) -> bool {
     let normalized = output.trim().to_lowercase();
     if normalized.starts_with("no issues found.") || normalized.starts_with("no issues found") {

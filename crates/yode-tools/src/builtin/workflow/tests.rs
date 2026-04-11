@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::registry::ToolRegistry;
 use crate::tool::{Tool, ToolContext};
 
-use super::execution::apply_variables;
+use super::variables::apply_variables;
 use super::{WorkflowRunTool, WorkflowRunWithWritesTool};
 
 #[tokio::test]

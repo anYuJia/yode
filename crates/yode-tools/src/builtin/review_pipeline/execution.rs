@@ -4,8 +4,8 @@ use serde_json::{json, Value};
 use crate::builtin::git_commit::GitCommitTool;
 use crate::builtin::review_changes::ReviewChangesTool;
 use crate::builtin::review_common::{
-    persist_review_artifact, persist_review_status, review_findings_count,
-    review_metadata_payload, review_output_has_findings,
+    persist_review_artifact, persist_review_status, render_review_artifact_message,
+    review_findings_count, review_metadata_payload, review_output_has_findings,
 };
 use crate::builtin::test_runner::TestRunnerTool;
 use crate::builtin::verification_agent::VerificationAgentTool;
@@ -160,7 +160,11 @@ pub(super) async fn execute_review_pipeline(
     }
 
     Ok(ToolResult::success_with_metadata(
-        format!("Review pipeline complete.\n\n{}", summary),
+        render_review_artifact_message(
+            "Review pipeline complete.",
+            &summary,
+            pipeline_artifact.as_deref(),
+        ),
         merge_review_metadata(
             review_metadata_payload("review-pipeline", focus, &summary, pipeline_artifact.as_deref()),
             json!({

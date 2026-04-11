@@ -3,9 +3,10 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use serde::Deserialize;
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 
 use super::WorkflowExecutionMode;
+use super::variables::{apply_variables, workflow_variables_from_params};
 use crate::tool::{ToolCapabilities, ToolContext, ToolResult};
 
 #[derive(Debug, Deserialize)]
@@ -88,11 +89,7 @@ pub(super) async fn execute_workflow(
             err
         )
     })?;
-    let variables = params
-        .get("variables")
-        .and_then(|value| value.as_object())
-        .cloned()
-        .unwrap_or_default();
+    let variables = workflow_variables_from_params(&params);
     let dry_run = params
         .get("dry_run")
         .and_then(|value| value.as_bool())
@@ -303,36 +300,4 @@ fn is_write_capable_tool(tool_name: &str) -> bool {
 
 fn is_safe_workflow_tool(tool_name: &str, caps: ToolCapabilities) -> bool {
     caps.read_only || !is_write_capable_tool(tool_name)
-}
-
-pub(super) fn apply_variables(value: Value, variables: &Map<String, Value>) -> Value {
-    match value {
-        Value::String(text) => Value::String(replace_variables(&text, variables)),
-        Value::Array(items) => Value::Array(
-            items
-                .into_iter()
-                .map(|item| apply_variables(item, variables))
-                .collect(),
-        ),
-        Value::Object(object) => Value::Object(
-            object
-                .into_iter()
-                .map(|(key, value)| (key, apply_variables(value, variables)))
-                .collect(),
-        ),
-        other => other,
-    }
-}
-
-fn replace_variables(input: &str, variables: &Map<String, Value>) -> String {
-    let mut output = input.to_string();
-    for (key, value) in variables {
-        let placeholder = format!("${{{}}}", key);
-        let replacement = value
-            .as_str()
-            .map(|value| value.to_string())
-            .unwrap_or_else(|| value.to_string());
-        output = output.replace(&placeholder, &replacement);
-    }
-    output
 }

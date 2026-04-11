@@ -3,8 +3,8 @@ use serde_json::{json, Value};
 
 use crate::builtin::git_commit::GitCommitTool;
 use crate::builtin::review_common::{
-    persist_review_artifact, persist_review_status, review_findings_count,
-    review_metadata_payload, review_output_has_findings,
+    persist_review_artifact, persist_review_status, render_review_artifact_message,
+    review_findings_count, review_metadata_payload, review_output_has_findings,
 };
 use crate::tool::{SubAgentOptions, Tool, ToolContext, ToolErrorType, ToolResult};
 
@@ -87,10 +87,10 @@ pub(super) async fn execute_review_then_commit(
 
     if review_output_has_findings(&review_output) && !allow_findings_commit {
         return Ok(ToolResult {
-            content: format!(
-                "Review detected findings. Commit aborted.\n\nReview output:\n{}\n\nReview artifact: {}",
-                review_output,
-                artifact_path.as_deref().unwrap_or("none")
+            content: render_review_artifact_message(
+                "Review detected findings. Commit aborted.",
+                &format!("Review output:\n{}", review_output),
+                artifact_path.as_deref(),
             ),
             is_error: true,
             error_type: Some(ToolErrorType::Validation),
@@ -134,10 +134,10 @@ pub(super) async fn execute_review_then_commit(
     }
 
     Ok(ToolResult {
-        content: format!(
-            "Review passed.\n\n{}\n\nReview artifact: {}",
-            commit_result.content,
-            artifact_path.as_deref().unwrap_or("none")
+        content: render_review_artifact_message(
+            "Review passed.",
+            &commit_result.content,
+            artifact_path.as_deref(),
         ),
         is_error: commit_result.is_error,
         error_type: commit_result.error_type,
