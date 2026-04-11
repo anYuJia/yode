@@ -2,7 +2,7 @@ use super::*;
 
 use tracing::info;
 
-pub(in crate::context_manager) fn is_context_summary(msg: &Message) -> bool {
+pub(crate) fn is_context_summary(msg: &Message) -> bool {
     matches!(msg.role, Role::System)
         && msg
             .content
@@ -11,7 +11,7 @@ pub(in crate::context_manager) fn is_context_summary(msg: &Message) -> bool {
             .starts_with(CONTEXT_SUMMARY_PREFIX)
 }
 
-pub(in crate::context_manager) fn message_priority(msg: &Message) -> u32 {
+pub(crate) fn message_priority(msg: &Message) -> u32 {
     if is_context_summary(msg) {
         return 2;
     }

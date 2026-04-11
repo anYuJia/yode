@@ -1,9 +1,8 @@
 mod explain;
 
-use super::classifier::bash_risk_rationale;
 use super::{
-    CommandClassifier, CommandRiskLevel, DenialRecordView, DenialTracker, PermissionAction,
-    PermissionMode, PermissionRule, RuleBehavior, RuleSource,
+    CommandRiskLevel, DenialRecordView, DenialTracker, PermissionAction, PermissionMode,
+    PermissionRule, RuleBehavior, RuleSource,
 };
 
 #[derive(Debug, Clone)]

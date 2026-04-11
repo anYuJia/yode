@@ -1,3 +1,4 @@
+pub(crate) mod bash;
 mod classifier;
 mod config;
 mod denial_tracker;

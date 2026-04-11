@@ -1,4 +1,7 @@
 use super::*;
+use crate::permission::bash::{
+    destructive_guard_reason, destructive_guard_suggestion, discovery_redirect,
+};
 
 impl AgentEngine {
     pub(super) async fn run_pre_execution_guards(
@@ -160,20 +163,20 @@ impl AgentEngine {
         let command = prepared.command_content.as_ref()?;
         let command_lower = command.to_lowercase();
 
-        if let Some((cmd_name, alternative)) = blocked_discovery_command(&command_lower) {
+        if let Some(redirect) = discovery_redirect(&command_lower) {
             return Some(Self::immediate_tool_outcome(
                 tool_call,
                 &prepared.started_at,
                 ToolResult::error_typed(
                     format!(
                         "Command blocked: Use the dedicated '{}' tool instead of running '{}' via bash.",
-                        alternative, cmd_name
+                        redirect.alternative, redirect.command_name
                     ),
                     ToolErrorType::Validation,
                     true,
                     Some(format!(
                         "Running search/discovery via bash is inefficient. Use the '{}' tool for better results and TUI display.",
-                        alternative
+                        redirect.alternative
                     )),
                 ),
             ));
@@ -181,15 +184,12 @@ impl AgentEngine {
 
         if CommandClassifier::classify(command) == CommandRiskLevel::Destructive {
             self.last_permission_action = Some("deny".to_string());
-            self.last_permission_explanation = Some(
-                "Dangerous bash command blocked by destructive-command guard. Use a safer non-destructive probe first."
-                    .to_string(),
-            );
+            self.last_permission_explanation = Some(destructive_guard_reason().to_string());
             self.write_permission_artifact(
                 "destructive_guard",
                 &tool_call.name,
                 "deny",
-                "Dangerous bash command blocked by destructive-command guard. Use a safer non-destructive probe first.",
+                destructive_guard_reason(),
                 &prepared.params,
                 &prepared.effective_arguments,
                 &prepared.original_params,
@@ -203,10 +203,7 @@ impl AgentEngine {
                     format!("Command blocked (destructive): {}", command),
                     ToolErrorType::PermissionDeny,
                     false,
-                    Some(
-                        "This command is classified as destructive and cannot be executed. Stop and propose a safer fallback such as `git status`, `git diff`, `ls`, or a dry-run variant before attempting any mutation again."
-                            .to_string(),
-                    ),
+                    Some(destructive_guard_suggestion().to_string()),
                 ),
             ));
         }
@@ -229,28 +226,4 @@ fn invalid_path_reason(file_path: &str) -> Option<&'static str> {
     } else {
         None
     }
-}
-
-fn blocked_discovery_command(command_lower: &str) -> Option<(&'static str, &'static str)> {
-    let forbidden_binaries = ["find", "grep", "rg", "ag", "ack"];
-    let forbidden_match = forbidden_binaries.iter().find_map(|binary| {
-        let pattern = format!(r"(\s|^|&&|;|\|){}(\s|$)", binary);
-        Regex::new(&pattern)
-            .ok()
-            .filter(|regex| regex.is_match(command_lower))
-            .map(|_| *binary)
-    });
-
-    if let Some(binary) = forbidden_match {
-        let alternative = if binary == "find" { "glob" } else { "grep" };
-        return Some((binary, alternative));
-    }
-
-    let is_recursive_ls = command_lower.contains("ls ")
-        && (command_lower.contains("-r") || command_lower.contains("-lar"));
-    if is_recursive_ls {
-        return Some(("ls -R", "ls (without -R) or project_map"));
-    }
-
-    None
 }

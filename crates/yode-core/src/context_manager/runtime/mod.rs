@@ -2,6 +2,9 @@ mod compression;
 
 use super::*;
 
+#[allow(unused_imports)]
+pub(crate) use compression::{is_context_summary, message_priority};
+
 impl ModelLimits {
     /// Look up known model limits by model name.
     pub fn for_model(model: &str) -> Self {

@@ -1,4 +1,5 @@
 use super::*;
+use crate::permission::bash::auto_mode_bash_decision;
 
 impl PermissionManager {
     pub fn explain_with_content(
@@ -63,51 +64,16 @@ impl PermissionManager {
 
         if self.mode == PermissionMode::Auto && tool_name == "bash" {
             if let Some(command) = content {
-                let risk = CommandClassifier::classify(command);
-                match risk {
-                    CommandRiskLevel::Safe => {
-                        return PermissionExplanation {
-                            action: PermissionAction::Allow,
-                            reason: format!(
-                                "Auto mode classifier marked this bash command as safe. {}",
-                                bash_risk_rationale(command, risk)
-                            ),
-                            mode: self.mode,
-                            classifier_risk: Some(risk),
-                            matched_rule: None,
-                            denial_count: self.denial_tracker.denial_count(tool_name),
-                            auto_skip_due_to_denials: false,
-                        };
-                    }
-                    CommandRiskLevel::Destructive => {
-                        return PermissionExplanation {
-                            action: PermissionAction::Deny,
-                            reason: format!(
-                                "Auto mode classifier marked this bash command as destructive. {}",
-                                bash_risk_rationale(command, risk)
-                            ),
-                            mode: self.mode,
-                            classifier_risk: Some(risk),
-                            matched_rule: None,
-                            denial_count: self.denial_tracker.denial_count(tool_name),
-                            auto_skip_due_to_denials: false,
-                        };
-                    }
-                    CommandRiskLevel::PotentiallyRisky => {
-                        return PermissionExplanation {
-                            action: PermissionAction::Confirm,
-                            reason: format!(
-                                "Auto mode classifier marked this bash command as potentially risky. {}",
-                                bash_risk_rationale(command, risk)
-                            ),
-                            mode: self.mode,
-                            classifier_risk: Some(risk),
-                            matched_rule: None,
-                            denial_count: self.denial_tracker.denial_count(tool_name),
-                            auto_skip_due_to_denials: false,
-                        };
-                    }
-                    CommandRiskLevel::Unknown => {}
+                if let Some((action, risk, reason)) = auto_mode_bash_decision(command) {
+                    return PermissionExplanation {
+                        action,
+                        reason,
+                        mode: self.mode,
+                        classifier_risk: Some(risk),
+                        matched_rule: None,
+                        denial_count: self.denial_tracker.denial_count(tool_name),
+                        auto_skip_due_to_denials: false,
+                    };
                 }
             }
         }
