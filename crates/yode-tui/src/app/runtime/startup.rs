@@ -35,6 +35,15 @@ pub(super) async fn prepare_runtime(
     all_provider_models: HashMap<String, Vec<String>>,
     startup_profile: Option<String>,
 ) -> Result<RuntimeStartup> {
+    let resume_warmup_task = if context.is_resumed {
+        let project_root = context.working_dir_compat();
+        Some(tokio::task::spawn_blocking(move || {
+            crate::commands::info::warm_resume_transcript_caches(&project_root)
+        }))
+    } else {
+        None
+    };
+
     let working_dir = context.working_dir_compat().display().to_string();
     let is_resumed = context.is_resumed;
     let provider_name = context.provider.clone();
@@ -53,11 +62,6 @@ pub(super) async fn prepare_runtime(
         Arc::clone(&tools),
     );
     app.session.startup_profile = startup_profile;
-    if is_resumed {
-        app.session.resume_cache_warmup = Some(
-            crate::commands::info::warm_resume_transcript_caches(&context.working_dir_compat()),
-        );
-    }
     app.cmd_completion.dynamic_commands = skill_commands.clone();
 
     crate::commands::register_all(&mut app.cmd_registry);
@@ -81,6 +85,10 @@ pub(super) async fn prepare_runtime(
     app.engine = Some(Arc::clone(&engine));
     let (engine_event_tx, engine_event_rx) = mpsc::unbounded_channel::<EngineEvent>();
     spawn_update_checker(engine_event_tx.clone());
+
+    if let Some(task) = resume_warmup_task {
+        app.session.resume_cache_warmup = Some(task.await?);
+    }
 
     Ok(RuntimeStartup {
         app,

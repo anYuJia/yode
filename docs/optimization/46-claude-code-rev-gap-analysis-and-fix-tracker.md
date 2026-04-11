@@ -98,8 +98,10 @@
 - `[ ]` P1.2 provider streaming 事件拼装进一步统一
   - 减少 Anthropic/OpenAI/Gemini 在 stream -> internal event 上的重复逻辑。
 
-- `[ ]` P1.3 resume / transcript 缓存增强
+- `[~]` P1.3 resume / transcript 缓存增强
   - 增量索引、热路径缓存、恢复时 warmup 分层。
+  - 当前完成：
+    - resume transcript warmup 改为后台 blocking task，与 TUI startup 其它步骤重叠
 
 ### P2
 
