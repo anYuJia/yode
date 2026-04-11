@@ -1,56 +1,11 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use anyhow::{Context, Result};
 use yode_llm::types::{Message, Role};
 
 use crate::context_manager::CompressionReport;
 
-const TRANSCRIPTS_DIR: &str = ".yode/transcripts";
-const TRANSCRIPT_WRITE_RETRIES: usize = 3;
-
-pub fn write_compaction_transcript(
-    project_root: &Path,
-    session_id: &str,
-    messages: &[Message],
-    report: &CompressionReport,
-    mode: &str,
-    failed_tool_call_ids: &HashSet<String>,
-    session_memory_path: Option<&Path>,
-    files_read: &HashMap<String, usize>,
-    files_modified: &[String],
-) -> Result<PathBuf> {
-    let dir = project_root.join(TRANSCRIPTS_DIR);
-    fs::create_dir_all(&dir)
-        .with_context(|| format!("Failed to create transcript dir: {}", dir.display()))?;
-
-    let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
-    let path = dir.join(format!(
-        "{}-compact-{}.md",
-        short_session_id(session_id),
-        timestamp
-    ));
-    write_string_with_retry(
-        &path,
-        &render_compaction_transcript(
-            project_root,
-            session_id,
-            messages,
-            report,
-            mode,
-            failed_tool_call_ids,
-            session_memory_path,
-            files_read,
-            files_modified,
-        ),
-    )
-    .with_context(|| format!("Failed to write transcript file: {}", path.display()))?;
-
-    Ok(path)
-}
-
-fn render_compaction_transcript(
+pub(super) fn render_compaction_transcript(
     project_root: &Path,
     session_id: &str,
     messages: &[Message],
@@ -140,7 +95,7 @@ fn render_compaction_transcript(
     output
 }
 
-fn short_session_id(session_id: &str) -> String {
+pub(super) fn short_session_id(session_id: &str) -> String {
     session_id.chars().take(8).collect()
 }
 
@@ -243,136 +198,4 @@ fn display_path(project_root: &Path, raw_path: &str) -> String {
         return relative.display().to_string();
     }
     raw_path.to_string()
-}
-
-fn write_string_with_retry(path: &Path, content: &str) -> Result<()> {
-    let mut last_err = None;
-    for attempt in 0..TRANSCRIPT_WRITE_RETRIES {
-        match fs::write(path, content) {
-            Ok(()) => return Ok(()),
-            Err(err) => {
-                last_err = Some(err);
-                if attempt + 1 < TRANSCRIPT_WRITE_RETRIES {
-                    std::thread::sleep(std::time::Duration::from_millis(25 * (attempt as u64 + 1)));
-                }
-            }
-        }
-    }
-    Err(last_err.unwrap().into())
-}
-
-#[cfg(test)]
-mod tests {
-    use std::collections::HashMap;
-    use std::collections::HashSet;
-
-    use tempfile::tempdir;
-    use yode_llm::types::{Message, ToolCall};
-
-    use super::write_compaction_transcript;
-    use crate::context_manager::CompressionReport;
-
-    #[test]
-    fn writes_compaction_transcript_file() {
-        let temp = tempdir().unwrap();
-        let report = CompressionReport {
-            removed: 4,
-            tool_results_truncated: 1,
-            summary: Some("summary anchor".to_string()),
-        };
-
-        let path = write_compaction_transcript(
-            temp.path(),
-            "session-1234",
-            &[Message::user("hello"), Message::assistant("world")],
-            &report,
-            "auto",
-            &HashSet::new(),
-            None,
-            &HashMap::new(),
-            &[],
-        )
-        .unwrap();
-
-        let content = std::fs::read_to_string(path).unwrap();
-        assert!(content.contains("Compaction Transcript"));
-        assert!(content.contains("- Mode: auto"));
-        assert!(content.contains("- Failed tool results: 0"));
-        assert!(content.contains("summary anchor"));
-        assert!(content.contains("### User"));
-        assert!(content.contains("### Assistant"));
-    }
-
-    #[test]
-    fn writes_failed_tool_metadata_when_known() {
-        let temp = tempdir().unwrap();
-        let report = CompressionReport {
-            removed: 2,
-            tool_results_truncated: 0,
-            summary: None,
-        };
-
-        let mut assistant = Message::assistant("Running diagnostics");
-        assistant.tool_calls.push(ToolCall {
-            id: "tc1".to_string(),
-            name: "bash".to_string(),
-            arguments: "{\"command\":\"false\"}".to_string(),
-        });
-        let messages = vec![
-            assistant,
-            Message::tool_result("tc1", "Tool execution failed: boom"),
-        ];
-
-        let path = write_compaction_transcript(
-            temp.path(),
-            "session-1234",
-            &messages,
-            &report,
-            "manual",
-            &HashSet::from(["tc1".to_string()]),
-            None,
-            &HashMap::new(),
-            &[],
-        )
-        .unwrap();
-
-        let content = std::fs::read_to_string(path).unwrap();
-        assert!(content.contains("- Failed tool results: 1"));
-        assert!(content.contains("- Failed tools: bash"));
-        assert!(content.contains("Tool result status: `error`"));
-    }
-
-    #[test]
-    fn writes_session_memory_path_and_file_summaries() {
-        let temp = tempdir().unwrap();
-        let report = CompressionReport {
-            removed: 1,
-            tool_results_truncated: 0,
-            summary: Some("summary".to_string()),
-        };
-        let mut files_read = HashMap::new();
-        files_read.insert(
-            temp.path().join("src/lib.rs").display().to_string(),
-            120usize,
-        );
-        let files_modified = vec![temp.path().join("src/main.rs").display().to_string()];
-
-        let path = write_compaction_transcript(
-            temp.path(),
-            "session-1234",
-            &[Message::assistant("hello")],
-            &report,
-            "auto",
-            &HashSet::new(),
-            Some(temp.path().join(".yode/memory/session.md").as_path()),
-            &files_read,
-            &files_modified,
-        )
-        .unwrap();
-
-        let content = std::fs::read_to_string(path).unwrap();
-        assert!(content.contains("- Session memory path:"));
-        assert!(content.contains("- Files read: src/lib.rs (120 lines)"));
-        assert!(content.contains("- Files modified: src/main.rs"));
-    }
 }

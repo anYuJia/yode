@@ -1,19 +1,20 @@
+mod helpers;
+
 use std::collections::BTreeMap;
 
-use serde_json::Value;
-use sha2::{Digest, Sha256};
 use tokio::sync::mpsc;
 
 use yode_llm::types::ToolCall;
 use yode_tools::tool::ToolResult;
 
-use crate::tool_runtime::{
-    write_tool_turn_artifact, ToolResultTruncationView, ToolTurnArtifact,
-};
+use crate::tool_runtime::{write_tool_turn_artifact, ToolTurnArtifact};
 
 use super::{
-    hex_short, AgentEngine, EngineEvent, ToolExecutionTrace, TOOL_BUDGET_NOTICE,
-    TOOL_BUDGET_WARNING,
+    AgentEngine, EngineEvent, ToolExecutionTrace, TOOL_BUDGET_NOTICE, TOOL_BUDGET_WARNING,
+};
+use helpers::{
+    extract_diff_preview, failure_signature, output_preview, summarize_result_metadata,
+    tool_truncation_from_metadata,
 };
 
 impl AgentEngine {
@@ -70,12 +71,16 @@ impl AgentEngine {
             self.prompt_cache_runtime.reported_turns =
                 self.prompt_cache_runtime.reported_turns.saturating_add(1);
             if usage.cache_write_tokens > 0 {
-                self.prompt_cache_runtime.cache_write_turns =
-                    self.prompt_cache_runtime.cache_write_turns.saturating_add(1);
+                self.prompt_cache_runtime.cache_write_turns = self
+                    .prompt_cache_runtime
+                    .cache_write_turns
+                    .saturating_add(1);
             }
             if usage.cache_read_tokens > 0 {
-                self.prompt_cache_runtime.cache_read_turns =
-                    self.prompt_cache_runtime.cache_read_turns.saturating_add(1);
+                self.prompt_cache_runtime.cache_read_turns = self
+                    .prompt_cache_runtime
+                    .cache_read_turns
+                    .saturating_add(1);
             }
             self.prompt_cache_runtime.cache_write_tokens_total = self
                 .prompt_cache_runtime
@@ -138,7 +143,8 @@ impl AgentEngine {
     }
 
     pub(super) fn maybe_record_tool_budget_warning(&mut self) -> Option<String> {
-        if self.tool_call_count >= TOOL_BUDGET_WARNING && !self.current_turn_budget_warning_emitted {
+        if self.tool_call_count >= TOOL_BUDGET_WARNING && !self.current_turn_budget_warning_emitted
+        {
             let message =
                 "Budget warning: 25 tool calls used. Stop exploring and produce your report.";
             self.current_turn_budget_warning_emitted = true;
@@ -159,133 +165,13 @@ impl AgentEngine {
         None
     }
 
-    fn note_tool_truncation(&mut self, truncation: &ToolResultTruncationView) {
+    fn note_tool_truncation(
+        &mut self,
+        truncation: &crate::tool_runtime::ToolResultTruncationView,
+    ) {
         self.tool_truncation_count = self.tool_truncation_count.saturating_add(1);
         self.current_turn_truncated_results = self.current_turn_truncated_results.saturating_add(1);
         self.last_tool_truncation_reason = Some(truncation.reason.clone());
-    }
-
-    fn summarize_result_metadata(metadata: &Option<Value>) -> Option<String> {
-        let meta = metadata.as_ref()?.as_object()?;
-        let mut parts = Vec::new();
-        for key in [
-            "file_path",
-            "byte_count",
-            "line_count",
-            "replacements",
-            "applied_edits",
-            "command_type",
-            "rewrite_suggestion",
-            "url",
-            "count",
-        ] {
-            if let Some(value) = meta.get(key) {
-                let rendered = if let Some(s) = value.as_str() {
-                    s.to_string()
-                } else {
-                    value.to_string()
-                };
-                parts.push(format!("{}={}", key, rendered));
-            }
-        }
-        if parts.is_empty() {
-            None
-        } else {
-            Some(parts.join(", "))
-        }
-    }
-
-    fn extract_diff_preview(metadata: &Option<Value>) -> Option<String> {
-        let diff = metadata
-            .as_ref()
-            .and_then(|meta| meta.get("diff_preview"))
-            .and_then(|value| value.as_object())?;
-
-        let mut lines = Vec::new();
-        if let Some(removed) = diff.get("removed").and_then(|value| value.as_array()) {
-            for line in removed.iter().filter_map(|value| value.as_str()) {
-                lines.push(format!("-{}", line));
-            }
-            if let Some(extra) = diff.get("more_removed").and_then(|value| value.as_u64()) {
-                if extra > 0 {
-                    lines.push(format!("... {} more removed", extra));
-                }
-            }
-        }
-        if let Some(added) = diff.get("added").and_then(|value| value.as_array()) {
-            for line in added.iter().filter_map(|value| value.as_str()) {
-                lines.push(format!("+{}", line));
-            }
-            if let Some(extra) = diff.get("more_added").and_then(|value| value.as_u64()) {
-                if extra > 0 {
-                    lines.push(format!("... {} more added", extra));
-                }
-            }
-        }
-
-        if lines.is_empty() {
-            None
-        } else {
-            Some(lines.join("\n"))
-        }
-    }
-
-    fn output_preview(content: &str) -> String {
-        const MAX_LINES: usize = 6;
-        const MAX_CHARS: usize = 500;
-
-        let lines = content.lines().take(MAX_LINES).collect::<Vec<_>>();
-        let mut preview = lines.join("\n");
-        if preview.chars().count() > MAX_CHARS {
-            preview = preview.chars().take(MAX_CHARS).collect::<String>();
-            preview.push_str("\n... [preview truncated]");
-        } else if content.lines().count() > MAX_LINES {
-            preview.push_str("\n... [more lines omitted]");
-        }
-        preview
-    }
-
-    fn failure_signature(tool_call: &ToolCall, error_type: Option<&str>) -> String {
-        let mut hasher = Sha256::new();
-        hasher.update(tool_call.name.as_bytes());
-        hasher.update(tool_call.arguments.as_bytes());
-        if let Some(kind) = error_type {
-            hasher.update(kind.as_bytes());
-        }
-        let digest = hasher.finalize();
-        format!(
-            "{}:{}:{}",
-            tool_call.name,
-            error_type.unwrap_or("unknown"),
-            hex_short(&digest)
-        )
-    }
-
-    fn tool_truncation_from_metadata(metadata: &Option<Value>) -> Option<ToolResultTruncationView> {
-        let tool_runtime = metadata
-            .as_ref()
-            .and_then(|meta| meta.get("tool_runtime"))
-            .and_then(|value| value.as_object())?;
-        let truncation = tool_runtime.get("truncation")?.as_object()?;
-        Some(ToolResultTruncationView {
-            reason: truncation
-                .get("reason")
-                .and_then(|value| value.as_str())
-                .unwrap_or("unknown")
-                .to_string(),
-            original_bytes: truncation
-                .get("original_bytes")
-                .and_then(|value| value.as_u64())
-                .unwrap_or(0) as usize,
-            kept_bytes: truncation
-                .get("kept_bytes")
-                .and_then(|value| value.as_u64())
-                .unwrap_or(0) as usize,
-            omitted_bytes: truncation
-                .get("omitted_bytes")
-                .and_then(|value| value.as_u64())
-                .unwrap_or(0) as usize,
-        })
     }
 
     pub(super) fn record_tool_execution_trace(
@@ -304,7 +190,7 @@ impl AgentEngine {
         }
 
         let repeated_failure_count = if result.is_error {
-            let signature = Self::failure_signature(tool_call, error_type.as_deref());
+            let signature = failure_signature(tool_call, error_type.as_deref());
             let count = self
                 .repeated_tool_failure_patterns
                 .entry(signature)
@@ -323,7 +209,7 @@ impl AgentEngine {
             0
         };
 
-        let truncation = Self::tool_truncation_from_metadata(&result.metadata);
+        let truncation = tool_truncation_from_metadata(&result.metadata);
         if let Some(ref truncation) = truncation {
             self.note_tool_truncation(truncation);
         }
@@ -340,9 +226,9 @@ impl AgentEngine {
             parallel_batch,
             truncation,
             repeated_failure_count,
-            metadata_summary: Self::summarize_result_metadata(&result.metadata),
-            diff_preview: Self::extract_diff_preview(&result.metadata),
-            output_preview: Self::output_preview(&result.content),
+            metadata_summary: summarize_result_metadata(&result.metadata),
+            diff_preview: extract_diff_preview(&result.metadata),
+            output_preview: output_preview(&result.content),
         };
         self.current_tool_execution_traces.push(trace);
     }

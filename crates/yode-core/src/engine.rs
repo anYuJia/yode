@@ -4,8 +4,8 @@ mod hooks_runtime;
 mod intelligence_runtime;
 mod llm_runtime;
 mod nonstream_turn_runtime;
-mod request_runtime;
 mod recovery_runtime;
+mod request_runtime;
 mod retry;
 mod runtime_support;
 mod session_state;
@@ -13,12 +13,12 @@ mod stream_retry_runtime;
 mod streaming_turn_runtime;
 mod subagent_runner;
 mod system_prompt_runtime;
-mod turn_setup_runtime;
-mod turn_output_runtime;
-#[path = "tool_telemetry.rs"]
-mod tool_telemetry;
 mod tool_execution_runtime;
 mod tool_result;
+#[path = "tool_telemetry/mod.rs"]
+mod tool_telemetry;
+mod turn_output_runtime;
+mod turn_setup_runtime;
 mod types;
 
 use regex::Regex;
@@ -36,17 +36,11 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use yode_llm::provider::LlmProvider;
-use yode_llm::types::{
-    ChatRequest, ChatResponse, Message, Role, StreamEvent, ToolCall,
-};
+use yode_llm::types::{ChatRequest, ChatResponse, Message, Role, StreamEvent, ToolCall};
 use yode_tools::registry::ToolRegistry;
-use yode_tools::runtime_tasks::{
-    RuntimeTask, RuntimeTaskNotification, RuntimeTaskStore,
-};
+use yode_tools::runtime_tasks::{RuntimeTask, RuntimeTaskNotification, RuntimeTaskStore};
 use yode_tools::state::TaskStore;
-use yode_tools::tool::{
-    ToolContext, ToolErrorType, ToolResult, UserQuery,
-};
+use yode_tools::tool::{ToolContext, ToolErrorType, ToolResult, UserQuery};
 use yode_tools::validation;
 
 use crate::context::{AgentContext, EffortLevel, QuerySource};
@@ -62,11 +56,7 @@ use crate::session_memory::{
     render_live_session_memory_prompt,
 };
 use crate::transcript::write_compaction_transcript;
-pub use types::{
-    ConfirmResponse, EngineEvent, EngineRuntimeState, PromptCacheRuntimeState,
-    SystemPromptSegmentRuntimeState,
-};
-use retry::{classify_error, hex_short, max_retries_for, retry_delay, ErrorKind};
+use retry::{classify_error, max_retries_for, retry_delay, ErrorKind};
 use subagent_runner::SubAgentRunnerImpl;
 use tool_result::{
     annotate_tool_result_runtime_metadata, convert_tool_definitions,
@@ -75,6 +65,10 @@ use tool_result::{
 use types::{
     latest_transcript_runtime_state, ProjectKind, RecoveryState, SharedMemoryStatus,
     SystemPromptBuild, ToolExecutionOutcome, ToolExecutionTrace,
+};
+pub use types::{
+    ConfirmResponse, EngineEvent, EngineRuntimeState, PromptCacheRuntimeState,
+    SystemPromptSegmentRuntimeState,
 };
 
 /// Maximum total size for all tool results in a single turn (200KB)
