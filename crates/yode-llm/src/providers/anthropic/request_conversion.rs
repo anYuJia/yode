@@ -1,9 +1,16 @@
-use super::*;
+use crate::types::{Message, Role, ToolDefinition, Usage};
+
+use super::types::{
+    AnthropicContent, AnthropicMessage, AnthropicTool, AnthropicUsage, ContentBlock, ImageSource,
+};
+use super::AnthropicProvider;
 
 impl AnthropicProvider {
     /// Convert internal messages to Anthropic format.
     /// Extracts system message separately, merges tool results into user messages.
-    pub(super) fn convert_messages(messages: &[Message]) -> (Option<String>, Vec<AnthropicMessage>) {
+    pub(super) fn convert_messages(
+        messages: &[Message],
+    ) -> (Option<String>, Vec<AnthropicMessage>) {
         let mut system_prompt = None;
         let mut anthropic_msgs: Vec<AnthropicMessage> = Vec::new();
 

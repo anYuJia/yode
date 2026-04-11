@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use super::protocol::ToolCall;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Role {
     System,
@@ -20,9 +22,7 @@ pub struct ImageData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContentBlock {
-    Text {
-        text: String,
-    },
+    Text { text: String },
     Thinking {
         thinking: String,
         #[serde(default)]
@@ -46,6 +46,7 @@ pub struct Message {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub images: Vec<ImageData>,
 }
+
 impl Message {
     pub fn system(content: impl Into<String>) -> Self {
         let text = content.into();
@@ -103,14 +104,14 @@ impl Message {
     /// Create an assistant message with reasoning.
     pub fn assistant_with_reasoning(content: Option<String>, reasoning: Option<String>) -> Self {
         let mut blocks = Vec::new();
-        if let Some(ref r) = reasoning {
+        if let Some(reasoning_text) = &reasoning {
             blocks.push(ContentBlock::Thinking {
-                thinking: r.clone(),
+                thinking: reasoning_text.clone(),
                 signature: None,
             });
         }
-        if let Some(ref t) = content {
-            blocks.push(ContentBlock::Text { text: t.clone() });
+        if let Some(text) = &content {
+            blocks.push(ContentBlock::Text { text: text.clone() });
         }
 
         Self {
@@ -181,14 +182,8 @@ impl Message {
 
         for block in self.content_blocks.drain(..) {
             match block {
-                ContentBlock::Thinking {
-                    thinking,
-                    signature,
-                } if !thinking.trim().is_empty() => {
-                    thinking_blocks.push(ContentBlock::Thinking {
-                        thinking,
-                        signature,
-                    });
+                ContentBlock::Thinking { thinking, signature } if !thinking.trim().is_empty() => {
+                    thinking_blocks.push(ContentBlock::Thinking { thinking, signature });
                 }
                 ContentBlock::Text { text } if !text.trim().is_empty() => {
                     text_blocks.push(ContentBlock::Text { text });
@@ -254,104 +249,9 @@ impl Message {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolCall {
-    pub id: String,
-    pub name: String,
-    pub arguments: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolDefinition {
-    pub name: String,
-    pub description: String,
-    pub parameters: serde_json::Value,
-}
-
-#[derive(Debug, Clone)]
-pub struct ChatRequest {
-    pub model: String,
-    pub messages: Vec<Message>,
-    pub tools: Vec<ToolDefinition>,
-    pub temperature: Option<f32>,
-    pub max_tokens: Option<u32>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum StopReason {
-    EndTurn,
-    ToolUse,
-    MaxTokens,
-    StopSequence,
-    ContentFilter,
-    Other(String),
-}
-
-#[derive(Debug, Clone)]
-pub struct ChatResponse {
-    pub message: Message,
-    pub usage: Usage,
-    pub model: String,
-    pub stop_reason: Option<StopReason>,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct Usage {
-    pub prompt_tokens: u32,
-    pub completion_tokens: u32,
-    pub total_tokens: u32,
-    pub cache_write_tokens: u32,
-    pub cache_read_tokens: u32,
-}
-
-impl Usage {
-    pub fn has_reported_tokens(&self) -> bool {
-        self.prompt_tokens > 0
-            || self.completion_tokens > 0
-            || self.total_tokens > 0
-            || self.cache_write_tokens > 0
-            || self.cache_read_tokens > 0
-    }
-
-    pub fn uncached_prompt_tokens(&self) -> u32 {
-        self.prompt_tokens
-            .saturating_sub(self.cache_write_tokens)
-            .saturating_sub(self.cache_read_tokens)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum StreamEvent {
-    TextDelta(String),
-    ReasoningDelta(String),
-    /// Real-time usage information (e.g. prompt tokens known at start)
-    UsageUpdate(Usage),
-    ToolCallStart {
-        id: String,
-        name: String,
-    },
-    ToolCallDelta {
-        id: String,
-        arguments: String,
-    },
-    ToolCallEnd {
-        id: String,
-    },
-    Done(ChatResponse),
-    Error(String),
-}
-
-#[derive(Debug, Clone)]
-pub struct ModelInfo {
-    pub id: String,
-    pub name: String,
-    pub provider: String,
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{ContentBlock, Message, Role, Usage};
+    use super::{ContentBlock, Message, Role};
 
     #[test]
     fn normalize_builds_blocks_from_flat_fields() {
@@ -404,19 +304,5 @@ mod tests {
             &message.content_blocks[0],
             ContentBlock::Thinking { signature, .. } if signature.as_deref() == Some("sig")
         ));
-    }
-
-    #[test]
-    fn usage_exposes_uncached_prompt_tokens() {
-        let usage = Usage {
-            prompt_tokens: 1_000,
-            completion_tokens: 80,
-            total_tokens: 1_080,
-            cache_write_tokens: 250,
-            cache_read_tokens: 150,
-        };
-
-        assert!(usage.has_reported_tokens());
-        assert_eq!(usage.uncached_prompt_tokens(), 600);
     }
 }
