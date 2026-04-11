@@ -1,4 +1,5 @@
 use crate::commands::context::CommandContext;
+use crate::commands::registry::VisibleCommandName;
 use yode_core::updater::{latest_local_release_tag, release_version_matches_tag, CURRENT_VERSION};
 
 pub(super) fn render_doctor_report(ctx: &mut CommandContext) -> String {
@@ -89,6 +90,37 @@ pub(super) fn render_doctor_report(ctx: &mut CommandContext) -> String {
         inventory.tool_search_enabled,
         inventory.tool_search_reason.as_deref().unwrap_or("no reason recorded")
     ));
+    if inventory.duplicate_registration_count > 0 {
+        checks.push(format!(
+            "  [!!] Duplicate tool registrations blocked: {} ({})",
+            inventory.duplicate_registration_count,
+            inventory.duplicate_tool_names.join(", ")
+        ));
+    } else {
+        checks.push("  [ok] No duplicate tool registrations observed".to_string());
+    }
+    let command_tool_overlaps = collect_command_tool_overlaps(
+        &ctx.cmd_registry.visible_command_names(),
+        &ctx.tools
+            .list()
+            .into_iter()
+            .map(|tool| tool.name().to_string())
+            .chain(
+                ctx.tools
+                    .list_deferred()
+                    .into_iter()
+                    .map(|(name, _)| name),
+            )
+            .collect::<Vec<_>>(),
+    );
+    if command_tool_overlaps.is_empty() {
+        checks.push("  [ok] No command/tool naming overlaps detected".to_string());
+    } else {
+        checks.push(format!(
+            "  [--] Command/tool naming overlaps: {}",
+            command_tool_overlaps.join(", ")
+        ));
+    }
     if let Some(path) = dirs::home_dir().map(|home| home.join(".yode/config.toml")) {
         if path.exists() {
             checks.push(format!("  [ok] Config file: {:?}", path));
@@ -133,6 +165,30 @@ pub(super) fn render_doctor_report(ctx: &mut CommandContext) -> String {
         env!("CARGO_PKG_VERSION"),
         &ctx.session.session_id[..8],
     )
+}
+
+fn collect_command_tool_overlaps(
+    command_names: &[VisibleCommandName],
+    tool_names: &[String],
+) -> Vec<String> {
+    let tool_set = tool_names
+        .iter()
+        .map(|name| name.to_lowercase())
+        .collect::<std::collections::HashSet<_>>();
+    let mut overlaps = command_names
+        .iter()
+        .filter(|item| tool_set.contains(&item.name.to_lowercase()))
+        .map(|item| {
+            if item.is_alias {
+                format!("{} [alias]", item.name)
+            } else {
+                item.name.clone()
+            }
+        })
+        .collect::<Vec<_>>();
+    overlaps.sort();
+    overlaps.dedup();
+    overlaps
 }
 
 fn runtime_health_checks(

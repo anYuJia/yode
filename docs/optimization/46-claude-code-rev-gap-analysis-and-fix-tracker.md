@@ -123,6 +123,8 @@
     - 当 tool-search 未启用时，`tool_search` 本身不再暴露给模型
     - tool turn artifact 已写入 tool pool snapshot，能追踪当时的 visible/hidden/deferred/activation 状态
     - tool-search 启用/关闭原因已接到 startup profile、`/status`、`/doctor`、`/tools`
+    - `ToolRegistry` 现在会阻断并记录 duplicate registration，而不是静默覆盖
+    - `/tools`、`/doctor` 会直接报告 command/tool 命名重叠
     - `/tools`、`/status`、`/doctor` 增加 model-visible / hidden 工具池诊断
 - `[ ]` P2.3 tool/runtime/status 面板化而不是纯文本堆叠
 

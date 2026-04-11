@@ -15,7 +15,7 @@ pub(super) fn build_runtime_sections(
 ) -> String {
     let Some(state) = runtime else {
         return format!(
-            "\n\nCompact:\n  Runtime state:   engine busy\n\nMemory:\n  Runtime state:   engine busy\n\nTools:\n  Inventory:       {} total / {} active / {} deferred\n  MCP tools:       {} active / {} deferred\n  Search mode:     {}\n  Search reason:   {}\n  Activations:     {} (last: {})\n  Always-allow:    {}",
+            "\n\nCompact:\n  Runtime state:   engine busy\n\nMemory:\n  Runtime state:   engine busy\n\nTools:\n  Inventory:       {} total / {} active / {} deferred\n  MCP tools:       {} active / {} deferred\n  Search mode:     {}\n  Search reason:   {}\n  Activations:     {} (last: {})\n  Duplicate regs:  {} ({})\n  Always-allow:    {}",
             inventory.total_count,
             inventory.active_count,
             inventory.deferred_count,
@@ -25,6 +25,12 @@ pub(super) fn build_runtime_sections(
             inventory.tool_search_reason.as_deref().unwrap_or("none"),
             inventory.activation_count,
             inventory.last_activated_tool.as_deref().unwrap_or("none"),
+            inventory.duplicate_registration_count,
+            if inventory.duplicate_tool_names.is_empty() {
+                "none".to_string()
+            } else {
+                inventory.duplicate_tool_names.join(" | ")
+            },
             always_allow,
         );
     };
@@ -52,7 +58,7 @@ pub(super) fn build_runtime_sections(
     let system_prompt_breakdown = system_prompt_segment_breakdown(&state.system_prompt_segments);
 
     format!(
-        "\n\nCompact:\n  Query source:    {}\n  Autocompact:     {}\n  Compact fails:   {}\n  Compact count:   {} (auto {}, manual {})\n  Breaker reason:  {}\n  Breaker hint:    {}\n  Cause histogram: {}\n  Last compact:    {}\n  Compact at:      {}\n  Compact summary: {}\n  Last compact mem: {}\n  Last transcript: {}\n\nSystem Prompt:\n  Total est:       {} tokens\n{}\n\nPrompt Cache:\n  Last turn:       {}\n  Last tokens:     {} prompt / {} completion\n  Last cache:      {} write / {} read\n  Cache turns:     {} reported / {} hit / {} miss / {} fill\n  Cache tokens:    {} write / {} read\n\nMemory:\n  Live memory:     {}{}\n  Live memory file: {}\n  Memory updates:  {}\n  Last memory update: {}\n  Freshness:       {}\n  Pending update:  {}\n\nRecovery:\n  State:           {}\n  Single-step:     {}\n  Reanchor:        {}\n  Need guidance:   {}\n  Last signature:  {}\n  Breadcrumbs:     {}\n  Artifact:        {}\n  Last permission: {} [{}]\n  Permission why:  {}\n  Permission artifact: {}\n  Recent denials:  {}\n\nTools:\n  Inventory:       {} total / {} active / {} deferred\n  Model pool:      {} active visible / {} active hidden\n  Deferred pool:   {} visible / {} hidden\n  Pool policy:     mode={} confirm={} deny={}\n  Visible sources: {} builtin / {} mcp\n  Search mode:     {}\n  Search reason:   {}\n  Activations:     {} (last: {})\n  Session tools:   {}\n  Current turn:    {} calls / {} bytes\n  Budget notices:  {} (warning {})\n  Budget active:   notice={} warning={}\n  Progress events: {} (last: {} / {})\n  Parallel:        {} batches / {} calls (max {})\n  Truncations:     {} (last: {})\n  Error types:     {}\n  Repeat fail:     {}\n  Tool traces:     {} turn / {} calls\n  Tool artifact:   {}\n  Tool turn done:  {}\n  Failed tools:    {}\n  Always-allow:    {}\n\nReviews:\n  Latest review:   {}\n  Review status:   {}\n  Review preview:  {}\n\nHooks:\n  Hook runs:       {}\n  Hook timeouts:   {}\n  Hook exec errs:  {}\n  Hook exits!=0:   {}\n  Hook wakes:      {}\n  Last hook fail:  {}\n  Last hook at:    {}\n  Last hook timeout: {}",
+        "\n\nCompact:\n  Query source:    {}\n  Autocompact:     {}\n  Compact fails:   {}\n  Compact count:   {} (auto {}, manual {})\n  Breaker reason:  {}\n  Breaker hint:    {}\n  Cause histogram: {}\n  Last compact:    {}\n  Compact at:      {}\n  Compact summary: {}\n  Last compact mem: {}\n  Last transcript: {}\n\nSystem Prompt:\n  Total est:       {} tokens\n{}\n\nPrompt Cache:\n  Last turn:       {}\n  Last tokens:     {} prompt / {} completion\n  Last cache:      {} write / {} read\n  Cache turns:     {} reported / {} hit / {} miss / {} fill\n  Cache tokens:    {} write / {} read\n\nMemory:\n  Live memory:     {}{}\n  Live memory file: {}\n  Memory updates:  {}\n  Last memory update: {}\n  Freshness:       {}\n  Pending update:  {}\n\nRecovery:\n  State:           {}\n  Single-step:     {}\n  Reanchor:        {}\n  Need guidance:   {}\n  Last signature:  {}\n  Breadcrumbs:     {}\n  Artifact:        {}\n  Last permission: {} [{}]\n  Permission why:  {}\n  Permission artifact: {}\n  Recent denials:  {}\n\nTools:\n  Inventory:       {} total / {} active / {} deferred\n  Model pool:      {} active visible / {} active hidden\n  Deferred pool:   {} visible / {} hidden\n  Pool policy:     mode={} confirm={} deny={}\n  Visible sources: {} builtin / {} mcp\n  Search mode:     {}\n  Search reason:   {}\n  Activations:     {} (last: {})\n  Duplicate regs:  {} ({})\n  Session tools:   {}\n  Current turn:    {} calls / {} bytes\n  Budget notices:  {} (warning {})\n  Budget active:   notice={} warning={}\n  Progress events: {} (last: {} / {})\n  Parallel:        {} batches / {} calls (max {})\n  Truncations:     {} (last: {})\n  Error types:     {}\n  Repeat fail:     {}\n  Tool traces:     {} turn / {} calls\n  Tool artifact:   {}\n  Tool turn done:  {}\n  Failed tools:    {}\n  Always-allow:    {}\n\nReviews:\n  Latest review:   {}\n  Review status:   {}\n  Review preview:  {}\n\nHooks:\n  Hook runs:       {}\n  Hook timeouts:   {}\n  Hook exec errs:  {}\n  Hook exits!=0:   {}\n  Hook wakes:      {}\n  Last hook fail:  {}\n  Last hook at:    {}\n  Last hook timeout: {}",
         state.query_source,
         if state.autocompact_disabled {
             "disabled"
@@ -174,6 +180,12 @@ pub(super) fn build_runtime_sections(
         state.tool_pool.tool_search_reason.as_deref().unwrap_or("none"),
         inventory.activation_count,
         inventory.last_activated_tool.as_deref().unwrap_or("none"),
+        inventory.duplicate_registration_count,
+        if inventory.duplicate_tool_names.is_empty() {
+            "none".to_string()
+        } else {
+            inventory.duplicate_tool_names.join(" | ")
+        },
         state.session_tool_calls_total,
         state.current_turn_tool_calls,
         state.current_turn_tool_output_bytes,

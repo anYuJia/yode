@@ -1,5 +1,6 @@
 use super::mcp::parse_mcp_tool_name;
 use crate::commands::context::CommandContext;
+use crate::commands::registry::VisibleCommandName;
 use crate::commands::{
     ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
     CommandResult,
@@ -42,8 +43,11 @@ impl ToolsCommand {
         let mut defs = ctx.tools.definitions();
         defs.sort_by(|left, right| left.name.cmp(&right.name));
         let mut lines = vec![format!(
-            "Registered active tools ({} active / {} deferred / {} loaded):",
-            inventory.active_count, inventory.deferred_count, inventory.activation_count
+            "Registered active tools ({} active / {} deferred / {} loaded / {} duplicate blocks):",
+            inventory.active_count,
+            inventory.deferred_count,
+            inventory.activation_count,
+            inventory.duplicate_registration_count
         )];
         for def in &defs {
             let display_name = if let Some((server, tool)) = parse_mcp_tool_name(&def.name) {
@@ -130,6 +134,27 @@ impl Command for ToolsCommand {
         } else {
             state.command_tool_duplication_hints.join(" | ")
         };
+        let duplicate_tools = if inventory.duplicate_tool_names.is_empty() {
+            "none".to_string()
+        } else {
+            inventory.duplicate_tool_names.join(" | ")
+        };
+        let command_tool_overlaps = {
+            let overlaps = collect_command_tool_overlaps(
+                &ctx.cmd_registry.visible_command_names(),
+                &state
+                    .tool_pool
+                    .entries
+                    .iter()
+                    .map(|entry| entry.name.clone())
+                    .collect::<Vec<_>>(),
+            );
+            if overlaps.is_empty() {
+                "none".to_string()
+            } else {
+                overlaps.join(" | ")
+            }
+        };
         let hidden_tools = {
             let names = state.tool_pool.hidden_tool_names();
             if names.is_empty() {
@@ -196,7 +221,7 @@ impl Command for ToolsCommand {
         }
 
         Ok(CommandOutput::Message(format!(
-            "Tool diagnostics:\n  Registry tools:  {} total / {} active / {} deferred\n  Model pool:      {} active visible / {} active hidden / {} deferred visible / {} deferred hidden\n  Pool policy:     mode={} confirm={} deny={}\n  Visible sources: {} builtin / {} mcp\n  Search mode:     {} ({})\n  Activations:     {} (last: {})\n  Hidden tools:    {}\n  Deferred visible: {}\n  Session calls:    {}\n  Current turn:     {} calls / {} bytes / {} progress\n  Budget notices:   {} (warnings {})\n  Budget active:    notice={} warning={}\n  Parallel:         {} batches / {} calls (max {})\n  Read history:     {}\n  Duplication hints: {}\n  Hook/tool line:   {}\n  Truncations:      {} (last: {})\n  Error types:      {}\n  Failure clusters: {}\n  Repeat failures:  {}\n  Last progress:    {} / {}\n  Last progress at: {}\n  Last artifact:    {}\n  Last turn done:   {}\n{}\
+            "Tool diagnostics:\n  Registry tools:  {} total / {} active / {} deferred\n  Model pool:      {} active visible / {} active hidden / {} deferred visible / {} deferred hidden\n  Pool policy:     mode={} confirm={} deny={}\n  Visible sources: {} builtin / {} mcp\n  Search mode:     {} ({})\n  Activations:     {} (last: {})\n  Duplicate regs:  {} ({})\n  Cmd/tool overlap: {}\n  Hidden tools:    {}\n  Deferred visible: {}\n  Session calls:    {}\n  Current turn:     {} calls / {} bytes / {} progress\n  Budget notices:   {} (warnings {})\n  Budget active:    notice={} warning={}\n  Parallel:         {} batches / {} calls (max {})\n  Read history:     {}\n  Duplication hints: {}\n  Hook/tool line:   {}\n  Truncations:      {} (last: {})\n  Error types:      {}\n  Failure clusters: {}\n  Repeat failures:  {}\n  Last progress:    {} / {}\n  Last progress at: {}\n  Last artifact:    {}\n  Last turn done:   {}\n{}\
 \nUse `/tools list` or `/tools verbose` to inspect the full registry.",
             inventory.total_count,
             inventory.active_count,
@@ -217,6 +242,9 @@ impl Command for ToolsCommand {
                 .unwrap_or("none"),
             inventory.activation_count,
             inventory.last_activated_tool.as_deref().unwrap_or("none"),
+            inventory.duplicate_registration_count,
+            duplicate_tools,
+            command_tool_overlaps,
             hidden_tools,
             deferred_visible,
             state.session_tool_calls_total,
@@ -284,29 +312,53 @@ fn tool_output_preview_line(output: &str) -> String {
     }
 }
 
-fn failure_cluster_summary(traces: &[yode_core::tool_runtime::ToolRuntimeCallView]) -> String {
-    let mut counts = std::collections::BTreeMap::<String, u32>::new();
-    for trace in traces.iter().filter(|trace| !trace.success) {
-        let key = format!(
-            "{}:{}",
-            trace.tool_name,
-            trace.error_type.as_deref().unwrap_or("unknown")
-        );
-        *counts.entry(key).or_insert(0) += 1;
-    }
-    if counts.is_empty() {
-        return "none".to_string();
-    }
-    counts
-        .into_iter()
-        .map(|(key, count)| format!("{} x{}", key, count))
-        .collect::<Vec<_>>()
-        .join(", ")
+fn collect_command_tool_overlaps(
+    command_names: &[VisibleCommandName],
+    tool_names: &[String],
+) -> Vec<String> {
+    let tool_set = tool_names
+        .iter()
+        .map(|name| name.to_lowercase())
+        .collect::<std::collections::HashSet<_>>();
+    let mut overlaps = command_names
+        .iter()
+        .filter(|item| tool_set.contains(&item.name.to_lowercase()))
+        .map(|item| {
+            if item.is_alias {
+                format!("{} [alias]", item.name)
+            } else {
+                item.name.clone()
+            }
+        })
+        .collect::<Vec<_>>();
+    overlaps.sort();
+    overlaps.dedup();
+    overlaps
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{failure_cluster_summary, tool_output_preview_line};
+    use super::{collect_command_tool_overlaps, failure_cluster_summary, tool_output_preview_line};
+    use crate::commands::registry::VisibleCommandName;
+
+    #[test]
+    fn command_tool_overlap_detector_marks_aliases() {
+        let overlaps = collect_command_tool_overlaps(
+            &[
+                VisibleCommandName {
+                    name: "memory".into(),
+                    is_alias: false,
+                },
+                VisibleCommandName {
+                    name: "m".into(),
+                    is_alias: true,
+                },
+            ],
+            &["memory".into(), "m".into(), "read_file".into()],
+        );
+
+        assert_eq!(overlaps, vec!["m [alias]".to_string(), "memory".to_string()]);
+    }
 
     #[test]
     fn tool_output_preview_line_uses_first_non_empty_line() {
@@ -334,4 +386,24 @@ mod tests {
         ];
         assert_eq!(failure_cluster_summary(&traces), "bash:Execution x2");
     }
+}
+
+fn failure_cluster_summary(traces: &[yode_core::tool_runtime::ToolRuntimeCallView]) -> String {
+    let mut counts = std::collections::BTreeMap::<String, u32>::new();
+    for trace in traces.iter().filter(|trace| !trace.success) {
+        let key = format!(
+            "{}:{}",
+            trace.tool_name,
+            trace.error_type.as_deref().unwrap_or("unknown")
+        );
+        *counts.entry(key).or_insert(0) += 1;
+    }
+    if counts.is_empty() {
+        return "none".to_string();
+    }
+    counts
+        .into_iter()
+        .map(|(key, count)| format!("{} x{}", key, count))
+        .collect::<Vec<_>>()
+        .join(", ")
 }

@@ -169,6 +169,23 @@ fn test_by_category() {
 }
 
 #[test]
+fn test_visible_command_names_include_aliases_but_skip_hidden() {
+    let mut reg = CommandRegistry::new();
+    reg.register(Box::new(DummyCommand::new(
+        "model",
+        "Switch model",
+        &["m"],
+        CommandCategory::Model,
+    )));
+    reg.register(Box::new(DummyCommand::hidden("debug")));
+
+    let names = reg.visible_command_names();
+    assert!(names.iter().any(|item| item.name == "model" && !item.is_alias));
+    assert!(names.iter().any(|item| item.name == "m" && item.is_alias));
+    assert!(!names.iter().any(|item| item.name == "debug"));
+}
+
+#[test]
 fn test_levenshtein() {
     assert_eq!(matching::levenshtein("", ""), 0);
     assert_eq!(matching::levenshtein("abc", "abc"), 0);

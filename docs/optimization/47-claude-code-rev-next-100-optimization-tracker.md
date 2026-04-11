@@ -22,7 +22,7 @@
 
 当前进度：
 
-- `38 / 100` 已完成
+- `40 / 100` 已完成
 
 ## 001-010 Startup / Warmup
 
@@ -47,8 +47,8 @@
 - `[x]` 016 tool pool changes tracked across startup and runtime activation
 - `[x]` 017 deferred tool activation telemetry
 - `[x]` 018 tool_search auto-enable reason surfaced to diagnostics
-- `[ ]` 019 tool registry duplicate-name guard diagnostics
-- `[ ]` 020 command/tool overlap detector
+- `[x]` 019 tool registry duplicate-name guard diagnostics
+- `[x]` 020 command/tool overlap detector
 
 ## 021-030 Shell / Permission
 

@@ -20,6 +20,12 @@ pub struct CommandRegistry {
     name_index: HashMap<String, usize>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VisibleCommandName {
+    pub name: String,
+    pub is_alias: bool,
+}
+
 impl CommandRegistry {
     pub fn new() -> Self {
         Self {
@@ -50,6 +56,27 @@ impl CommandRegistry {
             .map(|command| command.as_ref())
             .filter(|command| !command.meta().hidden)
             .collect()
+    }
+
+    pub fn visible_command_names(&self) -> Vec<VisibleCommandName> {
+        let mut names = Vec::new();
+        for command in &self.commands {
+            let meta = command.meta();
+            if meta.hidden {
+                continue;
+            }
+            names.push(VisibleCommandName {
+                name: meta.name.to_string(),
+                is_alias: false,
+            });
+            for alias in meta.aliases {
+                names.push(VisibleCommandName {
+                    name: alias.to_string(),
+                    is_alias: true,
+                });
+            }
+        }
+        names
     }
 
     pub fn by_category(&self) -> BTreeMap<CommandCategory, Vec<&dyn Command>> {
@@ -264,9 +291,7 @@ impl CommandRegistry {
             let name = command.meta().name;
             let distance = levenshtein(typo, name);
             let threshold = name.len() / 2 + 1;
-            if distance <= threshold
-                && (best.is_none() || distance < best.as_ref().unwrap().0)
-            {
+            if distance <= threshold && (best.is_none() || distance < best.as_ref().unwrap().0) {
                 best = Some((distance, name.to_string()));
             }
         }

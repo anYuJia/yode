@@ -277,6 +277,7 @@ mod tests {
         ctx.tool_pool_snapshot = Some(ToolPoolSnapshot {
             permission_mode: "plan".to_string(),
             tool_search_enabled: true,
+            tool_search_reason: Some("test".to_string()),
             entries: vec![
                 ToolPoolEntry {
                     name: "read_file".to_string(),
