@@ -10,6 +10,7 @@ mod session_state;
 mod subagent_runner;
 mod system_prompt_runtime;
 mod turn_setup_runtime;
+mod turn_output_runtime;
 #[path = "tool_telemetry.rs"]
 mod tool_telemetry;
 mod tool_execution_runtime;
@@ -372,21 +373,7 @@ impl AgentEngine {
             }
 
             assistant_msg.normalize_in_place();
-            self.messages.push(assistant_msg.clone());
-
-            // Persist assistant message
-            let tc_json = if !assistant_msg.tool_calls.is_empty() {
-                serde_json::to_string(&assistant_msg.tool_calls).ok()
-            } else {
-                None
-            };
-            self.persist_message(
-                "assistant",
-                assistant_msg.content.as_deref(),
-                assistant_msg.reasoning.as_deref(),
-                tc_json.as_deref(),
-                None,
-            );
+            self.push_and_persist_assistant_message(&assistant_msg);
 
             // If there are tool calls, execute them (parallel where possible)
             if !assistant_msg.tool_calls.is_empty() {
@@ -406,60 +393,15 @@ impl AgentEngine {
                     vec![]
                 };
 
-                // Process parallel results
-                for outcome in &parallel_results {
-                    let tc = &outcome.tool_call;
-                    let result = self
-                        .finalize_tool_result(
-                            tc,
-                            outcome.result.clone(),
-                            outcome.started_at.clone(),
-                            outcome.duration_ms,
-                            outcome.progress_updates,
-                            outcome.parallel_batch,
-                        )
-                        .await;
-                    self.messages
-                        .push(Message::tool_result(&tc.id, &result.content));
-                    self.persist_message("tool", Some(&result.content), None, None, Some(&tc.id));
-
-                    let _ = event_tx.send(EngineEvent::ToolResult {
-                        id: tc.id.clone(),
-                        name: tc.name.clone(),
-                        result,
-                    });
+                for outcome in parallel_results {
+                    self.record_completed_tool_outcome(outcome, &event_tx).await;
                 }
 
-                // Execute sequential tools one by one
                 for tool_call in &sequential {
                     let outcome = self
                         .handle_tool_call(tool_call, &event_tx, &mut confirm_rx, None)
                         .await?;
-                    let result = self
-                        .finalize_tool_result(
-                            &outcome.tool_call,
-                            outcome.result,
-                            outcome.started_at,
-                            outcome.duration_ms,
-                            outcome.progress_updates,
-                            outcome.parallel_batch,
-                        )
-                        .await;
-                    self.messages
-                        .push(Message::tool_result(&outcome.tool_call.id, &result.content));
-                    self.persist_message(
-                        "tool",
-                        Some(&result.content),
-                        None,
-                        None,
-                        Some(&outcome.tool_call.id),
-                    );
-
-                    let _ = event_tx.send(EngineEvent::ToolResult {
-                        id: outcome.tool_call.id.clone(),
-                        name: outcome.tool_call.name.clone(),
-                        result,
-                    });
+                    self.record_completed_tool_outcome(outcome, &event_tx).await;
                 }
 
                 continue;
@@ -666,22 +608,7 @@ impl AgentEngine {
                         images: Vec::new(),
                     }
                     .normalized();
-                    self.messages.push(assistant_msg);
-                    self.persist_message(
-                        "assistant",
-                        if full_text.is_empty() {
-                            None
-                        } else {
-                            Some(&full_text)
-                        },
-                        if full_reasoning.is_empty() {
-                            None
-                        } else {
-                            Some(&full_reasoning)
-                        },
-                        None,
-                        None,
-                    );
+                    self.push_and_persist_assistant_message(&assistant_msg);
                 }
                 if stalled {
                     let _ = event_tx.send(EngineEvent::TextComplete(
@@ -852,22 +779,7 @@ impl AgentEngine {
                                             images: Vec::new(),
                                         }
                                         .normalized();
-                                        self.messages.push(assistant_msg);
-                                        self.persist_message(
-                                            "assistant",
-                                            if full_text.is_empty() {
-                                                None
-                                            } else {
-                                                Some(&full_text)
-                                            },
-                                            if full_reasoning.is_empty() {
-                                                None
-                                            } else {
-                                                Some(&full_reasoning)
-                                            },
-                                            None,
-                                            None,
-                                        );
+                                        self.push_and_persist_assistant_message(&assistant_msg);
                                     }
                                     self.complete_tool_turn_artifact();
                                     let _ = event_tx.send(EngineEvent::Done);
@@ -1030,21 +942,7 @@ impl AgentEngine {
             }
 
             assistant_msg.normalize_in_place();
-            self.messages.push(assistant_msg.clone());
-
-            // Persist assistant message
-            let tc_json = if !tool_calls.is_empty() {
-                serde_json::to_string(&tool_calls).ok()
-            } else {
-                None
-            };
-            self.persist_message(
-                "assistant",
-                assistant_msg.content.as_deref(),
-                assistant_msg.reasoning.as_deref(),
-                tc_json.as_deref(),
-                None,
-            );
+            self.push_and_persist_assistant_message(&assistant_msg);
 
             // Handle tool calls (parallel where possible)
             if !tool_calls.is_empty() {
@@ -1065,36 +963,10 @@ impl AgentEngine {
                     let parallel_results = self.execute_tools_parallel(&parallel, &event_tx).await;
 
                     for outcome in parallel_results {
-                        let tc = &outcome.tool_call;
-                        let result = self
-                            .finalize_tool_result(
-                                tc,
-                                outcome.result,
-                                outcome.started_at,
-                                outcome.duration_ms,
-                                outcome.progress_updates,
-                                outcome.parallel_batch,
-                            )
-                            .await;
-                        self.messages
-                            .push(Message::tool_result(&tc.id, &result.content));
-                        self.persist_message(
-                            "tool",
-                            Some(&result.content),
-                            None,
-                            None,
-                            Some(&tc.id),
-                        );
-
-                        let _ = event_tx.send(EngineEvent::ToolResult {
-                            id: tc.id.clone(),
-                            name: tc.name.clone(),
-                            result,
-                        });
+                        self.record_completed_tool_outcome(outcome, &event_tx).await;
                     }
                 }
 
-                // Execute sequential tools one by one
                 for tool_call in &sequential {
                     if let Some(ref token) = cancel_token {
                         if token.is_cancelled() {
@@ -1112,32 +984,7 @@ impl AgentEngine {
                             cancel_token.as_ref(),
                         )
                         .await?;
-
-                    let result = self
-                        .finalize_tool_result(
-                            &outcome.tool_call,
-                            outcome.result,
-                            outcome.started_at,
-                            outcome.duration_ms,
-                            outcome.progress_updates,
-                            outcome.parallel_batch,
-                        )
-                        .await;
-                    self.messages
-                        .push(Message::tool_result(&outcome.tool_call.id, &result.content));
-                    self.persist_message(
-                        "tool",
-                        Some(&result.content),
-                        None,
-                        None,
-                        Some(&outcome.tool_call.id),
-                    );
-
-                    let _ = event_tx.send(EngineEvent::ToolResult {
-                        id: outcome.tool_call.id.clone(),
-                        name: outcome.tool_call.name.clone(),
-                        result,
-                    });
+                    self.record_completed_tool_outcome(outcome, &event_tx).await;
                 }
                 continue;
             }
@@ -1181,20 +1028,7 @@ impl AgentEngine {
                     }
                 }
 
-                self.messages.push(resp.message.clone());
-
-                let tc_json = if !resp.message.tool_calls.is_empty() {
-                    serde_json::to_string(&resp.message.tool_calls).ok()
-                } else {
-                    None
-                };
-                self.persist_message(
-                    "assistant",
-                    resp.message.content.as_deref(),
-                    resp.message.reasoning.as_deref(),
-                    tc_json.as_deref(),
-                    None,
-                );
+                self.push_and_persist_assistant_message(&resp.message);
 
                 if resp.message.tool_calls.is_empty() {
                     debug!("Streaming turn complete with no tool calls; finishing turn.");
