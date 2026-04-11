@@ -3,6 +3,7 @@ mod compaction_runtime;
 mod hooks_runtime;
 mod intelligence_runtime;
 mod llm_runtime;
+mod request_runtime;
 mod recovery_runtime;
 mod retry;
 mod runtime_support;
@@ -293,13 +294,7 @@ impl AgentEngine {
             let _ = event_tx.send(EngineEvent::Thinking);
 
             // Build chat request
-            let request = ChatRequest {
-                model: self.context.model.clone(),
-                messages: self.messages.clone(),
-                tools: convert_tool_definitions(&self.tools),
-                temperature: Some(0.7),
-                max_tokens: Some(self.context.get_max_tokens()),
-            };
+            let request = self.build_chat_request();
 
             // Call LLM with timeout and retry
             let response = self.call_llm_with_retry(request).await?;
@@ -460,13 +455,7 @@ impl AgentEngine {
 
             let _ = event_tx.send(EngineEvent::Thinking);
 
-            let request = ChatRequest {
-                model: self.context.model.clone(),
-                messages: self.messages.clone(),
-                tools: convert_tool_definitions(&self.tools),
-                temperature: Some(0.7),
-                max_tokens: Some(self.context.get_max_tokens()),
-            };
+            let request = self.build_chat_request();
 
             // Stream LLM response with timeout
             let (stream_tx, mut stream_rx) = mpsc::channel::<StreamEvent>(256);
@@ -576,38 +565,9 @@ impl AgentEngine {
 
             if cancelled || stalled {
                 // Save partial text if any
-                if !full_text.is_empty() || !full_reasoning.is_empty() {
-                    let mut blocks = Vec::new();
-                    if !full_reasoning.is_empty() {
-                        blocks.push(yode_llm::types::ContentBlock::Thinking {
-                            thinking: full_reasoning.clone(),
-                            signature: None,
-                        });
-                    }
-                    if !full_text.is_empty() {
-                        blocks.push(yode_llm::types::ContentBlock::Text {
-                            text: full_text.clone(),
-                        });
-                    }
-
-                    let assistant_msg = Message {
-                        role: Role::Assistant,
-                        content: if full_text.is_empty() {
-                            None
-                        } else {
-                            Some(full_text.clone())
-                        },
-                        reasoning: if full_reasoning.is_empty() {
-                            None
-                        } else {
-                            Some(full_reasoning.clone())
-                        },
-                        content_blocks: blocks,
-                        tool_calls: vec![],
-                        tool_call_id: None,
-                        images: Vec::new(),
-                    }
-                    .normalized();
+                if let Some(assistant_msg) =
+                    self.build_partial_stream_assistant_message(&full_text, &full_reasoning)
+                {
                     self.push_and_persist_assistant_message(&assistant_msg);
                 }
                 if stalled {
@@ -678,13 +638,7 @@ impl AgentEngine {
                                     }
                                 }
 
-                                let retry_request = ChatRequest {
-                                    model: self.context.model.clone(),
-                                    messages: self.messages.clone(),
-                                    tools: convert_tool_definitions(&self.tools),
-                                    temperature: Some(0.7),
-                                    max_tokens: Some(self.context.get_max_tokens()),
-                                };
+                                let retry_request = self.build_chat_request();
 
                                 // Retry streaming
                                 let (retry_tx, mut retry_rx) = mpsc::channel::<StreamEvent>(256);
@@ -747,38 +701,12 @@ impl AgentEngine {
                                 }
 
                                 if retry_cancelled {
-                                    if !full_text.is_empty() || !full_reasoning.is_empty() {
-                                        let mut blocks = Vec::new();
-                                        if !full_reasoning.is_empty() {
-                                            blocks.push(yode_llm::types::ContentBlock::Thinking {
-                                                thinking: full_reasoning.clone(),
-                                                signature: None,
-                                            });
-                                        }
-                                        if !full_text.is_empty() {
-                                            blocks.push(yode_llm::types::ContentBlock::Text {
-                                                text: full_text.clone(),
-                                            });
-                                        }
-
-                                        let assistant_msg = Message {
-                                            role: Role::Assistant,
-                                            content: if full_text.is_empty() {
-                                                None
-                                            } else {
-                                                Some(full_text.clone())
-                                            },
-                                            reasoning: if full_reasoning.is_empty() {
-                                                None
-                                            } else {
-                                                Some(full_reasoning.clone())
-                                            },
-                                            content_blocks: blocks,
-                                            tool_calls: vec![],
-                                            tool_call_id: None,
-                                            images: Vec::new(),
-                                        }
-                                        .normalized();
+                                    if let Some(assistant_msg) = self
+                                        .build_partial_stream_assistant_message(
+                                            &full_text,
+                                            &full_reasoning,
+                                        )
+                                    {
                                         self.push_and_persist_assistant_message(&assistant_msg);
                                     }
                                     self.complete_tool_turn_artifact();
