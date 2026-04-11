@@ -18,7 +18,9 @@ use yode_core::setup::{has_api_keys_configured, run_setup_interactive};
 
 use crate::app_bootstrap::{
     configure_permissions, ensure_session_exists, init_logging, restore_or_create_context,
-    setup_tooling, shutdown_mcp_clients, StartupProfiler,
+    setup_tooling, shutdown_mcp_clients, write_permission_policy_artifact,
+    write_provider_inventory_artifact, write_startup_profile_artifact,
+    write_tooling_inventory_artifact, StartupProfiler,
 };
 
 #[derive(Parser)]
@@ -263,6 +265,30 @@ async fn main() -> Result<()> {
         restore_report.decoded_messages,
         restore_report.skipped_messages,
         restore_report.fallback_reason.as_deref().unwrap_or("none")
+    );
+    let _ = write_startup_profile_artifact(
+        &context.working_dir_compat(),
+        &context.session_id,
+        &startup_summary,
+    );
+    let _ = write_tooling_inventory_artifact(
+        &context.working_dir_compat(),
+        &context.session_id,
+        &tooling.metrics,
+        &tooling.tool_registry,
+    );
+    let _ = write_provider_inventory_artifact(
+        &context.working_dir_compat(),
+        &context.session_id,
+        &provider_metrics,
+        &context.provider,
+        &context.model,
+        &all_provider_models,
+    );
+    let _ = write_permission_policy_artifact(
+        &context.working_dir_compat(),
+        &context.session_id,
+        &permissions,
     );
     startup_profiler.log_summary("tui", &tooling.metrics);
 

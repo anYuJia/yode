@@ -22,7 +22,7 @@
 
 当前进度：
 
-- `61 / 100` 已完成
+- `65 / 100` 已完成
 
 ## 001-010 Startup / Warmup
 
@@ -130,11 +130,11 @@
 
 ## 081-090 Diagnostics / Artifacts
 
-- `[ ]` 081 startup profile persisted as session artifact
-- `[ ]` 082 tooling inventory artifact emitted on startup
-- `[ ]` 083 provider inventory artifact emitted on startup
+- `[x]` 081 startup profile persisted as session artifact
+- `[x]` 082 tooling inventory artifact emitted on startup
+- `[x]` 083 provider inventory artifact emitted on startup
 - `[ ]` 084 MCP connect failure summary artifact
-- `[ ]` 085 permission policy summary artifact
+- `[x]` 085 permission policy summary artifact
 - `[ ]` 086 transcript cache warmup artifact
 - `[ ]` 087 runtime task inventory artifact in `/status`
 - `[ ]` 088 doctor summary export bundle
