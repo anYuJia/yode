@@ -14,6 +14,7 @@ mod streaming_turn_runtime;
 mod subagent_runner;
 mod system_prompt_runtime;
 mod tool_execution_runtime;
+mod tool_pool_runtime;
 mod tool_result;
 #[path = "tool_telemetry/mod.rs"]
 mod tool_telemetry;

@@ -1,7 +1,7 @@
 use serde_json::{json, Map, Value};
 
 use yode_llm::types::ToolDefinition as LlmToolDefinition;
-use yode_tools::registry::ToolRegistry;
+use yode_tools::registry::{ToolPoolSnapshot, ToolRegistry};
 use yode_tools::tool::ToolResult;
 
 use crate::tool_runtime::ToolResultTruncationView;
@@ -9,10 +9,18 @@ use crate::tool_runtime::ToolResultTruncationView;
 /// Maximum size for a single tool result before truncation.
 const MAX_TOOL_RESULT_SIZE: usize = 50 * 1024;
 
-pub(super) fn convert_tool_definitions(registry: &ToolRegistry) -> Vec<LlmToolDefinition> {
+pub(super) fn convert_tool_definitions(
+    registry: &ToolRegistry,
+    tool_pool: Option<&ToolPoolSnapshot>,
+) -> Vec<LlmToolDefinition> {
     registry
         .definitions()
         .into_iter()
+        .filter(|definition| {
+            tool_pool
+                .map(|snapshot| snapshot.active_visible_to_model(&definition.name))
+                .unwrap_or(true)
+        })
         .map(|td| LlmToolDefinition {
             name: td.name,
             description: td.description,

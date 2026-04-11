@@ -29,7 +29,8 @@
 ### 2. Tool System / Policy
 
 - `claude-code-rev` 的工具装配集中在 [src/tools.ts](/Users/pyu/code/yode/claude-code-rev/src/tools.ts)，带有强 feature gating、权限上下文过滤、工具池装配逻辑。
-- `yode` 的静态注册更清晰，但缺少更强的预过滤与工具池诊断，核心在 [builtin/mod.rs](/Users/pyu/code/yode/crates/yode-tools/src/builtin/mod.rs)。
+- `yode` 的静态注册更清晰，但之前缺少更强的预过滤与工具池诊断，核心在 [builtin/mod.rs](/Users/pyu/code/yode/crates/yode-tools/src/builtin/mod.rs)。
+- `claude-code-rev` 会在模型请求前按权限上下文裁剪工具池，并确保 ToolSearch 不会重新暴露 deny 掉的工具；这一点是 `yode` 过去最明显的工具调用差距。
 
 ### 3. Shell Security
 
@@ -113,6 +114,10 @@
   - 当前完成：
     - startup profile 增加 builtin / MCP server / MCP tool / skill / final tool count
     - `/status` 增加工具库存摘要
+    - engine 新增 tool pool snapshot，区分 active/deferred、builtin/mcp、allow/confirm/deny
+    - ChatRequest 构建前先按权限模式过滤 deny 工具，避免模型看到不可用工具
+    - `tool_search` 改为尊重当前 tool pool，不再重新暴露被隐藏工具
+    - `/tools`、`/status`、`/doctor` 增加 model-visible / hidden 工具池诊断
 - `[ ]` P2.3 tool/runtime/status 面板化而不是纯文本堆叠
 
 ## Notes

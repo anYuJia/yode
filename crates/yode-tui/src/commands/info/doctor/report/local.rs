@@ -23,16 +23,21 @@ pub(super) fn render_doctor_report(ctx: &mut CommandContext) -> String {
         );
     } else {
         let names: Vec<_> = ctx.all_provider_models.keys().cloned().collect();
-        checks.push(format!("  [ok] LLM providers configured: {}", names.join(", ")));
+        checks.push(format!(
+            "  [ok] LLM providers configured: {}",
+            names.join(", ")
+        ));
     }
 
-    checks.push(match std::process::Command::new("git").arg("--version").output() {
-        Ok(output) if output.status.success() => format!(
-            "  [ok] git available: {}",
-            String::from_utf8_lossy(&output.stdout).trim()
-        ),
-        _ => "  [!!] git not found or failed".to_string(),
-    });
+    checks.push(
+        match std::process::Command::new("git").arg("--version").output() {
+            Ok(output) if output.status.success() => format!(
+                "  [ok] git available: {}",
+                String::from_utf8_lossy(&output.stdout).trim()
+            ),
+            _ => "  [!!] git not found or failed".to_string(),
+        },
+    );
 
     for (command, arg) in [
         ("node", "--version"),
@@ -65,7 +70,15 @@ pub(super) fn render_doctor_report(ctx: &mut CommandContext) -> String {
         checks.push("  [--] Running over SSH".to_string());
     }
 
-    checks.push(format!("  [ok] {} tools registered", ctx.tools.definitions().len()));
+    let inventory = ctx.tools.inventory();
+    checks.push(format!(
+        "  [ok] tools: {} total / {} active / {} deferred",
+        inventory.total_count, inventory.active_count, inventory.deferred_count
+    ));
+    checks.push(format!(
+        "  [ok] mcp tools: {} active / {} deferred",
+        inventory.mcp_active_count, inventory.mcp_deferred_count
+    ));
     if let Some(path) = dirs::home_dir().map(|home| home.join(".yode/config.toml")) {
         if path.exists() {
             checks.push(format!("  [ok] Config file: {:?}", path));
@@ -144,9 +157,15 @@ fn runtime_health_checks(
 
     let session_path = yode_core::session_memory::session_memory_path(project_root);
     checks.push(if session_path.exists() {
-        format!("  [ok] Session memory file present: {}", session_path.display())
+        format!(
+            "  [ok] Session memory file present: {}",
+            session_path.display()
+        )
     } else {
-        format!("  [--] Session memory file missing: {}", session_path.display())
+        format!(
+            "  [--] Session memory file missing: {}",
+            session_path.display()
+        )
     });
 
     let transcripts_dir = project_root.join(".yode").join("transcripts");
@@ -155,7 +174,10 @@ fn runtime_health_checks(
         .into_iter()
         .flat_map(|entries| entries.filter_map(Result::ok))
         .count();
-    checks.push(format!("  [ok] Transcript artifacts visible: {}", transcript_count));
+    checks.push(format!(
+        "  [ok] Transcript artifacts visible: {}",
+        transcript_count
+    ));
     checks.push(format!(
         "  [ok] Session memory updates recorded: {}",
         state.session_memory_update_count
@@ -163,6 +185,19 @@ fn runtime_health_checks(
     checks.push(format!(
         "  [ok] Failed tool results tracked: {}",
         state.tracked_failed_tool_results
+    ));
+    checks.push(format!(
+        "  [ok] tool pool: {} active visible / {} active hidden / {} deferred visible / {} deferred hidden",
+        state.tool_pool.visible_active_count(),
+        state.tool_pool.hidden_active_count(),
+        state.tool_pool.visible_deferred_count(),
+        state.tool_pool.hidden_deferred_count()
+    ));
+    checks.push(format!(
+        "  [ok] tool pool policy: mode={} confirm={} deny={}",
+        state.tool_pool.permission_mode,
+        state.tool_pool.confirm_count(),
+        state.tool_pool.deny_count()
     ));
     checks.push(format!(
         "  [ok] Tool progress events tracked: {}",
@@ -212,7 +247,10 @@ fn runtime_health_checks(
         checks.push(format!(
             "  [!!] Hook timeouts observed: {} (last: {})",
             state.hook_timeout_count,
-            state.last_hook_timeout_command.as_deref().unwrap_or("unknown")
+            state
+                .last_hook_timeout_command
+                .as_deref()
+                .unwrap_or("unknown")
         ));
     } else {
         checks.push("  [ok] No hook timeouts observed".to_string());
@@ -228,7 +266,10 @@ fn runtime_health_checks(
 
     for critical_tool in ["bash", "write_file", "edit_file"] {
         if confirmable_tools.iter().any(|tool| tool == critical_tool) {
-            checks.push(format!("  [ok] {} still requires confirmation", critical_tool));
+            checks.push(format!(
+                "  [ok] {} still requires confirmation",
+                critical_tool
+            ));
         } else {
             checks.push(format!(
                 "  [!!] {} no longer requires confirmation",

@@ -76,12 +76,14 @@ impl Tool for MockReadTool {
 }
 
 /// A mock write tool that requires confirmation.
-pub(super) struct MockWriteTool;
+pub(super) struct MockWriteTool {
+    pub(super) name: String,
+}
 
 #[async_trait::async_trait]
 impl Tool for MockWriteTool {
     fn name(&self) -> &str {
-        "mock_write"
+        &self.name
     }
 
     fn description(&self) -> &str {

@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::{mpsc, Mutex};
 
+use crate::registry::ToolPoolSnapshot;
 use crate::registry::ToolRegistry;
 use crate::state::TaskStore;
 
@@ -126,6 +127,8 @@ pub struct ToolContext {
     pub read_file_history: Option<Arc<Mutex<std::collections::HashSet<PathBuf>>>>,
     /// Whether engine is in plan mode (read-only tools only).
     pub plan_mode: Option<Arc<Mutex<bool>>>,
+    /// Tool pool snapshot for the current request.
+    pub tool_pool_snapshot: Option<ToolPoolSnapshot>,
 }
 
 impl ToolContext {
@@ -146,6 +149,7 @@ impl ToolContext {
             worktree_state: None,
             read_file_history: None,
             plan_mode: None,
+            tool_pool_snapshot: None,
         }
     }
 }

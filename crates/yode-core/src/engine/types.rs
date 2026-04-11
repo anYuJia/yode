@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use yode_llm::types::{ChatResponse, ToolCall};
+use yode_tools::registry::ToolPoolSnapshot;
 use yode_tools::tool::{ToolProgress, ToolResult};
 
 use crate::tool_runtime::{ToolResultTruncationView, ToolRuntimeCallView};
@@ -168,6 +169,7 @@ pub struct EngineRuntimeState {
     pub last_permission_explanation: Option<String>,
     pub last_permission_artifact_path: Option<String>,
     pub recent_permission_denials: Vec<String>,
+    pub tool_pool: ToolPoolSnapshot,
     pub current_turn_tool_calls: u32,
     pub current_turn_tool_output_bytes: usize,
     pub current_turn_tool_progress_events: u32,

@@ -1,5 +1,7 @@
 use super::*;
 
+use std::sync::Arc;
+
 use yode_llm::types::ToolCall;
 
 #[test]
@@ -100,6 +102,68 @@ fn test_compaction_cause_histogram_tracks_counts() {
         runtime.compaction_cause_histogram.get("success_manual"),
         Some(&1)
     );
+}
+
+#[test]
+fn test_build_chat_request_hides_denied_tools_from_model() {
+    let mut engine = make_engine(
+        vec![
+            Arc::new(MockReadTool {
+                name: "read_file".into(),
+            }),
+            Arc::new(MockWriteTool {
+                name: "write_file".into(),
+            }),
+        ],
+        vec![],
+    );
+
+    engine
+        .permissions_mut()
+        .set_mode(crate::PermissionMode::Plan);
+    let request = engine.build_chat_request();
+    let tool_names = request
+        .tools
+        .into_iter()
+        .map(|tool| tool.name)
+        .collect::<Vec<_>>();
+
+    assert!(tool_names.iter().any(|name| name == "read_file"));
+    assert!(!tool_names.iter().any(|name| name == "write_file"));
+}
+
+#[test]
+fn test_runtime_state_exposes_tool_pool_gating() {
+    let mut engine = make_engine(
+        vec![
+            Arc::new(MockReadTool {
+                name: "read_file".into(),
+            }),
+            Arc::new(MockWriteTool {
+                name: "write_file".into(),
+            }),
+            Arc::new(MockReadTool {
+                name: "mcp__demo__search".into(),
+            }),
+        ],
+        vec![],
+    );
+
+    engine.permissions_mut().deny("mcp__demo__search");
+    let runtime = engine.runtime_state();
+
+    assert_eq!(runtime.tool_pool.permission_mode, "default");
+    assert_eq!(runtime.tool_pool.visible_active_count(), 2);
+    assert_eq!(runtime.tool_pool.hidden_active_count(), 1);
+    assert_eq!(runtime.tool_pool.confirm_count(), 1);
+    assert_eq!(runtime.tool_pool.deny_count(), 1);
+    assert_eq!(runtime.tool_pool.visible_builtin_count(), 2);
+    assert_eq!(runtime.tool_pool.visible_mcp_count(), 0);
+    assert!(runtime
+        .tool_pool
+        .hidden_tool_names()
+        .iter()
+        .any(|name| *name == "mcp__demo__search"));
 }
 
 #[tokio::test]

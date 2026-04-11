@@ -2,10 +2,11 @@ use super::*;
 
 impl AgentEngine {
     pub(super) fn build_chat_request(&self) -> ChatRequest {
+        let tool_pool = self.build_tool_pool_snapshot();
         ChatRequest {
             model: self.context.model.clone(),
             messages: self.messages.clone(),
-            tools: convert_tool_definitions(&self.tools),
+            tools: convert_tool_definitions(&self.tools, Some(&tool_pool)),
             temperature: Some(0.7),
             max_tokens: Some(self.context.get_max_tokens()),
         }

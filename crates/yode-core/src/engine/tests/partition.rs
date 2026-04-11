@@ -41,7 +41,9 @@ fn test_partition_mixed() {
             Arc::new(MockReadTool {
                 name: "reader".into(),
             }),
-            Arc::new(MockWriteTool),
+            Arc::new(MockWriteTool {
+                name: "mock_write".into(),
+            }),
         ],
         vec!["mock_write".into()],
     );

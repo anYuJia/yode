@@ -63,33 +63,15 @@ impl Command for StatusCommand {
                 )
             })
             .unwrap_or_else(|| "none".to_string());
-        let startup_profile = ctx
-            .session
-            .startup_profile
-            .as_deref()
-            .unwrap_or("none");
+        let startup_profile = ctx.session.startup_profile.as_deref().unwrap_or("none");
+        let inventory = ctx.tools.inventory();
         let runtime = ctx
             .engine
             .try_lock()
             .ok()
             .map(|engine| engine.runtime_state());
-        let total_tools = ctx.tools.definitions().len();
-        let mcp_tools = ctx
-            .tools
-            .definitions()
-            .into_iter()
-            .filter(|definition| definition.name.starts_with("mcp__"))
-            .count();
-        let builtin_tools = total_tools.saturating_sub(mcp_tools);
         let runtime_sections =
-            build_runtime_sections(
-                runtime,
-                latest_review.as_ref(),
-                &always_allow,
-                total_tools,
-                builtin_tools,
-                mcp_tools,
-            );
+            build_runtime_sections(runtime, latest_review.as_ref(), &always_allow, &inventory);
 
         Ok(CommandOutput::Message(build_status_message(
             ctx,

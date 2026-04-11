@@ -252,6 +252,7 @@ fn clone_step_context(ctx: &ToolContext) -> ToolContext {
         worktree_state: ctx.worktree_state.clone(),
         read_file_history: ctx.read_file_history.clone(),
         plan_mode: ctx.plan_mode.clone(),
+        tool_pool_snapshot: ctx.tool_pool_snapshot.clone(),
     }
 }
 

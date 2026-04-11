@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::tool::Tool;
@@ -10,6 +11,136 @@ pub struct ToolDefinition {
     pub name: String,
     pub description: String,
     pub parameters: Value,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ToolInventory {
+    pub total_count: usize,
+    pub active_count: usize,
+    pub deferred_count: usize,
+    pub mcp_active_count: usize,
+    pub mcp_deferred_count: usize,
+    pub tool_search_enabled: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ToolPoolPhase {
+    Active,
+    Deferred,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ToolOrigin {
+    Builtin,
+    Mcp,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ToolPermissionState {
+    Allow,
+    Confirm,
+    Deny,
+}
+
+impl ToolPermissionState {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Allow => "allow",
+            Self::Confirm => "confirm",
+            Self::Deny => "deny",
+        }
+    }
+
+    pub fn visible_to_model(&self) -> bool {
+        !matches!(self, Self::Deny)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolPoolEntry {
+    pub name: String,
+    pub phase: ToolPoolPhase,
+    pub origin: ToolOrigin,
+    pub permission: ToolPermissionState,
+    pub visible_to_model: bool,
+    pub reason: String,
+    pub matched_rule: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ToolPoolSnapshot {
+    pub permission_mode: String,
+    pub tool_search_enabled: bool,
+    pub entries: Vec<ToolPoolEntry>,
+}
+
+impl ToolPoolSnapshot {
+    fn count_matching(&self, predicate: impl Fn(&ToolPoolEntry) -> bool) -> usize {
+        self.entries.iter().filter(|entry| predicate(entry)).count()
+    }
+
+    pub fn find_entry(&self, name: &str) -> Option<&ToolPoolEntry> {
+        self.entries
+            .iter()
+            .find(|entry| entry.name.eq_ignore_ascii_case(name))
+    }
+
+    pub fn active_visible_to_model(&self, name: &str) -> bool {
+        self.find_entry(name)
+            .is_some_and(|entry| entry.phase == ToolPoolPhase::Active && entry.visible_to_model)
+    }
+
+    pub fn visible_active_count(&self) -> usize {
+        self.count_matching(|entry| entry.phase == ToolPoolPhase::Active && entry.visible_to_model)
+    }
+
+    pub fn hidden_active_count(&self) -> usize {
+        self.count_matching(|entry| entry.phase == ToolPoolPhase::Active && !entry.visible_to_model)
+    }
+
+    pub fn visible_deferred_count(&self) -> usize {
+        self.count_matching(|entry| {
+            entry.phase == ToolPoolPhase::Deferred && entry.visible_to_model
+        })
+    }
+
+    pub fn hidden_deferred_count(&self) -> usize {
+        self.count_matching(|entry| {
+            entry.phase == ToolPoolPhase::Deferred && !entry.visible_to_model
+        })
+    }
+
+    pub fn visible_builtin_count(&self) -> usize {
+        self.count_matching(|entry| entry.origin == ToolOrigin::Builtin && entry.visible_to_model)
+    }
+
+    pub fn visible_mcp_count(&self) -> usize {
+        self.count_matching(|entry| entry.origin == ToolOrigin::Mcp && entry.visible_to_model)
+    }
+
+    pub fn confirm_count(&self) -> usize {
+        self.count_matching(|entry| entry.permission == ToolPermissionState::Confirm)
+    }
+
+    pub fn deny_count(&self) -> usize {
+        self.count_matching(|entry| entry.permission == ToolPermissionState::Deny)
+    }
+
+    pub fn hidden_tool_names(&self) -> Vec<&str> {
+        self.entries
+            .iter()
+            .filter(|entry| !entry.visible_to_model)
+            .map(|entry| entry.name.as_str())
+            .collect()
+    }
+
+    pub fn visible_deferred_tool_names(&self) -> Vec<&str> {
+        self.entries
+            .iter()
+            .filter(|entry| entry.phase == ToolPoolPhase::Deferred && entry.visible_to_model)
+            .map(|entry| entry.name.as_str())
+            .collect()
+    }
 }
 
 /// Threshold: when total tool count exceeds this, deferred/lazy loading is enabled.
@@ -99,6 +230,25 @@ impl ToolRegistry {
     /// Total number of tools (active + deferred).
     pub fn total_count(&self) -> usize {
         self.tools.len() + self.deferred.len()
+    }
+
+    pub fn inventory(&self) -> ToolInventory {
+        ToolInventory {
+            total_count: self.total_count(),
+            active_count: self.tools.len(),
+            deferred_count: self.deferred.len(),
+            mcp_active_count: self
+                .tools
+                .keys()
+                .filter(|name| name.starts_with("mcp__"))
+                .count(),
+            mcp_deferred_count: self
+                .deferred
+                .keys()
+                .filter(|name| name.starts_with("mcp__"))
+                .count(),
+            tool_search_enabled: self.tool_search_enabled,
+        }
     }
 }
 

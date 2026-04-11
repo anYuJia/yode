@@ -2,6 +2,7 @@ use super::*;
 
 impl AgentEngine {
     pub fn runtime_state(&self) -> EngineRuntimeState {
+        let tool_pool = self.build_tool_pool_snapshot();
         let shared_status = self
             .shared_memory_status
             .try_lock()
@@ -111,6 +112,7 @@ impl AgentEngine {
             last_permission_explanation: self.last_permission_explanation.clone(),
             last_permission_artifact_path: self.last_permission_artifact_path.clone(),
             recent_permission_denials,
+            tool_pool,
             current_turn_tool_calls: self.tool_call_count,
             current_turn_tool_output_bytes: self.total_tool_results_bytes,
             current_turn_tool_progress_events: self.current_turn_tool_progress_events,
@@ -215,6 +217,7 @@ impl AgentEngine {
         progress_tx: Option<mpsc::UnboundedSender<yode_tools::tool::ToolProgress>>,
     ) -> ToolContext {
         let cwd = self.context.runtime.lock().await.cwd.clone();
+        let tool_pool_snapshot = self.build_tool_pool_snapshot();
 
         ToolContext {
             registry: Some(Arc::clone(&self.tools)),
@@ -238,6 +241,7 @@ impl AgentEngine {
                 std::collections::HashSet::new(),
             ))),
             plan_mode: Some(Arc::clone(&self.plan_mode)),
+            tool_pool_snapshot: Some(tool_pool_snapshot),
         }
     }
 

@@ -33,21 +33,50 @@ impl ToolsCommand {
     }
 
     fn render_registry_list(&self, ctx: &mut CommandContext<'_>, verbose: bool) -> String {
-        let defs = ctx.tools.definitions();
-        let mut lines = vec![format!("Registered tools ({}):", defs.len())];
+        let inventory = ctx.tools.inventory();
+        let runtime = ctx
+            .engine
+            .try_lock()
+            .ok()
+            .map(|engine| engine.runtime_state());
+        let mut defs = ctx.tools.definitions();
+        defs.sort_by(|left, right| left.name.cmp(&right.name));
+        let mut lines = vec![format!(
+            "Registered active tools ({} active / {} deferred):",
+            inventory.active_count, inventory.deferred_count
+        )];
         for def in &defs {
             let display_name = if let Some((server, tool)) = parse_mcp_tool_name(&def.name) {
                 format!("{} [mcp:{}]", tool, server)
             } else {
                 def.name.clone()
             };
+            let policy = runtime
+                .as_ref()
+                .and_then(|state| state.tool_pool.find_entry(&def.name))
+                .map(|entry| {
+                    if entry.visible_to_model {
+                        entry.permission.label().to_string()
+                    } else {
+                        format!("{} hidden", entry.permission.label())
+                    }
+                })
+                .unwrap_or_else(|| "unknown".to_string());
+            let reason = runtime
+                .as_ref()
+                .and_then(|state| state.tool_pool.find_entry(&def.name))
+                .map(|entry| entry.reason.as_str())
+                .unwrap_or("runtime unavailable");
             if verbose {
                 lines.push(format!(
-                    "  {} — {}\n    schema: {}",
-                    display_name, def.description, def.parameters
+                    "  {} — {}\n    policy: {}\n    reason: {}\n    schema: {}",
+                    display_name, def.description, policy, reason, def.parameters
                 ));
             } else {
-                lines.push(format!("  {} — {}", display_name, def.description));
+                lines.push(format!(
+                    "  {} [{}] — {}",
+                    display_name, policy, def.description
+                ));
             }
         }
         lines.join("\n")
@@ -78,6 +107,7 @@ impl Command for ToolsCommand {
                     .to_string(),
             ));
         };
+        let inventory = ctx.tools.inventory();
 
         let error_counts = if state.tool_error_type_counts.is_empty() {
             "none".to_string()
@@ -99,6 +129,22 @@ impl Command for ToolsCommand {
             "none".to_string()
         } else {
             state.command_tool_duplication_hints.join(" | ")
+        };
+        let hidden_tools = {
+            let names = state.tool_pool.hidden_tool_names();
+            if names.is_empty() {
+                "none".to_string()
+            } else {
+                names.join(" | ")
+            }
+        };
+        let deferred_visible = {
+            let names = state.tool_pool.visible_deferred_tool_names();
+            if names.is_empty() {
+                "none".to_string()
+            } else {
+                names.join(" | ")
+            }
         };
         let hook_tool_timeline = format!(
             "{} hook run(s) / {} recent tool call(s)",
@@ -150,9 +196,22 @@ impl Command for ToolsCommand {
         }
 
         Ok(CommandOutput::Message(format!(
-            "Tool diagnostics:\n  Registry tools:  {}\n  Session calls:    {}\n  Current turn:     {} calls / {} bytes / {} progress\n  Budget notices:   {} (warnings {})\n  Budget active:    notice={} warning={}\n  Parallel:         {} batches / {} calls (max {})\n  Read history:     {}\n  Duplication hints: {}\n  Hook/tool line:   {}\n  Truncations:      {} (last: {})\n  Error types:      {}\n  Failure clusters: {}\n  Repeat failures:  {}\n  Last progress:    {} / {}\n  Last progress at: {}\n  Last artifact:    {}\n  Last turn done:   {}\n{}\
+            "Tool diagnostics:\n  Registry tools:  {} total / {} active / {} deferred\n  Model pool:      {} active visible / {} active hidden / {} deferred visible / {} deferred hidden\n  Pool policy:     mode={} confirm={} deny={}\n  Visible sources: {} builtin / {} mcp\n  Hidden tools:    {}\n  Deferred visible: {}\n  Session calls:    {}\n  Current turn:     {} calls / {} bytes / {} progress\n  Budget notices:   {} (warnings {})\n  Budget active:    notice={} warning={}\n  Parallel:         {} batches / {} calls (max {})\n  Read history:     {}\n  Duplication hints: {}\n  Hook/tool line:   {}\n  Truncations:      {} (last: {})\n  Error types:      {}\n  Failure clusters: {}\n  Repeat failures:  {}\n  Last progress:    {} / {}\n  Last progress at: {}\n  Last artifact:    {}\n  Last turn done:   {}\n{}\
 \nUse `/tools list` or `/tools verbose` to inspect the full registry.",
-            ctx.tools.definitions().len(),
+            inventory.total_count,
+            inventory.active_count,
+            inventory.deferred_count,
+            state.tool_pool.visible_active_count(),
+            state.tool_pool.hidden_active_count(),
+            state.tool_pool.visible_deferred_count(),
+            state.tool_pool.hidden_deferred_count(),
+            state.tool_pool.permission_mode,
+            state.tool_pool.confirm_count(),
+            state.tool_pool.deny_count(),
+            state.tool_pool.visible_builtin_count(),
+            state.tool_pool.visible_mcp_count(),
+            hidden_tools,
+            deferred_visible,
             state.session_tool_calls_total,
             state.current_turn_tool_calls,
             state.current_turn_tool_output_bytes,
