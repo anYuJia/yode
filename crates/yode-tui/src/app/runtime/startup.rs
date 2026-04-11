@@ -87,7 +87,17 @@ pub(super) async fn prepare_runtime(
     spawn_update_checker(engine_event_tx.clone());
 
     if let Some(task) = resume_warmup_task {
-        app.session.resume_cache_warmup = Some(task.await?);
+        let stats = task.await?;
+        if let Some(profile) = app.session.startup_profile.as_mut() {
+            profile.push_str(&format!(
+                " resume_warmup[transcripts={} metadata={} latest={} duration={}ms]",
+                stats.transcript_count,
+                stats.metadata_entries_warmed,
+                if stats.latest_lookup_cached { "yes" } else { "no" },
+                stats.duration_ms
+            ));
+        }
+        app.session.resume_cache_warmup = Some(stats);
     }
 
     Ok(RuntimeStartup {
@@ -137,8 +147,10 @@ fn hydrate_restored_messages(
             }
         }
         if is_resumed {
-            app.chat_entries
-                .push(ChatEntry::new(ChatRole::System, "Session resumed.".to_string()));
+            app.chat_entries.push(ChatEntry::new(
+                ChatRole::System,
+                "Session resumed.".to_string(),
+            ));
         }
     }
 }

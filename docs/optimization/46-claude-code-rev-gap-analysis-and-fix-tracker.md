@@ -115,6 +115,8 @@
   - 增量索引、热路径缓存、恢复时 warmup 分层。
   - 当前完成：
     - resume transcript warmup 改为后台 blocking task，与 TUI startup 其它步骤重叠
+    - startup profile 已追加 resume warmup / db open / session bootstrap timing
+    - `/doctor` 已直接展示 transcript benchmark 摘要
 
 ### P2
 

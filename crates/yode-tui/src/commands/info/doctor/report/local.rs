@@ -215,6 +215,7 @@ fn runtime_health_checks(
     confirmation_suggestions: &[String],
 ) -> Vec<String> {
     let mut checks = Vec::new();
+    let benchmark = crate::commands::info::run_long_session_benchmark(project_root);
     checks.push(format!(
         "  [ok] Compact count: {} (auto {}, manual {})",
         state.total_compactions, state.auto_compactions, state.manual_compactions
@@ -260,6 +261,24 @@ fn runtime_health_checks(
     checks.push(format!(
         "  [ok] Transcript artifacts visible: {}",
         transcript_count
+    ));
+    checks.push(format!(
+        "  [ok] Transcript bench latest lookup: cold {} ms / hot {} ms",
+        benchmark.cold_latest_lookup_ms, benchmark.hot_latest_lookup_ms
+    ));
+    checks.push(format!(
+        "  [ok] Transcript bench failed filter: cold {} ms / hot {} ms",
+        benchmark.cold_failed_filter_ms, benchmark.hot_failed_filter_ms
+    ));
+    checks.push(format!(
+        "  [ok] Transcript bench resume warmup: {} ms ({} metadata, latest={})",
+        benchmark.resume_warmup.duration_ms,
+        benchmark.resume_warmup.metadata_entries_warmed,
+        if benchmark.resume_warmup.latest_lookup_cached {
+            "yes"
+        } else {
+            "no"
+        }
     ));
     checks.push(format!(
         "  [ok] Session memory updates recorded: {}",

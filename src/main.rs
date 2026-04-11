@@ -6,6 +6,7 @@ mod provider_bootstrap;
 use std::env;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -188,6 +189,7 @@ async fn main() -> Result<()> {
     }
 
     let db_path = config.session_db_path();
+    let db_open_started_at = Instant::now();
     let db_open_task = tokio::task::spawn_blocking(move || Database::open(&db_path));
     let provider_config = config.clone();
     let cli_provider = cli.provider.clone();
@@ -215,13 +217,16 @@ async fn main() -> Result<()> {
         .await
         .context("Database open task failed")?
         .context("Failed to open session database")?;
+    let db_open_elapsed_ms = db_open_started_at.elapsed().as_millis() as u64;
     startup_profiler.checkpoint("db_ready");
 
     let permissions = configure_permissions(&config);
     startup_profiler.checkpoint("permission_setup");
+    let session_bootstrap_started_at = Instant::now();
     let (context, restored_messages) =
         restore_or_create_context(&cli, &db, workdir, provider_name.clone(), model.clone())?;
     ensure_session_exists(&db, &context)?;
+    let session_bootstrap_elapsed_ms = session_bootstrap_started_at.elapsed().as_millis() as u64;
     startup_profiler.checkpoint("session_bootstrap");
 
     // If --chat, run a single non-interactive turn and exit
@@ -248,9 +253,12 @@ async fn main() -> Result<()> {
     );
     startup_profiler.checkpoint("ready_tui");
     let startup_summary = format!(
-        "{} {}",
+        "{} {} resume[db_open={}ms session_bootstrap={}ms restored_messages={}]",
         startup_profiler.summary("tui", &tooling.metrics),
-        provider_metrics.summary()
+        provider_metrics.summary(),
+        db_open_elapsed_ms,
+        session_bootstrap_elapsed_ms,
+        restored_messages.as_ref().map(|messages| messages.len()).unwrap_or(0)
     );
     startup_profiler.log_summary("tui", &tooling.metrics);
 
