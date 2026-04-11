@@ -22,7 +22,7 @@
 
 当前进度：
 
-- `59 / 100` 已完成
+- `61 / 100` 已完成
 
 ## 001-010 Startup / Warmup
 
@@ -97,8 +97,8 @@
 - `[x]` 054 markdown rendering split into block and inline layers
 - `[x]` 055 provider wizard builders split
 - `[ ]` 056 chat viewport rendering split into layout vs rendering phases
-- `[ ]` 057 status page rendering split into compact sections
-- `[ ]` 058 tasks/info renderers split from command handlers
+- `[x]` 057 status page rendering split into compact sections
+- `[x]` 058 tasks/info renderers split from command handlers
 - `[ ]` 059 narrow-width layout helper consolidation
 - `[ ]` 060 shared TUI style palette module
 

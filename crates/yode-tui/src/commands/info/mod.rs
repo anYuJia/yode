@@ -9,6 +9,7 @@ mod hooks_cmd;
 pub(crate) mod memory;
 mod status;
 mod tasks;
+mod tasks_render;
 mod update;
 mod version;
 

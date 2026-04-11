@@ -1,5 +1,6 @@
 mod helpers;
 mod render;
+mod sections;
 
 use crate::commands::context::CommandContext;
 use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};

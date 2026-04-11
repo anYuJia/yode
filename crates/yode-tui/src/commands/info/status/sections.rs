@@ -1,0 +1,38 @@
+use yode_tools::registry::ToolInventory;
+
+use super::helpers::ReviewSummary;
+
+pub(super) fn busy_runtime_sections(always_allow: &str, inventory: &ToolInventory) -> String {
+    format!(
+        "\n\nCompact:\n  Runtime state:   engine busy\n\nMemory:\n  Runtime state:   engine busy\n\nTools:\n  Inventory:       {} total / {} active / {} deferred\n  MCP tools:       {} active / {} deferred\n  Search mode:     {}\n  Search reason:   {}\n  Activations:     {} (last: {})\n  Duplicate regs:  {} ({})\n  Always-allow:    {}",
+        inventory.total_count,
+        inventory.active_count,
+        inventory.deferred_count,
+        inventory.mcp_active_count,
+        inventory.mcp_deferred_count,
+        inventory.tool_search_enabled,
+        inventory.tool_search_reason.as_deref().unwrap_or("none"),
+        inventory.activation_count,
+        inventory.last_activated_tool.as_deref().unwrap_or("none"),
+        inventory.duplicate_registration_count,
+        if inventory.duplicate_tool_names.is_empty() {
+            "none".to_string()
+        } else {
+            inventory.duplicate_tool_names.join(" | ")
+        },
+        always_allow,
+    )
+}
+
+pub(super) fn reviews_section(latest_review: Option<&ReviewSummary>) -> String {
+    format!(
+        "\n\nReviews:\n  Latest review:   {}\n  Review status:   {}\n  Review preview:  {}",
+        latest_review
+            .map(|summary| summary.path.display().to_string())
+            .unwrap_or_else(|| "none".to_string()),
+        latest_review.map(|summary| summary.status).unwrap_or("none"),
+        latest_review
+            .map(|summary| summary.preview.as_str())
+            .unwrap_or("none"),
+    )
+}
