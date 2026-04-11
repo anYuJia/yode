@@ -22,7 +22,7 @@
 
 当前进度：
 
-- `70 / 100` 已完成
+- `71 / 100` 已完成
 
 ## 001-010 Startup / Warmup
 
@@ -138,7 +138,7 @@
 - `[x]` 086 transcript cache warmup artifact
 - `[x]` 087 runtime task inventory artifact in `/status`
 - `[x]` 088 doctor summary export bundle
-- `[ ]` 089 review pipeline artifact schema cleanup
+- `[x]` 089 review pipeline artifact schema cleanup
 - `[x]` 090 tool execution artifact cross-links in status
 
 ## 091-100 Product / Parity Follow-up

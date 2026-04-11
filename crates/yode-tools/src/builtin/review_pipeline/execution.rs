@@ -5,7 +5,7 @@ use crate::builtin::git_commit::GitCommitTool;
 use crate::builtin::review_changes::ReviewChangesTool;
 use crate::builtin::review_common::{
     persist_review_artifact, persist_review_status, review_findings_count,
-    review_output_has_findings,
+    review_metadata_payload, review_output_has_findings,
 };
 use crate::builtin::test_runner::TestRunnerTool;
 use crate::builtin::verification_agent::VerificationAgentTool;
@@ -32,7 +32,9 @@ pub(super) async fn execute_review_pipeline(
         .and_then(|value| value.as_str())
         .unwrap_or("");
     let test_command = params.get("test_command").and_then(|value| value.as_str());
-    let commit_message = params.get("commit_message").and_then(|value| value.as_str());
+    let commit_message = params
+        .get("commit_message")
+        .and_then(|value| value.as_str());
     let allow_findings_commit = params
         .get("allow_findings_commit")
         .and_then(|value| value.as_bool())
@@ -141,7 +143,9 @@ pub(super) async fn execute_review_pipeline(
                 "Address review or verification findings first, or set allow_findings_commit=true to override."
                     .to_string(),
             ),
-            metadata: Some(json!({
+            metadata: Some(merge_review_metadata(
+                review_metadata_payload("review-pipeline", focus, &summary, pipeline_artifact.as_deref()),
+                json!({
                 "focus": focus,
                 "review_output": review_output,
                 "review_findings_count": review_findings,
@@ -150,13 +154,16 @@ pub(super) async fn execute_review_pipeline(
                 "total_findings_count": review_findings + verification_findings,
                 "pipeline_artifact_path": pipeline_artifact,
                 "commit_skipped": true,
-            })),
+                }),
+            )),
         });
     }
 
     Ok(ToolResult::success_with_metadata(
         format!("Review pipeline complete.\n\n{}", summary),
-        json!({
+        merge_review_metadata(
+            review_metadata_payload("review-pipeline", focus, &summary, pipeline_artifact.as_deref()),
+            json!({
             "focus": focus,
             "review_output": review_output,
             "review_findings_count": review_findings,
@@ -166,6 +173,16 @@ pub(super) async fn execute_review_pipeline(
             "pipeline_artifact_path": pipeline_artifact,
             "test_ran": test_result.is_some(),
             "committed": commit_result.is_some(),
-        }),
+            }),
+        ),
     ))
+}
+
+fn merge_review_metadata(mut base: Value, extra: Value) -> Value {
+    if let (Some(base_object), Some(extra_object)) = (base.as_object_mut(), extra.as_object()) {
+        for (key, value) in extra_object {
+            base_object.insert(key.clone(), value.clone());
+        }
+    }
+    base
 }

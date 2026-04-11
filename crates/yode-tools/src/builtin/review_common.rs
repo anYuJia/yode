@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use serde_json::{json, Value};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -91,6 +92,24 @@ pub fn persist_review_status(
     Ok(path)
 }
 
+pub fn review_metadata_payload(
+    kind: &str,
+    title: &str,
+    body: &str,
+    artifact_path: Option<&str>,
+) -> Value {
+    let findings_count = review_findings_count(body);
+    json!({
+        "review_artifact": {
+            "kind": kind,
+            "title": title,
+            "status": if findings_count == 0 { "clean" } else { "findings" },
+            "findings_count": findings_count,
+            "artifact_path": artifact_path,
+        }
+    })
+}
+
 pub fn review_output_has_findings(output: &str) -> bool {
     let normalized = output.trim().to_lowercase();
     if normalized.starts_with("no issues found.") || normalized.starts_with("no issues found") {
@@ -138,7 +157,10 @@ fn is_structured_finding_line(line: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{persist_review_artifact, persist_review_status, review_findings_count};
+    use super::{
+        persist_review_artifact, persist_review_status, review_findings_count,
+        review_metadata_payload,
+    };
 
     #[test]
     fn review_findings_count_detects_clean_output() {
@@ -214,5 +236,14 @@ mod tests {
         let content = std::fs::read_to_string(&artifact).unwrap();
         assert!(content.contains("Diff Artifact: "));
         assert!(content.contains(".diff.txt"));
+    }
+
+    #[test]
+    fn review_metadata_payload_wraps_shared_artifact_schema() {
+        let payload = review_metadata_payload("review", "changes", "1. Missing test", Some("artifact.md"));
+        let artifact = payload.get("review_artifact").unwrap();
+        assert_eq!(artifact.get("kind").and_then(|v| v.as_str()), Some("review"));
+        assert_eq!(artifact.get("status").and_then(|v| v.as_str()), Some("findings"));
+        assert_eq!(artifact.get("artifact_path").and_then(|v| v.as_str()), Some("artifact.md"));
     }
 }

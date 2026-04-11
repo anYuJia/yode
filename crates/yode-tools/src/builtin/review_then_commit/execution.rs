@@ -4,11 +4,9 @@ use serde_json::{json, Value};
 use crate::builtin::git_commit::GitCommitTool;
 use crate::builtin::review_common::{
     persist_review_artifact, persist_review_status, review_findings_count,
-    review_output_has_findings,
+    review_metadata_payload, review_output_has_findings,
 };
-use crate::tool::{
-    SubAgentOptions, Tool, ToolContext, ToolErrorType, ToolResult,
-};
+use crate::tool::{SubAgentOptions, Tool, ToolContext, ToolErrorType, ToolResult};
 
 pub(super) async fn execute_review_then_commit(
     params: Value,
@@ -84,8 +82,7 @@ pub(super) async fn execute_review_then_commit(
         ctx.working_dir.as_deref(),
         artifact_path.as_deref().map(std::path::Path::new),
     ) {
-        let _ =
-            persist_review_status(dir, "pre-commit-review", focus, &review_output, Some(path));
+        let _ = persist_review_status(dir, "pre-commit-review", focus, &review_output, Some(path));
     }
 
     if review_output_has_findings(&review_output) && !allow_findings_commit {
@@ -102,12 +99,15 @@ pub(super) async fn execute_review_then_commit(
                 "Address the review findings first, or set allow_findings_commit=true if you intentionally want to override."
                     .to_string(),
             ),
-            metadata: Some(json!({
+            metadata: Some(merge_review_metadata(
+                review_metadata_payload("pre-commit-review", focus, &review_output, artifact_path.as_deref()),
+                json!({
                 "review_output": review_output,
                 "findings_count": findings_count,
                 "review_artifact_path": artifact_path,
                 "commit_skipped": true,
-            })),
+                }),
+            )),
         });
     }
 
@@ -127,6 +127,10 @@ pub(super) async fn execute_review_then_commit(
         object.insert("review_output".to_string(), json!(review_output));
         object.insert("findings_count".to_string(), json!(findings_count));
         object.insert("review_artifact_path".to_string(), json!(artifact_path));
+        object.insert(
+            "review_artifact".to_string(),
+            review_metadata_payload("pre-commit-review", focus, &review_output, artifact_path.as_deref())["review_artifact"].clone(),
+        );
     }
 
     Ok(ToolResult {
@@ -141,4 +145,13 @@ pub(super) async fn execute_review_then_commit(
         suggestion: commit_result.suggestion,
         metadata: Some(metadata),
     })
+}
+
+fn merge_review_metadata(mut base: Value, extra: Value) -> Value {
+    if let (Some(base_object), Some(extra_object)) = (base.as_object_mut(), extra.as_object()) {
+        for (key, value) in extra_object {
+            base_object.insert(key.clone(), value.clone());
+        }
+    }
+    base
 }
