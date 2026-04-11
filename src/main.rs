@@ -175,11 +175,11 @@ async fn main() -> Result<()> {
         .workdir
         .clone()
         .unwrap_or_else(|| env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-    let tooling = setup_tooling(&config, &workdir).await?;
-    startup_profiler.checkpoint("tooling_setup");
 
     // If --serve-mcp, run as MCP server and exit
     if cli.serve_mcp {
+        let tooling = setup_tooling(&config, &workdir).await?;
+        startup_profiler.checkpoint("tooling_setup");
         startup_profiler.checkpoint("ready_serve_mcp");
         startup_profiler.log_summary("serve_mcp", &tooling.metrics);
         info!("Running in MCP server mode");
@@ -189,12 +189,19 @@ async fn main() -> Result<()> {
 
     let db_path = config.session_db_path();
     let db_open_task = tokio::task::spawn_blocking(move || Database::open(&db_path));
+    let provider_config = config.clone();
+    let cli_provider = cli.provider.clone();
+    let cli_model = cli.model.clone();
+    let provider_bootstrap_task = tokio::task::spawn_blocking(move || {
+        provider_bootstrap::bootstrap_provider_registry(cli_provider, cli_model, &provider_config)
+    });
 
-    let provider_bootstrap = provider_bootstrap::bootstrap_provider_registry(
-        cli.provider.clone(),
-        cli.model.clone(),
-        &config,
-    )?;
+    let tooling = setup_tooling(&config, &workdir).await?;
+    startup_profiler.checkpoint("tooling_setup");
+
+    let provider_bootstrap = provider_bootstrap_task
+        .await
+        .context("Provider bootstrap task failed")??;
     startup_profiler.checkpoint("provider_bootstrap");
     let provider_registry = provider_bootstrap.provider_registry;
     let provider_name = provider_bootstrap.provider_name;

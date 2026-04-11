@@ -75,6 +75,7 @@
     - MCP tool register 与 connect 分阶段计时
     - database open 改为与 provider bootstrap 重叠执行
     - provider bootstrap 增加 provider 数量与耗时摘要
+    - provider bootstrap 改为与 tooling setup 并行执行
 
 - `[x]` P0.3 为启动 profile 增加用户可见诊断面
   - 候选出口：
