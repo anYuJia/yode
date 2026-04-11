@@ -9,8 +9,8 @@ use crate::commands::{
 };
 
 use self::report::{
-    render_doctor_report, render_remote_artifact_index, render_remote_env_check,
-    render_remote_review_prereqs,
+    export_doctor_bundle, render_doctor_report, render_remote_artifact_index,
+    render_remote_env_check, render_remote_review_prereqs,
 };
 
 pub struct DoctorCommand {
@@ -27,8 +27,9 @@ impl DoctorCommand {
                 args: vec![ArgDef {
                     name: "target".to_string(),
                     required: false,
-                    hint: "[remote|remote-review|remote-artifacts]".to_string(),
+                    hint: "[remote|remote-review|remote-artifacts|bundle]".to_string(),
                     completions: ArgCompletionSource::Static(vec![
+                        "bundle".to_string(),
                         "remote".to_string(),
                         "remote-review".to_string(),
                         "remote-artifacts".to_string(),
@@ -48,6 +49,7 @@ impl Command for DoctorCommand {
 
     fn execute(&self, args: &str, ctx: &mut CommandContext) -> CommandResult {
         let message = match args.trim() {
+            "bundle" => export_doctor_bundle(ctx)?,
             "remote" => render_remote_env_check(ctx),
             "remote-review" => render_remote_review_prereqs(ctx),
             "remote-artifacts" => render_remote_artifact_index(ctx),
