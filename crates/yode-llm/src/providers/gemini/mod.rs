@@ -9,6 +9,7 @@ use serde::Deserialize;
 use tokio::sync::mpsc;
 use tracing::debug;
 
+use crate::providers::error_shared::format_api_error;
 use self::conversion::{convert_messages, convert_tools, parse_response};
 use self::streaming::stream_response;
 use self::types::{GeminiError, GeminiRequest, GeminiResponse, GenerationConfig};
@@ -106,14 +107,10 @@ impl LlmProvider for GeminiProvider {
         let status = resp.status();
         if !status.is_success() {
             let text = resp.text().await.unwrap_or_default();
-            if let Ok(err) = serde_json::from_str::<GeminiError>(&text) {
-                return Err(anyhow!(
-                    "Gemini API error ({}): {}",
-                    status,
-                    err.error.message
-                ));
-            }
-            return Err(anyhow!("Gemini API error ({}): {}", status, text));
+            let parsed = serde_json::from_str::<GeminiError>(&text)
+                .ok()
+                .map(|err| err.error.message);
+            return Err(format_api_error("Gemini", status, parsed, &text));
         }
 
         let api_resp: GeminiResponse = resp

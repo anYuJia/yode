@@ -108,6 +108,8 @@
     - OpenAI streaming 已抽出独立 `streaming_support.rs`
     - provider 层新增 shared streaming helpers，统一 stop-reason 映射、usage update、tool-call delta append、stream done/error 发射
     - Anthropic / OpenAI / Gemini streaming 已开始复用同一批 helper
+    - provider API error 文案已通过 shared helper 统一
+    - startup profile 已附带 provider capability summary
 
 - `[~]` P1.3 resume / transcript 缓存增强
   - 增量索引、热路径缓存、恢复时 warmup 分层。

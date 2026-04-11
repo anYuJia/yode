@@ -24,16 +24,18 @@ pub(crate) struct ProviderBootstrapMetrics {
     pub configured_registered: usize,
     pub env_detected_registered: usize,
     pub total_registered: usize,
+    pub capability_summary: String,
     pub duration_ms: u64,
 }
 
 impl ProviderBootstrapMetrics {
     pub(crate) fn summary(&self) -> String {
         format!(
-            "providers[configured={} env_detected={} total={} duration={}ms]",
+            "providers[configured={} env_detected={} total={} capabilities=\"{}\" duration={}ms]",
             self.configured_registered,
             self.env_detected_registered,
             self.total_registered,
+            self.capability_summary,
             self.duration_ms
         )
     }
@@ -195,6 +197,21 @@ pub(crate) fn bootstrap_provider_registry(
         };
 
     let provider_registry = Arc::new(provider_registry);
+    let capability_summary = config
+        .llm
+        .providers
+        .iter()
+        .filter(|(name, _)| provider_registry.get(name).is_some())
+        .map(|(name, provider)| {
+            format!(
+                "{}:{} models={} stream=yes list_models=yes",
+                name,
+                provider.format,
+                provider.models.len()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" | ");
     let provider = provider_registry.get(&provider_name).context(format!(
         "Provider '{}' not available. Set the appropriate API key environment variable.\n\
          - OpenAI: OPENAI_API_KEY\n\
@@ -213,6 +230,7 @@ pub(crate) fn bootstrap_provider_registry(
             configured_registered,
             env_detected_registered,
             total_registered: configured_registered + env_detected_registered,
+            capability_summary,
             duration_ms: started_at.elapsed().as_millis() as u64,
         },
     })

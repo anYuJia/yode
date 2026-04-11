@@ -9,6 +9,7 @@ use reqwest::Client;
 use tokio::sync::mpsc;
 use tracing::{debug, trace};
 
+use crate::providers::error_shared::format_api_error;
 use crate::providers::streaming_shared::map_stop_reason;
 use self::conversion::{
     message_to_openai, openai_message_to_internal, openai_usage_to_usage, tool_to_openai,
@@ -98,15 +99,16 @@ impl LlmProvider for OpenAiProvider {
         let status = resp.status();
         if !status.is_success() {
             let error_text = resp.text().await.unwrap_or_default();
-            if let Ok(err_resp) = serde_json::from_str::<OpenAiErrorResponse>(&error_text) {
-                return Err(anyhow!(
-                    "OpenAI API error ({}): {} (code: {})",
-                    status,
-                    err_resp.error.message,
-                    err_resp.error.code.unwrap_or_else(|| "none".to_string())
-                ));
-            }
-            return Err(anyhow!("OpenAI API error ({}): {}", status, error_text));
+            let parsed = serde_json::from_str::<OpenAiErrorResponse>(&error_text)
+                .ok()
+                .map(|err_resp| {
+                    format!(
+                        "{} (code: {})",
+                        err_resp.error.message,
+                        err_resp.error.code.unwrap_or_else(|| "none".to_string())
+                    )
+                });
+            return Err(format_api_error("OpenAI", status, parsed, &error_text));
         }
 
         let api_resp: OpenAiResponse =

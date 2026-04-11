@@ -4,6 +4,7 @@ use futures::StreamExt;
 use tokio::sync::mpsc;
 use tracing::warn;
 
+use crate::providers::error_shared::format_api_error;
 use crate::providers::streaming_shared::{emit_done_event, emit_stream_error};
 
 use super::conversion::{assistant_message, gemini_usage_to_usage, send_tool_call_events};
@@ -20,8 +21,8 @@ pub(super) async fn stream_response(
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();
         let message = match serde_json::from_str::<GeminiError>(&text) {
-            Ok(err) => format!("Gemini API error ({}): {}", status, err.error.message),
-            Err(_) => format!("Gemini API error ({}): {}", status, text),
+            Ok(err) => format_api_error("Gemini", status, Some(err.error.message), &text).to_string(),
+            Err(_) => format_api_error("Gemini", status, None, &text).to_string(),
         };
         emit_stream_error(&tx, message.clone()).await;
         return Err(anyhow!(message));

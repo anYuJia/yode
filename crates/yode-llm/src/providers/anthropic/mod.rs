@@ -3,12 +3,13 @@ mod streaming;
 mod streaming_support;
 mod types;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use reqwest::Client;
 use tokio::sync::mpsc;
 use tracing::debug;
 
+use crate::providers::error_shared::format_api_error;
 use crate::providers::streaming_shared::map_stop_reason;
 use self::request_conversion::anthropic_usage_to_usage;
 use self::types::{
@@ -99,14 +100,10 @@ impl LlmProvider for AnthropicProvider {
         let status = resp.status();
         if !status.is_success() {
             let error_text = resp.text().await.unwrap_or_default();
-            if let Ok(err_resp) = serde_json::from_str::<AnthropicErrorResponse>(&error_text) {
-                return Err(anyhow!(
-                    "Anthropic API error ({}): {}",
-                    status,
-                    err_resp.error.message
-                ));
-            }
-            return Err(anyhow!("Anthropic API error ({}): {}", status, error_text));
+            let parsed = serde_json::from_str::<AnthropicErrorResponse>(&error_text)
+                .ok()
+                .map(|err_resp| err_resp.error.message);
+            return Err(format_api_error("Anthropic", status, parsed, &error_text));
         }
 
         let api_resp: AnthropicResponse = resp

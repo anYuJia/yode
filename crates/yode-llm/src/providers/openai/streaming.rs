@@ -1,9 +1,10 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use eventsource_stream::Eventsource;
 use futures::StreamExt;
 use tokio::sync::mpsc;
 use tracing::{debug, trace, warn};
 
+use crate::providers::error_shared::format_api_error;
 use crate::providers::streaming_shared::{emit_stream_error, emit_usage_update};
 use crate::types::{ChatRequest, StreamEvent, Usage};
 
@@ -51,19 +52,22 @@ impl OpenAiProvider {
         let status = resp.status();
         if !status.is_success() {
             let error_text = resp.text().await.unwrap_or_default();
-            if let Ok(err_resp) = serde_json::from_str::<OpenAiErrorResponse>(&error_text) {
-                let msg = format!(
-                    "OpenAI API error ({}): {} (code: {})",
-                    status,
-                    err_resp.error.message,
-                    err_resp.error.code.unwrap_or_else(|| "none".to_string())
-                );
-                emit_stream_error(&tx, msg.clone()).await;
-                return Err(anyhow!(msg));
-            }
-            let msg = format!("OpenAI API error ({}): {}", status, error_text);
-            emit_stream_error(&tx, msg.clone()).await;
-            return Err(anyhow!(msg));
+            let err = format_api_error(
+                "OpenAI",
+                status,
+                serde_json::from_str::<OpenAiErrorResponse>(&error_text)
+                    .ok()
+                    .map(|err_resp| {
+                        format!(
+                            "{} (code: {})",
+                            err_resp.error.message,
+                            err_resp.error.code.unwrap_or_else(|| "none".to_string())
+                        )
+                    }),
+                &error_text,
+            );
+            emit_stream_error(&tx, err.to_string()).await;
+            return Err(err);
         }
 
         let mut event_stream = resp.bytes_stream().eventsource();

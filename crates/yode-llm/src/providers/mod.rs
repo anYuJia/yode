@@ -1,4 +1,5 @@
 pub mod anthropic;
+pub(crate) mod error_shared;
 pub mod gemini;
 pub mod openai;
 pub mod openai_compat;
