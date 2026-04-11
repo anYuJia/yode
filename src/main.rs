@@ -18,9 +18,9 @@ use yode_core::setup::{has_api_keys_configured, run_setup_interactive};
 
 use crate::app_bootstrap::{
     configure_permissions, ensure_session_exists, init_logging, restore_or_create_context,
-    setup_tooling, shutdown_mcp_clients, write_permission_policy_artifact,
-    write_provider_inventory_artifact, write_startup_profile_artifact,
-    write_tooling_inventory_artifact, StartupProfiler,
+    setup_tooling, shutdown_mcp_clients, write_mcp_connect_failure_artifact,
+    write_permission_policy_artifact, write_provider_inventory_artifact,
+    write_startup_profile_artifact, write_tooling_inventory_artifact, StartupProfiler,
 };
 
 #[derive(Parser)]
@@ -289,6 +289,11 @@ async fn main() -> Result<()> {
         &context.working_dir_compat(),
         &context.session_id,
         &permissions,
+    );
+    let _ = write_mcp_connect_failure_artifact(
+        &context.working_dir_compat(),
+        &context.session_id,
+        &tooling.metrics.mcp_connect_failures,
     );
     startup_profiler.log_summary("tui", &tooling.metrics);
 

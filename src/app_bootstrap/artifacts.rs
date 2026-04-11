@@ -94,6 +94,27 @@ pub(crate) fn write_provider_inventory_artifact(
     )
 }
 
+pub(crate) fn write_mcp_connect_failure_artifact(
+    project_root: &Path,
+    session_id: &str,
+    failures: &[String],
+) -> Option<String> {
+    if failures.is_empty() {
+        return None;
+    }
+    let payload = serde_json::json!({
+        "failure_count": failures.len(),
+        "failures": failures,
+    });
+    write_startup_artifact(
+        project_root,
+        session_id,
+        "mcp-connect-failures",
+        "json",
+        &serde_json::to_string_pretty(&payload).ok()?,
+    )
+}
+
 pub(crate) fn write_permission_policy_artifact(
     project_root: &Path,
     session_id: &str,

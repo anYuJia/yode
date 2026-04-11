@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::{fs, path::PathBuf};
 
 use anyhow::Result;
 use tokio::sync::{mpsc, Mutex};
@@ -97,6 +98,11 @@ pub(super) async fn prepare_runtime(
                 stats.duration_ms
             ));
         }
+        let _ = write_resume_warmup_artifact(
+            &PathBuf::from(&app.session.working_dir),
+            &app.session.session_id,
+            &stats,
+        );
         app.session.resume_cache_warmup = Some(stats);
     }
 
@@ -106,6 +112,25 @@ pub(super) async fn prepare_runtime(
         engine_event_tx,
         engine_event_rx,
     })
+}
+
+fn write_resume_warmup_artifact(
+    project_root: &PathBuf,
+    session_id: &str,
+    stats: &crate::commands::info::ResumeTranscriptCacheWarmupStats,
+) -> Option<String> {
+    let dir = project_root.join(".yode").join("startup");
+    fs::create_dir_all(&dir).ok()?;
+    let short_session = session_id.chars().take(8).collect::<String>();
+    let path = dir.join(format!("{}-resume-warmup.json", short_session));
+    let payload = serde_json::json!({
+        "transcript_count": stats.transcript_count,
+        "metadata_entries_warmed": stats.metadata_entries_warmed,
+        "latest_lookup_cached": stats.latest_lookup_cached,
+        "duration_ms": stats.duration_ms,
+    });
+    fs::write(&path, serde_json::to_string_pretty(&payload).ok()?).ok()?;
+    Some(path.display().to_string())
 }
 
 fn register_skill_commands(app: &mut App, skill_commands: &[(String, String)]) {

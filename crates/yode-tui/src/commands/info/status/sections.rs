@@ -2,6 +2,16 @@ use yode_tools::registry::ToolInventory;
 
 use super::helpers::ReviewSummary;
 
+#[derive(Debug, Clone, Default)]
+pub(super) struct StatusArtifactLinks {
+    pub review_artifact: Option<String>,
+    pub tool_artifact: Option<String>,
+    pub recovery_artifact: Option<String>,
+    pub permission_artifact: Option<String>,
+    pub transcript_artifact: Option<String>,
+    pub runtime_task_artifact: Option<String>,
+}
+
 pub(super) fn busy_runtime_sections(always_allow: &str, inventory: &ToolInventory) -> String {
     format!(
         "\n\nCompact:\n  Runtime state:   engine busy\n\nMemory:\n  Runtime state:   engine busy\n\nTools:\n  Inventory:       {} total / {} active / {} deferred\n  MCP tools:       {} active / {} deferred\n  Search mode:     {}\n  Search reason:   {}\n  Activations:     {} (last: {})\n  Duplicate regs:  {} ({})\n  Always-allow:    {}",
@@ -34,5 +44,17 @@ pub(super) fn reviews_section(latest_review: Option<&ReviewSummary>) -> String {
         latest_review
             .map(|summary| summary.preview.as_str())
             .unwrap_or("none"),
+    )
+}
+
+pub(super) fn artifact_links_section(links: &StatusArtifactLinks) -> String {
+    format!(
+        "\n\nArtifacts:\n  Review:          {}\n  Tool:            {}\n  Recovery:        {}\n  Permission:      {}\n  Transcript:      {}\n  Runtime tasks:   {}",
+        links.review_artifact.as_deref().unwrap_or("none"),
+        links.tool_artifact.as_deref().unwrap_or("none"),
+        links.recovery_artifact.as_deref().unwrap_or("none"),
+        links.permission_artifact.as_deref().unwrap_or("none"),
+        links.transcript_artifact.as_deref().unwrap_or("none"),
+        links.runtime_task_artifact.as_deref().unwrap_or("none"),
     )
 }

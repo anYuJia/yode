@@ -30,6 +30,7 @@ pub(crate) struct ToolingSetupMetrics {
     pub(crate) configured_mcp_server_count: usize,
     pub(crate) connected_mcp_server_count: usize,
     pub(crate) mcp_tool_count: usize,
+    pub(crate) mcp_connect_failures: Vec<String>,
     pub(crate) discovered_skill_count: usize,
     pub(crate) active_tool_count: usize,
     pub(crate) deferred_tool_count: usize,
@@ -88,6 +89,7 @@ pub(crate) async fn setup_tooling(config: &Config, workdir: &Path) -> Result<Too
     }
 
     let mut mcp_clients: Vec<yode_mcp::McpClient> = Vec::new();
+    let mut mcp_connect_failures = Vec::new();
     while let Some(joined) = mcp_connect_set.join_next().await {
         match joined {
             Ok((name, result)) => match result {
@@ -95,10 +97,12 @@ pub(crate) async fn setup_tooling(config: &Config, workdir: &Path) -> Result<Too
                     mcp_clients.push(client);
                 }
                 Err(err) => {
+                    mcp_connect_failures.push(format!("{}: {}", name, err));
                     warn!(server = %name, error = %err, "Failed to connect to MCP server");
                 }
             },
             Err(err) => {
+                mcp_connect_failures.push(format!("join_error: {}", err));
                 warn!(error = %err, "MCP connect task failed");
             }
         }
@@ -198,6 +202,7 @@ pub(crate) async fn setup_tooling(config: &Config, workdir: &Path) -> Result<Too
             configured_mcp_server_count,
             connected_mcp_server_count,
             mcp_tool_count,
+            mcp_connect_failures,
             discovered_skill_count,
             active_tool_count: inventory.active_count,
             deferred_tool_count: inventory.deferred_count,
