@@ -103,6 +103,8 @@ impl AgentEngine {
             last_turn_duration_ms: self.last_turn_duration_ms,
             last_turn_stop_reason: self.last_turn_stop_reason.clone(),
             last_turn_artifact_path: self.last_turn_artifact_path.clone(),
+            last_stream_watchdog_stage: self.last_stream_watchdog_stage.clone(),
+            stream_retry_reason_histogram: self.stream_retry_reason_histogram.clone(),
             recovery_state: format!("{:?}", self.recovery_state),
             recovery_single_step_count: self.recovery_single_step_count,
             recovery_reanchor_count: self.recovery_reanchor_count,

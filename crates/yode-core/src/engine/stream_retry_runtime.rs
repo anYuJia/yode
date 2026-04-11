@@ -17,6 +17,11 @@ impl AgentEngine {
         cancel_token: Option<&CancellationToken>,
     ) -> Result<StreamRetryAction> {
         let kind = classify_error(&err);
+        let retry_reason = format!("{:?}", kind);
+        *self
+            .stream_retry_reason_histogram
+            .entry(retry_reason)
+            .or_insert(0) += 1;
         if kind == ErrorKind::Fatal {
             let _ = event_tx.send(EngineEvent::Error(format!("{}", err)));
             self.complete_tool_turn_artifact();

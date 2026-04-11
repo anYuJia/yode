@@ -23,6 +23,7 @@ impl AgentEngine {
 
         loop {
             if turn_start.elapsed() > hard_turn_timeout {
+                self.last_stream_watchdog_stage = Some("receive_loop:hard_timeout".to_string());
                 warn!(
                     "Streaming turn timed out after {:?}; forcing completion",
                     hard_turn_timeout
@@ -33,6 +34,7 @@ impl AgentEngine {
             }
 
             if last_progress_at.elapsed() > stall_timeout {
+                self.last_stream_watchdog_stage = Some("receive_loop:stall_timeout".to_string());
                 warn!(
                     "Streaming stalled for {:?} without progress; forcing completion",
                     stall_timeout
@@ -74,7 +76,9 @@ impl AgentEngine {
                     }
                 }
             } else {
-                match tokio::time::timeout(std::time::Duration::from_secs(2), stream_rx.recv()).await {
+                match tokio::time::timeout(std::time::Duration::from_secs(2), stream_rx.recv())
+                    .await
+                {
                     Ok(Some(stream_event)) => {
                         last_progress_at = std::time::Instant::now();
                         let is_done = matches!(stream_event, StreamEvent::Done(_));
@@ -112,8 +116,8 @@ impl AgentEngine {
             return false;
         }
 
-        if let Some(assistant_msg) = self
-            .build_partial_stream_assistant_message(&buffers.full_text, &buffers.full_reasoning)
+        if let Some(assistant_msg) =
+            self.build_partial_stream_assistant_message(&buffers.full_text, &buffers.full_reasoning)
         {
             self.push_and_persist_assistant_message(&assistant_msg);
         }

@@ -220,6 +220,10 @@ pub struct AgentEngine {
     last_turn_stop_reason: Option<String>,
     /// Artifact path for the most recently completed top-level turn.
     last_turn_artifact_path: Option<String>,
+    /// Last stream watchdog stage label emitted by the receive loop.
+    last_stream_watchdog_stage: Option<String>,
+    /// Retry reasons seen across streaming retries.
+    stream_retry_reason_histogram: BTreeMap<String, u32>,
     /// Consecutive auto-compaction failures for circuit breaking.
     compaction_failures: u32,
     /// Successful compactions in the current session.

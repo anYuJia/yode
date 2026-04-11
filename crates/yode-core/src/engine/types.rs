@@ -160,6 +160,8 @@ pub struct EngineRuntimeState {
     pub last_turn_duration_ms: Option<u64>,
     pub last_turn_stop_reason: Option<String>,
     pub last_turn_artifact_path: Option<String>,
+    pub last_stream_watchdog_stage: Option<String>,
+    pub stream_retry_reason_histogram: BTreeMap<String, u32>,
     pub recovery_state: String,
     pub recovery_single_step_count: u32,
     pub recovery_reanchor_count: u32,

@@ -85,6 +85,8 @@ impl AgentEngine {
             last_turn_duration_ms: None,
             last_turn_stop_reason: None,
             last_turn_artifact_path: None,
+            last_stream_watchdog_stage: None,
+            stream_retry_reason_histogram: BTreeMap::new(),
             compaction_failures: 0,
             total_compactions: 0,
             auto_compactions: 0,
