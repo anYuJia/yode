@@ -183,6 +183,7 @@ impl AgentEngine {
         }
 
         if CommandClassifier::classify(command) == CommandRiskLevel::Destructive {
+            self.permissions.record_shell_prefix_denial(Some(command));
             self.last_permission_action = Some("deny".to_string());
             self.last_permission_explanation = Some(destructive_guard_reason().to_string());
             self.write_permission_artifact(

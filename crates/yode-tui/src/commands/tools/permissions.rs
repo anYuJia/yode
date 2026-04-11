@@ -72,6 +72,8 @@ impl Command for PermissionsCommand {
                 let tools = engine.permissions().confirmable_tools();
                 let rules = engine.permissions().rules_snapshot();
                 let denials = engine.permissions().recent_denials(5);
+                let denial_prefixes = engine.permissions().recent_denial_prefixes(5);
+                let safe_prefixes = engine.permissions().safe_readonly_shell_prefixes();
                 let runtime = engine.runtime_state();
                 let mut lines = vec![
                     format!("Permission mode: {}", mode),
@@ -117,6 +119,21 @@ impl Command for PermissionsCommand {
                         ));
                     }
                 }
+                if denial_prefixes.is_empty() {
+                    lines.push("Recent bash denial prefixes: none".into());
+                } else {
+                    lines.push("Recent bash denial prefixes:".into());
+                    for denial in denial_prefixes {
+                        lines.push(format!(
+                            "  {} -> count={} consecutive={} last_at={}",
+                            denial.prefix, denial.count, denial.consecutive, denial.last_at
+                        ));
+                    }
+                }
+                lines.push(format!(
+                    "Safe bash readonly prefixes: {}",
+                    safe_prefixes.join(", ")
+                ));
                 lines.push(format!(
                     "Last permission decision: {} [{}]",
                     runtime.last_permission_tool.as_deref().unwrap_or("none"),
@@ -176,9 +193,21 @@ impl Command for PermissionsCommand {
                     })
                     .collect::<Vec<_>>();
                 if filtered.is_empty() {
-                    return Ok(CommandOutput::Message(
-                        "Recent denials: none".to_string(),
-                    ));
+                    let prefix_lines = engine.permissions().recent_denial_prefixes(10);
+                    if prefix_lines.is_empty() {
+                        return Ok(CommandOutput::Message(
+                            "Recent denials: none".to_string(),
+                        ));
+                    }
+                    let mut lines =
+                        vec!["Recent bash denials grouped by command prefix:".to_string()];
+                    for denial in prefix_lines {
+                        lines.push(format!(
+                            "  {} -> count={} consecutive={} last_at={}",
+                            denial.prefix, denial.count, denial.consecutive, denial.last_at
+                        ));
+                    }
+                    return Ok(CommandOutput::Messages(lines));
                 }
                 let mut lines = vec!["Recent denials grouped by tool:".to_string()];
                 for denial in filtered {

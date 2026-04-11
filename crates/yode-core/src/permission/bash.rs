@@ -24,8 +24,8 @@ pub(crate) fn discovery_redirect(command_lower: &str) -> Option<BashDiscoveryRed
         });
     }
 
-    let is_recursive_ls =
-        command_lower.contains("ls ") && (command_lower.contains("-r") || command_lower.contains("-lar"));
+    let is_recursive_ls = command_lower.contains("ls ")
+        && (command_lower.contains("-r") || command_lower.contains("-lar"));
     if is_recursive_ls {
         return Some(BashDiscoveryRedirect {
             command_name: "ls -R",
@@ -75,4 +75,38 @@ pub(crate) fn destructive_guard_reason() -> &'static str {
 
 pub(crate) fn destructive_guard_suggestion() -> &'static str {
     "This command is classified as destructive and cannot be executed. Stop and propose a safer fallback such as `git status`, `git diff`, `ls`, or a dry-run variant before attempting any mutation again."
+}
+
+pub(crate) fn command_prefix(command: &str) -> Option<String> {
+    let parts = command
+        .split_whitespace()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    let first = parts.first()?;
+    let second = parts.get(1).copied();
+    let prefix = match (*first, second) {
+        ("git", Some(subcommand)) => format!("git {}", subcommand),
+        ("cargo", Some(subcommand)) => format!("cargo {}", subcommand),
+        ("go", Some(subcommand)) => format!("go {}", subcommand),
+        ("npm", Some(subcommand)) => format!("npm {}", subcommand),
+        ("pnpm", Some(subcommand)) => format!("pnpm {}", subcommand),
+        ("yarn", Some(subcommand)) => format!("yarn {}", subcommand),
+        ("uv", Some(subcommand)) => format!("uv {}", subcommand),
+        _ => first.to_string(),
+    };
+    Some(prefix)
+}
+
+pub(crate) fn safe_readonly_prefixes() -> &'static [&'static str] {
+    &[
+        "pwd",
+        "ls",
+        "git status",
+        "git diff",
+        "git log",
+        "cargo check",
+        "cargo test --help",
+        "go test -run",
+        "npm test -- --help",
+    ]
 }

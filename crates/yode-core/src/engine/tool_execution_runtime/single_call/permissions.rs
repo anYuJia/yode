@@ -118,6 +118,8 @@ impl AgentEngine {
                 Ok(Some(ConfirmResponse::Deny)) => {
                     info!("Tool {} denied by user", tool_call.name);
                     self.permissions.record_denial(&tool_call.name);
+                    self.permissions
+                        .record_shell_prefix_denial(prepared.command_content.as_deref());
                     self.write_permission_artifact(
                         "user_confirmation",
                         &tool_call.name,
@@ -183,6 +185,8 @@ impl AgentEngine {
         permission_reason: &str,
         prepared: &PreparedToolExecution,
     ) -> Result<Option<ToolExecutionOutcome>> {
+        self.permissions
+            .record_shell_prefix_denial(prepared.command_content.as_deref());
         let denied_ctx = HookContext {
             event: HookEvent::PermissionDenied.to_string(),
             session_id: self.context.session_id.clone(),

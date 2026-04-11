@@ -1,4 +1,5 @@
 use super::*;
+use crate::permission::{bash_risk_rationale, CommandClassifier};
 
 impl AgentEngine {
     pub(super) fn detect_project_kind(root: &std::path::Path) -> ProjectKind {
@@ -137,6 +138,25 @@ impl AgentEngine {
             "tool": tool_name,
             "decision": decision,
             "reason": reason,
+            "classifier_risk": if tool_name == "bash" {
+                effective_input
+                    .get("command")
+                    .and_then(|value| value.as_str())
+                    .map(|command| format!("{:?}", CommandClassifier::classify(command)))
+            } else {
+                None
+            },
+            "classifier_rationale": if tool_name == "bash" {
+                effective_input
+                    .get("command")
+                    .and_then(|value| value.as_str())
+                    .map(|command| {
+                        let risk = CommandClassifier::classify(command);
+                        bash_risk_rationale(command, risk)
+                    })
+            } else {
+                None
+            },
             "effective_input_snapshot": effective_input,
             "effective_arguments_snapshot": effective_arguments,
             "original_input_snapshot": original_input,

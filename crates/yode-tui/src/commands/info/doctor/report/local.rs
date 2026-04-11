@@ -14,6 +14,8 @@ pub(super) fn render_doctor_report(ctx: &mut CommandContext) -> String {
                 .into_iter()
                 .map(|tool| tool.to_string())
                 .collect::<Vec<_>>(),
+            engine.permissions().recent_denial_prefixes(5),
+            engine.permissions().safe_readonly_shell_prefixes().join(", "),
         )
     });
     let project_root = std::path::PathBuf::from(&ctx.session.working_dir);
@@ -134,12 +136,22 @@ pub(super) fn render_doctor_report(ctx: &mut CommandContext) -> String {
         checks.push("  [--] Startup profile unavailable".to_string());
     }
 
-    if let Some((state, permission_mode, confirmable_tools)) = runtime {
+    if let Some((state, permission_mode, confirmable_tools, denial_prefixes, safe_prefixes)) = runtime {
         checks.extend(runtime_health_checks(
             &project_root,
             &state,
             permission_mode,
             &confirmable_tools,
+            &denial_prefixes
+                .into_iter()
+                .map(|entry| {
+                    format!(
+                        "{} x{} (consecutive {}, at {})",
+                        entry.prefix, entry.count, entry.consecutive, entry.last_at
+                    )
+                })
+                .collect::<Vec<_>>(),
+            &safe_prefixes,
         ));
     } else {
         checks.push("  [--] Engine runtime busy; skipped context/memory checks".to_string());
@@ -196,6 +208,8 @@ fn runtime_health_checks(
     state: &yode_core::engine::EngineRuntimeState,
     permission_mode: yode_core::PermissionMode,
     confirmable_tools: &[String],
+    denial_prefixes: &[String],
+    safe_prefixes: &str,
 ) -> Vec<String> {
     let mut checks = Vec::new();
     checks.push(format!(
@@ -265,6 +279,15 @@ fn runtime_health_checks(
         state.tool_pool.confirm_count(),
         state.tool_pool.deny_count()
     ));
+    checks.push(format!("  [ok] Safe bash readonly prefixes: {}", safe_prefixes));
+    if denial_prefixes.is_empty() {
+        checks.push("  [ok] No bash denial prefixes recorded".to_string());
+    } else {
+        checks.push(format!(
+            "  [--] Bash denial prefixes: {}",
+            denial_prefixes.join(" | ")
+        ));
+    }
     checks.push(format!(
         "  [ok] Tool progress events tracked: {}",
         state.tool_progress_event_count

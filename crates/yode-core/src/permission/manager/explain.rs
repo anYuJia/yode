@@ -108,15 +108,7 @@ impl PermissionManager {
             };
             return PermissionExplanation {
                 action,
-                reason: format!(
-                    "Matched {} rule from {:?}.",
-                    match rule.behavior {
-                        RuleBehavior::Allow => "allow",
-                        RuleBehavior::Deny => "deny",
-                        RuleBehavior::Ask => "ask",
-                    },
-                    rule.source
-                ),
+                reason: permission_rule_reason(rule, content),
                 mode: self.mode,
                 classifier_risk: None,
                 matched_rule: Some(format!(
@@ -137,7 +129,9 @@ impl PermissionManager {
             };
         }
 
-        if self.mode == PermissionMode::Auto && self.readonly_tools.iter().any(|tool| tool == tool_name) {
+        if self.mode == PermissionMode::Auto
+            && self.readonly_tools.iter().any(|tool| tool == tool_name)
+        {
             return PermissionExplanation {
                 action: PermissionAction::Allow,
                 reason: "Auto mode allows this read-only tool.".to_string(),
@@ -164,6 +158,25 @@ impl PermissionManager {
             denial_count: self.denial_tracker.denial_count(tool_name),
             auto_skip_due_to_denials: false,
         }
+    }
+}
+
+fn permission_rule_reason(rule: &PermissionRule, content: Option<&str>) -> String {
+    let behavior = match rule.behavior {
+        RuleBehavior::Allow => "allow",
+        RuleBehavior::Deny => "deny",
+        RuleBehavior::Ask => "ask",
+    };
+    match (&rule.pattern, content) {
+        (Some(pattern), Some(command)) => format!(
+            "Matched {} rule from {:?} because the command matched pattern '{}' against '{}'.",
+            behavior, rule.source, pattern, command
+        ),
+        (Some(pattern), None) => format!(
+            "Matched {} rule from {:?} with pattern '{}'.",
+            behavior, rule.source, pattern
+        ),
+        (None, _) => format!("Matched {} rule from {:?}.", behavior, rule.source),
     }
 }
 

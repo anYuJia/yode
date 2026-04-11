@@ -9,6 +9,14 @@ pub struct DenialRecordView {
     pub last_at: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct DenialClusterView {
+    pub prefix: String,
+    pub count: u32,
+    pub consecutive: u32,
+    pub last_at: String,
+}
+
 #[derive(Debug)]
 struct DenialState {
     count: u32,
@@ -20,6 +28,7 @@ struct DenialState {
 #[derive(Debug)]
 pub struct DenialTracker {
     states: HashMap<String, DenialState>,
+    shell_prefix_states: HashMap<String, DenialState>,
     expiry: Duration,
 }
 
@@ -27,6 +36,7 @@ impl DenialTracker {
     pub fn new() -> Self {
         Self {
             states: HashMap::new(),
+            shell_prefix_states: HashMap::new(),
             expiry: Duration::from_secs(30 * 60),
         }
     }
@@ -49,6 +59,23 @@ impl DenialTracker {
         if let Some(state) = self.states.get_mut(key) {
             state.consecutive = 0;
         }
+    }
+
+    pub fn record_shell_prefix_denial(&mut self, prefix: &str) {
+        let state = self
+            .shell_prefix_states
+            .entry(prefix.to_string())
+            .or_insert(DenialState {
+                count: 0,
+                consecutive: 0,
+                last_time: Instant::now(),
+                last_at: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+            });
+        state.count += 1;
+        state.consecutive += 1;
+        state.last_time = Instant::now();
+        state.last_at = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        self.cleanup_expired();
     }
 
     /// Whether the user has denied this tool type enough times to warrant auto-skipping.
@@ -88,9 +115,30 @@ impl DenialTracker {
             .collect()
     }
 
+    pub fn recent_shell_prefix_entries(&self, limit: usize) -> Vec<DenialClusterView> {
+        let mut entries = self
+            .shell_prefix_states
+            .iter()
+            .map(|(prefix, state)| (prefix, state))
+            .collect::<Vec<_>>();
+        entries.sort_by(|a, b| b.1.last_time.cmp(&a.1.last_time));
+        entries
+            .into_iter()
+            .take(limit)
+            .map(|(prefix, state)| DenialClusterView {
+                prefix: prefix.clone(),
+                count: state.count,
+                consecutive: state.consecutive,
+                last_at: state.last_at.clone(),
+            })
+            .collect()
+    }
+
     fn cleanup_expired(&mut self) {
         let now = Instant::now();
         self.states
+            .retain(|_, state| now.duration_since(state.last_time) < self.expiry);
+        self.shell_prefix_states
             .retain(|_, state| now.duration_since(state.last_time) < self.expiry);
     }
 }

@@ -22,7 +22,7 @@
 
 当前进度：
 
-- `40 / 100` 已完成
+- `44 / 100` 已完成
 
 ## 001-010 Startup / Warmup
 
@@ -57,11 +57,11 @@
 - `[x]` 023 bash discovery redirect logic centralized
 - `[x]` 024 destructive bash guard message centralized
 - `[ ]` 025 shell safety helper module split from generic permission manager
-- `[ ]` 026 shell rule explanation surface for pattern matches
-- `[ ]` 027 shell permission artifact includes classifier rationale field
-- `[ ]` 028 shell deny clustering by command prefix
+- `[x]` 026 shell rule explanation surface for pattern matches
+- `[x]` 027 shell permission artifact includes classifier rationale field
+- `[x]` 028 shell deny clustering by command prefix
 - `[ ]` 029 shell rule suggestion engine for repeated confirmations
-- `[ ]` 030 shell safe-readonly prefix inventory for diagnostics
+- `[x]` 030 shell safe-readonly prefix inventory for diagnostics
 
 ## 031-040 Provider / Streaming
 

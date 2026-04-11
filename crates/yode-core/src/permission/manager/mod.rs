@@ -1,7 +1,7 @@
 mod explain;
 
 use super::{
-    CommandRiskLevel, DenialRecordView, DenialTracker, PermissionAction, PermissionMode,
+    CommandRiskLevel, DenialClusterView, DenialRecordView, DenialTracker, PermissionAction, PermissionMode,
     PermissionRule, RuleBehavior, RuleSource,
 };
 
@@ -123,8 +123,22 @@ impl PermissionManager {
         self.denial_tracker.record_success(tool_name);
     }
 
+    pub fn record_shell_prefix_denial(&mut self, content: Option<&str>) {
+        if let Some(prefix) = content.and_then(crate::permission::bash::command_prefix) {
+            self.denial_tracker.record_shell_prefix_denial(&prefix);
+        }
+    }
+
     pub fn recent_denials(&self, limit: usize) -> Vec<DenialRecordView> {
         self.denial_tracker.recent_entries(limit)
+    }
+
+    pub fn recent_denial_prefixes(&self, limit: usize) -> Vec<DenialClusterView> {
+        self.denial_tracker.recent_shell_prefix_entries(limit)
+    }
+
+    pub fn safe_readonly_shell_prefixes(&self) -> &'static [&'static str] {
+        crate::permission::bash::safe_readonly_prefixes()
     }
 
     pub fn rules_snapshot(&self) -> Vec<PermissionRule> {

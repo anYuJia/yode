@@ -167,6 +167,43 @@ fn test_permission_explanation_surfaces_classifier_reason() {
 }
 
 #[test]
+fn test_permission_explanation_surfaces_pattern_match_reason() {
+    let mut pm = PermissionManager::new(PermissionMode::Default);
+    pm.add_rule(PermissionRule {
+        source: RuleSource::UserConfig,
+        behavior: RuleBehavior::Deny,
+        tool_name: "bash".to_string(),
+        pattern: Some("git push *".to_string()),
+    });
+
+    let explanation = pm.explain_with_content("bash", Some("git push origin main"));
+    assert_eq!(explanation.action, PermissionAction::Deny);
+    assert!(explanation.reason.contains("matched pattern 'git push *'"));
+    assert!(explanation.reason.contains("git push origin main"));
+}
+
+#[test]
+fn test_bash_denial_prefixes_are_clustered() {
+    let mut pm = PermissionManager::new(PermissionMode::Default);
+    pm.record_shell_prefix_denial(Some("git push --force origin main"));
+    pm.record_shell_prefix_denial(Some("git push origin main"));
+
+    let prefixes = pm.recent_denial_prefixes(5);
+    assert_eq!(prefixes.len(), 1);
+    assert_eq!(prefixes[0].prefix, "git push");
+    assert_eq!(prefixes[0].count, 2);
+}
+
+#[test]
+fn test_safe_readonly_shell_prefixes_include_git_status() {
+    let pm = PermissionManager::new(PermissionMode::Default);
+    assert!(pm
+        .safe_readonly_shell_prefixes()
+        .iter()
+        .any(|prefix| *prefix == "git status"));
+}
+
+#[test]
 fn test_glob_match() {
     assert!(glob_match("cargo *", "cargo build"));
     assert!(glob_match("cargo *", "cargo test --release"));
