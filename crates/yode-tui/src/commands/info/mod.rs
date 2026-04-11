@@ -22,7 +22,8 @@ pub use help::HelpCommand;
 pub use hooks_cmd::HooksCommand;
 pub use memory::MemoryCommand;
 pub(crate) use memory::{
-    run_long_session_benchmark, warm_resume_transcript_caches, ResumeTranscriptCacheWarmupStats,
+    run_long_session_benchmark, transcript_cache_stats, warm_resume_transcript_caches,
+    ResumeTranscriptCacheWarmupStats,
 };
 pub use status::StatusCommand;
 pub use tasks::TasksCommand;

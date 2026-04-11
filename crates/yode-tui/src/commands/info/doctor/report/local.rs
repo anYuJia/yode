@@ -216,6 +216,7 @@ fn runtime_health_checks(
 ) -> Vec<String> {
     let mut checks = Vec::new();
     let benchmark = crate::commands::info::run_long_session_benchmark(project_root);
+    let cache_stats = crate::commands::info::transcript_cache_stats();
     checks.push(format!(
         "  [ok] Compact count: {} (auto {}, manual {})",
         state.total_compactions, state.auto_compactions, state.manual_compactions
@@ -279,6 +280,21 @@ fn runtime_health_checks(
         } else {
             "no"
         }
+    ));
+    checks.push(format!(
+        "  [ok] Transcript cache stats: metadata {} hit / {} miss, latest {} hit / {} miss",
+        cache_stats.metadata_hits,
+        cache_stats.metadata_misses,
+        cache_stats.latest_hits,
+        cache_stats.latest_misses
+    ));
+    checks.push(format!(
+        "  [ok] Transcript cache invalidations: {} ({})",
+        cache_stats.invalidations,
+        cache_stats
+            .last_invalidation_reason
+            .as_deref()
+            .unwrap_or("none")
     ));
     checks.push(format!(
         "  [ok] Session memory updates recorded: {}",

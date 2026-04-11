@@ -117,6 +117,8 @@
     - resume transcript warmup 改为后台 blocking task，与 TUI startup 其它步骤重叠
     - startup profile 已追加 resume warmup / db open / session bootstrap timing
     - `/doctor` 已直接展示 transcript benchmark 摘要
+    - transcript cache 现在会暴露 metadata/latest hit-miss 和 invalidation 统计
+    - startup profile 已追加 restore mode / decoded / skipped / fallback reason
 
 ### P2
 

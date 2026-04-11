@@ -24,7 +24,8 @@ use self::transcripts::{
     latest_transcript, parse_latest_compare_target, parse_list_filter, resolve_transcript_target,
 };
 pub(crate) use self::transcripts::{
-    run_long_session_benchmark, warm_resume_transcript_caches, ResumeTranscriptCacheWarmupStats,
+    run_long_session_benchmark, transcript_cache_stats, warm_resume_transcript_caches,
+    ResumeTranscriptCacheWarmupStats,
 };
 use crate::commands::context::CommandContext;
 use crate::commands::{

@@ -22,7 +22,7 @@
 
 当前进度：
 
-- `55 / 100` 已完成
+- `59 / 100` 已完成
 
 ## 001-010 Startup / Warmup
 
@@ -80,12 +80,12 @@
 
 - `[x]` 041 resume transcript warmup overlapped with TUI startup
 - `[x]` 042 resume warmup progress staged into startup profile
-- `[ ]` 043 resume cache hit/miss counters by transcript metadata cache
+- `[x]` 043 resume cache hit/miss counters by transcript metadata cache
 - `[ ]` 044 resume path split between metadata-only and full transcript restore
-- `[ ]` 045 restored message decode metrics
+- `[x]` 045 restored message decode metrics
 - `[x]` 046 db open / load timing surfaced in startup profile
-- `[ ]` 047 transcript cache invalidation diagnostics
-- `[ ]` 048 session restore fallback reason reporting
+- `[x]` 047 transcript cache invalidation diagnostics
+- `[x]` 048 session restore fallback reason reporting
 - `[x]` 049 transcript benchmark summary exposed in `/doctor`
 - `[ ]` 050 resume hot path regression test matrix
 

@@ -62,6 +62,44 @@ fn warm_resume_transcript_caches_reports_warmed_entries() {
     assert_eq!(stats.transcript_count, 2);
     assert_eq!(stats.metadata_entries_warmed, 2);
     assert!(stats.latest_lookup_cached);
+    let cache_stats = crate::commands::info::transcript_cache_stats();
+    assert_eq!(cache_stats.metadata_misses, 2);
+    assert_eq!(cache_stats.latest_misses, 0);
+
+    std::fs::remove_dir_all(&project_root).ok();
+}
+
+#[test]
+fn transcript_cache_stats_track_hits_and_invalidations() {
+    let project_root = std::env::temp_dir().join(format!(
+        "yode-memory-cache-stats-{}",
+        uuid::Uuid::new_v4()
+    ));
+    let transcript_dir = project_root.join(".yode").join("transcripts");
+    std::fs::create_dir_all(&transcript_dir).unwrap();
+    let path = transcript_dir.join("aaa-compact-20260101.md");
+    std::fs::write(
+        &path,
+        "# Compaction Transcript\n\n- Mode: auto\n- Timestamp: 2026-01-01 10:00:00\n",
+    )
+    .unwrap();
+
+    let _ = read_transcript_metadata(&path);
+    let _ = read_transcript_metadata(&path);
+    let _ = latest_transcript(&transcript_dir);
+    let _ = latest_transcript(&transcript_dir);
+    std::thread::sleep(std::time::Duration::from_millis(10));
+    std::fs::write(
+        transcript_dir.join("bbb-compact-20260102.md"),
+        "# Compaction Transcript\n\n- Mode: auto\n- Timestamp: 2026-01-02 10:00:00\n",
+    )
+    .unwrap();
+    let _ = latest_transcript(&transcript_dir);
+
+    let stats = crate::commands::info::transcript_cache_stats();
+    assert!(stats.metadata_hits >= 1);
+    assert!(stats.latest_hits >= 1);
+    assert!(stats.invalidations >= 1);
 
     std::fs::remove_dir_all(&project_root).ok();
 }

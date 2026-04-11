@@ -82,10 +82,16 @@ pub(in crate::commands::info::memory) fn latest_transcript(dir: &Path) -> Option
     if let Ok(cache) = LATEST_TRANSCRIPT_CACHE.lock() {
         if let Some((cached_stamp, cached_path)) = cache.get(dir) {
             if *cached_stamp == stamp {
+                note_latest_cache_hit();
                 return cached_path.clone();
             }
+            note_cache_invalidation(format!(
+                "latest_transcript stamp changed for {}",
+                dir.display()
+            ));
         }
     }
+    note_latest_cache_miss();
 
     let latest = sorted_transcript_entries(dir).into_iter().next();
     if let Ok(mut cache) = LATEST_TRANSCRIPT_CACHE.lock() {
@@ -101,7 +107,10 @@ pub(in crate::commands::info::memory) fn parse_list_filter(
         return Ok(TranscriptListFilter::default());
     }
 
-    let spec = args.strip_prefix("list ").ok_or_else(memory_list_usage)?.trim();
+    let spec = args
+        .strip_prefix("list ")
+        .ok_or_else(memory_list_usage)?
+        .trim();
     if spec.is_empty() {
         return Ok(TranscriptListFilter::default());
     }

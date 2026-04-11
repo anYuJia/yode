@@ -223,7 +223,7 @@ async fn main() -> Result<()> {
     let permissions = configure_permissions(&config);
     startup_profiler.checkpoint("permission_setup");
     let session_bootstrap_started_at = Instant::now();
-    let (context, restored_messages) =
+    let (context, restored_messages, restore_report) =
         restore_or_create_context(&cli, &db, workdir, provider_name.clone(), model.clone())?;
     ensure_session_exists(&db, &context)?;
     let session_bootstrap_elapsed_ms = session_bootstrap_started_at.elapsed().as_millis() as u64;
@@ -253,12 +253,16 @@ async fn main() -> Result<()> {
     );
     startup_profiler.checkpoint("ready_tui");
     let startup_summary = format!(
-        "{} {} resume[db_open={}ms session_bootstrap={}ms restored_messages={}]",
+        "{} {} resume[db_open={}ms session_bootstrap={}ms restored_messages={} restore_mode={} decoded={} skipped={} fallback={}]",
         startup_profiler.summary("tui", &tooling.metrics),
         provider_metrics.summary(),
         db_open_elapsed_ms,
         session_bootstrap_elapsed_ms,
-        restored_messages.as_ref().map(|messages| messages.len()).unwrap_or(0)
+        restored_messages.as_ref().map(|messages| messages.len()).unwrap_or(0),
+        restore_report.mode,
+        restore_report.decoded_messages,
+        restore_report.skipped_messages,
+        restore_report.fallback_reason.as_deref().unwrap_or("none")
     );
     startup_profiler.log_summary("tui", &tooling.metrics);
 

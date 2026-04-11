@@ -10,10 +10,12 @@ pub(in crate::commands::info::memory) fn read_transcript_metadata(
     if let Ok(cache) = TRANSCRIPT_META_CACHE.lock() {
         if let Some((cached_stamp, cached_meta)) = cache.get(path) {
             if *cached_stamp == stamp {
+                note_metadata_cache_hit();
                 return Some(cached_meta.clone());
             }
         }
     }
+    note_metadata_cache_miss();
 
     let content = fs::read_to_string(path).ok()?;
     let mut meta = TranscriptMetadata::default();
@@ -193,6 +195,7 @@ fn clear_transcript_caches() {
     if let Ok(mut cache) = LATEST_TRANSCRIPT_CACHE.lock() {
         cache.clear();
     }
+    note_cache_invalidation("manual_benchmark_clear");
 }
 
 fn measure_ms(f: impl FnOnce()) -> u64 {

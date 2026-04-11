@@ -11,6 +11,14 @@ use yode_core::permission::PermissionManager;
 use yode_core::session::Session;
 use yode_llm::types::{ContentBlock, Message, Role, ToolCall};
 
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SessionRestoreReport {
+    pub mode: &'static str,
+    pub fallback_reason: Option<String>,
+    pub decoded_messages: usize,
+    pub skipped_messages: usize,
+}
+
 pub(crate) fn configure_permissions(config: &Config) -> PermissionManager {
     let mut permissions =
         PermissionManager::from_confirmation_list(config.tools.require_confirmation.clone());
@@ -48,7 +56,7 @@ pub(crate) fn restore_or_create_context(
     workdir: PathBuf,
     provider_name: String,
     model: String,
-) -> Result<(AgentContext, Option<Vec<Message>>)> {
+) -> Result<(AgentContext, Option<Vec<Message>>, SessionRestoreReport)> {
     if let Some(resume_id) = &cli.resume {
         if let Some(session) = db.get_session(resume_id)? {
             info!("Resuming session: {}", resume_id);
@@ -58,13 +66,33 @@ pub(crate) fn restore_or_create_context(
                 session.provider.clone(),
                 session.model.clone(),
             );
-            return Ok((context, Some(load_restored_messages(db, resume_id)?)));
+            let (messages, report) = load_restored_messages(db, resume_id)?;
+            return Ok((context, Some(messages), report));
         }
 
         eprintln!("会话 '{}' 未找到，创建新会话。", resume_id);
+        return Ok((
+            AgentContext::new(workdir, provider_name, model),
+            None,
+            SessionRestoreReport {
+                mode: "new_session",
+                fallback_reason: Some("resume_session_not_found".to_string()),
+                decoded_messages: 0,
+                skipped_messages: 0,
+            },
+        ));
     }
 
-    Ok((AgentContext::new(workdir, provider_name, model), None))
+    Ok((
+        AgentContext::new(workdir, provider_name, model),
+        None,
+        SessionRestoreReport {
+            mode: "new_session",
+            fallback_reason: None,
+            decoded_messages: 0,
+            skipped_messages: 0,
+        },
+    ))
 }
 
 pub(crate) fn ensure_session_exists(db: &Database, context: &AgentContext) -> Result<()> {
@@ -92,12 +120,20 @@ pub(crate) async fn shutdown_mcp_clients(clients: Vec<yode_mcp::McpClient>) {
     }
 }
 
-fn load_restored_messages(db: &Database, resume_id: &str) -> Result<Vec<Message>> {
-    Ok(db
-        .load_messages(resume_id)?
+fn load_restored_messages(db: &Database, resume_id: &str) -> Result<(Vec<Message>, SessionRestoreReport)> {
+    let stored = db.load_messages(resume_id)?;
+    let total = stored.len();
+    let decoded_messages = stored
         .into_iter()
         .filter_map(stored_message_to_message)
-        .collect())
+        .collect::<Vec<_>>();
+    let report = SessionRestoreReport {
+        mode: "full_transcript_restore",
+        fallback_reason: None,
+        decoded_messages: decoded_messages.len(),
+        skipped_messages: total.saturating_sub(decoded_messages.len()),
+    };
+    Ok((decoded_messages, report))
 }
 
 fn stored_message_to_message(message: StoredMessage) -> Option<Message> {
