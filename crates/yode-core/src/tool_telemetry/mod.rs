@@ -7,7 +7,7 @@ use tokio::sync::mpsc;
 use yode_llm::types::ToolCall;
 use yode_tools::tool::ToolResult;
 
-use crate::tool_runtime::{write_tool_turn_artifact, ToolTurnArtifact};
+use crate::tool_runtime::{write_tool_turn_artifact, ToolPoolArtifactView, ToolTurnArtifact};
 
 use super::{
     AgentEngine, EngineEvent, ToolExecutionTrace, TOOL_BUDGET_NOTICE, TOOL_BUDGET_WARNING,
@@ -77,10 +77,8 @@ impl AgentEngine {
                     .saturating_add(1);
             }
             if usage.cache_read_tokens > 0 {
-                self.prompt_cache_runtime.cache_read_turns = self
-                    .prompt_cache_runtime
-                    .cache_read_turns
-                    .saturating_add(1);
+                self.prompt_cache_runtime.cache_read_turns =
+                    self.prompt_cache_runtime.cache_read_turns.saturating_add(1);
             }
             self.prompt_cache_runtime.cache_write_tokens_total = self
                 .prompt_cache_runtime
@@ -165,10 +163,7 @@ impl AgentEngine {
         None
     }
 
-    fn note_tool_truncation(
-        &mut self,
-        truncation: &crate::tool_runtime::ToolResultTruncationView,
-    ) {
+    fn note_tool_truncation(&mut self, truncation: &crate::tool_runtime::ToolResultTruncationView) {
         self.tool_truncation_count = self.tool_truncation_count.saturating_add(1);
         self.current_turn_truncated_results = self.current_turn_truncated_results.saturating_add(1);
         self.last_tool_truncation_reason = Some(truncation.reason.clone());
@@ -252,6 +247,8 @@ impl AgentEngine {
                 *current_error_type_counts.entry(kind.clone()).or_insert(0) += 1;
             }
         }
+        let inventory = self.tools.inventory();
+        let tool_pool_snapshot = self.build_tool_pool_snapshot();
 
         let artifact = ToolTurnArtifact {
             turn_index: self.tool_turn_counter,
@@ -271,6 +268,11 @@ impl AgentEngine {
             last_budget_warning: self.last_tool_budget_warning.clone(),
             latest_repeated_failure: self.latest_repeated_tool_failure.clone(),
             error_type_counts: current_error_type_counts,
+            tool_pool: Some(ToolPoolArtifactView::from_snapshot(
+                &tool_pool_snapshot,
+                inventory.activation_count,
+                inventory.last_activated_tool,
+            )),
             calls: self
                 .current_tool_execution_traces
                 .iter()

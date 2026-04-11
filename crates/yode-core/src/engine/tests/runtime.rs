@@ -264,6 +264,8 @@ async fn test_tool_runtime_state_and_artifact_are_recorded() {
     assert!(runtime.last_tool_turn_artifact_path.is_some());
     let path = runtime.last_tool_turn_artifact_path.unwrap();
     assert!(std::path::Path::new(&path).exists());
+    let content = std::fs::read_to_string(path).unwrap();
+    assert!(content.contains("## Tool Pool"));
 }
 
 #[test]

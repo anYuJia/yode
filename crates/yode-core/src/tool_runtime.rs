@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use yode_tools::registry::ToolPoolSnapshot;
 
 const TOOL_ARTIFACTS_DIR: &str = ".yode/tools";
 
@@ -53,7 +54,55 @@ pub struct ToolTurnArtifact {
     pub last_budget_warning: Option<String>,
     pub latest_repeated_failure: Option<String>,
     pub error_type_counts: BTreeMap<String, u32>,
+    pub tool_pool: Option<ToolPoolArtifactView>,
     pub calls: Vec<ToolRuntimeCallView>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ToolPoolArtifactView {
+    pub permission_mode: String,
+    pub tool_search_enabled: bool,
+    pub active_visible_count: usize,
+    pub active_hidden_count: usize,
+    pub deferred_visible_count: usize,
+    pub deferred_hidden_count: usize,
+    pub confirm_count: usize,
+    pub deny_count: usize,
+    pub activation_count: usize,
+    pub last_activated_tool: Option<String>,
+    pub hidden_tools: Vec<String>,
+    pub visible_deferred_tools: Vec<String>,
+}
+
+impl ToolPoolArtifactView {
+    pub fn from_snapshot(
+        snapshot: &ToolPoolSnapshot,
+        activation_count: usize,
+        last_activated_tool: Option<String>,
+    ) -> Self {
+        Self {
+            permission_mode: snapshot.permission_mode.clone(),
+            tool_search_enabled: snapshot.tool_search_enabled,
+            active_visible_count: snapshot.visible_active_count(),
+            active_hidden_count: snapshot.hidden_active_count(),
+            deferred_visible_count: snapshot.visible_deferred_count(),
+            deferred_hidden_count: snapshot.hidden_deferred_count(),
+            confirm_count: snapshot.confirm_count(),
+            deny_count: snapshot.deny_count(),
+            activation_count,
+            last_activated_tool,
+            hidden_tools: snapshot
+                .hidden_tool_names()
+                .into_iter()
+                .map(str::to_string)
+                .collect(),
+            visible_deferred_tools: snapshot
+                .visible_deferred_tool_names()
+                .into_iter()
+                .map(str::to_string)
+                .collect(),
+        }
+    }
 }
 
 pub fn tool_artifacts_dir(project_root: &Path) -> PathBuf {
@@ -149,6 +198,62 @@ pub fn render_tool_turn_artifact(artifact: &ToolTurnArtifact) -> String {
             .join(", ");
         output.push_str(&format!("- Error types: {}\n", counts));
     }
+    if let Some(tool_pool) = &artifact.tool_pool {
+        output.push_str("\n## Tool Pool\n");
+        output.push_str(&format!(
+            "- Permission mode: {}\n",
+            tool_pool.permission_mode
+        ));
+        output.push_str(&format!(
+            "- Tool search enabled: {}\n",
+            tool_pool.tool_search_enabled
+        ));
+        output.push_str(&format!(
+            "- Active visible: {}\n",
+            tool_pool.active_visible_count
+        ));
+        output.push_str(&format!(
+            "- Active hidden: {}\n",
+            tool_pool.active_hidden_count
+        ));
+        output.push_str(&format!(
+            "- Deferred visible: {}\n",
+            tool_pool.deferred_visible_count
+        ));
+        output.push_str(&format!(
+            "- Deferred hidden: {}\n",
+            tool_pool.deferred_hidden_count
+        ));
+        output.push_str(&format!(
+            "- Confirm-required: {}\n",
+            tool_pool.confirm_count
+        ));
+        output.push_str(&format!("- Denied: {}\n", tool_pool.deny_count));
+        output.push_str(&format!(
+            "- Activations: {}\n",
+            tool_pool.activation_count
+        ));
+        output.push_str(&format!(
+            "- Last activated tool: {}\n",
+            tool_pool.last_activated_tool.as_deref().unwrap_or("none")
+        ));
+        output.push_str(&format!(
+            "- Hidden tools: {}\n",
+            if tool_pool.hidden_tools.is_empty() {
+                "none".to_string()
+            } else {
+                tool_pool.hidden_tools.join(", ")
+            }
+        ));
+        output.push_str(&format!(
+            "- Visible deferred tools: {}\n",
+            if tool_pool.visible_deferred_tools.is_empty() {
+                "none".to_string()
+            } else {
+                tool_pool.visible_deferred_tools.join(", ")
+            }
+        ));
+    }
 
     output.push_str("\n## Calls\n");
     for call in &artifact.calls {
@@ -210,7 +315,9 @@ pub fn render_tool_turn_artifact(artifact: &ToolTurnArtifact) -> String {
 mod tests {
     use tempfile::tempdir;
 
-    use super::{write_tool_turn_artifact, ToolRuntimeCallView, ToolTurnArtifact};
+    use super::{
+        write_tool_turn_artifact, ToolPoolArtifactView, ToolRuntimeCallView, ToolTurnArtifact,
+    };
 
     #[test]
     fn writes_tool_turn_artifact_file() {
@@ -220,6 +327,12 @@ mod tests {
             total_calls: 2,
             success_count: 1,
             failed_count: 1,
+            tool_pool: Some(ToolPoolArtifactView {
+                permission_mode: "default".into(),
+                tool_search_enabled: true,
+                deferred_visible_count: 2,
+                ..ToolPoolArtifactView::default()
+            }),
             calls: vec![ToolRuntimeCallView {
                 call_id: "call-1".into(),
                 tool_name: "bash".into(),
@@ -233,6 +346,7 @@ mod tests {
         let content = std::fs::read_to_string(path).unwrap();
 
         assert!(content.contains("Tool Turn Artifact"));
+        assert!(content.contains("Tool Pool"));
         assert!(content.contains("bash"));
         assert!(content.contains("preview"));
     }

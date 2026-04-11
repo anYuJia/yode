@@ -22,7 +22,7 @@
 
 当前进度：
 
-- `36 / 100` 已完成
+- `37 / 100` 已完成
 
 ## 001-010 Startup / Warmup
 
@@ -43,7 +43,7 @@
 - `[x]` 012 tooling inventory surfaced in `/status`
 - `[x]` 013 active vs deferred tool inventory snapshot API
 - `[x]` 014 MCP vs builtin vs deferred tool breakdown in diagnostics
-- `[ ]` 015 session-time tool pool snapshot artifact
+- `[x]` 015 session-time tool pool snapshot artifact
 - `[x]` 016 tool pool changes tracked across startup and runtime activation
 - `[x]` 017 deferred tool activation telemetry
 - `[ ]` 018 tool_search auto-enable reason surfaced to diagnostics
