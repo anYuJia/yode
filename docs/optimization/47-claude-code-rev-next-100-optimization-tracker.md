@@ -22,7 +22,7 @@
 
 当前进度：
 
-- `78 / 100` 已完成
+- `79 / 100` 已完成
 
 ## 001-010 Startup / Warmup
 
@@ -125,7 +125,7 @@
 - `[x]` 076 test_runner detection split
 - `[x]` 077 workflow variable application helper extraction
 - `[ ]` 078 project_map language analyzers split by ecosystem
-- `[ ]` 079 test_runner output parsing split by framework
+- `[x]` 079 test_runner output parsing split by framework
 - `[x]` 080 review artifact shared formatter module
 
 ## 081-090 Diagnostics / Artifacts

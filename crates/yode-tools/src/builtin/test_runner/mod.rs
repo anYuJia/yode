@@ -1,4 +1,5 @@
 mod detection;
+mod parsing;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -7,7 +8,8 @@ use std::path::Path;
 
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
-use self::detection::{detect_framework, parse_test_counts};
+use self::detection::detect_framework;
+use self::parsing::parse_test_counts;
 
 pub struct TestRunnerTool;
 
