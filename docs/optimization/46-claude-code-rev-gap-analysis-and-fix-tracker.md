@@ -122,6 +122,7 @@
     - startup 现在会在 tool-search 模式下把 MCP tools 注册到 deferred 池，而不是全部直接暴露
     - 当 tool-search 未启用时，`tool_search` 本身不再暴露给模型
     - tool turn artifact 已写入 tool pool snapshot，能追踪当时的 visible/hidden/deferred/activation 状态
+    - tool-search 启用/关闭原因已接到 startup profile、`/status`、`/doctor`、`/tools`
     - `/tools`、`/status`、`/doctor` 增加 model-visible / hidden 工具池诊断
 - `[ ]` P2.3 tool/runtime/status 面板化而不是纯文本堆叠
 

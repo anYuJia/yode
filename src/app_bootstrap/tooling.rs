@@ -35,6 +35,7 @@ pub(crate) struct ToolingSetupMetrics {
     pub(crate) deferred_tool_count: usize,
     pub(crate) deferred_mcp_tool_count: usize,
     pub(crate) tool_search_enabled: bool,
+    pub(crate) tool_search_reason: String,
     pub(crate) final_tool_count: usize,
 }
 
@@ -128,7 +129,22 @@ pub(crate) async fn setup_tooling(config: &Config, workdir: &Path) -> Result<Too
     }
     let tool_search_enabled = mcp_tool_count > 0
         && tool_registry.should_enable_tool_search_with_additional(mcp_tool_count + SKILL_TOOL_COUNT);
-    tool_registry.set_tool_search_enabled(tool_search_enabled);
+    let tool_search_reason = if mcp_tool_count == 0 {
+        "disabled:no_mcp_tools".to_string()
+    } else if tool_search_enabled {
+        format!(
+            "enabled:projected_total_exceeds_threshold(active={} projected_additional={})",
+            tool_registry.total_count(),
+            mcp_tool_count + SKILL_TOOL_COUNT
+        )
+    } else {
+        format!(
+            "disabled:projected_total_below_threshold(active={} projected_additional={})",
+            tool_registry.total_count(),
+            mcp_tool_count + SKILL_TOOL_COUNT
+        )
+    };
+    tool_registry.set_tool_search_state(tool_search_enabled, tool_search_reason.clone());
     for (server_name, wrappers) in discovered_mcp_wrappers {
         let count = wrappers.len();
         for wrapper in wrappers {
@@ -187,6 +203,7 @@ pub(crate) async fn setup_tooling(config: &Config, workdir: &Path) -> Result<Too
             deferred_tool_count: inventory.deferred_count,
             deferred_mcp_tool_count: inventory.mcp_deferred_count,
             tool_search_enabled,
+            tool_search_reason,
             final_tool_count,
         },
     })

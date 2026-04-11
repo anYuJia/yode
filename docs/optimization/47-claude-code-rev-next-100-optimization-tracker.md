@@ -22,7 +22,7 @@
 
 当前进度：
 
-- `37 / 100` 已完成
+- `38 / 100` 已完成
 
 ## 001-010 Startup / Warmup
 
@@ -46,7 +46,7 @@
 - `[x]` 015 session-time tool pool snapshot artifact
 - `[x]` 016 tool pool changes tracked across startup and runtime activation
 - `[x]` 017 deferred tool activation telemetry
-- `[ ]` 018 tool_search auto-enable reason surfaced to diagnostics
+- `[x]` 018 tool_search auto-enable reason surfaced to diagnostics
 - `[ ]` 019 tool registry duplicate-name guard diagnostics
 - `[ ]` 020 command/tool overlap detector
 

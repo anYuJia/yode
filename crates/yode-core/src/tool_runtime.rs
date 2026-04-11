@@ -62,6 +62,7 @@ pub struct ToolTurnArtifact {
 pub struct ToolPoolArtifactView {
     pub permission_mode: String,
     pub tool_search_enabled: bool,
+    pub tool_search_reason: Option<String>,
     pub active_visible_count: usize,
     pub active_hidden_count: usize,
     pub deferred_visible_count: usize,
@@ -83,6 +84,7 @@ impl ToolPoolArtifactView {
         Self {
             permission_mode: snapshot.permission_mode.clone(),
             tool_search_enabled: snapshot.tool_search_enabled,
+            tool_search_reason: snapshot.tool_search_reason.clone(),
             active_visible_count: snapshot.visible_active_count(),
             active_hidden_count: snapshot.hidden_active_count(),
             deferred_visible_count: snapshot.visible_deferred_count(),
@@ -207,6 +209,10 @@ pub fn render_tool_turn_artifact(artifact: &ToolTurnArtifact) -> String {
         output.push_str(&format!(
             "- Tool search enabled: {}\n",
             tool_pool.tool_search_enabled
+        ));
+        output.push_str(&format!(
+            "- Tool search reason: {}\n",
+            tool_pool.tool_search_reason.as_deref().unwrap_or("none")
         ));
         output.push_str(&format!(
             "- Active visible: {}\n",

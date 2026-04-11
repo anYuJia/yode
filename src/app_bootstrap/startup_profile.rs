@@ -48,7 +48,7 @@ impl StartupProfiler {
             .collect::<Vec<_>>()
             .join(", ");
         format!(
-            "mode={} total={}ms tooling[builtin={}ms mcp_connect={}ms mcp_register={}ms skills={}ms total={}ms counts[builtin={} configured_mcp={} connected_mcp={} mcp_tools={} skills={} active_tools={} deferred_tools={} deferred_mcp={} tool_search={} final_tools={}]] phases[{}]",
+            "mode={} total={}ms tooling[builtin={}ms mcp_connect={}ms mcp_register={}ms skills={}ms total={}ms counts[builtin={} configured_mcp={} connected_mcp={} mcp_tools={} skills={} active_tools={} deferred_tools={} deferred_mcp={} tool_search={} reason={} final_tools={}]] phases[{}]",
             mode,
             self.total_ms(),
             tooling.builtin_register_ms,
@@ -65,6 +65,7 @@ impl StartupProfiler {
             tooling.deferred_tool_count,
             tooling.deferred_mcp_tool_count,
             tooling.tool_search_enabled,
+            tooling.tool_search_reason,
             tooling.final_tool_count,
             phases
         )
@@ -88,6 +89,7 @@ impl StartupProfiler {
             deferred_tool_count = tooling.deferred_tool_count,
             deferred_mcp_tool_count = tooling.deferred_mcp_tool_count,
             tool_search_enabled = tooling.tool_search_enabled,
+            tool_search_reason = tooling.tool_search_reason,
             final_tool_count = tooling.final_tool_count,
             summary = %self.summary(mode, tooling),
             "Startup profile"

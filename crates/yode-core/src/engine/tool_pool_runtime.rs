@@ -5,6 +5,7 @@ use yode_tools::registry::{
 
 impl AgentEngine {
     pub(super) fn build_tool_pool_snapshot(&self) -> ToolPoolSnapshot {
+        let inventory = self.tools.inventory();
         let mut entries = self
             .tools
             .list()
@@ -26,7 +27,8 @@ impl AgentEngine {
 
         ToolPoolSnapshot {
             permission_mode: self.permissions.mode().to_string(),
-            tool_search_enabled: self.tools.inventory().tool_search_enabled,
+            tool_search_enabled: inventory.tool_search_enabled,
+            tool_search_reason: inventory.tool_search_reason,
             entries,
         }
     }

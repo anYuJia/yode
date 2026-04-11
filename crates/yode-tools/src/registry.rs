@@ -24,6 +24,7 @@ pub struct ToolInventory {
     pub mcp_active_count: usize,
     pub mcp_deferred_count: usize,
     pub tool_search_enabled: bool,
+    pub tool_search_reason: Option<String>,
     pub activation_count: usize,
     pub last_activated_tool: Option<String>,
 }
@@ -76,6 +77,7 @@ pub struct ToolPoolEntry {
 pub struct ToolPoolSnapshot {
     pub permission_mode: String,
     pub tool_search_enabled: bool,
+    pub tool_search_reason: Option<String>,
     pub entries: Vec<ToolPoolEntry>,
 }
 
@@ -158,6 +160,8 @@ pub struct ToolRegistry {
     deferred: RwLock<HashMap<String, Arc<dyn Tool>>>,
     /// Whether tool search mode is enabled (auto or manual).
     tool_search_enabled: AtomicBool,
+    /// Why tool search is enabled or disabled for the current session.
+    tool_search_reason: RwLock<Option<String>>,
     /// Number of deferred tools activated during the current session.
     activation_count: AtomicUsize,
     /// Most recent deferred tool activated into the live pool.
@@ -170,6 +174,7 @@ impl ToolRegistry {
             tools: RwLock::new(HashMap::new()),
             deferred: RwLock::new(HashMap::new()),
             tool_search_enabled: AtomicBool::new(false),
+            tool_search_reason: RwLock::new(None),
             activation_count: AtomicUsize::new(0),
             last_activated_tool: RwLock::new(None),
         }
@@ -204,6 +209,11 @@ impl ToolRegistry {
     /// Enable or disable tool search mode.
     pub fn set_tool_search_enabled(&self, enabled: bool) {
         self.tool_search_enabled.store(enabled, Ordering::Relaxed);
+    }
+
+    pub fn set_tool_search_state(&self, enabled: bool, reason: impl Into<String>) {
+        self.tool_search_enabled.store(enabled, Ordering::Relaxed);
+        *self.tool_search_reason.write().unwrap() = Some(reason.into());
     }
 
     /// Check if tool search mode should be auto-enabled based on tool count.
@@ -272,6 +282,7 @@ impl ToolRegistry {
                 .filter(|name| name.starts_with("mcp__"))
                 .count(),
             tool_search_enabled: self.tool_search_enabled.load(Ordering::Relaxed),
+            tool_search_reason: self.tool_search_reason.read().unwrap().clone(),
             activation_count: self.activation_count.load(Ordering::Relaxed),
             last_activated_tool: self.last_activated_tool.read().unwrap().clone(),
         }

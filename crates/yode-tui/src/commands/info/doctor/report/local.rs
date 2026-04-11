@@ -84,6 +84,11 @@ pub(super) fn render_doctor_report(ctx: &mut CommandContext) -> String {
         inventory.activation_count,
         inventory.last_activated_tool.as_deref().unwrap_or("none")
     ));
+    checks.push(format!(
+        "  [ok] tool search: {} ({})",
+        inventory.tool_search_enabled,
+        inventory.tool_search_reason.as_deref().unwrap_or("no reason recorded")
+    ));
     if let Some(path) = dirs::home_dir().map(|home| home.join(".yode/config.toml")) {
         if path.exists() {
             checks.push(format!("  [ok] Config file: {:?}", path));
