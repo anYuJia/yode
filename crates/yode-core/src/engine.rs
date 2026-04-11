@@ -9,6 +9,7 @@ mod recovery_runtime;
 mod retry;
 mod runtime_support;
 mod session_state;
+mod stream_retry_runtime;
 mod streaming_turn_runtime;
 mod subagent_runner;
 mod system_prompt_runtime;
