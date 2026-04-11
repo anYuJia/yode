@@ -1,4 +1,10 @@
-use super::*;
+use tracing::warn;
+
+use crate::types::{Message, Role, ToolCall, ToolDefinition, Usage};
+
+use super::types::{
+    OpenAiFunction, OpenAiMessage, OpenAiTool, OpenAiToolCall, OpenAiToolFunction, OpenAiUsage,
+};
 
 fn role_to_string(role: &Role) -> String {
     match role {

@@ -1,6 +1,19 @@
-use super::*;
+use std::collections::HashMap;
+
+use anyhow::{anyhow, Context, Result};
+use eventsource_stream::Eventsource;
+use futures::StreamExt;
+use tokio::sync::mpsc;
+use tracing::{debug, error, trace, warn};
+
+use crate::types::{ChatRequest, Message, StreamEvent, ToolCall, Usage};
 
 use super::conversion::{message_to_openai, tool_to_openai};
+use super::types::{
+    OpenAiErrorResponse, OpenAiMessage, OpenAiRequest, OpenAiStreamChunk, OpenAiTool,
+    StreamOptions,
+};
+use super::OpenAiProvider;
 
 impl OpenAiProvider {
     pub(super) async fn send_chat_stream_request(
