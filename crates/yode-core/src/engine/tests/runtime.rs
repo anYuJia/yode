@@ -166,6 +166,41 @@ fn test_runtime_state_exposes_tool_pool_gating() {
         .any(|name| *name == "mcp__demo__search"));
 }
 
+#[test]
+fn test_deferred_activation_updates_next_chat_request_tools() {
+    let engine = make_engine(
+        vec![Arc::new(MockReadTool {
+            name: "read_file".into(),
+        })],
+        vec![],
+    );
+
+    engine.tools.register_deferred(Arc::new(MockReadTool {
+        name: "mcp__demo__search".into(),
+    }));
+    engine.tools.set_tool_search_enabled(true);
+
+    let before = engine.build_chat_request();
+    assert!(!before
+        .tools
+        .iter()
+        .any(|tool| tool.name == "mcp__demo__search"));
+    assert_eq!(engine.tools.inventory().deferred_count, 1);
+
+    assert!(engine.tools.activate_tool("mcp__demo__search"));
+
+    let after = engine.build_chat_request();
+    assert!(after
+        .tools
+        .iter()
+        .any(|tool| tool.name == "mcp__demo__search"));
+    assert_eq!(engine.tools.inventory().activation_count, 1);
+    assert_eq!(
+        engine.tools.inventory().last_activated_tool.as_deref(),
+        Some("mcp__demo__search")
+    );
+}
+
 #[tokio::test]
 async fn test_tool_runtime_state_and_artifact_are_recorded() {
     let mut engine = make_engine(vec![], vec![]);

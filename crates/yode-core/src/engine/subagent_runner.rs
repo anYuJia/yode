@@ -75,7 +75,7 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                         );
                     }
 
-                    let mut sub_registry = ToolRegistry::new();
+                    let sub_registry = ToolRegistry::new();
                     if allowed_tools.is_empty() {
                         for tool in tools.list() {
                             sub_registry.register(tool);
@@ -215,7 +215,7 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                 ));
             }
 
-            let mut sub_registry = ToolRegistry::new();
+            let sub_registry = ToolRegistry::new();
             if allowed_tools.is_empty() {
                 for tool in self.tools.list() {
                     sub_registry.register(tool);

@@ -117,6 +117,8 @@
     - engine 新增 tool pool snapshot，区分 active/deferred、builtin/mcp、allow/confirm/deny
     - ChatRequest 构建前先按权限模式过滤 deny 工具，避免模型看到不可用工具
     - `tool_search` 改为尊重当前 tool pool，不再重新暴露被隐藏工具
+    - `ToolRegistry` 改为支持运行时激活 deferred tool，`tool_search select:<tool>` 能把工具载入下一轮请求
+    - tool activation 次数和最近一次激活已接到 `/tools`、`/status`、`/doctor`
     - `/tools`、`/status`、`/doctor` 增加 model-visible / hidden 工具池诊断
 - `[ ]` P2.3 tool/runtime/status 面板化而不是纯文本堆叠
 

@@ -155,7 +155,7 @@ impl Tool for MockPathTool {
 }
 
 pub(super) fn make_engine(tools: Vec<Arc<dyn Tool>>, confirm_tools: Vec<String>) -> AgentEngine {
-    let mut registry = ToolRegistry::new();
+    let registry = ToolRegistry::new();
     for t in tools {
         registry.register(t);
     }

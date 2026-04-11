@@ -73,6 +73,7 @@ impl Tool for ToolSearchTool {
 
         let query_lower = query.to_lowercase();
         let mut matches = Vec::new();
+        let mut activated_tool = None::<String>;
 
         // Handle "select:" prefix
         if let Some(tool_name) = query_lower.strip_prefix("select:") {
@@ -104,7 +105,10 @@ impl Tool for ToolSearchTool {
                                 format!("- **{}**: {}", tool.name(), tool.description())
                             }
                             ToolPoolPhase::Deferred => {
-                                format!("- **{}** (deferred): {}", entry.name, tool.description())
+                                if registry.activate_tool(&entry.name) {
+                                    activated_tool = Some(entry.name.clone());
+                                }
+                                format!("- **{}** (loaded): {}", entry.name, tool.description())
                             }
                         });
                     }
@@ -121,8 +125,11 @@ impl Tool for ToolSearchTool {
                 if !found {
                     for (name, tool) in registry.list_deferred() {
                         if name.to_lowercase() == req_name {
+                            if registry.activate_tool(&name) {
+                                activated_tool = Some(name.clone());
+                            }
                             matches.push(format!(
-                                "- **{}** (deferred): {}",
+                                "- **{}** (loaded): {}",
                                 name,
                                 tool.description()
                             ));
@@ -190,14 +197,21 @@ impl Tool for ToolSearchTool {
             let metadata = serde_json::json!({
                 "query": query,
                 "count": matches.len(),
+                "activated_tool": activated_tool,
                 "permission_mode": tool_pool.map(|snapshot| snapshot.permission_mode.as_str()),
                 "hidden_count": tool_pool.map(|snapshot| snapshot.deny_count()),
             });
             Ok(ToolResult::success_with_metadata(
-                format!(
-                    "Found tool(s) matching '{}':\n{}",
-                    query,
-                    matches.join("\n")
+                activated_tool.as_ref().map_or_else(
+                    || format!("Found tool(s) matching '{}':\n{}", query, matches.join("\n")),
+                    |tool_name| {
+                        format!(
+                            "Activated tool '{}' into the active pool.\n\nFound tool(s) matching '{}':\n{}",
+                            tool_name,
+                            query,
+                            matches.join("\n")
+                        )
+                    },
                 ),
                 metadata,
             ))
@@ -247,8 +261,8 @@ mod tests {
         }
     }
 
-    fn test_context() -> ToolContext {
-        let mut registry = crate::registry::ToolRegistry::new();
+    fn test_context(write_file_visible: bool) -> ToolContext {
+        let registry = crate::registry::ToolRegistry::new();
         registry.register(Arc::new(DummyTool {
             name: "read_file",
             description: "Read repo files",
@@ -277,9 +291,17 @@ mod tests {
                     name: "write_file".to_string(),
                     phase: ToolPoolPhase::Deferred,
                     origin: ToolOrigin::Builtin,
-                    permission: ToolPermissionState::Deny,
-                    visible_to_model: false,
-                    reason: "Plan mode blocks mutating tools.".to_string(),
+                    permission: if write_file_visible {
+                        ToolPermissionState::Allow
+                    } else {
+                        ToolPermissionState::Deny
+                    },
+                    visible_to_model: write_file_visible,
+                    reason: if write_file_visible {
+                        "Loaded by tool_search.".to_string()
+                    } else {
+                        "Plan mode blocks mutating tools.".to_string()
+                    },
                     matched_rule: None,
                 },
             ],
@@ -291,7 +313,7 @@ mod tests {
     async fn tool_search_hides_denied_tools_from_keyword_results() {
         let tool = ToolSearchTool;
         let result = tool
-            .execute(json!({ "query": "file" }), &test_context())
+            .execute(json!({ "query": "file" }), &test_context(false))
             .await
             .unwrap();
 
@@ -304,7 +326,10 @@ mod tests {
     async fn tool_search_reports_blocked_select_for_hidden_tool() {
         let tool = ToolSearchTool;
         let result = tool
-            .execute(json!({ "query": "select:write_file" }), &test_context())
+            .execute(
+                json!({ "query": "select:write_file" }),
+                &test_context(false),
+            )
             .await
             .unwrap();
 
@@ -319,6 +344,34 @@ mod tests {
                 .and_then(|value| value.get("blocked"))
                 .and_then(|value| value.as_bool()),
             Some(true)
+        );
+    }
+
+    #[tokio::test]
+    async fn tool_search_select_activates_visible_deferred_tool() {
+        let tool = ToolSearchTool;
+        let ctx = test_context(true);
+        let result = tool
+            .execute(json!({ "query": "select:write_file" }), &ctx)
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("Activated tool 'write_file'"));
+        assert!(ctx
+            .registry
+            .as_ref()
+            .unwrap()
+            .definitions()
+            .iter()
+            .any(|definition| definition.name == "write_file"));
+        assert_eq!(
+            ctx.registry
+                .as_ref()
+                .unwrap()
+                .inventory()
+                .last_activated_tool,
+            Some("write_file".to_string())
         );
     }
 }

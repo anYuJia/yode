@@ -42,8 +42,8 @@ impl ToolsCommand {
         let mut defs = ctx.tools.definitions();
         defs.sort_by(|left, right| left.name.cmp(&right.name));
         let mut lines = vec![format!(
-            "Registered active tools ({} active / {} deferred):",
-            inventory.active_count, inventory.deferred_count
+            "Registered active tools ({} active / {} deferred / {} loaded):",
+            inventory.active_count, inventory.deferred_count, inventory.activation_count
         )];
         for def in &defs {
             let display_name = if let Some((server, tool)) = parse_mcp_tool_name(&def.name) {
@@ -196,7 +196,7 @@ impl Command for ToolsCommand {
         }
 
         Ok(CommandOutput::Message(format!(
-            "Tool diagnostics:\n  Registry tools:  {} total / {} active / {} deferred\n  Model pool:      {} active visible / {} active hidden / {} deferred visible / {} deferred hidden\n  Pool policy:     mode={} confirm={} deny={}\n  Visible sources: {} builtin / {} mcp\n  Hidden tools:    {}\n  Deferred visible: {}\n  Session calls:    {}\n  Current turn:     {} calls / {} bytes / {} progress\n  Budget notices:   {} (warnings {})\n  Budget active:    notice={} warning={}\n  Parallel:         {} batches / {} calls (max {})\n  Read history:     {}\n  Duplication hints: {}\n  Hook/tool line:   {}\n  Truncations:      {} (last: {})\n  Error types:      {}\n  Failure clusters: {}\n  Repeat failures:  {}\n  Last progress:    {} / {}\n  Last progress at: {}\n  Last artifact:    {}\n  Last turn done:   {}\n{}\
+            "Tool diagnostics:\n  Registry tools:  {} total / {} active / {} deferred\n  Model pool:      {} active visible / {} active hidden / {} deferred visible / {} deferred hidden\n  Pool policy:     mode={} confirm={} deny={}\n  Visible sources: {} builtin / {} mcp\n  Activations:     {} (last: {})\n  Hidden tools:    {}\n  Deferred visible: {}\n  Session calls:    {}\n  Current turn:     {} calls / {} bytes / {} progress\n  Budget notices:   {} (warnings {})\n  Budget active:    notice={} warning={}\n  Parallel:         {} batches / {} calls (max {})\n  Read history:     {}\n  Duplication hints: {}\n  Hook/tool line:   {}\n  Truncations:      {} (last: {})\n  Error types:      {}\n  Failure clusters: {}\n  Repeat failures:  {}\n  Last progress:    {} / {}\n  Last progress at: {}\n  Last artifact:    {}\n  Last turn done:   {}\n{}\
 \nUse `/tools list` or `/tools verbose` to inspect the full registry.",
             inventory.total_count,
             inventory.active_count,
@@ -210,6 +210,8 @@ impl Command for ToolsCommand {
             state.tool_pool.deny_count(),
             state.tool_pool.visible_builtin_count(),
             state.tool_pool.visible_mcp_count(),
+            inventory.activation_count,
+            inventory.last_activated_tool.as_deref().unwrap_or("none"),
             hidden_tools,
             deferred_visible,
             state.session_tool_calls_total,

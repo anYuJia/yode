@@ -79,6 +79,11 @@ pub(super) fn render_doctor_report(ctx: &mut CommandContext) -> String {
         "  [ok] mcp tools: {} active / {} deferred",
         inventory.mcp_active_count, inventory.mcp_deferred_count
     ));
+    checks.push(format!(
+        "  [ok] tool activations: {} (last: {})",
+        inventory.activation_count,
+        inventory.last_activated_tool.as_deref().unwrap_or("none")
+    ));
     if let Some(path) = dirs::home_dir().map(|home| home.join(".yode/config.toml")) {
         if path.exists() {
             checks.push(format!("  [ok] Config file: {:?}", path));
