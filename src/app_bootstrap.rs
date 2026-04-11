@@ -32,6 +32,12 @@ pub(crate) struct ToolingSetupMetrics {
     pub(crate) mcp_register_ms: u64,
     pub(crate) skill_discovery_ms: u64,
     pub(crate) total_ms: u64,
+    pub(crate) builtin_tool_count: usize,
+    pub(crate) configured_mcp_server_count: usize,
+    pub(crate) connected_mcp_server_count: usize,
+    pub(crate) mcp_tool_count: usize,
+    pub(crate) discovered_skill_count: usize,
+    pub(crate) final_tool_count: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -78,7 +84,7 @@ impl StartupProfiler {
             .collect::<Vec<_>>()
             .join(", ");
         format!(
-            "mode={} total={}ms tooling[builtin={}ms mcp_connect={}ms mcp_register={}ms skills={}ms total={}ms] phases[{}]",
+            "mode={} total={}ms tooling[builtin={}ms mcp_connect={}ms mcp_register={}ms skills={}ms total={}ms counts[builtin={} configured_mcp={} connected_mcp={} mcp_tools={} skills={} final_tools={}]] phases[{}]",
             mode,
             self.total_ms(),
             tooling.builtin_register_ms,
@@ -86,6 +92,12 @@ impl StartupProfiler {
             tooling.mcp_register_ms,
             tooling.skill_discovery_ms,
             tooling.total_ms,
+            tooling.builtin_tool_count,
+            tooling.configured_mcp_server_count,
+            tooling.connected_mcp_server_count,
+            tooling.mcp_tool_count,
+            tooling.discovered_skill_count,
+            tooling.final_tool_count,
             phases
         )
     }
@@ -99,6 +111,12 @@ impl StartupProfiler {
             mcp_register_ms = tooling.mcp_register_ms,
             skill_discovery_ms = tooling.skill_discovery_ms,
             tooling_total_ms = tooling.total_ms,
+            builtin_tool_count = tooling.builtin_tool_count,
+            configured_mcp_server_count = tooling.configured_mcp_server_count,
+            connected_mcp_server_count = tooling.connected_mcp_server_count,
+            mcp_tool_count = tooling.mcp_tool_count,
+            discovered_skill_count = tooling.discovered_skill_count,
+            final_tool_count = tooling.final_tool_count,
             summary = %self.summary(mode, tooling),
             "Startup profile"
         );
@@ -127,6 +145,7 @@ pub(crate) async fn setup_tooling(config: &Config, workdir: &Path) -> Result<Too
     let builtin_started = Instant::now();
     builtin::register_builtin_tools(&mut tool_registry);
     let builtin_register_ms = builtin_started.elapsed().as_millis() as u64;
+    let builtin_tool_count = tool_registry.total_count();
 
     let skill_paths = SkillRegistry::default_paths(workdir);
     let skill_started = Instant::now();
@@ -135,6 +154,7 @@ pub(crate) async fn setup_tooling(config: &Config, workdir: &Path) -> Result<Too
 
     let mcp_started = Instant::now();
     let mut mcp_connect_set = tokio::task::JoinSet::new();
+    let configured_mcp_server_count = config.mcp.servers.len();
     for (name, server_config) in &config.mcp.servers {
         let name = name.clone();
         let server_config = server_config.clone();
@@ -166,8 +186,10 @@ pub(crate) async fn setup_tooling(config: &Config, workdir: &Path) -> Result<Too
         }
     }
     let mcp_connect_ms = mcp_started.elapsed().as_millis() as u64;
+    let connected_mcp_server_count = mcp_clients.len();
 
     let mcp_register_started = Instant::now();
+    let mut mcp_tool_count = 0usize;
     let discovery_results = join_all(mcp_clients.iter().map(|client| async move {
         let server_name = client.server_name.clone();
         let result = client.discover_wrapped_tools().await;
@@ -178,6 +200,7 @@ pub(crate) async fn setup_tooling(config: &Config, workdir: &Path) -> Result<Too
         match result {
             Ok(wrappers) => {
                 let count = wrappers.len();
+                mcp_tool_count += count;
                 for wrapper in wrappers {
                     tool_registry.register(wrapper);
                 }
@@ -207,6 +230,8 @@ pub(crate) async fn setup_tooling(config: &Config, workdir: &Path) -> Result<Too
     }
     info!("Discovered {} skills", skill_registry.list().len());
     let skill_discovery_ms = skill_started.elapsed().as_millis() as u64;
+    let discovered_skill_count = skill_registry.list().len();
+    let final_tool_count = tool_registry.total_count();
 
     Ok(ToolingBootstrap {
         tool_registry: Arc::new(tool_registry),
@@ -218,6 +243,12 @@ pub(crate) async fn setup_tooling(config: &Config, workdir: &Path) -> Result<Too
             mcp_register_ms,
             skill_discovery_ms,
             total_ms: total_started.elapsed().as_millis() as u64,
+            builtin_tool_count,
+            configured_mcp_server_count,
+            connected_mcp_server_count,
+            mcp_tool_count,
+            discovered_skill_count,
+            final_tool_count,
         },
     })
 }

@@ -73,8 +73,23 @@ impl Command for StatusCommand {
             .try_lock()
             .ok()
             .map(|engine| engine.runtime_state());
+        let total_tools = ctx.tools.definitions().len();
+        let mcp_tools = ctx
+            .tools
+            .definitions()
+            .into_iter()
+            .filter(|definition| definition.name.starts_with("mcp__"))
+            .count();
+        let builtin_tools = total_tools.saturating_sub(mcp_tools);
         let runtime_sections =
-            build_runtime_sections(runtime, latest_review.as_ref(), &always_allow);
+            build_runtime_sections(
+                runtime,
+                latest_review.as_ref(),
+                &always_allow,
+                total_tools,
+                builtin_tools,
+                mcp_tools,
+            );
 
         Ok(CommandOutput::Message(build_status_message(
             ctx,

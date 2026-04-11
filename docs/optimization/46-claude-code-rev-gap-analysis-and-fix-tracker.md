@@ -108,7 +108,10 @@
 - `[~]` P2.1 TUI 滚动/格式化层继续拆分
   - 当前完成：
     - `app/scrollback/entry_formatting.rs` 拆成目录模块
-- `[ ]` P2.2 工具池装配策略增加声明式过滤与诊断
+- `[~]` P2.2 工具池装配策略增加声明式过滤与诊断
+  - 当前完成：
+    - startup profile 增加 builtin / MCP server / MCP tool / skill / final tool count
+    - `/status` 增加工具库存摘要
 - `[ ]` P2.3 tool/runtime/status 面板化而不是纯文本堆叠
 
 ## Notes
