@@ -208,7 +208,11 @@ impl ToolRegistry {
 
     /// Check if tool search mode should be auto-enabled based on tool count.
     pub fn should_enable_tool_search(&self) -> bool {
-        self.total_count() > TOOL_SEARCH_THRESHOLD
+        self.should_enable_tool_search_with_additional(0)
+    }
+
+    pub fn should_enable_tool_search_with_additional(&self, additional_tools: usize) -> bool {
+        self.total_count() + additional_tools > TOOL_SEARCH_THRESHOLD
     }
 
     pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {

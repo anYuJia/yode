@@ -60,7 +60,7 @@ use tokio::sync::Mutex;
 
 use crate::registry::ToolRegistry;
 
-pub fn register_builtin_tools(registry: &mut ToolRegistry) {
+pub fn register_builtin_tools(registry: &ToolRegistry) {
     registry.register(Arc::new(read_file::ReadFileTool));
     registry.register(Arc::new(write_file::WriteFileTool));
     registry.register(Arc::new(edit_file::EditFileTool));
@@ -118,7 +118,7 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
 }
 
 /// Register the skill tool with the given skill store.
-pub fn register_skill_tool(registry: &mut ToolRegistry, store: Arc<Mutex<skill::SkillStore>>) {
+pub fn register_skill_tool(registry: &ToolRegistry, store: Arc<Mutex<skill::SkillStore>>) {
     registry.register(Arc::new(skill::SkillTool {
         store: store.clone(),
     }));

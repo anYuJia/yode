@@ -33,11 +33,18 @@ impl AgentEngine {
 
     fn build_tool_pool_entry(&self, name: &str, phase: ToolPoolPhase) -> ToolPoolEntry {
         let explanation = self.permissions.explain_with_content(name, None);
-        let permission = match explanation.action {
+        let mut permission = match explanation.action {
             PermissionAction::Allow => ToolPermissionState::Allow,
             PermissionAction::Confirm => ToolPermissionState::Confirm,
             PermissionAction::Deny => ToolPermissionState::Deny,
         };
+        let mut reason = explanation.reason;
+        let matched_rule = explanation.matched_rule;
+
+        if name == "tool_search" && !self.tools.inventory().tool_search_enabled {
+            permission = ToolPermissionState::Deny;
+            reason = "Tool search is disabled because the current tool inventory does not need deferred loading.".to_string();
+        }
 
         ToolPoolEntry {
             name: name.to_string(),
@@ -49,8 +56,8 @@ impl AgentEngine {
             },
             permission,
             visible_to_model: permission.visible_to_model(),
-            reason: explanation.reason,
-            matched_rule: explanation.matched_rule,
+            reason,
+            matched_rule,
         }
     }
 }

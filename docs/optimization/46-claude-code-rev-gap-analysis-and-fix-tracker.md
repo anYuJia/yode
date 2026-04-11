@@ -119,6 +119,8 @@
     - `tool_search` 改为尊重当前 tool pool，不再重新暴露被隐藏工具
     - `ToolRegistry` 改为支持运行时激活 deferred tool，`tool_search select:<tool>` 能把工具载入下一轮请求
     - tool activation 次数和最近一次激活已接到 `/tools`、`/status`、`/doctor`
+    - startup 现在会在 tool-search 模式下把 MCP tools 注册到 deferred 池，而不是全部直接暴露
+    - 当 tool-search 未启用时，`tool_search` 本身不再暴露给模型
     - `/tools`、`/status`、`/doctor` 增加 model-visible / hidden 工具池诊断
 - `[ ]` P2.3 tool/runtime/status 面板化而不是纯文本堆叠
 

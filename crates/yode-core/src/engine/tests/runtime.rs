@@ -201,6 +201,19 @@ fn test_deferred_activation_updates_next_chat_request_tools() {
     );
 }
 
+#[test]
+fn test_tool_search_tool_hidden_when_search_mode_disabled() {
+    let engine = make_engine(
+        vec![Arc::new(MockReadTool {
+            name: "tool_search".into(),
+        })],
+        vec![],
+    );
+
+    let request = engine.build_chat_request();
+    assert!(!request.tools.iter().any(|tool| tool.name == "tool_search"));
+}
+
 #[tokio::test]
 async fn test_tool_runtime_state_and_artifact_are_recorded() {
     let mut engine = make_engine(vec![], vec![]);

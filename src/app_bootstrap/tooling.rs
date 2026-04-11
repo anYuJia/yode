@@ -31,6 +31,10 @@ pub(crate) struct ToolingSetupMetrics {
     pub(crate) connected_mcp_server_count: usize,
     pub(crate) mcp_tool_count: usize,
     pub(crate) discovered_skill_count: usize,
+    pub(crate) active_tool_count: usize,
+    pub(crate) deferred_tool_count: usize,
+    pub(crate) deferred_mcp_tool_count: usize,
+    pub(crate) tool_search_enabled: bool,
     pub(crate) final_tool_count: usize,
 }
 
@@ -51,10 +55,12 @@ pub(crate) fn init_logging() -> Result<()> {
 }
 
 pub(crate) async fn setup_tooling(config: &Config, workdir: &Path) -> Result<ToolingBootstrap> {
+    const SKILL_TOOL_COUNT: usize = 2;
+
     let total_started = Instant::now();
-    let mut tool_registry = ToolRegistry::new();
+    let tool_registry = ToolRegistry::new();
     let builtin_started = Instant::now();
-    builtin::register_builtin_tools(&mut tool_registry);
+    builtin::register_builtin_tools(&tool_registry);
     let builtin_register_ms = builtin_started.elapsed().as_millis() as u64;
     let builtin_tool_count = tool_registry.total_count();
 
@@ -101,6 +107,7 @@ pub(crate) async fn setup_tooling(config: &Config, workdir: &Path) -> Result<Too
 
     let mcp_register_started = Instant::now();
     let mut mcp_tool_count = 0usize;
+    let mut discovered_mcp_wrappers = Vec::new();
     let discovery_results = join_all(mcp_clients.iter().map(|client| async move {
         let server_name = client.server_name.clone();
         let result = client.discover_wrapped_tools().await;
@@ -112,15 +119,31 @@ pub(crate) async fn setup_tooling(config: &Config, workdir: &Path) -> Result<Too
             Ok(wrappers) => {
                 let count = wrappers.len();
                 mcp_tool_count += count;
-                for wrapper in wrappers {
-                    tool_registry.register(wrapper);
-                }
-                info!(server = %server_name, tools = count, "MCP server tools registered");
+                discovered_mcp_wrappers.push((server_name, wrappers));
             }
             Err(err) => {
                 warn!(server = %server_name, error = %err, "Failed to discover MCP tools");
             }
         }
+    }
+    let tool_search_enabled = mcp_tool_count > 0
+        && tool_registry.should_enable_tool_search_with_additional(mcp_tool_count + SKILL_TOOL_COUNT);
+    tool_registry.set_tool_search_enabled(tool_search_enabled);
+    for (server_name, wrappers) in discovered_mcp_wrappers {
+        let count = wrappers.len();
+        for wrapper in wrappers {
+            if tool_search_enabled {
+                tool_registry.register_deferred(wrapper);
+            } else {
+                tool_registry.register(wrapper);
+            }
+        }
+        info!(
+            server = %server_name,
+            tools = count,
+            registration_mode = if tool_search_enabled { "deferred" } else { "active" },
+            "MCP server tools registered"
+        );
     }
     let mcp_register_ms = mcp_register_started.elapsed().as_millis() as u64;
 
@@ -137,12 +160,13 @@ pub(crate) async fn setup_tooling(config: &Config, workdir: &Path) -> Result<Too
             );
         }
         let store = Arc::new(tokio::sync::Mutex::new(store));
-        builtin::register_skill_tool(&mut tool_registry, store);
+        builtin::register_skill_tool(&tool_registry, store);
     }
     info!("Discovered {} skills", skill_registry.list().len());
     let skill_discovery_ms = skill_started.elapsed().as_millis() as u64;
     let discovered_skill_count = skill_registry.list().len();
-    let final_tool_count = tool_registry.total_count();
+    let inventory = tool_registry.inventory();
+    let final_tool_count = inventory.total_count;
 
     Ok(ToolingBootstrap {
         tool_registry: Arc::new(tool_registry),
@@ -159,6 +183,10 @@ pub(crate) async fn setup_tooling(config: &Config, workdir: &Path) -> Result<Too
             connected_mcp_server_count,
             mcp_tool_count,
             discovered_skill_count,
+            active_tool_count: inventory.active_count,
+            deferred_tool_count: inventory.deferred_count,
+            deferred_mcp_tool_count: inventory.mcp_deferred_count,
+            tool_search_enabled,
             final_tool_count,
         },
     })

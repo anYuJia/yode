@@ -48,7 +48,7 @@ impl StartupProfiler {
             .collect::<Vec<_>>()
             .join(", ");
         format!(
-            "mode={} total={}ms tooling[builtin={}ms mcp_connect={}ms mcp_register={}ms skills={}ms total={}ms counts[builtin={} configured_mcp={} connected_mcp={} mcp_tools={} skills={} final_tools={}]] phases[{}]",
+            "mode={} total={}ms tooling[builtin={}ms mcp_connect={}ms mcp_register={}ms skills={}ms total={}ms counts[builtin={} configured_mcp={} connected_mcp={} mcp_tools={} skills={} active_tools={} deferred_tools={} deferred_mcp={} tool_search={} final_tools={}]] phases[{}]",
             mode,
             self.total_ms(),
             tooling.builtin_register_ms,
@@ -61,6 +61,10 @@ impl StartupProfiler {
             tooling.connected_mcp_server_count,
             tooling.mcp_tool_count,
             tooling.discovered_skill_count,
+            tooling.active_tool_count,
+            tooling.deferred_tool_count,
+            tooling.deferred_mcp_tool_count,
+            tooling.tool_search_enabled,
             tooling.final_tool_count,
             phases
         )
@@ -80,6 +84,10 @@ impl StartupProfiler {
             connected_mcp_server_count = tooling.connected_mcp_server_count,
             mcp_tool_count = tooling.mcp_tool_count,
             discovered_skill_count = tooling.discovered_skill_count,
+            active_tool_count = tooling.active_tool_count,
+            deferred_tool_count = tooling.deferred_tool_count,
+            deferred_mcp_tool_count = tooling.deferred_mcp_tool_count,
+            tool_search_enabled = tooling.tool_search_enabled,
             final_tool_count = tooling.final_tool_count,
             summary = %self.summary(mode, tooling),
             "Startup profile"
