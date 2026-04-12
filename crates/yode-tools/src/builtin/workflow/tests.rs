@@ -36,6 +36,7 @@ async fn workflow_runs_read_only_steps() {
         .await
         .unwrap();
     assert!(!result.is_error);
+    assert!(result.content.contains("\"content\""));
     assert!(result.content.contains("\"tool\": \"ls\""));
 }
 
@@ -72,11 +73,12 @@ async fn workflow_dry_run_returns_plan_without_execution() {
                 "variables": { "focus": "regressions" }
             }),
             &ctx,
-        )
+    )
         .await
         .unwrap();
     assert!(!result.is_error);
-    assert!(result.content.contains("\"tool\": \"review_changes\""));
+    assert!(result.content.contains("Workflow plan: plan"));
+    assert!(result.content.contains("1. review_changes [read]"));
     assert!(result.content.contains("regressions"));
     assert!(result.metadata.unwrap()["write_steps"].is_array());
 }
@@ -192,6 +194,10 @@ async fn write_enabled_workflow_can_run_mutating_steps() {
     let metadata = result.metadata.unwrap();
     assert_eq!(metadata["mode"], "confirmed_writes");
     assert!(metadata["approval_checkpoints"].is_array());
+    assert_eq!(
+        metadata["approval_checkpoints"][0]["checkpoint_type"],
+        "write_capable_tool"
+    );
 }
 
 #[tokio::test]
@@ -263,5 +269,6 @@ async fn workflow_resolves_explicit_path() {
         .await
         .unwrap();
     assert!(!result.is_error);
-    assert!(result.content.contains("\"tool\": \"ls\""));
+    assert!(result.content.contains("Workflow plan: custom"));
+    assert!(result.content.contains("1. ls [read]"));
 }

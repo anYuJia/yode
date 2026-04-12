@@ -110,6 +110,28 @@ pub fn review_metadata_payload(
     })
 }
 
+pub fn merge_review_metadata(mut base: Value, extra: Value) -> Value {
+    if let (Some(base_object), Some(extra_object)) = (base.as_object_mut(), extra.as_object()) {
+        for (key, value) in extra_object {
+            base_object.insert(key.clone(), value.clone());
+        }
+    }
+    base
+}
+
+pub fn review_metadata_with_extra(
+    kind: &str,
+    title: &str,
+    body: &str,
+    artifact_path: Option<&str>,
+    extra: Value,
+) -> Value {
+    merge_review_metadata(
+        review_metadata_payload(kind, title, body, artifact_path),
+        extra,
+    )
+}
+
 pub fn render_review_artifact_message(
     heading: &str,
     body: &str,
@@ -121,6 +143,32 @@ pub fn render_review_artifact_message(
         body,
         artifact_path.unwrap_or("none")
     )
+}
+
+pub fn render_review_sections(sections: &[(&str, &str)]) -> String {
+    sections
+        .iter()
+        .map(|(heading, body)| format!("{}:\n{}", heading, body.trim()))
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+pub fn render_review_pipeline_summary(
+    review_output: &str,
+    verification_output: &str,
+    test_output: Option<&str>,
+    commit_output: &str,
+) -> String {
+    render_review_sections(&[
+        ("Review", review_output),
+        ("Verification", verification_output),
+        ("Tests", test_output.unwrap_or("not run")),
+        ("Commit", commit_output),
+    ])
+}
+
+pub fn render_review_then_commit_summary(review_output: &str, commit_output: &str) -> String {
+    render_review_sections(&[("Review", review_output), ("Commit", commit_output)])
 }
 
 pub fn review_output_has_findings(output: &str) -> bool {
@@ -171,8 +219,8 @@ fn is_structured_finding_line(line: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        persist_review_artifact, persist_review_status, review_findings_count,
-        review_metadata_payload,
+        persist_review_artifact, persist_review_status, render_review_pipeline_summary,
+        review_findings_count, review_metadata_payload, review_metadata_with_extra,
     };
 
     #[test]
@@ -258,5 +306,33 @@ mod tests {
         assert_eq!(artifact.get("kind").and_then(|v| v.as_str()), Some("review"));
         assert_eq!(artifact.get("status").and_then(|v| v.as_str()), Some("findings"));
         assert_eq!(artifact.get("artifact_path").and_then(|v| v.as_str()), Some("artifact.md"));
+    }
+
+    #[test]
+    fn review_metadata_with_extra_merges_fields() {
+        let payload = review_metadata_with_extra(
+            "review",
+            "changes",
+            "1. Missing test",
+            Some("artifact.md"),
+            serde_json::json!({ "commit_skipped": true }),
+        );
+        assert_eq!(payload.get("commit_skipped").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(
+            payload["review_artifact"]["findings_count"].as_u64(),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn review_pipeline_summary_renders_named_sections() {
+        let summary = render_review_pipeline_summary(
+            "No issues found.",
+            "No issues found.",
+            Some("cargo test"),
+            "not requested",
+        );
+        assert!(summary.contains("Review:\nNo issues found."));
+        assert!(summary.contains("Tests:\ncargo test"));
     }
 }

@@ -4,7 +4,9 @@ use serde_json::json;
 use tokio::sync::Mutex;
 
 use super::execution::select_task_output_lines;
+use super::rendering::render_follow_mode_summary;
 use super::TaskOutputTool;
+use crate::runtime_tasks::RuntimeTaskStatus;
 use crate::runtime_tasks::RuntimeTaskStore;
 use crate::tool::{Tool, ToolContext};
 
@@ -85,6 +87,7 @@ async fn follows_running_task_until_completion() {
         .unwrap();
     assert!(!result.is_error);
     assert!(result.content.contains("line2"));
+    assert!(result.content.contains("Follow mode: final status Completed"));
     assert_eq!(result.metadata.unwrap()["follow_timed_out"], false);
 }
 
@@ -137,4 +140,12 @@ fn folds_long_agent_output_by_default() {
     assert!(selected.contains("line 0"));
     assert!(selected.contains("line 119"));
     assert!(selected.contains("agent output folded"));
+}
+
+#[test]
+fn follow_mode_summary_surfaces_timeout_state() {
+    assert_eq!(
+        render_follow_mode_summary(&RuntimeTaskStatus::Running, 30, true),
+        "timed out after 30s with status Running"
+    );
 }

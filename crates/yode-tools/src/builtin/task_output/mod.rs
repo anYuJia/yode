@@ -1,4 +1,5 @@
 mod execution;
+mod rendering;
 #[cfg(test)]
 mod tests;
 

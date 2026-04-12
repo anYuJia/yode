@@ -5,7 +5,8 @@ use crate::builtin::git_commit::GitCommitTool;
 use crate::builtin::review_changes::ReviewChangesTool;
 use crate::builtin::review_common::{
     persist_review_artifact, persist_review_status, render_review_artifact_message,
-    review_findings_count, review_metadata_payload, review_output_has_findings,
+    render_review_pipeline_summary, review_findings_count, review_metadata_with_extra,
+    review_output_has_findings,
 };
 use crate::builtin::test_runner::TestRunnerTool;
 use crate::builtin::verification_agent::VerificationAgentTool;
@@ -98,24 +99,21 @@ pub(super) async fn execute_review_pipeline(
         }
     }
 
-    let summary = format!(
-        "Review:\n{}\n\nVerification:\n{}\n\nTests:\n{}\n\nCommit:\n{}",
-        review_output,
-        verification_output,
-        test_result
-            .as_ref()
-            .map(|result| result.content.clone())
-            .unwrap_or_else(|| "not run".to_string()),
-        commit_result
-            .as_ref()
-            .map(|result| result.content.clone())
-            .unwrap_or_else(|| {
-                if commit_message.is_some() && should_stop_for_findings {
-                    "skipped due to findings".to_string()
-                } else {
-                    "not requested".to_string()
-                }
-            })
+    let commit_summary = commit_result
+        .as_ref()
+        .map(|result| result.content.as_str())
+        .unwrap_or_else(|| {
+            if commit_message.is_some() && should_stop_for_findings {
+                "skipped due to findings"
+            } else {
+                "not requested"
+            }
+        });
+    let summary = render_review_pipeline_summary(
+        &review_output,
+        &verification_output,
+        test_result.as_ref().map(|result| result.content.as_str()),
+        commit_summary,
     );
 
     let pipeline_artifact = ctx
@@ -143,8 +141,11 @@ pub(super) async fn execute_review_pipeline(
                 "Address review or verification findings first, or set allow_findings_commit=true to override."
                     .to_string(),
             ),
-            metadata: Some(merge_review_metadata(
-                review_metadata_payload("review-pipeline", focus, &summary, pipeline_artifact.as_deref()),
+            metadata: Some(review_metadata_with_extra(
+                "review-pipeline",
+                focus,
+                &summary,
+                pipeline_artifact.as_deref(),
                 json!({
                 "focus": focus,
                 "review_output": review_output,
@@ -165,8 +166,11 @@ pub(super) async fn execute_review_pipeline(
             &summary,
             pipeline_artifact.as_deref(),
         ),
-        merge_review_metadata(
-            review_metadata_payload("review-pipeline", focus, &summary, pipeline_artifact.as_deref()),
+        review_metadata_with_extra(
+            "review-pipeline",
+            focus,
+            &summary,
+            pipeline_artifact.as_deref(),
             json!({
             "focus": focus,
             "review_output": review_output,
@@ -180,13 +184,4 @@ pub(super) async fn execute_review_pipeline(
             }),
         ),
     ))
-}
-
-fn merge_review_metadata(mut base: Value, extra: Value) -> Value {
-    if let (Some(base_object), Some(extra_object)) = (base.as_object_mut(), extra.as_object()) {
-        for (key, value) in extra_object {
-            base_object.insert(key.clone(), value.clone());
-        }
-    }
-    base
 }

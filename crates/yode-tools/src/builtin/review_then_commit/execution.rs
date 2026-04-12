@@ -3,8 +3,9 @@ use serde_json::{json, Value};
 
 use crate::builtin::git_commit::GitCommitTool;
 use crate::builtin::review_common::{
-    persist_review_artifact, persist_review_status, render_review_artifact_message,
-    review_findings_count, review_metadata_payload, review_output_has_findings,
+    merge_review_metadata, persist_review_artifact, persist_review_status,
+    render_review_artifact_message, render_review_then_commit_summary, review_findings_count,
+    review_metadata_with_extra, review_output_has_findings,
 };
 use crate::tool::{SubAgentOptions, Tool, ToolContext, ToolErrorType, ToolResult};
 
@@ -86,10 +87,11 @@ pub(super) async fn execute_review_then_commit(
     }
 
     if review_output_has_findings(&review_output) && !allow_findings_commit {
+        let summary = render_review_then_commit_summary(&review_output, "skipped due to findings");
         return Ok(ToolResult {
             content: render_review_artifact_message(
                 "Review detected findings. Commit aborted.",
-                &format!("Review output:\n{}", review_output),
+                &summary,
                 artifact_path.as_deref(),
             ),
             is_error: true,
@@ -99,8 +101,11 @@ pub(super) async fn execute_review_then_commit(
                 "Address the review findings first, or set allow_findings_commit=true if you intentionally want to override."
                     .to_string(),
             ),
-            metadata: Some(merge_review_metadata(
-                review_metadata_payload("pre-commit-review", focus, &review_output, artifact_path.as_deref()),
+            metadata: Some(review_metadata_with_extra(
+                "pre-commit-review",
+                focus,
+                &review_output,
+                artifact_path.as_deref(),
                 json!({
                 "review_output": review_output,
                 "findings_count": findings_count,
@@ -122,21 +127,26 @@ pub(super) async fn execute_review_then_commit(
         )
         .await?;
 
-    let mut metadata = commit_result.metadata.clone().unwrap_or_else(|| json!({}));
-    if let Some(object) = metadata.as_object_mut() {
-        object.insert("review_output".to_string(), json!(review_output));
-        object.insert("findings_count".to_string(), json!(findings_count));
-        object.insert("review_artifact_path".to_string(), json!(artifact_path));
-        object.insert(
-            "review_artifact".to_string(),
-            review_metadata_payload("pre-commit-review", focus, &review_output, artifact_path.as_deref())["review_artifact"].clone(),
-        );
-    }
+    let metadata = merge_review_metadata(
+        commit_result.metadata.clone().unwrap_or_else(|| json!({})),
+        review_metadata_with_extra(
+            "pre-commit-review",
+            focus,
+            &review_output,
+            artifact_path.as_deref(),
+            json!({
+                "review_output": review_output,
+                "findings_count": findings_count,
+                "review_artifact_path": artifact_path,
+            }),
+        ),
+    );
 
+    let summary = render_review_then_commit_summary(&review_output, &commit_result.content);
     Ok(ToolResult {
         content: render_review_artifact_message(
             "Review passed.",
-            &commit_result.content,
+            &summary,
             artifact_path.as_deref(),
         ),
         is_error: commit_result.is_error,
@@ -145,13 +155,4 @@ pub(super) async fn execute_review_then_commit(
         suggestion: commit_result.suggestion,
         metadata: Some(metadata),
     })
-}
-
-fn merge_review_metadata(mut base: Value, extra: Value) -> Value {
-    if let (Some(base_object), Some(extra_object)) = (base.as_object_mut(), extra.as_object()) {
-        for (key, value) in extra_object {
-            base_object.insert(key.clone(), value.clone());
-        }
-    }
-    base
 }

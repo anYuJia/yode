@@ -6,6 +6,9 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use super::WorkflowExecutionMode;
+use super::rendering::{
+    render_approval_checkpoint, render_workflow_dry_run, workflow_mode_label,
+};
 use super::variables::{apply_variables, workflow_variables_from_params};
 use crate::tool::{ToolCapabilities, ToolContext, ToolResult};
 
@@ -112,7 +115,15 @@ pub(super) async fn execute_workflow(
             })
             .collect::<Vec<_>>();
         return Ok(ToolResult::success_with_metadata(
-            serde_json::to_string_pretty(&plan)?,
+            render_workflow_dry_run(
+                &workflow_path,
+                workflow.name.as_deref(),
+                workflow.description.as_deref(),
+                mode,
+                &variables,
+                &plan,
+                &write_steps,
+            ),
             json!({
                 "workflow_path": workflow_path,
                 "workflow_name": workflow.name,
@@ -158,16 +169,7 @@ pub(super) async fn execute_workflow(
         if matches!(mode, WorkflowExecutionMode::ConfirmedWrites)
             && is_write_capable_tool(&step.tool_name)
         {
-            step_outputs.push(json!({
-                "index": index + 1,
-                "tool": step.tool_name,
-                "approval_checkpoint": true,
-                "checkpoint": format!(
-                    "Mutating step {} ({}) runs under workflow_run_with_writes confirmation.",
-                    index + 1,
-                    step.tool_name
-                ),
-            }));
+            step_outputs.push(render_approval_checkpoint(index + 1, &step.tool_name));
         }
 
         let step_ctx = clone_step_context(ctx);
@@ -258,21 +260,8 @@ fn workflow_write_checkpoints(steps: &[WorkflowStep]) -> Vec<Value> {
         .iter()
         .enumerate()
         .filter(|(_, step)| is_write_capable_tool(&step.tool_name))
-        .map(|(index, step)| {
-            json!({
-                "index": index + 1,
-                "tool": step.tool_name,
-                "requires": "workflow_run_with_writes confirmation",
-            })
-        })
+        .map(|(index, step)| render_approval_checkpoint(index + 1, &step.tool_name))
         .collect()
-}
-
-fn workflow_mode_label(mode: WorkflowExecutionMode) -> &'static str {
-    match mode {
-        WorkflowExecutionMode::SafeReadOnly => "safe_read_only",
-        WorkflowExecutionMode::ConfirmedWrites => "confirmed_writes",
-    }
 }
 
 fn is_workflow_tool(tool_name: &str) -> bool {

@@ -1,6 +1,7 @@
 use anyhow::Result;
 use serde_json::{json, Value};
 
+use super::rendering::render_task_output_header;
 use crate::tool::{ToolContext, ToolErrorType, ToolResult};
 
 pub(super) async fn execute_task_output(params: Value, ctx: &ToolContext) -> Result<ToolResult> {
@@ -85,19 +86,7 @@ pub(super) async fn execute_task_output(params: Value, ctx: &ToolContext) -> Res
     let explicit_offset = params.get("offset").is_some();
     let (selected, start_line, end_line, was_truncated, folded_agent_output) =
         select_task_output_lines(&task.kind, &lines, start, limit, explicit_offset);
-    let mut output = String::new();
-    output.push_str(&format!(
-        "Task {} [{} / {}]\nDescription: {}\nOutput path: {}\n",
-        task.id,
-        task.kind,
-        format!("{:?}", task.status),
-        task.description,
-        task.output_path
-    ));
-    if let Some(transcript_path) = &task.transcript_path {
-        output.push_str(&format!("Transcript: {}\n", transcript_path));
-    }
-    output.push('\n');
+    let mut output = render_task_output_header(&task, follow, timeout_secs, follow_timed_out);
     if !task.progress_history.is_empty() {
         output.push_str("Recent progress:\n");
         for progress in &task.progress_history {
