@@ -1,6 +1,7 @@
 mod artifacts;
 mod session_restore;
 mod startup_profile;
+mod startup_summary;
 mod tooling;
 
 pub(crate) use artifacts::{
@@ -12,4 +13,8 @@ pub(crate) use session_restore::{
     configure_permissions, ensure_session_exists, restore_or_create_context, shutdown_mcp_clients,
 };
 pub(crate) use startup_profile::StartupProfiler;
+pub(crate) use startup_summary::{
+    append_startup_segment, build_startup_resume_segment, parse_startup_summary_segment,
+    tooling_phase_summary,
+};
 pub(crate) use tooling::{init_logging, setup_tooling};

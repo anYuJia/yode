@@ -19,18 +19,18 @@
 
 当前进度：
 
-- `2 / 100` 已完成
+- `7 / 100` 已完成
 
 ## 001-010 Shared Types / Context
 
 - `[x]` 001 message estimated char count helper
 - `[x]` 002 tool call estimated char count helper
-- `[ ]` 003 context manager shared message footprint helper rollout
-- `[ ]` 004 prompt/token estimation regression snapshot tests
+- `[x]` 003 context manager shared message footprint helper rollout
+- `[x]` 004 prompt/token estimation regression snapshot tests
 - `[ ]` 005 transcript render shared summary formatter
-- `[ ]` 006 runtime artifact link model shared struct
-- `[ ]` 007 startup summary parsing helper
-- `[ ]` 008 command output preview truncation helper
+- `[x]` 006 runtime artifact link model shared struct
+- `[x]` 007 startup summary parsing helper
+- `[x]` 008 command output preview truncation helper
 - `[ ]` 009 UI badge formatting helper inventory
 - `[ ]` 010 shared duration formatting for diagnostics panels
 

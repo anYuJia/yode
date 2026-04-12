@@ -9,6 +9,11 @@ use crate::commands::{
     CommandResult,
 };
 
+mod shared;
+use shared::{
+    latest_artifact_candidates_from_links, latest_runtime_artifact_links, truncate_preview_line,
+};
+
 pub struct ExportCommand {
     meta: CommandMeta,
 }
@@ -57,7 +62,7 @@ impl Command for ExportCommand {
                 .find(|e| matches!(e.role, ChatRole::User))
                 .map(|e| {
                     let text = e.content.split('\n').next().unwrap_or("");
-                    sanitize_filename(text)
+                    sanitize_filename(&truncate_preview_line(text, 80))
                 })
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| timestamp_filename());
@@ -222,21 +227,13 @@ fn export_diagnostics_bundle(custom_name: Option<&str>, ctx: &mut CommandContext
 }
 
 fn latest_artifact_candidates(ctx: &mut CommandContext) -> Vec<PathBuf> {
-    let mut paths = Vec::new();
-    if let Ok(engine) = ctx.engine.try_lock() {
-        let runtime = engine.runtime_state();
-        for maybe_path in [
-            runtime.last_tool_turn_artifact_path,
-            runtime.last_compaction_transcript_path,
-            runtime.last_compaction_session_memory_path,
-            runtime.last_recovery_artifact_path,
-            runtime.last_permission_artifact_path,
-        ] {
-            if let Some(path) = maybe_path {
-                paths.push(PathBuf::from(path));
-            }
-        }
-    }
+    let runtime = ctx
+        .engine
+        .try_lock()
+        .ok()
+        .map(|engine| engine.runtime_state());
+    let mut paths =
+        latest_artifact_candidates_from_links(&latest_runtime_artifact_links(runtime));
 
     let review_dir = PathBuf::from(&ctx.session.working_dir)
         .join(".yode")
