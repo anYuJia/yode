@@ -58,7 +58,7 @@ pub(crate) fn restore_or_create_context(
     model: String,
 ) -> Result<(AgentContext, Option<Vec<Message>>, SessionRestoreReport)> {
     if let Some(resume_id) = &cli.resume {
-        if let Some(session) = db.get_session(resume_id)? {
+        if let Some(session) = resume_session_metadata(db, resume_id)? {
             info!("Resuming session: {}", resume_id);
             let context = AgentContext::resume(
                 session.id.clone(),
@@ -66,7 +66,7 @@ pub(crate) fn restore_or_create_context(
                 session.provider.clone(),
                 session.model.clone(),
             );
-            let (messages, report) = load_restored_messages(db, resume_id)?;
+            let (messages, report) = restore_messages_full(db, resume_id)?;
             return Ok((context, Some(messages), report));
         }
 
@@ -120,7 +120,14 @@ pub(crate) async fn shutdown_mcp_clients(clients: Vec<yode_mcp::McpClient>) {
     }
 }
 
-fn load_restored_messages(db: &Database, resume_id: &str) -> Result<(Vec<Message>, SessionRestoreReport)> {
+fn resume_session_metadata(db: &Database, resume_id: &str) -> Result<Option<Session>> {
+    db.get_session(resume_id)
+}
+
+fn restore_messages_full(
+    db: &Database,
+    resume_id: &str,
+) -> Result<(Vec<Message>, SessionRestoreReport)> {
     let stored = db.load_messages(resume_id)?;
     let total = stored.len();
     let decoded_messages = stored
@@ -134,6 +141,108 @@ fn load_restored_messages(db: &Database, resume_id: &str) -> Result<(Vec<Message
         skipped_messages: total.saturating_sub(decoded_messages.len()),
     };
     Ok((decoded_messages, report))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use yode_core::session::Session;
+
+    fn test_cli(resume: Option<&str>) -> crate::Cli {
+        crate::Cli {
+            provider: None,
+            model: None,
+            config: None,
+            workdir: None,
+            resume: resume.map(str::to_string),
+            serve_mcp: false,
+            chat_message: None,
+            command: None,
+        }
+    }
+
+    fn test_db() -> Database {
+        let dir = std::env::temp_dir().join(format!(
+            "yode-session-restore-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        Database::open(&dir.join("sessions.db")).unwrap()
+    }
+
+    #[test]
+    fn restore_path_uses_metadata_then_full_messages() {
+        let db = test_db();
+        db.create_session(&Session {
+            id: "resume-1".to_string(),
+            name: None,
+            provider: "anthropic".to_string(),
+            model: "claude".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        })
+        .unwrap();
+        db.save_message("resume-1", "user", Some("hello"), None, None, None)
+            .unwrap();
+
+        let (context, restored, report) = restore_or_create_context(
+            &test_cli(Some("resume-1")),
+            &db,
+            std::env::temp_dir(),
+            "openai".to_string(),
+            "gpt".to_string(),
+        )
+        .unwrap();
+
+        assert!(context.is_resumed);
+        assert_eq!(report.mode, "full_transcript_restore");
+        assert_eq!(report.decoded_messages, 1);
+        assert_eq!(restored.unwrap().len(), 1);
+    }
+
+    #[test]
+    fn restore_path_reports_missing_session_fallback() {
+        let db = test_db();
+        let (context, restored, report) = restore_or_create_context(
+            &test_cli(Some("missing")),
+            &db,
+            std::env::temp_dir(),
+            "openai".to_string(),
+            "gpt".to_string(),
+        )
+        .unwrap();
+
+        assert!(!context.is_resumed);
+        assert!(restored.is_none());
+        assert_eq!(report.mode, "new_session");
+        assert_eq!(
+            report.fallback_reason.as_deref(),
+            Some("resume_session_not_found")
+        );
+    }
+
+    #[test]
+    fn restore_path_tracks_skipped_message_decodes() {
+        let db = test_db();
+        db.create_session(&Session {
+            id: "resume-2".to_string(),
+            name: None,
+            provider: "anthropic".to_string(),
+            model: "claude".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        })
+        .unwrap();
+        db.save_message("resume-2", "user", Some("ok"), None, None, None)
+            .unwrap();
+        db.save_message("resume-2", "unknown-role", Some("skip"), None, None, None)
+            .unwrap();
+
+        let (_messages, report) = restore_messages_full(&db, "resume-2").unwrap();
+        assert_eq!(report.decoded_messages, 1);
+        assert_eq!(report.skipped_messages, 1);
+    }
 }
 
 fn stored_message_to_message(message: StoredMessage) -> Option<Message> {
