@@ -1,5 +1,6 @@
 use crate::commands::context::CommandContext;
 use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
+use crate::runtime_display::format_turn_artifact_status;
 use super::artifact_preview::{compact_tool_runtime_summary, latest_markdown_file, preview_markdown};
 
 pub struct BriefCommand {
@@ -113,6 +114,10 @@ impl Command for BriefCommand {
                 .as_ref()
                 .map(|preview| format!("\n    {}", preview))
                 .unwrap_or_default()
+        ));
+        output.push_str(&format!(
+            "  Latest turn artifact: {}\n",
+            format_turn_artifact_status(state.last_turn_artifact_path.as_deref())
         ));
         output.push_str(&format!(
             "  Latest transcript: {}{}\n",

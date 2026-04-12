@@ -1,3 +1,7 @@
+use crate::runtime_display::{
+    format_permission_decision_summary, format_tool_progress_summary,
+};
+
 pub(crate) fn render_diagnostics_overview(
     state: &yode_core::engine::EngineRuntimeState,
     tasks: &[yode_tools::RuntimeTask],
@@ -21,9 +25,19 @@ pub(crate) fn render_diagnostics_overview(
             .collect::<Vec<_>>()
             .join(", ")
     };
+    let permission_summary = format_permission_decision_summary(
+        state.last_permission_tool.as_deref(),
+        state.last_permission_action.as_deref(),
+        state.last_permission_explanation.as_deref(),
+    );
+    let tool_progress_summary = format_tool_progress_summary(
+        state.last_tool_progress_tool.as_deref(),
+        state.last_tool_progress_message.as_deref(),
+        state.last_tool_progress_at.as_deref(),
+    );
 
     format!(
-        "Diagnostics overview:\n\nContext:\n  Query source:   {}\n  Compact count:  {} (auto {}, manual {})\n  Breaker reason: {}\n  Compact tokens: {}\n\nMemory:\n  Live memory:    {}{}\n  Memory updates: {}\n  Last memory:    {}\n\nRecovery:\n  State:          {}\n  Last signature: {}\n  Last permission: {} [{}]\n  Denials:        {}\n\nTools:\n  Session calls:  {}\n  Progress:       {}\n  Parallel:       {} batches / {} calls\n  Truncations:    {}\n  Errors:         {}\n  Last artifact:  {}\n\nTasks:\n  Total:          {}\n  Running:        {}\n\nHooks:\n  Total runs:     {}\n  Timeouts:       {}\n  Wake notices:   {}",
+        "Diagnostics overview:\n\nContext:\n  Query source:   {}\n  Compact count:  {} (auto {}, manual {})\n  Breaker reason: {}\n  Compact tokens: {}\n\nMemory:\n  Live memory:    {}{}\n  Memory updates: {}\n  Last memory:    {}\n\nRecovery:\n  State:          {}\n  Last signature: {}\n  Permission:     {}\n  Denials:        {}\n\nTools:\n  Session calls:  {}\n  Progress:       {}\n  Parallel:       {} batches / {} calls\n  Truncations:    {}\n  Errors:         {}\n  Last artifact:  {}\n\nTasks:\n  Total:          {}\n  Running:        {}\n\nHooks:\n  Total runs:     {}\n  Timeouts:       {}\n  Wake notices:   {}",
         state.query_source,
         state.total_compactions,
         state.auto_compactions,
@@ -53,11 +67,14 @@ pub(crate) fn render_diagnostics_overview(
             .unwrap_or("none"),
         state.recovery_state,
         state.last_failed_signature.as_deref().unwrap_or("none"),
-        state.last_permission_tool.as_deref().unwrap_or("none"),
-        state.last_permission_action.as_deref().unwrap_or("none"),
+        permission_summary,
         recent_denials,
         state.session_tool_calls_total,
-        state.tool_progress_event_count,
+        format!(
+            "{} ({})",
+            state.tool_progress_event_count,
+            tool_progress_summary
+        ),
         state.parallel_tool_batch_count,
         state.parallel_tool_call_count,
         state.tool_truncation_count,

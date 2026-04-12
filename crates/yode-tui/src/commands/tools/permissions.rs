@@ -3,6 +3,7 @@ use crate::commands::{
     ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
     CommandResult,
 };
+use crate::runtime_display::format_permission_decision_summary;
 
 pub struct PermissionsCommand {
     meta: CommandMeta,
@@ -144,16 +145,12 @@ impl Command for PermissionsCommand {
                     }
                 }
                 lines.push(format!(
-                    "Last permission decision: {} [{}]",
-                    runtime.last_permission_tool.as_deref().unwrap_or("none"),
-                    runtime.last_permission_action.as_deref().unwrap_or("none")
-                ));
-                lines.push(format!(
-                    "Why: {}",
-                    runtime
-                        .last_permission_explanation
-                        .as_deref()
-                        .unwrap_or("none")
+                    "Last permission decision: {}",
+                    format_permission_decision_summary(
+                        runtime.last_permission_tool.as_deref(),
+                        runtime.last_permission_action.as_deref(),
+                        runtime.last_permission_explanation.as_deref(),
+                    )
                 ));
                 Ok(CommandOutput::Messages(lines))
             }

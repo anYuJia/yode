@@ -8,6 +8,7 @@ use crate::commands::{
     ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
     CommandResult,
 };
+use crate::runtime_artifacts::write_runtime_task_inventory_artifact;
 
 mod shared;
 use shared::{
@@ -251,6 +252,17 @@ fn latest_artifact_candidates(ctx: &mut CommandContext) -> Vec<PathBuf> {
         .map(|engine| engine.runtime_state());
     let project_root = PathBuf::from(&ctx.session.working_dir);
     let mut paths = latest_artifact_candidates_from_links(&latest_runtime_artifact_links(runtime));
+    if let Some(runtime_task_artifact) = write_runtime_task_inventory_artifact(
+        &project_root,
+        &ctx.session.session_id,
+        ctx.engine
+            .try_lock()
+            .ok()
+            .map(|engine| engine.runtime_tasks_snapshot())
+            .unwrap_or_default(),
+    ) {
+        paths.push(PathBuf::from(runtime_task_artifact));
+    }
     paths.extend(startup_artifact_candidates(&project_root));
 
     let review_dir = PathBuf::from(&ctx.session.working_dir)

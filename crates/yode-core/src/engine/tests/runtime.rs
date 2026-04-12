@@ -325,3 +325,13 @@ fn test_restore_messages_rebuilds_artifact_runtime_state() {
         Some(live_path_str.as_str())
     );
 }
+
+#[test]
+fn test_reset_turn_runtime_clears_stream_watchdog_stage() {
+    let mut engine = make_engine(vec![], vec![]);
+    engine.last_stream_watchdog_stage = Some("receive_loop:stall_timeout".to_string());
+
+    engine.reset_turn_runtime_state();
+
+    assert_eq!(engine.runtime_state().last_stream_watchdog_stage.as_deref(), None);
+}

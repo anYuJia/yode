@@ -1,5 +1,9 @@
 use crate::commands::context::CommandContext;
 use crate::commands::info::startup_artifacts::ProviderInventorySummary;
+use crate::runtime_display::{
+    fold_recovery_breadcrumbs, format_permission_decision_summary,
+    format_repeated_tool_failure_summary, format_tool_progress_summary,
+};
 use yode_tools::registry::ToolInventory;
 
 use super::super::artifact_preview::compact_tool_runtime_summary;
@@ -42,9 +46,22 @@ pub(super) fn build_runtime_sections(
     let prompt_cache_last_turn = prompt_cache_last_turn_status(&state.prompt_cache);
     let prompt_cache_miss_turns = prompt_cache_miss_turns(&state.prompt_cache);
     let system_prompt_breakdown = system_prompt_segment_breakdown(&state.system_prompt_segments);
+    let recovery_breadcrumbs = fold_recovery_breadcrumbs(&state.recovery_breadcrumbs, 3);
+    let permission_summary = format_permission_decision_summary(
+        state.last_permission_tool.as_deref(),
+        state.last_permission_action.as_deref(),
+        state.last_permission_explanation.as_deref(),
+    );
+    let tool_progress_summary = format_tool_progress_summary(
+        state.last_tool_progress_tool.as_deref(),
+        state.last_tool_progress_message.as_deref(),
+        state.last_tool_progress_at.as_deref(),
+    );
+    let repeated_failure_summary =
+        format_repeated_tool_failure_summary(state.latest_repeated_tool_failure.as_deref());
 
     format!(
-        "\n\nCompact:\n  Query source:    {}\n  Autocompact:     {}\n  Compact fails:   {}\n  Compact count:   {} (auto {}, manual {})\n  Breaker reason:  {}\n  Breaker hint:    {}\n  Cause histogram: {}\n  Last compact:    {}\n  Compact at:      {}\n  Compact summary: {}\n  Last compact mem: {}\n  Last transcript: {}\n\nSystem Prompt:\n  Total est:       {} tokens\n{}\n\nPrompt Cache:\n  Last turn:       {}\n  Last tokens:     {} prompt / {} completion\n  Last cache:      {} write / {} read\n  Cache turns:     {} reported / {} hit / {} miss / {} fill\n  Cache tokens:    {} write / {} read\n\nTurn Runtime:\n  Last turn:       {} ms\n  Stop reason:     {}\n  Turn artifact:   {}\n  Watchdog stage:  {}\n  Retry reasons:   {}\n\nMemory:\n  Live memory:     {}{}\n  Live memory file: {}\n  Memory updates:  {}\n  Last memory update: {}\n  Freshness:       {}\n  Pending update:  {}\n\nRecovery:\n  State:           {}\n  Single-step:     {}\n  Reanchor:        {}\n  Need guidance:   {}\n  Last signature:  {}\n  Breadcrumbs:     {}\n  Artifact:        {}\n  Last permission: {} [{}]\n  Permission why:  {}\n  Permission artifact: {}\n  Recent denials:  {}\n\nTools:\n  Inventory:       {} total / {} active / {} deferred\n  Model pool:      {} active visible / {} active hidden\n  Deferred pool:   {} visible / {} hidden\n  Pool policy:     mode={} confirm={} deny={}\n  Visible sources: {} builtin / {} mcp\n  Search mode:     {}\n  Search reason:   {}\n  Activations:     {} (last: {})\n  Duplicate regs:  {} ({})\n  Session tools:   {}\n  Current turn:    {} calls / {} bytes\n  Budget notices:  {} (warning {})\n  Budget active:   notice={} warning={}\n  Progress events: {} (last: {} / {})\n  Parallel:        {} batches / {} calls (max {})\n  Truncations:     {} (last: {})\n  Error types:     {}\n  Repeat fail:     {}\n  Tool traces:     {} turn / {} calls\n  Tool artifact:   {}\n  Tool turn done:  {}\n  Failed tools:    {}\n  Always-allow:    {}{}{}{}\n\nHooks:\n  Hook runs:       {}\n  Hook timeouts:   {}\n  Hook exec errs:  {}\n  Hook exits!=0:   {}\n  Hook wakes:      {}\n  Last hook fail:  {}\n  Last hook at:    {}\n  Last hook timeout: {}",
+        "\n\nCompact:\n  Query source:    {}\n  Autocompact:     {}\n  Compact fails:   {}\n  Compact count:   {} (auto {}, manual {})\n  Breaker reason:  {}\n  Breaker hint:    {}\n  Cause histogram: {}\n  Last compact:    {}\n  Compact at:      {}\n  Compact summary: {}\n  Last compact mem: {}\n  Last transcript: {}\n\nSystem Prompt:\n  Total est:       {} tokens\n{}\n\nPrompt Cache:\n  Last turn:       {}\n  Last tokens:     {} prompt / {} completion\n  Last cache:      {} write / {} read\n  Cache turns:     {} reported / {} hit / {} miss / {} fill\n  Cache tokens:    {} write / {} read\n\nTurn Runtime:\n  Last turn:       {} ms\n  Stop reason:     {}\n  Turn artifact:   {}\n  Watchdog stage:  {}\n  Retry reasons:   {}\n\nMemory:\n  Live memory:     {}{}\n  Live memory file: {}\n  Memory updates:  {}\n  Last memory update: {}\n  Freshness:       {}\n  Pending update:  {}\n\nRecovery:\n  State:           {}\n  Single-step:     {}\n  Reanchor:        {}\n  Need guidance:   {}\n  Last signature:  {}\n  Breadcrumbs:     {}\n  Artifact:        {}\n  Permission:      {}\n  Permission artifact: {}\n  Recent denials:  {}\n\nTools:\n  Inventory:       {} total / {} active / {} deferred\n  Model pool:      {} active visible / {} active hidden\n  Deferred pool:   {} visible / {} hidden\n  Pool policy:     mode={} confirm={} deny={}\n  Visible sources: {} builtin / {} mcp\n  Search mode:     {}\n  Search reason:   {}\n  Activations:     {} (last: {})\n  Duplicate regs:  {} ({})\n  Session tools:   {}\n  Current turn:    {} calls / {} bytes\n  Budget notices:  {} (warning {})\n  Budget active:   notice={} warning={}\n  Progress events: {} ({})\n  Parallel:        {} batches / {} calls (max {})\n  Truncations:     {} (last: {})\n  Error types:     {}\n  Repeat fail:     {}\n  Tool traces:     {} turn / {} calls\n  Tool artifact:   {}\n  Tool turn done:  {}\n  Failed tools:    {}\n  Always-allow:    {}{}{}{}\n\nHooks:\n  Hook runs:       {}\n  Hook timeouts:   {}\n  Hook exec errs:  {}\n  Hook exits!=0:   {}\n  Hook wakes:      {}\n  Last hook fail:  {}\n  Last hook at:    {}\n  Last hook timeout: {}",
         state.query_source,
         if state.autocompact_disabled {
             "disabled"
@@ -140,21 +157,12 @@ pub(super) fn build_runtime_sections(
         state.recovery_reanchor_count,
         state.recovery_need_user_guidance_count,
         state.last_failed_signature.as_deref().unwrap_or("none"),
-        state
-            .recovery_breadcrumbs
-            .last()
-            .map(String::as_str)
-            .unwrap_or("none"),
+        recovery_breadcrumbs,
         state
             .last_recovery_artifact_path
             .as_deref()
             .unwrap_or("none"),
-        state.last_permission_tool.as_deref().unwrap_or("none"),
-        state.last_permission_action.as_deref().unwrap_or("none"),
-        state
-            .last_permission_explanation
-            .as_deref()
-            .unwrap_or("none"),
+        permission_summary,
         state
             .last_permission_artifact_path
             .as_deref()
@@ -194,11 +202,7 @@ pub(super) fn build_runtime_sections(
         state.current_turn_budget_notice_emitted,
         state.current_turn_budget_warning_emitted,
         state.tool_progress_event_count,
-        state.last_tool_progress_tool.as_deref().unwrap_or("none"),
-        state
-            .last_tool_progress_message
-            .as_deref()
-            .unwrap_or("none"),
+        tool_progress_summary,
         state.parallel_tool_batch_count,
         state.parallel_tool_call_count,
         state.max_parallel_batch_size,
@@ -208,10 +212,7 @@ pub(super) fn build_runtime_sections(
             .as_deref()
             .unwrap_or("none"),
         tool_error_counts,
-        state
-            .latest_repeated_tool_failure
-            .as_deref()
-            .unwrap_or("none"),
+        repeated_failure_summary,
         state.tool_trace_scope,
         state.tool_traces.len(),
         state

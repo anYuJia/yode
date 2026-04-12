@@ -5,6 +5,9 @@ use crate::commands::{
     ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
     CommandResult,
 };
+use crate::runtime_display::{
+    format_repeated_tool_failure_summary, format_tool_progress_summary,
+};
 
 pub struct ToolsCommand {
     meta: CommandMeta,
@@ -176,6 +179,13 @@ impl Command for ToolsCommand {
             state.hook_total_executions,
             state.tool_traces.len()
         );
+        let tool_progress_summary = format_tool_progress_summary(
+            state.last_tool_progress_tool.as_deref(),
+            state.last_tool_progress_message.as_deref(),
+            state.last_tool_progress_at.as_deref(),
+        );
+        let repeated_failure_summary =
+            format_repeated_tool_failure_summary(state.latest_repeated_tool_failure.as_deref());
 
         let mut traces = String::new();
         if state.tool_traces.is_empty() {
@@ -221,7 +231,7 @@ impl Command for ToolsCommand {
         }
 
         Ok(CommandOutput::Message(format!(
-            "Tool diagnostics:\n  Registry tools:  {} total / {} active / {} deferred\n  Model pool:      {} active visible / {} active hidden / {} deferred visible / {} deferred hidden\n  Pool policy:     mode={} confirm={} deny={}\n  Visible sources: {} builtin / {} mcp\n  Search mode:     {} ({})\n  Activations:     {} (last: {})\n  Duplicate regs:  {} ({})\n  Cmd/tool overlap: {}\n  Hidden tools:    {}\n  Deferred visible: {}\n  Session calls:    {}\n  Current turn:     {} calls / {} bytes / {} progress\n  Budget notices:   {} (warnings {})\n  Budget active:    notice={} warning={}\n  Parallel:         {} batches / {} calls (max {})\n  Read history:     {}\n  Duplication hints: {}\n  Hook/tool line:   {}\n  Truncations:      {} (last: {})\n  Error types:      {}\n  Failure clusters: {}\n  Repeat failures:  {}\n  Last progress:    {} / {}\n  Last progress at: {}\n  Last artifact:    {}\n  Last turn done:   {}\n{}\
+            "Tool diagnostics:\n  Registry tools:  {} total / {} active / {} deferred\n  Model pool:      {} active visible / {} active hidden / {} deferred visible / {} deferred hidden\n  Pool policy:     mode={} confirm={} deny={}\n  Visible sources: {} builtin / {} mcp\n  Search mode:     {} ({})\n  Activations:     {} (last: {})\n  Duplicate regs:  {} ({})\n  Cmd/tool overlap: {}\n  Hidden tools:    {}\n  Deferred visible: {}\n  Session calls:    {}\n  Current turn:     {} calls / {} bytes / {} progress\n  Budget notices:   {} (warnings {})\n  Budget active:    notice={} warning={}\n  Parallel:         {} batches / {} calls (max {})\n  Read history:     {}\n  Duplication hints: {}\n  Hook/tool line:   {}\n  Truncations:      {} (last: {})\n  Error types:      {}\n  Failure clusters: {}\n  Repeat failures:  {}\n  Last progress:    {}\n  Last artifact:    {}\n  Last turn done:   {}\n{}\
 \nUse `/tools list` or `/tools verbose` to inspect the full registry.",
             inventory.total_count,
             inventory.active_count,
@@ -268,22 +278,8 @@ impl Command for ToolsCommand {
                 .unwrap_or("none"),
             error_counts,
             failure_clusters,
-            state
-                .latest_repeated_tool_failure
-                .as_deref()
-                .unwrap_or("none"),
-            state
-                .last_tool_progress_tool
-                .as_deref()
-                .unwrap_or("none"),
-            state
-                .last_tool_progress_message
-                .as_deref()
-                .unwrap_or("none"),
-            state
-                .last_tool_progress_at
-                .as_deref()
-                .unwrap_or("none"),
+            repeated_failure_summary,
+            tool_progress_summary,
             state
                 .last_tool_turn_artifact_path
                 .as_deref()

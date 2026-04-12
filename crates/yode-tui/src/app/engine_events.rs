@@ -8,6 +8,10 @@ use tokio::sync::{mpsc, Mutex};
 
 use yode_core::engine::{AgentEngine, ConfirmResponse, EngineEvent};
 
+use crate::runtime_display::{
+    format_budget_exceeded_message, format_context_compressed_message,
+    format_session_memory_update_message,
+};
 use self::streaming::{
     finalize_streaming, handle_done, handle_reasoning_complete, handle_reasoning_delta,
     handle_suggestion_ready, handle_text_complete, handle_text_delta, handle_turn_complete,
@@ -184,15 +188,7 @@ pub(super) fn handle_engine_event(
             push_grouped_system_entry(
                 app,
                 "Session memory updated",
-                format!(
-                    "Session memory updated ({}): {}",
-                    if generated_summary {
-                        "summary"
-                    } else {
-                        "snapshot"
-                    },
-                    path
-                ),
+                format_session_memory_update_message(&path, generated_summary),
             );
         }
         EngineEvent::UpdateAvailable(version) => {
@@ -259,37 +255,18 @@ pub(super) fn handle_engine_event(
             session_memory_path,
             transcript_path,
         } => {
-            let mut content = match (removed, tool_results_truncated) {
-                (0, truncated) => format!(
-                    "Context compressed ({}): truncated {} oversized tool results to stay within the window.",
-                    mode, truncated
+            push_grouped_system_entry(
+                app,
+                "Context compressed",
+                format_context_compressed_message(
+                    &mode,
+                    removed,
+                    tool_results_truncated,
+                    summary.as_deref(),
+                    session_memory_path.as_deref(),
+                    transcript_path.as_deref(),
                 ),
-                (removed, 0) => format!(
-                    "Context compressed ({}): removed {} messages to fit window.",
-                    mode, removed
-                ),
-                (removed, truncated) => format!(
-                    "Context compressed ({}): removed {} messages and truncated {} oversized tool results.",
-                    mode, removed, truncated
-                ),
-            };
-
-            if let Some(summary) = summary {
-                content.push_str("\n");
-                content.push_str(&summary);
-            }
-
-            if let Some(path) = session_memory_path {
-                content.push_str("\nSession memory: ");
-                content.push_str(&path);
-            }
-
-            if let Some(path) = transcript_path {
-                content.push_str("\nTranscript backup: ");
-                content.push_str(&path);
-            }
-
-            push_grouped_system_entry(app, "Context compressed", content);
+            );
         }
         EngineEvent::CostUpdate {
             estimated_cost,
@@ -310,10 +287,7 @@ pub(super) fn handle_engine_event(
         EngineEvent::BudgetExceeded { cost, limit } => {
             app.chat_entries.push(ChatEntry::new(
                 ChatRole::System,
-                format!(
-                    "⚠ Budget limit exceeded: ${:.4} (limit: ${:.2})",
-                    cost, limit
-                ),
+                format_budget_exceeded_message(cost, limit),
             ));
         }
     }

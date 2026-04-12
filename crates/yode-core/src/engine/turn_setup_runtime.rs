@@ -59,6 +59,7 @@ impl AgentEngine {
 
     pub(super) fn reset_turn_runtime_state(&mut self) {
         self.current_turn_started_at = Some(std::time::Instant::now());
+        self.reset_stream_watchdog_state();
         self.reset_tool_turn_runtime();
         self.reset_prompt_cache_turn_runtime();
         self.recent_tool_calls.clear();
@@ -66,6 +67,10 @@ impl AgentEngine {
         self.violation_retries = 0;
         self.files_read.clear();
         self.files_modified.clear();
+    }
+
+    pub(super) fn reset_stream_watchdog_state(&mut self) {
+        self.last_stream_watchdog_stage = None;
     }
 
     pub(super) fn reset_non_streaming_error_state(&mut self) {

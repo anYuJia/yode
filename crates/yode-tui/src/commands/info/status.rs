@@ -4,6 +4,7 @@ mod sections;
 
 use crate::commands::context::CommandContext;
 use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
+use crate::runtime_artifacts::write_runtime_task_inventory_artifact;
 
 use super::startup_artifacts::{
     latest_mcp_startup_failures, latest_provider_inventory, latest_startup_artifact_link,
@@ -140,32 +141,4 @@ impl Command for StatusCommand {
             startup_profile,
         )))
     }
-}
-
-fn write_runtime_task_inventory_artifact(
-    project_root: &std::path::Path,
-    session_id: &str,
-    tasks: Vec<yode_tools::RuntimeTask>,
-) -> Option<String> {
-    if tasks.is_empty() {
-        return None;
-    }
-    let dir = project_root.join(".yode").join("status");
-    std::fs::create_dir_all(&dir).ok()?;
-    let short_session = session_id.chars().take(8).collect::<String>();
-    let path = dir.join(format!("{}-runtime-tasks.md", short_session));
-    let mut body = format!("# Runtime Task Inventory\n\n- Total tasks: {}\n\n", tasks.len());
-    for task in tasks {
-        body.push_str(&format!(
-            "## {}\n\n- Kind: {}\n- Status: {:?}\n- Description: {}\n- Output: {}\n- Transcript: {}\n\n",
-            task.id,
-            task.kind,
-            task.status,
-            task.description,
-            task.output_path,
-            task.transcript_path.as_deref().unwrap_or("none"),
-        ));
-    }
-    std::fs::write(&path, body).ok()?;
-    Some(path.display().to_string())
 }

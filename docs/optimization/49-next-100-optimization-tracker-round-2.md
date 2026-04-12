@@ -19,7 +19,7 @@
 
 当前进度：
 
-- `68 / 100` 已完成
+- `78 / 100` 已完成
 
 ## 001-010 Shared Types / Context
 
@@ -114,16 +114,16 @@
 
 ## 071-080 Engine / Runtime Polish
 
-- `[ ]` 071 turn runtime artifact schema tests
-- `[ ]` 072 stream retry delay diagnostics formatting helper
-- `[ ]` 073 stream watchdog state reset helper
-- `[ ]` 074 engine event payload formatting helper for TUI
-- `[ ]` 075 tool progress summary formatter extraction
-- `[ ]` 076 repeated tool failure summary formatter extraction
-- `[ ]` 077 permission decision UI summary formatter extraction
-- `[ ]` 078 recovery breadcrumb folding helper
-- `[ ]` 079 turn artifact status cross-link in brief command
-- `[ ]` 080 runtime task artifact index reuse in export bundle
+- `[x]` 071 turn runtime artifact schema tests
+- `[x]` 072 stream retry delay diagnostics formatting helper
+- `[x]` 073 stream watchdog state reset helper
+- `[x]` 074 engine event payload formatting helper for TUI
+- `[x]` 075 tool progress summary formatter extraction
+- `[x]` 076 repeated tool failure summary formatter extraction
+- `[x]` 077 permission decision UI summary formatter extraction
+- `[x]` 078 recovery breadcrumb folding helper
+- `[x]` 079 turn artifact status cross-link in brief command
+- `[x]` 080 runtime task artifact index reuse in export bundle
 
 ## 081-090 Product / UX Parity
 

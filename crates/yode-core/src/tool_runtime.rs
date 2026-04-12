@@ -319,6 +319,8 @@ pub fn render_tool_turn_artifact(artifact: &ToolTurnArtifact) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use tempfile::tempdir;
 
     use super::{
@@ -355,5 +357,35 @@ mod tests {
         assert!(content.contains("Tool Pool"));
         assert!(content.contains("bash"));
         assert!(content.contains("preview"));
+    }
+
+    #[test]
+    fn tool_turn_artifact_serializes_runtime_schema_fields() {
+        let artifact = ToolTurnArtifact {
+            turn_index: 7,
+            total_calls: 1,
+            progress_events: 3,
+            latest_repeated_failure: Some("bash [Execution] x2".into()),
+            error_type_counts: BTreeMap::from([("Execution".into(), 1)]),
+            calls: vec![ToolRuntimeCallView {
+                call_id: "call-1".into(),
+                tool_name: "bash".into(),
+                progress_updates: 3,
+                repeated_failure_count: 2,
+                output_preview: "tail -n 20".into(),
+                ..ToolRuntimeCallView::default()
+            }],
+            ..ToolTurnArtifact::default()
+        };
+
+        let value = serde_json::to_value(&artifact).unwrap();
+        assert_eq!(value["turn_index"].as_u64(), Some(7));
+        assert_eq!(value["progress_events"].as_u64(), Some(3));
+        assert_eq!(value["calls"][0]["progress_updates"].as_u64(), Some(3));
+        assert_eq!(
+            value["calls"][0]["repeated_failure_count"].as_u64(),
+            Some(2)
+        );
+        assert_eq!(value["error_type_counts"]["Execution"].as_u64(), Some(1));
     }
 }

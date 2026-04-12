@@ -4,6 +4,7 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::app::{App, TurnStatus};
+use crate::runtime_display::format_retry_delay_summary;
 
 pub fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &App) {
     if area.height == 0 {
@@ -61,7 +62,10 @@ pub fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &
                 Style::default().fg(Color::LightRed),
             ),
             Span::styled(
-                format!(" · Retrying in {}s ({}/{})", delay_secs, attempt, max_attempts),
+                format!(
+                    " · {}",
+                    format_retry_delay_summary(*delay_secs, *attempt, *max_attempts)
+                ),
                 Style::default().fg(Color::Yellow),
             ),
             Span::styled(indicators, Style::default().fg(Color::DarkGray)),
