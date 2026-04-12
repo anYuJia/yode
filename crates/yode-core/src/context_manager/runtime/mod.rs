@@ -1,9 +1,12 @@
 mod compression;
+mod summary;
 
 use super::*;
 
 #[allow(unused_imports)]
 pub(crate) use compression::{is_context_summary, message_priority};
+#[allow(unused_imports)]
+pub(crate) use summary::{calibration_token_estimate, context_summary_lines, messages_char_count};
 
 impl ModelLimits {
     /// Look up known model limits by model name.
@@ -55,29 +58,18 @@ impl ContextManager {
     /// Check if the current token usage suggests we should compress.
     pub fn should_compress(&mut self, prompt_tokens: u32, messages: &[Message]) -> bool {
         self.last_known_prompt_tokens = Some(prompt_tokens);
-        let char_count = Self::messages_char_count(messages);
+        let char_count = messages_char_count(messages);
         self.last_known_char_count = Some(char_count);
         (prompt_tokens as f64) > (self.limits.context_window as f64 * self.threshold)
     }
 
     /// Estimate token count for the given messages.
     pub(in crate::context_manager) fn estimate_tokens(&self, messages: &[Message]) -> usize {
-        let char_count = Self::messages_char_count(messages);
-
-        if let Some(known_tokens) = self.last_known_prompt_tokens {
-            if let Some(known_chars) = self.last_known_char_count {
-                if known_chars > 0 {
-                    return ((char_count as f64) * (known_tokens as f64 / known_chars as f64))
-                        as usize;
-                }
-            }
-        }
-
-        char_count / 4
-    }
-
-    fn messages_char_count(messages: &[Message]) -> usize {
-        messages.iter().map(Message::estimated_char_count).sum()
+        calibration_token_estimate(
+            messages_char_count(messages),
+            self.last_known_prompt_tokens,
+            self.last_known_char_count,
+        )
     }
 
     pub fn context_window(&self) -> usize {

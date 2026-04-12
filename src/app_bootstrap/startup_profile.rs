@@ -3,6 +3,7 @@ use std::time::Instant;
 use tracing::info;
 
 use super::tooling::ToolingSetupMetrics;
+use super::tooling_phase_summary;
 
 #[derive(Debug, Clone)]
 pub(crate) struct StartupPhaseTiming {
@@ -48,14 +49,10 @@ impl StartupProfiler {
             .collect::<Vec<_>>()
             .join(", ");
         format!(
-            "mode={} total={}ms tooling[builtin={}ms mcp_connect={}ms mcp_register={}ms skills={}ms total={}ms counts[builtin={} configured_mcp={} connected_mcp={} mcp_tools={} skills={} active_tools={} deferred_tools={} deferred_mcp={} tool_search={} reason={} final_tools={}]] phases[{}]",
+            "mode={} total={}ms {} counts[builtin={} configured_mcp={} connected_mcp={} mcp_tools={} skills={} active_tools={} deferred_tools={} deferred_mcp={} tool_search={} reason={} final_tools={}] phases[{}]",
             mode,
             self.total_ms(),
-            tooling.builtin_register_ms,
-            tooling.mcp_connect_ms,
-            tooling.mcp_register_ms,
-            tooling.skill_discovery_ms,
-            tooling.total_ms,
+            tooling_phase_summary(tooling),
             tooling.builtin_tool_count,
             tooling.configured_mcp_server_count,
             tooling.connected_mcp_server_count,

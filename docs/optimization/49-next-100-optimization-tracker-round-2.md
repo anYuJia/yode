@@ -19,7 +19,7 @@
 
 当前进度：
 
-- `17 / 100` 已完成
+- `20 / 100` 已完成
 
 ## 001-010 Shared Types / Context
 
@@ -36,9 +36,9 @@
 
 ## 011-020 Context / Memory
 
-- `[ ]` 011 context summary line builder extraction
-- `[ ]` 012 context compaction removal heuristics tests by role mix
-- `[ ]` 013 context token estimate fallback calibration helper
+- `[x]` 011 context summary line builder extraction
+- `[x]` 012 context compaction removal heuristics tests by role mix
+- `[x]` 013 context token estimate fallback calibration helper
 - `[ ]` 014 context summary artifact cross-link to turn artifact
 - `[x]` 015 memory document preview formatter reuse
 - `[x]` 016 transcript compare section stats helper split

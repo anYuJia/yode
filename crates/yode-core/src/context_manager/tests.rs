@@ -130,6 +130,31 @@ fn test_message_estimated_char_count_seeds_cache() {
 }
 
 #[test]
+fn test_calibration_token_estimate_falls_back_without_cache() {
+    assert_eq!(super::runtime::calibration_token_estimate(400, None, None), 100);
+    assert_eq!(
+        super::runtime::calibration_token_estimate(400, Some(1000), Some(200)),
+        2000
+    );
+}
+
+#[test]
+fn test_context_summary_lines_include_tool_activity() {
+    let mut tool_usage = std::collections::BTreeMap::new();
+    tool_usage.insert("read_file".to_string(), 2);
+    let lines = super::runtime::context_summary_lines(
+        5,
+        &["goal".to_string()],
+        &["finding".to_string()],
+        &tool_usage,
+        1,
+        2,
+    );
+    assert!(lines.iter().any(|line| line.contains("Earlier tool activity")));
+    assert!(lines.iter().any(|line| line.contains("Tool results compacted")));
+}
+
+#[test]
 fn test_compress_removes_low_priority_first() {
     let cm = ContextManager::new("gpt-3.5");
     let big = "x".repeat(15_000);

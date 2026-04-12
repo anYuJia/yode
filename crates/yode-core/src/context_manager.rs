@@ -1,7 +1,5 @@
 mod runtime;
 
-use std::collections::BTreeMap;
-
 use yode_llm::types::{Message, Role};
 
 /// Known model context window sizes.
