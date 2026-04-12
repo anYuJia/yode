@@ -11,7 +11,8 @@ use crate::commands::{
 
 mod shared;
 use shared::{
-    latest_artifact_candidates_from_links, latest_runtime_artifact_links, truncate_preview_line,
+    dedup_artifact_paths, doctor_bundle_references, latest_artifact_candidates_from_links,
+    latest_runtime_artifact_links, startup_artifact_candidates, truncate_preview_line,
 };
 
 pub struct ExportCommand {
@@ -213,8 +214,19 @@ fn export_diagnostics_bundle(custom_name: Option<&str>, ctx: &mut CommandContext
         }
     }
 
+    let doctor_refs = doctor_bundle_references(&cwd);
+    let doctor_ref_path = bundle_dir.join("doctor-bundles.txt");
+    if !doctor_refs.is_empty() {
+        let content = doctor_refs
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let _ = std::fs::write(&doctor_ref_path, content);
+    }
+
     Ok(CommandOutput::Message(format!(
-        "Diagnostics bundle exported to: {}\n  Conversation: {}\n  Runtime: {}\n  Copied artifacts: {}",
+        "Diagnostics bundle exported to: {}\n  Conversation: {}\n  Runtime: {}\n  Copied artifacts: {}\n  Doctor refs: {}",
         bundle_dir.display(),
         conversation_path.display(),
         diagnostics_path.display(),
@@ -222,7 +234,12 @@ fn export_diagnostics_bundle(custom_name: Option<&str>, ctx: &mut CommandContext
             "none".to_string()
         } else {
             copied.join(", ")
-        }
+        },
+        if doctor_refs.is_empty() {
+            "none".to_string()
+        } else {
+            doctor_ref_path.display().to_string()
+        },
     )))
 }
 
@@ -232,8 +249,9 @@ fn latest_artifact_candidates(ctx: &mut CommandContext) -> Vec<PathBuf> {
         .try_lock()
         .ok()
         .map(|engine| engine.runtime_state());
-    let mut paths =
-        latest_artifact_candidates_from_links(&latest_runtime_artifact_links(runtime));
+    let project_root = PathBuf::from(&ctx.session.working_dir);
+    let mut paths = latest_artifact_candidates_from_links(&latest_runtime_artifact_links(runtime));
+    paths.extend(startup_artifact_candidates(&project_root));
 
     let review_dir = PathBuf::from(&ctx.session.working_dir)
         .join(".yode")
@@ -249,7 +267,7 @@ fn latest_artifact_candidates(ctx: &mut CommandContext) -> Vec<PathBuf> {
     if let Some(latest_review) = reviews.into_iter().next() {
         paths.push(latest_review);
     }
-    paths
+    dedup_artifact_paths(paths)
 }
 
 /// Sanitize string for use as filename

@@ -19,7 +19,7 @@
 
 当前进度：
 
-- `41 / 100` 已完成
+- `51 / 100` 已完成
 
 ## 001-010 Shared Types / Context
 
@@ -75,16 +75,16 @@
 
 ## 041-050 Diagnostics / Export
 
-- `[ ]` 041 remote doctor artifact listing formatter split
-- `[ ]` 042 diagnostics export bundle includes startup artifacts index
-- `[ ]` 043 diagnostics export bundle includes doctor bundle references
-- `[ ]` 044 status artifact link dedup helper
-- `[ ]` 045 status tool/runtime summary line compaction helper
-- `[ ]` 046 brief command preview formatter extraction
-- `[ ]` 047 diagnostics overview render split
-- `[ ]` 048 latest artifact candidate selector helper extraction
-- `[ ]` 049 doctor local checks grouped by subsystem
-- `[ ]` 050 doctor remote checks grouped by subsystem
+- `[x]` 041 remote doctor artifact listing formatter split
+- `[x]` 042 diagnostics export bundle includes startup artifacts index
+- `[x]` 043 diagnostics export bundle includes doctor bundle references
+- `[x]` 044 status artifact link dedup helper
+- `[x]` 045 status tool/runtime summary line compaction helper
+- `[x]` 046 brief command preview formatter extraction
+- `[x]` 047 diagnostics overview render split
+- `[x]` 048 latest artifact candidate selector helper extraction
+- `[x]` 049 doctor local checks grouped by subsystem
+- `[x]` 050 doctor remote checks grouped by subsystem
 
 ## 051-060 Startup / Provider
 

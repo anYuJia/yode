@@ -1,9 +1,13 @@
 use crate::commands::context::CommandContext;
 use crate::commands::registry::VisibleCommandName;
 use yode_core::updater::{latest_local_release_tag, release_version_matches_tag, CURRENT_VERSION};
+use super::shared::render_section;
 
 pub(super) fn render_doctor_report(ctx: &mut CommandContext) -> String {
-    let mut checks = Vec::new();
+    let mut env_checks = Vec::new();
+    let mut tooling_checks = Vec::new();
+    let mut runtime_checks = Vec::new();
+    let mut version_checks = Vec::new();
     let runtime = ctx.engine.try_lock().ok().map(|engine| {
         (
             engine.runtime_state(),
@@ -22,18 +26,18 @@ pub(super) fn render_doctor_report(ctx: &mut CommandContext) -> String {
     let project_root = std::path::PathBuf::from(&ctx.session.working_dir);
 
     if ctx.all_provider_models.is_empty() {
-        checks.push(
+        env_checks.push(
             "  [!!] No LLM providers configured. Run /provider add to set one up.".to_string(),
         );
     } else {
         let names: Vec<_> = ctx.all_provider_models.keys().cloned().collect();
-        checks.push(format!(
+        env_checks.push(format!(
             "  [ok] LLM providers configured: {}",
             names.join(", ")
         ));
     }
 
-    checks.push(
+    env_checks.push(
         match std::process::Command::new("git").arg("--version").output() {
             Ok(output) if output.status.success() => format!(
                 "  [ok] git available: {}",
@@ -52,55 +56,55 @@ pub(super) fn render_doctor_report(ctx: &mut CommandContext) -> String {
         let output = std::process::Command::new(command).arg(arg).output();
         match output {
             Ok(output) if output.status.success() => {
-                checks.push(format!(
+                env_checks.push(format!(
                     "  [ok] {} available: {}",
                     command,
                     String::from_utf8_lossy(&output.stdout).trim()
                 ));
             }
-            _ => checks.push(format!("  [--] {} not found (optional)", command)),
+            _ => env_checks.push(format!("  [--] {} not found (optional)", command)),
         }
     }
 
-    checks.push(if ctx.terminal_caps.truecolor {
+    env_checks.push(if ctx.terminal_caps.truecolor {
         "  [ok] Truecolor support enabled".to_string()
     } else {
         "  [--] No truecolor (using 256 colors)".to_string()
     });
     if ctx.terminal_caps.in_tmux {
-        checks.push("  [--] Running inside tmux".to_string());
+        env_checks.push("  [--] Running inside tmux".to_string());
     }
     if ctx.terminal_caps.in_ssh {
-        checks.push("  [--] Running over SSH".to_string());
+        env_checks.push("  [--] Running over SSH".to_string());
     }
 
     let inventory = ctx.tools.inventory();
-    checks.push(format!(
+    tooling_checks.push(format!(
         "  [ok] tools: {} total / {} active / {} deferred",
         inventory.total_count, inventory.active_count, inventory.deferred_count
     ));
-    checks.push(format!(
+    tooling_checks.push(format!(
         "  [ok] mcp tools: {} active / {} deferred",
         inventory.mcp_active_count, inventory.mcp_deferred_count
     ));
-    checks.push(format!(
+    tooling_checks.push(format!(
         "  [ok] tool activations: {} (last: {})",
         inventory.activation_count,
         inventory.last_activated_tool.as_deref().unwrap_or("none")
     ));
-    checks.push(format!(
+    tooling_checks.push(format!(
         "  [ok] tool search: {} ({})",
         inventory.tool_search_enabled,
         inventory.tool_search_reason.as_deref().unwrap_or("no reason recorded")
     ));
     if inventory.duplicate_registration_count > 0 {
-        checks.push(format!(
+        tooling_checks.push(format!(
             "  [!!] Duplicate tool registrations blocked: {} ({})",
             inventory.duplicate_registration_count,
             inventory.duplicate_tool_names.join(", ")
         ));
     } else {
-        checks.push("  [ok] No duplicate tool registrations observed".to_string());
+        tooling_checks.push("  [ok] No duplicate tool registrations observed".to_string());
     }
     let command_tool_overlaps = collect_command_tool_overlaps(
         &ctx.cmd_registry.visible_command_names(),
@@ -117,28 +121,28 @@ pub(super) fn render_doctor_report(ctx: &mut CommandContext) -> String {
             .collect::<Vec<_>>(),
     );
     if command_tool_overlaps.is_empty() {
-        checks.push("  [ok] No command/tool naming overlaps detected".to_string());
+        tooling_checks.push("  [ok] No command/tool naming overlaps detected".to_string());
     } else {
-        checks.push(format!(
+        tooling_checks.push(format!(
             "  [--] Command/tool naming overlaps: {}",
             command_tool_overlaps.join(", ")
         ));
     }
     if let Some(path) = dirs::home_dir().map(|home| home.join(".yode/config.toml")) {
         if path.exists() {
-            checks.push(format!("  [ok] Config file: {:?}", path));
+            env_checks.push(format!("  [ok] Config file: {:?}", path));
         } else {
-            checks.push("  [!!] Config file missing".to_string());
+            env_checks.push("  [!!] Config file missing".to_string());
         }
     }
     if let Some(profile) = ctx.session.startup_profile.as_deref() {
-        checks.push(format!("  [ok] Startup profile: {}", profile));
+        env_checks.push(format!("  [ok] Startup profile: {}", profile));
     } else {
-        checks.push("  [--] Startup profile unavailable".to_string());
+        env_checks.push("  [--] Startup profile unavailable".to_string());
     }
 
     if let Some((state, permission_mode, confirmable_tools, denial_prefixes, safe_prefixes, confirmation_suggestions)) = runtime {
-        checks.extend(runtime_health_checks(
+        runtime_checks.extend(runtime_health_checks(
             &project_root,
             &state,
             permission_mode,
@@ -156,10 +160,10 @@ pub(super) fn render_doctor_report(ctx: &mut CommandContext) -> String {
             &confirmation_suggestions,
         ));
     } else {
-        checks.push("  [--] Engine runtime busy; skipped context/memory checks".to_string());
+        runtime_checks.push("  [--] Engine runtime busy; skipped context/memory checks".to_string());
     }
 
-    checks.push(match latest_local_release_tag() {
+    version_checks.push(match latest_local_release_tag() {
         Some(tag) if release_version_matches_tag(&tag, CURRENT_VERSION) => format!(
             "  [ok] Version matches latest local tag: {} == {}",
             CURRENT_VERSION, tag
@@ -172,8 +176,11 @@ pub(super) fn render_doctor_report(ctx: &mut CommandContext) -> String {
     });
 
     format!(
-        "Yode Environment Health Check:\n\n{}\n\n  Platform: {} {}\n  Version:  v{}\n  Session:  {}",
-        checks.join("\n"),
+        "Yode Environment Health Check:\n\n{}{}{}{}\n  Platform: {} {}\n  Version:  v{}\n  Session:  {}",
+        render_section("Environment", &env_checks),
+        render_section("Tooling", &tooling_checks),
+        render_section("Runtime", &runtime_checks),
+        render_section("Version", &version_checks),
         std::env::consts::OS,
         std::env::consts::ARCH,
         env!("CARGO_PKG_VERSION"),

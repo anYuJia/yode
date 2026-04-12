@@ -41,6 +41,46 @@ pub(crate) fn latest_artifact_candidates_from_links(
     paths
 }
 
+pub(crate) fn dedup_artifact_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut deduped = Vec::new();
+    for path in paths {
+        let key = path.display().to_string();
+        if seen.insert(key) {
+            deduped.push(path);
+        }
+    }
+    deduped
+}
+
+pub(crate) fn startup_artifact_candidates(project_root: &std::path::Path) -> Vec<PathBuf> {
+    let dir = project_root.join(".yode").join("startup");
+    std::fs::read_dir(dir)
+        .ok()
+        .into_iter()
+        .flat_map(|entries| entries.filter_map(Result::ok))
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file())
+        .collect()
+}
+
+pub(crate) fn doctor_bundle_references(cwd: &std::path::Path) -> Vec<PathBuf> {
+    std::fs::read_dir(cwd)
+        .ok()
+        .into_iter()
+        .flat_map(|entries| entries.filter_map(Result::ok))
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_dir()
+                && path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .map(|name| name.starts_with("doctor-bundle-"))
+                    .unwrap_or(false)
+        })
+        .collect()
+}
+
 pub(crate) fn truncate_preview_line(text: &str, max_chars: usize) -> String {
     let squashed = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if squashed.chars().count() <= max_chars {

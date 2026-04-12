@@ -1,5 +1,6 @@
 use crate::commands::context::CommandContext;
 use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
+use super::artifact_preview::{compact_tool_runtime_summary, latest_markdown_file, preview_markdown};
 
 pub struct BriefCommand {
     meta: CommandMeta,
@@ -75,10 +76,8 @@ impl Command for BriefCommand {
                 .unwrap_or_default()
         ));
         output.push_str(&format!(
-            "  Tools:     {} calls, {} progress, {} truncations\n",
-            state.session_tool_calls_total,
-            state.tool_progress_event_count,
-            state.tool_truncation_count
+            "  Tools:     {}\n",
+            compact_tool_runtime_summary(&state)
         ));
         output.push_str(&format!("  Tasks:     {} running\n", running_tasks.len()));
         for task in running_tasks.iter().take(3) {
@@ -131,42 +130,5 @@ impl Command for BriefCommand {
         );
 
         Ok(CommandOutput::Message(output))
-    }
-}
-
-fn latest_markdown_file(dir: &std::path::Path) -> Option<std::path::PathBuf> {
-    let mut entries = std::fs::read_dir(dir)
-        .ok()?
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("md"))
-        .collect::<Vec<_>>();
-    entries.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
-    entries.into_iter().next()
-}
-
-fn preview_markdown(path: &std::path::Path, section_hint: &str) -> Option<String> {
-    let content = std::fs::read_to_string(path).ok()?;
-    let preview_source = if let Some(start) = content.find(section_hint) {
-        &content[start + section_hint.len()..]
-    } else {
-        &content
-    };
-    let squashed = preview_source
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty() && !line.starts_with('#') && !line.starts_with("```"))
-        .take(3)
-        .collect::<Vec<_>>()
-        .join(" | ");
-    if squashed.is_empty() {
-        None
-    } else {
-        let preview = squashed.chars().take(180).collect::<String>();
-        Some(if squashed.chars().count() > 180 {
-            format!("{}...", preview)
-        } else {
-            preview
-        })
     }
 }

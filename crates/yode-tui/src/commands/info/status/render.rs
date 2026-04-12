@@ -1,6 +1,7 @@
 use crate::commands::context::CommandContext;
 use yode_tools::registry::ToolInventory;
 
+use super::super::artifact_preview::compact_tool_runtime_summary;
 use super::helpers::{
     compact_breaker_hint, compaction_cause_histogram, memory_freshness_label,
     memory_update_pending, prompt_cache_last_turn_status, prompt_cache_miss_turns,
@@ -264,13 +265,20 @@ pub(super) fn build_status_message(
     startup_profile: &str,
 ) -> String {
     let session_short = &ctx.session.session_id[..ctx.session.session_id.len().min(8)];
+    let runtime_summary = ctx
+        .engine
+        .try_lock()
+        .ok()
+        .map(|engine| compact_tool_runtime_summary(&engine.runtime_state()))
+        .unwrap_or_else(|| "engine busy".to_string());
     format!(
-        "Session status:\n  Session:         {}\n  Model:           {}\n  Working dir:     {}\n  Permission mode: {}\n  Startup profile: {}\n  Tokens:          {} (in: {}, out: {})\n  Tool calls:      {}\n  Resume warmup:   {}\n  Est. cost:       ${:.4}\n  Terminal:        {}{}",
+        "Session status:\n  Session:         {}\n  Model:           {}\n  Working dir:     {}\n  Permission mode: {}\n  Startup profile: {}\n  Runtime summary: {}\n  Tokens:          {} (in: {}, out: {})\n  Tool calls:      {}\n  Resume warmup:   {}\n  Est. cost:       ${:.4}\n  Terminal:        {}{}",
         session_short,
         ctx.session.model,
         ctx.session.working_dir,
         ctx.session.permission_mode.label(),
         startup_profile,
+        runtime_summary,
         ctx.session.total_tokens,
         ctx.session.input_tokens,
         ctx.session.output_tokens,

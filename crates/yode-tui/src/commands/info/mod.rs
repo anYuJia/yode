@@ -1,8 +1,10 @@
+mod artifact_preview;
 mod brief;
 mod config;
 mod context_cmd;
 pub mod cost;
 mod diagnostics;
+mod diagnostics_render;
 mod doctor;
 mod help;
 mod hooks_cmd;

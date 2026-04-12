@@ -1,5 +1,6 @@
 mod local;
 mod remote;
+mod shared;
 
 use crate::commands::context::CommandContext;
 
