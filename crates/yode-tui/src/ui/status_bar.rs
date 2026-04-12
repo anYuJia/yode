@@ -9,7 +9,7 @@ use super::badges::{
     budget_badge_label, permission_mode_badge, queue_badge_label, task_badge_label,
 };
 use super::palette::{LIGHT, MUTED, SEP};
-use super::responsive::{density_from_width, Density};
+use super::responsive::{density_from_width, status_section_mode, Density, StatusSectionMode};
 
 /// Top separator line: ────────────────────────────
 pub fn render_separator(frame: &mut Frame, area: Rect) {
@@ -24,6 +24,7 @@ pub fn render_separator(frame: &mut Frame, area: Rect) {
 ///   ⚡ mode · 120↑ 437↓ tok · 1 call · ctx 2% · /help
 pub fn render_info_line(frame: &mut Frame, area: Rect, app: &App) {
     let density = density_from_width(area.width, 68, 96);
+    let section_mode = status_section_mode(area.width);
     let running_tasks = running_task_count(app);
     let mut parts: Vec<Span> = Vec::new();
 
@@ -39,11 +40,13 @@ pub fn render_info_line(frame: &mut Frame, area: Rect, app: &App) {
 
     // Permission mode badge
     let (mode_text, mode_color) = permission_mode_badge(app.session.permission_mode, density);
-    parts.push(Span::styled(
-        mode_text,
-        Style::default().fg(mode_color),
-    ));
-    parts.push(Span::styled("· ", Style::default().fg(SEP)));
+    if !matches!(section_mode, StatusSectionMode::Collapsed) {
+        parts.push(Span::styled(
+            mode_text,
+            Style::default().fg(mode_color),
+        ));
+        parts.push(Span::styled("· ", Style::default().fg(SEP)));
+    }
 
     // Token count (input↑ output↓)
     let input_prefix = if app.session.input_estimated { "~" } else { "" };
@@ -112,8 +115,10 @@ pub fn render_info_line(frame: &mut Frame, area: Rect, app: &App) {
             Density::Medium | Density::Narrow => format!("c{:.0}% ", ctx_pct),
         }
     };
-    parts.push(Span::styled(ctx_str, Style::default().fg(ctx_color)));
-    parts.push(Span::styled("· ", Style::default().fg(SEP)));
+    if !matches!(section_mode, StatusSectionMode::Collapsed) {
+        parts.push(Span::styled(ctx_str, Style::default().fg(ctx_color)));
+        parts.push(Span::styled("· ", Style::default().fg(SEP)));
+    }
 
     // Queue
     if !app.pending_inputs.is_empty() {

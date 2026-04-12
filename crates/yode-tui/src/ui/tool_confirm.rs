@@ -4,11 +4,15 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::app::App;
-use super::panels::{button_row_line, footer_hint_line, inspector_header_lines, section_title_line};
-use super::palette::{LIGHT, MUTED, PANEL_ACCENT, SELECT_ACCENT};
+use super::panels::{
+    button_row_line, keyhint_bar_line, panel_rect_for_density, preview_empty_state,
+    search_prompt_label, section_title_line, PanelFocusState,
+};
+use super::palette::{MUTED, PANEL_ACCENT, SELECT_ACCENT};
+use super::responsive::density_from_width;
 
 /// Render inline confirmation selector across 4 viewport lines.
-pub fn render_inline_confirm(frame: &mut Frame, chunks: &[Rect], app: &App) {
+pub fn render_inline_confirm(frame: &mut Frame, _chunks: &[Rect], app: &App) {
     let Some(ref confirm) = app.pending_confirmation else {
         return;
     };
@@ -24,23 +28,38 @@ pub fn render_inline_confirm(frame: &mut Frame, chunks: &[Rect], app: &App) {
         .cloned()
         .unwrap_or_else(|| "Yes".to_string());
 
-    let header = inspector_header_lines(
-        &format!("Allow {}({})?", capitalize(&confirm.name), args_display),
-        Some(&format!("Selected: {}", selected)),
-        PANEL_ACCENT,
-        LIGHT,
-        MUTED,
+    let density = density_from_width(frame.area().width, 68, 96);
+    let panel_area = panel_rect_for_density(frame.area(), density, 84, 4);
+    let inner = [
+        Rect::new(panel_area.x, panel_area.y, panel_area.width, 1),
+        Rect::new(panel_area.x, panel_area.y + 1, panel_area.width, 1),
+        Rect::new(panel_area.x, panel_area.y + 2, panel_area.width, 1),
+        Rect::new(panel_area.x, panel_area.y + 3, panel_area.width, 1),
+    ];
+
+    frame.render_widget(
+        Paragraph::new(format!(
+            "  {} · {}",
+            format!("Allow {}({})?", capitalize(&confirm.name), args_display),
+            search_prompt_label(&selected),
+        )),
+        inner[0],
     );
-    frame.render_widget(Paragraph::new(header[0].clone()), chunks[0]);
-    frame.render_widget(Paragraph::new(section_title_line("Confirm", PANEL_ACCENT)), chunks[1]);
+    frame.render_widget(Paragraph::new(section_title_line("Confirm", PANEL_ACCENT)), inner[1]);
     frame.render_widget(
         Paragraph::new(button_row_line(&options, app.confirm_selected, SELECT_ACCENT, MUTED)),
-        chunks[2],
+        inner[2],
     );
     frame.render_widget(
-        Paragraph::new(footer_hint_line(&["y/n/a", "↑↓ move", "Enter confirm"], Color::Indexed(240))),
-        chunks[3],
+        Paragraph::new(keyhint_bar_line(
+            &["y/n/a", "↑↓ move", "Enter confirm"],
+            PanelFocusState::Primary,
+            PANEL_ACCENT,
+            Color::Indexed(240),
+        )),
+        inner[3],
     );
+    let _ = preview_empty_state("Confirm");
 }
 
 /// Short summary of tool arguments for the inline header.

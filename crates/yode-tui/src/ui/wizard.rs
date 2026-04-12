@@ -5,8 +5,12 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::app::wizard::{Wizard, WizardStep};
-use super::panels::{footer_hint_line, inspector_header_lines, section_title_line};
+use super::panels::{
+    keyhint_bar_line, panel_rect_for_density, search_prompt_label, section_title_line,
+    PanelFocusState,
+};
 use super::palette::{ERROR_COLOR, INPUT_BG, LIGHT, MUTED, PANEL_ACCENT, SELECT_ACCENT};
+use super::responsive::density_from_width;
 
 /// Render the wizard in the viewport.
 pub fn render_wizard(frame: &mut Frame, area: Rect, wizard: &Wizard) {
@@ -19,13 +23,16 @@ pub fn render_wizard(frame: &mut Frame, area: Rect, wizard: &Wizard) {
         None => return,
     };
 
-    let mut lines: Vec<Line> = inspector_header_lines(
-        &wizard.title,
-        Some(&format!("{} {}", wizard.step_label(), step.prompt())),
-        PANEL_ACCENT,
-        LIGHT,
-        MUTED,
-    );
+    let density = density_from_width(area.width, 68, 96);
+    let area = panel_rect_for_density(area, density, 80, wizard.viewport_height());
+    let mut lines: Vec<Line> = vec![Line::from(vec![Span::styled(
+        format!(
+            "  {} · {}",
+            wizard.title,
+            search_prompt_label(&format!("{} {}", wizard.step_label(), step.prompt()))
+        ),
+        Style::default().fg(PANEL_ACCENT).add_modifier(Modifier::BOLD),
+    )])];
     lines.push(section_title_line("Wizard", PANEL_ACCENT));
 
     // Step-specific content
@@ -103,7 +110,12 @@ pub fn render_wizard(frame: &mut Frame, area: Rect, wizard: &Wizard) {
         WizardStep::Select { .. } => "↑↓ select · Enter confirm · Esc cancel",
         WizardStep::Input { .. } => "Enter confirm · Esc cancel",
     };
-    lines.push(footer_hint_line(&[hint], Color::DarkGray));
+    lines.push(keyhint_bar_line(
+        &[hint],
+        PanelFocusState::Primary,
+        PANEL_ACCENT,
+        Color::DarkGray,
+    ));
 
     frame.render_widget(Paragraph::new(lines), area);
 }

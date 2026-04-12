@@ -16,7 +16,7 @@
 
 当前进度：
 
-- `80 / 100` 已完成
+- `100 / 100` 已完成
 
 ## 001-010 Timeline Foundations
 
@@ -124,26 +124,26 @@
 
 ## 081-090 Input / Navigation / Layout Polish
 
-- `[ ]` 081 inspector-mode keyhint bar
-- `[ ]` 082 narrow-width status section collapsing rules
-- `[ ]` 083 pager/search prompt reuse helper
-- `[ ]` 084 timeline navigation hotkey inventory
-- `[ ]` 085 artifact preview empty-state polish
-- `[ ]` 086 panel-stack focus state helper
-- `[ ]` 087 prompt/input workspace split review
-- `[ ]` 088 viewport scroll sync helper for panels
-- `[ ]` 089 narrow-layout panel fallback rendering
-- `[ ]` 090 input/navigation parity review
+- `[x]` 081 inspector-mode keyhint bar
+- `[x]` 082 narrow-width status section collapsing rules
+- `[x]` 083 pager/search prompt reuse helper
+- `[x]` 084 timeline navigation hotkey inventory
+- `[x]` 085 artifact preview empty-state polish
+- `[x]` 086 panel-stack focus state helper
+- `[x]` 087 prompt/input workspace split review
+- `[x]` 088 viewport scroll sync helper for panels
+- `[x]` 089 narrow-layout panel fallback rendering
+- `[x]` 090 input/navigation parity review
 
 ## 091-100 Final Round 3 Closeout
 
-- `[ ]` 091 final round-3 timeline polish review
-- `[ ]` 092 final round-3 task workspace review
-- `[ ]` 093 final round-3 panel primitive review
-- `[ ]` 094 final round-3 transcript workspace review
-- `[ ]` 095 final round-3 permission/recovery review
-- `[ ]` 096 final round-3 doctor/support review
-- `[ ]` 097 final round-3 remote/browser review
-- `[ ]` 098 final round-3 tracker refresh after 50 items
-- `[ ]` 099 final round-3 tracker refresh after 100 items
-- `[ ]` 100 final round-3 parity review document
+- `[x]` 091 final round-3 timeline polish review
+- `[x]` 092 final round-3 task workspace review
+- `[x]` 093 final round-3 panel primitive review
+- `[x]` 094 final round-3 transcript workspace review
+- `[x]` 095 final round-3 permission/recovery review
+- `[x]` 096 final round-3 doctor/support review
+- `[x]` 097 final round-3 remote/browser review
+- `[x]` 098 final round-3 tracker refresh after 50 items
+- `[x]` 099 final round-3 tracker refresh after 100 items
+- `[x]` 100 final round-3 parity review document

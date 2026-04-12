@@ -10,6 +10,13 @@ pub(crate) struct PanelPagerState {
     pub viewport: usize,
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PanelFocusState {
+    Primary,
+    Secondary,
+}
+
 impl PanelPagerState {
     #[allow(dead_code)]
     pub(crate) fn new(viewport: usize) -> Self {
@@ -67,6 +74,22 @@ pub(crate) fn inspector_header_lines(
     lines
 }
 
+pub(crate) fn keyhint_bar_line(
+    hints: &[&str],
+    focus: PanelFocusState,
+    accent: Color,
+    muted: Color,
+) -> Line<'static> {
+    let label = match focus {
+        PanelFocusState::Primary => "Primary",
+        PanelFocusState::Secondary => "Secondary",
+    };
+    Line::from(vec![
+        Span::styled(format!("  [{}] ", label), Style::default().fg(accent)),
+        Span::styled(hints.join(" · "), Style::default().fg(muted)),
+    ])
+}
+
 pub(crate) fn section_title_line(title: &str, accent: Color) -> Line<'static> {
     Line::from(vec![Span::styled(
         format!("  ── {} ──", title),
@@ -79,6 +102,14 @@ pub(crate) fn footer_hint_line(hints: &[&str], muted: Color) -> Line<'static> {
         format!("  {}", hints.join(" · ")),
         Style::default().fg(muted),
     )])
+}
+
+pub(crate) fn search_prompt_label(query: &str) -> String {
+    if query.trim().is_empty() {
+        "Search: (empty)".to_string()
+    } else {
+        format!("Search: {}", query)
+    }
 }
 
 #[allow(dead_code)]
@@ -96,6 +127,25 @@ pub(crate) fn centered_panel_rect(area: Rect, max_width: u16, max_height: u16) -
     let x = area.x + area.width.saturating_sub(width) / 2;
     let y = area.y + area.height.saturating_sub(height) / 2;
     Rect { x, y, width, height }
+}
+
+pub(crate) fn panel_rect_for_density(
+    area: Rect,
+    density: crate::ui::responsive::Density,
+    wide_max_width: u16,
+    max_height: u16,
+) -> Rect {
+    match density {
+        crate::ui::responsive::Density::Narrow => Rect {
+            x: area.x,
+            y: area.y,
+            width: area.width,
+            height: area.height.min(max_height.max(1)),
+        },
+        crate::ui::responsive::Density::Medium | crate::ui::responsive::Density::Wide => {
+            centered_panel_rect(area, wide_max_width, max_height)
+        }
+    }
 }
 
 pub(crate) fn button_row_line(
@@ -181,15 +231,37 @@ pub(crate) fn timeline_panel_lines(
     rendered
 }
 
+pub(crate) fn preview_empty_state(title: &str) -> String {
+    format!("{} preview unavailable", title)
+}
+
+pub(crate) fn sync_panel_scroll(selected: usize, viewport: usize, total: usize) -> usize {
+    PanelPagerState {
+        selected,
+        offset: 0,
+        viewport,
+    }
+    .clamp(total)
+    .offset
+}
+
+pub(crate) fn timeline_hotkey_inventory() -> &'static [&'static str] {
+    &["↑↓ move", "PgUp/PgDn page", "Esc close"]
+}
+
 #[cfg(test)]
 mod tests {
     use ratatui::layout::Rect;
     use ratatui::style::Color;
 
     use super::{
-        button_row_line, centered_panel_rect, footer_hint_line, preview_panel_lines,
-        preview_selection_label, section_title_line, timeline_panel_lines, PanelPagerState,
+        button_row_line, centered_panel_rect, footer_hint_line, keyhint_bar_line,
+        panel_rect_for_density, preview_empty_state, preview_panel_lines,
+        preview_selection_label, search_prompt_label, section_title_line,
+        sync_panel_scroll, timeline_hotkey_inventory, timeline_panel_lines,
+        PanelFocusState, PanelPagerState,
     };
+    use crate::ui::responsive::Density;
 
     #[test]
     fn pager_state_clamps_selection_into_visible_range() {
@@ -260,5 +332,30 @@ mod tests {
         assert!(footer_hint_line(&["a", "b"], Color::Gray)
             .to_string()
             .contains("a · b"));
+    }
+
+    #[test]
+    fn keyhint_search_and_scroll_helpers_render() {
+        assert!(keyhint_bar_line(
+            &["Esc close"],
+            PanelFocusState::Primary,
+            Color::Yellow,
+            Color::Gray
+        )
+        .to_string()
+        .contains("Esc close"));
+        assert_eq!(search_prompt_label(""), "Search: (empty)");
+        assert_eq!(search_prompt_label("abc"), "Search: abc");
+        assert_eq!(sync_panel_scroll(5, 3, 10), 3);
+        assert_eq!(preview_empty_state("Artifact"), "Artifact preview unavailable");
+        assert!(timeline_hotkey_inventory().contains(&"PgUp/PgDn page"));
+    }
+
+    #[test]
+    fn panel_rect_falls_back_to_full_width_on_narrow_density() {
+        let narrow = panel_rect_for_density(Rect::new(0, 0, 40, 8), Density::Narrow, 80, 10);
+        assert_eq!(narrow.width, 40);
+        let wide = panel_rect_for_density(Rect::new(0, 0, 120, 8), Density::Wide, 80, 10);
+        assert_eq!(wide.width, 80);
     }
 }
