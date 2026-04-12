@@ -5,6 +5,7 @@ use similar::{ChangeTag, DiffOp, TextDiff};
 use super::super::transcripts::{extract_summary_preview, read_transcript_metadata};
 use super::super::MAX_COMPARE_CONTENT_CHARS;
 use super::args::CompareOptions;
+use super::section_stats::{build_section_summary, compare_too_large};
 
 pub(in crate::commands::info::memory) fn build_transcript_compare_output(
     left_path: &Path,
@@ -25,7 +26,7 @@ pub(in crate::commands::info::memory) fn build_transcript_compare_output(
     let left_messages = count_transcript_messages(left_content);
     let right_messages = count_transcript_messages(right_content);
     let identical = left_content == right_content;
-    let compare_too_large = left_chars.saturating_add(right_chars) > MAX_COMPARE_CONTENT_CHARS;
+    let compare_too_large = compare_too_large(left_chars, right_chars, MAX_COMPARE_CONTENT_CHARS);
 
     let mut output = String::new();
     output.push_str("Transcript comparison\n");
@@ -214,81 +215,6 @@ fn build_diff_preview(left: &str, right: &str, options: &CompareOptions) -> Opti
     }
 
     Some(output)
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct TranscriptSectionStats {
-    summary_anchor_lines: usize,
-    message_lines: usize,
-    role_counts: std::collections::BTreeMap<String, usize>,
-}
-
-fn build_section_summary(left: &str, right: &str) -> String {
-    let left_stats = transcript_section_stats(left);
-    let right_stats = transcript_section_stats(right);
-
-    let mut lines = Vec::new();
-    lines.push(format!(
-        "  Summary Anchor lines: {} -> {}",
-        left_stats.summary_anchor_lines, right_stats.summary_anchor_lines
-    ));
-    lines.push(format!(
-        "  Messages lines:       {} -> {}",
-        left_stats.message_lines, right_stats.message_lines
-    ));
-
-    let mut roles = left_stats
-        .role_counts
-        .keys()
-        .chain(right_stats.role_counts.keys())
-        .cloned()
-        .collect::<Vec<_>>();
-    roles.sort();
-    roles.dedup();
-    for role in roles {
-        let left_count = left_stats.role_counts.get(&role).copied().unwrap_or(0);
-        let right_count = right_stats.role_counts.get(&role).copied().unwrap_or(0);
-        lines.push(format!(
-            "  {} blocks: {} -> {}",
-            role, left_count, right_count
-        ));
-    }
-
-    format!("{}\n", lines.join("\n"))
-}
-
-fn transcript_section_stats(content: &str) -> TranscriptSectionStats {
-    let mut stats = TranscriptSectionStats {
-        summary_anchor_lines: 0,
-        message_lines: 0,
-        role_counts: std::collections::BTreeMap::new(),
-    };
-
-    let mut current_section: Option<&str> = None;
-    for line in content.lines() {
-        if let Some(section) = line.strip_prefix("## ") {
-            current_section = Some(section.trim());
-            continue;
-        }
-
-        match current_section {
-            Some("Summary Anchor") if !line.trim().is_empty() => {
-                stats.summary_anchor_lines += 1;
-            }
-            Some("Messages") if !line.trim().is_empty() => {
-                stats.message_lines += 1;
-                if let Some(role) = line.strip_prefix("### ") {
-                    *stats
-                        .role_counts
-                        .entry(role.trim().to_string())
-                        .or_insert(0) += 1;
-                }
-            }
-            _ => {}
-        }
-    }
-
-    stats
 }
 
 fn diff_group_header(group: &[DiffOp]) -> (usize, usize, usize, usize) {

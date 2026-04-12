@@ -15,7 +15,7 @@ use crate::terminal_caps::TerminalCaps;
 use super::completion::{CommandCompletion, FileCompletion};
 use super::history::HistoryState;
 use super::input::InputState;
-use super::scrollback::format_duration;
+use super::time::format_duration;
 use super::wizard;
 
 pub(crate) use self::types::SPINNER_VERBS;

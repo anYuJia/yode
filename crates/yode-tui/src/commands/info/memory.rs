@@ -1,5 +1,6 @@
 mod compare;
 mod document;
+mod preview;
 mod render;
 mod transcripts;
 

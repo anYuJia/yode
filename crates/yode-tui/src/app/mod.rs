@@ -10,6 +10,7 @@ mod rendering;
 mod runtime;
 mod scrollback;
 mod state;
+mod time;
 mod turn_flow;
 pub mod wizard;
 
@@ -18,7 +19,7 @@ use std::sync::LazyLock;
 use std::time::Duration;
 
 pub use self::runtime::run;
-pub(crate) use self::scrollback::format_duration;
+pub(crate) use self::time::format_duration;
 pub(crate) use self::state::SPINNER_VERBS;
 pub use self::state::{
     App, ChatEntry, ChatRole, PendingConfirmation, PermissionMode, SessionState, ThinkingState,

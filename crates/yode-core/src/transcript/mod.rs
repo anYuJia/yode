@@ -1,4 +1,5 @@
 mod render;
+mod summary;
 #[cfg(test)]
 mod tests;
 mod writer;

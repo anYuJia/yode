@@ -1,7 +1,6 @@
 mod entry_formatting;
 
 use std::io::{self, Write as IoWrite};
-use std::time::Duration;
 
 use anyhow::Result;
 use crossterm::terminal::{Clear, ClearType};
@@ -97,22 +96,6 @@ fn to_crossterm_color(color: Color) -> crossterm::style::Color {
         Color::LightCyan => crossterm::style::Color::DarkCyan,
         Color::White => crossterm::style::Color::White,
         _ => crossterm::style::Color::White,
-    }
-}
-
-/// Format a duration as human-readable string.
-pub(crate) fn format_duration(d: Duration) -> String {
-    let total_secs = d.as_secs();
-    if total_secs >= 60 {
-        let mins = total_secs / 60;
-        let secs = total_secs % 60;
-        if secs == 0 {
-            format!("{}m", mins)
-        } else {
-            format!("{}m {}s", mins, secs)
-        }
-    } else {
-        format!("{}s", total_secs)
     }
 }
 

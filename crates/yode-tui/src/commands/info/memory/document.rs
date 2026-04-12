@@ -1,4 +1,5 @@
 use chrono::{Local, NaiveDateTime};
+use super::preview::truncate_preview_text;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct MemoryDocumentView {
@@ -101,6 +102,13 @@ pub(super) fn memory_entry_age(timestamp: Option<&str>) -> String {
     } else {
         format!("{} days old", days)
     }
+}
+
+pub(super) fn format_section_items_preview(items: &[String], max_chars: usize) -> String {
+    if items.is_empty() {
+        return "none".to_string();
+    }
+    truncate_preview_text(&items.join(" | "), max_chars)
 }
 
 fn parse_memory_entry_header(header: &str) -> MemoryEntryView {

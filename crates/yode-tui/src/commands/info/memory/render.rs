@@ -4,7 +4,7 @@ use std::path::Path;
 use crate::commands::{CommandOutput, CommandResult};
 
 use super::compare::{build_transcript_compare_output, CompareArgs};
-use super::document::{memory_entry_age, parse_memory_document};
+use super::document::{format_section_items_preview, memory_entry_age, parse_memory_document};
 use super::transcripts::{
     describe_path, extract_summary_preview, filtered_transcript_entries, fold_transcript_preview,
     latest_transcript, read_transcript_metadata, resolve_compare_target, sorted_transcript_entries,
@@ -153,14 +153,10 @@ pub(super) fn render_memory_file(label: &str, path: &Path) -> CommandResult {
             output.push_str("\nStructured view:\n");
             for section in &entry.sections {
                 output.push_str(&format!(
-                    "  {} ({}): {}\n",
-                    section.title,
-                    section.items.len(),
-                    if section.items.is_empty() {
-                        "none".to_string()
-                    } else {
-                        section.items.join(" | ")
-                    }
+                        "  {} ({}): {}\n",
+                        section.title,
+                        section.items.len(),
+                        format_section_items_preview(&section.items, 180)
                 ));
             }
         }

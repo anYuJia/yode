@@ -2,6 +2,7 @@ use std::fs;
 use std::time::Instant;
 
 use super::*;
+use super::super::preview::truncate_preview_text;
 
 pub(in crate::commands::info::memory) fn read_transcript_metadata(
     path: &Path,
@@ -59,12 +60,7 @@ pub(in crate::commands::info::memory) fn extract_summary_preview(content: &str) 
         return None;
     }
 
-    let preview: String = summary.chars().take(180).collect();
-    if summary.chars().count() > 180 {
-        Some(format!("{}...", preview))
-    } else {
-        Some(preview)
-    }
+    Some(truncate_preview_text(summary, 180))
 }
 
 pub(in crate::commands::info::memory) fn transcript_picker_summary_preview(
@@ -72,14 +68,7 @@ pub(in crate::commands::info::memory) fn transcript_picker_summary_preview(
 ) -> Option<String> {
     let content = fs::read_to_string(path).ok()?;
     let preview = extract_summary_preview(&content)?;
-    if preview.chars().count() <= 100 {
-        Some(preview)
-    } else {
-        Some(format!(
-            "{}...",
-            preview.chars().take(100).collect::<String>()
-        ))
-    }
+    Some(truncate_preview_text(&preview, 100))
 }
 
 pub(crate) fn warm_resume_transcript_caches(

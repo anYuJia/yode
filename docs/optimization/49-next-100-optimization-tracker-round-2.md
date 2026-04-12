@@ -19,7 +19,7 @@
 
 当前进度：
 
-- `7 / 100` 已完成
+- `12 / 100` 已完成
 
 ## 001-010 Shared Types / Context
 
@@ -27,12 +27,12 @@
 - `[x]` 002 tool call estimated char count helper
 - `[x]` 003 context manager shared message footprint helper rollout
 - `[x]` 004 prompt/token estimation regression snapshot tests
-- `[ ]` 005 transcript render shared summary formatter
+- `[x]` 005 transcript render shared summary formatter
 - `[x]` 006 runtime artifact link model shared struct
 - `[x]` 007 startup summary parsing helper
 - `[x]` 008 command output preview truncation helper
 - `[ ]` 009 UI badge formatting helper inventory
-- `[ ]` 010 shared duration formatting for diagnostics panels
+- `[x]` 010 shared duration formatting for diagnostics panels
 
 ## 011-020 Context / Memory
 
@@ -40,9 +40,9 @@
 - `[ ]` 012 context compaction removal heuristics tests by role mix
 - `[ ]` 013 context token estimate fallback calibration helper
 - `[ ]` 014 context summary artifact cross-link to turn artifact
-- `[ ]` 015 memory document preview formatter reuse
-- `[ ]` 016 transcript compare section stats helper split
-- `[ ]` 017 transcript compare large-file folding heuristics cleanup
+- `[x]` 015 memory document preview formatter reuse
+- `[x]` 016 transcript compare section stats helper split
+- `[x]` 017 transcript compare large-file folding heuristics cleanup
 - `[ ]` 018 transcript target resolution diagnostics
 - `[ ]` 019 session memory freshness state helper reuse
 - `[ ]` 020 memory command render split by target kind
