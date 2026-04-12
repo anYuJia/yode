@@ -59,16 +59,16 @@
 
 ## 031-040 Transcript / Review Workspace
 
-- `[ ]` 031 transcript preview pane experiment
-- `[ ]` 032 review artifact summary pane extraction
-- `[ ]` 033 compact diff inspector header reuse
-- `[ ]` 034 transcript jump target summary helper
-- `[ ]` 035 transcript artifact metadata panel
-- `[ ]` 036 review status badge compaction helper
-- `[ ]` 037 transcript timeline anchors to runtime events
-- `[ ]` 038 long review preview pager integration
-- `[ ]` 039 transcript search result inspector polish
-- `[ ]` 040 transcript workspace parity review
+- `[x]` 031 transcript preview pane experiment
+- `[x]` 032 review artifact summary pane extraction
+- `[x]` 033 compact diff inspector header reuse
+- `[x]` 034 transcript jump target summary helper
+- `[x]` 035 transcript artifact metadata panel
+- `[x]` 036 review status badge compaction helper
+- `[x]` 037 transcript timeline anchors to runtime events
+- `[x]` 038 long review preview pager integration
+- `[x]` 039 transcript search result inspector polish
+- `[x]` 040 transcript workspace parity review
 
 ## 041-050 Hooks / Recovery / Permissions
 
