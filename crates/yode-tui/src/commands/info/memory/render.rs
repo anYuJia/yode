@@ -2,6 +2,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::commands::{CommandOutput, CommandResult};
+use crate::commands::workspace_text::{workspace_bullets, WorkspaceText};
 
 use super::compare::{build_transcript_compare_output, CompareArgs};
 use super::document::{format_section_items_preview, memory_entry_age, parse_memory_document};
@@ -132,12 +133,20 @@ pub(super) fn render_transcript_file(
     let meta = read_transcript_metadata(path).unwrap_or_default();
     let preview =
         extract_summary_preview(&content).unwrap_or_else(|| "No summary anchor".to_string());
-    Ok(CommandOutput::Message(format!(
-        "Transcript workspace\n\n{}\n\n{}\n\n{}",
-        transcript_metadata_panel(path, &meta, &preview),
-        transcript_timeline_anchor_panel(path, &meta, runtime),
-        fold_transcript_preview(&content)
-    )))
+    Ok(CommandOutput::Message(
+        WorkspaceText::new("Transcript workspace")
+            .subtitle(path.display().to_string())
+            .section("Metadata", workspace_bullets([transcript_metadata_panel(path, &meta, &preview)]))
+            .section(
+                "Timeline anchors",
+                workspace_bullets([transcript_timeline_anchor_panel(path, &meta, runtime)]),
+            )
+            .section(
+                "Content preview",
+                workspace_bullets([fold_transcript_preview(&content)]),
+            )
+            .render(),
+    ))
 }
 
 pub(super) fn render_memory_file(label: &str, path: &Path) -> CommandResult {
@@ -195,12 +204,17 @@ pub(super) fn render_latest_transcript(
     let preview =
         extract_summary_preview(&content).unwrap_or_else(|| "No summary anchor".to_string());
     let truncated = fold_transcript_preview(&content);
-    Ok(CommandOutput::Message(format!(
-        "Latest transcript workspace\n\n{}\n\n{}\n\n{}",
-        transcript_metadata_panel(path, &meta, &preview),
-        transcript_timeline_anchor_panel(path, &meta, runtime),
-        truncated
-    )))
+    Ok(CommandOutput::Message(
+        WorkspaceText::new("Latest transcript workspace")
+            .subtitle(path.display().to_string())
+            .section("Metadata", workspace_bullets([transcript_metadata_panel(path, &meta, &preview)]))
+            .section(
+                "Timeline anchors",
+                workspace_bullets([transcript_timeline_anchor_panel(path, &meta, runtime)]),
+            )
+            .section("Content preview", workspace_bullets([truncated]))
+            .render(),
+    ))
 }
 
 pub(super) fn render_transcript_picker(dir: &Path) -> String {
@@ -238,21 +252,27 @@ pub(super) fn render_transcript_compare(dir: &Path, compare: &CompareArgs) -> Co
         &right_content,
         &compare.options,
     );
-    Ok(CommandOutput::Message(format!(
-        "{}\n\n{}",
-        diff_inspector_header(
-            &left_path,
-            &right_path,
-            if left_content == right_content {
-                "identical"
-            } else {
-                "different"
-            },
-            compare.options.max_hunks,
-            compare.options.max_lines,
-        ),
-        body
-    )))
+    Ok(CommandOutput::Message(
+        WorkspaceText::new("Transcript compare workspace")
+            .subtitle(format!("{} <> {}", left_path.display(), right_path.display()))
+            .section(
+                "Inspector",
+                workspace_bullets([diff_inspector_header(
+                    &left_path,
+                    &right_path,
+                    if left_content == right_content {
+                        "identical"
+                    } else {
+                        "different"
+                    },
+                    compare.options.max_hunks,
+                    compare.options.max_lines,
+                )]),
+            )
+            .section("Diff", workspace_bullets([body]))
+            .footer("Use `/memory compare <a> <b> --hunks N --lines N` to expand the diff.")
+            .render(),
+    ))
 }
 
 pub(super) fn render_transcript_list(dir: &Path, filter: &TranscriptListFilter) -> String {

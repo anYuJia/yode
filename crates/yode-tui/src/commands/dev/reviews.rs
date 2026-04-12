@@ -1,5 +1,6 @@
 use crate::commands::context::CommandContext;
 use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
+use crate::commands::workspace_text::{workspace_bullets, WorkspaceText};
 use super::review_workspace::{
     compact_review_status_badge, fold_review_preview_for_workspace, review_summary_pane,
 };
@@ -114,14 +115,21 @@ impl Command for ReviewsCommand {
             let path = &entries[0];
             let content = std::fs::read_to_string(path)
                 .map_err(|err| format!("Failed to read {}: {}", path.display(), err))?;
-            return Ok(CommandOutput::Message(format!(
-                "Latest review artifact{}\n\n{}\n\n{}",
-                kind_filter
-                    .map(|kind| format!(" [{}]", kind))
-                    .unwrap_or_default(),
-                review_summary_pane(path, &content),
-                fold_review_preview_for_workspace(&content)
-            )));
+            return Ok(CommandOutput::Message(
+                WorkspaceText::new(format!(
+                    "Latest review artifact{}",
+                    kind_filter
+                        .map(|kind| format!(" [{}]", kind))
+                        .unwrap_or_default()
+                ))
+                .subtitle(path.display().to_string())
+                .section("Summary", workspace_bullets([review_summary_pane(path, &content)]))
+                .section(
+                    "Preview",
+                    workspace_bullets([fold_review_preview_for_workspace(&content)]),
+                )
+                .render(),
+            ));
         }
 
         let index = trimmed.parse::<usize>().map_err(|_| {
@@ -134,12 +142,16 @@ impl Command for ReviewsCommand {
         let path = &entries[index - 1];
         let content = std::fs::read_to_string(path)
             .map_err(|err| format!("Failed to read {}: {}", path.display(), err))?;
-        Ok(CommandOutput::Message(format!(
-            "Review artifact {}\n\n{}\n\n{}",
-            index,
-            review_summary_pane(path, &content),
-            fold_review_preview_for_workspace(&content)
-        )))
+        Ok(CommandOutput::Message(
+            WorkspaceText::new(format!("Review artifact {}", index))
+                .subtitle(path.display().to_string())
+                .section("Summary", workspace_bullets([review_summary_pane(path, &content)]))
+                .section(
+                    "Preview",
+                    workspace_bullets([fold_review_preview_for_workspace(&content)]),
+                )
+                .render(),
+        ))
     }
 }
 

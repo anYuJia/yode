@@ -1,4 +1,5 @@
 use crate::commands::{CommandOutput, CommandResult};
+use crate::commands::workspace_text::{workspace_bullets, workspace_preview_line, WorkspaceText};
 
 use super::tasks::TaskFilter;
 use super::tasks_helpers::{
@@ -15,12 +16,12 @@ pub(super) fn render_task_list(tasks: Vec<yode_tools::RuntimeTask>) -> CommandRe
     }
     let mut tasks = tasks;
     sort_tasks_by_latest_activity(&mut tasks);
-    let mut lines = vec![format!("Runtime tasks ({}):", tasks.len())];
+    let mut lines = vec![format!("Runtime tasks ({})", tasks.len())];
     for (source_tool, grouped_tasks) in group_tasks_by_source_tool(tasks) {
-        lines.push(format!("  Source tool: {} ({})", source_tool, grouped_tasks.len()));
+        lines.push(format!("Source tool: {} ({})", source_tool, grouped_tasks.len()));
         for task in grouped_tasks {
             lines.push(format!(
-                "    {} [{}:{}] {} @ {} / {} / {}",
+                "{} [{}:{}] {} @ {} / {} / {}",
                 task.id,
                 task.kind,
                 task_status_label(&task.status),
@@ -51,67 +52,84 @@ pub(super) fn render_task_detail(
             .collect::<Vec<_>>()
             .join("\n")
     };
-    let timeline = task_timeline_lines(&task)
-        .into_iter()
-        .map(|line| format!("    - {}", line))
-        .collect::<Vec<_>>()
-        .join("\n");
     let transcript_preview = task_transcript_preview(&task)
-        .map(|preview| format!("    - {}", preview))
-        .unwrap_or_else(|| "    - none".to_string());
-    Ok(CommandOutput::Message(format!(
-        "Task {}:\n  Kind:           {}\n  Source tool:    {}\n  Status:         {}\n  Description:    {}\n  Retry chain:    {}\n  Freshest:       {}\n  Failure:        {}\n  Artifacts:      {}\n  Output:         {}\n  Transcript:     {}\n\n  Timeline:\n{}\n\n  Transcript preview:\n{}\n\n  Recent progress:\n{}\n\n  Output tail:    lines {}-{} of {}\n{}\n\nUse `/tasks read {}` for the full tail.",
-        task.id,
-        task.kind,
-        task.source_tool,
-        task_status_label(&task.status),
-        task.description,
-        task_retry_chain_summary(&task),
-        task_latest_activity_at(&task),
-        task_failure_cause_summary(&task),
-        task_artifact_backlink_summary(&task),
-        task.output_path,
-        task.transcript_path.as_deref().unwrap_or("none"),
-        timeline,
-        transcript_preview,
-        progress_history,
-        preview_start,
-        total_lines,
-        total_lines,
-        output_preview,
-        task.id,
-    )))
+        .unwrap_or_else(|| "none".to_string());
+    Ok(CommandOutput::Message(
+        WorkspaceText::new(format!("Task workspace {}", task.id))
+            .subtitle(task.description.clone())
+            .field("Kind", task.kind.clone())
+            .field("Source tool", task.source_tool.clone())
+            .field("Status", task_status_label(&task.status))
+            .field("Retry chain", task_retry_chain_summary(&task))
+            .field("Freshest", task_latest_activity_at(&task))
+            .field("Failure", task_failure_cause_summary(&task))
+            .field("Artifacts", task_artifact_backlink_summary(&task))
+            .field("Output", task.output_path.clone())
+            .field("Transcript", task.transcript_path.as_deref().unwrap_or("none"))
+            .section("Timeline", workspace_bullets(task_timeline_lines(&task)))
+            .section(
+                "Transcript preview",
+                workspace_bullets([workspace_preview_line("Preview", Some(&transcript_preview))]),
+            )
+            .section(
+                "Recent progress",
+                if progress_history == "none" {
+                    workspace_bullets(["none"])
+                } else {
+                    progress_history
+                        .lines()
+                        .map(|line| line.trim_start_matches("    - ").to_string())
+                        .collect()
+                },
+            )
+            .section(
+                "Output tail",
+                workspace_bullets([
+                    format!("lines {}-{} of {}", preview_start, total_lines, total_lines),
+                    output_preview,
+                ]),
+            )
+            .footer(format!("Use `/tasks read {}` for the full tail.", task.id))
+            .render(),
+    ))
 }
 
 pub(super) fn render_task_output(task: &yode_tools::RuntimeTask) -> CommandResult {
     let (output_preview, preview_start, total_lines) = task_output_preview(task, 40);
-    let timeline = task_timeline_lines(task)
-        .into_iter()
-        .map(|line| format!("  - {}", line))
-        .collect::<Vec<_>>()
-        .join("\n");
     let transcript_preview = task_transcript_preview(task)
-        .map(|preview| format!("  - {}", preview))
-        .unwrap_or_else(|| "  - none".to_string());
-    Ok(CommandOutput::Message(format!(
-        "Task output {}:\n  Status:        {} [{}:{}]\n  Retry chain:   {}\n  Freshest:      {}\n  Failure:       {}\n  Artifacts:     {}\n  Output path:   {}\n  Transcript:    {}\n\nTimeline:\n{}\n\nTranscript preview:\n{}\n\nOutput tail: lines {}-{} of {}\n\n{}",
-        task.id,
-        task_status_label(&task.status),
-        task.kind,
-        task.source_tool,
-        task_retry_chain_summary(task),
-        task_latest_activity_at(task),
-        task_failure_cause_summary(task),
-        task_artifact_backlink_summary(task),
-        task.output_path,
-        task.transcript_path.as_deref().unwrap_or("none"),
-        timeline,
-        transcript_preview,
-        preview_start,
-        total_lines,
-        total_lines,
-        output_preview,
-    )))
+        .unwrap_or_else(|| "none".to_string());
+    Ok(CommandOutput::Message(
+        WorkspaceText::new(format!("Task output {}", task.id))
+            .subtitle(task.description.clone())
+            .field(
+                "Status",
+                format!(
+                    "{} [{}:{}]",
+                    task_status_label(&task.status),
+                    task.kind,
+                    task.source_tool
+                ),
+            )
+            .field("Retry chain", task_retry_chain_summary(task))
+            .field("Freshest", task_latest_activity_at(task))
+            .field("Failure", task_failure_cause_summary(task))
+            .field("Artifacts", task_artifact_backlink_summary(task))
+            .field("Output path", task.output_path.clone())
+            .field("Transcript", task.transcript_path.as_deref().unwrap_or("none"))
+            .section("Timeline", workspace_bullets(task_timeline_lines(task)))
+            .section(
+                "Transcript preview",
+                workspace_bullets([workspace_preview_line("Preview", Some(&transcript_preview))]),
+            )
+            .section(
+                "Output tail",
+                workspace_bullets([
+                    format!("lines {}-{} of {}", preview_start, total_lines, total_lines),
+                    output_preview,
+                ]),
+            )
+            .render(),
+    ))
 }
 
 pub(super) fn parse_task_filter(value: &str) -> Option<TaskFilter> {

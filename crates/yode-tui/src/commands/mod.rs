@@ -7,6 +7,7 @@ pub mod model;
 pub mod session;
 pub mod tools;
 pub mod utility;
+pub(crate) mod workspace_text;
 
 use context::{CommandContext, CompletionContext};
 

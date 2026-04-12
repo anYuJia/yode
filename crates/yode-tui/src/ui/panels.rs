@@ -235,6 +235,7 @@ pub(crate) fn preview_empty_state(title: &str) -> String {
     format!("{} preview unavailable", title)
 }
 
+#[allow(dead_code)]
 pub(crate) fn sync_panel_scroll(selected: usize, viewport: usize, total: usize) -> usize {
     PanelPagerState {
         selected,
@@ -245,6 +246,7 @@ pub(crate) fn sync_panel_scroll(selected: usize, viewport: usize, total: usize) 
     .offset
 }
 
+#[allow(dead_code)]
 pub(crate) fn timeline_hotkey_inventory() -> &'static [&'static str] {
     &["↑↓ move", "PgUp/PgDn page", "Esc close"]
 }
