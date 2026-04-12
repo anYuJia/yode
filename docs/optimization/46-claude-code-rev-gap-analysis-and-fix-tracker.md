@@ -90,7 +90,7 @@
 
 ### P1
 
-- `[~]` P1.1 bash 权限与安全策略继续专门化
+- `[x]` P1.1 bash 权限与安全策略继续专门化
   - 把 bash 专项逻辑从通用运行时里继续下沉。
   - 当前完成：
     - 新增 `crates/yode-core/src/permission/bash.rs`
@@ -102,7 +102,7 @@
     - safe readonly shell prefix inventory 已接到权限诊断面
     - repeated confirmation 的 bash prefix 已会产出规则化建议，避免用户长期手动重复确认
 
-- `[ ]` P1.2 provider streaming 事件拼装进一步统一
+- `[x]` P1.2 provider streaming 事件拼装进一步统一
   - 减少 Anthropic/OpenAI/Gemini 在 stream -> internal event 上的重复逻辑。
   - 当前完成：
     - OpenAI streaming 已抽出独立 `streaming_support.rs`
@@ -111,7 +111,7 @@
     - provider API error 文案已通过 shared helper 统一
     - startup profile 已附带 provider capability summary
 
-- `[~]` P1.3 resume / transcript 缓存增强
+- `[x]` P1.3 resume / transcript 缓存增强
   - 增量索引、热路径缓存、恢复时 warmup 分层。
   - 当前完成：
     - resume transcript warmup 改为后台 blocking task，与 TUI startup 其它步骤重叠
@@ -122,10 +122,10 @@
 
 ### P2
 
-- `[~]` P2.1 TUI 滚动/格式化层继续拆分
+- `[x]` P2.1 TUI 滚动/格式化层继续拆分
   - 当前完成：
     - `app/scrollback/entry_formatting.rs` 拆成目录模块
-- `[~]` P2.2 工具池装配策略增加声明式过滤与诊断
+- `[x]` P2.2 工具池装配策略增加声明式过滤与诊断
   - 当前完成：
     - startup profile 增加 builtin / MCP server / MCP tool / skill / final tool count
     - `/status` 增加工具库存摘要
@@ -141,10 +141,19 @@
     - `ToolRegistry` 现在会阻断并记录 duplicate registration，而不是静默覆盖
     - `/tools`、`/doctor` 会直接报告 command/tool 命名重叠
     - `/tools`、`/status`、`/doctor` 增加 model-visible / hidden 工具池诊断
-- `[ ]` P2.3 tool/runtime/status 面板化而不是纯文本堆叠
+- `[x]` P2.3 tool/runtime/status 面板化而不是纯文本堆叠
 
 ## Notes
 
 - 不建议把 `yode` 入口演进成 Claude Code 那种超大入口。
 - 不建议把工具注册集中回单体巨型装配文件。
 - `yode` 更适合保持 Rust 多 crate 的清晰边界，只补缺失的性能、权限和恢复能力。
+
+## Final Refresh
+
+最终对照结论已整理在 [48-claude-code-rev-final-parity-review.md](/Users/pyu/code/yode/docs/optimization/48-claude-code-rev-final-parity-review.md)。
+
+当前状态：
+
+- 核心能力差距已收口。
+- 剩余差异以交互风格和产品取舍为主，不再属于 tracker 范围内的“缺失能力”。

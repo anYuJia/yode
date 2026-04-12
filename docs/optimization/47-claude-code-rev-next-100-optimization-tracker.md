@@ -22,7 +22,7 @@
 
 当前进度：
 
-- `90 / 100` 已完成
+- `100 / 100` 已完成
 
 ## 001-010 Startup / Warmup
 
@@ -143,22 +143,17 @@
 
 ## 091-100 Product / Parity Follow-up
 
-- `[ ]` 091 direct compare against Claude startup sequence with measured deltas
-- `[~]` 092 direct compare against Claude tool inventory gating
-- `[ ]` 093 direct compare against Claude bash permission prompts
-- `[ ]` 094 direct compare against Claude resume path and storage
-- `[ ]` 095 direct compare against Claude prompt input ergonomics
-- `[ ]` 096 direct compare against Claude background task UX
-- `[ ]` 097 direct compare against Claude status/doctor diagnostics
-- `[ ]` 098 final gap map refresh after next 25 items
-- `[ ]` 099 final gap map refresh after next 50 items
-- `[ ]` 100 final gap map refresh after next 100 items
+- `[x]` 091 direct compare against Claude startup sequence with measured deltas
+- `[x]` 092 direct compare against Claude tool inventory gating
+- `[x]` 093 direct compare against Claude bash permission prompts
+- `[x]` 094 direct compare against Claude resume path and storage
+- `[x]` 095 direct compare against Claude prompt input ergonomics
+- `[x]` 096 direct compare against Claude background task UX
+- `[x]` 097 direct compare against Claude status/doctor diagnostics
+- `[x]` 098 final gap map refresh after next 25 items
+- `[x]` 099 final gap map refresh after next 50 items
+- `[x]` 100 final gap map refresh after next 100 items
 
 ## Current Focus
 
-当前优先顺序：
-
-1. `015-020` 工具池 artifact / activation telemetry / overlap detector
-2. `092-097` 继续对齐 Claude 的工具 gating / 权限提示 / 诊断面
-3. `034-039` provider streaming 共性继续统一
-4. `062-070` streaming turn runtime 再收敛
+已完成。
