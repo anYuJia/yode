@@ -16,7 +16,7 @@
 
 当前进度：
 
-- `30 / 100` 已完成
+- `50 / 100` 已完成
 
 ## 001-010 Timeline Foundations
 
@@ -72,16 +72,16 @@
 
 ## 041-050 Hooks / Recovery / Permissions
 
-- `[ ]` 041 hook timeline event formatter extraction
-- `[ ]` 042 hook timeout artifact backlink in status
-- `[ ]` 043 permission decision timeline event timestamps
-- `[ ]` 044 permission artifact preview helper
-- `[ ]` 045 repeated denial recovery hint compaction
-- `[ ]` 046 recovery breadcrumb timeline merge
-- `[ ]` 047 recovery artifact preview in brief
-- `[ ]` 048 hook failure detail inspector
-- `[ ]` 049 permission/rule diff review helper
-- `[ ]` 050 recovery + permission UX parity review
+- `[x]` 041 hook timeline event formatter extraction
+- `[x]` 042 hook timeout artifact backlink in status
+- `[x]` 043 permission decision timeline event timestamps
+- `[x]` 044 permission artifact preview helper
+- `[x]` 045 repeated denial recovery hint compaction
+- `[x]` 046 recovery breadcrumb timeline merge
+- `[x]` 047 recovery artifact preview in brief
+- `[x]` 048 hook failure detail inspector
+- `[x]` 049 permission/rule diff review helper
+- `[x]` 050 recovery + permission UX parity review
 
 ## 051-060 Doctor / Support Workspace
 

@@ -9,6 +9,7 @@ mod doctor;
 mod help;
 mod hooks_cmd;
 pub(crate) mod memory;
+pub(crate) mod runtime_inspectors;
 mod shared;
 mod startup_artifacts;
 mod status;

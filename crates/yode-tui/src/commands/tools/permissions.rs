@@ -3,6 +3,9 @@ use crate::commands::{
     ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
     CommandResult,
 };
+use crate::commands::info::runtime_inspectors::{
+    permission_rule_diff_summary, preview_runtime_artifact, repeated_denial_recovery_hint,
+};
 use crate::runtime_display::format_permission_decision_summary;
 
 pub struct PermissionsCommand {
@@ -77,6 +80,15 @@ impl Command for PermissionsCommand {
                 let safe_prefixes = engine.permissions().safe_readonly_shell_prefixes();
                 let confirmation_suggestions = engine.permissions().confirmation_rule_suggestions(3);
                 let runtime = engine.runtime_state();
+                let denial_prefix_lines = denial_prefixes
+                    .iter()
+                    .map(|denial| {
+                        format!(
+                            "{} -> count={} consecutive={} last_at={}",
+                            denial.prefix, denial.count, denial.consecutive, denial.last_at
+                        )
+                    })
+                    .collect::<Vec<_>>();
                 let mut lines = vec![
                     format!("Permission mode: {}", mode),
                     format!("Recovery state: {}", runtime.recovery_state),
@@ -93,7 +105,7 @@ impl Command for PermissionsCommand {
                     lines.push("Rules: none".into());
                 } else {
                     lines.push("Rules:".into());
-                    for rule in rules {
+                    for rule in &rules {
                         lines.push(format!(
                             "  {:?} {} {}{}",
                             rule.source,
@@ -136,11 +148,15 @@ impl Command for PermissionsCommand {
                     "Safe bash readonly prefixes: {}",
                     safe_prefixes.join(", ")
                 ));
+                lines.push(format!(
+                    "Rule diff summary: {}",
+                    permission_rule_diff_summary(&rules)
+                ));
                 if confirmation_suggestions.is_empty() {
                     lines.push("Repeated confirmation suggestions: none".into());
                 } else {
                     lines.push("Repeated confirmation suggestions:".into());
-                    for suggestion in confirmation_suggestions {
+                    for suggestion in &confirmation_suggestions {
                         lines.push(format!("  {}", suggestion));
                     }
                 }
@@ -150,6 +166,20 @@ impl Command for PermissionsCommand {
                         runtime.last_permission_tool.as_deref(),
                         runtime.last_permission_action.as_deref(),
                         runtime.last_permission_explanation.as_deref(),
+                    )
+                ));
+                lines.push(format!(
+                    "Permission artifact preview: {}",
+                    preview_runtime_artifact(
+                        runtime.last_permission_artifact_path.as_deref(),
+                        "## Permission Decision"
+                    )
+                ));
+                lines.push(format!(
+                    "Recovery hint: {}",
+                    repeated_denial_recovery_hint(
+                        &denial_prefix_lines,
+                        &confirmation_suggestions
                     )
                 ));
                 Ok(CommandOutput::Messages(lines))

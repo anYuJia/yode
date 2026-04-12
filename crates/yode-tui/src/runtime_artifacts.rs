@@ -45,6 +45,39 @@ pub(crate) fn write_runtime_timeline_artifact(
     Some(path.display().to_string())
 }
 
+pub(crate) fn write_hook_failure_artifact(
+    project_root: &std::path::Path,
+    session_id: &str,
+    state: &EngineRuntimeState,
+) -> Option<String> {
+    if state.hook_timeout_count == 0
+        && state.hook_execution_error_count == 0
+        && state.hook_nonzero_exit_count == 0
+        && state.last_hook_failure_command.is_none()
+    {
+        return None;
+    }
+
+    let dir = project_root.join(".yode").join("status");
+    std::fs::create_dir_all(&dir).ok()?;
+    let short_session = session_id.chars().take(8).collect::<String>();
+    let path = dir.join(format!("{}-hook-failures.md", short_session));
+    let body = format!(
+        "# Hook Failure Inspector\n\n- Total runs: {}\n- Timeouts: {}\n- Exec errors: {}\n- Non-zero exits: {}\n- Last failure command: {}\n- Last failure event: {}\n- Last failure reason: {}\n- Last failure at: {}\n- Last timeout command: {}\n",
+        state.hook_total_executions,
+        state.hook_timeout_count,
+        state.hook_execution_error_count,
+        state.hook_nonzero_exit_count,
+        state.last_hook_failure_command.as_deref().unwrap_or("none"),
+        state.last_hook_failure_event.as_deref().unwrap_or("none"),
+        state.last_hook_failure_reason.as_deref().unwrap_or("none"),
+        state.last_hook_failure_at.as_deref().unwrap_or("none"),
+        state.last_hook_timeout_command.as_deref().unwrap_or("none"),
+    );
+    std::fs::write(&path, body).ok()?;
+    Some(path.display().to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -54,7 +87,10 @@ mod tests {
     use yode_tools::registry::ToolPoolSnapshot;
     use yode_tools::{RuntimeTask, RuntimeTaskStatus};
 
-    use super::{write_runtime_task_inventory_artifact, write_runtime_timeline_artifact};
+    use super::{
+        write_hook_failure_artifact, write_runtime_task_inventory_artifact,
+        write_runtime_timeline_artifact,
+    };
 
     fn test_runtime_state() -> EngineRuntimeState {
         EngineRuntimeState {
@@ -204,6 +240,27 @@ mod tests {
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("# Runtime Timeline"));
         assert!(content.contains("no runtime events recorded"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn writes_hook_failure_markdown() {
+        let dir = std::env::temp_dir().join(format!(
+            "yode-hook-failures-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut state = test_runtime_state();
+        state.hook_timeout_count = 1;
+        state.last_hook_failure_command = Some("scripts/pre-tool".to_string());
+        state.last_hook_failure_event = Some("pre_tool".to_string());
+        state.last_hook_failure_reason = Some("exit 2".to_string());
+
+        let path = write_hook_failure_artifact(&dir, "session-1234", &state).unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("# Hook Failure Inspector"));
+        assert!(content.contains("scripts/pre-tool"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

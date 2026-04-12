@@ -1,10 +1,8 @@
 use crate::commands::context::CommandContext;
 use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
-use yode_tools::builtin::review_common::review_output_has_findings;
-
-const REVIEW_ARTIFACT_PREVIEW_HEAD_LINES: usize = 80;
-const REVIEW_ARTIFACT_PREVIEW_TAIL_LINES: usize = 30;
-const REVIEW_ARTIFACT_PREVIEW_MAX_LINES: usize = 140;
+use super::review_workspace::{
+    compact_review_status_badge, fold_review_preview_for_workspace, review_summary_pane,
+};
 
 pub struct ReviewsCommand {
     meta: CommandMeta,
@@ -82,7 +80,7 @@ impl Command for ReviewsCommand {
             for (idx, path) in entries.iter().take(12).enumerate() {
                 let badge = std::fs::read_to_string(path)
                     .ok()
-                    .map(|content| review_artifact_badge(&content))
+                    .map(|content| compact_review_status_badge(&content))
                     .unwrap_or("unknown");
                 output.push_str(&format!(
                     "  {:>2}. [{}] {}\n",
@@ -117,13 +115,12 @@ impl Command for ReviewsCommand {
             let content = std::fs::read_to_string(path)
                 .map_err(|err| format!("Failed to read {}: {}", path.display(), err))?;
             return Ok(CommandOutput::Message(format!(
-                "Latest review artifact{} [{}]\nPath: {}\n\n{}",
+                "Latest review artifact{}\n\n{}\n\n{}",
                 kind_filter
                     .map(|kind| format!(" [{}]", kind))
                     .unwrap_or_default(),
-                review_artifact_badge(&content),
-                path.display(),
-                fold_review_artifact_preview(&content)
+                review_summary_pane(path, &content),
+                fold_review_preview_for_workspace(&content)
             )));
         }
 
@@ -138,32 +135,21 @@ impl Command for ReviewsCommand {
         let content = std::fs::read_to_string(path)
             .map_err(|err| format!("Failed to read {}: {}", path.display(), err))?;
         Ok(CommandOutput::Message(format!(
-            "Review artifact {} [{}]\nPath: {}\n\n{}",
+            "Review artifact {}\n\n{}\n\n{}",
             index,
-            review_artifact_badge(&content),
-            path.display(),
-            fold_review_artifact_preview(&content)
+            review_summary_pane(path, &content),
+            fold_review_preview_for_workspace(&content)
         )))
     }
 }
 
+#[cfg(test)]
 fn review_artifact_badge(content: &str) -> &'static str {
-    let body = extract_review_result_body(content).unwrap_or(content);
-    if body.trim().is_empty() {
-        return "unknown";
+    match compact_review_status_badge(content) {
+        "find" => "findings",
+        "clean" => "clean",
+        _ => "unknown",
     }
-    if review_output_has_findings(body) {
-        "findings"
-    } else {
-        "clean"
-    }
-}
-
-fn extract_review_result_body(content: &str) -> Option<&str> {
-    let start = content.find("```text\n")?;
-    let body_start = start + "```text\n".len();
-    let end = content[body_start..].find("\n```")?;
-    Some(&content[body_start..body_start + end])
 }
 
 fn summarize_review_artifacts(entries: &[std::path::PathBuf]) -> String {
@@ -183,11 +169,11 @@ fn summarize_review_artifacts(entries: &[std::path::PathBuf]) -> String {
 
         match std::fs::read_to_string(path)
             .ok()
-            .map(|content| review_artifact_badge(&content))
-            .unwrap_or("unknown")
+            .map(|content| compact_review_status_badge(&content))
+            .unwrap_or("unk")
         {
             "clean" => clean += 1,
-            "findings" => findings += 1,
+            "find" => findings += 1,
             _ => unknown += 1,
         }
     }
@@ -207,31 +193,14 @@ fn summarize_review_artifacts(entries: &[std::path::PathBuf]) -> String {
     output
 }
 
-fn fold_review_artifact_preview(content: &str) -> String {
-    let lines = content.lines().collect::<Vec<_>>();
-    if lines.len() <= REVIEW_ARTIFACT_PREVIEW_MAX_LINES {
-        return content.to_string();
-    }
-
-    let head_count = REVIEW_ARTIFACT_PREVIEW_HEAD_LINES.min(lines.len());
-    let tail_count = REVIEW_ARTIFACT_PREVIEW_TAIL_LINES.min(lines.len().saturating_sub(head_count));
-    let omitted = lines.len().saturating_sub(head_count + tail_count);
-    let mut output = lines[..head_count].join("\n");
-    output.push_str(&format!(
-        "\n\n... [review artifact preview folded: {} middle lines omitted] ...\n\n",
-        omitted
-    ));
-    if tail_count > 0 {
-        output.push_str(&lines[lines.len() - tail_count..].join("\n"));
-    }
-    output
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
-        extract_review_result_body, fold_review_artifact_preview, review_artifact_badge,
+        review_artifact_badge,
         summarize_review_artifacts,
+    };
+    use crate::commands::dev::review_workspace::{
+        extract_review_result_body, fold_review_preview_for_workspace,
     };
 
     #[test]
@@ -285,8 +254,8 @@ mod tests {
             content.push_str(&format!("line {}\n", i));
         }
 
-        let folded = fold_review_artifact_preview(&content);
-        assert!(folded.contains("review artifact preview folded"));
+        let folded = fold_review_preview_for_workspace(&content);
+        assert!(folded.contains("review workspace preview folded"));
         assert!(folded.contains("line 199"));
     }
 }

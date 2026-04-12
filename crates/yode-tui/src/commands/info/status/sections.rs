@@ -15,6 +15,7 @@ pub(super) struct StatusArtifactLinks {
     pub permission_artifact: Option<String>,
     pub transcript_artifact: Option<String>,
     pub runtime_task_artifact: Option<String>,
+    pub hook_artifact: Option<String>,
 }
 
 pub(super) fn busy_runtime_sections(always_allow: &str, inventory: &ToolInventory) -> String {
@@ -54,7 +55,7 @@ pub(super) fn reviews_section(latest_review: Option<&ReviewSummary>) -> String {
 
 pub(super) fn artifact_links_section(links: &StatusArtifactLinks) -> String {
     format!(
-        "\n\nArtifacts:\n  Review:          {}\n  Startup profile: {}\n  Startup manifest: {}\n  Provider inv:    {}\n  Resume warmup:   {}\n  MCP failures:    {}\n  Tool:            {}\n  Recovery:        {}\n  Permission:      {}\n  Transcript:      {}\n  Runtime tasks:   {}",
+        "\n\nArtifacts:\n  Review:          {}\n  Startup profile: {}\n  Startup manifest: {}\n  Provider inv:    {}\n  Resume warmup:   {}\n  MCP failures:    {}\n  Tool:            {}\n  Recovery:        {}\n  Permission:      {}\n  Transcript:      {}\n  Runtime tasks:   {}\n  Hook inspector:  {}",
         links.review_artifact.as_deref().unwrap_or("none"),
         links.startup_profile_artifact.as_deref().unwrap_or("none"),
         links.startup_manifest_artifact.as_deref().unwrap_or("none"),
@@ -66,5 +67,6 @@ pub(super) fn artifact_links_section(links: &StatusArtifactLinks) -> String {
         links.permission_artifact.as_deref().unwrap_or("none"),
         links.transcript_artifact.as_deref().unwrap_or("none"),
         links.runtime_task_artifact.as_deref().unwrap_or("none"),
+        links.hook_artifact.as_deref().unwrap_or("none"),
     )
 }

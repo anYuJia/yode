@@ -4,6 +4,7 @@ mod coordinate;
 mod diff;
 mod pipeline;
 mod review;
+pub(crate) mod review_workspace;
 mod reviews;
 mod ship;
 

@@ -1,5 +1,6 @@
 use crate::commands::context::CommandContext;
 use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
+use crate::commands::info::runtime_inspectors::preview_runtime_artifact;
 use crate::runtime_display::format_turn_artifact_status;
 use crate::runtime_timeline::build_runtime_timeline_lines;
 use super::artifact_preview::{compact_tool_runtime_summary, latest_markdown_file, preview_markdown};
@@ -57,6 +58,8 @@ impl Command for BriefCommand {
         let latest_tool_preview = latest_tool_artifact
             .as_ref()
             .and_then(|path| preview_markdown(path, "## Calls"));
+        let recovery_preview =
+            preview_runtime_artifact(state.last_recovery_artifact_path.as_deref(), "## Breadcrumbs");
         let timeline_lines = build_runtime_timeline_lines(&state, &tasks, 4);
         let running_tasks = tasks
             .iter()
@@ -135,6 +138,10 @@ impl Command for BriefCommand {
                 .as_ref()
                 .map(|preview| format!("\n    {}", preview))
                 .unwrap_or_default()
+        ));
+        output.push_str(&format!(
+            "  Recovery preview: {}\n",
+            recovery_preview
         ));
         output.push_str(
             "\nUse /diagnostics, /tasks, /reviews, /tools, or /memory latest for detail.",

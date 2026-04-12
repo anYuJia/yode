@@ -3,6 +3,7 @@ use std::path::Path;
 use similar::{ChangeTag, DiffOp, TextDiff};
 
 use super::super::transcripts::{extract_summary_preview, read_transcript_metadata};
+use super::super::workspace::diff_inspector_header;
 use super::super::MAX_COMPARE_CONTENT_CHARS;
 use super::args::CompareOptions;
 use super::section_stats::{build_section_summary, compare_too_large};
@@ -29,17 +30,14 @@ pub(in crate::commands::info::memory) fn build_transcript_compare_output(
     let compare_too_large = compare_too_large(left_chars, right_chars, MAX_COMPARE_CONTENT_CHARS);
 
     let mut output = String::new();
-    output.push_str("Transcript comparison\n");
-    output.push_str(&format!("A: {}\n", left_path.display()));
-    output.push_str(&format!("B: {}\n", right_path.display()));
-    output.push_str(&format!(
-        "Status: {}\n\n",
-        if identical { "identical" } else { "different" }
+    output.push_str(&diff_inspector_header(
+        left_path,
+        right_path,
+        if identical { "identical" } else { "different" },
+        options.max_hunks,
+        options.max_lines,
     ));
-    output.push_str(&format!(
-        "Diff window: hunks={} lines={}\n\n",
-        options.max_hunks, options.max_lines
-    ));
+    output.push_str("\n\n");
 
     output.push_str("Metadata:\n");
     output.push_str(&format_compare_field(

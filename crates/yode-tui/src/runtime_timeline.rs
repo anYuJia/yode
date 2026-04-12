@@ -7,7 +7,7 @@ use yode_core::engine::EngineRuntimeState;
 use yode_tools::{RuntimeTask, RuntimeTaskStatus};
 
 use crate::runtime_display::{
-    format_permission_decision_summary, format_tool_progress_summary,
+    fold_recovery_breadcrumbs, format_permission_decision_summary, format_tool_progress_summary,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -149,7 +149,12 @@ pub(crate) fn build_runtime_timeline_lines(
     if state.recovery_state != "Normal" || state.last_recovery_artifact_path.is_some() {
         if let Some(entry) =
             artifact_timeline_entry(state.last_recovery_artifact_path.as_deref(), |path| {
-                format!("recovery state: {} / artifact={}", state.recovery_state, path)
+                format!(
+                    "recovery state: {} / breadcrumbs={} / artifact={}",
+                    state.recovery_state,
+                    fold_recovery_breadcrumbs(&state.recovery_breadcrumbs, 3),
+                    path
+                )
             })
         {
             entries.push(entry);
@@ -157,8 +162,9 @@ pub(crate) fn build_runtime_timeline_lines(
             entries.push(RuntimeTimelineEntry {
                 at: None,
                 detail: format!(
-                    "recovery state: {} / artifact={}",
+                    "recovery state: {} / breadcrumbs={} / artifact={}",
                     state.recovery_state,
+                    fold_recovery_breadcrumbs(&state.recovery_breadcrumbs, 3),
                     state
                         .last_recovery_artifact_path
                         .as_deref()
@@ -551,7 +557,9 @@ mod tests {
         assert!(lines.iter().any(|line| line.contains("hook failure: scripts/pre-tool [pre_tool]")));
         assert!(lines.iter().any(|line| line.contains("hook timeout: scripts/pre-tool")));
         assert!(lines.iter().any(|line| line.contains("permission decision: bash [confirm] needs approval / artifact=")));
-        assert!(lines.iter().any(|line| line.contains("recovery state: SingleStepMode / artifact=")));
+        assert!(lines
+            .iter()
+            .any(|line| line.contains("recovery state: SingleStepMode / breadcrumbs=")));
         assert!(lines.iter().any(|line| line.contains("turn completed: stop=Stop / artifact=")));
         assert!(lines.iter().all(|line| !line.starts_with("undated |")));
         let _ = std::fs::remove_dir_all(&dir);

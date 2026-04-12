@@ -4,6 +4,7 @@ mod preview;
 mod render;
 mod target;
 mod transcripts;
+mod workspace;
 
 use std::path::PathBuf;
 
@@ -130,12 +131,12 @@ impl Command for MemoryCommand {
                 let latest = latest_transcript(&transcripts_dir).ok_or_else(|| {
                     "No transcript backups found. Transcript artifacts are written only after a compaction that actually removes or truncates content.".to_string()
                 })?;
-                render_latest_transcript(&latest)
+                render_latest_transcript(&latest, runtime.as_ref())
             }
             MemoryTarget::Transcript(target) => {
                 let transcript = resolve_transcript_target(&transcripts_dir, &target)
                     .ok_or_else(|| transcript_target_resolution_error(&transcripts_dir, &target))?;
-                render_transcript_file(&transcript)
+                render_transcript_file(&transcript, runtime.as_ref())
             }
         }
     }

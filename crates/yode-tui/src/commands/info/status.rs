@@ -4,7 +4,9 @@ mod sections;
 
 use crate::commands::context::CommandContext;
 use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
-use crate::runtime_artifacts::write_runtime_task_inventory_artifact;
+use crate::runtime_artifacts::{
+    write_hook_failure_artifact, write_runtime_task_inventory_artifact,
+};
 
 use super::startup_artifacts::{
     latest_mcp_startup_failures, latest_provider_inventory, latest_startup_artifact_link,
@@ -91,6 +93,9 @@ impl Command for StatusCommand {
             &ctx.session.session_id,
             runtime_tasks.clone(),
         );
+        let hook_artifact = runtime
+            .as_ref()
+            .and_then(|state| write_hook_failure_artifact(&working_dir, &ctx.session.session_id, state));
         let artifact_links = StatusArtifactLinks {
             review_artifact: latest_review
                 .as_ref()
@@ -119,6 +124,7 @@ impl Command for StatusCommand {
                 .as_ref()
                 .and_then(|state| state.last_compaction_transcript_path.clone()),
             runtime_task_artifact,
+            hook_artifact,
         };
         let provider_section = build_provider_section(
             ctx.provider_name.as_str(),

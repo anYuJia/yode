@@ -11,6 +11,10 @@ use super::transcripts::{
     transcript_entries, transcript_picker_summary_preview, truncate_for_display,
     ResumeTranscriptCacheWarmupStats, TranscriptListFilter,
 };
+use super::workspace::{
+    diff_inspector_header, transcript_jump_target_summary, transcript_metadata_panel,
+    transcript_search_result_summary, transcript_timeline_anchor_panel,
+};
 use super::MAX_DISPLAY_CHARS;
 
 pub(super) fn render_memory_status(
@@ -88,7 +92,7 @@ pub(super) fn render_memory_status(
         })
         .unwrap_or_default();
     format!(
-        "Memory artifacts:\n  Live memory:       {}\n  Compaction memory: {}\n  Transcript dir:    {}\n  Transcript count:  {}\n  Latest transcript: {}\n  Latest failed:     {}{}{}\n\nQuick jumps:\n  /memory latest\n  /memory list failed\n  /memory pick\n  /memory compare <a> <b>\n  /memory <index>",
+        "Memory artifacts:\n  Live memory:       {}\n  Compaction memory: {}\n  Transcript dir:    {}\n  Transcript count:  {}\n  Latest transcript: {}\n  Latest failed:     {}{}{}\n\n{}\n\nQuick jumps:\n  /memory latest\n  /memory list failed\n  /memory pick\n  /memory compare <a> <b>\n  /memory <index>",
         describe_path(live_path),
         describe_path(session_path),
         transcripts_dir.display(),
@@ -103,6 +107,7 @@ pub(super) fn render_memory_status(
             .unwrap_or_else(|| "none".to_string()),
         resume_warmup_line,
         runtime_lines,
+        transcript_jump_target_summary(transcripts_dir),
     )
 }
 
@@ -118,12 +123,19 @@ fn render_file(label: &str, path: &Path) -> CommandResult {
     )))
 }
 
-pub(super) fn render_transcript_file(path: &Path) -> CommandResult {
+pub(super) fn render_transcript_file(
+    path: &Path,
+    runtime: Option<&yode_core::engine::EngineRuntimeState>,
+) -> CommandResult {
     let content = fs::read_to_string(path)
         .map_err(|_| format!("Transcript not found: {}", path.display()))?;
+    let meta = read_transcript_metadata(path).unwrap_or_default();
+    let preview =
+        extract_summary_preview(&content).unwrap_or_else(|| "No summary anchor".to_string());
     Ok(CommandOutput::Message(format!(
-        "Transcript\nPath: {}\n\n{}",
-        path.display(),
+        "Transcript workspace\n\n{}\n\n{}\n\n{}",
+        transcript_metadata_panel(path, &meta, &preview),
+        transcript_timeline_anchor_panel(path, &meta, runtime),
         fold_transcript_preview(&content)
     )))
 }
@@ -173,7 +185,10 @@ pub(super) fn render_memory_file(label: &str, path: &Path) -> CommandResult {
     render_file(label, path)
 }
 
-pub(super) fn render_latest_transcript(path: &Path) -> CommandResult {
+pub(super) fn render_latest_transcript(
+    path: &Path,
+    runtime: Option<&yode_core::engine::EngineRuntimeState>,
+) -> CommandResult {
     let content = fs::read_to_string(path)
         .map_err(|_| format!("Latest transcript not found: {}", path.display()))?;
     let meta = read_transcript_metadata(path).unwrap_or_default();
@@ -181,17 +196,9 @@ pub(super) fn render_latest_transcript(path: &Path) -> CommandResult {
         extract_summary_preview(&content).unwrap_or_else(|| "No summary anchor".to_string());
     let truncated = fold_transcript_preview(&content);
     Ok(CommandOutput::Message(format!(
-        "Latest transcript\nPath: {}\nMode: {}\nTimestamp: {}\nRemoved: {}\nTruncated: {}\nFailed tool results: {}\nSession memory path: {}\nFiles read: {}\nFiles modified: {}\nSummary preview: {}\n\n{}",
-        path.display(),
-        meta.mode.unwrap_or_else(|| "unknown".to_string()),
-        meta.timestamp.unwrap_or_else(|| "unknown".to_string()),
-        meta.removed.unwrap_or(0),
-        meta.truncated.unwrap_or(0),
-        meta.failed_tool_results.unwrap_or(0),
-        meta.session_memory_path.unwrap_or_else(|| "none".to_string()),
-        meta.files_read_summary.unwrap_or_else(|| "none".to_string()),
-        meta.files_modified_summary.unwrap_or_else(|| "none".to_string()),
-        preview,
+        "Latest transcript workspace\n\n{}\n\n{}\n\n{}",
+        transcript_metadata_panel(path, &meta, &preview),
+        transcript_timeline_anchor_panel(path, &meta, runtime),
         truncated
     )))
 }
@@ -205,18 +212,11 @@ pub(super) fn render_transcript_picker(dir: &Path) -> String {
     let mut output = String::from("Transcript picker:\n");
     for (idx, path) in entries.into_iter().take(12).enumerate() {
         let meta = read_transcript_metadata(&path).unwrap_or_default();
+        let preview = transcript_picker_summary_preview(&path);
         output.push_str(&format!(
-            "  {:>2}. {} | mode={} | failed={} | summary={} | {}\n",
-            idx + 1,
-            meta.timestamp.unwrap_or_else(|| "unknown time".to_string()),
-            meta.mode.unwrap_or_else(|| "unknown".to_string()),
-            meta.failed_tool_results.unwrap_or(0),
-            if meta.has_summary { "yes" } else { "no" },
-            path.display()
+            "{}\n",
+            transcript_search_result_summary(idx + 1, &path, &meta, preview.as_deref())
         ));
-        if let Some(preview) = transcript_picker_summary_preview(&path) {
-            output.push_str(&format!("      preview: {}\n", preview));
-        }
     }
     output.push_str("\nUse /memory <index> to open one, or /memory compare <a> <b> to diff two.");
     output
@@ -231,12 +231,27 @@ pub(super) fn render_transcript_compare(dir: &Path, compare: &CompareArgs) -> Co
         .map_err(|_| format!("Transcript not found: {}", left_path.display()))?;
     let right_content = fs::read_to_string(&right_path)
         .map_err(|_| format!("Transcript not found: {}", right_path.display()))?;
-    Ok(CommandOutput::Message(build_transcript_compare_output(
+    let body = build_transcript_compare_output(
         &left_path,
         &left_content,
         &right_path,
         &right_content,
         &compare.options,
+    );
+    Ok(CommandOutput::Message(format!(
+        "{}\n\n{}",
+        diff_inspector_header(
+            &left_path,
+            &right_path,
+            if left_content == right_content {
+                "identical"
+            } else {
+                "different"
+            },
+            compare.options.max_hunks,
+            compare.options.max_lines,
+        ),
+        body
     )))
 }
 
@@ -253,24 +268,12 @@ pub(super) fn render_transcript_list(dir: &Path, filter: &TranscriptListFilter) 
 
     let mut output = format!("Transcript backups in {} ({label}):\n", dir.display());
     for (idx, path) in entries.into_iter().take(10).enumerate() {
-        output.push_str(&format!("  {:>2}. ", idx + 1));
-        output.push_str(&path.display().to_string());
-        if let Some(meta) = read_transcript_metadata(&path) {
-            output.push_str(&format!(
-                "\n      {} | mode={} | removed={} | truncated={} | failed={}{}",
-                meta.timestamp.unwrap_or_else(|| "unknown time".to_string()),
-                meta.mode.unwrap_or_else(|| "unknown".to_string()),
-                meta.removed.unwrap_or(0),
-                meta.truncated.unwrap_or(0),
-                meta.failed_tool_results.unwrap_or(0),
-                if meta.has_summary {
-                    " | summary=yes"
-                } else {
-                    ""
-                }
-            ));
-        }
-        output.push('\n');
+        let meta = read_transcript_metadata(&path).unwrap_or_default();
+        let preview = transcript_picker_summary_preview(&path);
+        output.push_str(&format!(
+            "{}\n",
+            transcript_search_result_summary(idx + 1, &path, &meta, preview.as_deref())
+        ));
     }
     output
 }

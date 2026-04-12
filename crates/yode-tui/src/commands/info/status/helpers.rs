@@ -1,5 +1,7 @@
-use yode_tools::builtin::review_common::review_output_has_findings;
 use crate::commands::info::shared;
+use crate::commands::dev::review_workspace::{
+    compact_review_status_badge, extract_review_result_body,
+};
 
 pub(super) struct ReviewSummary {
     pub path: std::path::PathBuf,
@@ -11,12 +13,10 @@ pub(super) fn latest_review_summary(dir: &std::path::Path) -> Option<ReviewSumma
     let path = latest_markdown_file(dir)?;
     let content = std::fs::read_to_string(&path).ok()?;
     let body = extract_review_result_body(&content).unwrap_or(content.as_str());
-    let status = if body.trim().is_empty() {
-        "unknown"
-    } else if review_output_has_findings(body) {
-        "findings"
-    } else {
-        "clean"
+    let status = match compact_review_status_badge(&content) {
+        "find" => "findings",
+        "clean" => "clean",
+        _ => "unknown",
     };
     let preview = body
         .lines()
@@ -48,13 +48,6 @@ fn latest_markdown_file(dir: &std::path::Path) -> Option<std::path::PathBuf> {
         .collect::<Vec<_>>();
     entries.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
     entries.into_iter().next()
-}
-
-fn extract_review_result_body(content: &str) -> Option<&str> {
-    let start = content.find("```text\n")?;
-    let body_start = start + "```text\n".len();
-    let end = content[body_start..].find("\n```")?;
-    Some(&content[body_start..body_start + end])
 }
 
 pub(super) fn memory_freshness_label(last_update_at: Option<&str>) -> &'static str {
