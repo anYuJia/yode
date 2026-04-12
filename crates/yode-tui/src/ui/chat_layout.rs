@@ -5,6 +5,7 @@ use unicode_width::UnicodeWidthStr;
 use crate::app::App;
 
 use super::chat::{ACCENT, DIM, GREEN, WHITE};
+use super::responsive::{density_from_width, Density};
 
 /// Wrap lines at `width` using unicode display widths.
 pub(super) fn manual_wrap(lines: Vec<Line<'static>>, width: u16) -> Vec<Line<'static>> {
@@ -95,7 +96,8 @@ pub(crate) fn render_header(app: &App, width: usize) -> Vec<Line<'static>> {
     ];
 
     let inner_w = width.saturating_sub(4);
-    let show_logo = inner_w > logo_w + 25;
+    let show_logo = matches!(density_from_width(width as u16, 72, 110), Density::Wide)
+        && inner_w > logo_w + 25;
 
     let make_row = |left_spans: Vec<Span<'static>>,
                     logo_idx: Option<usize>,

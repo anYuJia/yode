@@ -2,6 +2,9 @@ pub mod chat;
 mod chat_entries;
 pub(crate) mod chat_layout;
 mod chat_markdown;
+mod layout;
+mod palette;
+mod responsive;
 pub mod input;
 pub mod status_bar;
 pub mod tool_confirm;
@@ -14,9 +17,8 @@ use crate::app::App;
 /// Viewport is dynamically resized to exactly fit content.
 /// Long lines wrap automatically; input height adapts to visual line count.
 pub fn render(frame: &mut Frame, app: &mut App) {
-    use ratatui::layout::{Constraint, Direction, Layout};
-
     if app.wizard.is_some() {
+        use ratatui::layout::{Constraint, Direction, Layout};
         // Wizard mode: dedicated UI
         let wiz = app.wizard.as_ref().unwrap();
         let wiz_height = wiz.viewport_height();
@@ -28,6 +30,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         wizard::render_wizard(frame, chunks[0], wiz);
         status_bar::render_info_line(frame, chunks[1], app);
     } else if app.pending_confirmation.is_some() {
+        use ratatui::layout::{Constraint, Direction, Layout};
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -40,79 +43,25 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
         tool_confirm::render_inline_confirm(frame, &chunks, app);
     } else {
-        let term_width = frame.area().width;
-        let visual_lines = app.input.visual_line_count(term_width) as u16;
-        let input_height = visual_lines.clamp(1, 5);
-        let status_height_raw: u16 = if app.turn_status.is_visible() { 1 } else { 0 };
-
-        let pending_height = app.pending_inputs.len() as u16;
-
-        let completion_height = if app.cmd_completion.is_active() {
-            if app.cmd_completion.args_hint.is_some() {
-                1
-            } else if !app.cmd_completion.candidates.is_empty() {
-                5
-            } else {
-                0
+        let plan = layout::build_main_layout(frame.area(), app);
+        if plan.show_completion {
+            input::render_command_inline(frame, plan.areas[0], app);
+            render_pending_inputs(frame, plan.areas[1], app);
+            status_bar::render_separator(frame, plan.areas[2]);
+            input::render_input(frame, plan.areas[3], app);
+            status_bar::render_separator(frame, plan.areas[4]);
+            status_bar::render_info_line(frame, plan.areas[5], app);
+            status_bar::render_blank_line(frame, plan.areas[6], app);
+        } else {
+            if plan.show_turn_status {
+                render_turn_status(frame, plan.areas[0], app);
             }
-        } else {
-            0
-        };
-
-        // If completion is active, we hide the turn status to save space and avoid clutter.
-        // Otherwise, if status is visible, we give it 3 lines (blank + status + blank).
-        let status_area_height = if completion_height > 0 {
-            0
-        } else if status_height_raw > 0 {
-            3
-        } else {
-            0
-        };
-
-        if completion_height > 0 {
-            let chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Length(completion_height),
-                    Constraint::Length(pending_height), // Queued inputs
-                    Constraint::Length(1),              // separator above input
-                    Constraint::Length(input_height),
-                    Constraint::Length(1), // separator above status bar
-                    Constraint::Length(1), // status bar
-                    Constraint::Length(1), // blank line
-                ])
-                .split(frame.area());
-
-            input::render_command_inline(frame, chunks[0], app);
-            render_pending_inputs(frame, chunks[1], app);
-            status_bar::render_separator(frame, chunks[2]);
-            input::render_input(frame, chunks[3], app);
-            status_bar::render_separator(frame, chunks[4]);
-            status_bar::render_info_line(frame, chunks[5], app);
-            status_bar::render_blank_line(frame, chunks[6], app);
-        } else {
-            let chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Length(status_area_height),
-                    Constraint::Length(pending_height), // Queued inputs
-                    Constraint::Length(1),              // separator above input
-                    Constraint::Length(input_height),
-                    Constraint::Length(1), // separator above status bar
-                    Constraint::Length(1), // status bar
-                    Constraint::Length(1), // blank line
-                ])
-                .split(frame.area());
-
-            if status_area_height > 0 {
-                render_turn_status(frame, chunks[0], app);
-            }
-            render_pending_inputs(frame, chunks[1], app);
-            status_bar::render_separator(frame, chunks[2]);
-            input::render_input(frame, chunks[3], app);
-            status_bar::render_separator(frame, chunks[4]);
-            status_bar::render_info_line(frame, chunks[5], app);
-            status_bar::render_blank_line(frame, chunks[6], app);
+            render_pending_inputs(frame, plan.areas[1], app);
+            status_bar::render_separator(frame, plan.areas[2]);
+            input::render_input(frame, plan.areas[3], app);
+            status_bar::render_separator(frame, plan.areas[4]);
+            status_bar::render_info_line(frame, plan.areas[5], app);
+            status_bar::render_blank_line(frame, plan.areas[6], app);
         }
     }
 }

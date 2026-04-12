@@ -6,9 +6,9 @@ use ratatui::Frame;
 use unicode_width::UnicodeWidthChar;
 
 use crate::app::App;
+use crate::ui::palette::{GHOST_COLOR, HINT_COLOR, PROMPT_COLOR, PROMPT_DIM, TEXT_COLOR};
 
 use super::completions::{render_file_popup, render_history_search};
-use super::{GHOST_COLOR, HINT_COLOR, PROMPT_COLOR, PROMPT_DIM, TEXT_COLOR};
 
 pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
     if area.height == 0 {
@@ -117,7 +117,14 @@ fn render_wrapped_input(frame: &mut Frame, area: Rect, app: &App, prompt_color: 
 
         for (text, style, item_width) in &items {
             if term_width > 0 && col + item_width > term_width {
-                wrap_item_into_lines(text, *style, term_width, &mut col, &mut row_spans, &mut visual_lines);
+                wrap_item_into_lines(
+                    text,
+                    *style,
+                    term_width,
+                    &mut col,
+                    &mut row_spans,
+                    &mut visual_lines,
+                );
             } else {
                 row_spans.push(Span::styled(text.clone(), *style));
                 col += item_width;
@@ -201,10 +208,17 @@ fn wrap_item_into_lines(
         let mut chars = remaining.char_indices().peekable();
         while let Some(&(_byte_index, ch)) = chars.peek() {
             let char_width = UnicodeWidthChar::width(ch).unwrap_or(0);
-            if term_width > 0 && *col + chunk_width + char_width > term_width && (*col + chunk_width) > 0 {
+            if term_width > 0
+                && *col + chunk_width + char_width > term_width
+                && (*col + chunk_width) > 0
+            {
                 break;
             }
-            if term_width > 0 && *col == 0 && chunk_width + char_width > term_width && chunk_width > 0 {
+            if term_width > 0
+                && *col == 0
+                && chunk_width + char_width > term_width
+                && chunk_width > 0
+            {
                 break;
             }
             chunk.push(ch);

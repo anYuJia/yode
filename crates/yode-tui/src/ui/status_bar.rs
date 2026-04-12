@@ -5,17 +5,8 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::app::App;
-
-const SEP: Color = Color::DarkGray; // ANSI 8
-const MUTED: Color = Color::Gray; // ANSI 7
-const LIGHT: Color = Color::White; // ANSI 15 — bright
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum StatusBarDensity {
-    Wide,
-    Medium,
-    Narrow,
-}
+use super::palette::{LIGHT, MUTED, SEP};
+use super::responsive::{density_from_width, Density};
 
 /// Top separator line: ────────────────────────────
 pub fn render_separator(frame: &mut Frame, area: Rect) {
@@ -29,13 +20,13 @@ pub fn render_separator(frame: &mut Frame, area: Rect) {
 /// Bottom info line with session details:
 ///   ⚡ mode · 120↑ 437↓ tok · 1 call · ctx 2% · /help
 pub fn render_info_line(frame: &mut Frame, area: Rect, app: &App) {
-    let density = status_bar_density(area.width);
+    let density = density_from_width(area.width, 68, 96);
     let running_tasks = running_task_count(app);
     let mut parts: Vec<Span> = Vec::new();
 
     // Prefix
     parts.push(Span::styled(
-        if matches!(density, StatusBarDensity::Narrow) {
+        if matches!(density, Density::Narrow) {
             " "
         } else {
             "  "
@@ -52,9 +43,9 @@ pub fn render_info_line(frame: &mut Frame, area: Rect, app: &App) {
     };
     parts.push(Span::styled(
         match density {
-            StatusBarDensity::Wide => format!("{} {} ", mode_icon, mode.to_lowercase()),
-            StatusBarDensity::Medium => format!("{} {} ", mode_icon, mode.to_lowercase()),
-            StatusBarDensity::Narrow => {
+            Density::Wide => format!("{} {} ", mode_icon, mode.to_lowercase()),
+            Density::Medium => format!("{} {} ", mode_icon, mode.to_lowercase()),
+            Density::Narrow => {
                 format!("{}{} ", mode_icon, mode.chars().next().unwrap_or('m'))
             }
         },
@@ -66,15 +57,15 @@ pub fn render_info_line(frame: &mut Frame, area: Rect, app: &App) {
     let input_prefix = if app.session.input_estimated { "~" } else { "" };
     parts.push(Span::styled(
         match density {
-            StatusBarDensity::Wide => format!(
+            Density::Wide => format!(
                 "{}{}↑ {}↓ tok ",
                 input_prefix, app.session.input_tokens, app.session.output_tokens
             ),
-            StatusBarDensity::Medium => format!(
+            Density::Medium => format!(
                 "{}{}↑ {}↓ ",
                 input_prefix, app.session.input_tokens, app.session.output_tokens
             ),
-            StatusBarDensity::Narrow => format!(
+            Density::Narrow => format!(
                 "{}{}↑{}↓ ",
                 input_prefix, app.session.input_tokens, app.session.output_tokens
             ),
@@ -92,8 +83,8 @@ pub fn render_info_line(frame: &mut Frame, area: Rect, app: &App) {
         };
         parts.push(Span::styled(
             match density {
-                StatusBarDensity::Wide => format!("{} {} ", app.session.tool_call_count, label),
-                StatusBarDensity::Medium | StatusBarDensity::Narrow => {
+                Density::Wide => format!("{} {} ", app.session.tool_call_count, label),
+                Density::Medium | Density::Narrow => {
                     format!("{}c ", app.session.tool_call_count)
                 }
             },
@@ -118,15 +109,15 @@ pub fn render_info_line(frame: &mut Frame, area: Rect, app: &App) {
         LIGHT
     };
     let ctx_str = if ctx_pct > 0.0 && ctx_pct < 1.0 {
-        if matches!(density, StatusBarDensity::Wide) {
+        if matches!(density, Density::Wide) {
             "ctx <1% ".to_string()
         } else {
             "c<1 ".to_string()
         }
     } else {
         match density {
-            StatusBarDensity::Wide => format!("ctx {:.0}% ", ctx_pct),
-            StatusBarDensity::Medium | StatusBarDensity::Narrow => format!("c{:.0}% ", ctx_pct),
+            Density::Wide => format!("ctx {:.0}% ", ctx_pct),
+            Density::Medium | Density::Narrow => format!("c{:.0}% ", ctx_pct),
         }
     };
     parts.push(Span::styled(ctx_str, Style::default().fg(ctx_color)));
@@ -136,8 +127,8 @@ pub fn render_info_line(frame: &mut Frame, area: Rect, app: &App) {
     if !app.pending_inputs.is_empty() {
         parts.push(Span::styled(
             match density {
-                StatusBarDensity::Wide => format!("{} queued ", app.pending_inputs.len()),
-                StatusBarDensity::Medium | StatusBarDensity::Narrow => {
+                Density::Wide => format!("{} queued ", app.pending_inputs.len()),
+                Density::Medium | Density::Narrow => {
                     format!("q{} ", app.pending_inputs.len())
                 }
             },
@@ -164,17 +155,17 @@ pub fn render_info_line(frame: &mut Frame, area: Rect, app: &App) {
 
     // Shortcuts hint
     match density {
-        StatusBarDensity::Wide => {
+        Density::Wide => {
             parts.push(Span::styled("shift+tab mode", Style::default().fg(MUTED)));
             parts.push(Span::styled(" · ", Style::default().fg(SEP)));
             parts.push(Span::styled("/help", Style::default().fg(MUTED)));
         }
-        StatusBarDensity::Medium => {
+        Density::Medium => {
             parts.push(Span::styled("tab mode", Style::default().fg(MUTED)));
             parts.push(Span::styled(" · ", Style::default().fg(SEP)));
             parts.push(Span::styled("/help", Style::default().fg(MUTED)));
         }
-        StatusBarDensity::Narrow => {
+        Density::Narrow => {
             parts.push(Span::styled("/h", Style::default().fg(MUTED)));
         }
     }
@@ -218,21 +209,11 @@ pub fn render_blank_line(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(Paragraph::new(Line::from(parts)), area);
 }
 
-fn status_bar_density(width: u16) -> StatusBarDensity {
-    if width < 68 {
-        StatusBarDensity::Narrow
-    } else if width < 96 {
-        StatusBarDensity::Medium
-    } else {
-        StatusBarDensity::Wide
-    }
-}
-
-fn task_badge_label(count: usize, density: StatusBarDensity) -> String {
+fn task_badge_label(count: usize, density: Density) -> String {
     match density {
-        StatusBarDensity::Wide => format!("{} tasks ", count),
-        StatusBarDensity::Medium => format!("t{} ", count),
-        StatusBarDensity::Narrow => format!("{}t ", count),
+        Density::Wide => format!("{} tasks ", count),
+        Density::Medium => format!("t{} ", count),
+        Density::Narrow => format!("{}t ", count),
     }
 }
 
@@ -250,19 +231,19 @@ fn running_task_count(app: &App) -> usize {
         .unwrap_or(0)
 }
 
-fn tool_budget_badge(app: &App, density: StatusBarDensity) -> Option<String> {
+fn tool_budget_badge(app: &App, density: Density) -> Option<String> {
     if app.turn_tool_count >= 25 {
         return Some(match density {
-            StatusBarDensity::Wide => "budget warning ".to_string(),
-            StatusBarDensity::Medium => "budget! ".to_string(),
-            StatusBarDensity::Narrow => "!b ".to_string(),
+            Density::Wide => "budget warning ".to_string(),
+            Density::Medium => "budget! ".to_string(),
+            Density::Narrow => "!b ".to_string(),
         });
     }
     if app.turn_tool_count >= 15 {
         return Some(match density {
-            StatusBarDensity::Wide => "budget notice ".to_string(),
-            StatusBarDensity::Medium => "budget ".to_string(),
-            StatusBarDensity::Narrow => "b ".to_string(),
+            Density::Wide => "budget notice ".to_string(),
+            Density::Medium => "budget ".to_string(),
+            Density::Narrow => "b ".to_string(),
         });
     }
     None
@@ -270,19 +251,20 @@ fn tool_budget_badge(app: &App, density: StatusBarDensity) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{status_bar_density, task_badge_label, StatusBarDensity};
+    use super::{task_badge_label, Density};
+    use crate::ui::responsive::density_from_width;
 
     #[test]
     fn status_bar_density_compacts_on_narrow_widths() {
-        assert!(matches!(status_bar_density(120), StatusBarDensity::Wide));
-        assert!(matches!(status_bar_density(80), StatusBarDensity::Medium));
-        assert!(matches!(status_bar_density(50), StatusBarDensity::Narrow));
+        assert!(matches!(density_from_width(120, 68, 96), Density::Wide));
+        assert!(matches!(density_from_width(80, 68, 96), Density::Medium));
+        assert!(matches!(density_from_width(50, 68, 96), Density::Narrow));
     }
 
     #[test]
     fn task_badge_label_compacts_for_small_widths() {
-        assert_eq!(task_badge_label(3, StatusBarDensity::Wide), "3 tasks ");
-        assert_eq!(task_badge_label(3, StatusBarDensity::Medium), "t3 ");
-        assert_eq!(task_badge_label(3, StatusBarDensity::Narrow), "3t ");
+        assert_eq!(task_badge_label(3, Density::Wide), "3 tasks ");
+        assert_eq!(task_badge_label(3, Density::Medium), "t3 ");
+        assert_eq!(task_badge_label(3, Density::Narrow), "3t ");
     }
 }

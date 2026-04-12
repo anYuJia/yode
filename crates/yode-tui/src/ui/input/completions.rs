@@ -5,8 +5,8 @@ use ratatui::widgets::{Clear, Paragraph};
 use ratatui::Frame;
 
 use crate::app::App;
+use crate::ui::palette::{HINT_COLOR, TEXT_COLOR};
 
-use super::{HINT_COLOR, TEXT_COLOR};
 
 /// Render command completions as an inline list below the input area.
 /// Grows from bottom to top, with the best match at the bottom.
