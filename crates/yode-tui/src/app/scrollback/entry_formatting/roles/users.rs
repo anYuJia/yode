@@ -1,6 +1,4 @@
-use crate::app::rendering::{
-    highlight_code_line, is_code_block_line, markdown_to_plain,
-};
+use crate::app::rendering::{highlight_code_line, is_code_block_line, markdown_to_plain};
 use crate::app::ChatEntry;
 
 pub(super) fn render_user(
@@ -50,7 +48,10 @@ pub(super) fn render_assistant(
             first = false;
         } else if is_code_block_line(&line) {
             let highlighted = highlight_code_line(&line);
-            result.push((format!("  {}", highlighted), ratatui::style::Style::default()));
+            result.push((
+                format!("  {}", highlighted),
+                ratatui::style::Style::default(),
+            ));
         } else {
             result.push((format!("  {}", line), white));
         }

@@ -73,9 +73,17 @@ pub enum StreamEvent {
     ReasoningDelta(String),
     /// Real-time usage information (e.g. prompt tokens known at start)
     UsageUpdate(Usage),
-    ToolCallStart { id: String, name: String },
-    ToolCallDelta { id: String, arguments: String },
-    ToolCallEnd { id: String },
+    ToolCallStart {
+        id: String,
+        name: String,
+    },
+    ToolCallDelta {
+        id: String,
+        arguments: String,
+    },
+    ToolCallEnd {
+        id: String,
+    },
     Done(ChatResponse),
     Error(String),
 }

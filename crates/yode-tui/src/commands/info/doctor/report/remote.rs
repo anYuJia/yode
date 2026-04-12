@@ -194,7 +194,10 @@ pub(super) fn render_remote_artifact_index(ctx: &mut CommandContext) -> String {
     )];
     for path in entries.into_iter().take(20) {
         let metadata = std::fs::metadata(&path).ok();
-        let size = metadata.as_ref().map(|metadata| metadata.len()).unwrap_or(0);
+        let size = metadata
+            .as_ref()
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
         let modified = metadata
             .and_then(|metadata| metadata.modified().ok())
             .and_then(|stamp| stamp.duration_since(std::time::UNIX_EPOCH).ok())

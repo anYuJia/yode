@@ -123,7 +123,10 @@ impl CommandCompletion {
 
         if self.candidates.is_empty() {
             self.selected = None;
-        } else if self.selected.map_or(true, |index| index >= self.candidates.len()) {
+        } else if self
+            .selected
+            .map_or(true, |index| index >= self.candidates.len())
+        {
             self.selected = Some(0);
         }
     }

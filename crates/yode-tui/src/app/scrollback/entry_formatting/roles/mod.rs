@@ -25,9 +25,17 @@ pub(crate) fn format_entry_as_strings(
     match &entry.role {
         ChatRole::User => render_user(entry, &mut result, cyan),
         ChatRole::Assistant => render_assistant(entry, &mut result, dim, white),
-        ChatRole::ToolCall { id: tid, name } => {
-            render_tool_call(entry, all_entries, index, tid, name, &mut result, dim, accent, red)
-        }
+        ChatRole::ToolCall { id: tid, name } => render_tool_call(
+            entry,
+            all_entries,
+            index,
+            tid,
+            name,
+            &mut result,
+            dim,
+            accent,
+            red,
+        ),
         ChatRole::ToolResult { id: rid, .. } => {
             let has_preceding = index > 0
                 && all_entries[..index].iter().rev().any(

@@ -17,9 +17,9 @@ pub(super) fn render_tool_call(
     red: ratatui::style::Style,
 ) {
     let args: serde_json::Value = serde_json::from_str(&entry.content).unwrap_or_default();
-    let tool_result = all_entries[index + 1..].iter().find(
-        |e| matches!(&e.role, ChatRole::ToolResult { id: ref eid, .. } if eid == tool_id),
-    );
+    let tool_result = all_entries[index + 1..]
+        .iter()
+        .find(|e| matches!(&e.role, ChatRole::ToolResult { id: ref eid, .. } if eid == tool_id));
 
     let timing = tool_result
         .and_then(|r| r.duration)
@@ -38,7 +38,10 @@ pub(super) fn render_tool_call(
         render_write_file(args, &timing, result, dim, accent, green);
     } else {
         let summary = tool_summary_str(name, &args);
-        result.push((format!("⏺ {}({}){}", capitalize(name), summary, timing), accent));
+        result.push((
+            format!("⏺ {}({}){}", capitalize(name), summary, timing),
+            accent,
+        ));
 
         if let Some(res) = tool_result {
             let max_lines = 3;
@@ -57,12 +60,12 @@ pub(super) fn render_tool_call(
                     break;
                 }
                 let prefix = if line_index == 0 { "  ⎿  " } else { "     " };
-                let style =
-                    if matches!(res.role, ChatRole::ToolResult { is_error, .. } if is_error) {
-                        red
-                    } else {
-                        dim
-                    };
+                let style = if matches!(res.role, ChatRole::ToolResult { is_error, .. } if is_error)
+                {
+                    red
+                } else {
+                    dim
+                };
                 let display = truncate_line(line, max_line_chars);
                 result.push((format!("{}{}", prefix, display), style));
             }
@@ -141,7 +144,10 @@ fn render_write_file(
     for (index, line) in content.lines().enumerate() {
         if index >= max_preview {
             result.push((
-                format!("     … +{} lines (ctrl+o to expand)", total_lines - max_preview),
+                format!(
+                    "     … +{} lines (ctrl+o to expand)",
+                    total_lines - max_preview
+                ),
                 dim,
             ));
             break;

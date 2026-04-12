@@ -41,9 +41,7 @@ pub(in crate::commands::info::memory) fn resolve_compare_target(
     }
 }
 
-pub(in crate::commands::info::memory) fn parse_latest_compare_target(
-    args: &str,
-) -> Option<&str> {
+pub(in crate::commands::info::memory) fn parse_latest_compare_target(args: &str) -> Option<&str> {
     let target = args.strip_prefix("latest compare ")?.trim();
     if target.is_empty() {
         None

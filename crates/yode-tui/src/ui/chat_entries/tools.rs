@@ -120,7 +120,10 @@ pub(crate) fn render_standalone_result(lines: &mut Vec<Line<'static>>, entry: &C
 }
 
 fn render_metadata(lines: &mut Vec<Line<'static>>, metadata: &serde_json::Value) {
-    if let Some(diff) = metadata.get("diff_preview").and_then(|value| value.as_object()) {
+    if let Some(diff) = metadata
+        .get("diff_preview")
+        .and_then(|value| value.as_object())
+    {
         let removed = diff
             .get("removed")
             .and_then(|value| value.as_array())

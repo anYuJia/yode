@@ -138,7 +138,10 @@ impl ContextManager {
 
         let mut summary = lines.join("\n");
         if summary.chars().count() > SUMMARY_CHAR_BUDGET {
-            summary = summary.chars().take(SUMMARY_CHAR_BUDGET).collect::<String>();
+            summary = summary
+                .chars()
+                .take(SUMMARY_CHAR_BUDGET)
+                .collect::<String>();
             summary.push_str("...");
         }
 

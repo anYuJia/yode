@@ -95,7 +95,8 @@ pub(super) fn highlight_code_line(line: &str) -> String {
             continue;
         }
 
-        if chars[index] == '#' || (chars[index] == '/' && index + 1 < len && chars[index + 1] == '/')
+        if chars[index] == '#'
+            || (chars[index] == '/' && index + 1 < len && chars[index + 1] == '/')
         {
             result.push_str(CMT);
             while index < len {

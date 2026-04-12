@@ -36,14 +36,20 @@ pub(super) fn render_subagent_call(
         .map(|duration| format!(" ── {}", crate::app::format_duration(duration)))
         .unwrap_or_default();
 
-    result.push((format!("⏺ {}({}){}", agent_type, description, timing), accent));
+    result.push((
+        format!("⏺ {}({}){}", agent_type, description, timing),
+        accent,
+    ));
 
     let max_show = 3;
     let total = sub_tools.len();
     for (index, tool_name) in sub_tools.iter().enumerate() {
         if index >= max_show {
             result.push((
-                format!("     … +{} more tool uses (ctrl+o to expand)", total - max_show),
+                format!(
+                    "     … +{} more tool uses (ctrl+o to expand)",
+                    total - max_show
+                ),
                 dim,
             ));
             break;

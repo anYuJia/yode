@@ -18,11 +18,11 @@ use super::input::InputState;
 use super::scrollback::format_duration;
 use super::wizard;
 
+pub(crate) use self::types::SPINNER_VERBS;
 pub use self::types::{
     ChatEntry, ChatRole, PendingConfirmation, PermissionMode, SessionState, ThinkingState,
     TurnStatus,
 };
-pub(crate) use self::types::SPINNER_VERBS;
 
 /// Main application state.
 pub struct App {
@@ -178,7 +178,10 @@ impl App {
     }
 
     pub fn thinking_elapsed_str(&self) -> String {
-        let duration = self.turn_started_at.map(|start| start.elapsed()).unwrap_or_default();
+        let duration = self
+            .turn_started_at
+            .map(|start| start.elapsed())
+            .unwrap_or_default();
         format_duration(duration)
     }
 

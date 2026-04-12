@@ -59,7 +59,10 @@ impl ChatEntry {
 pub enum ChatRole {
     User,
     Assistant,
-    ToolCall { id: String, name: String },
+    ToolCall {
+        id: String,
+        name: String,
+    },
     ToolResult {
         id: String,
         name: String,
@@ -67,10 +70,16 @@ pub enum ChatRole {
     },
     Error,
     System,
-    SubAgentCall { description: String },
-    SubAgentToolCall { name: String },
+    SubAgentCall {
+        description: String,
+    },
+    SubAgentToolCall {
+        name: String,
+    },
     SubAgentResult,
-    AskUser { id: String },
+    AskUser {
+        id: String,
+    },
 }
 
 /// Permission mode for tool execution.
@@ -115,16 +124,20 @@ pub struct SessionState {
     pub input_estimated: bool,
     pub turn_input_tokens: u32,
     pub turn_output_tokens: u32,
-    pub(crate) resume_cache_warmup:
-        Option<crate::commands::info::ResumeTranscriptCacheWarmupStats>,
+    pub(crate) resume_cache_warmup: Option<crate::commands::info::ResumeTranscriptCacheWarmupStats>,
 }
 
 /// Unified status: Idle -> Working -> Done (or Retrying -> Working -> Done)
 #[derive(Debug, Clone)]
 pub enum TurnStatus {
     Idle,
-    Working { verb: &'static str },
-    Done { elapsed: Duration, tools: u32 },
+    Working {
+        verb: &'static str,
+    },
+    Done {
+        elapsed: Duration,
+        tools: u32,
+    },
     Retrying {
         error: String,
         attempt: u32,
@@ -218,7 +231,9 @@ impl ThinkingState {
     }
 
     pub fn elapsed_secs(&self) -> u64 {
-        self.started_at.map(|started_at| started_at.elapsed().as_secs()).unwrap_or(0)
+        self.started_at
+            .map(|started_at| started_at.elapsed().as_secs())
+            .unwrap_or(0)
     }
 
     pub fn advance_spinner(&mut self) {

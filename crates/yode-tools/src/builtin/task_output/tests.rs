@@ -112,7 +112,10 @@ async fn includes_transcript_backlink_in_output_and_metadata() {
     ctx.runtime_tasks = Some(store);
 
     let tool = TaskOutputTool;
-    let result = tool.execute(json!({ "task_id": task_id }), &ctx).await.unwrap();
+    let result = tool
+        .execute(json!({ "task_id": task_id }), &ctx)
+        .await
+        .unwrap();
     assert!(!result.is_error);
     assert!(result.content.contains("Transcript: /tmp/transcript.md"));
     assert_eq!(

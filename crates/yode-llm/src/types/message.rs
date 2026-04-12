@@ -22,7 +22,9 @@ pub struct ImageData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContentBlock {
-    Text { text: String },
+    Text {
+        text: String,
+    },
     Thinking {
         thinking: String,
         #[serde(default)]
@@ -210,8 +212,14 @@ impl Message {
 
         for block in self.content_blocks.drain(..) {
             match block {
-                ContentBlock::Thinking { thinking, signature } if !thinking.trim().is_empty() => {
-                    thinking_blocks.push(ContentBlock::Thinking { thinking, signature });
+                ContentBlock::Thinking {
+                    thinking,
+                    signature,
+                } if !thinking.trim().is_empty() => {
+                    thinking_blocks.push(ContentBlock::Thinking {
+                        thinking,
+                        signature,
+                    });
                 }
                 ContentBlock::Text { text } if !text.trim().is_empty() => {
                     text_blocks.push(ContentBlock::Text { text });

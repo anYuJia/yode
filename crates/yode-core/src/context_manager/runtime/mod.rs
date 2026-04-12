@@ -58,7 +58,11 @@ impl ContextManager {
         let char_count: usize = messages
             .iter()
             .map(|message| {
-                let content_len = message.content.as_ref().map(|content| content.len()).unwrap_or(0);
+                let content_len = message
+                    .content
+                    .as_ref()
+                    .map(|content| content.len())
+                    .unwrap_or(0);
                 let tool_calls_len: usize = message
                     .tool_calls
                     .iter()
@@ -76,7 +80,11 @@ impl ContextManager {
         let char_count: usize = messages
             .iter()
             .map(|message| {
-                let content_len = message.content.as_ref().map(|content| content.len()).unwrap_or(0);
+                let content_len = message
+                    .content
+                    .as_ref()
+                    .map(|content| content.len())
+                    .unwrap_or(0);
                 let tool_calls_len: usize = message
                     .tool_calls
                     .iter()

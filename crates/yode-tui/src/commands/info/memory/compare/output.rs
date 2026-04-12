@@ -2,9 +2,9 @@ use std::path::Path;
 
 use similar::{ChangeTag, DiffOp, TextDiff};
 
-use super::args::CompareOptions;
 use super::super::transcripts::{extract_summary_preview, read_transcript_metadata};
 use super::super::MAX_COMPARE_CONTENT_CHARS;
+use super::args::CompareOptions;
 
 pub(in crate::commands::info::memory) fn build_transcript_compare_output(
     left_path: &Path,
@@ -78,8 +78,14 @@ pub(in crate::commands::info::memory) fn build_transcript_compare_output(
     ));
     output.push_str(&format_compare_field(
         "Files modified",
-        left_meta.files_modified_summary.as_deref().unwrap_or("none"),
-        right_meta.files_modified_summary.as_deref().unwrap_or("none"),
+        left_meta
+            .files_modified_summary
+            .as_deref()
+            .unwrap_or("none"),
+        right_meta
+            .files_modified_summary
+            .as_deref()
+            .unwrap_or("none"),
     ));
     output.push_str(&format_compare_field(
         "Summary anchor",
@@ -242,7 +248,10 @@ fn build_section_summary(left: &str, right: &str) -> String {
     for role in roles {
         let left_count = left_stats.role_counts.get(&role).copied().unwrap_or(0);
         let right_count = right_stats.role_counts.get(&role).copied().unwrap_or(0);
-        lines.push(format!("  {} blocks: {} -> {}", role, left_count, right_count));
+        lines.push(format!(
+            "  {} blocks: {} -> {}",
+            role, left_count, right_count
+        ));
     }
 
     format!("{}\n", lines.join("\n"))
@@ -269,7 +278,10 @@ fn transcript_section_stats(content: &str) -> TranscriptSectionStats {
             Some("Messages") if !line.trim().is_empty() => {
                 stats.message_lines += 1;
                 if let Some(role) = line.strip_prefix("### ") {
-                    *stats.role_counts.entry(role.trim().to_string()).or_insert(0) += 1;
+                    *stats
+                        .role_counts
+                        .entry(role.trim().to_string())
+                        .or_insert(0) += 1;
                 }
             }
             _ => {}
