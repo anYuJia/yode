@@ -9,6 +9,7 @@ use crate::commands::{
     CommandResult,
 };
 use crate::runtime_artifacts::write_runtime_task_inventory_artifact;
+use crate::runtime_timeline::build_runtime_timeline_lines;
 
 mod shared;
 use shared::{
@@ -177,21 +178,31 @@ fn export_diagnostics_bundle(custom_name: Option<&str>, ctx: &mut CommandContext
         .map_err(|err| format!("Failed to write {}: {}", conversation_path.display(), err))?;
 
     let diagnostics_path = bundle_dir.join("runtime-summary.txt");
-    let runtime = ctx
+    let (runtime, tasks) = ctx
         .engine
         .try_lock()
         .ok()
-        .map(|engine| engine.runtime_state());
-    let runtime_summary = if let Some(state) = runtime {
+        .map(|engine| (Some(engine.runtime_state()), engine.runtime_tasks_snapshot()))
+        .unwrap_or((None, Vec::new()));
+    let runtime_summary = if let Some(ref state) = runtime {
         format!(
             "Runtime summary\n  Query source: {}\n  Tool calls: {}\n  Tool progress: {}\n  Parallel batches: {}\n  Last tool artifact: {}\n  Last transcript: {}\n  Last compact summary: {}\n  Prompt cache turns: {}\n  System prompt est tokens: {}\n",
             state.query_source,
             state.session_tool_calls_total,
             state.tool_progress_event_count,
             state.parallel_tool_batch_count,
-            state.last_tool_turn_artifact_path.unwrap_or_else(|| "none".to_string()),
-            state.last_compaction_transcript_path.unwrap_or_else(|| "none".to_string()),
-            state.last_compaction_summary_excerpt.unwrap_or_else(|| "none".to_string()),
+            state
+                .last_tool_turn_artifact_path
+                .as_deref()
+                .unwrap_or("none"),
+            state
+                .last_compaction_transcript_path
+                .as_deref()
+                .unwrap_or("none"),
+            state
+                .last_compaction_summary_excerpt
+                .as_deref()
+                .unwrap_or("none"),
             state.prompt_cache.reported_turns,
             state.system_prompt_estimated_tokens,
         )
@@ -200,6 +211,20 @@ fn export_diagnostics_bundle(custom_name: Option<&str>, ctx: &mut CommandContext
     };
     std::fs::write(&diagnostics_path, runtime_summary)
         .map_err(|err| format!("Failed to write {}: {}", diagnostics_path.display(), err))?;
+
+    let timeline_path = bundle_dir.join("runtime-timeline.txt");
+    let timeline_body = if let Some(state) = runtime.as_ref() {
+        let lines = build_runtime_timeline_lines(state, &tasks, 12)
+            .into_iter()
+            .map(|line| format!("- {}", line))
+            .collect::<Vec<_>>()
+            .join("\n");
+        format!("Runtime timeline\n\n{}\n", lines)
+    } else {
+        "Runtime timeline unavailable: engine busy.\n".to_string()
+    };
+    std::fs::write(&timeline_path, timeline_body)
+        .map_err(|err| format!("Failed to write {}: {}", timeline_path.display(), err))?;
 
     let mut copied = Vec::new();
     for path in latest_artifact_candidates(ctx) {

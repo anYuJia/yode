@@ -1,6 +1,7 @@
 use crate::commands::context::CommandContext;
 use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
 use crate::runtime_display::format_turn_artifact_status;
+use crate::runtime_timeline::build_runtime_timeline_lines;
 use super::artifact_preview::{compact_tool_runtime_summary, latest_markdown_file, preview_markdown};
 
 pub struct BriefCommand {
@@ -56,8 +57,9 @@ impl Command for BriefCommand {
         let latest_tool_preview = latest_tool_artifact
             .as_ref()
             .and_then(|path| preview_markdown(path, "## Calls"));
+        let timeline_lines = build_runtime_timeline_lines(&state, &tasks, 4);
         let running_tasks = tasks
-            .into_iter()
+            .iter()
             .filter(|task| matches!(task.status, yode_tools::RuntimeTaskStatus::Running))
             .collect::<Vec<_>>();
 
@@ -92,6 +94,10 @@ impl Command for BriefCommand {
                     .map(|progress| format!(" — {}", progress))
                     .unwrap_or_default()
             ));
+        }
+        output.push_str("  Timeline:\n");
+        for line in timeline_lines {
+            output.push_str(&format!("    - {}\n", line));
         }
         output.push_str(&format!(
             "  Latest review: {}{}\n",

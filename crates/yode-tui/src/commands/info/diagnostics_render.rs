@@ -1,6 +1,7 @@
 use crate::runtime_display::{
     format_permission_decision_summary, format_tool_progress_summary,
 };
+use crate::runtime_timeline::build_runtime_timeline_lines;
 
 pub(crate) fn render_diagnostics_overview(
     state: &yode_core::engine::EngineRuntimeState,
@@ -35,9 +36,14 @@ pub(crate) fn render_diagnostics_overview(
         state.last_tool_progress_message.as_deref(),
         state.last_tool_progress_at.as_deref(),
     );
+    let timeline = build_runtime_timeline_lines(state, tasks, 4)
+        .into_iter()
+        .map(|line| format!("  - {}", line))
+        .collect::<Vec<_>>()
+        .join("\n");
 
     format!(
-        "Diagnostics overview:\n\nContext:\n  Query source:   {}\n  Compact count:  {} (auto {}, manual {})\n  Breaker reason: {}\n  Compact tokens: {}\n\nMemory:\n  Live memory:    {}{}\n  Memory updates: {}\n  Last memory:    {}\n\nRecovery:\n  State:          {}\n  Last signature: {}\n  Permission:     {}\n  Denials:        {}\n\nTools:\n  Session calls:  {}\n  Progress:       {}\n  Parallel:       {} batches / {} calls\n  Truncations:    {}\n  Errors:         {}\n  Last artifact:  {}\n\nTasks:\n  Total:          {}\n  Running:        {}\n\nHooks:\n  Total runs:     {}\n  Timeouts:       {}\n  Wake notices:   {}",
+        "Diagnostics overview:\n\nContext:\n  Query source:   {}\n  Compact count:  {} (auto {}, manual {})\n  Breaker reason: {}\n  Compact tokens: {}\n\nMemory:\n  Live memory:    {}{}\n  Memory updates: {}\n  Last memory:    {}\n\nRecovery:\n  State:          {}\n  Last signature: {}\n  Permission:     {}\n  Denials:        {}\n\nTools:\n  Session calls:  {}\n  Progress:       {}\n  Parallel:       {} batches / {} calls\n  Truncations:    {}\n  Errors:         {}\n  Last artifact:  {}\n\nTasks:\n  Total:          {}\n  Running:        {}\n\nHooks:\n  Total runs:     {}\n  Timeouts:       {}\n  Wake notices:   {}\n\nTimeline:\n{}",
         state.query_source,
         state.total_compactions,
         state.auto_compactions,
@@ -88,5 +94,6 @@ pub(crate) fn render_diagnostics_overview(
         state.hook_total_executions,
         state.hook_timeout_count,
         state.hook_wake_notification_count,
+        timeline,
     )
 }

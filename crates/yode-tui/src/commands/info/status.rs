@@ -80,14 +80,16 @@ impl Command for StatusCommand {
             .try_lock()
             .ok()
             .map(|engine| engine.runtime_state());
+        let runtime_tasks = ctx
+            .engine
+            .try_lock()
+            .ok()
+            .map(|engine| engine.runtime_tasks_snapshot())
+            .unwrap_or_default();
         let runtime_task_artifact = write_runtime_task_inventory_artifact(
             &working_dir,
             &ctx.session.session_id,
-            ctx.engine
-                .try_lock()
-                .ok()
-                .map(|engine| engine.runtime_tasks_snapshot())
-                .unwrap_or_default(),
+            runtime_tasks.clone(),
         );
         let artifact_links = StatusArtifactLinks {
             review_artifact: latest_review
@@ -126,6 +128,7 @@ impl Command for StatusCommand {
         let runtime_sections =
             build_runtime_sections(
                 runtime,
+                &runtime_tasks,
                 latest_review.as_ref(),
                 &always_allow,
                 &inventory,
