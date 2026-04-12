@@ -20,6 +20,7 @@ ratatui = { workspace = true }
 crossterm = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 regex = { workspace = true }
 unicode-width = "0.2"

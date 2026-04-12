@@ -19,7 +19,7 @@
 
 当前进度：
 
-- `51 / 100` 已完成
+- `61 / 100` 已完成
 
 ## 001-010 Shared Types / Context
 
@@ -88,16 +88,16 @@
 
 ## 051-060 Startup / Provider
 
-- `[ ]` 051 startup artifact writer helper tests by kind
-- `[ ]` 052 tooling bootstrap failure artifact schema tidy-up
-- `[ ]` 053 provider capability summary parser for UI surfaces
-- `[ ]` 054 provider metrics render section in status
-- `[ ]` 055 startup summary append helper extraction
-- `[ ]` 056 provider bootstrap env/config source breakdown
-- `[ ]` 057 startup profile bundle manifest
-- `[ ]` 058 startup warmup artifact cross-links in status
-- `[ ]` 059 provider inventory doctor check
-- `[ ]` 060 MCP startup failure summary surfaced in doctor
+- `[x]` 051 startup artifact writer helper tests by kind
+- `[x]` 052 tooling bootstrap failure artifact schema tidy-up
+- `[x]` 053 provider capability summary parser for UI surfaces
+- `[x]` 054 provider metrics render section in status
+- `[x]` 055 startup summary append helper extraction
+- `[x]` 056 provider bootstrap env/config source breakdown
+- `[x]` 057 startup profile bundle manifest
+- `[x]` 058 startup warmup artifact cross-links in status
+- `[x]` 059 provider inventory doctor check
+- `[x]` 060 MCP startup failure summary surfaced in doctor
 
 ## 061-070 Tools / Workflows
 

@@ -1,4 +1,5 @@
 use crate::commands::context::CommandContext;
+use crate::commands::info::startup_artifacts::ProviderInventorySummary;
 use yode_tools::registry::ToolInventory;
 
 use super::super::artifact_preview::compact_tool_runtime_summary;
@@ -259,6 +260,7 @@ pub(super) fn build_runtime_sections(
 
 pub(super) fn build_status_message(
     ctx: &CommandContext,
+    provider_section: &str,
     runtime_sections: &str,
     cost: f64,
     resume_warmup: &str,
@@ -272,7 +274,7 @@ pub(super) fn build_status_message(
         .map(|engine| compact_tool_runtime_summary(&engine.runtime_state()))
         .unwrap_or_else(|| "engine busy".to_string());
     format!(
-        "Session status:\n  Session:         {}\n  Model:           {}\n  Working dir:     {}\n  Permission mode: {}\n  Startup profile: {}\n  Runtime summary: {}\n  Tokens:          {} (in: {}, out: {})\n  Tool calls:      {}\n  Resume warmup:   {}\n  Est. cost:       ${:.4}\n  Terminal:        {}{}",
+        "Session status:\n  Session:         {}\n  Model:           {}\n  Working dir:     {}\n  Permission mode: {}\n  Startup profile: {}\n  Runtime summary: {}\n  Tokens:          {} (in: {}, out: {})\n  Tool calls:      {}\n  Resume warmup:   {}\n  Est. cost:       ${:.4}\n  Terminal:        {}{}{}",
         session_short,
         ctx.session.model,
         ctx.session.working_dir,
@@ -286,6 +288,60 @@ pub(super) fn build_status_message(
         resume_warmup,
         cost,
         ctx.terminal_caps.summary(),
+        provider_section,
         runtime_sections,
+    )
+}
+
+pub(super) fn build_provider_section(
+    provider_name: &str,
+    model: &str,
+    provider_inventory: Option<&ProviderInventorySummary>,
+) -> String {
+    let Some(provider_inventory) = provider_inventory else {
+        return format!(
+            "\n\nProvider:\n  Selected:        {} / {}\n  Registered:      unavailable\n  Source mix:      unavailable\n  Selected source: unavailable\n  Capabilities:    unavailable",
+            provider_name,
+            model
+        );
+    };
+
+    let selected_provider = provider_inventory
+        .provider_details
+        .iter()
+        .find(|detail| detail.name == provider_name)
+        .or_else(|| {
+            provider_inventory
+                .provider_details
+                .iter()
+                .find(|detail| detail.name == provider_inventory.provider_name)
+        });
+    let selected_source = selected_provider
+        .map(|detail| {
+            format!(
+                "{} / models={} / {} / {} / {}",
+                detail.format,
+                detail.model_count,
+                detail.registration_source,
+                detail.api_key_source,
+                detail.base_url_source
+            )
+        })
+        .unwrap_or_else(|| "unknown".to_string());
+
+    format!(
+        "\n\nProvider:\n  Selected:        {} / {}\n  Registered:      {} total / {} configured / {} env-detected\n  Source mix:      {}\n  Selected source: {}\n  Capabilities:    {}",
+        provider_name,
+        model,
+        provider_inventory.total_registered,
+        provider_inventory.configured_registered,
+        provider_inventory.env_detected_registered,
+        provider_inventory.source_breakdown.compact_label(),
+        selected_source,
+        if provider_inventory.capability_summary.is_empty() {
+            "none"
+        } else {
+            provider_inventory.capability_summary.as_str()
+        },
     )
 }

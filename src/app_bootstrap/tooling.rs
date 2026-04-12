@@ -12,6 +12,13 @@ use yode_core::skills::SkillRegistry;
 use yode_tools::builtin;
 use yode_tools::registry::ToolRegistry;
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub(crate) struct McpStartupFailure {
+    pub(crate) server: String,
+    pub(crate) phase: String,
+    pub(crate) message: String,
+}
+
 pub(crate) struct ToolingBootstrap {
     pub(crate) tool_registry: Arc<ToolRegistry>,
     pub(crate) skill_registry: SkillRegistry,
@@ -30,7 +37,7 @@ pub(crate) struct ToolingSetupMetrics {
     pub(crate) configured_mcp_server_count: usize,
     pub(crate) connected_mcp_server_count: usize,
     pub(crate) mcp_tool_count: usize,
-    pub(crate) mcp_connect_failures: Vec<String>,
+    pub(crate) mcp_startup_failures: Vec<McpStartupFailure>,
     pub(crate) discovered_skill_count: usize,
     pub(crate) active_tool_count: usize,
     pub(crate) deferred_tool_count: usize,
@@ -89,7 +96,7 @@ pub(crate) async fn setup_tooling(config: &Config, workdir: &Path) -> Result<Too
     }
 
     let mut mcp_clients: Vec<yode_mcp::McpClient> = Vec::new();
-    let mut mcp_connect_failures = Vec::new();
+    let mut mcp_startup_failures = Vec::new();
     while let Some(joined) = mcp_connect_set.join_next().await {
         match joined {
             Ok((name, result)) => match result {
@@ -97,12 +104,20 @@ pub(crate) async fn setup_tooling(config: &Config, workdir: &Path) -> Result<Too
                     mcp_clients.push(client);
                 }
                 Err(err) => {
-                    mcp_connect_failures.push(format!("{}: {}", name, err));
+                    mcp_startup_failures.push(McpStartupFailure {
+                        server: name.clone(),
+                        phase: "connect".to_string(),
+                        message: err.to_string(),
+                    });
                     warn!(server = %name, error = %err, "Failed to connect to MCP server");
                 }
             },
             Err(err) => {
-                mcp_connect_failures.push(format!("join_error: {}", err));
+                mcp_startup_failures.push(McpStartupFailure {
+                    server: "join_set".to_string(),
+                    phase: "join".to_string(),
+                    message: err.to_string(),
+                });
                 warn!(error = %err, "MCP connect task failed");
             }
         }
@@ -127,6 +142,11 @@ pub(crate) async fn setup_tooling(config: &Config, workdir: &Path) -> Result<Too
                 discovered_mcp_wrappers.push((server_name, wrappers));
             }
             Err(err) => {
+                mcp_startup_failures.push(McpStartupFailure {
+                    server: server_name.clone(),
+                    phase: "discover_tools".to_string(),
+                    message: err.to_string(),
+                });
                 warn!(server = %server_name, error = %err, "Failed to discover MCP tools");
             }
         }
@@ -202,7 +222,7 @@ pub(crate) async fn setup_tooling(config: &Config, workdir: &Path) -> Result<Too
             configured_mcp_server_count,
             connected_mcp_server_count,
             mcp_tool_count,
-            mcp_connect_failures,
+            mcp_startup_failures,
             discovered_skill_count,
             active_tool_count: inventory.active_count,
             deferred_tool_count: inventory.deferred_count,

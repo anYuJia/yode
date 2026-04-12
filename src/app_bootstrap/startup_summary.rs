@@ -7,6 +7,15 @@ pub(crate) fn append_startup_segment(summary: &mut String, segment: &str) {
     }
 }
 
+pub(crate) fn append_startup_segments<'a, I>(summary: &mut String, segments: I)
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    for segment in segments {
+        append_startup_segment(summary, segment);
+    }
+}
+
 pub(crate) fn build_startup_resume_segment(
     db_open_elapsed_ms: u64,
     session_bootstrap_elapsed_ms: u64,
@@ -25,6 +34,22 @@ pub(crate) fn build_startup_resume_segment(
         decoded_messages,
         skipped_messages,
         fallback_reason.unwrap_or("none")
+    )
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn build_resume_warmup_segment(
+    transcript_count: usize,
+    metadata_entries_warmed: usize,
+    latest_lookup_cached: bool,
+    duration_ms: u64,
+) -> String {
+    format!(
+        "resume_warmup[transcripts={} metadata={} latest={} duration={}ms]",
+        transcript_count,
+        metadata_entries_warmed,
+        if latest_lookup_cached { "yes" } else { "no" },
+        duration_ms,
     )
 }
 
@@ -54,12 +79,19 @@ mod tests {
     #[test]
     fn startup_summary_helpers_append_and_parse_segments() {
         let mut summary = "base".to_string();
-        append_startup_segment(&mut summary, "resume[db_open=1ms]");
-        append_startup_segment(&mut summary, "");
+        append_startup_segments(&mut summary, ["resume[db_open=1ms]", ""]);
         assert_eq!(summary, "base resume[db_open=1ms]");
         assert_eq!(
             parse_startup_summary_segment(&summary, "resume").as_deref(),
             Some("resume[db_open=1ms]")
+        );
+    }
+
+    #[test]
+    fn builds_resume_warmup_segment() {
+        assert_eq!(
+            build_resume_warmup_segment(3, 7, true, 42),
+            "resume_warmup[transcripts=3 metadata=7 latest=yes duration=42ms]"
         );
     }
 }

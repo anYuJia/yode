@@ -10,6 +10,7 @@ mod help;
 mod hooks_cmd;
 pub(crate) mod memory;
 mod shared;
+mod startup_artifacts;
 mod status;
 mod tasks;
 mod tasks_render;

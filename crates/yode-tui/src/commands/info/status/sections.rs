@@ -5,6 +5,11 @@ use super::helpers::ReviewSummary;
 #[derive(Debug, Clone, Default)]
 pub(super) struct StatusArtifactLinks {
     pub review_artifact: Option<String>,
+    pub startup_profile_artifact: Option<String>,
+    pub startup_manifest_artifact: Option<String>,
+    pub provider_inventory_artifact: Option<String>,
+    pub resume_warmup_artifact: Option<String>,
+    pub mcp_failure_artifact: Option<String>,
     pub tool_artifact: Option<String>,
     pub recovery_artifact: Option<String>,
     pub permission_artifact: Option<String>,
@@ -49,8 +54,13 @@ pub(super) fn reviews_section(latest_review: Option<&ReviewSummary>) -> String {
 
 pub(super) fn artifact_links_section(links: &StatusArtifactLinks) -> String {
     format!(
-        "\n\nArtifacts:\n  Review:          {}\n  Tool:            {}\n  Recovery:        {}\n  Permission:      {}\n  Transcript:      {}\n  Runtime tasks:   {}",
+        "\n\nArtifacts:\n  Review:          {}\n  Startup profile: {}\n  Startup manifest: {}\n  Provider inv:    {}\n  Resume warmup:   {}\n  MCP failures:    {}\n  Tool:            {}\n  Recovery:        {}\n  Permission:      {}\n  Transcript:      {}\n  Runtime tasks:   {}",
         links.review_artifact.as_deref().unwrap_or("none"),
+        links.startup_profile_artifact.as_deref().unwrap_or("none"),
+        links.startup_manifest_artifact.as_deref().unwrap_or("none"),
+        links.provider_inventory_artifact.as_deref().unwrap_or("none"),
+        links.resume_warmup_artifact.as_deref().unwrap_or("none"),
+        links.mcp_failure_artifact.as_deref().unwrap_or("none"),
         links.tool_artifact.as_deref().unwrap_or("none"),
         links.recovery_artifact.as_deref().unwrap_or("none"),
         links.permission_artifact.as_deref().unwrap_or("none"),

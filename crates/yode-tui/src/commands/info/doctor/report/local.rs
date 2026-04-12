@@ -1,5 +1,8 @@
 use crate::commands::context::CommandContext;
 use crate::commands::registry::VisibleCommandName;
+use crate::commands::info::startup_artifacts::{
+    latest_mcp_startup_failures, latest_provider_inventory, latest_startup_manifest,
+};
 use yode_core::updater::{latest_local_release_tag, release_version_matches_tag, CURRENT_VERSION};
 use super::shared::render_section;
 
@@ -139,6 +142,72 @@ pub(super) fn render_doctor_report(ctx: &mut CommandContext) -> String {
         env_checks.push(format!("  [ok] Startup profile: {}", profile));
     } else {
         env_checks.push("  [--] Startup profile unavailable".to_string());
+    }
+    if let Some(manifest) = latest_startup_manifest(&project_root) {
+        env_checks.push(format!(
+            "  [ok] Startup bundle manifest: {} ({} artifacts)",
+            manifest.path.display(),
+            manifest.artifact_count
+        ));
+    } else {
+        env_checks.push("  [--] Startup bundle manifest unavailable".to_string());
+    }
+    if let Some(provider_inventory) = latest_provider_inventory(&project_root) {
+        env_checks.push(format!(
+            "  [ok] Provider inventory: {} (selected {} / {})",
+            provider_inventory.path.display(),
+            provider_inventory.provider_name,
+            provider_inventory.model
+        ));
+        tooling_checks.push(format!(
+            "  [ok] Provider source mix: {}",
+            provider_inventory.source_breakdown.compact_label()
+        ));
+        if let Some(selected) = provider_inventory
+            .provider_details
+            .iter()
+            .find(|detail| detail.name == ctx.provider_name.as_str())
+        {
+            tooling_checks.push(format!(
+                "  [ok] Selected provider source: {} / models={} / {} / {} / {} ({})",
+                selected.format,
+                selected.model_count,
+                selected.registration_source,
+                selected.api_key_source,
+                selected.base_url_source,
+                selected.base_url
+            ));
+        }
+    } else {
+        env_checks.push("  [--] Provider inventory artifact unavailable".to_string());
+    }
+    if let Some(mcp_failures) = latest_mcp_startup_failures(&project_root) {
+        tooling_checks.push(format!(
+            "  [!!] MCP startup failures: {} (configured {}, connected {}, tools {})",
+            mcp_failures.failure_count,
+            mcp_failures.configured_server_count,
+            mcp_failures.connected_server_count,
+            mcp_failures.mcp_tool_count
+        ));
+        tooling_checks.push(format!(
+            "  [!!] MCP failure artifact: {}",
+            mcp_failures.path.display()
+        ));
+        let preview = mcp_failures
+            .failures
+            .iter()
+            .take(2)
+            .map(|failure| {
+                format!(
+                    "{} [{}]: {}",
+                    failure.server, failure.phase, failure.message
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" | ");
+        tooling_checks.push(format!("  [!!] MCP failure preview: {}", preview));
+    } else {
+        tooling_checks.push("  [ok] MCP startup failures: none recorded".to_string());
     }
 
     if let Some((state, permission_mode, confirmable_tools, denial_prefixes, safe_prefixes, confirmation_suggestions)) = runtime {

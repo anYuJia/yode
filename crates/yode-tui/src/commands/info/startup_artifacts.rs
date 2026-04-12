@@ -1,0 +1,277 @@
+use std::path::{Path, PathBuf};
+
+use serde::Deserialize;
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub(crate) struct ProviderSourceBreakdownSummary {
+    pub configured_env_override: usize,
+    pub configured_inline: usize,
+    pub configured_fallback_env: usize,
+    pub env_detected: usize,
+    pub none_required: usize,
+    pub base_url_env_override: usize,
+    pub base_url_config_override: usize,
+    pub base_url_default: usize,
+}
+
+impl ProviderSourceBreakdownSummary {
+    pub(crate) fn compact_label(&self) -> String {
+        format!(
+            "cfg_env={} cfg_inline={} cfg_fallback={} env_detected={} none={} base_env={} base_cfg={} base_default={}",
+            self.configured_env_override,
+            self.configured_inline,
+            self.configured_fallback_env,
+            self.env_detected,
+            self.none_required,
+            self.base_url_env_override,
+            self.base_url_config_override,
+            self.base_url_default,
+        )
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub(crate) struct ProviderInventoryDetailSummary {
+    pub name: String,
+    pub format: String,
+    pub model_count: usize,
+    pub registration_source: String,
+    pub api_key_source: String,
+    pub base_url_source: String,
+    pub base_url: String,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ProviderInventorySummary {
+    pub path: PathBuf,
+    pub provider_name: String,
+    pub model: String,
+    pub configured_registered: usize,
+    pub env_detected_registered: usize,
+    pub total_registered: usize,
+    pub capability_summary: String,
+    pub source_breakdown: ProviderSourceBreakdownSummary,
+    pub provider_details: Vec<ProviderInventoryDetailSummary>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub(crate) struct McpStartupFailureEntry {
+    pub server: String,
+    pub phase: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct McpStartupFailureSummary {
+    pub path: PathBuf,
+    pub configured_server_count: usize,
+    pub connected_server_count: usize,
+    pub mcp_tool_count: usize,
+    pub failure_count: usize,
+    pub failures: Vec<McpStartupFailureEntry>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct StartupManifestSummary {
+    pub path: PathBuf,
+    pub artifact_count: usize,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawProviderInventorySummary {
+    #[serde(default)]
+    provider_name: String,
+    #[serde(default)]
+    model: String,
+    #[serde(default)]
+    configured_registered: usize,
+    #[serde(default)]
+    env_detected_registered: usize,
+    #[serde(default)]
+    total_registered: usize,
+    #[serde(default)]
+    capability_summary: String,
+    #[serde(default)]
+    source_breakdown: ProviderSourceBreakdownSummary,
+    #[serde(default)]
+    provider_details: Vec<ProviderInventoryDetailSummary>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawMcpStartupFailureSummary {
+    #[serde(default)]
+    configured_server_count: usize,
+    #[serde(default)]
+    connected_server_count: usize,
+    #[serde(default)]
+    mcp_tool_count: usize,
+    #[serde(default)]
+    failure_count: usize,
+    #[serde(default)]
+    failures: Vec<McpStartupFailureEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawStartupManifestSummary {
+    #[serde(default)]
+    artifact_count: usize,
+}
+
+pub(crate) fn latest_startup_artifact(project_root: &Path, suffix: &str) -> Option<PathBuf> {
+    let dir = project_root.join(".yode").join("startup");
+    let mut entries = std::fs::read_dir(dir)
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_file()
+                && path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.ends_with(suffix))
+        })
+        .collect::<Vec<_>>();
+    entries.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
+    entries.into_iter().next()
+}
+
+pub(crate) fn latest_startup_artifact_link(project_root: &Path, suffix: &str) -> Option<String> {
+    latest_startup_artifact(project_root, suffix).map(|path| path.display().to_string())
+}
+
+pub(crate) fn latest_provider_inventory(project_root: &Path) -> Option<ProviderInventorySummary> {
+    let path = latest_startup_artifact(project_root, "provider-inventory.json")?;
+    let payload: RawProviderInventorySummary =
+        serde_json::from_str(&std::fs::read_to_string(&path).ok()?).ok()?;
+    Some(ProviderInventorySummary {
+        path,
+        provider_name: payload.provider_name,
+        model: payload.model,
+        configured_registered: payload.configured_registered,
+        env_detected_registered: payload.env_detected_registered,
+        total_registered: payload.total_registered,
+        capability_summary: payload.capability_summary,
+        source_breakdown: payload.source_breakdown,
+        provider_details: payload.provider_details,
+    })
+}
+
+pub(crate) fn latest_mcp_startup_failures(project_root: &Path) -> Option<McpStartupFailureSummary> {
+    let path = latest_startup_artifact(project_root, "mcp-startup-failures.json")?;
+    let payload: RawMcpStartupFailureSummary =
+        serde_json::from_str(&std::fs::read_to_string(&path).ok()?).ok()?;
+    Some(McpStartupFailureSummary {
+        path,
+        configured_server_count: payload.configured_server_count,
+        connected_server_count: payload.connected_server_count,
+        mcp_tool_count: payload.mcp_tool_count,
+        failure_count: payload.failure_count,
+        failures: payload.failures,
+    })
+}
+
+pub(crate) fn latest_startup_manifest(project_root: &Path) -> Option<StartupManifestSummary> {
+    let path = latest_startup_artifact(project_root, "startup-bundle-manifest.json")?;
+    let payload: RawStartupManifestSummary =
+        serde_json::from_str(&std::fs::read_to_string(&path).ok()?).ok()?;
+    Some(StartupManifestSummary {
+        path,
+        artifact_count: payload.artifact_count,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        latest_mcp_startup_failures, latest_provider_inventory, latest_startup_artifact_link,
+        latest_startup_manifest,
+    };
+
+    fn temp_project_dir(suffix: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "yode-startup-artifacts-ui-{}-{}",
+            std::process::id(),
+            suffix
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join(".yode").join("startup")).unwrap();
+        dir
+    }
+
+    #[test]
+    fn parses_provider_inventory_and_manifest() {
+        let dir = temp_project_dir("provider");
+        std::fs::write(
+            dir.join(".yode").join("startup").join("session12-provider-inventory.json"),
+            r#"{
+  "provider_name": "openai",
+  "model": "gpt-4o",
+  "configured_registered": 2,
+  "env_detected_registered": 1,
+  "total_registered": 3,
+  "capability_summary": "openai:openai models=2",
+  "source_breakdown": {
+    "configured_env_override": 1,
+    "configured_inline": 0,
+    "configured_fallback_env": 1,
+    "env_detected": 1,
+    "none_required": 0,
+    "base_url_env_override": 0,
+    "base_url_config_override": 1,
+    "base_url_default": 2
+  },
+  "provider_details": [
+    {
+      "name": "openai",
+      "format": "openai",
+      "model_count": 2,
+      "registration_source": "configured",
+      "api_key_source": "env_override:OPENAI_API_KEY",
+      "base_url_source": "default",
+      "base_url": "https://api.openai.com/v1"
+    }
+  ]
+}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join(".yode").join("startup").join("session12-startup-bundle-manifest.json"),
+            r#"{"artifact_count": 4}"#,
+        )
+        .unwrap();
+
+        let provider = latest_provider_inventory(&dir).unwrap();
+        assert_eq!(provider.provider_name, "openai");
+        assert_eq!(provider.source_breakdown.configured_env_override, 1);
+        assert_eq!(provider.provider_details[0].api_key_source, "env_override:OPENAI_API_KEY");
+
+        let manifest = latest_startup_manifest(&dir).unwrap();
+        assert_eq!(manifest.artifact_count, 4);
+        assert!(latest_startup_artifact_link(&dir, "provider-inventory.json").is_some());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn parses_mcp_startup_failures() {
+        let dir = temp_project_dir("mcp");
+        std::fs::write(
+            dir.join(".yode").join("startup").join("session12-mcp-startup-failures.json"),
+            r#"{
+  "configured_server_count": 3,
+  "connected_server_count": 1,
+  "mcp_tool_count": 4,
+  "failure_count": 2,
+  "failures": [
+    {"server": "filesystem", "phase": "connect", "message": "connection refused"},
+    {"server": "github", "phase": "discover_tools", "message": "tool listing failed"}
+  ]
+}"#,
+        )
+        .unwrap();
+
+        let summary = latest_mcp_startup_failures(&dir).unwrap();
+        assert_eq!(summary.failure_count, 2);
+        assert_eq!(summary.failures[1].phase, "discover_tools");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
