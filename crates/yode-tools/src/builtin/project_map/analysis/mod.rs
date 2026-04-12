@@ -1,4 +1,5 @@
 mod deps;
+mod ecosystems;
 mod scan;
 mod tree;
 

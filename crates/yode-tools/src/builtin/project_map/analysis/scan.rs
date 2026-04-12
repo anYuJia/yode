@@ -1,16 +1,16 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use super::{ProjectStats, ProjectType, walk_files};
+use super::{walk_files, ProjectStats, ProjectType};
+use super::ecosystems::{go, java, node, python, rust};
 
 pub(in crate::builtin::project_map) fn detect_project_type(dir: &Path) -> ProjectType {
     if dir.join("Cargo.toml").exists() {
-        if let Ok(content) = std::fs::read_to_string(dir.join("Cargo.toml")) {
-            if content.contains("[workspace]") {
-                return ProjectType::RustWorkspace;
-            }
-        }
-        return ProjectType::Rust;
+        return if rust::is_workspace(dir) {
+            ProjectType::RustWorkspace
+        } else {
+            ProjectType::Rust
+        };
     }
     if dir.join("package.json").exists() {
         return ProjectType::Node;
@@ -71,55 +71,14 @@ pub(in crate::builtin::project_map) fn find_entry_points(
     dir: &Path,
     project_type: &ProjectType,
 ) -> Vec<PathBuf> {
-    let candidates: &[&str] = match project_type {
-        ProjectType::Rust | ProjectType::RustWorkspace => {
-            &["src/main.rs", "src/lib.rs", "src/bin/main.rs"]
-        }
-        ProjectType::Node => &[
-            "src/index.ts",
-            "src/index.js",
-            "index.ts",
-            "index.js",
-            "src/main.ts",
-            "src/app.ts",
-        ],
-        ProjectType::Go => &["main.go", "cmd/main.go"],
-        ProjectType::Python => &[
-            "main.py",
-            "app.py",
-            "src/main.py",
-            "__main__.py",
-            "src/__main__.py",
-        ],
-        ProjectType::Java => &["src/main/java/Main.java"],
-        ProjectType::Unknown => &[],
-    };
-
-    let mut entries = Vec::new();
-    for candidate in candidates {
-        let path = dir.join(candidate);
-        if path.exists() {
-            entries.push(path);
-        }
+    match project_type {
+        ProjectType::Rust | ProjectType::RustWorkspace => rust::entry_points(dir),
+        ProjectType::Node => node::entry_points(dir),
+        ProjectType::Go => go::entry_points(dir),
+        ProjectType::Python => python::entry_points(dir),
+        ProjectType::Java => java::entry_points(dir),
+        ProjectType::Unknown => Vec::new(),
     }
-
-    if matches!(project_type, ProjectType::RustWorkspace) {
-        if let Ok(content) = std::fs::read_to_string(dir.join("Cargo.toml")) {
-            for line in content.lines() {
-                let trimmed = line.trim().trim_matches('"').trim_matches(',');
-                if trimmed.contains('/') || trimmed.starts_with("crates/") {
-                    for entry in &["src/main.rs", "src/lib.rs"] {
-                        let path = dir.join(trimmed).join(entry);
-                        if path.exists() {
-                            entries.push(path);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    entries
 }
 
 pub(in crate::builtin::project_map) fn find_config_files(dir: &Path) -> Vec<PathBuf> {

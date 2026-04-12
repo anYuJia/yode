@@ -22,7 +22,7 @@
 
 当前进度：
 
-- `79 / 100` 已完成
+- `80 / 100` 已完成
 
 ## 001-010 Startup / Warmup
 
@@ -124,7 +124,7 @@
 - `[x]` 075 review_then_commit execution split
 - `[x]` 076 test_runner detection split
 - `[x]` 077 workflow variable application helper extraction
-- `[ ]` 078 project_map language analyzers split by ecosystem
+- `[x]` 078 project_map language analyzers split by ecosystem
 - `[x]` 079 test_runner output parsing split by framework
 - `[x]` 080 review artifact shared formatter module
 
