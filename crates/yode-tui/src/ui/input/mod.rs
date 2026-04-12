@@ -1,5 +1,6 @@
 mod attachments;
 mod completions;
+mod formatting;
 mod render;
 
 pub use attachments::render_attachments;

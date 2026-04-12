@@ -19,7 +19,7 @@
 
 当前进度：
 
-- `12 / 100` 已完成
+- `17 / 100` 已完成
 
 ## 001-010 Shared Types / Context
 
@@ -52,12 +52,12 @@
 - `[ ]` 021 input wrapping helper extraction
 - `[ ]` 022 queued input preview formatter extraction
 - `[ ]` 023 ghost text rendering helper extraction
-- `[ ]` 024 completion popup palette centralization
-- `[ ]` 025 completion candidate row formatter extraction
+- `[x]` 024 completion popup palette centralization
+- `[x]` 025 completion candidate row formatter extraction
 - `[ ]` 026 turn status indicator formatter extraction
 - `[ ]` 027 chat header gradient / layout split
-- `[ ]` 028 wizard palette centralization
-- `[ ]` 029 tool confirm palette centralization
+- `[x]` 028 wizard palette centralization
+- `[x]` 029 tool confirm palette centralization
 - `[ ]` 030 input cursor position calculation tests
 
 ## 031-040 Tool Rendering / Scrollback
@@ -67,7 +67,7 @@
 - `[ ]` 033 standalone tool result fold helper
 - `[ ]` 034 bash command preview folding helper
 - `[ ]` 035 write/edit preview fold helper
-- `[ ]` 036 tool summary key extraction helper
+- `[x]` 036 tool summary key extraction helper
 - `[ ]` 037 scrollback role style palette adoption
 - `[ ]` 038 subagent tool-use fold helper
 - `[ ]` 039 user/assistant code-line highlighting helper reuse

@@ -5,11 +5,7 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::app::App;
-
-const SEL_COLOR: Color = Color::LightGreen;
-const DIM: Color = Color::Gray; // ANSI 7
-const LIGHT: Color = Color::White; // ANSI 15
-const ACCENT: Color = Color::Yellow;
+use super::palette::{LIGHT, MUTED, PANEL_ACCENT, SELECT_ACCENT};
 
 /// Render inline vertical confirmation selector across 4 viewport lines.
 ///
@@ -30,7 +26,9 @@ pub fn render_inline_confirm(frame: &mut Frame, chunks: &[Rect], app: &App) {
         Span::styled("  Allow ", Style::default().fg(LIGHT)),
         Span::styled(
             format!("{}({})", capitalize(&confirm.name), args_display),
-            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(PANEL_ACCENT)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::styled("?", Style::default().fg(LIGHT)),
     ]);
@@ -45,7 +43,9 @@ pub fn render_inline_confirm(frame: &mut Frame, chunks: &[Rect], app: &App) {
             Line::from(vec![
                 Span::styled(
                     "  ❯ ",
-                    Style::default().fg(SEL_COLOR).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(SELECT_ACCENT)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
                     format!("{}. {}", i + 1, label),
@@ -57,7 +57,7 @@ pub fn render_inline_confirm(frame: &mut Frame, chunks: &[Rect], app: &App) {
         } else {
             Line::from(vec![
                 Span::styled("    ", Style::default()),
-                Span::styled(format!("{}. {}", i + 1, label), Style::default().fg(DIM)),
+                Span::styled(format!("{}. {}", i + 1, label), Style::default().fg(MUTED)),
             ])
         };
 

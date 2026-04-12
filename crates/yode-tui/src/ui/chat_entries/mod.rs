@@ -1,4 +1,5 @@
 mod assistant;
+mod tool_helpers;
 mod tools;
 
 use ratatui::style::{Modifier, Style};

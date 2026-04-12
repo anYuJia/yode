@@ -5,13 +5,7 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::app::wizard::{Wizard, WizardStep};
-
-const TITLE_COLOR: Color = Color::Yellow;
-const PROMPT_COLOR: Color = Color::White;
-const SEL_COLOR: Color = Color::LightGreen;
-const DIM: Color = Color::Gray;
-const INPUT_BG: Color = Color::Indexed(236);
-const ERROR_COLOR: Color = Color::LightRed;
+use super::palette::{ERROR_COLOR, INPUT_BG, LIGHT, MUTED, PANEL_ACCENT, SELECT_ACCENT};
 
 /// Render the wizard in the viewport.
 pub fn render_wizard(frame: &mut Frame, area: Rect, wizard: &Wizard) {
@@ -30,7 +24,7 @@ pub fn render_wizard(frame: &mut Frame, area: Rect, wizard: &Wizard) {
     lines.push(Line::from(vec![Span::styled(
         format!("  {} ", wizard.title),
         Style::default()
-            .fg(TITLE_COLOR)
+            .fg(PANEL_ACCENT)
             .add_modifier(Modifier::BOLD),
     )]));
 
@@ -38,9 +32,9 @@ pub fn render_wizard(frame: &mut Frame, area: Rect, wizard: &Wizard) {
     lines.push(Line::from(vec![
         Span::styled(
             format!("  {} ", wizard.step_label()),
-            Style::default().fg(DIM),
+            Style::default().fg(MUTED),
         ),
-        Span::styled(step.prompt().to_string(), Style::default().fg(PROMPT_COLOR)),
+        Span::styled(step.prompt().to_string(), Style::default().fg(LIGHT)),
     ]));
 
     // Step-specific content
@@ -51,7 +45,9 @@ pub fn render_wizard(frame: &mut Frame, area: Rect, wizard: &Wizard) {
                     lines.push(Line::from(vec![
                         Span::styled(
                             "  ❯ ",
-                            Style::default().fg(SEL_COLOR).add_modifier(Modifier::BOLD),
+                            Style::default()
+                                .fg(SELECT_ACCENT)
+                                .add_modifier(Modifier::BOLD),
                         ),
                         Span::styled(
                             option.clone(),
@@ -63,7 +59,7 @@ pub fn render_wizard(frame: &mut Frame, area: Rect, wizard: &Wizard) {
                 } else {
                     lines.push(Line::from(vec![
                         Span::styled("    ", Style::default()),
-                        Span::styled(option.clone(), Style::default().fg(DIM)),
+                        Span::styled(option.clone(), Style::default().fg(MUTED)),
                     ]));
                 }
             }
@@ -85,18 +81,18 @@ pub fn render_wizard(frame: &mut Frame, area: Rect, wizard: &Wizard) {
             };
 
             let mut spans = vec![
-                Span::styled("  > ", Style::default().fg(SEL_COLOR)),
+                Span::styled("  > ", Style::default().fg(SELECT_ACCENT)),
                 Span::styled(
                     text,
                     Style::default()
-                        .fg(if is_placeholder { DIM } else { Color::White })
+                        .fg(if is_placeholder { MUTED } else { LIGHT })
                         .bg(INPUT_BG),
                 ),
             ];
             if !is_placeholder {
                 spans.push(Span::styled(
                     "█",
-                    Style::default().fg(Color::White).bg(INPUT_BG),
+                    Style::default().fg(LIGHT).bg(INPUT_BG),
                 ));
             }
             lines.push(Line::from(spans));

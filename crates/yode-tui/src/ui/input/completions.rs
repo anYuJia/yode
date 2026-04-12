@@ -6,6 +6,9 @@ use ratatui::Frame;
 
 use crate::app::App;
 use crate::ui::palette::{HINT_COLOR, TEXT_COLOR};
+use super::formatting::{
+    completion_candidate_line, truncate_ellipsis, COMPLETION_BG, COMPLETION_SELECTED_FG,
+};
 
 
 /// Render command completions as an inline list below the input area.
@@ -15,9 +18,7 @@ pub fn render_command_inline(frame: &mut Frame, area: Rect, app: &App) {
         return;
     }
 
-    let bg = Color::Indexed(235);
-    let selected_fg = Color::LightMagenta;
-    let separator = "│";
+    let bg = COMPLETION_BG;
     let candidates = &app.cmd_completion.candidates;
 
     if let Some(hint) = app.cmd_completion.args_hint.as_deref() {
@@ -62,55 +63,13 @@ pub fn render_command_inline(frame: &mut Frame, area: Rect, app: &App) {
     let mut lines: Vec<Line> = render_items
         .into_iter()
         .map(|(index, (command, description))| {
-            let desc_max = available_width.saturating_sub(command_width + 7);
-            let desc_truncated = if description.len() > desc_max {
-                format!("{}…", &description[..desc_max.saturating_sub(1)])
-            } else {
-                description.to_string()
-            };
-
-            if index == selected {
-                Line::from(vec![
-                    Span::styled(
-                        " ❯",
-                        Style::default()
-                            .fg(selected_fg)
-                            .bg(bg)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                    Span::styled(
-                        format!("{:<width$}", command, width = command_width),
-                        Style::default()
-                            .fg(selected_fg)
-                            .bg(bg)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                    Span::styled(
-                        format!(" {} ", separator),
-                        Style::default().fg(Color::DarkGray).bg(bg),
-                    ),
-                    Span::styled(
-                        format!("{} ", desc_truncated),
-                        Style::default().fg(selected_fg).bg(bg),
-                    ),
-                ])
-            } else {
-                Line::from(vec![
-                    Span::styled("  ", Style::default().bg(bg)),
-                    Span::styled(
-                        format!("{:<width$}", command, width = command_width),
-                        Style::default().fg(Color::Gray).bg(bg),
-                    ),
-                    Span::styled(
-                        format!(" {} ", separator),
-                        Style::default().fg(Color::DarkGray).bg(bg),
-                    ),
-                    Span::styled(
-                        format!("{} ", desc_truncated),
-                        Style::default().fg(Color::DarkGray).bg(bg),
-                    ),
-                ])
-            }
+            completion_candidate_line(
+                index == selected,
+                command,
+                description,
+                command_width,
+                available_width,
+            )
         })
         .collect();
 
@@ -147,8 +106,8 @@ pub(super) fn render_file_popup(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(Clear, popup_area);
 
     let selected = app.file_completion.selected.unwrap_or(0);
-    let bg = Color::Indexed(235);
-    let selected_fg = Color::LightMagenta;
+    let bg = COMPLETION_BG;
+    let selected_fg = COMPLETION_SELECTED_FG;
     let window_start = if total <= max_show {
         0
     } else {
@@ -173,7 +132,7 @@ pub(super) fn render_file_popup(frame: &mut Frame, area: Rect, app: &App) {
                             .add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(
-                        format!("@{} ", path),
+                        format!("@{} ", truncate_ellipsis(path, 40)),
                         Style::default()
                             .fg(selected_fg)
                             .bg(bg)
@@ -184,7 +143,7 @@ pub(super) fn render_file_popup(frame: &mut Frame, area: Rect, app: &App) {
                 Line::from(vec![
                     Span::styled("   ", Style::default().bg(bg)),
                     Span::styled(
-                        format!("@{} ", path),
+                        format!("@{} ", truncate_ellipsis(path, 40)),
                         Style::default().fg(Color::Gray).bg(bg),
                     ),
                 ])

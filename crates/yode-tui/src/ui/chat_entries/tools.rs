@@ -3,6 +3,7 @@ use ratatui::text::{Line, Span};
 
 use crate::app::{ChatEntry, ChatRole};
 use crate::ui::chat::{ACCENT, DIM, GREEN, RED, WHITE, YELLOW};
+use super::tool_helpers::{tool_summary_value, truncate_ellipsis};
 
 pub(crate) fn render_tool_call(
     lines: &mut Vec<Line<'static>>,
@@ -29,7 +30,7 @@ pub(crate) fn render_tool_call(
             format!("{}(", tool_display),
             Style::default().fg(WHITE).add_modifier(Modifier::BOLD),
         ),
-        Span::styled(truncate_str(&summary, 60), Style::default().fg(DIM)),
+        Span::styled(truncate_ellipsis(&summary, 60), Style::default().fg(DIM)),
         Span::styled(")", Style::default().fg(WHITE).add_modifier(Modifier::BOLD)),
     ];
 
@@ -191,26 +192,11 @@ fn render_result_content(lines: &mut Vec<Line<'static>>, result_content: &str, i
 
 fn tool_summary(name: &str, args: &serde_json::Value) -> String {
     match name {
-        "bash" => args["command"].as_str().unwrap_or("???").to_string(),
-        "write_file" | "read_file" => args["file_path"].as_str().unwrap_or("???").to_string(),
         "edit_file" => {
-            let path = args["file_path"].as_str().unwrap_or("???");
-            shorten_path(path)
+            let path = tool_summary_value(name, args);
+            shorten_path(&path)
         }
-        "glob" => args["pattern"].as_str().unwrap_or("???").to_string(),
-        "grep" => args["pattern"].as_str().unwrap_or("???").to_string(),
-        _ => {
-            if let Some(obj) = args.as_object() {
-                for key in &["command", "path", "file_path", "query", "pattern", "url"] {
-                    if let Some(val) = obj.get(*key) {
-                        if let Some(text) = val.as_str() {
-                            return text.to_string();
-                        }
-                    }
-                }
-            }
-            String::new()
-        }
+        _ => tool_summary_value(name, args),
     }
 }
 
@@ -283,14 +269,6 @@ fn render_edit_content(lines: &mut Vec<Line<'static>>, args: &serde_json::Value)
             format!("     + {}", line),
             Style::default().fg(GREEN),
         )));
-    }
-}
-
-fn truncate_str(text: &str, max: usize) -> String {
-    if text.len() > max {
-        format!("{}...", &text[..max])
-    } else {
-        text.to_string()
     }
 }
 
