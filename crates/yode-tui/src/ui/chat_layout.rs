@@ -4,8 +4,8 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::app::App;
 
+use super::chat_header::{header_gradient, should_show_logo, HEADER_LOGO};
 use super::chat::{ACCENT, DIM, GREEN, WHITE};
-use super::responsive::{density_from_width, Density};
 
 /// Wrap lines at `width` using unicode display widths.
 pub(super) fn manual_wrap(lines: Vec<Line<'static>>, width: u16) -> Vec<Line<'static>> {
@@ -75,29 +75,11 @@ pub(crate) fn render_header(app: &App, width: usize) -> Vec<Line<'static>> {
     let model = app.session.model.clone();
     let workdir = app.session.working_dir.clone();
 
-    let logo = [
-        "██╗   ██╗ ██████╗ ██████╗ ███████╗",
-        "╚██╗ ██╔╝██╔═══██╗██╔══██╗██╔════╝",
-        " ╚████╔╝ ██║   ██║██║  ██║█████╗  ",
-        "  ╚██╔╝  ██║   ██║██║  ██║██╔══╝  ",
-        "   ██║   ╚██████╔╝██████╔╝███████╗",
-        "   ╚═╝    ╚═════╝ ╚═════╝ ╚══════╝",
-    ];
     let logo_w = 34usize;
-    let gradient: [Color; 8] = [
-        Color::Indexed(37),
-        Color::Indexed(37),
-        Color::Indexed(44),
-        Color::Indexed(45),
-        Color::Indexed(81),
-        Color::Indexed(115),
-        Color::Indexed(120),
-        Color::Indexed(120),
-    ];
+    let gradient = header_gradient();
 
     let inner_w = width.saturating_sub(4);
-    let show_logo = matches!(density_from_width(width as u16, 72, 110), Density::Wide)
-        && inner_w > logo_w + 25;
+    let show_logo = should_show_logo(width, logo_w);
 
     let make_row = |left_spans: Vec<Span<'static>>,
                     logo_idx: Option<usize>,
@@ -117,7 +99,7 @@ pub(crate) fn render_header(app: &App, width: usize) -> Vec<Line<'static>> {
                 let gap = inner_w.saturating_sub(left_w + logo_w);
                 spans.push(Span::raw(" ".repeat(gap)));
                 spans.push(Span::styled(
-                    logo[idx].to_string(),
+                    HEADER_LOGO[idx].to_string(),
                     Style::default()
                         .fg(gradient[row_idx])
                         .add_modifier(Modifier::BOLD),

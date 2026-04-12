@@ -9,6 +9,8 @@ use std::path::PathBuf;
 
 #[cfg(test)]
 use self::compare::build_transcript_compare_output;
+#[cfg(test)]
+use self::compare::parse_compare_args;
 use self::compare::{CompareArgs, CompareOptions};
 #[cfg(test)]
 use self::document::{memory_entry_age, parse_memory_document};
@@ -20,7 +22,8 @@ use self::target::{parse_memory_target, MemoryTarget};
 #[cfg(test)]
 use self::transcripts::{
     extract_summary_preview, filtered_transcript_entries, fold_transcript_preview,
-    parse_date_range_filter, read_transcript_metadata, resolve_compare_target,
+    parse_date_range_filter, parse_latest_compare_target, parse_list_filter,
+    read_transcript_metadata, resolve_compare_target,
     truncate_for_display, TranscriptListFilter, TranscriptMode,
 };
 use self::transcripts::{

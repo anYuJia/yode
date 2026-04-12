@@ -19,7 +19,7 @@ pub struct InputState {
 }
 
 /// Placeholder character inserted into the text buffer to mark attachment position.
-pub(super) const PLACEHOLDER: char = '\u{FFFC}';
+pub(crate) const PLACEHOLDER: char = '\u{FFFC}';
 
 pub struct InputAttachment {
     pub id: usize,

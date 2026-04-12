@@ -5,6 +5,9 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::app::App;
+use super::badges::{
+    budget_badge_label, permission_mode_badge, queue_badge_label, task_badge_label,
+};
 use super::palette::{LIGHT, MUTED, SEP};
 use super::responsive::{density_from_width, Density};
 
@@ -35,20 +38,9 @@ pub fn render_info_line(frame: &mut Frame, area: Rect, app: &App) {
     ));
 
     // Permission mode badge
-    let mode = app.session.permission_mode.label();
-    let (mode_icon, mode_color) = match app.session.permission_mode {
-        crate::app::PermissionMode::Normal => ("●", Color::LightGreen),
-        crate::app::PermissionMode::AutoAccept => ("⚡", Color::Yellow),
-        crate::app::PermissionMode::Plan => ("📋", Color::LightBlue),
-    };
+    let (mode_text, mode_color) = permission_mode_badge(app.session.permission_mode, density);
     parts.push(Span::styled(
-        match density {
-            Density::Wide => format!("{} {} ", mode_icon, mode.to_lowercase()),
-            Density::Medium => format!("{} {} ", mode_icon, mode.to_lowercase()),
-            Density::Narrow => {
-                format!("{}{} ", mode_icon, mode.chars().next().unwrap_or('m'))
-            }
-        },
+        mode_text,
         Style::default().fg(mode_color),
     ));
     parts.push(Span::styled("· ", Style::default().fg(SEP)));
@@ -126,26 +118,18 @@ pub fn render_info_line(frame: &mut Frame, area: Rect, app: &App) {
     // Queue
     if !app.pending_inputs.is_empty() {
         parts.push(Span::styled(
-            match density {
-                Density::Wide => format!("{} queued ", app.pending_inputs.len()),
-                Density::Medium | Density::Narrow => {
-                    format!("q{} ", app.pending_inputs.len())
-                }
-            },
+            queue_badge_label(app.pending_inputs.len(), density),
             Style::default().fg(Color::LightMagenta),
         ));
         parts.push(Span::styled("· ", Style::default().fg(SEP)));
     }
 
     if running_tasks > 0 {
-        parts.push(Span::styled(
-            task_badge_label(running_tasks, density),
-            Style::default().fg(Color::LightBlue),
-        ));
+        parts.push(Span::styled(task_badge_label(running_tasks, density), Style::default().fg(Color::LightBlue)));
         parts.push(Span::styled("· ", Style::default().fg(SEP)));
     }
 
-    if let Some(budget_badge) = tool_budget_badge(app, density) {
+    if let Some(budget_badge) = budget_badge_label(app.turn_tool_count, density) {
         parts.push(Span::styled(
             budget_badge,
             Style::default().fg(Color::LightYellow),
@@ -209,14 +193,6 @@ pub fn render_blank_line(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(Paragraph::new(Line::from(parts)), area);
 }
 
-fn task_badge_label(count: usize, density: Density) -> String {
-    match density {
-        Density::Wide => format!("{} tasks ", count),
-        Density::Medium => format!("t{} ", count),
-        Density::Narrow => format!("{}t ", count),
-    }
-}
-
 fn running_task_count(app: &App) -> usize {
     app.engine
         .as_ref()
@@ -231,27 +207,10 @@ fn running_task_count(app: &App) -> usize {
         .unwrap_or(0)
 }
 
-fn tool_budget_badge(app: &App, density: Density) -> Option<String> {
-    if app.turn_tool_count >= 25 {
-        return Some(match density {
-            Density::Wide => "budget warning ".to_string(),
-            Density::Medium => "budget! ".to_string(),
-            Density::Narrow => "!b ".to_string(),
-        });
-    }
-    if app.turn_tool_count >= 15 {
-        return Some(match density {
-            Density::Wide => "budget notice ".to_string(),
-            Density::Medium => "budget ".to_string(),
-            Density::Narrow => "b ".to_string(),
-        });
-    }
-    None
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{task_badge_label, Density};
+    use super::Density;
+    use crate::ui::badges::task_badge_label;
     use crate::ui::responsive::density_from_width;
 
     #[test]

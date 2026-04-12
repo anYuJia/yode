@@ -19,7 +19,7 @@
 
 当前进度：
 
-- `26 / 100` 已完成
+- `33 / 100` 已完成
 
 ## 001-010 Shared Types / Context
 
@@ -31,7 +31,7 @@
 - `[x]` 006 runtime artifact link model shared struct
 - `[x]` 007 startup summary parsing helper
 - `[x]` 008 command output preview truncation helper
-- `[ ]` 009 UI badge formatting helper inventory
+- `[x]` 009 UI badge formatting helper inventory
 - `[x]` 010 shared duration formatting for diagnostics panels
 
 ## 011-020 Context / Memory
@@ -49,16 +49,16 @@
 
 ## 021-030 TUI Input / Layout
 
-- `[ ]` 021 input wrapping helper extraction
-- `[ ]` 022 queued input preview formatter extraction
-- `[ ]` 023 ghost text rendering helper extraction
+- `[x]` 021 input wrapping helper extraction
+- `[x]` 022 queued input preview formatter extraction
+- `[x]` 023 ghost text rendering helper extraction
 - `[x]` 024 completion popup palette centralization
 - `[x]` 025 completion candidate row formatter extraction
-- `[ ]` 026 turn status indicator formatter extraction
-- `[ ]` 027 chat header gradient / layout split
+- `[x]` 026 turn status indicator formatter extraction
+- `[x]` 027 chat header gradient / layout split
 - `[x]` 028 wizard palette centralization
 - `[x]` 029 tool confirm palette centralization
-- `[ ]` 030 input cursor position calculation tests
+- `[x]` 030 input cursor position calculation tests
 
 ## 031-040 Tool Rendering / Scrollback
 
