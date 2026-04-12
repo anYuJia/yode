@@ -16,7 +16,7 @@
 
 当前进度：
 
-- `50 / 100` 已完成
+- `60 / 100` 已完成
 
 ## 001-010 Timeline Foundations
 
@@ -85,16 +85,16 @@
 
 ## 051-060 Doctor / Support Workspace
 
-- `[ ]` 051 doctor bundle manifest artifact
-- `[ ]` 052 doctor export file inventory helper
-- `[ ]` 053 doctor warning severity grouping
-- `[ ]` 054 support bundle overview renderer
-- `[ ]` 055 doctor local/remote shared checklist helper
-- `[ ]` 056 doctor artifact freshness summary
-- `[ ]` 057 doctor runtime timeline references
-- `[ ]` 058 support handoff markdown template
-- `[ ]` 059 doctor bundle copy/paste summary formatter
-- `[ ]` 060 doctor/support parity review
+- `[x]` 051 doctor bundle manifest artifact
+- `[x]` 052 doctor export file inventory helper
+- `[x]` 053 doctor warning severity grouping
+- `[x]` 054 support bundle overview renderer
+- `[x]` 055 doctor local/remote shared checklist helper
+- `[x]` 056 doctor artifact freshness summary
+- `[x]` 057 doctor runtime timeline references
+- `[x]` 058 support handoff markdown template
+- `[x]` 059 doctor bundle copy/paste summary formatter
+- `[x]` 060 doctor/support parity review
 
 ## 061-070 Remote / Browser Workflow Foundations
 
