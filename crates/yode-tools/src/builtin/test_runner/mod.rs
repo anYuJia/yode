@@ -1,5 +1,6 @@
 mod detection;
 mod parsing;
+mod rendering;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -10,6 +11,7 @@ use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
 use self::detection::detect_framework;
 use self::parsing::parse_test_counts;
+use self::rendering::render_command_line;
 
 pub struct TestRunnerTool;
 
@@ -129,6 +131,7 @@ impl Tool for TestRunnerTool {
                 "framework": framework_name,
                 "command": command,
                 "args": args,
+                "command_line": render_command_line(&command, &args),
                 "passed": passed,
                 "failed": failed,
                 "success": success,

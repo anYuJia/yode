@@ -19,7 +19,7 @@
 
 当前进度：
 
-- `20 / 100` 已完成
+- `23 / 100` 已完成
 
 ## 001-010 Shared Types / Context
 
@@ -105,12 +105,12 @@
 - `[ ]` 062 task_output transcript backlink helper extraction
 - `[ ]` 063 workflow dry-run plan formatter extraction
 - `[ ]` 064 workflow approval checkpoint formatter extraction
-- `[ ]` 065 workflow path resolution helper tests
+- `[x]` 065 workflow path resolution helper tests
 - `[ ]` 066 review pipeline summary formatter extraction
 - `[ ]` 067 review_then_commit summary formatter extraction
 - `[ ]` 068 review artifact payload shared builder rollout
-- `[ ]` 069 test_runner command rendering helper extraction
-- `[ ]` 070 test_runner framework detection tests by ecosystem
+- `[x]` 069 test_runner command rendering helper extraction
+- `[x]` 070 test_runner framework detection tests by ecosystem
 
 ## 071-080 Engine / Runtime Polish
 

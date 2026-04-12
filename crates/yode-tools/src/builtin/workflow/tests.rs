@@ -230,3 +230,38 @@ async fn workflow_blocks_recursive_execution() {
         .contains("blocked to avoid nested workflow execution"));
     assert!(result.content.contains("/workflows preview"));
 }
+
+#[tokio::test]
+async fn workflow_resolves_explicit_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let workflow_path = dir.path().join("custom-workflow.json");
+    tokio::fs::write(
+        &workflow_path,
+        r#"{
+            "name": "custom",
+            "steps": [
+                { "tool_name": "ls", "params": { "path": "." } }
+            ]
+        }"#,
+    )
+    .await
+    .unwrap();
+
+    let registry = ToolRegistry::new();
+    crate::builtin::register_builtin_tools(&registry);
+
+    let mut ctx = ToolContext::empty();
+    ctx.registry = Some(Arc::new(registry));
+    ctx.working_dir = Some(dir.path().to_path_buf());
+
+    let tool = WorkflowRunTool;
+    let result = tool
+        .execute(
+            serde_json::json!({ "workflow_path": workflow_path.display().to_string(), "dry_run": true }),
+            &ctx,
+        )
+        .await
+        .unwrap();
+    assert!(!result.is_error);
+    assert!(result.content.contains("\"tool\": \"ls\""));
+}

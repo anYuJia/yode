@@ -110,3 +110,31 @@ pub(super) fn detect_framework(dir: &Path, filter: Option<&str>) -> Option<Detec
 
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::detect_framework;
+
+    #[test]
+    fn detects_frameworks_by_ecosystem() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Cargo.toml"), "[package]\nname = \"x\"\n").unwrap();
+        assert_eq!(detect_framework(dir.path(), None).unwrap().name, "cargo");
+
+        let node = tempfile::tempdir().unwrap();
+        std::fs::write(
+            node.path().join("package.json"),
+            r#"{"devDependencies":{"vitest":"1.0.0"}}"#,
+        )
+        .unwrap();
+        assert_eq!(detect_framework(node.path(), None).unwrap().name, "vitest");
+
+        let py = tempfile::tempdir().unwrap();
+        std::fs::write(py.path().join("pytest.ini"), "[pytest]").unwrap();
+        assert_eq!(detect_framework(py.path(), None).unwrap().name, "pytest");
+
+        let go = tempfile::tempdir().unwrap();
+        std::fs::write(go.path().join("go.mod"), "module example.com/x").unwrap();
+        assert_eq!(detect_framework(go.path(), None).unwrap().name, "go");
+    }
+}
