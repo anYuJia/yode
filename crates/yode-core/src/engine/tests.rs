@@ -8,6 +8,7 @@ mod compaction;
 mod hooks;
 mod partition;
 mod runtime;
+mod stream_recovery;
 
 /// Minimal mock LLM provider (never actually called in these tests).
 pub(super) struct MockProvider;

@@ -22,7 +22,7 @@
 
 当前进度：
 
-- `86 / 100` 已完成
+- `90 / 100` 已完成
 
 ## 001-010 Startup / Warmup
 
@@ -105,10 +105,10 @@
 ## 061-070 Engine Runtime
 
 - `[x]` 061 streaming turn runtime split into loop and finalization
-- `[ ]` 062 turn cancellation path isolated from stream loop
-- `[ ]` 063 protocol-violation retry helper isolated from stream finalization
-- `[ ]` 064 tool-call execution continuation helper isolated from stream finalization
-- `[ ]` 065 partial-stream recovery path tested independently
+- `[x]` 062 turn cancellation path isolated from stream loop
+- `[x]` 063 protocol-violation retry helper isolated from stream finalization
+- `[x]` 064 tool-call execution continuation helper isolated from stream finalization
+- `[x]` 065 partial-stream recovery path tested independently
 - `[x]` 066 engine runtime timing aggregation per turn
 - `[x]` 067 stream watchdog diagnostics enriched with stage label
 - `[x]` 068 stream retry reason histogram

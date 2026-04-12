@@ -1,5 +1,8 @@
+mod cancel;
 mod finalization;
+mod protocol;
 mod stream_loop;
+mod tool_calls;
 
 use super::stream_retry_runtime::StreamRetryAction;
 use super::*;
@@ -30,12 +33,8 @@ impl AgentEngine {
         self.reset_turn_runtime_state();
 
         loop {
-            if let Some(ref token) = cancel_token {
-                if token.is_cancelled() {
-                    self.complete_tool_turn_artifact();
-                    let _ = event_tx.send(EngineEvent::Done);
-                    return Ok(());
-                }
+            if self.turn_cancelled(cancel_token.as_ref(), &event_tx) {
+                return Ok(());
             }
 
             let request = self.begin_stream_turn(&event_tx);
@@ -70,12 +69,7 @@ impl AgentEngine {
                 .await;
 
             if self
-                .handle_interrupted_stream(
-                    stream_state.cancelled,
-                    stream_state.stalled,
-                    &buffers,
-                    &event_tx,
-                )
+                .handle_interrupted_stream(stream_state.cancelled, stream_state.stalled, &buffers, &event_tx)
                 .await
             {
                 return Ok(());
