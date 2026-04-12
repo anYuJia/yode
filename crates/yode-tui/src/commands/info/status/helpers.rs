@@ -1,5 +1,5 @@
-use chrono::{Local, NaiveDateTime};
 use yode_tools::builtin::review_common::review_output_has_findings;
+use crate::commands::info::shared;
 
 pub(super) struct ReviewSummary {
     pub path: std::path::PathBuf,
@@ -57,22 +57,8 @@ fn extract_review_result_body(content: &str) -> Option<&str> {
     Some(&content[body_start..body_start + end])
 }
 
-fn parse_runtime_timestamp(value: Option<&str>) -> Option<NaiveDateTime> {
-    value.and_then(|value| NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S").ok())
-}
-
 pub(super) fn memory_freshness_label(last_update_at: Option<&str>) -> &'static str {
-    let Some(last_update) = parse_runtime_timestamp(last_update_at) else {
-        return "unknown";
-    };
-    let age = Local::now().naive_local() - last_update;
-    if age.num_minutes() <= 10 {
-        "fresh"
-    } else if age.num_minutes() <= 60 {
-        "warm"
-    } else {
-        "stale"
-    }
+    shared::memory_freshness_label(last_update_at)
 }
 
 pub(super) fn memory_update_pending(
@@ -83,10 +69,10 @@ pub(super) fn memory_update_pending(
     if live_session_memory_updating {
         return true;
     }
-    let Some(last_tool_turn) = parse_runtime_timestamp(last_tool_turn_completed_at) else {
+    let Some(last_tool_turn) = shared::parse_runtime_timestamp(last_tool_turn_completed_at) else {
         return false;
     };
-    let Some(last_memory_update) = parse_runtime_timestamp(last_session_memory_update_at) else {
+    let Some(last_memory_update) = shared::parse_runtime_timestamp(last_session_memory_update_at) else {
         return true;
     };
     last_tool_turn > last_memory_update

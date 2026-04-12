@@ -2,19 +2,21 @@ mod compare;
 mod document;
 mod preview;
 mod render;
+mod target;
 mod transcripts;
 
 use std::path::PathBuf;
 
 #[cfg(test)]
 use self::compare::build_transcript_compare_output;
-use self::compare::{parse_compare_args, CompareArgs, CompareOptions};
+use self::compare::{CompareArgs, CompareOptions};
 #[cfg(test)]
 use self::document::{memory_entry_age, parse_memory_document};
 use self::render::{
     render_latest_transcript, render_memory_file, render_memory_status, render_transcript_compare,
     render_transcript_file, render_transcript_list, render_transcript_picker,
 };
+use self::target::{parse_memory_target, MemoryTarget};
 #[cfg(test)]
 use self::transcripts::{
     extract_summary_preview, filtered_transcript_entries, fold_transcript_preview,
@@ -22,7 +24,7 @@ use self::transcripts::{
     truncate_for_display, TranscriptListFilter, TranscriptMode,
 };
 use self::transcripts::{
-    latest_transcript, parse_latest_compare_target, parse_list_filter, resolve_transcript_target,
+    latest_transcript, resolve_transcript_target, transcript_target_resolution_error,
 };
 pub(crate) use self::transcripts::{
     run_long_session_benchmark, transcript_cache_stats, warm_resume_transcript_caches,
@@ -95,57 +97,41 @@ impl Command for MemoryCommand {
             .ok()
             .map(|engine| engine.runtime_state());
 
-        let args = args.trim();
-
-        if args == "compare" || args.starts_with("compare ") {
-            let compare = parse_compare_args(args).ok_or_else(|| {
-                "Usage: /memory compare <a> <b> [--no-diff] [--hunks N] [--lines N]".to_string()
-            })?;
-            return render_transcript_compare(&transcripts_dir, &compare);
-        }
-
-        if args == "list" || args.starts_with("list ") {
-            let filter = parse_list_filter(args)?;
-            return Ok(CommandOutput::Message(render_transcript_list(
-                &transcripts_dir,
-                &filter,
-            )));
-        }
-
-        match args {
-            "" => Ok(CommandOutput::Message(render_memory_status(
+        match parse_memory_target(args)? {
+            MemoryTarget::Overview => Ok(CommandOutput::Message(render_memory_status(
                 &live_path,
                 &session_path,
                 &transcripts_dir,
                 runtime.as_ref(),
                 ctx.session.resume_cache_warmup.as_ref(),
             ))),
-            "live" => render_memory_file("Live session memory", &live_path),
-            "session" => render_memory_file("Compaction memory", &session_path),
-            "pick" => Ok(CommandOutput::Message(render_transcript_picker(
+            MemoryTarget::Live => render_memory_file("Live session memory", &live_path),
+            MemoryTarget::Session => render_memory_file("Compaction memory", &session_path),
+            MemoryTarget::Picker => Ok(CommandOutput::Message(render_transcript_picker(
                 &transcripts_dir,
             ))),
-            _ if args.starts_with("latest compare ") => parse_latest_compare_target(args)
-                .ok_or_else(|| "Usage: /memory latest compare <target>".to_string())
-                .and_then(|target| {
-                    render_transcript_compare(
-                        &transcripts_dir,
-                        &CompareArgs {
-                            left_target: "latest".to_string(),
-                            right_target: target.to_string(),
-                            options: CompareOptions::default(),
-                        },
-                    )
-                }),
-            "latest" => {
+            MemoryTarget::List(filter) => Ok(CommandOutput::Message(render_transcript_list(
+                &transcripts_dir,
+                &filter,
+            ))),
+            MemoryTarget::Compare(compare) => render_transcript_compare(&transcripts_dir, &compare),
+            MemoryTarget::LatestCompare(target) => render_transcript_compare(
+                &transcripts_dir,
+                &CompareArgs {
+                    left_target: "latest".to_string(),
+                    right_target: target,
+                    options: CompareOptions::default(),
+                },
+            ),
+            MemoryTarget::Latest => {
                 let latest = latest_transcript(&transcripts_dir).ok_or_else(|| {
                     "No transcript backups found. Transcript artifacts are written only after a compaction that actually removes or truncates content.".to_string()
                 })?;
                 render_latest_transcript(&latest)
             }
-            target => {
-                let transcript = resolve_transcript_target(&transcripts_dir, target)
-                    .ok_or_else(|| format!("Unknown memory target: {}", target))?;
+            MemoryTarget::Transcript(target) => {
+                let transcript = resolve_transcript_target(&transcripts_dir, &target)
+                    .ok_or_else(|| transcript_target_resolution_error(&transcripts_dir, &target))?;
                 render_transcript_file(&transcript)
             }
         }

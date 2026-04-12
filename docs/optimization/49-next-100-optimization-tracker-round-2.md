@@ -19,7 +19,7 @@
 
 当前进度：
 
-- `23 / 100` 已完成
+- `26 / 100` 已完成
 
 ## 001-010 Shared Types / Context
 
@@ -43,9 +43,9 @@
 - `[x]` 015 memory document preview formatter reuse
 - `[x]` 016 transcript compare section stats helper split
 - `[x]` 017 transcript compare large-file folding heuristics cleanup
-- `[ ]` 018 transcript target resolution diagnostics
-- `[ ]` 019 session memory freshness state helper reuse
-- `[ ]` 020 memory command render split by target kind
+- `[x]` 018 transcript target resolution diagnostics
+- `[x]` 019 session memory freshness state helper reuse
+- `[x]` 020 memory command render split by target kind
 
 ## 021-030 TUI Input / Layout
 

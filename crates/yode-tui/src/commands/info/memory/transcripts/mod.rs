@@ -21,7 +21,7 @@ pub(crate) use self::metadata_runtime::{
 };
 pub(in crate::commands::info::memory) use self::targets::{
     describe_path, fold_transcript_preview, parse_latest_compare_target, resolve_compare_target,
-    resolve_transcript_target, truncate_for_display,
+    resolve_transcript_target, transcript_target_resolution_error, truncate_for_display,
 };
 pub(in crate::commands::info::memory) use self::types::{
     DateRangeFilter, TranscriptListFilter, TranscriptMetadata, TranscriptMode,
