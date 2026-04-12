@@ -16,7 +16,7 @@
 
 当前进度：
 
-- `6 / 100` 已完成
+- `10 / 100` 已完成
 
 ## 001-010 Timeline Foundations
 
@@ -26,10 +26,10 @@
 - `[x]` 004 diagnostics overview runtime timeline section
 - `[x]` 005 status command runtime timeline section
 - `[x]` 006 diagnostics export runtime timeline artifact
-- `[ ]` 007 runtime timeline task transition event enrichment
-- `[ ]` 008 runtime timeline hook + recovery merge
-- `[ ]` 009 runtime timeline artifact cross-links in doctor
-- `[ ]` 010 runtime timeline regression tests by mixed event sources
+- `[x]` 007 runtime timeline task transition event enrichment
+- `[x]` 008 runtime timeline hook + recovery merge
+- `[x]` 009 runtime timeline artifact cross-links in doctor
+- `[x]` 010 runtime timeline regression tests by mixed event sources
 
 ## 011-020 Task Workspace
 

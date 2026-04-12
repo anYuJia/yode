@@ -3,6 +3,7 @@ use crate::commands::registry::VisibleCommandName;
 use crate::commands::info::startup_artifacts::{
     latest_mcp_startup_failures, latest_provider_inventory, latest_startup_manifest,
 };
+use crate::runtime_artifacts::write_runtime_timeline_artifact;
 use yode_core::updater::{latest_local_release_tag, release_version_matches_tag, CURRENT_VERSION};
 use super::shared::render_section;
 
@@ -14,6 +15,7 @@ pub(super) fn render_doctor_report(ctx: &mut CommandContext) -> String {
     let runtime = ctx.engine.try_lock().ok().map(|engine| {
         (
             engine.runtime_state(),
+            engine.runtime_tasks_snapshot(),
             engine.permissions().mode(),
             engine
                 .permissions()
@@ -210,10 +212,12 @@ pub(super) fn render_doctor_report(ctx: &mut CommandContext) -> String {
         tooling_checks.push("  [ok] MCP startup failures: none recorded".to_string());
     }
 
-    if let Some((state, permission_mode, confirmable_tools, denial_prefixes, safe_prefixes, confirmation_suggestions)) = runtime {
+    if let Some((state, tasks, permission_mode, confirmable_tools, denial_prefixes, safe_prefixes, confirmation_suggestions)) = runtime {
         runtime_checks.extend(runtime_health_checks(
             &project_root,
+            &ctx.session.session_id,
             &state,
+            &tasks,
             permission_mode,
             &confirmable_tools,
             &denial_prefixes
@@ -283,7 +287,9 @@ fn collect_command_tool_overlaps(
 
 fn runtime_health_checks(
     project_root: &std::path::Path,
+    session_id: &str,
     state: &yode_core::engine::EngineRuntimeState,
+    tasks: &[yode_tools::RuntimeTask],
     permission_mode: yode_core::PermissionMode,
     confirmable_tools: &[String],
     denial_prefixes: &[String],
@@ -418,6 +424,11 @@ fn runtime_health_checks(
         "  [ok] Parallel tool batches tracked: {}",
         state.parallel_tool_batch_count
     ));
+    if let Some(path) = write_runtime_timeline_artifact(project_root, session_id, state, tasks) {
+        checks.push(format!("  [ok] Runtime timeline artifact: {}", path));
+    } else {
+        checks.push("  [--] Runtime timeline artifact unavailable".to_string());
+    }
 
     if state.tool_truncation_count > 0 {
         checks.push(format!(

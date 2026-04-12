@@ -1,5 +1,8 @@
 use std::cmp::Ordering;
+use std::path::Path;
+use std::time::SystemTime;
 
+use chrono::{DateTime, Local};
 use yode_core::engine::EngineRuntimeState;
 use yode_tools::{RuntimeTask, RuntimeTaskStatus};
 
@@ -35,6 +38,15 @@ pub(crate) fn build_runtime_timeline_lines(
                 state.session_tool_calls_total
             ),
         });
+    }
+    if let Some(entry) = artifact_timeline_entry(state.last_turn_artifact_path.as_deref(), |path| {
+        format!(
+            "turn completed: stop={} / artifact={}",
+            state.last_turn_stop_reason.as_deref().unwrap_or("none"),
+            path
+        )
+    }) {
+        entries.push(entry);
     }
 
     if let Some(at) = state.last_compaction_at.as_deref() {
@@ -96,6 +108,16 @@ pub(crate) fn build_runtime_timeline_lines(
             ),
         });
     }
+    if state.hook_timeout_count > 0 {
+        entries.push(RuntimeTimelineEntry {
+            at: state.last_hook_failure_at.clone(),
+            detail: format!(
+                "hook timeout: {} (count={})",
+                state.last_hook_timeout_command.as_deref().unwrap_or("unknown"),
+                state.hook_timeout_count
+            ),
+        });
+    }
 
     let permission_summary = format_permission_decision_summary(
         state.last_permission_tool.as_deref(),
@@ -103,54 +125,129 @@ pub(crate) fn build_runtime_timeline_lines(
         state.last_permission_explanation.as_deref(),
     );
     if permission_summary != "none [none] none" {
-        entries.push(RuntimeTimelineEntry {
-            at: None,
-            detail: format!(
-                "permission decision: {}",
-                compact_detail(&permission_summary)
-            ),
-        });
+        if let Some(entry) =
+            artifact_timeline_entry(state.last_permission_artifact_path.as_deref(), |path| {
+                format!(
+                    "permission decision: {} / artifact={}",
+                    compact_detail(&permission_summary),
+                    path
+                )
+            })
+        {
+            entries.push(entry);
+        } else {
+            entries.push(RuntimeTimelineEntry {
+                at: None,
+                detail: format!(
+                    "permission decision: {}",
+                    compact_detail(&permission_summary)
+                ),
+            });
+        }
     }
 
     if state.recovery_state != "Normal" || state.last_recovery_artifact_path.is_some() {
-        entries.push(RuntimeTimelineEntry {
-            at: None,
-            detail: format!(
-                "recovery state: {} / artifact={}",
-                state.recovery_state,
-                state
-                    .last_recovery_artifact_path
-                    .as_deref()
-                    .unwrap_or("none")
-            ),
-        });
+        if let Some(entry) =
+            artifact_timeline_entry(state.last_recovery_artifact_path.as_deref(), |path| {
+                format!("recovery state: {} / artifact={}", state.recovery_state, path)
+            })
+        {
+            entries.push(entry);
+        } else {
+            entries.push(RuntimeTimelineEntry {
+                at: None,
+                detail: format!(
+                    "recovery state: {} / artifact={}",
+                    state.recovery_state,
+                    state
+                        .last_recovery_artifact_path
+                        .as_deref()
+                        .unwrap_or("none")
+                ),
+            });
+        }
     }
 
     render_runtime_timeline_entries(entries, max_items)
 }
 
+pub(crate) fn render_runtime_timeline_markdown(
+    state: &EngineRuntimeState,
+    tasks: &[RuntimeTask],
+    max_items: usize,
+) -> String {
+    let lines = build_runtime_timeline_lines(state, tasks, max_items)
+        .into_iter()
+        .map(|line| format!("- {}", line))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!("# Runtime Timeline\n\n{}\n", lines)
+}
+
 fn task_timeline_entry(task: &RuntimeTask) -> Option<RuntimeTimelineEntry> {
-    let at = task
-        .completed_at
-        .clone()
-        .or_else(|| task.last_progress_at.clone())
-        .or_else(|| task.started_at.clone())
-        .or_else(|| Some(task.created_at.clone()));
+    let (phase, at) = if let Some(at) = task.completed_at.clone() {
+        (completed_phase(&task.status), Some(at))
+    } else if let Some(at) = task.last_progress_at.clone() {
+        ("task progress", Some(at))
+    } else if let Some(at) = task.started_at.clone() {
+        ("task started", Some(at))
+    } else {
+        ("task created", Some(task.created_at.clone()))
+    };
 
     at.map(|at| RuntimeTimelineEntry {
         at: Some(at),
         detail: format!(
-            "task {} [{}:{}] {}{}",
+            "{}: {} [{}:{}{}] {}{}{}{}{}{}",
+            phase,
             task.id,
             task.kind,
             task_status_label(&task.status),
+            if task.source_tool != task.kind {
+                format!("/{}", task.source_tool)
+            } else {
+                String::new()
+            },
             compact_detail(&task.description),
+            if task.attempt > 1 {
+                format!(" / attempt {}", task.attempt)
+            } else {
+                String::new()
+            },
+            task.retry_of
+                .as_ref()
+                .map(|retry_of| format!(" / retry of {}", retry_of))
+                .unwrap_or_default(),
             task.last_progress
                 .as_ref()
                 .map(|progress| format!(" — {}", compact_detail(progress)))
-                .unwrap_or_default()
+                .or_else(|| {
+                    task.error
+                        .as_ref()
+                        .map(|error| format!(" / error {}", compact_detail(error)))
+                })
+                .unwrap_or_default(),
+            task.transcript_path
+                .as_ref()
+                .map(|path| format!(" / transcript={}", path))
+                .unwrap_or_default(),
+            if task.output_path.is_empty() {
+                String::new()
+            } else {
+                format!(" / output={}", task.output_path)
+            }
         ),
     })
+}
+
+fn completed_phase(status: &RuntimeTaskStatus) -> &'static str {
+    match status {
+        RuntimeTaskStatus::Completed => "task completed",
+        RuntimeTaskStatus::Failed => "task failed",
+        RuntimeTaskStatus::Cancelled => "task cancelled",
+        RuntimeTaskStatus::Pending => "task pending",
+        RuntimeTaskStatus::Running => "task running",
+    }
 }
 
 fn task_status_label(status: &RuntimeTaskStatus) -> &'static str {
@@ -161,6 +258,27 @@ fn task_status_label(status: &RuntimeTaskStatus) -> &'static str {
         RuntimeTaskStatus::Failed => "failed",
         RuntimeTaskStatus::Cancelled => "cancelled",
     }
+}
+
+fn artifact_timeline_entry(
+    path: Option<&str>,
+    render_detail: impl FnOnce(&str) -> String,
+) -> Option<RuntimeTimelineEntry> {
+    let path = path.filter(|path| !path.trim().is_empty())?;
+    Some(RuntimeTimelineEntry {
+        at: artifact_timestamp(path),
+        detail: render_detail(path),
+    })
+}
+
+fn artifact_timestamp(path: &str) -> Option<String> {
+    let modified = std::fs::metadata(Path::new(path)).ok()?.modified().ok()?;
+    Some(format_system_time(modified))
+}
+
+fn format_system_time(value: SystemTime) -> String {
+    let dt: DateTime<Local> = DateTime::<Local>::from(value);
+    dt.format("%Y-%m-%d %H:%M:%S").to_string()
 }
 
 fn render_runtime_timeline_entries(
@@ -206,9 +324,109 @@ fn compact_detail(detail: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use yode_tools::{RuntimeTask, RuntimeTaskStatus};
+    use std::collections::BTreeMap;
 
-    use super::{render_runtime_timeline_entries, task_timeline_entry, RuntimeTimelineEntry};
+    use yode_core::engine::{EngineRuntimeState, PromptCacheRuntimeState};
+    use yode_core::tool_runtime::ToolRuntimeCallView;
+    use yode_tools::{registry::ToolPoolSnapshot, RuntimeTask, RuntimeTaskStatus};
+
+    use super::{
+        build_runtime_timeline_lines, render_runtime_timeline_entries,
+        task_timeline_entry, RuntimeTimelineEntry,
+    };
+
+    fn test_runtime_state() -> EngineRuntimeState {
+        EngineRuntimeState {
+            query_source: "User".to_string(),
+            autocompact_disabled: false,
+            compaction_failures: 0,
+            total_compactions: 0,
+            auto_compactions: 0,
+            manual_compactions: 0,
+            last_compaction_breaker_reason: None,
+            context_window_tokens: 0,
+            compaction_threshold_tokens: 0,
+            estimated_context_tokens: 0,
+            message_count: 0,
+            live_session_memory_initialized: false,
+            live_session_memory_updating: false,
+            live_session_memory_path: String::new(),
+            session_tool_calls_total: 0,
+            last_compaction_mode: None,
+            last_compaction_at: None,
+            last_compaction_summary_excerpt: None,
+            last_compaction_session_memory_path: None,
+            last_compaction_transcript_path: None,
+            last_session_memory_update_at: None,
+            last_session_memory_update_path: None,
+            last_session_memory_generated_summary: false,
+            session_memory_update_count: 0,
+            tracked_failed_tool_results: 0,
+            hook_total_executions: 0,
+            hook_timeout_count: 0,
+            hook_execution_error_count: 0,
+            hook_nonzero_exit_count: 0,
+            hook_wake_notification_count: 0,
+            last_hook_failure_event: None,
+            last_hook_failure_command: None,
+            last_hook_failure_reason: None,
+            last_hook_failure_at: None,
+            last_hook_timeout_command: None,
+            last_compaction_prompt_tokens: None,
+            avg_compaction_prompt_tokens: None,
+            compaction_cause_histogram: BTreeMap::new(),
+            system_prompt_estimated_tokens: 0,
+            system_prompt_segments: Vec::new(),
+            prompt_cache: PromptCacheRuntimeState::default(),
+            last_turn_duration_ms: None,
+            last_turn_stop_reason: None,
+            last_turn_artifact_path: None,
+            last_stream_watchdog_stage: None,
+            stream_retry_reason_histogram: BTreeMap::new(),
+            recovery_state: "Normal".to_string(),
+            recovery_single_step_count: 0,
+            recovery_reanchor_count: 0,
+            recovery_need_user_guidance_count: 0,
+            last_failed_signature: None,
+            recovery_breadcrumbs: Vec::new(),
+            last_recovery_artifact_path: None,
+            last_permission_tool: None,
+            last_permission_action: None,
+            last_permission_explanation: None,
+            last_permission_artifact_path: None,
+            recent_permission_denials: Vec::new(),
+            tool_pool: ToolPoolSnapshot::default(),
+            current_turn_tool_calls: 0,
+            current_turn_tool_output_bytes: 0,
+            current_turn_tool_progress_events: 0,
+            current_turn_parallel_batches: 0,
+            current_turn_parallel_calls: 0,
+            current_turn_max_parallel_batch_size: 0,
+            current_turn_truncated_results: 0,
+            current_turn_budget_notice_emitted: false,
+            current_turn_budget_warning_emitted: false,
+            tool_budget_notice_count: 0,
+            tool_budget_warning_count: 0,
+            last_tool_budget_warning: None,
+            tool_progress_event_count: 0,
+            last_tool_progress_message: None,
+            last_tool_progress_tool: None,
+            last_tool_progress_at: None,
+            parallel_tool_batch_count: 0,
+            parallel_tool_call_count: 0,
+            max_parallel_batch_size: 0,
+            tool_truncation_count: 0,
+            last_tool_truncation_reason: None,
+            latest_repeated_tool_failure: None,
+            read_file_history: Vec::new(),
+            command_tool_duplication_hints: Vec::new(),
+            last_tool_turn_completed_at: None,
+            last_tool_turn_artifact_path: None,
+            tool_error_type_counts: BTreeMap::new(),
+            tool_trace_scope: "last".to_string(),
+            tool_traces: Vec::<ToolRuntimeCallView>::new(),
+        }
+    }
 
     #[test]
     fn timeline_entries_sort_newest_first_and_fold_older_items() {
@@ -258,8 +476,85 @@ mod tests {
 
         let entry = task_timeline_entry(&task).expect("timeline entry");
         assert_eq!(entry.at.as_deref(), Some("2026-01-01 00:02:00"));
+        assert!(entry.detail.contains("task progress: task-1"));
         assert!(entry.detail.contains("[bash:running]"));
         assert!(entry.detail.contains("halfway"));
+    }
+
+    #[test]
+    fn task_completion_enrichment_includes_retry_and_artifacts() {
+        let task = RuntimeTask {
+            id: "task-2".to_string(),
+            kind: "agent".to_string(),
+            source_tool: "spawn_agent".to_string(),
+            description: "verify regression coverage".to_string(),
+            status: RuntimeTaskStatus::Failed,
+            attempt: 2,
+            retry_of: Some("task-1".to_string()),
+            output_path: "/tmp/task-2.log".to_string(),
+            transcript_path: Some("/tmp/task-2.md".to_string()),
+            created_at: "2026-01-01 00:00:00".to_string(),
+            started_at: Some("2026-01-01 00:01:00".to_string()),
+            completed_at: Some("2026-01-01 00:03:00".to_string()),
+            last_progress: None,
+            last_progress_at: None,
+            progress_history: Vec::new(),
+            error: Some("timeout".to_string()),
+        };
+
+        let entry = task_timeline_entry(&task).expect("timeline entry");
+        assert!(entry.detail.contains("task failed: task-2"));
+        assert!(entry.detail.contains("[agent:failed/spawn_agent]"));
+        assert!(entry.detail.contains("attempt 2"));
+        assert!(entry.detail.contains("retry of task-1"));
+        assert!(entry.detail.contains("transcript=/tmp/task-2.md"));
+        assert!(entry.detail.contains("output=/tmp/task-2.log"));
+        assert!(entry.detail.contains("error timeout"));
+    }
+
+    #[test]
+    fn build_runtime_timeline_merges_dated_state_and_artifact_events() {
+        let dir = std::env::temp_dir().join(format!(
+            "yode-runtime-timeline-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let recovery = dir.join("recovery.md");
+        let permission = dir.join("permission.md");
+        let turn = dir.join("turn.json");
+        std::fs::write(&recovery, "recovery").unwrap();
+        std::fs::write(&permission, "permission").unwrap();
+        std::fs::write(&turn, "turn").unwrap();
+
+        let mut state = test_runtime_state();
+        state.last_compaction_at = Some("2026-01-01 00:05:00".to_string());
+        state.last_compaction_mode = Some("auto".to_string());
+        state.last_compaction_summary_excerpt = Some("trimmed old messages".to_string());
+        state.last_hook_failure_at = Some("2026-01-01 00:04:00".to_string());
+        state.last_hook_failure_event = Some("pre_tool".to_string());
+        state.last_hook_failure_command = Some("scripts/pre-tool".to_string());
+        state.last_hook_failure_reason = Some("exit 2".to_string());
+        state.hook_timeout_count = 1;
+        state.last_hook_timeout_command = Some("scripts/pre-tool".to_string());
+        state.last_permission_tool = Some("bash".to_string());
+        state.last_permission_action = Some("confirm".to_string());
+        state.last_permission_explanation = Some("needs approval".to_string());
+        state.last_permission_artifact_path = Some(permission.display().to_string());
+        state.recovery_state = "SingleStepMode".to_string();
+        state.last_recovery_artifact_path = Some(recovery.display().to_string());
+        state.last_turn_stop_reason = Some("Stop".to_string());
+        state.last_turn_artifact_path = Some(turn.display().to_string());
+
+        let lines = build_runtime_timeline_lines(&state, &[], 8);
+        assert!(lines.iter().any(|line| line.contains("context compacted: auto")));
+        assert!(lines.iter().any(|line| line.contains("hook failure: scripts/pre-tool [pre_tool]")));
+        assert!(lines.iter().any(|line| line.contains("hook timeout: scripts/pre-tool")));
+        assert!(lines.iter().any(|line| line.contains("permission decision: bash [confirm] needs approval / artifact=")));
+        assert!(lines.iter().any(|line| line.contains("recovery state: SingleStepMode / artifact=")));
+        assert!(lines.iter().any(|line| line.contains("turn completed: stop=Stop / artifact=")));
+        assert!(lines.iter().all(|line| !line.starts_with("undated |")));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

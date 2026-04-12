@@ -8,8 +8,9 @@ use crate::commands::{
     ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
     CommandResult,
 };
-use crate::runtime_artifacts::write_runtime_task_inventory_artifact;
-use crate::runtime_timeline::build_runtime_timeline_lines;
+use crate::runtime_artifacts::{
+    write_runtime_task_inventory_artifact, write_runtime_timeline_artifact,
+};
 
 mod shared;
 use shared::{
@@ -214,12 +215,14 @@ fn export_diagnostics_bundle(custom_name: Option<&str>, ctx: &mut CommandContext
 
     let timeline_path = bundle_dir.join("runtime-timeline.txt");
     let timeline_body = if let Some(state) = runtime.as_ref() {
-        let lines = build_runtime_timeline_lines(state, &tasks, 12)
-            .into_iter()
-            .map(|line| format!("- {}", line))
-            .collect::<Vec<_>>()
-            .join("\n");
-        format!("Runtime timeline\n\n{}\n", lines)
+        write_runtime_timeline_artifact(
+            &PathBuf::from(&ctx.session.working_dir),
+            &ctx.session.session_id,
+            state,
+            &tasks,
+        )
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .unwrap_or_else(|| "Runtime timeline unavailable: artifact write failed.\n".to_string())
     } else {
         "Runtime timeline unavailable: engine busy.\n".to_string()
     };
