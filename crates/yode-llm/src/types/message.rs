@@ -283,11 +283,31 @@ impl Message {
         self.content_blocks = thinking_blocks;
         self.content_blocks.extend(text_blocks);
     }
+
+    pub fn estimated_char_count(&self) -> usize {
+        let content_len = self
+            .content
+            .as_ref()
+            .map(|content| content.len())
+            .unwrap_or(0);
+        let reasoning_len = self
+            .reasoning
+            .as_ref()
+            .map(|reasoning| reasoning.len())
+            .unwrap_or(0);
+        let tool_calls_len: usize = self
+            .tool_calls
+            .iter()
+            .map(ToolCall::estimated_char_count)
+            .sum();
+        content_len + reasoning_len + tool_calls_len
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{ContentBlock, Message, Role};
+    use crate::types::ToolCall;
 
     #[test]
     fn normalize_builds_blocks_from_flat_fields() {
@@ -340,5 +360,27 @@ mod tests {
             &message.content_blocks[0],
             ContentBlock::Thinking { signature, .. } if signature.as_deref() == Some("sig")
         ));
+    }
+
+    #[test]
+    fn estimated_char_count_includes_reasoning_and_tool_calls() {
+        let mut message = Message::assistant_with_reasoning(
+            Some("answer".to_string()),
+            Some("reason".to_string()),
+        );
+        message.tool_calls.push(ToolCall {
+            id: "tc1".to_string(),
+            name: "read_file".to_string(),
+            arguments: "{\"file_path\":\"src/main.rs\"}".to_string(),
+        });
+
+        assert_eq!(
+            message.estimated_char_count(),
+            "answer".len()
+                + "reason".len()
+                + "tc1".len()
+                + "read_file".len()
+                + "{\"file_path\":\"src/main.rs\"}".len()
+        );
     }
 }

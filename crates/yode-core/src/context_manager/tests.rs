@@ -113,6 +113,23 @@ fn test_estimate_tokens_with_cache_scales() {
 }
 
 #[test]
+fn test_message_estimated_char_count_seeds_cache() {
+    let mut cm = ContextManager::new("claude-sonnet-4");
+    let mut message = Message::assistant_with_reasoning(
+        Some("answer".to_string()),
+        Some("reason".to_string()),
+    );
+    message.tool_calls.push(yode_llm::types::ToolCall {
+        id: "tc1".to_string(),
+        name: "read_file".to_string(),
+        arguments: "{\"file_path\":\"src/main.rs\"}".to_string(),
+    });
+
+    cm.should_compress(1234, &[message.clone()]);
+    assert_eq!(cm.last_known_char_count, Some(message.estimated_char_count()));
+}
+
+#[test]
 fn test_compress_removes_low_priority_first() {
     let cm = ContextManager::new("gpt-3.5");
     let big = "x".repeat(15_000);

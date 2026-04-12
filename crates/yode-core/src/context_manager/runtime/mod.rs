@@ -55,44 +55,14 @@ impl ContextManager {
     /// Check if the current token usage suggests we should compress.
     pub fn should_compress(&mut self, prompt_tokens: u32, messages: &[Message]) -> bool {
         self.last_known_prompt_tokens = Some(prompt_tokens);
-        let char_count: usize = messages
-            .iter()
-            .map(|message| {
-                let content_len = message
-                    .content
-                    .as_ref()
-                    .map(|content| content.len())
-                    .unwrap_or(0);
-                let tool_calls_len: usize = message
-                    .tool_calls
-                    .iter()
-                    .map(|tool_call| tool_call.arguments.len() + tool_call.name.len())
-                    .sum();
-                content_len + tool_calls_len
-            })
-            .sum();
+        let char_count = Self::messages_char_count(messages);
         self.last_known_char_count = Some(char_count);
         (prompt_tokens as f64) > (self.limits.context_window as f64 * self.threshold)
     }
 
     /// Estimate token count for the given messages.
     pub(in crate::context_manager) fn estimate_tokens(&self, messages: &[Message]) -> usize {
-        let char_count: usize = messages
-            .iter()
-            .map(|message| {
-                let content_len = message
-                    .content
-                    .as_ref()
-                    .map(|content| content.len())
-                    .unwrap_or(0);
-                let tool_calls_len: usize = message
-                    .tool_calls
-                    .iter()
-                    .map(|tool_call| tool_call.arguments.len() + tool_call.name.len())
-                    .sum();
-                content_len + tool_calls_len
-            })
-            .sum();
+        let char_count = Self::messages_char_count(messages);
 
         if let Some(known_tokens) = self.last_known_prompt_tokens {
             if let Some(known_chars) = self.last_known_char_count {
@@ -104,6 +74,10 @@ impl ContextManager {
         }
 
         char_count / 4
+    }
+
+    fn messages_char_count(messages: &[Message]) -> usize {
+        messages.iter().map(Message::estimated_char_count).sum()
     }
 
     pub fn context_window(&self) -> usize {

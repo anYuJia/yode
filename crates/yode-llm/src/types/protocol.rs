@@ -7,6 +7,12 @@ pub struct ToolCall {
     pub arguments: String,
 }
 
+impl ToolCall {
+    pub fn estimated_char_count(&self) -> usize {
+        self.id.len() + self.name.len() + self.arguments.len()
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ToolDefinition {
     pub name: String,
