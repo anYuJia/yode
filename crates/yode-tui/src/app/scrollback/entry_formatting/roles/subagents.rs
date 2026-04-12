@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use crate::app::rendering::capitalize;
 use crate::app::{ChatEntry, ChatRole};
+use crate::ui::chat_entries::folding::fold_subagent_tool_calls;
 
 pub(super) fn render_subagent_call(
     description: &str,
@@ -41,23 +41,7 @@ pub(super) fn render_subagent_call(
         accent,
     ));
 
-    let max_show = 3;
-    let total = sub_tools.len();
-    for (index, tool_name) in sub_tools.iter().enumerate() {
-        if index >= max_show {
-            result.push((
-                format!(
-                    "     … +{} more tool uses (ctrl+o to expand)",
-                    total - max_show
-                ),
-                dim,
-            ));
-            break;
-        }
-        let prefix = if index == 0 { "  ⎿  " } else { "     " };
-        result.push((format!("{}{}(…)", prefix, capitalize(tool_name)), dim));
-    }
-    if total == 0 {
-        result.push(("  ⎿  (no tool calls)".to_string(), dim));
+    for line in fold_subagent_tool_calls(&sub_tools, 3) {
+        result.push((line, dim));
     }
 }

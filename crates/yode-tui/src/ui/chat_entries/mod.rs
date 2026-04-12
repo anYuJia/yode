@@ -1,4 +1,6 @@
 mod assistant;
+pub(crate) mod folding;
+mod metadata;
 mod tool_helpers;
 mod tools;
 

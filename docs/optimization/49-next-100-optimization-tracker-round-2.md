@@ -19,7 +19,7 @@
 
 当前进度：
 
-- `33 / 100` 已完成
+- `41 / 100` 已完成
 
 ## 001-010 Shared Types / Context
 
@@ -62,16 +62,16 @@
 
 ## 031-040 Tool Rendering / Scrollback
 
-- `[ ]` 031 tool metadata render helper split
-- `[ ]` 032 diff preview render helper split
-- `[ ]` 033 standalone tool result fold helper
-- `[ ]` 034 bash command preview folding helper
-- `[ ]` 035 write/edit preview fold helper
+- `[x]` 031 tool metadata render helper split
+- `[x]` 032 diff preview render helper split
+- `[x]` 033 standalone tool result fold helper
+- `[x]` 034 bash command preview folding helper
+- `[x]` 035 write/edit preview fold helper
 - `[x]` 036 tool summary key extraction helper
-- `[ ]` 037 scrollback role style palette adoption
-- `[ ]` 038 subagent tool-use fold helper
+- `[x]` 037 scrollback role style palette adoption
+- `[x]` 038 subagent tool-use fold helper
 - `[ ]` 039 user/assistant code-line highlighting helper reuse
-- `[ ]` 040 scrollback long-line truncation helper coverage tests
+- `[x]` 040 scrollback long-line truncation helper coverage tests
 
 ## 041-050 Diagnostics / Export
 

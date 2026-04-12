@@ -1,8 +1,13 @@
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 
 use crate::app::{ChatEntry, ChatRole};
 use crate::ui::chat::{ACCENT, DIM, GREEN, RED, WHITE, YELLOW};
+use super::folding::{
+    render_bash_preview_lines, render_edit_preview_lines, render_folded_result_lines,
+    render_write_preview_lines,
+};
+use super::metadata::render_metadata_lines;
 use super::tool_helpers::{tool_summary_value, truncate_ellipsis};
 
 pub(crate) fn render_tool_call(
@@ -75,7 +80,7 @@ pub(crate) fn render_tool_call(
     }
 
     if let Some(metadata) = result.and_then(|entry| entry.tool_metadata.as_ref()) {
-        render_metadata(lines, metadata);
+        render_metadata_lines(lines, metadata);
     }
 
     let has_metadata_diff = result
@@ -83,20 +88,31 @@ pub(crate) fn render_tool_call(
         .and_then(|metadata| metadata.get("diff_preview"))
         .is_some();
     match name {
-        "bash" => render_bash_content(lines, &args),
-        "write_file" if !has_metadata_diff => render_write_content(lines, &args),
-        "edit_file" if !has_metadata_diff => render_edit_content(lines, &args),
+        "bash" => render_bash_preview_lines(lines, args["command"].as_str().unwrap_or("")),
+        "write_file" if !has_metadata_diff => {
+            render_write_preview_lines(lines, args["content"].as_str().unwrap_or(""), Style::default().fg(GREEN))
+        }
+        "edit_file" if !has_metadata_diff => render_edit_preview_lines(
+            lines,
+            args["old_string"].as_str().unwrap_or(""),
+            args["new_string"].as_str().unwrap_or(""),
+            Style::default().fg(RED),
+            Style::default().fg(GREEN),
+        ),
         _ => {}
     }
 
     if !result_content.is_empty() {
-        render_result_content(lines, result_content, is_error);
+        render_folded_result_lines(
+            lines,
+            result_content,
+            Style::default().fg(if is_error { RED } else { DIM }),
+        );
     }
 }
 
 pub(crate) fn render_standalone_result(lines: &mut Vec<Line<'static>>, entry: &ChatEntry) {
     if let ChatRole::ToolResult { name, is_error, .. } = &entry.role {
-        let color = if *is_error { RED } else { DIM };
         lines.push(Line::from(vec![
             Span::styled("  ⎿ ", Style::default().fg(ACCENT)),
             Span::styled(
@@ -104,89 +120,11 @@ pub(crate) fn render_standalone_result(lines: &mut Vec<Line<'static>>, entry: &C
                 Style::default().fg(WHITE).add_modifier(Modifier::BOLD),
             ),
         ]));
-        for (index, line) in entry.content.lines().enumerate() {
-            if index >= 5 {
-                lines.push(Line::from(Span::styled(
-                    format!("     … {} more lines", entry.content.lines().count() - 5),
-                    Style::default().fg(DIM),
-                )));
-                break;
-            }
-            lines.push(Line::from(Span::styled(
-                format!("     {}", line),
-                Style::default().fg(color),
-            )));
-        }
-    }
-}
-
-fn render_metadata(lines: &mut Vec<Line<'static>>, metadata: &serde_json::Value) {
-    if let Some(diff) = metadata
-        .get("diff_preview")
-        .and_then(|value| value.as_object())
-    {
-        let removed = diff
-            .get("removed")
-            .and_then(|value| value.as_array())
-            .into_iter()
-            .flatten()
-            .filter_map(|value| value.as_str())
-            .take(5)
-            .collect::<Vec<_>>();
-        let added = diff
-            .get("added")
-            .and_then(|value| value.as_array())
-            .into_iter()
-            .flatten()
-            .filter_map(|value| value.as_str())
-            .take(5)
-            .collect::<Vec<_>>();
-
-        for line in removed {
-            lines.push(Line::from(Span::styled(
-                format!("     - {}", line),
-                Style::default().fg(RED),
-            )));
-        }
-        for line in added {
-            lines.push(Line::from(Span::styled(
-                format!("     + {}", line),
-                Style::default().fg(GREEN),
-            )));
-        }
-    }
-    if let Some(truncation) = metadata
-        .get("tool_runtime")
-        .and_then(|value| value.get("truncation"))
-        .and_then(|value| value.as_object())
-    {
-        if let Some(reason) = truncation.get("reason").and_then(|value| value.as_str()) {
-            lines.push(Line::from(Span::styled(
-                format!("  │ truncated: {}", reason),
-                Style::default().fg(YELLOW),
-            )));
-        }
-    }
-}
-
-fn render_result_content(lines: &mut Vec<Line<'static>>, result_content: &str, is_error: bool) {
-    let output_lines: Vec<&str> = result_content.lines().collect();
-    let max_show = 8;
-    let show = output_lines.len().min(max_show);
-    let result_color = if is_error { RED } else { DIM };
-
-    for (index, line) in output_lines[..show].iter().enumerate() {
-        let prefix = if index == 0 { "  ⎿  " } else { "     " };
-        lines.push(Line::from(Span::styled(
-            format!("{}{}", prefix, line),
-            Style::default().fg(result_color),
-        )));
-    }
-    if output_lines.len() > max_show {
-        lines.push(Line::from(Span::styled(
-            format!("     … {} more lines", output_lines.len() - max_show),
-            Style::default().fg(DIM),
-        )));
+        render_folded_result_lines(
+            lines,
+            &entry.content,
+            Style::default().fg(if *is_error { RED } else { DIM }),
+        );
     }
 }
 
@@ -208,69 +146,6 @@ fn capitalize_tool(name: &str) -> String {
     }
 }
 
-fn render_bash_content(lines: &mut Vec<Line<'static>>, args: &serde_json::Value) {
-    let command = args["command"].as_str().unwrap_or("");
-    if command.contains('\n') {
-        for line in command.lines().take(4) {
-            lines.push(Line::from(Span::styled(
-                format!("     {}", line),
-                Style::default().fg(Color::Gray),
-            )));
-        }
-    }
-}
-
-fn render_write_content(lines: &mut Vec<Line<'static>>, args: &serde_json::Value) {
-    let content = args["content"].as_str().unwrap_or("");
-    let line_count = content.lines().count();
-    if line_count > 0 {
-        for line in content.lines().take(5) {
-            lines.push(Line::from(Span::styled(
-                format!("     + {}", line),
-                Style::default().fg(GREEN),
-            )));
-        }
-        if line_count > 5 {
-            lines.push(Line::from(Span::styled(
-                format!("     … {} more lines", line_count - 5),
-                Style::default().fg(DIM),
-            )));
-        }
-    }
-}
-
-fn render_edit_content(lines: &mut Vec<Line<'static>>, args: &serde_json::Value) {
-    let old = args["old_string"].as_str().unwrap_or("");
-    let new = args["new_string"].as_str().unwrap_or("");
-    let max_diff = 5;
-
-    for (index, line) in old.lines().enumerate() {
-        if index >= max_diff {
-            lines.push(Line::from(Span::styled(
-                format!("     … {} more removed", old.lines().count() - max_diff),
-                Style::default().fg(RED),
-            )));
-            break;
-        }
-        lines.push(Line::from(Span::styled(
-            format!("     - {}", line),
-            Style::default().fg(RED),
-        )));
-    }
-    for (index, line) in new.lines().enumerate() {
-        if index >= max_diff {
-            lines.push(Line::from(Span::styled(
-                format!("     … {} more added", new.lines().count() - max_diff),
-                Style::default().fg(GREEN),
-            )));
-            break;
-        }
-        lines.push(Line::from(Span::styled(
-            format!("     + {}", line),
-            Style::default().fg(GREEN),
-        )));
-    }
-}
 
 fn shorten_path(path: &str) -> String {
     let parts: Vec<&str> = path.rsplitn(3, '/').collect();

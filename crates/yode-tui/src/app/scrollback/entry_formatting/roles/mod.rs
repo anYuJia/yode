@@ -1,4 +1,5 @@
 mod subagents;
+mod style;
 mod tool_calls;
 mod users;
 
@@ -7,6 +8,7 @@ use ratatui::style::{Color, Modifier};
 use crate::app::{ChatEntry, ChatRole};
 
 use self::subagents::render_subagent_call;
+use self::style::role_style_palette;
 use self::tool_calls::render_tool_call;
 use self::users::{render_assistant, render_user};
 
@@ -16,15 +18,11 @@ pub(crate) fn format_entry_as_strings(
     index: usize,
 ) -> Vec<(String, ratatui::style::Style)> {
     let mut result: Vec<(String, ratatui::style::Style)> = Vec::new();
-    let dim = ratatui::style::Style::default().fg(Color::Gray);
-    let accent = ratatui::style::Style::default().fg(Color::LightMagenta);
-    let cyan = ratatui::style::Style::default().fg(Color::Indexed(51));
-    let white = ratatui::style::Style::default().fg(Color::Indexed(231));
-    let red = ratatui::style::Style::default().fg(Color::LightRed);
+    let palette = role_style_palette();
 
     match &entry.role {
-        ChatRole::User => render_user(entry, &mut result, cyan),
-        ChatRole::Assistant => render_assistant(entry, &mut result, dim, white),
+        ChatRole::User => render_user(entry, &mut result, palette.cyan),
+        ChatRole::Assistant => render_assistant(entry, &mut result, palette.dim, palette.white),
         ChatRole::ToolCall { id: tid, name } => render_tool_call(
             entry,
             all_entries,
@@ -32,9 +30,9 @@ pub(crate) fn format_entry_as_strings(
             tid,
             name,
             &mut result,
-            dim,
-            accent,
-            red,
+            palette.dim,
+            palette.accent,
+            palette.red,
         ),
         ChatRole::ToolResult { id: rid, .. } => {
             let has_preceding = index > 0
@@ -44,7 +42,7 @@ pub(crate) fn format_entry_as_strings(
             if !has_preceding {
                 result.push((
                     format!("  ⎿ {}", entry.content.lines().next().unwrap_or("")),
-                    dim,
+                    palette.dim,
                 ));
             }
         }
@@ -54,21 +52,28 @@ pub(crate) fn format_entry_as_strings(
                 .add_modifier(Modifier::BOLD);
             result.push(("╭─ Error ──────────────────────────".to_string(), err_style));
             for line in entry.content.lines() {
-                result.push((format!("│ {}", line), red));
+                result.push((format!("│ {}", line), palette.red));
             }
             result.push(("╰──────────────────────────────────".to_string(), err_style));
         }
         ChatRole::System => {
             if entry.content.is_empty() {
-                result.push((String::new(), dim));
+                result.push((String::new(), palette.dim));
             } else {
                 for line in entry.content.lines() {
-                    result.push((format!("  {}", line), dim));
+                    result.push((format!("  {}", line), palette.dim));
                 }
             }
         }
         ChatRole::SubAgentCall { description } => {
-            render_subagent_call(description, all_entries, index, &mut result, dim, accent);
+            render_subagent_call(
+                description,
+                all_entries,
+                index,
+                &mut result,
+                palette.dim,
+                palette.accent,
+            );
         }
         ChatRole::SubAgentToolCall { .. } => {}
         ChatRole::SubAgentResult => {}

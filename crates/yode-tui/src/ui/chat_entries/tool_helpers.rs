@@ -25,3 +25,27 @@ pub(super) fn tool_summary_value(name: &str, args: &Value) -> String {
             .to_string(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{tool_summary_value, truncate_ellipsis};
+
+    #[test]
+    fn truncate_ellipsis_shortens_long_text() {
+        assert_eq!(truncate_ellipsis("abcdef", 4), "abcd...");
+    }
+
+    #[test]
+    fn tool_summary_value_prefers_common_keys() {
+        assert_eq!(
+            tool_summary_value("bash", &json!({"command": "cargo test"})),
+            "cargo test"
+        );
+        assert_eq!(
+            tool_summary_value("unknown", &json!({"url": "https://example.com"})),
+            "https://example.com"
+        );
+    }
+}
