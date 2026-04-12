@@ -1,9 +1,15 @@
 mod local;
 mod remote;
+mod remote_workspace;
 mod shared;
 
 use crate::commands::context::CommandContext;
 use crate::runtime_artifacts::{write_hook_failure_artifact, write_runtime_timeline_artifact};
+use crate::commands::tools::mcp_workspace::write_browser_access_state_artifact;
+use self::remote_workspace::{
+    build_remote_workflow_state, remote_command_surface_inventory,
+    write_remote_workflow_capability_artifact,
+};
 
 pub(super) fn render_doctor_report(ctx: &mut CommandContext) -> String {
     local::render_doctor_report(ctx)
@@ -83,6 +89,37 @@ pub(super) fn export_doctor_bundle(ctx: &mut CommandContext) -> Result<String, S
                 .map_err(|err| format!("Failed to copy {}: {}", path, err))?;
             copied_files.push(dest);
         }
+    }
+    let remote_state = build_remote_workflow_state(ctx);
+    if let Some(path) = write_remote_workflow_capability_artifact(
+        &working_dir,
+        &ctx.session.session_id,
+        &remote_state,
+        &remote_command_surface_inventory(),
+    ) {
+        let dest = bundle_dir.join("remote-workflow-capability.json");
+        std::fs::copy(&path, &dest)
+            .map_err(|err| format!("Failed to copy {}: {}", path, err))?;
+        copied_files.push(dest);
+    }
+    let browser_tools_present = ctx
+        .tools
+        .definitions()
+        .into_iter()
+        .any(|definition| matches!(definition.name.as_str(), "web_search" | "web_fetch" | "web_browser"));
+    if let Some(path) = write_browser_access_state_artifact(
+        &working_dir,
+        &ctx.session.session_id,
+        browser_tools_present,
+        yode_core::config::Config::load()
+            .ok()
+            .map(|cfg| cfg.mcp.servers.len())
+            .unwrap_or(0),
+    ) {
+        let dest = bundle_dir.join("browser-access-state.json");
+        std::fs::copy(&path, &dest)
+            .map_err(|err| format!("Failed to copy {}: {}", path, err))?;
+        copied_files.push(dest);
     }
 
     let manifest_path = bundle_dir.join("bundle-manifest.json");

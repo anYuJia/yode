@@ -16,7 +16,7 @@
 
 当前进度：
 
-- `60 / 100` 已完成
+- `80 / 100` 已完成
 
 ## 001-010 Timeline Foundations
 
@@ -98,29 +98,29 @@
 
 ## 061-070 Remote / Browser Workflow Foundations
 
-- `[ ]` 061 remote workflow capability inventory artifact
-- `[ ]` 062 remote env summary render split
-- `[ ]` 063 remote review prerequisite status helper
-- `[ ]` 064 remote artifact index folding helper
-- `[ ]` 065 authenticated workflow state model stub
-- `[ ]` 066 remote workflow missing-prereq explanation helper
-- `[ ]` 067 browser capability doctor checklist
-- `[ ]` 068 remote workflow command surface inventory
-- `[ ]` 069 remote/browser artifact bundle manifest
-- `[ ]` 070 remote workflow gap review against Claude notes
+- `[x]` 061 remote workflow capability inventory artifact
+- `[x]` 062 remote env summary render split
+- `[x]` 063 remote review prerequisite status helper
+- `[x]` 064 remote artifact index folding helper
+- `[x]` 065 authenticated workflow state model stub
+- `[x]` 066 remote workflow missing-prereq explanation helper
+- `[x]` 067 browser capability doctor checklist
+- `[x]` 068 remote workflow command surface inventory
+- `[x]` 069 remote/browser artifact bundle manifest
+- `[x]` 070 remote workflow gap review against Claude notes
 
 ## 071-080 MCP / Browser Runtime Depth
 
-- `[ ]` 071 MCP browser parity terminology cleanup
-- `[ ]` 072 MCP auth/session summary formatter
-- `[ ]` 073 browser-access state snapshot artifact
-- `[ ]` 074 MCP/server latency compact sparkline text helper
-- `[ ]` 075 resource cache activity summary helper
-- `[ ]` 076 reconnect backoff timeline helper
-- `[ ]` 077 browser/MCP capability merge summary
-- `[ ]` 078 remote tool source badge reuse
-- `[ ]` 079 browser/MCP diagnostics export inclusion
-- `[ ]` 080 MCP/browser runtime parity review
+- `[x]` 071 MCP browser parity terminology cleanup
+- `[x]` 072 MCP auth/session summary formatter
+- `[x]` 073 browser-access state snapshot artifact
+- `[x]` 074 MCP/server latency compact sparkline text helper
+- `[x]` 075 resource cache activity summary helper
+- `[x]` 076 reconnect backoff timeline helper
+- `[x]` 077 browser/MCP capability merge summary
+- `[x]` 078 remote tool source badge reuse
+- `[x]` 079 browser/MCP diagnostics export inclusion
+- `[x]` 080 MCP/browser runtime parity review
 
 ## 081-090 Input / Navigation / Layout Polish
 

@@ -1,4 +1,5 @@
 mod mcp;
+pub(crate) mod mcp_workspace;
 mod permissions;
 mod tools;
 mod workflows;

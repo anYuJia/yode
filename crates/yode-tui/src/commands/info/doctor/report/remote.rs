@@ -1,8 +1,14 @@
 use crate::commands::context::CommandContext;
+use super::remote_workspace::{
+    browser_capability_checklist, build_remote_workflow_state,
+    remote_command_surface_inventory, remote_missing_prereq_summary,
+    write_remote_workflow_capability_artifact,
+};
 use super::shared::{format_artifact_entry, render_section};
 
 pub(super) fn render_remote_env_check(ctx: &mut CommandContext) -> String {
     let project_root = std::path::PathBuf::from(&ctx.session.working_dir);
+    let workflow_state = build_remote_workflow_state(ctx);
     let mut transport_checks = Vec::new();
     let mut repo_checks = Vec::new();
     let mut artifact_checks = Vec::new();
@@ -71,17 +77,30 @@ pub(super) fn render_remote_env_check(ctx: &mut CommandContext) -> String {
             err
         )),
     }
+    let command_inventory = remote_command_surface_inventory();
+    if let Some(path) = write_remote_workflow_capability_artifact(
+        &project_root,
+        &ctx.session.session_id,
+        &workflow_state,
+        &command_inventory,
+    ) {
+        artifact_checks.push(format!("  [ok] Remote capability artifact: {}", path));
+    }
+    artifact_checks.extend(browser_capability_checklist(ctx));
 
     format!(
-        "Remote Environment Verification:\n\n{}{}{}\nNext steps:\n  Use this before launching remote review/worktree flows.\n  Fix [!!] items before relying on remote execution.",
+        "Remote Environment Verification:\n\n{}{}{}\nCommand surface: {}\nMissing prereqs: {}\nNext steps:\n  Use this before launching remote review/worktree flows.\n  Fix [!!] items before relying on remote execution.",
         render_section("Transport", &transport_checks),
         render_section("Repository", &repo_checks),
         render_section("Artifacts", &artifact_checks),
+        command_inventory,
+        remote_missing_prereq_summary(&workflow_state),
     )
 }
 
 pub(super) fn render_remote_review_prereqs(ctx: &mut CommandContext) -> String {
     let project_root = std::path::PathBuf::from(&ctx.session.working_dir);
+    let workflow_state = build_remote_workflow_state(ctx);
     let mut provider_checks = Vec::new();
     let mut repo_checks = Vec::new();
     let mut tool_checks = Vec::new();
@@ -168,13 +187,15 @@ pub(super) fn render_remote_review_prereqs(ctx: &mut CommandContext) -> String {
             "local"
         }
     ));
+    tool_checks.extend(browser_capability_checklist(ctx));
 
     format!(
-        "Remote Review Prerequisites:\n\n{}{}{}{}\nNext steps:\n  Use `/doctor remote` for base transport checks.\n  Fix [!!] items before relying on remote review automation.",
+        "Remote Review Prerequisites:\n\n{}{}{}{}\nMissing prereqs: {}\nNext steps:\n  Use `/doctor remote` for base transport checks.\n  Fix [!!] items before relying on remote review automation.",
         render_section("Provider", &provider_checks),
         render_section("Repository", &repo_checks),
         render_section("Tools", &tool_checks),
         render_section("Artifacts", &artifact_checks),
+        remote_missing_prereq_summary(&workflow_state),
     )
 }
 
@@ -203,8 +224,17 @@ pub(super) fn render_remote_artifact_index(ctx: &mut CommandContext) -> String {
         remote_dir.display(),
         entries.len()
     )];
-    for path in entries.into_iter().take(20) {
+    for path in entries.into_iter().take(12) {
         lines.push(format_artifact_entry(&path));
+    }
+    if std::fs::read_dir(&remote_dir)
+        .ok()
+        .into_iter()
+        .flat_map(|iter| iter.filter_map(Result::ok))
+        .count()
+        > 12
+    {
+        lines.push("  ... artifact index folded ...".to_string());
     }
     lines.join("\n")
 }

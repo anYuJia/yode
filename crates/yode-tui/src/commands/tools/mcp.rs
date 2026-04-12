@@ -1,6 +1,11 @@
 use crate::commands::context::CommandContext;
 use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
 use std::collections::{BTreeMap, BTreeSet};
+use super::mcp_workspace::{
+    auth_session_summary, browser_mcp_capability_summary, latency_sparkline,
+    reconnect_backoff_timeline, remote_tool_source_badge, resource_cache_activity_summary,
+    write_browser_access_state_artifact,
+};
 
 pub struct McpCommand {
     meta: CommandMeta,
@@ -65,20 +70,23 @@ impl Command for McpCommand {
             let reconnect = server_reconnect_summary(&reconnect_stats, &server);
             let config_state = if let Some(server_config) = configured_servers.get(&server) {
                 format!(
-                    "configured, auth={}, cmd={}",
+                    "configured, auth={}, session={}",
                     auth_status_label(server_config),
-                    server_config.command
+                    auth_session_summary(server_config)
                 )
             } else {
                 "registered-only, auth=unknown".to_string()
             };
             lines.push(format!(
-                "  - {} [{} | {} tool(s) | latency={} | reconnect={}] {}{}",
+                "  - {} {} [{} | {} tool(s) | latency={} {} | reconnect={} | timeline={}] {}{}",
+                remote_tool_source_badge(&format!("mcp__{}_tool", server)),
                 server,
                 config_state,
                 tools.len(),
                 latency,
+                latency_sparkline(&latency_stats, &server),
                 reconnect,
+                reconnect_backoff_timeline(&reconnect_stats, &server),
                 preview,
                 if more > 0 {
                     format!(" (+{} more)", more)
@@ -87,16 +95,27 @@ impl Command for McpCommand {
                 }
             ));
         }
-        let cache_stats = yode_tools::mcp_resource_cache_stats();
         lines.push(format!(
-            "  Cache stats: list hit/miss {}/{} · read hit/miss {}/{} · cached entries list={} read={}",
-            cache_stats.list_hits,
-            cache_stats.list_misses,
-            cache_stats.read_hits,
-            cache_stats.read_misses,
-            cache_stats.cached_list_entries,
-            cache_stats.cached_read_entries
+            "  Cache stats: {}",
+            resource_cache_activity_summary()
         ));
+        let browser_tools_present = ctx
+            .tools
+            .definitions()
+            .into_iter()
+            .any(|definition| matches!(definition.name.as_str(), "web_search" | "web_fetch" | "web_browser"));
+        lines.push(format!(
+            "  Capability merge: {}",
+            browser_mcp_capability_summary(browser_tools_present, configured_servers.len())
+        ));
+        if let Some(path) = write_browser_access_state_artifact(
+            &std::path::PathBuf::from(&ctx.session.working_dir),
+            &ctx.session.session_id,
+            browser_tools_present,
+            configured_servers.len(),
+        ) {
+            lines.push(format!("  Browser state artifact: {}", path));
+        }
         Ok(CommandOutput::Messages(lines))
     }
 }
