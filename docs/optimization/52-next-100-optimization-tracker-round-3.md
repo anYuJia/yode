@@ -16,7 +16,7 @@
 
 当前进度：
 
-- `10 / 100` 已完成
+- `20 / 100` 已完成
 
 ## 001-010 Timeline Foundations
 
@@ -33,16 +33,16 @@
 
 ## 011-020 Task Workspace
 
-- `[ ]` 011 task detail timeline block
-- `[ ]` 012 task detail artifact backlink compaction
-- `[ ]` 013 task list grouping by source tool
-- `[ ]` 014 task retry chain formatter reuse
-- `[ ]` 015 task failure cause summary helper
-- `[ ]` 016 task output pager-friendly section split
-- `[ ]` 017 task cancel UX summary refinement
-- `[ ]` 018 task transcript preview folding helper
-- `[ ]` 019 task inventory sort by freshest activity
-- `[ ]` 020 task workspace parity review against Claude task shell
+- `[x]` 011 task detail timeline block
+- `[x]` 012 task detail artifact backlink compaction
+- `[x]` 013 task list grouping by source tool
+- `[x]` 014 task retry chain formatter reuse
+- `[x]` 015 task failure cause summary helper
+- `[x]` 016 task output pager-friendly section split
+- `[x]` 017 task cancel UX summary refinement
+- `[x]` 018 task transcript preview folding helper
+- `[x]` 019 task inventory sort by freshest activity
+- `[x]` 020 task workspace parity review against Claude task shell
 
 ## 021-030 Panel / Pager Primitives
 

@@ -3,8 +3,12 @@ use crate::commands::{
     ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
     CommandResult,
 };
+use super::tasks_helpers::{
+    sort_tasks_by_latest_activity, task_cancel_summary,
+};
 use super::tasks_render::{
-    parse_task_filter, render_task_detail, render_task_list, task_matches_filter,
+    parse_task_filter, render_task_detail, render_task_list, render_task_output,
+    task_matches_filter,
 };
 
 pub struct TasksCommand {
@@ -69,18 +73,17 @@ impl Command for TasksCommand {
             return Err("Engine is busy, try again.".into());
         };
         let latest_task_id = || {
-            engine
-                .runtime_tasks_snapshot()
-                .into_iter()
-                .last()
-                .map(|task| task.id)
+            let mut tasks = engine.runtime_tasks_snapshot();
+            sort_tasks_by_latest_activity(&mut tasks);
+            tasks.into_iter().next().map(|task| task.id)
         };
         let latest_task_id_by_filter = |filter: TaskFilter| {
-            engine
-                .runtime_tasks_snapshot()
+            let mut tasks = engine.runtime_tasks_snapshot();
+            sort_tasks_by_latest_activity(&mut tasks);
+            tasks
                 .into_iter()
                 .filter(|task| task_matches_filter(task, &filter))
-                .last()
+                .next()
                 .map(|task| task.id)
         };
 
@@ -122,14 +125,11 @@ impl Command for TasksCommand {
                 } else {
                     id.to_string()
                 };
-                if engine.cancel_runtime_task(&id) {
-                    Ok(CommandOutput::Message(format!(
-                        "Cancellation requested for task {}.",
-                        id
-                    )))
-                } else {
-                    Err(format!("Task '{}' not found or cannot be cancelled.", id))
-                }
+                let Some(task) = engine.runtime_task_snapshot(&id) else {
+                    return Err(format!("Task '{}' not found or cannot be cancelled.", id));
+                };
+                let requested = engine.cancel_runtime_task(&id);
+                Ok(CommandOutput::Message(task_cancel_summary(&task, requested)))
             }
             ["read", id] => {
                 let id = if *id == "latest" {
@@ -140,25 +140,7 @@ impl Command for TasksCommand {
                 let Some(task) = engine.runtime_task_snapshot(&id) else {
                     return Err(format!("Task '{}' not found.", id));
                 };
-                let content = std::fs::read_to_string(&task.output_path).map_err(|err| {
-                    format!(
-                        "Failed to read task output {} ({}): {}",
-                        task.id, task.output_path, err
-                    )
-                })?;
-                let lines = content.lines().collect::<Vec<_>>();
-                let preview_start = lines.len().saturating_sub(40);
-                let preview = lines[preview_start..].join("\n");
-                Ok(CommandOutput::Message(format!(
-                    "Task output {}\nPath: {}\nTranscript: {}\nShowing lines {}-{} of {}\n\n{}",
-                    task.id,
-                    task.output_path,
-                    task.transcript_path.as_deref().unwrap_or("none"),
-                    preview_start + 1,
-                    lines.len(),
-                    lines.len(),
-                    preview
-                )))
+                render_task_output(&task)
             }
             ["follow", id] => {
                 let id = if *id == "latest" {

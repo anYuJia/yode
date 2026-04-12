@@ -13,6 +13,7 @@ mod shared;
 mod startup_artifacts;
 mod status;
 mod tasks;
+mod tasks_helpers;
 mod tasks_render;
 mod update;
 mod version;
