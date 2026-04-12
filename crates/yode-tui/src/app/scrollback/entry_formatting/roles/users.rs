@@ -1,28 +1,24 @@
-use crate::app::rendering::{highlight_code_line, is_code_block_line, markdown_to_plain};
 use crate::app::ChatEntry;
+use crate::app::rendering::highlight_code_line;
+use crate::ui::chat_entries::{assistant_plain_lines, user_plain_lines};
 
 pub(super) fn render_user(
     entry: &ChatEntry,
     result: &mut Vec<(String, ratatui::style::Style)>,
     cyan: ratatui::style::Style,
 ) {
-    let mut first = true;
-    for line in entry.content.lines() {
-        if first {
-            result.push((
-                format!("> {}", line),
-                cyan.add_modifier(ratatui::style::Modifier::BOLD),
-            ));
-            first = false;
+    for (index, line) in user_plain_lines(entry).into_iter().enumerate() {
+        let style = if index == 0 {
+            cyan.add_modifier(ratatui::style::Modifier::BOLD)
         } else {
-            result.push((format!("  {}", line), cyan));
-        }
-    }
-    if first {
-        result.push((
-            "> ".to_string(),
-            cyan.add_modifier(ratatui::style::Modifier::BOLD),
-        ));
+            cyan
+        };
+        let content = if line.highlight_code {
+            highlight_code_line(&line.content)
+        } else {
+            line.content
+        };
+        result.push((format!("{}{}", line.prefix, content), style));
     }
 }
 
@@ -33,27 +29,22 @@ pub(super) fn render_assistant(
     white: ratatui::style::Style,
 ) {
     result.push((String::new(), dim));
-    let processed = markdown_to_plain(&entry.content);
-    if processed.trim().is_empty() {
+    let lines = assistant_plain_lines(entry);
+    if lines.is_empty() {
         return;
     }
-    let mut first = true;
-    for line in processed.lines() {
-        if line.trim().is_empty() {
+    for line in lines {
+        if line.content.is_empty() {
             result.push((String::new(), dim));
             continue;
         }
-        if first {
-            result.push((format!("⏺ {}", line), white));
-            first = false;
-        } else if is_code_block_line(&line) {
-            let highlighted = highlight_code_line(&line);
+        if line.highlight_code {
             result.push((
-                format!("  {}", highlighted),
+                format!("{}{}", line.prefix, highlight_code_line(&line.content)),
                 ratatui::style::Style::default(),
             ));
         } else {
-            result.push((format!("  {}", line), white));
+            result.push((format!("{}{}", line.prefix, line.content), white));
         }
     }
 }

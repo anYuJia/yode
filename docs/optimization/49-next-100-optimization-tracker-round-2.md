@@ -19,7 +19,7 @@
 
 当前进度：
 
-- `78 / 100` 已完成
+- `100 / 100` 已完成
 
 ## 001-010 Shared Types / Context
 
@@ -39,7 +39,7 @@
 - `[x]` 011 context summary line builder extraction
 - `[x]` 012 context compaction removal heuristics tests by role mix
 - `[x]` 013 context token estimate fallback calibration helper
-- `[ ]` 014 context summary artifact cross-link to turn artifact
+- `[x]` 014 context summary artifact cross-link to turn artifact
 - `[x]` 015 memory document preview formatter reuse
 - `[x]` 016 transcript compare section stats helper split
 - `[x]` 017 transcript compare large-file folding heuristics cleanup
@@ -70,7 +70,7 @@
 - `[x]` 036 tool summary key extraction helper
 - `[x]` 037 scrollback role style palette adoption
 - `[x]` 038 subagent tool-use fold helper
-- `[ ]` 039 user/assistant code-line highlighting helper reuse
+- `[x]` 039 user/assistant code-line highlighting helper reuse
 - `[x]` 040 scrollback long-line truncation helper coverage tests
 
 ## 041-050 Diagnostics / Export
@@ -127,26 +127,26 @@
 
 ## 081-090 Product / UX Parity
 
-- `[ ]` 081 compare current startup artifact bundle against Claude flow notes
-- `[ ]` 082 compare current tool pool diagnostics against Claude UI expectations
-- `[ ]` 083 compare current permission guidance against Claude prompt language
-- `[ ]` 084 compare resume telemetry against Claude session storage views
-- `[ ]` 085 compare background task detail views against Claude task UX
-- `[ ]` 086 compare doctor bundle output against Claude support/debug needs
-- `[ ]` 087 compare input layout behavior at narrow widths against Claude REPL
-- `[ ]` 088 compare tool result folding against Claude transcript readability
-- `[ ]` 089 compare status density against Claude compact runtime panel
-- `[ ]` 090 round-2 gap map refresh after next 50 items
+- `[x]` 081 compare current startup artifact bundle against Claude flow notes
+- `[x]` 082 compare current tool pool diagnostics against Claude UI expectations
+- `[x]` 083 compare current permission guidance against Claude prompt language
+- `[x]` 084 compare resume telemetry against Claude session storage views
+- `[x]` 085 compare background task detail views against Claude task UX
+- `[x]` 086 compare doctor bundle output against Claude support/debug needs
+- `[x]` 087 compare input layout behavior at narrow widths against Claude REPL
+- `[x]` 088 compare tool result folding against Claude transcript readability
+- `[x]` 089 compare status density against Claude compact runtime panel
+- `[x]` 090 round-2 gap map refresh after next 50 items
 
 ## 091-100 Final Round 2 Closeout
 
-- `[ ]` 091 final round-2 startup polish review
-- `[ ]` 092 final round-2 tool rendering polish review
-- `[ ]` 093 final round-2 permission UX polish review
-- `[ ]` 094 final round-2 resume UX polish review
-- `[ ]` 095 final round-2 diagnostics polish review
-- `[ ]` 096 final round-2 export artifact review
-- `[ ]` 097 final round-2 remote doctor review
-- `[ ]` 098 final round-2 tracker refresh after 75 items
-- `[ ]` 099 final round-2 tracker refresh after 100 items
-- `[ ]` 100 final round-2 parity review document
+- `[x]` 091 final round-2 startup polish review
+- `[x]` 092 final round-2 tool rendering polish review
+- `[x]` 093 final round-2 permission UX polish review
+- `[x]` 094 final round-2 resume UX polish review
+- `[x]` 095 final round-2 diagnostics polish review
+- `[x]` 096 final round-2 export artifact review
+- `[x]` 097 final round-2 remote doctor review
+- `[x]` 098 final round-2 tracker refresh after 75 items
+- `[x]` 099 final round-2 tracker refresh after 100 items
+- `[x]` 100 final round-2 parity review document

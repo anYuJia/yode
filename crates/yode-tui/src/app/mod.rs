@@ -6,7 +6,7 @@ pub mod input;
 mod key_dispatch;
 mod key_handlers;
 mod lifecycle;
-mod rendering;
+pub(crate) mod rendering;
 mod runtime;
 mod scrollback;
 mod state;

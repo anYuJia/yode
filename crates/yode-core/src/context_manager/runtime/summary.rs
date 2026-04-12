@@ -7,6 +7,7 @@ use super::{is_context_summary, CONTEXT_SUMMARY_PREFIX, SUMMARY_CHAR_BUDGET};
 pub(crate) fn build_context_summary(
     removed_messages: &[Message],
     tool_results_truncated: usize,
+    turn_artifact_path: Option<&str>,
 ) -> Option<String> {
     let mut user_goals = Vec::new();
     let mut assistant_findings = Vec::new();
@@ -67,6 +68,7 @@ pub(crate) fn build_context_summary(
         &tool_usage,
         removed_tool_results,
         tool_results_truncated,
+        turn_artifact_path,
     );
 
     let mut summary = lines.join("\n");
@@ -88,6 +90,7 @@ pub(crate) fn context_summary_lines(
     tool_usage: &BTreeMap<String, usize>,
     removed_tool_results: usize,
     tool_results_truncated: usize,
+    turn_artifact_path: Option<&str>,
 ) -> Vec<String> {
     let mut lines = vec![
         format!(
@@ -96,6 +99,10 @@ pub(crate) fn context_summary_lines(
         ),
         format!("- Removed messages: {}", removed_count),
     ];
+
+    if let Some(path) = turn_artifact_path.filter(|path| !path.trim().is_empty()) {
+        lines.push(format!("- Turn artifact: {}", path));
+    }
 
     if !user_goals.is_empty() {
         lines.push(format!("- Earlier user goals: {}", user_goals.join(" | ")));

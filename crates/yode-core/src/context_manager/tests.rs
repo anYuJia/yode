@@ -149,9 +149,11 @@ fn test_context_summary_lines_include_tool_activity() {
         &tool_usage,
         1,
         2,
+        Some("/tmp/turn.json"),
     );
     assert!(lines.iter().any(|line| line.contains("Earlier tool activity")));
     assert!(lines.iter().any(|line| line.contains("Tool results compacted")));
+    assert!(lines.iter().any(|line| line.contains("Turn artifact: /tmp/turn.json")));
 }
 
 #[test]
@@ -330,6 +332,42 @@ fn test_compression_inserts_summary_anchor() {
     let summary = report.summary.expect("summary anchor should be inserted");
     assert!(summary.starts_with(CONTEXT_SUMMARY_PREFIX));
     assert!(messages.iter().any(super::runtime::is_context_summary));
+}
+
+#[test]
+fn test_compression_summary_can_include_turn_artifact_link() {
+    let mut cm = ContextManager::new("gpt-3.5");
+    let big = "z".repeat(18_000);
+    let mut messages = vec![
+        Message::system("system"),
+        Message::user("Investigate the failing startup profile export"),
+        Message::assistant("I will inspect the latest startup bundle."),
+        Message::tool_result("tc1", &big),
+        Message::user(&big),
+        Message::assistant("I will compact the earlier findings."),
+        Message::user("recent1"),
+        Message::assistant("recent2"),
+        Message::user("recent3"),
+        Message::assistant("recent4"),
+        Message::user("recent5"),
+        Message::assistant("recent6"),
+    ];
+
+    let total_chars: usize = messages
+        .iter()
+        .map(|m| {
+            m.content.as_ref().map(|c| c.len()).unwrap_or(0)
+                + m.tool_calls
+                    .iter()
+                    .map(|tc| tc.arguments.len() + tc.name.len())
+                    .sum::<usize>()
+        })
+        .sum();
+    cm.should_compress(total_chars as u32, &messages);
+
+    let report = cm.compress_with_turn_artifact(&mut messages, Some("/tmp/latest-turn.json"));
+    let summary = report.summary.expect("summary anchor should be inserted");
+    assert!(summary.contains("Turn artifact: /tmp/latest-turn.json"));
 }
 
 #[test]

@@ -1,7 +1,7 @@
 pub mod chat;
 mod badges;
 mod chat_header;
-mod chat_entries;
+pub(crate) mod chat_entries;
 pub(crate) mod chat_layout;
 mod chat_markdown;
 mod layout;

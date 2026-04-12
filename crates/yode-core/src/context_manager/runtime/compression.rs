@@ -30,11 +30,24 @@ impl ContextManager {
         &self,
         removed_messages: &[Message],
         tool_results_truncated: usize,
+        turn_artifact_path: Option<&str>,
     ) -> Option<String> {
-        build_context_summary(removed_messages, tool_results_truncated)
+        build_context_summary(
+            removed_messages,
+            tool_results_truncated,
+            turn_artifact_path,
+        )
     }
 
     pub fn compress_with_report(&self, messages: &mut Vec<Message>) -> CompressionReport {
+        self.compress_with_turn_artifact(messages, None)
+    }
+
+    pub fn compress_with_turn_artifact(
+        &self,
+        messages: &mut Vec<Message>,
+        turn_artifact_path: Option<&str>,
+    ) -> CompressionReport {
         let original_len = messages.len();
         let mut report = CompressionReport::default();
 
@@ -127,8 +140,11 @@ impl ContextManager {
         }
 
         if report.removed > 0 {
-            if let Some(summary) =
-                self.build_summary(&removed_messages, report.tool_results_truncated)
+            if let Some(summary) = self.build_summary(
+                &removed_messages,
+                report.tool_results_truncated,
+                turn_artifact_path,
+            )
             {
                 let insert_at = messages.len().saturating_sub(PRESERVE_RECENT).max(1);
                 messages.insert(insert_at, Message::system(summary.clone()));

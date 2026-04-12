@@ -63,7 +63,10 @@ impl AgentEngine {
         let pre_compact_messages = self.messages.clone();
         let report = self
             .context_manager
-            .compress_with_report(&mut self.messages);
+            .compress_with_turn_artifact(
+                &mut self.messages,
+                self.last_turn_artifact_path.as_deref(),
+            );
         if report.removed == 0 && report.tool_results_truncated == 0 {
             self.compaction_in_progress = false;
             self.record_compaction_cause("failed_no_change");

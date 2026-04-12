@@ -78,6 +78,10 @@ pub(in crate::session_memory) fn structured_sections_from_compaction_summary(
             sections
                 .findings
                 .push(format!("Tool activity: {}", value.trim()));
+        } else if let Some(value) = trimmed.strip_prefix("- Turn artifact: ") {
+            sections
+                .findings
+                .push(format!("Turn artifact: {}", value.trim()));
         } else if let Some(value) = trimmed.strip_prefix("- Tool results compacted: ") {
             sections
                 .findings

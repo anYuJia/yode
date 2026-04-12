@@ -72,6 +72,27 @@ fn includes_relative_file_summaries() {
 }
 
 #[test]
+fn preserves_turn_artifact_cross_link_from_compaction_summary() {
+    let temp = tempfile::tempdir().unwrap();
+    let project_root = temp.path();
+
+    let report = CompressionReport {
+        removed: 5,
+        tool_results_truncated: 1,
+        summary: Some(
+            "[Context summary] Older conversation was compacted to stay within the model window.\n- Removed messages: 5\n- Turn artifact: /tmp/latest-turn.json".to_string(),
+        ),
+    };
+
+    let path =
+        persist_compaction_memory(project_root, "session-artifact", &report, &HashMap::new(), &[])
+            .unwrap();
+    let content = std::fs::read_to_string(path).unwrap();
+
+    assert!(content.contains("Turn artifact: /tmp/latest-turn.json"));
+}
+
+#[test]
 fn persists_live_session_snapshot() {
     let temp = tempfile::tempdir().unwrap();
     let snapshot = build_live_snapshot(
