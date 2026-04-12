@@ -16,7 +16,7 @@
 
 当前进度：
 
-- `8 / 100` 已完成
+- `30 / 100` 已完成
 
 ## 001-010 Workspace Foundations
 
@@ -28,34 +28,34 @@
 - `[x]` 006 latest transcript workspace adopts shared workspace layout
 - `[x]` 007 review artifact workspace adopts shared workspace layout
 - `[x]` 008 workspace footer / jump target composition helper
-- `[ ]` 009 workspace renderer adoption in doctor/report surfaces
-- `[ ]` 010 workspace foundation review
+- `[x]` 009 workspace renderer adoption in doctor/report surfaces
+- `[x]` 010 workspace foundation review
 
 ## 011-020 Workspace Navigation
 
-- `[ ]` 011 shared workspace jump inventory helper
-- `[ ]` 012 task-to-transcript cross-jump helper
-- `[ ]` 013 review-to-transcript cross-jump helper
-- `[ ]` 014 runtime-timeline-to-artifact jump helper
-- `[ ]` 015 workspace breadcrumb label helper
-- `[ ]` 016 selection summary formatter for inspector outputs
-- `[ ]` 017 compact path badge helper for workspace headers
-- `[ ]` 018 stale artifact warning banner helper
-- `[ ]` 019 workspace navigation parity review
-- `[ ]` 020 command palette hooks for workspace jump targets
+- `[x]` 011 shared workspace jump inventory helper
+- `[x]` 012 task-to-transcript cross-jump helper
+- `[x]` 013 review-to-transcript cross-jump helper
+- `[x]` 014 runtime-timeline-to-artifact jump helper
+- `[x]` 015 workspace breadcrumb label helper
+- `[x]` 016 selection summary formatter for inspector outputs
+- `[x]` 017 compact path badge helper for workspace headers
+- `[x]` 018 stale artifact warning banner helper
+- `[x]` 019 workspace navigation parity review
+- `[x]` 020 command palette hooks for workspace jump targets
 
 ## 021-030 Interactive Inspector Prep
 
-- `[ ]` 021 inspector state container model
-- `[ ]` 022 inspector body line source trait
-- `[ ]` 023 inspector tab label model
-- `[ ]` 024 multi-pane title strip helper
-- `[ ]` 025 inline inspector status badge row
-- `[ ]` 026 inspector empty-state action hints
-- `[ ]` 027 inspector pagination footer reuse
-- `[ ]` 028 inspector panel stack coordinator stub
-- `[ ]` 029 interactive inspector review
-- `[ ]` 030 command output to inspector bridge notes
+- `[x]` 021 inspector state container model
+- `[x]` 022 inspector body line source trait
+- `[x]` 023 inspector tab label model
+- `[x]` 024 multi-pane title strip helper
+- `[x]` 025 inline inspector status badge row
+- `[x]` 026 inspector empty-state action hints
+- `[x]` 027 inspector pagination footer reuse
+- `[x]` 028 inspector panel stack coordinator stub
+- `[x]` 029 interactive inspector review
+- `[x]` 030 command output to inspector bridge notes
 
 ## 031-040 Task / Runtime Productization
 

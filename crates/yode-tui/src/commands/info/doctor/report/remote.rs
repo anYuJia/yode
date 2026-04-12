@@ -1,10 +1,11 @@
 use crate::commands::context::CommandContext;
+use crate::commands::workspace_text::{workspace_bullets, WorkspaceText};
 use super::remote_workspace::{
     browser_capability_checklist, build_remote_workflow_state,
     remote_command_surface_inventory, remote_missing_prereq_summary,
     write_remote_workflow_capability_artifact,
 };
-use super::shared::{format_artifact_entry, render_section};
+use super::shared::format_artifact_entry;
 
 pub(super) fn render_remote_env_check(ctx: &mut CommandContext) -> String {
     let project_root = std::path::PathBuf::from(&ctx.session.working_dir);
@@ -88,14 +89,15 @@ pub(super) fn render_remote_env_check(ctx: &mut CommandContext) -> String {
     }
     artifact_checks.extend(browser_capability_checklist(ctx));
 
-    format!(
-        "Remote Environment Verification:\n\n{}{}{}\nCommand surface: {}\nMissing prereqs: {}\nNext steps:\n  Use this before launching remote review/worktree flows.\n  Fix [!!] items before relying on remote execution.",
-        render_section("Transport", &transport_checks),
-        render_section("Repository", &repo_checks),
-        render_section("Artifacts", &artifact_checks),
-        command_inventory,
-        remote_missing_prereq_summary(&workflow_state),
-    )
+    WorkspaceText::new("Remote environment workspace")
+        .subtitle(project_root.display().to_string())
+        .field("Command surface", command_inventory)
+        .field("Missing prereqs", remote_missing_prereq_summary(&workflow_state))
+        .section("Transport", workspace_bullets(transport_checks))
+        .section("Repository", workspace_bullets(repo_checks))
+        .section("Artifacts", workspace_bullets(artifact_checks))
+        .footer("Use this before launching remote review/worktree flows.")
+        .render()
 }
 
 pub(super) fn render_remote_review_prereqs(ctx: &mut CommandContext) -> String {
@@ -189,14 +191,15 @@ pub(super) fn render_remote_review_prereqs(ctx: &mut CommandContext) -> String {
     ));
     tool_checks.extend(browser_capability_checklist(ctx));
 
-    format!(
-        "Remote Review Prerequisites:\n\n{}{}{}{}\nMissing prereqs: {}\nNext steps:\n  Use `/doctor remote` for base transport checks.\n  Fix [!!] items before relying on remote review automation.",
-        render_section("Provider", &provider_checks),
-        render_section("Repository", &repo_checks),
-        render_section("Tools", &tool_checks),
-        render_section("Artifacts", &artifact_checks),
-        remote_missing_prereq_summary(&workflow_state),
-    )
+    WorkspaceText::new("Remote review workspace")
+        .subtitle(project_root.display().to_string())
+        .field("Missing prereqs", remote_missing_prereq_summary(&workflow_state))
+        .section("Provider", workspace_bullets(provider_checks))
+        .section("Repository", workspace_bullets(repo_checks))
+        .section("Tools", workspace_bullets(tool_checks))
+        .section("Artifacts", workspace_bullets(artifact_checks))
+        .footer("Use `/doctor remote` for base transport checks.")
+        .render()
 }
 
 pub(super) fn render_remote_artifact_index(ctx: &mut CommandContext) -> String {
@@ -213,30 +216,33 @@ pub(super) fn render_remote_artifact_index(ctx: &mut CommandContext) -> String {
     entries.sort();
 
     if entries.is_empty() {
-        return format!(
-            "Remote Session Artifact Index:\n\n  [--] No remote artifacts found in {}\n\nNext steps:\n  Run `/doctor remote` first to verify the base remote workspace path.",
-            remote_dir.display()
-        );
+        return WorkspaceText::new("Remote artifact workspace")
+            .subtitle(remote_dir.display().to_string())
+            .section(
+                "Artifacts",
+                workspace_bullets([format!(
+                    "[--] No remote artifacts found in {}",
+                    remote_dir.display()
+                )]),
+            )
+            .footer("Run `/doctor remote` first to verify the base remote workspace path.")
+            .render();
     }
 
-    let mut lines = vec![format!(
-        "Remote Session Artifact Index:\n\n  Directory: {}\n  Files:     {}",
-        remote_dir.display(),
-        entries.len()
-    )];
-    for path in entries.into_iter().take(12) {
-        lines.push(format_artifact_entry(&path));
-    }
-    if std::fs::read_dir(&remote_dir)
-        .ok()
+    let total = entries.len();
+    let mut artifact_lines = entries
         .into_iter()
-        .flat_map(|iter| iter.filter_map(Result::ok))
-        .count()
-        > 12
-    {
-        lines.push("  ... artifact index folded ...".to_string());
+        .take(12)
+        .map(|path| format_artifact_entry(&path))
+        .collect::<Vec<_>>();
+    if total > 12 {
+        artifact_lines.push("... artifact index folded ...".to_string());
     }
-    lines.join("\n")
+    WorkspaceText::new("Remote artifact workspace")
+        .subtitle(remote_dir.display().to_string())
+        .field("Files", total.to_string())
+        .section("Artifacts", workspace_bullets(artifact_lines))
+        .render()
 }
 
 fn command_available(command: &str, version_arg: &str) -> bool {

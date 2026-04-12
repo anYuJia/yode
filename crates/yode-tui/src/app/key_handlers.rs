@@ -33,6 +33,7 @@ pub(super) fn handle_char(app: &mut App, key: KeyEvent, c: char) {
                 all_provider_models: &app.all_provider_models,
                 provider_name: &app.provider_name,
                 tools: &app.tools,
+                working_dir: &app.session.working_dir,
             };
             app.cmd_completion.update(
                 &app.input.lines[0],
@@ -125,6 +126,7 @@ pub(super) fn handle_tab(app: &mut App) {
                 all_provider_models: &app.all_provider_models,
                 provider_name: &app.provider_name,
                 tools: &app.tools,
+                working_dir: &app.session.working_dir,
             };
             app.cmd_completion.update(
                 &app.input.lines[0],

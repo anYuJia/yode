@@ -8,6 +8,7 @@ pub mod session;
 pub mod tools;
 pub mod utility;
 pub(crate) mod workspace_text;
+pub(crate) mod workspace_nav;
 
 use context::{CommandContext, CompletionContext};
 

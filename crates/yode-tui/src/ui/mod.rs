@@ -7,6 +7,7 @@ mod chat_markdown;
 mod layout;
 mod palette;
 mod pending;
+pub(crate) mod inspector;
 pub(crate) mod panels;
 mod responsive;
 pub mod input;

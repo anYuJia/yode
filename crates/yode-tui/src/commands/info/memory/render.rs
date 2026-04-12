@@ -2,6 +2,10 @@ use std::fs;
 use std::path::Path;
 
 use crate::commands::{CommandOutput, CommandResult};
+use crate::commands::workspace_nav::{
+    compact_path_badge, transcript_jump_targets, workspace_breadcrumb, workspace_jump_inventory,
+    workspace_selection_summary, workspace_stale_artifact_banner,
+};
 use crate::commands::workspace_text::{workspace_bullets, WorkspaceText};
 
 use super::compare::{build_transcript_compare_output, CompareArgs};
@@ -136,6 +140,11 @@ pub(super) fn render_transcript_file(
     Ok(CommandOutput::Message(
         WorkspaceText::new("Transcript workspace")
             .subtitle(path.display().to_string())
+            .field(
+                "Breadcrumb",
+                workspace_breadcrumb("Memory", Some(&compact_path_badge(&path.display().to_string()))),
+            )
+            .field("Selection", workspace_selection_summary(1, 1))
             .section("Metadata", workspace_bullets([transcript_metadata_panel(path, &meta, &preview)]))
             .section(
                 "Timeline anchors",
@@ -145,6 +154,13 @@ pub(super) fn render_transcript_file(
                 "Content preview",
                 workspace_bullets([fold_transcript_preview(&content)]),
             )
+            .section(
+                "Warnings",
+                workspace_stale_artifact_banner(path, 60)
+                    .map(|banner| workspace_bullets([banner]))
+                    .unwrap_or_else(|| workspace_bullets(["none"])),
+            )
+            .footer(workspace_jump_inventory(transcript_jump_targets(path)))
             .render(),
     ))
 }
@@ -207,12 +223,17 @@ pub(super) fn render_latest_transcript(
     Ok(CommandOutput::Message(
         WorkspaceText::new("Latest transcript workspace")
             .subtitle(path.display().to_string())
+            .field(
+                "Breadcrumb",
+                workspace_breadcrumb("Memory", Some("latest")),
+            )
             .section("Metadata", workspace_bullets([transcript_metadata_panel(path, &meta, &preview)]))
             .section(
                 "Timeline anchors",
                 workspace_bullets([transcript_timeline_anchor_panel(path, &meta, runtime)]),
             )
             .section("Content preview", workspace_bullets([truncated]))
+            .footer(workspace_jump_inventory(transcript_jump_targets(path)))
             .render(),
     ))
 }
@@ -255,6 +276,7 @@ pub(super) fn render_transcript_compare(dir: &Path, compare: &CompareArgs) -> Co
     Ok(CommandOutput::Message(
         WorkspaceText::new("Transcript compare workspace")
             .subtitle(format!("{} <> {}", left_path.display(), right_path.display()))
+            .field("Selection", workspace_selection_summary(2, 2))
             .section(
                 "Inspector",
                 workspace_bullets([diff_inspector_header(

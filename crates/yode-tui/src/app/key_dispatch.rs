@@ -254,6 +254,7 @@ pub(super) fn handle_key_event(
                 all_provider_models: &app.all_provider_models,
                 provider_name: &app.provider_name,
                 tools: &app.tools,
+                working_dir: &app.session.working_dir,
             };
             app.cmd_completion.update(
                 &app.input.lines[0],

@@ -1,4 +1,8 @@
 use crate::commands::{CommandOutput, CommandResult};
+use crate::commands::workspace_nav::{
+    task_jump_targets, workspace_breadcrumb, workspace_jump_inventory,
+    workspace_selection_summary,
+};
 use crate::commands::workspace_text::{workspace_bullets, workspace_preview_line, WorkspaceText};
 
 use super::tasks::TaskFilter;
@@ -57,6 +61,11 @@ pub(super) fn render_task_detail(
     Ok(CommandOutput::Message(
         WorkspaceText::new(format!("Task workspace {}", task.id))
             .subtitle(task.description.clone())
+            .field(
+                "Breadcrumb",
+                workspace_breadcrumb("Tasks", Some(task.id.as_str())),
+            )
+            .field("Selection", workspace_selection_summary(1, 1))
             .field("Kind", task.kind.clone())
             .field("Source tool", task.source_tool.clone())
             .field("Status", task_status_label(&task.status))
@@ -89,7 +98,10 @@ pub(super) fn render_task_detail(
                     output_preview,
                 ]),
             )
-            .footer(format!("Use `/tasks read {}` for the full tail.", task.id))
+            .footer(workspace_jump_inventory(task_jump_targets(
+                &task.id,
+                task.transcript_path.as_deref(),
+            )))
             .render(),
     ))
 }
@@ -101,6 +113,10 @@ pub(super) fn render_task_output(task: &yode_tools::RuntimeTask) -> CommandResul
     Ok(CommandOutput::Message(
         WorkspaceText::new(format!("Task output {}", task.id))
             .subtitle(task.description.clone())
+            .field(
+                "Breadcrumb",
+                workspace_breadcrumb("Tasks", Some(task.id.as_str())),
+            )
             .field(
                 "Status",
                 format!(
@@ -128,6 +144,10 @@ pub(super) fn render_task_output(task: &yode_tools::RuntimeTask) -> CommandResul
                     output_preview,
                 ]),
             )
+            .footer(workspace_jump_inventory(task_jump_targets(
+                &task.id,
+                task.transcript_path.as_deref(),
+            )))
             .render(),
     ))
 }

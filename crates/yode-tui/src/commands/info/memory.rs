@@ -39,6 +39,7 @@ use crate::commands::{
     ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
     CommandResult,
 };
+use crate::commands::workspace_nav::transcript_completion_targets;
 
 const MAX_DISPLAY_CHARS: usize = 12_000;
 const MAX_COMPARE_CONTENT_CHARS: usize = 200_000;
@@ -60,23 +61,27 @@ impl MemoryCommand {
                     name: "target".to_string(),
                     required: false,
                     hint: "[live|session|latest|list [filters...]|compare <a> <b> [--no-diff|--hunks N|--lines N]|<index>|<file>]".to_string(),
-                    completions: ArgCompletionSource::Static(vec![
-                        "live".to_string(),
-                        "session".to_string(),
-                        "latest".to_string(),
-                        "pick".to_string(),
-                        "list".to_string(),
-                        "list recent".to_string(),
-                        "list auto".to_string(),
-                        "list manual".to_string(),
-                        "list summary".to_string(),
-                        "list failed".to_string(),
-                        "list summary failed".to_string(),
-                        "list today".to_string(),
-                        "list yesterday".to_string(),
-                        "compare".to_string(),
-                        "compare latest latest-1".to_string(),
-                    ]),
+                    completions: ArgCompletionSource::Dynamic(|ctx| {
+                        let mut values = vec![
+                            "live".to_string(),
+                            "session".to_string(),
+                            "latest".to_string(),
+                            "pick".to_string(),
+                            "list".to_string(),
+                            "list recent".to_string(),
+                            "list auto".to_string(),
+                            "list manual".to_string(),
+                            "list summary".to_string(),
+                            "list failed".to_string(),
+                            "list summary failed".to_string(),
+                            "list today".to_string(),
+                            "list yesterday".to_string(),
+                            "compare".to_string(),
+                            "compare latest latest-1".to_string(),
+                        ];
+                        values.extend(transcript_completion_targets(ctx.working_dir));
+                        values
+                    }),
                 }],
                 category: CommandCategory::Info,
                 hidden: false,

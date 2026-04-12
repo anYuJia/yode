@@ -1,5 +1,11 @@
 use crate::commands::context::CommandContext;
-use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
+use crate::commands::{
+    ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
+    CommandResult,
+};
+use crate::commands::workspace_nav::{
+    review_completion_targets, review_jump_targets, workspace_breadcrumb, workspace_jump_inventory,
+};
 use crate::commands::workspace_text::{workspace_bullets, WorkspaceText};
 use super::review_workspace::{
     compact_review_status_badge, fold_review_preview_for_workspace, review_summary_pane,
@@ -17,7 +23,14 @@ impl ReviewsCommand {
                 description:
                     "List or open review artifacts under .yode/reviews, optionally filtered by kind",
                 aliases: &[],
-                args: vec![],
+                args: vec![ArgDef {
+                    name: "target".to_string(),
+                    required: false,
+                    hint: "[list|latest|summary|kind|file]".to_string(),
+                    completions: ArgCompletionSource::Dynamic(|ctx| {
+                        review_completion_targets(ctx.working_dir)
+                    }),
+                }],
                 category: CommandCategory::Development,
                 hidden: false,
             },
@@ -123,11 +136,16 @@ impl Command for ReviewsCommand {
                         .unwrap_or_default()
                 ))
                 .subtitle(path.display().to_string())
+                .field(
+                    "Breadcrumb",
+                    workspace_breadcrumb("Reviews", Some(path.file_name().and_then(|n| n.to_str()).unwrap_or("latest"))),
+                )
                 .section("Summary", workspace_bullets([review_summary_pane(path, &content)]))
                 .section(
                     "Preview",
                     workspace_bullets([fold_review_preview_for_workspace(&content)]),
                 )
+                .footer(workspace_jump_inventory(review_jump_targets(path)))
                 .render(),
             ));
         }
@@ -145,11 +163,16 @@ impl Command for ReviewsCommand {
         Ok(CommandOutput::Message(
             WorkspaceText::new(format!("Review artifact {}", index))
                 .subtitle(path.display().to_string())
+                .field(
+                    "Breadcrumb",
+                    workspace_breadcrumb("Reviews", Some(path.file_name().and_then(|n| n.to_str()).unwrap_or("artifact"))),
+                )
                 .section("Summary", workspace_bullets([review_summary_pane(path, &content)]))
                 .section(
                     "Preview",
                     workspace_bullets([fold_review_preview_for_workspace(&content)]),
                 )
+                .footer(workspace_jump_inventory(review_jump_targets(path)))
                 .render(),
         ))
     }

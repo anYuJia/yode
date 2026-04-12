@@ -39,4 +39,5 @@ pub struct CompletionContext<'a> {
     pub all_provider_models: &'a HashMap<String, Vec<String>>,
     pub provider_name: &'a str,
     pub tools: &'a Arc<ToolRegistry>,
+    pub working_dir: &'a str,
 }
