@@ -3,6 +3,7 @@ mod classifier;
 mod config;
 mod denial_tracker;
 mod manager;
+pub(crate) mod shell;
 mod types;
 
 pub(crate) use classifier::bash_risk_rationale;

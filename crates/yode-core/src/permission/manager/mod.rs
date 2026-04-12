@@ -128,7 +128,7 @@ impl PermissionManager {
     }
 
     pub fn record_shell_prefix_denial(&mut self, content: Option<&str>) {
-        if let Some(prefix) = content.and_then(crate::permission::bash::command_prefix) {
+        if let Some(prefix) = content.and_then(crate::permission::shell::command_prefix) {
             self.denial_tracker.record_shell_prefix_denial(&prefix);
         }
     }
@@ -137,7 +137,7 @@ impl PermissionManager {
         if tool_name != "bash" {
             return;
         }
-        if let Some(prefix) = content.and_then(crate::permission::bash::command_prefix) {
+        if let Some(prefix) = content.and_then(crate::permission::shell::command_prefix) {
             *self.confirmation_prefix_counts.entry(prefix).or_insert(0) += 1;
         }
     }
@@ -151,7 +151,7 @@ impl PermissionManager {
     }
 
     pub fn safe_readonly_shell_prefixes(&self) -> &'static [&'static str] {
-        crate::permission::bash::safe_readonly_prefixes()
+        crate::permission::shell::safe_readonly_prefixes()
     }
 
     pub fn confirmation_rule_suggestions(&self, min_count: u32) -> Vec<String> {

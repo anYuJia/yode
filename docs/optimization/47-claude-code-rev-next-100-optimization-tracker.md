@@ -22,7 +22,7 @@
 
 当前进度：
 
-- `80 / 100` 已完成
+- `81 / 100` 已完成
 
 ## 001-010 Startup / Warmup
 
@@ -56,7 +56,7 @@
 - `[x]` 022 bash auto-mode decision centralized
 - `[x]` 023 bash discovery redirect logic centralized
 - `[x]` 024 destructive bash guard message centralized
-- `[ ]` 025 shell safety helper module split from generic permission manager
+- `[x]` 025 shell safety helper module split from generic permission manager
 - `[x]` 026 shell rule explanation surface for pattern matches
 - `[x]` 027 shell permission artifact includes classifier rationale field
 - `[x]` 028 shell deny clustering by command prefix
