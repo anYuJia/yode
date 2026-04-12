@@ -7,6 +7,7 @@ mod chat_markdown;
 mod layout;
 mod palette;
 mod pending;
+pub(crate) mod panels;
 mod responsive;
 pub mod input;
 pub mod status_bar;
@@ -31,10 +32,12 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             .constraints([Constraint::Length(wiz_height), Constraint::Length(1)])
             .split(frame.area());
 
-        wizard::render_wizard(frame, chunks[0], wiz);
+        let panel_area = panels::centered_panel_rect(chunks[0], 80, wiz_height);
+        wizard::render_wizard(frame, panel_area, wiz);
         status_bar::render_info_line(frame, chunks[1], app);
     } else if app.pending_confirmation.is_some() {
         use ratatui::layout::{Constraint, Direction, Layout};
+        let panel_area = panels::centered_panel_rect(frame.area(), 84, 4);
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -43,7 +46,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
                 Constraint::Length(1),
                 Constraint::Length(1),
             ])
-            .split(frame.area());
+            .split(panel_area);
 
         tool_confirm::render_inline_confirm(frame, &chunks, app);
     } else {

@@ -5,6 +5,7 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::app::wizard::{Wizard, WizardStep};
+use super::panels::{footer_hint_line, inspector_header_lines, section_title_line};
 use super::palette::{ERROR_COLOR, INPUT_BG, LIGHT, MUTED, PANEL_ACCENT, SELECT_ACCENT};
 
 /// Render the wizard in the viewport.
@@ -18,24 +19,14 @@ pub fn render_wizard(frame: &mut Frame, area: Rect, wizard: &Wizard) {
         None => return,
     };
 
-    let mut lines: Vec<Line> = Vec::new();
-
-    // Title line
-    lines.push(Line::from(vec![Span::styled(
-        format!("  {} ", wizard.title),
-        Style::default()
-            .fg(PANEL_ACCENT)
-            .add_modifier(Modifier::BOLD),
-    )]));
-
-    // Step prompt
-    lines.push(Line::from(vec![
-        Span::styled(
-            format!("  {} ", wizard.step_label()),
-            Style::default().fg(MUTED),
-        ),
-        Span::styled(step.prompt().to_string(), Style::default().fg(LIGHT)),
-    ]));
+    let mut lines: Vec<Line> = inspector_header_lines(
+        &wizard.title,
+        Some(&format!("{} {}", wizard.step_label(), step.prompt())),
+        PANEL_ACCENT,
+        LIGHT,
+        MUTED,
+    );
+    lines.push(section_title_line("Wizard", PANEL_ACCENT));
 
     // Step-specific content
     match step {
@@ -112,10 +103,7 @@ pub fn render_wizard(frame: &mut Frame, area: Rect, wizard: &Wizard) {
         WizardStep::Select { .. } => "↑↓ select · Enter confirm · Esc cancel",
         WizardStep::Input { .. } => "Enter confirm · Esc cancel",
     };
-    lines.push(Line::from(vec![Span::styled(
-        format!("  {}", hint),
-        Style::default().fg(Color::DarkGray),
-    )]));
+    lines.push(footer_hint_line(&[hint], Color::DarkGray));
 
     frame.render_widget(Paragraph::new(lines), area);
 }

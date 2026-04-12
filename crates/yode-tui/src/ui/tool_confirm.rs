@@ -1,78 +1,46 @@
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
+use ratatui::style::Color;
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::app::App;
+use super::panels::{button_row_line, footer_hint_line, inspector_header_lines, section_title_line};
 use super::palette::{LIGHT, MUTED, PANEL_ACCENT, SELECT_ACCENT};
 
-/// Render inline vertical confirmation selector across 4 viewport lines.
-///
-/// Layout:
-///   Allow Bash(ls)?                     ← line 0: tool name
-///   ❯ 1. Yes                            ← line 1
-///     2. Yes, always allow [tool]       ← line 2
-///     3. No           y/n/a · ↑↓ Enter  ← line 3
+/// Render inline confirmation selector across 4 viewport lines.
 pub fn render_inline_confirm(frame: &mut Frame, chunks: &[Rect], app: &App) {
     let Some(ref confirm) = app.pending_confirmation else {
         return;
     };
 
     let args_display = format_tool_args_short(&confirm.name, &confirm.arguments);
+    let options = vec![
+        "Yes".to_string(),
+        format!("Always allow {}", confirm.name),
+        "No".to_string(),
+    ];
+    let selected = options
+        .get(app.confirm_selected)
+        .cloned()
+        .unwrap_or_else(|| "Yes".to_string());
 
-    // Line 0: tool name header
-    let header = Line::from(vec![
-        Span::styled("  Allow ", Style::default().fg(LIGHT)),
-        Span::styled(
-            format!("{}({})", capitalize(&confirm.name), args_display),
-            Style::default()
-                .fg(PANEL_ACCENT)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled("?", Style::default().fg(LIGHT)),
-    ]);
-    frame.render_widget(Paragraph::new(header), chunks[0]);
-
-    let options = ["Yes", &format!("Yes, always allow {}", confirm.name), "No"];
-
-    // Lines 1-3: options
-    for (i, label) in options.iter().enumerate() {
-        let is_selected = app.confirm_selected == i;
-        let line = if is_selected {
-            Line::from(vec![
-                Span::styled(
-                    "  ❯ ",
-                    Style::default()
-                        .fg(SELECT_ACCENT)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(
-                    format!("{}. {}", i + 1, label),
-                    Style::default()
-                        .fg(Color::White)
-                        .add_modifier(Modifier::BOLD),
-                ),
-            ])
-        } else {
-            Line::from(vec![
-                Span::styled("    ", Style::default()),
-                Span::styled(format!("{}. {}", i + 1, label), Style::default().fg(MUTED)),
-            ])
-        };
-
-        // Append hint on last option line
-        if i == 2 {
-            let mut spans = line.spans;
-            spans.push(Span::styled(
-                "        y/n/a · ↑↓ Enter",
-                Style::default().fg(Color::Indexed(240)),
-            ));
-            frame.render_widget(Paragraph::new(Line::from(spans)), chunks[i + 1]);
-        } else {
-            frame.render_widget(Paragraph::new(line), chunks[i + 1]);
-        }
-    }
+    let header = inspector_header_lines(
+        &format!("Allow {}({})?", capitalize(&confirm.name), args_display),
+        Some(&format!("Selected: {}", selected)),
+        PANEL_ACCENT,
+        LIGHT,
+        MUTED,
+    );
+    frame.render_widget(Paragraph::new(header[0].clone()), chunks[0]);
+    frame.render_widget(Paragraph::new(section_title_line("Confirm", PANEL_ACCENT)), chunks[1]);
+    frame.render_widget(
+        Paragraph::new(button_row_line(&options, app.confirm_selected, SELECT_ACCENT, MUTED)),
+        chunks[2],
+    );
+    frame.render_widget(
+        Paragraph::new(footer_hint_line(&["y/n/a", "↑↓ move", "Enter confirm"], Color::Indexed(240))),
+        chunks[3],
+    );
 }
 
 /// Short summary of tool arguments for the inline header.

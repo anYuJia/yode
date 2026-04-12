@@ -16,7 +16,7 @@
 
 当前进度：
 
-- `20 / 100` 已完成
+- `30 / 100` 已完成
 
 ## 001-010 Timeline Foundations
 
@@ -46,16 +46,16 @@
 
 ## 021-030 Panel / Pager Primitives
 
-- `[ ]` 021 generic inspector header helper
-- `[ ]` 022 generic section divider + title primitive
-- `[ ]` 023 scrollable pager state helper
-- `[ ]` 024 reusable panel footer hint strip
-- `[ ]` 025 preview panel line selection model
-- `[ ]` 026 modal dialog width / centering helper
-- `[ ]` 027 confirmation dialog button layout helper
-- `[ ]` 028 artifact preview pager foundation
-- `[ ]` 029 timeline panel rendering helper
-- `[ ]` 030 panel primitive regression tests at narrow widths
+- `[x]` 021 generic inspector header helper
+- `[x]` 022 generic section divider + title primitive
+- `[x]` 023 scrollable pager state helper
+- `[x]` 024 reusable panel footer hint strip
+- `[x]` 025 preview panel line selection model
+- `[x]` 026 modal dialog width / centering helper
+- `[x]` 027 confirmation dialog button layout helper
+- `[x]` 028 artifact preview pager foundation
+- `[x]` 029 timeline panel rendering helper
+- `[x]` 030 panel primitive regression tests at narrow widths
 
 ## 031-040 Transcript / Review Workspace
 
