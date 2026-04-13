@@ -20,6 +20,7 @@ pub mod mcp_resources;
 pub mod memory;
 pub mod multi_edit;
 pub mod notebook_edit;
+pub mod orchestration_common;
 pub mod plan_mode;
 pub mod project_map;
 pub mod read_file;

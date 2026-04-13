@@ -174,6 +174,9 @@ impl Command for BriefCommand {
             ));
         }
         output.push_str(
+            "    - states: /inspect artifact latest-workflow-state | /inspect artifact latest-coordinate-state\n",
+        );
+        output.push_str(
             "\nUse /diagnostics, /tasks, /reviews, /tools, /memory latest, or /inspect artifact summary for detail.",
         );
 

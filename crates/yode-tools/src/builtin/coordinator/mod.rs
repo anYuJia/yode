@@ -6,7 +6,7 @@ use futures::future::join_all;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::builtin::review_common::persist_review_artifact;
+use crate::builtin::orchestration_common::persist_coordinator_runtime_artifacts;
 use crate::tool::{SubAgentOptions, Tool, ToolCapabilities, ToolContext, ToolResult};
 
 use self::planning::{
@@ -145,6 +145,23 @@ impl Tool for CoordinateAgentsTool {
         if dry_run {
             let plan = render_phase_plan(&phases, max_parallel);
             let timeline = render_phase_timeline(&phases, max_parallel);
+            let artifacts = ctx
+                .working_dir
+                .as_deref()
+                .and_then(|dir| {
+                    persist_coordinator_runtime_artifacts(
+                        dir,
+                        &goal,
+                        true,
+                        &max_parallel_label(max_parallel).to_string(),
+                        phases.len(),
+                        normalized.len(),
+                        &timeline,
+                        &plan,
+                        &[],
+                    )
+                    .ok()
+                });
             return Ok(ToolResult::success_with_metadata(
                 format!(
                     "Coordinator phase timeline\n{}\n\nJSON plan\n{}\n",
@@ -159,6 +176,18 @@ impl Tool for CoordinateAgentsTool {
                     "max_parallel": max_parallel_label(max_parallel),
                     "timeline": timeline,
                     "plan": plan,
+                    "coordinator_summary_artifact": artifacts
+                        .as_ref()
+                        .and_then(|set| set.summary_path.as_ref())
+                        .map(|path| path.display().to_string()),
+                    "coordinator_state_artifact": artifacts
+                        .as_ref()
+                        .and_then(|set| set.state_path.as_ref())
+                        .map(|path| path.display().to_string()),
+                    "orchestration_timeline_artifact": artifacts
+                        .as_ref()
+                        .and_then(|set| set.timeline_path.as_ref())
+                        .map(|path| path.display().to_string()),
                 }),
             ));
         }
@@ -242,11 +271,25 @@ impl Tool for CoordinateAgentsTool {
         }
 
         let rendered_text = serde_json::to_string_pretty(&rendered)?;
-        let artifact_path = ctx
+        let timeline = render_phase_timeline(&phases, max_parallel);
+        let plan = render_phase_plan(&phases, max_parallel);
+        let artifacts = ctx
             .working_dir
             .as_deref()
-            .and_then(|dir| persist_review_artifact(dir, "coordinator", &goal, &rendered_text).ok())
-            .map(|path| path.display().to_string());
+            .and_then(|dir| {
+                persist_coordinator_runtime_artifacts(
+                    dir,
+                    &goal,
+                    false,
+                    &max_parallel_label(max_parallel).to_string(),
+                    phases.len(),
+                    normalized.len(),
+                    &timeline,
+                    &plan,
+                    &rendered,
+                )
+                .ok()
+            });
 
         Ok(ToolResult::success_with_metadata(
             rendered_text,
@@ -255,7 +298,20 @@ impl Tool for CoordinateAgentsTool {
                 "workstream_count": normalized.len(),
                 "phase_count": phases.len(),
                 "max_parallel": max_parallel_label(max_parallel),
-                "coordination_artifact_path": artifact_path,
+                "timeline": timeline,
+                "plan": plan,
+                "coordination_artifact_path": artifacts
+                    .as_ref()
+                    .and_then(|set| set.summary_path.as_ref())
+                    .map(|path| path.display().to_string()),
+                "coordinator_state_artifact": artifacts
+                    .as_ref()
+                    .and_then(|set| set.state_path.as_ref())
+                    .map(|path| path.display().to_string()),
+                "orchestration_timeline_artifact": artifacts
+                    .as_ref()
+                    .and_then(|set| set.timeline_path.as_ref())
+                    .map(|path| path.display().to_string()),
                 "results": rendered,
             }),
         ))

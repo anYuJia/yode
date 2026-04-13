@@ -41,6 +41,13 @@ pub(crate) fn latest_workflow_execution_artifact(project_root: &Path) -> Option<
     latest_artifact_by_suffix(&project_root.join(".yode").join("status"), "workflow-execution.md")
 }
 
+pub(crate) fn latest_workflow_state_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("status"),
+        "workflow-runtime-state.json",
+    )
+}
+
 pub(crate) fn latest_coordinator_artifact(project_root: &Path) -> Option<PathBuf> {
     latest_artifact_by_suffix(&project_root.join(".yode").join("status"), "coordinate-summary.md")
         .or_else(|| {
@@ -49,6 +56,13 @@ pub(crate) fn latest_coordinator_artifact(project_root: &Path) -> Option<PathBuf
                 "coordinate-dry-run.md",
             )
         })
+}
+
+pub(crate) fn latest_coordinator_state_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("status"),
+        "coordinate-runtime-state.json",
+    )
 }
 
 pub(crate) fn latest_runtime_orchestration_artifact(project_root: &Path) -> Option<PathBuf> {
@@ -189,8 +203,14 @@ pub(crate) fn build_runtime_orchestration_timeline_lines(
     if let Some(path) = latest_workflow_execution_artifact(project_root) {
         entries.push(artifact_timeline_entry(&path, "workflow execution"));
     }
+    if let Some(path) = latest_workflow_state_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "workflow state"));
+    }
     if let Some(path) = latest_coordinator_artifact(project_root) {
         entries.push(artifact_timeline_entry(&path, "coordinator"));
+    }
+    if let Some(path) = latest_coordinator_state_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "coordinator state"));
     }
     if let Some(path) = latest_artifact_by_suffix(&status_dir, "runtime-timeline.md") {
         entries.push(artifact_timeline_entry(&path, "runtime timeline"));
