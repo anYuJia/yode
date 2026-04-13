@@ -16,7 +16,7 @@
 
 当前进度：
 
-- `8 / 100` 已完成
+- `20 / 100` 已完成
 
 ## 001-010 Inspector Runtime Foundations
 
@@ -28,21 +28,21 @@
 - `[x]` 006 inspect command bridges existing outputs
 - `[x]` 007 inspector experiment flag surfaced in status
 - `[x]` 008 inspector runtime regression tests
-- `[ ]` 009 inspector workspace review
-- `[ ]` 010 inspector runtime closeout doc
+- `[x]` 009 inspector workspace review
+- `[x]` 010 inspector runtime closeout doc
 
 ## 011-020 Inspector Data Sources
 
-- `[ ]` 011 status inspector tabs
-- `[ ]` 012 diagnostics inspector tabs
-- `[ ]` 013 task inspector tabs
-- `[ ]` 014 memory inspector tabs
-- `[ ]` 015 review inspector tabs
-- `[ ]` 016 doctor inspector tabs
-- `[ ]` 017 hook inspector tabs
-- `[ ]` 018 permission inspector tabs
-- `[ ]` 019 inspector tab parity review
-- `[ ]` 020 inspector tab closeout doc
+- `[x]` 011 status inspector tabs
+- `[x]` 012 diagnostics inspector tabs
+- `[x]` 013 task inspector tabs
+- `[x]` 014 memory inspector tabs
+- `[x]` 015 review inspector tabs
+- `[x]` 016 doctor inspector tabs
+- `[x]` 017 hook inspector tabs
+- `[x]` 018 permission inspector tabs
+- `[x]` 019 inspector tab parity review
+- `[x]` 020 inspector tab closeout doc
 
 ## 021-030 Inspector Navigation Depth
 

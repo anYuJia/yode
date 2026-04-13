@@ -1,9 +1,9 @@
 use crate::commands::context::CommandContext;
+use crate::commands::inspector_bridge::document_from_command_output;
 use crate::commands::{
     ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
     CommandResult,
 };
-use crate::ui::inspector::InspectorDocument;
 
 pub struct InspectCommand {
     meta: CommandMeta,
@@ -85,10 +85,10 @@ impl Command for InspectCommand {
 
         match output {
             CommandOutput::Message(body) => Ok(CommandOutput::OpenInspector(
-                InspectorDocument::single(title, body.lines().map(str::to_string).collect()),
+                document_from_command_output(&title, body.lines().map(str::to_string).collect()),
             )),
             CommandOutput::Messages(lines) => {
-                Ok(CommandOutput::OpenInspector(InspectorDocument::single(title, lines)))
+                Ok(CommandOutput::OpenInspector(document_from_command_output(&title, lines)))
             }
             CommandOutput::OpenInspector(doc) => Ok(CommandOutput::OpenInspector(doc)),
             CommandOutput::Silent => Err("Inspect target produced no output.".to_string()),

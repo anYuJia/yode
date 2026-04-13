@@ -7,6 +7,7 @@ pub mod model;
 pub mod session;
 pub mod tools;
 pub mod utility;
+pub(crate) mod inspector_bridge;
 pub(crate) mod transcript_review_nav;
 pub(crate) mod workspace_text;
 pub(crate) mod workspace_nav;
