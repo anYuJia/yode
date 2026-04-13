@@ -72,12 +72,12 @@ dirs = "6"
 similar = "2"
 
 # Internal crates
-yode-core = { path = "crates/yode-core" }
-yode-llm = { path = "crates/yode-llm" }
-yode-tools = { path = "crates/yode-tools" }
-yode-tui = { path = "crates/yode-tui" }
-yode-mcp = { path = "crates/yode-mcp" }
-yode-agent = { path = "crates/yode-agent" }
+yode-core = { version = "0.2.2", path = "crates/yode-core" }
+yode-llm = { version = "0.2.2", path = "crates/yode-llm" }
+yode-tools = { version = "0.2.2", path = "crates/yode-tools" }
+yode-tui = { version = "0.2.2", path = "crates/yode-tui" }
+yode-mcp = { version = "0.2.2", path = "crates/yode-mcp" }
+yode-agent = { version = "0.2.2", path = "crates/yode-agent" }
 
 [package]
 name = "yode"
