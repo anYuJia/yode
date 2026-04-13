@@ -2,7 +2,8 @@ use std::path::PathBuf;
 
 use crate::commands::artifact_nav::{
     artifact_display_line, artifact_history_lines, latest_artifact_by_suffix,
-    latest_bundle_workspace_index, latest_coordinator_artifact,
+    latest_bundle_workspace_index, latest_checkpoint_artifact, latest_checkpoint_state_artifact,
+    latest_coordinator_artifact,
     latest_coordinator_state_artifact,
     latest_runtime_orchestration_artifact, latest_workflow_execution_artifact,
     latest_workflow_state_artifact, open_artifact_inspector, recent_artifacts_by_suffix,
@@ -29,7 +30,7 @@ impl InspectCommand {
                 args: vec![ArgDef {
                     name: "target".to_string(),
                     required: false,
-                    hint: "[tasks|memory|reviews|status|diagnostics|doctor|hooks|permissions|workflows|coordinate|artifact]".to_string(),
+                    hint: "[tasks|memory|reviews|status|diagnostics|doctor|hooks|permissions|workflows|coordinate|checkpoint|artifact]".to_string(),
                     completions: ArgCompletionSource::Dynamic(inspect_completion_targets),
                 }],
                 category: CommandCategory::Info,
@@ -60,6 +61,11 @@ impl Command for InspectCommand {
                 "coordinate",
                 value.strip_prefix("coordinate").unwrap_or("").trim(),
                 "Coordinator inspector".to_string(),
+            ),
+            value if value.starts_with("checkpoint") => (
+                "checkpoint",
+                value.strip_prefix("checkpoint").unwrap_or("").trim(),
+                "Checkpoint inspector".to_string(),
             ),
             value if value.starts_with("tasks") => (
                 "tasks",
@@ -175,6 +181,20 @@ fn inspect_artifact_target(args: &str, ctx: &mut CommandContext) -> CommandResul
             "Coordinator inspector".to_string(),
             "coordinate".to_string(),
             vec!["/coordinate latest".to_string(), "/coordinate timeline".to_string()],
+        ),
+        "latest-checkpoint" => (
+            latest_checkpoint_artifact(&project_root)
+                .ok_or_else(|| "No checkpoint artifact found.".to_string())?,
+            "Session checkpoint inspector".to_string(),
+            "checkpoint".to_string(),
+            vec!["/checkpoint latest".to_string(), "/checkpoint list".to_string()],
+        ),
+        "latest-checkpoint-state" => (
+            latest_checkpoint_state_artifact(&project_root)
+                .ok_or_else(|| "No checkpoint state artifact found.".to_string())?,
+            "Session checkpoint state".to_string(),
+            "checkpoint".to_string(),
+            vec!["/checkpoint latest".to_string(), "/checkpoint restore-dry-run latest".to_string()],
         ),
         "latest-workflow-state" => (
             latest_workflow_state_artifact(&project_root)
@@ -382,9 +402,11 @@ fn inspect_completion_targets(ctx: &crate::commands::context::CompletionContext)
         "reviews".to_string(),
         "workflows".to_string(),
         "coordinate".to_string(),
+        "checkpoint".to_string(),
         "artifact list".to_string(),
         "artifact summary".to_string(),
         "artifact history".to_string(),
+        "artifact history checkpoints".to_string(),
         "artifact history status".to_string(),
         "artifact history state".to_string(),
         "artifact history remote".to_string(),
@@ -396,6 +418,8 @@ fn inspect_completion_targets(ctx: &crate::commands::context::CompletionContext)
         "artifact history coordinate".to_string(),
         "artifact history runtime".to_string(),
         "artifact latest-workflow".to_string(),
+        "artifact latest-checkpoint".to_string(),
+        "artifact latest-checkpoint-state".to_string(),
         "artifact latest-workflow-state".to_string(),
         "artifact latest-coordinate".to_string(),
         "artifact latest-coordinate-state".to_string(),
@@ -420,12 +444,15 @@ fn inspect_completion_targets(ctx: &crate::commands::context::CompletionContext)
     let status_dir = project_root.join(".yode").join("status");
     let remote_dir = project_root.join(".yode").join("remote");
     let startup_dir = project_root.join(".yode").join("startup");
+    let checkpoint_dir = project_root.join(".yode").join("checkpoints");
     let review_dir = project_root.join(".yode").join("reviews");
     let transcript_dir = project_root.join(".yode").join("transcripts");
     for path in recent_artifacts_by_suffix(&status_dir, ".md", 6)
         .into_iter()
         .chain(recent_artifacts_by_suffix(&remote_dir, ".json", 4))
         .chain(recent_artifacts_by_suffix(&status_dir, ".json", 6))
+        .chain(recent_artifacts_by_suffix(&checkpoint_dir, ".md", 4))
+        .chain(recent_artifacts_by_suffix(&checkpoint_dir, ".json", 4))
         .chain(recent_artifacts_by_suffix(&startup_dir, ".json", 4))
         .chain(recent_artifacts_by_suffix(&startup_dir, ".txt", 2))
         .chain(recent_artifacts_by_suffix(&review_dir, ".md", 3))
@@ -443,6 +470,7 @@ fn artifact_inventory_lines(project_root: &std::path::Path, cwd: &std::path::Pat
         "Aliases:".to_string(),
         "latest-workflow | latest-coordinate | latest-orchestration".to_string(),
         "latest-workflow-state | latest-coordinate-state".to_string(),
+        "latest-checkpoint | latest-checkpoint-state".to_string(),
         "latest-runtime-timeline | latest-runtime-tasks | latest-hook-failures".to_string(),
         "latest-startup-profile | latest-startup-manifest | latest-provider-inventory | latest-mcp-failures".to_string(),
         "latest-review | latest-transcript | latest-session-memory | latest-tool | latest-recovery | latest-permission".to_string(),
@@ -459,6 +487,17 @@ fn artifact_inventory_lines(project_root: &std::path::Path, cwd: &std::path::Pat
         ".json",
         8,
     )));
+    lines.push("Recent checkpoint artifacts:".to_string());
+    lines.extend(artifact_history_lines(
+        recent_artifacts_by_suffix(&project_root.join(".yode").join("checkpoints"), ".md", 6)
+            .into_iter()
+            .chain(recent_artifacts_by_suffix(
+                &project_root.join(".yode").join("checkpoints"),
+                ".json",
+                6,
+            ))
+            .collect::<Vec<_>>(),
+    ));
     lines.push("Recent startup artifacts:".to_string());
     lines.extend(artifact_history_lines(
         recent_artifacts_by_suffix(&project_root.join(".yode").join("startup"), ".json", 6)
@@ -507,9 +546,11 @@ fn artifact_summary_lines(project_root: &std::path::Path, cwd: &std::path::Path)
     vec![
         "Counts:".to_string(),
         format!(
-            "status={} state={} startup={} remote={} reviews={} transcripts={} bundles={}",
+            "status={} state={} checkpoints={} startup={} remote={} reviews={} transcripts={} bundles={}",
             recent_artifacts_by_suffix(&project_root.join(".yode").join("status"), ".md", usize::MAX).len(),
             recent_artifacts_by_suffix(&project_root.join(".yode").join("status"), ".json", usize::MAX).len(),
+            recent_artifacts_by_suffix(&project_root.join(".yode").join("checkpoints"), ".md", usize::MAX).len()
+                + recent_artifacts_by_suffix(&project_root.join(".yode").join("checkpoints"), ".json", usize::MAX).len(),
             recent_artifacts_by_suffix(&project_root.join(".yode").join("startup"), ".json", usize::MAX).len()
                 + recent_artifacts_by_suffix(&project_root.join(".yode").join("startup"), ".txt", usize::MAX).len(),
             recent_artifacts_by_suffix(&project_root.join(".yode").join("remote"), ".json", usize::MAX).len()
@@ -522,9 +563,15 @@ fn artifact_summary_lines(project_root: &std::path::Path, cwd: &std::path::Path)
         latest_workflow_execution_artifact(project_root)
             .map(|path| format!("workflow -> {}", artifact_display_line(&path)))
             .unwrap_or_else(|| "workflow -> none".to_string()),
+        latest_checkpoint_artifact(project_root)
+            .map(|path| format!("checkpoint -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "checkpoint -> none".to_string()),
         latest_workflow_state_artifact(project_root)
             .map(|path| format!("workflow_state -> {}", artifact_display_line(&path)))
             .unwrap_or_else(|| "workflow_state -> none".to_string()),
+        latest_checkpoint_state_artifact(project_root)
+            .map(|path| format!("checkpoint_state -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "checkpoint_state -> none".to_string()),
         latest_coordinator_artifact(project_root)
             .map(|path| format!("coordinate -> {}", artifact_display_line(&path)))
             .unwrap_or_else(|| "coordinate -> none".to_string()),
@@ -549,6 +596,14 @@ fn artifact_history_family_lines(
     let paths: Vec<PathBuf> = match family {
         "status" => recent_artifacts_by_suffix(&project_root.join(".yode").join("status"), ".md", 12),
         "state" => recent_artifacts_by_suffix(&project_root.join(".yode").join("status"), ".json", 12),
+        "checkpoints" => recent_artifacts_by_suffix(&project_root.join(".yode").join("checkpoints"), ".md", 12)
+            .into_iter()
+            .chain(recent_artifacts_by_suffix(
+                &project_root.join(".yode").join("checkpoints"),
+                ".json",
+                12,
+            ))
+            .collect(),
         "remote" => recent_artifacts_by_suffix(&project_root.join(".yode").join("remote"), ".json", 8)
             .into_iter()
             .chain(recent_artifacts_by_suffix(&project_root.join(".yode").join("remote"), ".md", 4))

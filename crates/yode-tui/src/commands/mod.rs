@@ -90,6 +90,7 @@ pub fn register_all(registry: &mut CommandRegistry) {
     // Session
     registry.register(Box::new(session::ClearCommand::new()));
     registry.register(Box::new(session::CompactCommand::new()));
+    registry.register(Box::new(session::CheckpointCommand::new()));
     registry.register(Box::new(session::SessionsCommand::new()));
     registry.register(Box::new(session::ExitCommand::new()));
     registry.register(Box::new(session::RenameCommand::new()));

@@ -16,7 +16,7 @@
 
 当前进度：
 
-- `10 / 100` 已完成
+- `20 / 100` 已完成
 
 ## 001-010 Orchestration Runtime State
 
@@ -33,16 +33,16 @@
 
 ## 011-020 Session Checkpoint Foundations
 
-- `[ ]` 011 session checkpoint artifact schema
-- `[ ]` 012 session checkpoint inventory
-- `[ ]` 013 checkpoint preview inspector
-- `[ ]` 014 checkpoint diff summary
-- `[ ]` 015 checkpoint save command surface
-- `[ ]` 016 checkpoint restore dry-run
-- `[ ]` 017 checkpoint foundation review
-- `[ ]` 018 checkpoint foundation closeout
-- `[ ]` 019 checkpoint metadata freshness
-- `[ ]` 020 checkpoint operator guide
+- `[x]` 011 session checkpoint artifact schema
+- `[x]` 012 session checkpoint inventory
+- `[x]` 013 checkpoint preview inspector
+- `[x]` 014 checkpoint diff summary
+- `[x]` 015 checkpoint save command surface
+- `[x]` 016 checkpoint restore dry-run
+- `[x]` 017 checkpoint foundation review
+- `[x]` 018 checkpoint foundation closeout
+- `[x]` 019 checkpoint metadata freshness
+- `[x]` 020 checkpoint operator guide
 
 ## 021-030 Session Branch / Rewind
 

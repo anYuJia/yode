@@ -177,6 +177,9 @@ impl Command for BriefCommand {
             "    - states: /inspect artifact latest-workflow-state | /inspect artifact latest-coordinate-state\n",
         );
         output.push_str(
+            "    - checkpoints: /checkpoint save [label] | /checkpoint latest | /checkpoint restore-dry-run latest\n",
+        );
+        output.push_str(
             "\nUse /diagnostics, /tasks, /reviews, /tools, /memory latest, or /inspect artifact summary for detail.",
         );
 
