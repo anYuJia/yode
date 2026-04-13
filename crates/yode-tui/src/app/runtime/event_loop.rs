@@ -177,6 +177,14 @@ fn resize_inline_viewport(
 }
 
 fn viewport_height(app: &App, terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> u16 {
+    if let Some(inspector) = app.inspector.as_ref() {
+        let total = inspector
+            .document
+            .active_panel()
+            .map(|panel| panel.lines.len() as u16)
+            .unwrap_or(1);
+        return total.min(16).max(6);
+    }
     if let Some(wizard) = app.wizard.as_ref() {
         return wizard.viewport_height() + 1;
     }

@@ -8,6 +8,7 @@ mod diagnostics_render;
 mod doctor;
 mod help;
 mod hooks_cmd;
+mod inspect;
 pub(crate) mod memory;
 pub(crate) mod permission_recovery_workspace;
 pub(crate) mod runtime_inspectors;
@@ -29,6 +30,7 @@ pub use diagnostics::DiagnosticsCommand;
 pub use doctor::DoctorCommand;
 pub use help::HelpCommand;
 pub use hooks_cmd::HooksCommand;
+pub use inspect::InspectCommand;
 pub use memory::MemoryCommand;
 pub(crate) use memory::{
     run_long_session_benchmark, transcript_cache_stats, warm_resume_transcript_caches,

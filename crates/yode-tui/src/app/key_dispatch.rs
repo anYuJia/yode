@@ -89,6 +89,19 @@ pub(super) fn handle_key_event(
         return;
     }
 
+    if let Some(inspector) = app.inspector.as_mut() {
+        match key.code {
+            KeyCode::Esc => app.inspector = None,
+            KeyCode::Up => inspector.document.move_up(),
+            KeyCode::Down => inspector.document.move_down(),
+            KeyCode::PageUp => inspector.document.page_up(10),
+            KeyCode::PageDown => inspector.document.page_down(10),
+            KeyCode::Tab => inspector.document.cycle_tab(),
+            _ => {}
+        }
+        return;
+    }
+
     if app.history.is_searching() {
         match key.code {
             KeyCode::Esc => {

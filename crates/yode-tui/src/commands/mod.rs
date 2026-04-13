@@ -63,6 +63,7 @@ pub enum CommandOutput {
     Message(String),
     Messages(Vec<String>),
     Silent,
+    OpenInspector(crate::ui::inspector::InspectorDocument),
     /// Start an interactive wizard (multi-step input flow)
     StartWizard(crate::app::wizard::Wizard),
     /// Provider config changed — hot-reload this provider from disk
@@ -109,6 +110,7 @@ pub fn register_all(registry: &mut CommandRegistry) {
     registry.register(Box::new(info::ContextCommand::new()));
     registry.register(Box::new(info::DiagnosticsCommand::new()));
     registry.register(Box::new(info::HooksCommand::new()));
+    registry.register(Box::new(info::InspectCommand::new()));
     registry.register(Box::new(info::MemoryCommand::new()));
     registry.register(Box::new(info::TasksCommand::new()));
     registry.register(Box::new(info::DoctorCommand::new()));

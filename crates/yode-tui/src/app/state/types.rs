@@ -1,6 +1,7 @@
 use std::time::{Duration, Instant};
 
 use tokio_util::sync::CancellationToken;
+use crate::ui::inspector::InspectorDocument;
 
 /// A pending tool confirmation.
 #[derive(Debug, Clone)]
@@ -88,6 +89,11 @@ pub enum PermissionMode {
     Normal,
     AutoAccept,
     Plan,
+}
+
+#[derive(Debug, Clone)]
+pub struct InspectorView {
+    pub document: InspectorDocument,
 }
 
 impl PermissionMode {

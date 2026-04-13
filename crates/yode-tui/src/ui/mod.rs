@@ -50,6 +50,8 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             .split(panel_area);
 
         tool_confirm::render_inline_confirm(frame, &chunks, app);
+    } else if let Some(inspector) = app.inspector.as_ref() {
+        inspector::render_inspector(frame, frame.area(), &inspector.document);
     } else {
         let plan = layout::build_main_layout(frame.area(), app);
         if plan.show_completion {

@@ -22,8 +22,8 @@ pub use self::runtime::run;
 pub(crate) use self::time::format_duration;
 pub(crate) use self::state::SPINNER_VERBS;
 pub use self::state::{
-    App, ChatEntry, ChatRole, PendingConfirmation, PermissionMode, SessionState, ThinkingState,
-    TurnStatus,
+    App, ChatEntry, ChatRole, InspectorView, PendingConfirmation, PermissionMode, SessionState,
+    ThinkingState, TurnStatus,
 };
 
 // ── Content Filtering ───────────────────────────────────────────────
