@@ -389,6 +389,7 @@ fn workflow_project_root(dir: &Path) -> std::path::PathBuf {
 fn workflow_artifact_footer(path: &Path) -> String {
     let mut lines = vec![
         "/inspect workflows timeline".to_string(),
+        "/workflows history".to_string(),
         "/workflows preview latest".to_string(),
         "/workflows run latest".to_string(),
         "/workflows run-write latest".to_string(),

@@ -59,6 +59,10 @@ pub(crate) fn latest_runtime_orchestration_artifact(project_root: &Path) -> Opti
 }
 
 pub(crate) fn latest_bundle_workspace_index(cwd: &Path) -> Option<PathBuf> {
+    recent_bundle_workspace_indexes(cwd, 1).into_iter().next()
+}
+
+pub(crate) fn recent_bundle_workspace_indexes(cwd: &Path, limit: usize) -> Vec<PathBuf> {
     let mut entries = std::fs::read_dir(cwd)
         .ok()
         .into_iter()
@@ -68,7 +72,7 @@ pub(crate) fn latest_bundle_workspace_index(cwd: &Path) -> Option<PathBuf> {
         .map(|path| path.join("workspace-index.md"))
         .collect::<Vec<_>>();
     entries.sort_by(compare_paths_by_modified_desc);
-    entries.into_iter().next()
+    entries.into_iter().take(limit).collect()
 }
 
 pub(crate) fn resolve_artifact_basename(project_root: &Path, target: &str) -> Option<PathBuf> {
@@ -128,6 +132,20 @@ pub(crate) fn stale_artifact_actions(path: &Path, refresh_commands: &[String]) -
             refresh_commands.join(" | ")
         ))
     }
+}
+
+pub(crate) fn artifact_display_line(path: &Path) -> String {
+    format!(
+        "[{}] {}",
+        artifact_freshness_badge(path),
+        path.display()
+    )
+}
+
+pub(crate) fn artifact_history_lines(paths: impl IntoIterator<Item = PathBuf>) -> Vec<String> {
+    paths.into_iter()
+        .map(|path| artifact_display_line(&path))
+        .collect()
 }
 
 pub(crate) fn open_artifact_inspector(
@@ -284,9 +302,9 @@ fn compare_paths_by_modified_desc(left: &PathBuf, right: &PathBuf) -> Ordering {
 #[cfg(test)]
 mod tests {
     use super::{
-        artifact_freshness_badge, build_runtime_orchestration_timeline_lines,
+        artifact_display_line, artifact_freshness_badge, build_runtime_orchestration_timeline_lines,
         latest_artifact_by_suffix, latest_bundle_workspace_index, open_artifact_inspector,
-        recent_artifacts_by_suffix, resolve_artifact_basename,
+        recent_artifacts_by_suffix, recent_bundle_workspace_indexes, resolve_artifact_basename,
         write_runtime_orchestration_timeline_artifact,
     };
 
@@ -320,6 +338,7 @@ mod tests {
         std::fs::write(newer.join("workspace-index.md"), "new").unwrap();
         let latest = latest_bundle_workspace_index(&dir).unwrap();
         assert!(latest.ends_with("diagnostics-b/workspace-index.md"));
+        assert_eq!(recent_bundle_workspace_indexes(&dir, 2).len(), 2);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -352,6 +371,7 @@ mod tests {
         let doc = open_artifact_inspector("Demo", &path, None, vec![("kind".into(), "demo".into())])
             .unwrap();
         assert_eq!(artifact_freshness_badge(&path), "fresh");
+        assert!(artifact_display_line(&path).contains("[fresh]"));
         assert!(doc.panels[0]
             .badges
             .iter()

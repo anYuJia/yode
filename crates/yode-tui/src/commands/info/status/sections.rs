@@ -58,7 +58,7 @@ pub(super) fn reviews_section(latest_review: Option<&ReviewSummary>) -> String {
 
 pub(super) fn artifact_links_section(links: &StatusArtifactLinks) -> String {
     format!(
-        "\n\nArtifacts:\n  Review:          {}\n  Startup profile: {}\n  Startup manifest: {}\n  Provider inv:    {}\n  Resume warmup:   {}\n  MCP failures:    {}\n  Tool:            {}\n  Recovery:        {}\n  Permission:      {}\n  Transcript:      {}\n  Runtime tasks:   {}\n  Hook inspector:  {}\n  Workflow:        {}\n  Coordinator:     {}\n  Orchestration:   {}",
+        "\n\nArtifacts:\n  Review:          {}\n  Startup profile: {}\n  Startup manifest: {}\n  Provider inv:    {}\n  Resume warmup:   {}\n  MCP failures:    {}\n  Tool:            {}\n  Recovery:        {}\n  Permission:      {}\n  Transcript:      {}\n  Runtime tasks:   {}\n  Hook inspector:  {}\n  Workflow:        {}\n  Coordinator:     {}\n  Orchestration:   {}\n\nInspect:\n  Orchestration:   /inspect artifact latest-orchestration\n  Workflow:        /inspect artifact latest-workflow\n  Coordinator:     /inspect artifact latest-coordinate\n  Runtime:         /inspect artifact latest-runtime-timeline\n  Startup:         /inspect artifact latest-provider-inventory\n  Review/Memory:   /inspect artifact latest-review | /inspect artifact latest-transcript",
         links.review_artifact.as_deref().unwrap_or("none"),
         links.startup_profile_artifact.as_deref().unwrap_or("none"),
         links.startup_manifest_artifact.as_deref().unwrap_or("none"),

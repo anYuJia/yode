@@ -16,7 +16,7 @@
 
 当前进度：
 
-- `74 / 100` 已完成
+- `100 / 100` 已完成
 
 ## 001-010 Inspector Runtime Foundations
 
@@ -104,9 +104,9 @@
 - `[x]` 064 direct compare against Claude doctor/support flow
 - `[x]` 065 direct compare against Claude remote/browser state
 - `[x]` 066 round-5 gap map refresh after 50 items
-- `[ ]` 067 round-5 gap map refresh after 100 items
+- `[x]` 067 round-5 gap map refresh after 100 items
 - `[x]` 068 round-5 parity review draft
-- `[ ]` 069 round-5 final parity review
+- `[x]` 069 round-5 final parity review
 - `[x]` 070 round-5 release note draft
 
 ## 071-100 Buffer
@@ -117,27 +117,27 @@
 - `[x]` 074 inspect artifact dynamic completion targets
 - `[x]` 075 basename artifact resolution
 - `[x]` 076 diagnostics bundle inspect alias summary
-- `[ ]` 077 spare
-- `[ ]` 078 spare
-- `[ ]` 079 spare
-- `[ ]` 080 spare
-- `[ ]` 081 spare
-- `[ ]` 082 spare
-- `[ ]` 083 spare
-- `[ ]` 084 spare
-- `[ ]` 085 spare
-- `[ ]` 086 spare
-- `[ ]` 087 spare
-- `[ ]` 088 spare
-- `[ ]` 089 spare
-- `[ ]` 090 spare
-- `[ ]` 091 spare
-- `[ ]` 092 spare
-- `[ ]` 093 spare
-- `[ ]` 094 spare
-- `[ ]` 095 spare
-- `[ ]` 096 spare
-- `[ ]` 097 spare
-- `[ ]` 098 spare
-- `[ ]` 099 spare
-- `[ ]` 100 spare
+- `[x]` 077 artifact inventory grouped sections
+- `[x]` 078 artifact inventory freshness labels
+- `[x]` 079 artifact family history selector
+- `[x]` 080 inspect artifact summary alias
+- `[x]` 081 inspect runtime timeline alias
+- `[x]` 082 inspect runtime task alias
+- `[x]` 083 inspect hook failure alias
+- `[x]` 084 inspect startup profile alias
+- `[x]` 085 inspect startup manifest alias
+- `[x]` 086 inspect provider inventory alias
+- `[x]` 087 inspect MCP startup failure alias
+- `[x]` 088 inspect latest review alias
+- `[x]` 089 inspect latest transcript alias
+- `[x]` 090 inspect session memory alias
+- `[x]` 091 inspect latest tool alias
+- `[x]` 092 inspect latest recovery alias
+- `[x]` 093 inspect latest permission alias
+- `[x]` 094 artifact family completion targets
+- `[x]` 095 workflow artifact footer history hint
+- `[x]` 096 coordinator artifact footer history hint
+- `[x]` 097 brief orchestration summary
+- `[x]` 098 status artifact inspect hints
+- `[x]` 099 workspace index freshness labels
+- `[x]` 100 bundle inspect aliases expanded

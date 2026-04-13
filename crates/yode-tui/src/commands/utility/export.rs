@@ -4,8 +4,8 @@ use std::path::PathBuf;
 
 use crate::app::ChatRole;
 use crate::commands::artifact_nav::{
-    latest_coordinator_artifact, latest_runtime_orchestration_artifact,
-    latest_workflow_execution_artifact,
+    artifact_freshness_badge, latest_coordinator_artifact,
+    latest_runtime_orchestration_artifact, latest_workflow_execution_artifact,
 };
 use crate::commands::context::CommandContext;
 use crate::commands::{
@@ -260,17 +260,17 @@ fn export_diagnostics_bundle(custom_name: Option<&str>, ctx: &mut CommandContext
 
     let workspace_index = bundle_dir.join("workspace-index.md");
     let workflow_artifact = latest_workflow_execution_artifact(&PathBuf::from(&ctx.session.working_dir))
-        .map(|path| path.display().to_string())
+        .map(|path| format!("[{}] {}", artifact_freshness_badge(&path), path.display()))
         .unwrap_or_else(|| "none".to_string());
     let coordinator_artifact = latest_coordinator_artifact(&PathBuf::from(&ctx.session.working_dir))
-        .map(|path| path.display().to_string())
+        .map(|path| format!("[{}] {}", artifact_freshness_badge(&path), path.display()))
         .unwrap_or_else(|| "none".to_string());
     let orchestration_artifact =
         latest_runtime_orchestration_artifact(&PathBuf::from(&ctx.session.working_dir))
-            .map(|path| path.display().to_string())
+            .map(|path| format!("[{}] {}", artifact_freshness_badge(&path), path.display()))
             .unwrap_or_else(|| "none".to_string());
     let workspace_body = format!(
-        "# Workspace Index\n\n- Bundle: {}\n- Conversation: {}\n- Runtime summary: {}\n- Runtime timeline: {}\n- Doctor refs: {}\n\nJump targets:\n- /tasks latest\n- /memory latest\n- /reviews latest\n- /status\n- /diagnostics\n- /doctor bundle\n\nOrchestration artifacts:\n- workflow: {}\n- coordinator: {}\n- timeline: {}\n\nInspect aliases:\n- /inspect artifact latest-workflow\n- /inspect artifact latest-coordinate\n- /inspect artifact latest-orchestration\n- /inspect artifact bundle\n",
+        "# Workspace Index\n\n- Bundle: {}\n- Conversation: {}\n- Runtime summary: {}\n- Runtime timeline: {}\n- Doctor refs: {}\n\nJump targets:\n- /tasks latest\n- /memory latest\n- /reviews latest\n- /status\n- /diagnostics\n- /doctor bundle\n\nOrchestration artifacts:\n- workflow: {}\n- coordinator: {}\n- timeline: {}\n\nInspect aliases:\n- /inspect artifact summary\n- /inspect artifact latest-workflow\n- /inspect artifact latest-coordinate\n- /inspect artifact latest-orchestration\n- /inspect artifact latest-runtime-timeline\n- /inspect artifact latest-provider-inventory\n- /inspect artifact latest-review\n- /inspect artifact latest-transcript\n- /inspect artifact bundle\n",
         bundle_dir.display(),
         conversation_path.display(),
         diagnostics_path.display(),

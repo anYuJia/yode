@@ -129,6 +129,7 @@ impl Command for CoordinateCommand {
 
 fn coordinate_artifact_footer(path: &std::path::Path) -> String {
     let mut lines = coordinator_jump_targets();
+    lines.push("/coordinate history".to_string());
     if let Some(stale) = stale_artifact_actions(path, &lines) {
         lines.push(stale);
     }
