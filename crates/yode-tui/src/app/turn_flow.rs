@@ -161,8 +161,8 @@ pub(super) fn handle_enter(
             return;
         }
 
-use crate::commands::CommandOutput;
 use crate::app::InspectorView;
+use crate::commands::CommandOutput;
         match result {
             Some(Ok(CommandOutput::Message(msg))) => {
                 app.chat_entries.push(ChatEntry::new(ChatRole::System, msg));
@@ -174,7 +174,8 @@ use crate::app::InspectorView;
             }
             Some(Ok(CommandOutput::Silent)) => {}
             Some(Ok(CommandOutput::OpenInspector(document))) => {
-                app.inspector = Some(InspectorView { document });
+                app.inspector.stack.push(document.state.title.clone());
+                app.inspector.views.push(InspectorView { document });
             }
             Some(Ok(CommandOutput::StartWizard(wizard))) => {
                 app.wizard = Some(wizard);

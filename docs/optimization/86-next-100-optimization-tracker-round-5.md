@@ -16,7 +16,7 @@
 
 当前进度：
 
-- `20 / 100` 已完成
+- `40 / 100` 已完成
 
 ## 001-010 Inspector Runtime Foundations
 
@@ -46,29 +46,29 @@
 
 ## 021-030 Inspector Navigation Depth
 
-- `[ ]` 021 inspector jump-to-line helper
-- `[ ]` 022 inspector search-in-body helper
-- `[ ]` 023 inspector multi-tab cycle summary
-- `[ ]` 024 inspector focus badge renderer
-- `[ ]` 025 inspector empty-state actions into live UI
-- `[ ]` 026 inspector pagination footer into live UI
-- `[ ]` 027 inspector panel stack actual usage
-- `[ ]` 028 inspector-to-command handoff helper
-- `[ ]` 029 inspector navigation review
-- `[ ]` 030 inspector navigation closeout doc
+- `[x]` 021 inspector jump-to-line helper
+- `[x]` 022 inspector search-in-body helper
+- `[x]` 023 inspector multi-tab cycle summary
+- `[x]` 024 inspector focus badge renderer
+- `[x]` 025 inspector empty-state actions into live UI
+- `[x]` 026 inspector pagination footer into live UI
+- `[x]` 027 inspector panel stack actual usage
+- `[x]` 028 inspector-to-command handoff helper
+- `[x]` 029 inspector navigation review
+- `[x]` 030 inspector navigation closeout doc
 
 ## 031-040 Remote Execution Runtime
 
-- `[ ]` 031 remote execution state model
-- `[ ]` 032 remote execution artifact schema
-- `[ ]` 033 remote execution workspace inspector
-- `[ ]` 034 browser action outcome feed
-- `[ ]` 035 remote execution bundle export
-- `[ ]` 036 remote execution doctor checks
-- `[ ]` 037 browser execution review
-- `[ ]` 038 remote execution review
-- `[ ]` 039 remote execution gap map
-- `[ ]` 040 remote execution closeout doc
+- `[x]` 031 remote execution state model
+- `[x]` 032 remote execution artifact schema
+- `[x]` 033 remote execution workspace inspector
+- `[x]` 034 browser action outcome feed
+- `[x]` 035 remote execution bundle export
+- `[x]` 036 remote execution doctor checks
+- `[x]` 037 browser execution review
+- `[x]` 038 remote execution review
+- `[x]` 039 remote execution gap map
+- `[x]` 040 remote execution closeout doc
 
 ## 041-050 Workflow / Coordinator Runtime
 

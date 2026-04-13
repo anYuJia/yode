@@ -3,7 +3,7 @@ use crate::commands::{
     ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
     CommandResult,
 };
-use super::coordinate_workspace::coordinator_dry_run_prompt;
+use super::coordinate_workspace::{coordinator_dry_run_prompt, write_coordinator_stub_artifact};
 
 pub struct CoordinateCommand {
     meta: CommandMeta,
@@ -41,8 +41,14 @@ impl Command for CoordinateCommand {
             args.trim().to_string()
         };
         ctx.input.set_text(&coordinator_dry_run_prompt(&goal));
-        Ok(CommandOutput::Message(
-            "Loaded a coordinator-agent prompt into the input box.".to_string(),
-        ))
+        let artifact = write_coordinator_stub_artifact(
+            std::path::Path::new(&ctx.session.working_dir),
+            &ctx.session.session_id,
+            &goal,
+        );
+        Ok(CommandOutput::Message(format!(
+            "Loaded a coordinator-agent prompt into the input box.\nArtifact: {}",
+            artifact.unwrap_or_else(|| "none".to_string())
+        )))
     }
 }

@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use tokio_util::sync::CancellationToken;
-use crate::ui::inspector::InspectorDocument;
+use crate::ui::inspector::{InspectorDocument, PanelStackCoordinator};
 
 /// A pending tool confirmation.
 #[derive(Debug, Clone)]
@@ -94,6 +94,12 @@ pub enum PermissionMode {
 #[derive(Debug, Clone)]
 pub struct InspectorView {
     pub document: InspectorDocument,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct InspectorRuntime {
+    pub stack: PanelStackCoordinator,
+    pub views: Vec<InspectorView>,
 }
 
 impl PermissionMode {

@@ -7,8 +7,9 @@ use crate::commands::context::CommandContext;
 use crate::runtime_artifacts::{write_hook_failure_artifact, write_runtime_timeline_artifact};
 use crate::commands::tools::mcp_workspace::write_browser_access_state_artifact;
 use self::remote_workspace::{
-    build_remote_workflow_state, remote_command_surface_inventory,
-    write_remote_execution_stub_inventory, write_remote_workflow_capability_artifact,
+    build_remote_execution_state, build_remote_workflow_state, remote_command_surface_inventory,
+    write_remote_execution_state_artifact, write_remote_execution_stub_inventory,
+    write_remote_workflow_capability_artifact,
 };
 
 pub(super) fn render_doctor_report(ctx: &mut CommandContext) -> String {
@@ -91,6 +92,12 @@ pub(super) fn export_doctor_bundle(ctx: &mut CommandContext) -> Result<String, S
         }
     }
     let remote_state = build_remote_workflow_state(ctx);
+    let remote_execution_state = ctx
+        .engine
+        .try_lock()
+        .ok()
+        .map(|engine| build_remote_execution_state(&working_dir, Some(&engine.runtime_state())))
+        .unwrap_or_default();
     if let Some(path) = write_remote_workflow_capability_artifact(
         &working_dir,
         &ctx.session.session_id,
@@ -98,6 +105,16 @@ pub(super) fn export_doctor_bundle(ctx: &mut CommandContext) -> Result<String, S
         &remote_command_surface_inventory(),
     ) {
         let dest = bundle_dir.join("remote-workflow-capability.json");
+        std::fs::copy(&path, &dest)
+            .map_err(|err| format!("Failed to copy {}: {}", path, err))?;
+        copied_files.push(dest);
+    }
+    if let Some(path) = write_remote_execution_state_artifact(
+        &working_dir,
+        &ctx.session.session_id,
+        &remote_execution_state,
+    ) {
+        let dest = bundle_dir.join("remote-execution-state.json");
         std::fs::copy(&path, &dest)
             .map_err(|err| format!("Failed to copy {}: {}", path, err))?;
         copied_files.push(dest);

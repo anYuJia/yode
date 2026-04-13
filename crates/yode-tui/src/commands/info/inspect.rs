@@ -47,6 +47,16 @@ impl Command for InspectCommand {
         let trimmed = args.trim();
         let (command, command_args, title) = match trimmed {
             "" => ("status", "", "Status inspector".to_string()),
+            value if value.starts_with("workflows") => (
+                "workflows",
+                value.strip_prefix("workflows").unwrap_or("").trim(),
+                "Workflow inspector".to_string(),
+            ),
+            value if value.starts_with("coordinate") => (
+                "coordinate",
+                value.strip_prefix("coordinate").unwrap_or("").trim(),
+                "Coordinator inspector".to_string(),
+            ),
             value if value.starts_with("tasks") => (
                 "tasks",
                 value.strip_prefix("tasks").unwrap_or("").trim(),

@@ -1,9 +1,10 @@
 use crate::commands::context::CommandContext;
 use crate::commands::workspace_text::{workspace_bullets, WorkspaceText};
 use super::remote_workspace::{
-    browser_capability_checklist, build_remote_workflow_state,
+    browser_capability_checklist, build_remote_execution_state, build_remote_workflow_state,
     remote_command_surface_inventory, remote_missing_prereq_summary,
     remote_prereq_severity_banner, render_remote_capability_workspace,
+    render_remote_execution_workspace, write_remote_execution_state_artifact,
     write_remote_workflow_capability_artifact,
 };
 use super::shared::format_artifact_entry;
@@ -80,14 +81,28 @@ pub(super) fn render_remote_env_check(ctx: &mut CommandContext) -> String {
         )),
     }
     let command_inventory = remote_command_surface_inventory();
+    let execution_state = ctx
+        .engine
+        .try_lock()
+        .ok()
+        .map(|engine| build_remote_execution_state(&project_root, Some(&engine.runtime_state())))
+        .unwrap_or_default();
     let capability_artifact = write_remote_workflow_capability_artifact(
         &project_root,
         &ctx.session.session_id,
         &workflow_state,
         &command_inventory,
     );
+    let execution_artifact = write_remote_execution_state_artifact(
+        &project_root,
+        &ctx.session.session_id,
+        &execution_state,
+    );
     if let Some(path) = capability_artifact.as_deref() {
         artifact_checks.push(format!("  [ok] Remote capability artifact: {}", path));
+    }
+    if let Some(path) = execution_artifact.as_deref() {
+        artifact_checks.push(format!("  [ok] Remote execution artifact: {}", path));
     }
     artifact_checks.extend(browser_capability_checklist(ctx));
 
@@ -104,6 +119,14 @@ pub(super) fn render_remote_env_check(ctx: &mut CommandContext) -> String {
             capability_artifact
                 .as_deref()
                 .and_then(|path| render_remote_capability_workspace(std::path::Path::new(path)))
+                .map(|preview| workspace_bullets([preview]))
+                .unwrap_or_else(|| workspace_bullets(["none"])),
+        )
+        .section(
+            "Execution preview",
+            execution_artifact
+                .as_deref()
+                .and_then(|path| render_remote_execution_workspace(std::path::Path::new(path)))
                 .map(|preview| workspace_bullets([preview]))
                 .unwrap_or_else(|| workspace_bullets(["none"])),
         )

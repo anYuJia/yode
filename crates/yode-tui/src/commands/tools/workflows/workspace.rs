@@ -25,10 +25,20 @@ pub(super) fn workflow_remote_bridge_hint() -> &'static str {
     "Remote bridge: pair `/workflows preview` with `/doctor remote-review` before executing write-capable workflows in remote contexts."
 }
 
+pub(super) fn workflow_jump_targets(name: &str) -> Vec<String> {
+    vec![
+        format!("/workflows show {}", name),
+        format!("/workflows preview {}", name),
+        format!("/workflows run {}", name),
+        format!("/workflows run-write {}", name),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        nested_workflow_guard_narrative, workflow_checkpoint_workspace, workflow_remote_bridge_hint,
+        nested_workflow_guard_narrative, workflow_checkpoint_workspace, workflow_jump_targets,
+        workflow_remote_bridge_hint,
     };
 
     #[test]
@@ -48,5 +58,6 @@ mod tests {
     fn workflow_guard_and_bridge_hints_render() {
         assert!(nested_workflow_guard_narrative().contains("Nested workflow"));
         assert!(workflow_remote_bridge_hint().contains("/doctor remote-review"));
+        assert!(workflow_jump_targets("demo")[0].contains("/workflows show demo"));
     }
 }

@@ -2,13 +2,15 @@ use std::path::Path;
 
 use crate::commands::context::CommandContext;
 use crate::commands::{CommandOutput, CommandResult};
+use crate::commands::workspace_nav::workspace_jump_inventory;
 
 use super::definitions::{
     compact_json_preview, is_safe_workflow_step, latest_workflow_name, load_workflow_definition,
     workflow_requires_write_mode, workflow_template, workflow_template_names,
 };
 use super::workspace::{
-    nested_workflow_guard_narrative, workflow_checkpoint_workspace, workflow_remote_bridge_hint,
+    nested_workflow_guard_narrative, workflow_checkpoint_workspace, workflow_jump_targets,
+    workflow_remote_bridge_hint,
 };
 
 pub(super) fn execute_workflows_command(
@@ -144,9 +146,10 @@ fn render_show_workflow(dir: &Path, name: String) -> Result<String, String> {
         }
     }
     output.push_str(&format!(
-        "\n\n{}\n{}",
+        "\n\n{}\n{}\n{}",
         nested_workflow_guard_narrative(),
-        workflow_remote_bridge_hint()
+        workflow_remote_bridge_hint(),
+        workspace_jump_inventory(workflow_jump_targets(&name))
     ));
     Ok(output)
 }
@@ -185,7 +188,7 @@ fn render_preview_workflow(dir: &Path, name: String) -> Result<String, String> {
         ));
     }
     Ok(format!(
-        "{}\n\n{}\n{}",
+        "{}\n\n{}\n{}\n{}",
         workflow_checkpoint_workspace(
             "Workflow plan preview",
             &path,
@@ -200,7 +203,8 @@ fn render_preview_workflow(dir: &Path, name: String) -> Result<String, String> {
             rendered_steps,
         ),
         nested_workflow_guard_narrative(),
-        workflow_remote_bridge_hint()
+        workflow_remote_bridge_hint(),
+        workspace_jump_inventory(workflow_jump_targets(&name))
     ))
 }
 

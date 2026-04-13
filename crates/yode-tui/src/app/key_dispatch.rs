@@ -89,14 +89,42 @@ pub(super) fn handle_key_event(
         return;
     }
 
-    if let Some(inspector) = app.inspector.as_mut() {
+    if let Some(inspector) = app.inspector.views.last_mut() {
         match key.code {
-            KeyCode::Esc => app.inspector = None,
+            KeyCode::Esc => {
+                app.inspector.views.pop();
+                app.inspector.stack.pop();
+            }
             KeyCode::Up => inspector.document.move_up(),
             KeyCode::Down => inspector.document.move_down(),
             KeyCode::PageUp => inspector.document.page_up(10),
             KeyCode::PageDown => inspector.document.page_down(10),
-            KeyCode::Tab => inspector.document.cycle_tab(),
+            KeyCode::Tab => {
+                if key.modifiers.contains(KeyModifiers::SHIFT) {
+                    inspector.document.toggle_focus();
+                } else {
+                    inspector.document.cycle_tab();
+                }
+            }
+            KeyCode::Char('/') => inspector.document.begin_search(),
+            KeyCode::Backspace if inspector.document.state.search_active => {
+                inspector.document.pop_search_char();
+            }
+            KeyCode::Enter if inspector.document.state.search_active => {
+                inspector.document.finish_search(true);
+            }
+            KeyCode::Enter => {
+                if let Some(command) = inspector.document.handoff_command() {
+                    app.input.set_text(&command);
+                    app.inspector.views.pop();
+                    app.inspector.stack.pop();
+                }
+            }
+            KeyCode::Char(c) if inspector.document.state.search_active => {
+                inspector.document.append_search_char(c);
+            }
+            KeyCode::Home => inspector.document.jump_to_line(1),
+            KeyCode::End => inspector.document.page_down(10_000),
             _ => {}
         }
         return;
