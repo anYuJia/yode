@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use crate::commands::artifact_nav::latest_artifact_by_suffix;
+
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RuntimeArtifactLinks {
     pub tool: Option<String>,
@@ -55,12 +57,15 @@ pub(crate) fn dedup_artifact_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
 
 pub(crate) fn startup_artifact_candidates(project_root: &std::path::Path) -> Vec<PathBuf> {
     let dir = project_root.join(".yode").join("startup");
-    std::fs::read_dir(dir)
-        .ok()
-        .into_iter()
-        .flat_map(|entries| entries.filter_map(Result::ok))
-        .map(|entry| entry.path())
-        .filter(|path| path.is_file())
+    [
+        "startup-profile.txt",
+        "resume-warmup.json",
+        "provider-inventory.json",
+        "startup-bundle-manifest.json",
+        "mcp-startup-failures.json",
+    ]
+    .into_iter()
+    .filter_map(|suffix| latest_artifact_by_suffix(&dir, suffix))
         .collect()
 }
 

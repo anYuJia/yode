@@ -16,7 +16,7 @@
 
 当前进度：
 
-- `40 / 100` 已完成
+- `74 / 100` 已完成
 
 ## 001-010 Inspector Runtime Foundations
 
@@ -72,51 +72,51 @@
 
 ## 041-050 Workflow / Coordinator Runtime
 
-- `[ ]` 041 workflow execution inspector
-- `[ ]` 042 workflow checkpoint jump targets
-- `[ ]` 043 coordinator dry-run inspector
-- `[ ]` 044 coordinator execution summary artifact
-- `[ ]` 045 workflow/coordinator timeline merge
-- `[ ]` 046 workflow remote-bridge follow-up
-- `[ ]` 047 workflow/coordinator operator review
-- `[ ]` 048 workflow/coordinator closeout doc
-- `[ ]` 049 runtime orchestration changelog
-- `[ ]` 050 runtime orchestration next-step doc
+- `[x]` 041 workflow execution inspector
+- `[x]` 042 workflow checkpoint jump targets
+- `[x]` 043 coordinator dry-run inspector
+- `[x]` 044 coordinator execution summary artifact
+- `[x]` 045 workflow/coordinator timeline merge
+- `[x]` 046 workflow remote-bridge follow-up
+- `[x]` 047 workflow/coordinator operator review
+- `[x]` 048 workflow/coordinator closeout doc
+- `[x]` 049 runtime orchestration changelog
+- `[x]` 050 runtime orchestration next-step doc
 
 ## 051-060 Artifact Navigation
 
-- `[ ]` 051 workspace index enriches cross-links
-- `[ ]` 052 artifact-to-inspector open helper
-- `[ ]` 053 bundle manifest reader helper
-- `[ ]` 054 artifact freshness badges in inspectors
-- `[ ]` 055 stale artifact actions
-- `[ ]` 056 artifact navigation review
-- `[ ]` 057 artifact navigation closeout doc
-- `[ ]` 058 workspace export index polish
-- `[ ]` 059 support bundle minimization follow-up
-- `[ ]` 060 operator quickstart refresh
+- `[x]` 051 workspace index enriches cross-links
+- `[x]` 052 artifact-to-inspector open helper
+- `[x]` 053 bundle manifest reader helper
+- `[x]` 054 artifact freshness badges in inspectors
+- `[x]` 055 stale artifact actions
+- `[x]` 056 artifact navigation review
+- `[x]` 057 artifact navigation closeout doc
+- `[x]` 058 workspace export index polish
+- `[x]` 059 support bundle minimization follow-up
+- `[x]` 060 operator quickstart refresh
 
 ## 061-070 Product / Parity Review
 
-- `[ ]` 061 direct compare against Claude inspector ergonomics
-- `[ ]` 062 direct compare against Claude task shell
-- `[ ]` 063 direct compare against Claude transcript/review flows
-- `[ ]` 064 direct compare against Claude doctor/support flow
-- `[ ]` 065 direct compare against Claude remote/browser state
-- `[ ]` 066 round-5 gap map refresh after 50 items
+- `[x]` 061 direct compare against Claude inspector ergonomics
+- `[x]` 062 direct compare against Claude task shell
+- `[x]` 063 direct compare against Claude transcript/review flows
+- `[x]` 064 direct compare against Claude doctor/support flow
+- `[x]` 065 direct compare against Claude remote/browser state
+- `[x]` 066 round-5 gap map refresh after 50 items
 - `[ ]` 067 round-5 gap map refresh after 100 items
-- `[ ]` 068 round-5 parity review draft
+- `[x]` 068 round-5 parity review draft
 - `[ ]` 069 round-5 final parity review
-- `[ ]` 070 round-5 release note draft
+- `[x]` 070 round-5 release note draft
 
 ## 071-100 Buffer
 
-- `[ ]` 071 spare
-- `[ ]` 072 spare
-- `[ ]` 073 spare
-- `[ ]` 074 spare
-- `[ ]` 075 spare
-- `[ ]` 076 spare
+- `[x]` 071 artifact alias inventory
+- `[x]` 072 workflow execution history list
+- `[x]` 073 coordinator artifact history list
+- `[x]` 074 inspect artifact dynamic completion targets
+- `[x]` 075 basename artifact resolution
+- `[x]` 076 diagnostics bundle inspect alias summary
 - `[ ]` 077 spare
 - `[ ]` 078 spare
 - `[ ]` 079 spare

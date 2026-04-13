@@ -3,6 +3,10 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use crate::app::ChatRole;
+use crate::commands::artifact_nav::{
+    latest_coordinator_artifact, latest_runtime_orchestration_artifact,
+    latest_workflow_execution_artifact,
+};
 use crate::commands::context::CommandContext;
 use crate::commands::{
     ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
@@ -255,8 +259,19 @@ fn export_diagnostics_bundle(custom_name: Option<&str>, ctx: &mut CommandContext
     }
 
     let workspace_index = bundle_dir.join("workspace-index.md");
+    let workflow_artifact = latest_workflow_execution_artifact(&PathBuf::from(&ctx.session.working_dir))
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|| "none".to_string());
+    let coordinator_artifact = latest_coordinator_artifact(&PathBuf::from(&ctx.session.working_dir))
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|| "none".to_string());
+    let orchestration_artifact =
+        latest_runtime_orchestration_artifact(&PathBuf::from(&ctx.session.working_dir))
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "none".to_string());
     let workspace_body = format!(
-        "# Workspace Index\n\n- Jump targets: /tasks latest, /memory latest, /reviews latest, /status, /diagnostics, /doctor bundle\n- Conversation: {}\n- Runtime summary: {}\n- Runtime timeline: {}\n- Doctor refs: {}\n",
+        "# Workspace Index\n\n- Bundle: {}\n- Conversation: {}\n- Runtime summary: {}\n- Runtime timeline: {}\n- Doctor refs: {}\n\nJump targets:\n- /tasks latest\n- /memory latest\n- /reviews latest\n- /status\n- /diagnostics\n- /doctor bundle\n\nOrchestration artifacts:\n- workflow: {}\n- coordinator: {}\n- timeline: {}\n\nInspect aliases:\n- /inspect artifact latest-workflow\n- /inspect artifact latest-coordinate\n- /inspect artifact latest-orchestration\n- /inspect artifact bundle\n",
+        bundle_dir.display(),
         conversation_path.display(),
         diagnostics_path.display(),
         timeline_path.display(),
@@ -264,12 +279,15 @@ fn export_diagnostics_bundle(custom_name: Option<&str>, ctx: &mut CommandContext
             "none".to_string()
         } else {
             doctor_ref_path.display().to_string()
-        }
+        },
+        workflow_artifact,
+        coordinator_artifact,
+        orchestration_artifact,
     );
     let _ = std::fs::write(&workspace_index, workspace_body);
 
     Ok(CommandOutput::Message(format!(
-        "Diagnostics bundle exported to: {}\n  Conversation: {}\n  Runtime: {}\n  Copied artifacts: {}\n  Doctor refs: {}\n  Workspace index: {}",
+        "Diagnostics bundle exported to: {}\n  Conversation: {}\n  Runtime: {}\n  Copied artifacts: {}\n  Doctor refs: {}\n  Workspace index: {}\n  Inspect: /inspect artifact bundle",
         bundle_dir.display(),
         conversation_path.display(),
         diagnostics_path.display(),
@@ -305,6 +323,15 @@ fn latest_artifact_candidates(ctx: &mut CommandContext) -> Vec<PathBuf> {
             .unwrap_or_default(),
     ) {
         paths.push(PathBuf::from(runtime_task_artifact));
+    }
+    if let Some(path) = latest_workflow_execution_artifact(&project_root) {
+        paths.push(path);
+    }
+    if let Some(path) = latest_coordinator_artifact(&project_root) {
+        paths.push(path);
+    }
+    if let Some(path) = latest_runtime_orchestration_artifact(&project_root) {
+        paths.push(path);
     }
     paths.extend(startup_artifact_candidates(&project_root));
 

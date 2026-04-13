@@ -4,6 +4,10 @@ mod sections;
 
 use crate::commands::context::CommandContext;
 use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
+use crate::commands::artifact_nav::{
+    latest_coordinator_artifact, latest_runtime_orchestration_artifact,
+    latest_workflow_execution_artifact,
+};
 use crate::runtime_artifacts::{
     write_hook_failure_artifact, write_runtime_task_inventory_artifact,
 };
@@ -125,6 +129,12 @@ impl Command for StatusCommand {
                 .and_then(|state| state.last_compaction_transcript_path.clone()),
             runtime_task_artifact,
             hook_artifact,
+            workflow_artifact: latest_workflow_execution_artifact(&working_dir)
+                .map(|path| path.display().to_string()),
+            coordinator_artifact: latest_coordinator_artifact(&working_dir)
+                .map(|path| path.display().to_string()),
+            orchestration_artifact: latest_runtime_orchestration_artifact(&working_dir)
+                .map(|path| path.display().to_string()),
         };
         let provider_section = build_provider_section(
             ctx.provider_name.as_str(),
