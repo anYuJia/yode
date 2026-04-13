@@ -3,8 +3,8 @@ use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, Comm
 use std::collections::{BTreeMap, BTreeSet};
 use super::mcp_workspace::{
     auth_session_summary, browser_mcp_capability_summary, latency_sparkline,
-    reconnect_backoff_timeline, remote_tool_source_badge, resource_cache_activity_summary,
-    write_browser_access_state_artifact,
+    reconnect_backoff_timeline, remote_tool_source_badge, render_browser_access_workspace,
+    resource_cache_activity_summary, write_browser_access_state_artifact,
 };
 
 pub struct McpCommand {
@@ -115,6 +115,9 @@ impl Command for McpCommand {
             configured_servers.len(),
         ) {
             lines.push(format!("  Browser state artifact: {}", path));
+            if let Some(preview) = render_browser_access_workspace(std::path::Path::new(&path)) {
+                lines.push(format!("  Browser state preview: {}", preview.replace('\n', " | ")));
+            }
         }
         Ok(CommandOutput::Messages(lines))
     }

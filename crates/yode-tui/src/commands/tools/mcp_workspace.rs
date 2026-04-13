@@ -4,6 +4,8 @@ use yode_core::config::McpServerConfig;
 use yode_mcp::{McpReconnectDiagnostic, McpToolLatencyEntry};
 use yode_tools::mcp_resource_cache_stats;
 
+use crate::commands::workspace_text::{workspace_bullets, WorkspaceText};
+
 pub(crate) fn auth_session_summary(config: &McpServerConfig) -> String {
     let env_count = config.env.len();
     let referenced = config
@@ -80,6 +82,34 @@ pub(crate) fn browser_mcp_capability_summary(
     )
 }
 
+pub(crate) fn browser_execution_outcome_summary(
+    action: Option<&str>,
+    message: Option<&str>,
+) -> String {
+    match (action, message) {
+        (Some(action), Some(message)) => format!("{} -> {}", action, message),
+        (Some(action), None) => action.to_string(),
+        (None, Some(message)) => message.to_string(),
+        (None, None) => "no recent browser outcomes".to_string(),
+    }
+}
+
+pub(crate) fn compact_browser_state_payload(
+    browser_tools_present: bool,
+    configured_servers: usize,
+) -> serde_json::Value {
+    serde_json::json!({
+        "browser_tools_present": browser_tools_present,
+        "configured_mcp_servers": configured_servers,
+        "resource_cache": resource_cache_activity_summary(),
+        "capability_summary": browser_mcp_capability_summary(
+            browser_tools_present,
+            configured_servers,
+        ),
+        "last_browser_outcome": browser_execution_outcome_summary(None, None),
+    })
+}
+
 pub(crate) fn write_browser_access_state_artifact(
     project_root: &Path,
     session_id: &str,
@@ -90,17 +120,55 @@ pub(crate) fn write_browser_access_state_artifact(
     std::fs::create_dir_all(&dir).ok()?;
     let short_session = session_id.chars().take(8).collect::<String>();
     let path = dir.join(format!("{}-browser-access-state.json", short_session));
-    let payload = serde_json::json!({
-        "browser_tools_present": browser_tools_present,
-        "configured_mcp_servers": configured_servers,
-        "resource_cache": resource_cache_activity_summary(),
-        "capability_summary": browser_mcp_capability_summary(
-            browser_tools_present,
-            configured_servers,
-        ),
-    });
+    let payload = compact_browser_state_payload(browser_tools_present, configured_servers);
     std::fs::write(&path, serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string())).ok()?;
     Some(path.display().to_string())
+}
+
+pub(crate) fn render_browser_access_workspace(path: &Path) -> Option<String> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let payload: serde_json::Value = serde_json::from_str(&content).ok()?;
+    Some(
+        WorkspaceText::new("Browser access workspace")
+            .subtitle(path.display().to_string())
+            .field(
+                "Capability summary",
+                payload
+                    .get("capability_summary")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("unknown"),
+            )
+            .section(
+                "State",
+                workspace_bullets([
+                    format!(
+                        "browser_tools_present={}",
+                        payload
+                            .get("browser_tools_present")
+                            .and_then(|value| value.as_bool())
+                            .unwrap_or(false)
+                    ),
+                    format!(
+                        "configured_mcp_servers={}",
+                        payload
+                            .get("configured_mcp_servers")
+                            .and_then(|value| value.as_u64())
+                            .unwrap_or(0)
+                    ),
+                    payload
+                        .get("resource_cache")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("resource cache unavailable")
+                        .to_string(),
+                    payload
+                        .get("last_browser_outcome")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("no recent browser outcomes")
+                        .to_string(),
+                ]),
+            )
+            .render(),
+    )
 }
 
 #[cfg(test)]
@@ -111,9 +179,9 @@ mod tests {
     use yode_mcp::{McpReconnectDiagnostic, McpToolLatencyEntry};
 
     use super::{
-        auth_session_summary, browser_mcp_capability_summary, latency_sparkline,
-        reconnect_backoff_timeline, remote_tool_source_badge,
-        write_browser_access_state_artifact,
+        auth_session_summary, browser_execution_outcome_summary,
+        browser_mcp_capability_summary, compact_browser_state_payload, latency_sparkline,
+        reconnect_backoff_timeline, remote_tool_source_badge, write_browser_access_state_artifact,
     };
 
     #[test]
@@ -164,6 +232,10 @@ mod tests {
         assert_eq!(remote_tool_source_badge("mcp__github_list_prs"), "[mcp]");
         assert_eq!(remote_tool_source_badge("web_browser"), "[browser]");
         assert!(browser_mcp_capability_summary(true, 2).contains("configured_mcp_servers=2"));
+        assert_eq!(
+            browser_execution_outcome_summary(Some("navigate"), Some("ok")),
+            "navigate -> ok"
+        );
     }
 
     #[test]
@@ -175,5 +247,17 @@ mod tests {
         let content = std::fs::read_to_string(path).unwrap();
         assert!(content.contains("\"browser_tools_present\": true"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn compact_browser_payload_contains_summary_fields() {
+        let payload = compact_browser_state_payload(true, 2);
+        assert_eq!(
+            payload
+                .get("configured_mcp_servers")
+                .and_then(|value| value.as_u64()),
+            Some(2)
+        );
+        assert!(payload.get("resource_cache").is_some());
     }
 }

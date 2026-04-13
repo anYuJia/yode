@@ -3,6 +3,7 @@ use crate::commands::{
     ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
     CommandResult,
 };
+use super::coordinate_workspace::coordinator_dry_run_prompt;
 
 pub struct CoordinateCommand {
     meta: CommandMeta,
@@ -39,10 +40,7 @@ impl Command for CoordinateCommand {
         } else {
             args.trim().to_string()
         };
-        ctx.input.set_text(&format!(
-            "Use `coordinate_agents` for goal=\"{}\" with 2-3 independent workstreams. If you need to preview execution order first, call it with dry_run=true. Use max_parallel if too many workstreams are ready in the same phase. Ask one workstream to inspect code, one to verify behavior, and one to summarize risks if useful.",
-            goal
-        ));
+        ctx.input.set_text(&coordinator_dry_run_prompt(&goal));
         Ok(CommandOutput::Message(
             "Loaded a coordinator-agent prompt into the input box.".to_string(),
         ))

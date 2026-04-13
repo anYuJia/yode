@@ -1,5 +1,6 @@
 use crate::commands::context::CommandContext;
 use crate::commands::info::startup_artifacts::ProviderInventorySummary;
+use crate::ui::inspector::inspector_experiment_enabled;
 use crate::runtime_display::{
     fold_recovery_breadcrumbs, format_permission_decision_summary,
     format_repeated_tool_failure_summary, format_tool_progress_summary,
@@ -284,11 +285,12 @@ pub(super) fn build_status_message(
         .map(|engine| compact_tool_runtime_summary(&engine.runtime_state()))
         .unwrap_or_else(|| "engine busy".to_string());
     format!(
-        "Session status:\n  Session:         {}\n  Model:           {}\n  Working dir:     {}\n  Permission mode: {}\n  Startup profile: {}\n  Runtime summary: {}\n  Tokens:          {} (in: {}, out: {})\n  Tool calls:      {}\n  Resume warmup:   {}\n  Est. cost:       ${:.4}\n  Terminal:        {}{}{}",
+        "Session status:\n  Session:         {}\n  Model:           {}\n  Working dir:     {}\n  Permission mode: {}\n  Inspector exp:   {}\n  Startup profile: {}\n  Runtime summary: {}\n  Tokens:          {} (in: {}, out: {})\n  Tool calls:      {}\n  Resume warmup:   {}\n  Est. cost:       ${:.4}\n  Terminal:        {}{}{}",
         session_short,
         ctx.session.model,
         ctx.session.working_dir,
         ctx.session.permission_mode.label(),
+        if inspector_experiment_enabled() { "on" } else { "off" },
         startup_profile,
         runtime_summary,
         ctx.session.total_tokens,

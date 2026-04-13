@@ -1,4 +1,7 @@
 use yode_tools::builtin::review_common::review_output_has_findings;
+use crate::commands::transcript_review_nav::{
+    residual_risk_banner, review_metadata_section,
+};
 
 pub(crate) fn compact_review_status_badge(content: &str) -> &'static str {
     let body = extract_review_result_body(content).unwrap_or(content);
@@ -21,10 +24,13 @@ pub(crate) fn review_summary_pane(path: &std::path::Path, content: &str) -> Stri
         .collect::<Vec<_>>()
         .join(" | ");
     format!(
-        "Review summary pane:\n  Path:   {}\n  Badge:  {}\n  Preview: {}",
-        path.display(),
+        "{}\n  Badge:  {}\n  Preview: {}{}",
+        review_metadata_section(path, content),
         compact_review_status_badge(content),
-        if preview.is_empty() { "none" } else { &preview }
+        if preview.is_empty() { "none" } else { &preview },
+        residual_risk_banner(content)
+            .map(|risk| format!("\n  {}", risk))
+            .unwrap_or_default()
     )
 }
 

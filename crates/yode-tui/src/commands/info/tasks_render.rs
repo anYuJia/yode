@@ -1,10 +1,16 @@
 use crate::commands::{CommandOutput, CommandResult};
 use crate::commands::workspace_nav::{
-    task_jump_targets, workspace_breadcrumb, workspace_jump_inventory,
+    runtime_artifact_jump_targets, task_jump_targets, workspace_breadcrumb, workspace_jump_inventory,
     workspace_selection_summary,
 };
-use crate::commands::workspace_text::{workspace_bullets, workspace_preview_line, WorkspaceText};
+use crate::commands::workspace_text::{
+    workspace_artifact_lines, workspace_bullets, workspace_preview_line, WorkspaceText,
+};
 
+use super::task_runtime_workspace::{
+    grouped_task_runtime_summary, runtime_freshness_banner, task_follow_prompt,
+    task_issue_template, task_notification_summary,
+};
 use super::tasks::TaskFilter;
 use super::tasks_helpers::{
     group_tasks_by_source_tool, sort_tasks_by_latest_activity, task_artifact_backlink_summary,
@@ -129,9 +135,21 @@ pub(super) fn render_task_output(task: &yode_tools::RuntimeTask) -> CommandResul
             .field("Retry chain", task_retry_chain_summary(task))
             .field("Freshest", task_latest_activity_at(task))
             .field("Failure", task_failure_cause_summary(task))
-            .field("Artifacts", task_artifact_backlink_summary(task))
             .field("Output path", task.output_path.clone())
             .field("Transcript", task.transcript_path.as_deref().unwrap_or("none"))
+            .section(
+                "Artifacts",
+                workspace_artifact_lines([
+                    ("output", task.output_path.clone()),
+                    (
+                        "transcript",
+                        task.transcript_path
+                            .as_deref()
+                            .unwrap_or("none")
+                            .to_string(),
+                    ),
+                ]),
+            )
             .section("Timeline", workspace_bullets(task_timeline_lines(task)))
             .section(
                 "Transcript preview",
@@ -150,6 +168,58 @@ pub(super) fn render_task_output(task: &yode_tools::RuntimeTask) -> CommandResul
             )))
             .render(),
     ))
+}
+
+pub(super) fn render_task_notifications(tasks: Vec<yode_tools::RuntimeTask>) -> CommandResult {
+    Ok(CommandOutput::Message(
+        WorkspaceText::new("Task notifications")
+            .section("Recent outcomes", workspace_bullets(task_notification_summary(&tasks)))
+            .render(),
+    ))
+}
+
+pub(super) fn render_task_summary(
+    tasks: Vec<yode_tools::RuntimeTask>,
+    runtime: Option<&yode_core::engine::EngineRuntimeState>,
+) -> CommandResult {
+    if tasks.is_empty() {
+        return Ok(CommandOutput::Message(
+            "No background runtime tasks recorded.".to_string(),
+        ));
+    }
+
+    let total = tasks.len();
+    let running = tasks
+        .iter()
+        .filter(|task| matches!(task.status, yode_tools::RuntimeTaskStatus::Running))
+        .count();
+    let failed = tasks
+        .iter()
+        .filter(|task| matches!(task.status, yode_tools::RuntimeTaskStatus::Failed))
+        .count();
+    let latest_artifact = tasks
+        .iter()
+        .find_map(|task| task.transcript_path.as_deref().or(Some(task.output_path.as_str())));
+
+    Ok(CommandOutput::Message(
+        WorkspaceText::new("Task runtime workspace")
+            .field("Total", total.to_string())
+            .field("Running", running.to_string())
+            .field("Failed", failed.to_string())
+            .field("Freshness", runtime_freshness_banner(&tasks, runtime))
+            .section("By kind", workspace_bullets(grouped_task_runtime_summary(&tasks)))
+            .section("Notifications", workspace_bullets(task_notification_summary(&tasks)))
+            .footer(workspace_jump_inventory(runtime_artifact_jump_targets(latest_artifact)))
+            .render(),
+    ))
+}
+
+pub(super) fn render_task_issue(task: &yode_tools::RuntimeTask) -> CommandResult {
+    Ok(CommandOutput::Message(task_issue_template(task)))
+}
+
+pub(super) fn build_task_follow_prompt(task_id: &str) -> String {
+    task_follow_prompt(task_id)
 }
 
 pub(super) fn parse_task_filter(value: &str) -> Option<TaskFilter> {

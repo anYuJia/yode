@@ -2,6 +2,7 @@ mod actions;
 mod definitions;
 #[cfg(test)]
 mod tests;
+mod workspace;
 
 use crate::commands::context::CommandContext;
 use crate::commands::{

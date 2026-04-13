@@ -3,6 +3,7 @@ use crate::commands::workspace_text::{workspace_bullets, WorkspaceText};
 use super::remote_workspace::{
     browser_capability_checklist, build_remote_workflow_state,
     remote_command_surface_inventory, remote_missing_prereq_summary,
+    remote_prereq_severity_banner, render_remote_capability_workspace,
     write_remote_workflow_capability_artifact,
 };
 use super::shared::format_artifact_entry;
@@ -79,12 +80,13 @@ pub(super) fn render_remote_env_check(ctx: &mut CommandContext) -> String {
         )),
     }
     let command_inventory = remote_command_surface_inventory();
-    if let Some(path) = write_remote_workflow_capability_artifact(
+    let capability_artifact = write_remote_workflow_capability_artifact(
         &project_root,
         &ctx.session.session_id,
         &workflow_state,
         &command_inventory,
-    ) {
+    );
+    if let Some(path) = capability_artifact.as_deref() {
         artifact_checks.push(format!("  [ok] Remote capability artifact: {}", path));
     }
     artifact_checks.extend(browser_capability_checklist(ctx));
@@ -93,9 +95,18 @@ pub(super) fn render_remote_env_check(ctx: &mut CommandContext) -> String {
         .subtitle(project_root.display().to_string())
         .field("Command surface", command_inventory)
         .field("Missing prereqs", remote_missing_prereq_summary(&workflow_state))
+        .field("Severity", remote_prereq_severity_banner(&workflow_state))
         .section("Transport", workspace_bullets(transport_checks))
         .section("Repository", workspace_bullets(repo_checks))
         .section("Artifacts", workspace_bullets(artifact_checks))
+        .section(
+            "Capability preview",
+            capability_artifact
+                .as_deref()
+                .and_then(|path| render_remote_capability_workspace(std::path::Path::new(path)))
+                .map(|preview| workspace_bullets([preview]))
+                .unwrap_or_else(|| workspace_bullets(["none"])),
+        )
         .footer("Use this before launching remote review/worktree flows.")
         .render()
 }
@@ -194,6 +205,7 @@ pub(super) fn render_remote_review_prereqs(ctx: &mut CommandContext) -> String {
     WorkspaceText::new("Remote review workspace")
         .subtitle(project_root.display().to_string())
         .field("Missing prereqs", remote_missing_prereq_summary(&workflow_state))
+        .field("Severity", remote_prereq_severity_banner(&workflow_state))
         .section("Provider", workspace_bullets(provider_checks))
         .section("Repository", workspace_bullets(repo_checks))
         .section("Tools", workspace_bullets(tool_checks))

@@ -17,6 +17,13 @@ pub(crate) struct InspectorState {
     pub scroll_offset: usize,
 }
 
+pub(crate) fn inspector_experiment_enabled() -> bool {
+    std::env::var("YODE_EXPERIMENT_INSPECTOR")
+        .ok()
+        .map(|value| matches!(value.as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false)
+}
+
 impl InspectorState {
     pub(crate) fn new(title: impl Into<String>, tabs: Vec<InspectorTab>) -> Self {
         Self {
@@ -126,7 +133,8 @@ mod tests {
     use ratatui::style::Color;
 
     use super::{
-        inspector_empty_state_actions, inspector_pagination_footer, inspector_status_badge_row,
+        inspector_empty_state_actions, inspector_experiment_enabled,
+        inspector_pagination_footer, inspector_status_badge_row,
         multi_pane_title_strip, InspectorBodySource, InspectorState, InspectorTab,
         PanelStackCoordinator,
     };
@@ -194,5 +202,10 @@ mod tests {
         );
         assert_eq!(state.title, "demo");
         assert_eq!(state.selected_tab, 0);
+    }
+
+    #[test]
+    fn inspector_experiment_defaults_off() {
+        assert!(!inspector_experiment_enabled());
     }
 }

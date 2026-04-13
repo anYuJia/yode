@@ -96,9 +96,20 @@ pub(crate) fn workspace_preview_line(label: &str, value: Option<&str>) -> String
     format!("{}: {}", label, value.unwrap_or("none"))
 }
 
+pub(crate) fn workspace_artifact_lines(
+    entries: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
+) -> Vec<String> {
+    entries
+        .into_iter()
+        .map(|(label, value)| format!("{}: {}", label.into(), value.into()))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{workspace_bullets, workspace_preview_line, WorkspaceText};
+    use super::{
+        workspace_artifact_lines, workspace_bullets, workspace_preview_line, WorkspaceText,
+    };
 
     #[test]
     fn workspace_renderer_formats_metadata_sections_and_footer() {
@@ -121,5 +132,12 @@ mod tests {
             workspace_preview_line("Preview", Some("value")),
             "Preview: value"
         );
+    }
+
+    #[test]
+    fn artifact_lines_render_label_value_pairs() {
+        let lines = workspace_artifact_lines([("output", "/tmp/a.log"), ("transcript", "/tmp/a.md")]);
+        assert_eq!(lines[0], "output: /tmp/a.log");
+        assert_eq!(lines[1], "transcript: /tmp/a.md");
     }
 }

@@ -3,10 +3,9 @@ use crate::commands::{
     ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
     CommandResult,
 };
-use crate::commands::info::runtime_inspectors::{
-    permission_rule_diff_summary, preview_runtime_artifact, repeated_denial_recovery_hint,
+use crate::commands::info::permission_recovery_workspace::{
+    render_permission_workspace, render_recovery_workspace,
 };
-use crate::runtime_display::format_permission_decision_summary;
 
 pub struct PermissionsCommand {
     meta: CommandMeta,
@@ -89,100 +88,33 @@ impl Command for PermissionsCommand {
                         )
                     })
                     .collect::<Vec<_>>();
-                let mut lines = vec![
-                    format!("Permission mode: {}", mode),
-                    format!("Recovery state: {}", runtime.recovery_state),
-                ];
-                if tools.is_empty() {
-                    lines.push("All tools are auto-allowed (no confirmations required).".into());
+                let denial_lines = if denials.is_empty() {
+                    vec!["none".to_string()]
                 } else {
-                    lines.push("Tools requiring confirmation:".into());
-                    for t in tools {
-                        lines.push(format!("  {t}"));
-                    }
-                }
-                if rules.is_empty() {
-                    lines.push("Rules: none".into());
-                } else {
-                    lines.push("Rules:".into());
-                    for rule in &rules {
-                        lines.push(format!(
-                            "  {:?} {} {}{}",
-                            rule.source,
-                            rule.tool_name,
-                            match rule.behavior {
-                                yode_core::permission::RuleBehavior::Allow => "allow",
-                                yode_core::permission::RuleBehavior::Deny => "deny",
-                                yode_core::permission::RuleBehavior::Ask => "ask",
-                            },
-                            rule.pattern
-                                .as_ref()
-                                .map(|pattern| format!(" ({})", pattern))
-                                .unwrap_or_default()
-                        ));
-                    }
-                }
-                if denials.is_empty() {
-                    lines.push("Recent denials: none".into());
-                } else {
-                    lines.push("Recent denials:".into());
-                    for denial in denials {
-                        lines.push(format!(
-                            "  {} x{} (consecutive {}, at {})",
-                            denial.tool_name, denial.count, denial.consecutive, denial.last_at
-                        ));
-                    }
-                }
-                if denial_prefixes.is_empty() {
-                    lines.push("Recent bash denial prefixes: none".into());
-                } else {
-                    lines.push("Recent bash denial prefixes:".into());
-                    for denial in denial_prefixes {
-                        lines.push(format!(
-                            "  {} -> count={} consecutive={} last_at={}",
-                            denial.prefix, denial.count, denial.consecutive, denial.last_at
-                        ));
-                    }
-                }
-                lines.push(format!(
-                    "Safe bash readonly prefixes: {}",
-                    safe_prefixes.join(", ")
-                ));
-                lines.push(format!(
-                    "Rule diff summary: {}",
-                    permission_rule_diff_summary(&rules)
-                ));
-                if confirmation_suggestions.is_empty() {
-                    lines.push("Repeated confirmation suggestions: none".into());
-                } else {
-                    lines.push("Repeated confirmation suggestions:".into());
-                    for suggestion in &confirmation_suggestions {
-                        lines.push(format!("  {}", suggestion));
-                    }
-                }
-                lines.push(format!(
-                    "Last permission decision: {}",
-                    format_permission_decision_summary(
-                        runtime.last_permission_tool.as_deref(),
-                        runtime.last_permission_action.as_deref(),
-                        runtime.last_permission_explanation.as_deref(),
-                    )
-                ));
-                lines.push(format!(
-                    "Permission artifact preview: {}",
-                    preview_runtime_artifact(
-                        runtime.last_permission_artifact_path.as_deref(),
-                        "## Permission Decision"
-                    )
-                ));
-                lines.push(format!(
-                    "Recovery hint: {}",
-                    repeated_denial_recovery_hint(
+                    denials
+                        .into_iter()
+                        .map(|denial| {
+                            format!(
+                                "{} x{} (consecutive {}, at {})",
+                                denial.tool_name, denial.count, denial.consecutive, denial.last_at
+                            )
+                        })
+                        .collect()
+                };
+                Ok(CommandOutput::Message(format!(
+                    "{}\n\n{}",
+                    render_permission_workspace(
+                        mode,
+                        &tools,
+                        &rules,
+                        &denial_lines,
                         &denial_prefix_lines,
-                        &confirmation_suggestions
-                    )
-                ));
-                Ok(CommandOutput::Messages(lines))
+                        &safe_prefixes.join(", "),
+                        &confirmation_suggestions,
+                        &runtime,
+                    ),
+                    render_recovery_workspace(&runtime),
+                )))
             }
             // /permissions mode — show current mode
             ["mode"] => {

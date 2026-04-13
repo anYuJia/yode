@@ -78,6 +78,45 @@ pub(crate) fn write_hook_failure_artifact(
     Some(path.display().to_string())
 }
 
+pub(crate) fn write_task_workspace_bundle_artifact(
+    project_root: &std::path::Path,
+    session_id: &str,
+    task: &RuntimeTask,
+) -> Option<String> {
+    let dir = project_root.join(".yode").join("status");
+    std::fs::create_dir_all(&dir).ok()?;
+    let short_session = session_id.chars().take(8).collect::<String>();
+    let path = dir.join(format!("{}-{}-bundle.md", short_session, task.id));
+    let output_preview = std::fs::read_to_string(&task.output_path)
+        .ok()
+        .map(|content| {
+            let lines = content.lines().collect::<Vec<_>>();
+            let start = lines.len().saturating_sub(20);
+            lines[start..].join("\n")
+        })
+        .unwrap_or_else(|| "(unavailable)".to_string());
+    let transcript_preview = task
+        .transcript_path
+        .as_deref()
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .unwrap_or_else(|| "(none)".to_string());
+    let body = format!(
+        "# Task Workspace Bundle\n\n- Task: {}\n- Kind: {}\n- Source tool: {}\n- Status: {:?}\n- Attempt: {}\n- Retry of: {}\n- Output: {}\n- Transcript: {}\n\n## Output Preview\n\n```text\n{}\n```\n\n## Transcript Preview\n\n```text\n{}\n```\n",
+        task.id,
+        task.kind,
+        task.source_tool,
+        task.status,
+        task.attempt,
+        task.retry_of.as_deref().unwrap_or("none"),
+        task.output_path,
+        task.transcript_path.as_deref().unwrap_or("none"),
+        output_preview,
+        transcript_preview,
+    );
+    std::fs::write(&path, body).ok()?;
+    Some(path.display().to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -89,7 +128,7 @@ mod tests {
 
     use super::{
         write_hook_failure_artifact, write_runtime_task_inventory_artifact,
-        write_runtime_timeline_artifact,
+        write_runtime_timeline_artifact, write_task_workspace_bundle_artifact,
     };
 
     fn test_runtime_state() -> EngineRuntimeState {
@@ -261,6 +300,46 @@ mod tests {
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("# Hook Failure Inspector"));
         assert!(content.contains("scripts/pre-tool"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn writes_task_workspace_bundle_markdown() {
+        let dir = std::env::temp_dir().join(format!(
+            "yode-task-bundle-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let output = dir.join("task.log");
+        let transcript = dir.join("task.md");
+        std::fs::write(&output, "hello").unwrap();
+        std::fs::write(&transcript, "world").unwrap();
+
+        let task = RuntimeTask {
+            id: "task-1".to_string(),
+            kind: "bash".to_string(),
+            source_tool: "bash".to_string(),
+            description: "run tests".to_string(),
+            status: RuntimeTaskStatus::Completed,
+            attempt: 1,
+            retry_of: None,
+            output_path: output.display().to_string(),
+            transcript_path: Some(transcript.display().to_string()),
+            created_at: "2026-01-01 00:00:00".to_string(),
+            started_at: None,
+            completed_at: None,
+            last_progress: None,
+            last_progress_at: None,
+            progress_history: Vec::new(),
+            error: None,
+        };
+
+        let path = write_task_workspace_bundle_artifact(&dir, "session-1234", &task).unwrap();
+        let content = std::fs::read_to_string(path).unwrap();
+        assert!(content.contains("# Task Workspace Bundle"));
+        assert!(content.contains("hello"));
+        assert!(content.contains("world"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -1,3 +1,5 @@
+use crate::commands::workspace_text::{workspace_bullets, WorkspaceText};
+
 pub(super) fn render_section(title: &str, checks: &[String]) -> String {
     if checks.is_empty() {
         return String::new();
@@ -69,17 +71,12 @@ pub(super) fn render_support_bundle_overview(
     copied_files: &[std::path::PathBuf],
     report_summaries: &[String],
 ) -> String {
-    format!(
-        "Support bundle overview\n  Bundle:    {}\n  Files:     {}\n  Freshness: {}\n\nReport severities:\n{}\n",
-        bundle_dir.display(),
-        copied_files.len(),
-        artifact_freshness_summary(copied_files),
-        report_summaries
-            .iter()
-            .map(|line| format!("  - {}", line))
-            .collect::<Vec<_>>()
-            .join("\n")
-    )
+    WorkspaceText::new("Support bundle overview")
+        .subtitle(bundle_dir.display().to_string())
+        .field("Files", copied_files.len().to_string())
+        .field("Freshness", artifact_freshness_summary(copied_files))
+        .section("Report severities", workspace_bullets(report_summaries.to_vec()))
+        .render()
 }
 
 pub(super) fn support_handoff_template(
@@ -87,9 +84,16 @@ pub(super) fn support_handoff_template(
     report_names: &[&str],
 ) -> String {
     format!(
-        "# Support Handoff\n\n- Bundle: {}\n- Included reports:\n{}\n- What to inspect first: local-doctor.txt, bundle-overview.txt, runtime-timeline.md\n- If runtime stalls or hook failures are suspected, inspect hook-failures.md and runtime-timeline.md\n",
+        "# Support Handoff\n\n- Bundle: {}\n- Included reports:\n{}\n\n```text\nWhat to inspect first: local-doctor.txt, bundle-overview.txt, runtime-timeline.md\nIf runtime stalls or hook failures are suspected, inspect hook-failures.md and runtime-timeline.md\n```\n",
         bundle_dir.display(),
         doctor_checklist(report_names)
+    )
+}
+
+pub(super) fn doctor_bundle_navigation_summary(bundle_dir: &std::path::Path) -> String {
+    format!(
+        "bundle={} | local-doctor.txt | bundle-overview.txt | runtime-timeline.md | support-handoff.md",
+        bundle_dir.display()
     )
 }
 

@@ -254,8 +254,22 @@ fn export_diagnostics_bundle(custom_name: Option<&str>, ctx: &mut CommandContext
         let _ = std::fs::write(&doctor_ref_path, content);
     }
 
+    let workspace_index = bundle_dir.join("workspace-index.md");
+    let workspace_body = format!(
+        "# Workspace Index\n\n- Jump targets: /tasks latest, /memory latest, /reviews latest, /status, /diagnostics, /doctor bundle\n- Conversation: {}\n- Runtime summary: {}\n- Runtime timeline: {}\n- Doctor refs: {}\n",
+        conversation_path.display(),
+        diagnostics_path.display(),
+        timeline_path.display(),
+        if doctor_refs.is_empty() {
+            "none".to_string()
+        } else {
+            doctor_ref_path.display().to_string()
+        }
+    );
+    let _ = std::fs::write(&workspace_index, workspace_body);
+
     Ok(CommandOutput::Message(format!(
-        "Diagnostics bundle exported to: {}\n  Conversation: {}\n  Runtime: {}\n  Copied artifacts: {}\n  Doctor refs: {}",
+        "Diagnostics bundle exported to: {}\n  Conversation: {}\n  Runtime: {}\n  Copied artifacts: {}\n  Doctor refs: {}\n  Workspace index: {}",
         bundle_dir.display(),
         conversation_path.display(),
         diagnostics_path.display(),
@@ -269,6 +283,7 @@ fn export_diagnostics_bundle(custom_name: Option<&str>, ctx: &mut CommandContext
         } else {
             doctor_ref_path.display().to_string()
         },
+        workspace_index.display(),
     )))
 }
 

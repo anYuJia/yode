@@ -7,6 +7,9 @@ use super::definitions::{
     compact_json_preview, is_safe_workflow_step, latest_workflow_name, load_workflow_definition,
     workflow_requires_write_mode, workflow_template, workflow_template_names,
 };
+use super::workspace::{
+    nested_workflow_guard_narrative, workflow_checkpoint_workspace, workflow_remote_bridge_hint,
+};
 
 pub(super) fn execute_workflows_command(
     args: &str,
@@ -90,28 +93,14 @@ fn render_show_workflow(dir: &Path, name: String) -> Result<String, String> {
             (!is_safe_workflow_step(tool_name)).then(|| format!("{}. {}", index + 1, tool_name))
         })
         .collect::<Vec<_>>();
-    let mut output = format!(
-        "Workflow {}\nPath: {}\nDescription: {}\nMode: {}\n\nSteps:\n",
-        json.get("name")
-            .and_then(|value| value.as_str())
-            .unwrap_or(name.as_str()),
-        path.display(),
-        json.get("description")
-            .and_then(|value| value.as_str())
-            .unwrap_or("none"),
-        if write_capable {
-            "write-capable (use /workflows run-write)"
-        } else {
-            "safe read-only (use /workflows run)"
-        },
-    );
+    let mut rendered_steps = Vec::new();
     for (index, step) in steps.iter().enumerate() {
         let tool_name = step
             .get("tool_name")
             .and_then(|value| value.as_str())
             .unwrap_or("unknown");
-        output.push_str(&format!(
-            "  {}. {} [{}] {}\n",
+        rendered_steps.push(format!(
+            "{}. {} [{}] {}",
             index + 1,
             tool_name,
             if is_safe_workflow_step(tool_name) {
@@ -130,35 +119,41 @@ fn render_show_workflow(dir: &Path, name: String) -> Result<String, String> {
             }
         ));
     }
+    let mut output = workflow_checkpoint_workspace(
+        &format!(
+            "Workflow {}",
+            json.get("name")
+                .and_then(|value| value.as_str())
+                .unwrap_or(name.as_str())
+        ),
+        &path,
+        json.get("description")
+            .and_then(|value| value.as_str())
+            .unwrap_or("none"),
+        if write_capable {
+            "write-capable (use /workflows run-write)"
+        } else {
+            "safe read-only (use /workflows run)"
+        },
+        rendered_steps,
+    );
     if !write_steps.is_empty() {
-        output.push_str("\nWrite-capable steps:\n");
+        output.push_str("\n\nWrite-capable steps:\n");
         for step in write_steps {
             output.push_str(&format!("  - {}\n", step));
         }
     }
-    output.push_str(
-        "\nUse `/workflows run <name>` for safe workflows, `/workflows run-write <name>` for confirmed write-capable workflows, or call `workflow_run` with dry_run=true.",
-    );
+    output.push_str(&format!(
+        "\n\n{}\n{}",
+        nested_workflow_guard_narrative(),
+        workflow_remote_bridge_hint()
+    ));
     Ok(output)
 }
 
 fn render_preview_workflow(dir: &Path, name: String) -> Result<String, String> {
     let (path, json, steps) = load_workflow_definition(dir, &name)?;
-    let mut output = format!(
-        "Workflow plan preview\nName: {}\nPath: {}\nMode: {}\nDescription: {}\n\nPlan:\n",
-        json.get("name")
-            .and_then(|value| value.as_str())
-            .unwrap_or(name.as_str()),
-        path.display(),
-        if workflow_requires_write_mode(&steps) {
-            "write-capable"
-        } else {
-            "safe read-only"
-        },
-        json.get("description")
-            .and_then(|value| value.as_str())
-            .unwrap_or("none"),
-    );
+    let mut rendered_steps = Vec::new();
     for (index, step) in steps.iter().enumerate() {
         let tool_name = step
             .get("tool_name")
@@ -168,8 +163,8 @@ fn render_preview_workflow(dir: &Path, name: String) -> Result<String, String> {
             .get("params")
             .map(compact_json_preview)
             .unwrap_or_else(|| "{}".to_string());
-        output.push_str(&format!(
-            "  {}. {} [{}]{}\n     params: {}\n",
+        rendered_steps.push(format!(
+            "{}. {} [{}]{} / params: {}",
             index + 1,
             tool_name,
             if is_safe_workflow_step(tool_name) {
@@ -189,10 +184,24 @@ fn render_preview_workflow(dir: &Path, name: String) -> Result<String, String> {
             params_preview
         ));
     }
-    output.push_str(
-        "\nUse `/workflows show <name>` for the raw definition, `/workflows run <name>` for safe execution, or `/workflows run-write <name>` after confirming mutating steps.",
-    );
-    Ok(output)
+    Ok(format!(
+        "{}\n\n{}\n{}",
+        workflow_checkpoint_workspace(
+            "Workflow plan preview",
+            &path,
+            json.get("description")
+                .and_then(|value| value.as_str())
+                .unwrap_or("none"),
+            if workflow_requires_write_mode(&steps) {
+                "write-capable"
+            } else {
+                "safe read-only"
+            },
+            rendered_steps,
+        ),
+        nested_workflow_guard_narrative(),
+        workflow_remote_bridge_hint()
+    ))
 }
 
 fn render_workflow_list(dir: &Path) -> String {

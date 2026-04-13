@@ -7,6 +7,7 @@ pub mod model;
 pub mod session;
 pub mod tools;
 pub mod utility;
+pub(crate) mod transcript_review_nav;
 pub(crate) mod workspace_text;
 pub(crate) mod workspace_nav;
 
@@ -125,6 +126,7 @@ pub fn register_all(registry: &mut CommandRegistry) {
     registry.register(Box::new(utility::CopyCommand::new()));
     registry.register(Box::new(utility::KeysCommand::new()));
     registry.register(Box::new(utility::HistoryCommand::new()));
+    registry.register(Box::new(utility::JumpCommand::new()));
     registry.register(Box::new(utility::TimeCommand::new()));
     registry.register(Box::new(utility::ThemeCommand::new()));
     registry.register(Box::new(utility::ExportCommand::new()));

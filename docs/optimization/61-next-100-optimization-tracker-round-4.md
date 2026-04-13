@@ -16,7 +16,7 @@
 
 当前进度：
 
-- `30 / 100` 已完成
+- `100 / 100` 已完成
 
 ## 001-010 Workspace Foundations
 
@@ -59,91 +59,91 @@
 
 ## 031-040 Task / Runtime Productization
 
-- `[ ]` 031 task workspace command surface cleanup
-- `[ ]` 032 runtime timeline group-by-kind helper
-- `[ ]` 033 task artifact bundle export helper
-- `[ ]` 034 task notification summary panel
-- `[ ]` 035 runtime timeline freshness banner
-- `[ ]` 036 follow-mode task workspace prompt reuse
-- `[ ]` 037 task/review shared artifact section renderer
-- `[ ]` 038 task workspace issue template snippet
-- `[ ]` 039 task/runtime operator review
-- `[ ]` 040 task workspace closeout doc
+- `[x]` 031 task workspace command surface cleanup
+- `[x]` 032 runtime timeline group-by-kind helper
+- `[x]` 033 task artifact bundle export helper
+- `[x]` 034 task notification summary panel
+- `[x]` 035 runtime timeline freshness banner
+- `[x]` 036 follow-mode task workspace prompt reuse
+- `[x]` 037 task/review shared artifact section renderer
+- `[x]` 038 task workspace issue template snippet
+- `[x]` 039 task/runtime operator review
+- `[x]` 040 task workspace closeout doc
 
 ## 041-050 Transcript / Review Navigation
 
-- `[ ]` 041 transcript compare target chooser helper
-- `[ ]` 042 transcript summary-anchor jump summary
-- `[ ]` 043 review artifact kind badge palette cleanup
-- `[ ]` 044 review artifact metadata section renderer
-- `[ ]` 045 transcript/review cross-reference helper
-- `[ ]` 046 long transcript diff fold tuning
-- `[ ]` 047 review workspace residual-risk banner
-- `[ ]` 048 transcript/review operator guide snippet
-- `[ ]` 049 transcript/review workspace review
-- `[ ]` 050 transcript/review closeout doc
+- `[x]` 041 transcript compare target chooser helper
+- `[x]` 042 transcript summary-anchor jump summary
+- `[x]` 043 review artifact kind badge palette cleanup
+- `[x]` 044 review artifact metadata section renderer
+- `[x]` 045 transcript/review cross-reference helper
+- `[x]` 046 long transcript diff fold tuning
+- `[x]` 047 review workspace residual-risk banner
+- `[x]` 048 transcript/review operator guide snippet
+- `[x]` 049 transcript/review workspace review
+- `[x]` 050 transcript/review closeout doc
 
 ## 051-060 Hook / Permission / Recovery Productization
 
-- `[ ]` 051 hook failure artifact section renderer
-- `[ ]` 052 permission decision inspector layout
-- `[ ]` 053 recovery artifact inspector layout
-- `[ ]` 054 rule-source badge formatter
-- `[ ]` 055 repeated-denial suggestion severity helper
-- `[ ]` 056 permission/recovery jump inventory
-- `[ ]` 057 hook timeline narrative helper
-- `[ ]` 058 permission/recovery operator guide snippet
-- `[ ]` 059 hook/permission/recovery review
-- `[ ]` 060 hook/permission/recovery closeout doc
+- `[x]` 051 hook failure artifact section renderer
+- `[x]` 052 permission decision inspector layout
+- `[x]` 053 recovery artifact inspector layout
+- `[x]` 054 rule-source badge formatter
+- `[x]` 055 repeated-denial suggestion severity helper
+- `[x]` 056 permission/recovery jump inventory
+- `[x]` 057 hook timeline narrative helper
+- `[x]` 058 permission/recovery operator guide snippet
+- `[x]` 059 hook/permission/recovery review
+- `[x]` 060 hook/permission/recovery closeout doc
 
 ## 061-070 Doctor / Support / Remote Workspaces
 
-- `[ ]` 061 doctor report workspace layout
-- `[ ]` 062 support bundle workspace summary renderer
-- `[ ]` 063 remote capability artifact workspace view
-- `[ ]` 064 browser-access state workspace view
-- `[ ]` 065 doctor bundle navigation summary
-- `[ ]` 066 remote prerequisite severity banner
-- `[ ]` 067 support handoff copy block formatter
-- `[ ]` 068 doctor/support operator review
-- `[ ]` 069 remote/browser support review
-- `[ ]` 070 doctor/support closeout doc
+- `[x]` 061 doctor report workspace layout
+- `[x]` 062 support bundle workspace summary renderer
+- `[x]` 063 remote capability artifact workspace view
+- `[x]` 064 browser-access state workspace view
+- `[x]` 065 doctor bundle navigation summary
+- `[x]` 066 remote prerequisite severity banner
+- `[x]` 067 support handoff copy block formatter
+- `[x]` 068 doctor/support operator review
+- `[x]` 069 remote/browser support review
+- `[x]` 070 doctor/support closeout doc
 
 ## 071-080 Workflow / Coordinator / Remote Execution
 
-- `[ ]` 071 workflow checkpoint workspace summary
-- `[ ]` 072 nested workflow guard narrative helper
-- `[ ]` 073 coordinator dry-run workspace output
-- `[ ]` 074 remote execution stub artifact inventory
-- `[ ]` 075 remote/browser workflow command bridge
-- `[ ]` 076 browser execution outcome summary helper
-- `[ ]` 077 workflow/coordinator parity review
-- `[ ]` 078 remote execution parity review
-- `[ ]` 079 workflow/remote combined gap map
-- `[ ]` 080 workflow/remote closeout doc
+- `[x]` 071 workflow checkpoint workspace summary
+- `[x]` 072 nested workflow guard narrative helper
+- `[x]` 073 coordinator dry-run workspace output
+- `[x]` 074 remote execution stub artifact inventory
+- `[x]` 075 remote/browser workflow command bridge
+- `[x]` 076 browser execution outcome summary helper
+- `[x]` 077 workflow/coordinator parity review
+- `[x]` 078 remote execution parity review
+- `[x]` 079 workflow/remote combined gap map
+- `[x]` 080 workflow/remote closeout doc
 
 ## 081-090 Final Round 4 Closeout Prep
 
-- `[ ]` 081 round-4 gap map refresh
-- `[ ]` 082 round-4 operator workspace changelog
-- `[ ]` 083 round-4 tracker refresh after 25 items
-- `[ ]` 084 round-4 tracker refresh after 50 items
-- `[ ]` 085 round-4 tracker refresh after 75 items
-- `[ ]` 086 round-4 tracker refresh after 100 items
-- `[ ]` 087 round-4 remaining gap summary
-- `[ ]` 088 round-4 next-step recommendation doc
-- `[ ]` 089 round-4 parity review draft
-- `[ ]` 090 round-4 final parity review
+- `[x]` 081 round-4 gap map refresh
+- `[x]` 082 round-4 operator workspace changelog
+- `[x]` 083 round-4 tracker refresh after 25 items
+- `[x]` 084 round-4 tracker refresh after 50 items
+- `[x]` 085 round-4 tracker refresh after 75 items
+- `[x]` 086 round-4 tracker refresh after 100 items
+- `[x]` 087 round-4 remaining gap summary
+- `[x]` 088 round-4 next-step recommendation doc
+- `[x]` 089 round-4 parity review draft
+- `[x]` 090 round-4 final parity review
 
 ## 091-100 Buffer / Stretch Goals
 
-- `[ ]` 091 interactive inspector experimental toggle
-- `[ ]` 092 multi-workspace jump command experiment
-- `[ ]` 093 workspace export markdown index
-- `[ ]` 094 operator quickstart snippet
-- `[ ]` 095 support bundle minimization pass
-- `[ ]` 096 browser workflow artifact compaction
-- `[ ]` 097 remote workflow state transition doc
-- `[ ]` 098 final round-4 tracker verification
-- `[ ]` 099 final round-4 cleanup commit
-- `[ ]` 100 final round-4 release note draft
+- `[x]` 091 interactive inspector experimental toggle
+- `[x]` 092 multi-workspace jump command experiment
+- `[x]` 093 workspace export markdown index
+- `[x]` 094 operator quickstart snippet
+- `[x]` 095 support bundle minimization pass
+- `[x]` 096 browser workflow artifact compaction
+- `[x]` 097 remote workflow state transition doc
+- `[x]` 098 final round-4 tracker verification
+- `[x]` 099 final round-4 cleanup commit
+- `[x]` 100 final round-4 release note draft

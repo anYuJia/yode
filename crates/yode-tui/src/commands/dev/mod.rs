@@ -1,6 +1,7 @@
 mod bench;
 mod bug;
 mod coordinate;
+mod coordinate_workspace;
 mod diff;
 mod pipeline;
 mod review;

@@ -2,6 +2,10 @@ use std::fs;
 use std::path::Path;
 
 use crate::commands::{CommandOutput, CommandResult};
+use crate::commands::transcript_review_nav::{
+    compare_target_choices, fold_workspace_diff_output, summary_anchor_jump_summary,
+    transcript_review_cross_reference, transcript_review_operator_guide,
+};
 use crate::commands::workspace_nav::{
     compact_path_badge, transcript_jump_targets, workspace_breadcrumb, workspace_jump_inventory,
     workspace_selection_summary, workspace_stale_artifact_banner,
@@ -145,6 +149,7 @@ pub(super) fn render_transcript_file(
                 workspace_breadcrumb("Memory", Some(&compact_path_badge(&path.display().to_string()))),
             )
             .field("Selection", workspace_selection_summary(1, 1))
+            .field("Summary anchor", summary_anchor_jump_summary(&content))
             .section("Metadata", workspace_bullets([transcript_metadata_panel(path, &meta, &preview)]))
             .section(
                 "Timeline anchors",
@@ -160,7 +165,12 @@ pub(super) fn render_transcript_file(
                     .map(|banner| workspace_bullets([banner]))
                     .unwrap_or_else(|| workspace_bullets(["none"])),
             )
-            .footer(workspace_jump_inventory(transcript_jump_targets(path)))
+            .footer(workspace_jump_inventory(
+                transcript_review_cross_reference(Some(path), None)
+                    .into_iter()
+                    .chain(transcript_jump_targets(path))
+                    .collect::<Vec<_>>(),
+            ))
             .render(),
     ))
 }
@@ -227,13 +237,19 @@ pub(super) fn render_latest_transcript(
                 "Breadcrumb",
                 workspace_breadcrumb("Memory", Some("latest")),
             )
+            .field("Summary anchor", summary_anchor_jump_summary(&content))
             .section("Metadata", workspace_bullets([transcript_metadata_panel(path, &meta, &preview)]))
             .section(
                 "Timeline anchors",
                 workspace_bullets([transcript_timeline_anchor_panel(path, &meta, runtime)]),
             )
             .section("Content preview", workspace_bullets([truncated]))
-            .footer(workspace_jump_inventory(transcript_jump_targets(path)))
+            .footer(workspace_jump_inventory(
+                transcript_review_cross_reference(Some(path), None)
+                    .into_iter()
+                    .chain(transcript_jump_targets(path))
+                    .collect::<Vec<_>>(),
+            ))
             .render(),
     ))
 }
@@ -277,6 +293,7 @@ pub(super) fn render_transcript_compare(dir: &Path, compare: &CompareArgs) -> Co
         WorkspaceText::new("Transcript compare workspace")
             .subtitle(format!("{} <> {}", left_path.display(), right_path.display()))
             .field("Selection", workspace_selection_summary(2, 2))
+            .field("Target choices", compare_target_choices(dir).join(", "))
             .section(
                 "Inspector",
                 workspace_bullets([diff_inspector_header(
@@ -291,8 +308,8 @@ pub(super) fn render_transcript_compare(dir: &Path, compare: &CompareArgs) -> Co
                     compare.options.max_lines,
                 )]),
             )
-            .section("Diff", workspace_bullets([body]))
-            .footer("Use `/memory compare <a> <b> --hunks N --lines N` to expand the diff.")
+            .section("Diff", workspace_bullets([fold_workspace_diff_output(&body, 120)]))
+            .footer(transcript_review_operator_guide("transcript"))
             .render(),
     ))
 }

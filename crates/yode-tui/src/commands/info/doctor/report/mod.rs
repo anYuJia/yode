@@ -8,7 +8,7 @@ use crate::runtime_artifacts::{write_hook_failure_artifact, write_runtime_timeli
 use crate::commands::tools::mcp_workspace::write_browser_access_state_artifact;
 use self::remote_workspace::{
     build_remote_workflow_state, remote_command_surface_inventory,
-    write_remote_workflow_capability_artifact,
+    write_remote_execution_stub_inventory, write_remote_workflow_capability_artifact,
 };
 
 pub(super) fn render_doctor_report(ctx: &mut CommandContext) -> String {
@@ -121,6 +121,13 @@ pub(super) fn export_doctor_bundle(ctx: &mut CommandContext) -> Result<String, S
             .map_err(|err| format!("Failed to copy {}: {}", path, err))?;
         copied_files.push(dest);
     }
+    if let Some(path) = write_remote_execution_stub_inventory(&working_dir, &ctx.session.session_id)
+    {
+        let dest = bundle_dir.join("remote-execution-inventory.md");
+        std::fs::copy(&path, &dest)
+            .map_err(|err| format!("Failed to copy {}: {}", path, err))?;
+        copied_files.push(dest);
+    }
 
     let manifest_path = bundle_dir.join("bundle-manifest.json");
     let manifest = serde_json::json!({
@@ -156,7 +163,11 @@ pub(super) fn export_doctor_bundle(ctx: &mut CommandContext) -> Result<String, S
     .map_err(|err| format!("Failed to write {}: {}", handoff_path.display(), err))?;
     copied_files.push(handoff_path.clone());
 
-    Ok(shared::doctor_copy_paste_summary(&bundle_dir, &copied_files))
+    Ok(format!(
+        "{}\n  Navigation: {}",
+        shared::doctor_copy_paste_summary(&bundle_dir, &copied_files),
+        shared::doctor_bundle_navigation_summary(&bundle_dir)
+    ))
 }
 
 #[cfg(test)]
