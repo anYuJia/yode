@@ -10,10 +10,11 @@ use super::checkpoint_workspace::{
     checkpoint_restore_chat_entries, checkpoint_restore_messages, render_branch_list,
     render_branch_merge_preview, render_checkpoint_diff, render_checkpoint_list,
     render_restore_dry_run, render_rewind_anchor_list, render_rewind_safety_summary,
-    merge_checkpoint_payloads, resolve_branch_target, resolve_checkpoint_target,
-    resolve_rewind_anchor_target, write_branch_merge_execution_artifact,
+    render_rollback_anchor_list, render_rollback_preview, merge_checkpoint_payloads,
+    resolve_branch_target, resolve_checkpoint_target, resolve_rewind_anchor_target,
+    resolve_rollback_anchor_target, write_branch_merge_execution_artifact,
     write_branch_merge_preview, write_branch_snapshot, write_rewind_anchor,
-    write_session_checkpoint,
+    write_merge_rollback_anchor, write_restore_rollback_anchor, write_session_checkpoint,
 };
 
 pub struct CheckpointCommand {
@@ -155,6 +156,8 @@ impl Command for CheckpointCommand {
             );
             let branch = resolve_branch_target(&project_root, target)
                 .ok_or_else(|| format!("Unknown branch target '{}'.", target))?;
+            let _ = write_merge_rollback_anchor(&project_root, &current, target)
+                .map_err(|err| format!("Failed to write merge rollback anchor: {}", err))?;
             let (merged_messages, merged_chat_entries) =
                 merge_checkpoint_payloads(&current, &branch.payload);
             {
@@ -180,6 +183,45 @@ impl Command for CheckpointCommand {
                 "Branch merged into current session.\nSummary: {}\nState: {}",
                 artifacts.summary_path.display(),
                 artifacts.state_path.display(),
+            )));
+        }
+        if let ["rollback", "list"] = parts.as_slice() {
+            return Ok(CommandOutput::Message(render_rollback_anchor_list(&project_root)));
+        }
+        if matches!(parts.as_slice(), ["rollback", "latest"] | ["rollback", _]) {
+            let target = parts.get(1).copied().unwrap_or("latest");
+            if target != "dry-run" && target != "list" {
+                if let Some(entry) = resolve_rollback_anchor_target(&project_root, target) {
+                    let footer = checkpoint_footer(&entry.summary_path);
+                    let doc = crate::commands::artifact_nav::open_artifact_inspector(
+                        "Rollback anchor inspector",
+                        &entry.summary_path,
+                        Some(footer),
+                        vec![("kind".into(), "rollback".into())],
+                    )
+                    .ok_or_else(|| {
+                        format!("Failed to open rollback anchor {}.", entry.summary_path.display())
+                    })?;
+                    return Ok(CommandOutput::OpenInspector(doc));
+                }
+            }
+        }
+        if let ["rollback-dry-run", target] = parts.as_slice() {
+            let entry = resolve_rollback_anchor_target(&project_root, target)
+                .ok_or_else(|| format!("Unknown rollback target '{}'.", target))?;
+            let current = build_current_checkpoint_payload(
+                &project_root,
+                &ctx.session.session_id,
+                ctx.provider_name.as_str(),
+                &ctx.session.model,
+                "current session",
+                ctx.chat_entries,
+                &engine_snapshot(),
+            );
+            return Ok(CommandOutput::Message(render_rollback_preview(
+                &current,
+                &entry.payload,
+                target,
             )));
         }
         if let ["rewind-anchor"] | ["rewind-anchor", "list"] = parts.as_slice() {
@@ -339,6 +381,17 @@ impl Command for CheckpointCommand {
         if let ["restore", target] = parts.as_slice() {
             let entry = resolve_checkpoint_target(&project_root, target)
                 .ok_or_else(|| format!("Unknown checkpoint target '{}'.", target))?;
+            let current = build_current_checkpoint_payload(
+                &project_root,
+                &ctx.session.session_id,
+                ctx.provider_name.as_str(),
+                &ctx.session.model,
+                "current session",
+                ctx.chat_entries,
+                &engine_snapshot(),
+            );
+            let _ = write_restore_rollback_anchor(&project_root, &current, target)
+                .map_err(|err| format!("Failed to write restore rollback anchor: {}", err))?;
             let restored_messages = checkpoint_restore_messages(&entry.payload);
             {
                 let mut engine = ctx
@@ -358,7 +411,7 @@ impl Command for CheckpointCommand {
             )));
         }
 
-        Err("Usage: /checkpoint [save [label]|list|latest|<index>|<file>|diff <a> <b>|restore <target>|restore-dry-run <target>|branch [list|latest|save <name>|diff <a> <b>|merge-dry-run <target>|merge <target>]|rewind-anchor [list|latest|save <target>]|rewind <target>]".to_string())
+        Err("Usage: /checkpoint [save [label]|list|latest|<index>|<file>|diff <a> <b>|restore <target>|restore-dry-run <target>|rollback [list|latest]|rollback-dry-run <target>|branch [list|latest|save <name>|diff <a> <b>|merge-dry-run <target>|merge <target>]|rewind-anchor [list|latest|save <target>]|rewind <target>]".to_string())
     }
 }
 
@@ -368,6 +421,8 @@ fn checkpoint_footer(path: &std::path::Path) -> String {
         "/checkpoint branch list".to_string(),
         "/checkpoint branch merge-dry-run latest".to_string(),
         "/checkpoint branch merge latest".to_string(),
+        "/checkpoint rollback latest".to_string(),
+        "/checkpoint rollback-dry-run latest".to_string(),
         "/checkpoint diff latest latest-1".to_string(),
         "/checkpoint rewind latest".to_string(),
         "/checkpoint restore-dry-run latest".to_string(),

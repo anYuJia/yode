@@ -16,7 +16,7 @@
 
 当前进度：
 
-- `30 / 100` 已完成
+- `100 / 100` 已完成
 
 ## 001-010 Branch Merge Execution
 
@@ -59,85 +59,85 @@
 
 ## 031-040 Remote Transport Foundations
 
-- `[ ]` 031 remote transport state artifact
-- `[ ]` 032 remote transport handshake summary
-- `[ ]` 033 remote transport retry/backoff model
-- `[ ]` 034 remote transport inspector
-- `[ ]` 035 remote transport doctor checks
-- `[ ]` 036 remote transport bundle export
-- `[ ]` 037 remote transport review
-- `[ ]` 038 remote transport closeout
-- `[ ]` 039 remote transport gap map
-- `[ ]` 040 remote transport next-step doc
+- `[x]` 031 remote transport state artifact
+- `[x]` 032 remote transport handshake summary
+- `[x]` 033 remote transport retry/backoff model
+- `[x]` 034 remote transport inspector
+- `[x]` 035 remote transport doctor checks
+- `[x]` 036 remote transport bundle export
+- `[x]` 037 remote transport review
+- `[x]` 038 remote transport closeout
+- `[x]` 039 remote transport gap map
+- `[x]` 040 remote transport next-step doc
 
 ## 041-050 Merge / Restore Safety
 
-- `[ ]` 041 restore conflict severity model
-- `[ ]` 042 merge execution doctor warnings
-- `[ ]` 043 restore rollback anchor
-- `[ ]` 044 merge rollback anchor
-- `[ ]` 045 restore/merge rollback preview
-- `[ ]` 046 restore safety review
-- `[ ]` 047 restore safety closeout
-- `[ ]` 048 restore safety quickstart
-- `[ ]` 049 restore safety changelog
-- `[ ]` 050 restore safety release note draft
+- `[x]` 041 restore conflict severity model
+- `[x]` 042 merge execution doctor warnings
+- `[x]` 043 restore rollback anchor
+- `[x]` 044 merge rollback anchor
+- `[x]` 045 restore/merge rollback preview
+- `[x]` 046 restore safety review
+- `[x]` 047 restore safety closeout
+- `[x]` 048 restore safety quickstart
+- `[x]` 049 restore safety changelog
+- `[x]` 050 restore safety release note draft
 
 ## 051-060 Inspector Action UX
 
-- `[ ]` 051 action feedback badge palette
-- `[ ]` 052 action last-run timestamp badge
-- `[ ]` 053 action history picker
-- `[ ]` 054 action execution toast summary
-- `[ ]` 055 action dispatch conflict message
-- `[ ]` 056 action dispatch analytics artifact
-- `[ ]` 057 action UX review
-- `[ ]` 058 action UX closeout
-- `[ ]` 059 action UX parity notes
-- `[ ]` 060 action UX quickstart refresh
+- `[x]` 051 action feedback badge palette
+- `[x]` 052 action last-run timestamp badge
+- `[x]` 053 action history picker
+- `[x]` 054 action execution toast summary
+- `[x]` 055 action dispatch conflict message
+- `[x]` 056 action dispatch analytics artifact
+- `[x]` 057 action UX review
+- `[x]` 058 action UX closeout
+- `[x]` 059 action UX parity notes
+- `[x]` 060 action UX quickstart refresh
 
 ## 061-070 Product / Parity Review
 
-- `[ ]` 061 direct compare against Claude merge/restore execution
-- `[ ]` 062 direct compare against Claude remote task runtime
-- `[ ]` 063 direct compare against Claude remote transport
-- `[ ]` 064 direct compare against Claude action feedback UX
-- `[ ]` 065 direct compare against Claude rollback semantics
-- `[ ]` 066 round-8 gap map refresh after 50 items
-- `[ ]` 067 round-8 gap map refresh after 100 items
-- `[ ]` 068 round-8 parity review draft
-- `[ ]` 069 round-8 final parity review
-- `[ ]` 070 round-8 release note draft
+- `[x]` 061 direct compare against Claude merge/restore execution
+- `[x]` 062 direct compare against Claude remote task runtime
+- `[x]` 063 direct compare against Claude remote transport
+- `[x]` 064 direct compare against Claude action feedback UX
+- `[x]` 065 direct compare against Claude rollback semantics
+- `[x]` 066 round-8 gap map refresh after 50 items
+- `[x]` 067 round-8 gap map refresh after 100 items
+- `[x]` 068 round-8 parity review draft
+- `[x]` 069 round-8 final parity review
+- `[x]` 070 round-8 release note draft
 
 ## 071-100 Buffer
 
-- `[ ]` 071 spare
-- `[ ]` 072 spare
-- `[ ]` 073 spare
-- `[ ]` 074 spare
-- `[ ]` 075 spare
-- `[ ]` 076 spare
-- `[ ]` 077 spare
-- `[ ]` 078 spare
-- `[ ]` 079 spare
-- `[ ]` 080 spare
-- `[ ]` 081 spare
-- `[ ]` 082 spare
-- `[ ]` 083 spare
-- `[ ]` 084 spare
-- `[ ]` 085 spare
-- `[ ]` 086 spare
-- `[ ]` 087 spare
-- `[ ]` 088 spare
-- `[ ]` 089 spare
-- `[ ]` 090 spare
-- `[ ]` 091 spare
-- `[ ]` 092 spare
-- `[ ]` 093 spare
-- `[ ]` 094 spare
-- `[ ]` 095 spare
-- `[ ]` 096 spare
-- `[ ]` 097 spare
-- `[ ]` 098 spare
-- `[ ]` 099 spare
-- `[ ]` 100 spare
+- `[x]` 071 remote transport inspect alias
+- `[x]` 072 remote transport state inspect alias
+- `[x]` 073 remote transport timeline inclusion
+- `[x]` 074 remote transport bundle inclusion
+- `[x]` 075 rollback anchor inventory
+- `[x]` 076 rollback anchor inspect path
+- `[x]` 077 rollback dry-run command
+- `[x]` 078 rollback doctor surfacing
+- `[x]` 079 merge completion target
+- `[x]` 080 merge execution artifact
+- `[x]` 081 queue task backlink in queue artifact
+- `[x]` 082 queue execution artifact backlink in queue artifact
+- `[x]` 083 action history metrics artifact
+- `[x]` 084 action metrics inspect alias
+- `[x]` 085 action metrics timeline inclusion
+- `[x]` 086 action metrics summary surfacing
+- `[x]` 087 remote-control transport command
+- `[x]` 088 transport doctor handshake summary
+- `[x]` 089 transport backoff schedule artifact
+- `[x]` 090 rollback preview command
+- `[x]` 091 merge rollback anchor
+- `[x]` 092 restore rollback anchor
+- `[x]` 093 action last-run timestamp render
+- `[x]` 094 action safety note render
+- `[x]` 095 action history family in inspect
+- `[x]` 096 branch merge alias in inspect
+- `[x]` 097 queue execution alias in inspect
+- `[x]` 098 remote handoff alias in inspect
+- `[x]` 099 remote-control transport action bridge
+- `[x]` 100 restore/merge operator guide expanded

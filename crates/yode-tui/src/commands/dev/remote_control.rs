@@ -10,9 +10,11 @@ use crate::commands::{
 use super::remote_control_workspace::{
     bind_remote_queue_item_runtime, export_remote_control_bundle,
     latest_remote_command_queue_artifact, latest_remote_control_artifact,
+    latest_remote_transport_artifact,
     mark_remote_queue_item, queue_item_target,
     render_remote_control_doctor, render_remote_retry_summary, render_remote_task_inventory,
     write_remote_control_artifacts, write_remote_queue_execution_artifact,
+    write_remote_transport_artifacts,
     write_remote_task_handoff_artifact,
 };
 
@@ -30,10 +32,11 @@ impl RemoteControlCommand {
                 args: vec![ArgDef {
                     name: "action".to_string(),
                     required: false,
-                    hint: "[plan [goal]|latest|queue|run <item>|retry <item>|ack <item>|tasks|follow <id>|retry-summary|handoff <id>|doctor|bundle]".to_string(),
+                    hint: "[plan [goal]|latest|transport|queue|run <item>|retry <item>|ack <item>|tasks|follow <id>|retry-summary|handoff <id>|doctor|bundle]".to_string(),
                     completions: ArgCompletionSource::Static(vec![
                         "plan".to_string(),
                         "latest".to_string(),
+                        "transport".to_string(),
                         "queue".to_string(),
                         "run".to_string(),
                         "retry".to_string(),
@@ -102,6 +105,28 @@ impl Command for RemoteControlCommand {
                     ("queue".to_string(), "/remote-control queue".to_string()),
                     ("tasks".to_string(), "/remote-control tasks".to_string()),
                     ("doctor".to_string(), "/remote-control doctor".to_string()),
+                ],
+            );
+            return Ok(CommandOutput::OpenInspector(doc));
+        }
+
+        if trimmed == "transport" {
+            let _ = write_remote_transport_artifacts(&project_root, &ctx.session.session_id);
+            let path = latest_remote_transport_artifact(&project_root)
+                .ok_or_else(|| "No remote transport artifacts found.".to_string())?;
+            let doc = open_artifact_inspector(
+                "Remote transport",
+                &path,
+                Some("/remote-control doctor | /inspect artifact latest-remote-transport-state".to_string()),
+                vec![("kind".into(), "remote_transport".into())],
+            )
+            .ok_or_else(|| format!("Failed to open remote transport artifact {}.", path.display()))?;
+            let mut doc = doc;
+            attach_inspector_actions(
+                &mut doc,
+                vec![
+                    ("doctor".to_string(), "/remote-control doctor".to_string()),
+                    ("latest".to_string(), "/remote-control latest".to_string()),
                 ],
             );
             return Ok(CommandOutput::OpenInspector(doc));
@@ -359,6 +384,7 @@ impl Command for RemoteControlCommand {
         }
 
         if trimmed == "doctor" {
+            let _ = write_remote_transport_artifacts(&project_root, &ctx.session.session_id);
             return Ok(CommandOutput::Message(render_remote_control_doctor(&project_root)));
         }
 

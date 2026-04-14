@@ -39,6 +39,19 @@ pub(crate) struct RemoteControlPayload {
     pub latest_orchestration: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct RemoteTransportPayload {
+    pub kind: String,
+    pub session_id: String,
+    pub remote_dir: String,
+    pub created_at: String,
+    pub handshake_status: String,
+    pub handshake_summary: String,
+    pub retry_backoff_secs: Vec<u64>,
+    pub latest_remote_control: Option<String>,
+    pub latest_remote_execution: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct RemoteControlArtifacts {
     pub summary_path: PathBuf,
@@ -107,6 +120,20 @@ pub(crate) fn latest_remote_queue_execution_artifact(project_root: &Path) -> Opt
     )
 }
 
+pub(crate) fn latest_remote_transport_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("remote"),
+        "remote-transport.md",
+    )
+}
+
+pub(crate) fn latest_remote_transport_state_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("remote"),
+        "remote-transport-state.json",
+    )
+}
+
 pub(crate) fn render_remote_control_doctor(project_root: &Path) -> String {
     let payload = latest_remote_control_state_artifact(project_root)
         .and_then(|path| load_remote_control_payload(&path).ok());
@@ -115,7 +142,7 @@ pub(crate) fn render_remote_control_doctor(project_root: &Path) -> String {
     };
 
     format!(
-        "Remote control doctor\n  Goal: {}\n  Status: {}\n  Queue: {} total / {} completed\n  Capability: {}\n  Execution: {}\n  Checkpoint: {}\n  Orchestration: {}",
+        "Remote control doctor\n  Goal: {}\n  Status: {}\n  Queue: {} total / {} completed\n  Capability: {}\n  Execution: {}\n  Checkpoint: {}\n  Orchestration: {}\n  Transport: {}",
         payload.goal,
         payload.status,
         payload.command_queue.len(),
@@ -128,6 +155,9 @@ pub(crate) fn render_remote_control_doctor(project_root: &Path) -> String {
         payload.latest_remote_execution.as_deref().unwrap_or("none"),
         payload.latest_checkpoint.as_deref().unwrap_or("none"),
         payload.latest_orchestration.as_deref().unwrap_or("none"),
+        latest_remote_transport_state_artifact(project_root)
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "none".to_string()),
     )
 }
 
@@ -159,7 +189,45 @@ pub(crate) fn export_remote_control_bundle(
     if let Some(execution) = latest_remote_queue_execution_artifact(project_root) {
         let _ = std::fs::copy(&execution, bundle_dir.join("remote-queue-execution.md"));
     }
+    if let Some(transport) = latest_remote_transport_artifact(project_root) {
+        let _ = std::fs::copy(&transport, bundle_dir.join("remote-transport.md"));
+    }
+    if let Some(transport_state) = latest_remote_transport_state_artifact(project_root) {
+        let _ = std::fs::copy(&transport_state, bundle_dir.join("remote-transport-state.json"));
+    }
     Ok(Some(bundle_dir))
+}
+
+pub(crate) fn write_remote_transport_artifacts(
+    project_root: &Path,
+    session_id: &str,
+) -> anyhow::Result<(PathBuf, PathBuf)> {
+    let dir = project_root.join(".yode").join("remote");
+    std::fs::create_dir_all(&dir)?;
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+    let short_session = session_id.chars().take(8).collect::<String>();
+    let summary_path = dir.join(format!("{}-{}-remote-transport.md", stamp, short_session));
+    let state_path = dir.join(format!("{}-{}-remote-transport-state.json", stamp, short_session));
+    let payload = build_remote_transport_payload(project_root, session_id);
+    std::fs::write(&state_path, serde_json::to_string_pretty(&payload)?)?;
+    let body = format!(
+        "# Remote Transport\n\n- Session: {}\n- Remote dir: {}\n- Handshake: {}\n- Summary: {}\n- Retry backoff: {}\n- Latest remote control: {}\n- Latest remote execution: {}\n- State artifact: {}\n",
+        payload.session_id,
+        payload.remote_dir,
+        payload.handshake_status,
+        payload.handshake_summary,
+        payload
+            .retry_backoff_secs
+            .iter()
+            .map(u64::to_string)
+            .collect::<Vec<_>>()
+            .join(", "),
+        payload.latest_remote_control.as_deref().unwrap_or("none"),
+        payload.latest_remote_execution.as_deref().unwrap_or("none"),
+        state_path.display(),
+    );
+    std::fs::write(&summary_path, body)?;
+    Ok((summary_path, state_path))
 }
 
 pub(crate) fn render_remote_task_inventory(tasks: &[RuntimeTask]) -> String {
@@ -434,6 +502,29 @@ fn build_remote_control_payload(
         latest_remote_execution,
         latest_checkpoint,
         latest_orchestration,
+    }
+}
+
+fn build_remote_transport_payload(project_root: &Path, session_id: &str) -> RemoteTransportPayload {
+    let remote_dir = project_root.join(".yode").join("remote");
+    let handshake_status = if remote_dir.exists() { "ready" } else { "missing" }.to_string();
+    let handshake_summary = if remote_dir.exists() {
+        "remote artifact directory available; transport handshake can begin".to_string()
+    } else {
+        "remote artifact directory missing; run remote-control plan or doctor remote".to_string()
+    };
+    RemoteTransportPayload {
+        kind: "remote_transport_state".to_string(),
+        session_id: session_id.to_string(),
+        remote_dir: remote_dir.display().to_string(),
+        created_at: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+        handshake_status,
+        handshake_summary,
+        retry_backoff_secs: vec![1, 2, 5, 10, 30],
+        latest_remote_control: latest_remote_control_artifact(project_root)
+            .map(|path| path.display().to_string()),
+        latest_remote_execution: latest_artifact_by_suffix(&remote_dir, "remote-execution-state.json")
+            .map(|path| path.display().to_string()),
     }
 }
 

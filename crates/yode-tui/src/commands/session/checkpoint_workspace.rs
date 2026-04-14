@@ -181,6 +181,24 @@ pub(crate) fn rewind_anchor_inventory(
         .collect()
 }
 
+pub(crate) fn rollback_anchor_inventory(
+    project_root: &Path,
+    limit: usize,
+) -> Vec<CheckpointInventoryEntry> {
+    recent_snapshot_summary_paths(project_root, &["restore-rollback.md", "merge-rollback.md"], limit)
+        .into_iter()
+        .filter_map(|summary_path| {
+            let state_path = summary_path_to_state_path(&summary_path)?;
+            let payload = load_checkpoint_payload(&state_path).ok()?;
+            Some(CheckpointInventoryEntry {
+                summary_path,
+                state_path,
+                payload,
+            })
+        })
+        .collect()
+}
+
 pub(crate) fn resolve_checkpoint_target(
     project_root: &Path,
     target: &str,
@@ -233,6 +251,15 @@ pub(crate) fn resolve_rewind_anchor_target(
 ) -> Option<CheckpointInventoryEntry> {
     let trimmed = target.trim();
     let entries = rewind_anchor_inventory(project_root, 32);
+    resolve_snapshot_target(entries, trimmed)
+}
+
+pub(crate) fn resolve_rollback_anchor_target(
+    project_root: &Path,
+    target: &str,
+) -> Option<CheckpointInventoryEntry> {
+    let trimmed = target.trim();
+    let entries = rollback_anchor_inventory(project_root, 32);
     resolve_snapshot_target(entries, trimmed)
 }
 
@@ -293,6 +320,9 @@ pub(crate) fn checkpoint_completion_targets(working_dir: &str) -> Vec<String> {
         "rewind-anchor latest".to_string(),
         "rewind-anchor save latest".to_string(),
         "rewind latest".to_string(),
+        "rollback list".to_string(),
+        "rollback latest".to_string(),
+        "rollback-dry-run latest".to_string(),
         "restore latest".to_string(),
         "diff latest latest-1".to_string(),
         "restore-dry-run latest".to_string(),
@@ -401,6 +431,34 @@ pub(crate) fn render_rewind_anchor_list(project_root: &Path) -> String {
     out
 }
 
+pub(crate) fn render_rollback_anchor_list(project_root: &Path) -> String {
+    let entries = rollback_anchor_inventory(project_root, 12);
+    if entries.is_empty() {
+        return format!(
+            "No rollback anchors found in {}.",
+            checkpoint_dir(project_root).display()
+        );
+    }
+    let mut out = format!("Rollback anchors in {}:\n", checkpoint_dir(project_root).display());
+    for (index, entry) in entries.iter().enumerate() {
+        out.push_str(&format!(
+            "  {:>2}. [{}] {} · source={} · {}\n",
+            index + 1,
+            artifact_freshness_badge(&entry.summary_path),
+            entry.payload.label,
+            entry
+                .payload
+                .lineage
+                .source_label
+                .as_deref()
+                .unwrap_or("current session"),
+            entry.summary_path.display()
+        ));
+    }
+    out.push_str("\nUse `/checkpoint rollback-dry-run latest` or `/inspect artifact latest-rollback-anchor`.");
+    out
+}
+
 pub(crate) fn render_checkpoint_diff(
     left: &SessionCheckpointPayload,
     right: &SessionCheckpointPayload,
@@ -474,6 +532,28 @@ pub(crate) fn render_restore_dry_run(
         .render()
 }
 
+pub(crate) fn render_rollback_preview(
+    current: &SessionCheckpointPayload,
+    target: &SessionCheckpointPayload,
+    target_label: &str,
+) -> String {
+    WorkspaceText::new("Rollback preview")
+        .subtitle(target_label.to_string())
+        .field("Mutation", "none (preview only)")
+        .field("Current messages", current.message_count.to_string())
+        .field("Rollback messages", target.message_count.to_string())
+        .field(
+            "Conflict severity",
+            restore_conflict_severity(current, target).to_string(),
+        )
+        .section(
+            "Rollback checks",
+            workspace_bullets(render_restore_conflict_summary(current, target)),
+        )
+        .footer(checkpoint_operator_guide())
+        .render()
+}
+
 pub(crate) fn render_rewind_safety_summary(
     current: &SessionCheckpointPayload,
     target: &SessionCheckpointPayload,
@@ -540,6 +620,7 @@ pub(crate) fn render_restore_doctor(project_root: &Path) -> String {
     let latest_branch = branch_inventory(project_root, 1).into_iter().next();
     let latest_rewind = rewind_anchor_inventory(project_root, 1).into_iter().next();
     let latest_merge = latest_artifact_by_suffix(&checkpoint_dir(project_root), "branch-merge.md");
+    let latest_rollback = rollback_anchor_inventory(project_root, 1).into_iter().next();
     WorkspaceText::new("Restore control doctor")
         .subtitle(project_root.display().to_string())
         .field(
@@ -570,6 +651,13 @@ pub(crate) fn render_restore_doctor(project_root: &Path) -> String {
                 .map(|path: &PathBuf| path.display().to_string())
                 .unwrap_or_else(|| "none".to_string()),
         )
+        .field(
+            "Latest rollback",
+            latest_rollback
+                .as_ref()
+                .map(|entry| entry.summary_path.display().to_string())
+                .unwrap_or_else(|| "none".to_string()),
+        )
         .section(
             "Checks",
             workspace_bullets([
@@ -587,6 +675,11 @@ pub(crate) fn render_restore_doctor(project_root: &Path) -> String {
                     "[ok] rewind anchor available".to_string()
                 } else {
                     "[--] rewind anchor unavailable".to_string()
+                },
+                if latest_rollback.is_some() {
+                    "[ok] rollback anchor available".to_string()
+                } else {
+                    "[--] rollback anchor unavailable".to_string()
                 },
             ]),
         )
@@ -739,6 +832,22 @@ pub(crate) fn write_branch_merge_execution_artifact(
     })
 }
 
+pub(crate) fn write_restore_rollback_anchor(
+    project_root: &Path,
+    current: &SessionCheckpointPayload,
+    target_label: &str,
+) -> anyhow::Result<SessionCheckpointArtifactSet> {
+    write_rollback_anchor(project_root, current, "restore", target_label)
+}
+
+pub(crate) fn write_merge_rollback_anchor(
+    project_root: &Path,
+    current: &SessionCheckpointPayload,
+    target_label: &str,
+) -> anyhow::Result<SessionCheckpointArtifactSet> {
+    write_rollback_anchor(project_root, current, "merge", target_label)
+}
+
 fn recent_snapshot_summary_paths(project_root: &Path, suffixes: &[&str], limit: usize) -> Vec<PathBuf> {
     let mut entries = std::fs::read_dir(checkpoint_dir(project_root))
         .ok()
@@ -844,6 +953,22 @@ fn build_branch_merge_preview(
     }
 }
 
+fn restore_conflict_severity(
+    current: &SessionCheckpointPayload,
+    target: &SessionCheckpointPayload,
+) -> &'static str {
+    let conflicts = render_restore_conflict_summary(current, target);
+    if conflicts.iter().any(|line| line.contains("provider/model")) {
+        "high"
+    } else if conflicts.iter().any(|line| line.contains("working dir")) {
+        "warn"
+    } else if conflicts.iter().any(|line| line.contains("tail divergence")) {
+        "medium"
+    } else {
+        "low"
+    }
+}
+
 fn build_branch_merge_execution_payload(
     current: &SessionCheckpointPayload,
     branch: &SessionCheckpointPayload,
@@ -896,6 +1021,35 @@ fn render_restore_conflict_summary(
         conflicts.push("no structural conflicts detected".to_string());
     }
     conflicts
+}
+
+fn write_rollback_anchor(
+    project_root: &Path,
+    current: &SessionCheckpointPayload,
+    kind_label: &str,
+    target_label: &str,
+) -> anyhow::Result<SessionCheckpointArtifactSet> {
+    let dir = checkpoint_dir(project_root);
+    std::fs::create_dir_all(&dir)?;
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+    let slug = checkpoint_slug(target_label);
+    let base = format!("{}-{}", stamp, slug);
+    let state_suffix = format!("{}-rollback-state.json", kind_label);
+    let summary_suffix = format!("{}-rollback.md", kind_label);
+    let state_path = dir.join(format!("{}-{}", base, state_suffix));
+    let summary_path = dir.join(format!("{}-{}", base, summary_suffix));
+    let mut payload = current.clone();
+    payload.kind = format!("{}_rollback_anchor", kind_label);
+    payload.label = format!("{} rollback -> {}", kind_label, target_label);
+    payload.created_at = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    payload.lineage.source_kind = Some(current.kind.clone());
+    payload.lineage.source_label = Some(current.label.clone());
+    std::fs::write(&state_path, serde_json::to_string_pretty(&payload)?)?;
+    std::fs::write(&summary_path, render_checkpoint_summary(&payload, &state_path, None))?;
+    Ok(SessionCheckpointArtifactSet {
+        summary_path,
+        state_path,
+    })
 }
 
 pub(crate) fn checkpoint_restore_messages(payload: &SessionCheckpointPayload) -> Vec<Message> {

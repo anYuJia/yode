@@ -9,8 +9,9 @@ use crate::commands::artifact_nav::{
     latest_coordinator_state_artifact,
     latest_remote_command_queue_artifact, latest_remote_control_artifact,
     latest_remote_control_state_artifact, latest_remote_queue_execution_artifact,
+    latest_remote_transport_artifact, latest_remote_transport_state_artifact,
     latest_remote_task_handoff_artifact,
-    latest_action_history_artifact,
+    latest_action_history_artifact, latest_action_metrics_artifact,
     latest_rewind_anchor_artifact, latest_rewind_anchor_state_artifact,
     latest_runtime_orchestration_artifact, latest_workflow_execution_artifact,
     latest_workflow_state_artifact, open_artifact_inspector, recent_artifacts_by_suffix,
@@ -285,6 +286,20 @@ fn inspect_artifact_target(args: &str, ctx: &mut CommandContext) -> CommandResul
             "remote_queue".to_string(),
             vec!["/remote-control run latest".to_string()],
         ),
+        "latest-remote-transport" => (
+            latest_remote_transport_artifact(&project_root)
+                .ok_or_else(|| "No remote transport artifact found.".to_string())?,
+            "Remote transport".to_string(),
+            "remote_transport".to_string(),
+            vec!["/remote-control doctor".to_string()],
+        ),
+        "latest-remote-transport-state" => (
+            latest_remote_transport_state_artifact(&project_root)
+                .ok_or_else(|| "No remote transport state artifact found.".to_string())?,
+            "Remote transport state".to_string(),
+            "remote_transport".to_string(),
+            vec!["/remote-control doctor".to_string()],
+        ),
         "latest-workflow-state" => (
             latest_workflow_state_artifact(&project_root)
                 .ok_or_else(|| "No workflow state artifact found.".to_string())?,
@@ -340,6 +355,13 @@ fn inspect_artifact_target(args: &str, ctx: &mut CommandContext) -> CommandResul
             "Inspector action history".to_string(),
             "actions".to_string(),
             vec!["/inspect artifact history status".to_string()],
+        ),
+        "latest-action-metrics" => (
+            latest_action_metrics_artifact(&project_root)
+                .ok_or_else(|| "No inspector action metrics artifact found.".to_string())?,
+            "Inspector action metrics".to_string(),
+            "actions".to_string(),
+            vec!["/inspect artifact history actions".to_string()],
         ),
         "latest-hook-failures" => (
             latest_artifact_by_suffix(&status_dir, "hook-failures.md")
@@ -525,6 +547,7 @@ fn inspect_completion_targets(ctx: &crate::commands::context::CompletionContext)
         "artifact history workflow".to_string(),
         "artifact history coordinate".to_string(),
         "artifact history runtime".to_string(),
+        "artifact history actions".to_string(),
         "artifact latest-workflow".to_string(),
         "artifact latest-checkpoint".to_string(),
         "artifact latest-checkpoint-state".to_string(),
@@ -538,6 +561,8 @@ fn inspect_completion_targets(ctx: &crate::commands::context::CompletionContext)
         "artifact latest-remote-control-state".to_string(),
         "artifact latest-remote-queue".to_string(),
         "artifact latest-remote-queue-execution".to_string(),
+        "artifact latest-remote-transport".to_string(),
+        "artifact latest-remote-transport-state".to_string(),
         "artifact latest-remote-task-handoff".to_string(),
         "artifact latest-workflow-state".to_string(),
         "artifact latest-coordinate".to_string(),
@@ -546,6 +571,7 @@ fn inspect_completion_targets(ctx: &crate::commands::context::CompletionContext)
         "artifact latest-runtime-timeline".to_string(),
         "artifact latest-runtime-tasks".to_string(),
         "artifact latest-action-history".to_string(),
+        "artifact latest-action-metrics".to_string(),
         "artifact latest-hook-failures".to_string(),
         "artifact latest-startup-profile".to_string(),
         "artifact latest-startup-manifest".to_string(),
@@ -592,10 +618,10 @@ fn artifact_inventory_lines(project_root: &std::path::Path, cwd: &std::path::Pat
         "latest-workflow-state | latest-coordinate-state".to_string(),
         "latest-checkpoint | latest-checkpoint-state".to_string(),
         "latest-branch | latest-branch-state | latest-branch-merge | latest-branch-merge-state | latest-rewind-anchor | latest-rewind-anchor-state".to_string(),
-        "latest-remote-control | latest-remote-control-state | latest-remote-queue | latest-remote-queue-execution".to_string(),
+        "latest-remote-control | latest-remote-control-state | latest-remote-queue | latest-remote-queue-execution | latest-remote-transport | latest-remote-transport-state".to_string(),
         "latest-remote-task-handoff".to_string(),
         "latest-runtime-timeline | latest-runtime-tasks | latest-hook-failures".to_string(),
-        "latest-action-history".to_string(),
+        "latest-action-history | latest-action-metrics".to_string(),
         "latest-startup-profile | latest-startup-manifest | latest-provider-inventory | latest-mcp-failures".to_string(),
         "latest-review | latest-transcript | latest-session-memory | latest-tool | latest-recovery | latest-permission".to_string(),
         "latest-remote-capability | latest-remote-execution | bundle".to_string(),
@@ -731,9 +757,18 @@ fn artifact_summary_lines(project_root: &std::path::Path, cwd: &std::path::Path)
                 format!("remote_queue_execution -> {}", artifact_display_line(&path))
             })
             .unwrap_or_else(|| "remote_queue_execution -> none".to_string()),
+        latest_remote_transport_artifact(project_root)
+            .map(|path| format!("remote_transport -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "remote_transport -> none".to_string()),
+        latest_remote_transport_state_artifact(project_root)
+            .map(|path| format!("remote_transport_state -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "remote_transport_state -> none".to_string()),
         latest_action_history_artifact(project_root)
             .map(|path| format!("action_history -> {}", artifact_display_line(&path)))
             .unwrap_or_else(|| "action_history -> none".to_string()),
+        latest_action_metrics_artifact(project_root)
+            .map(|path| format!("action_metrics -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "action_metrics -> none".to_string()),
         latest_coordinator_artifact(project_root)
             .map(|path| format!("coordinate -> {}", artifact_display_line(&path)))
             .unwrap_or_else(|| "coordinate -> none".to_string()),
@@ -758,6 +793,14 @@ fn artifact_history_family_lines(
     let paths: Vec<PathBuf> = match family {
         "status" => recent_artifacts_by_suffix(&project_root.join(".yode").join("status"), ".md", 12),
         "state" => recent_artifacts_by_suffix(&project_root.join(".yode").join("status"), ".json", 12),
+        "actions" => recent_artifacts_by_suffix(&project_root.join(".yode").join("status"), "inspector-action-history.md", 12)
+            .into_iter()
+            .chain(recent_artifacts_by_suffix(
+                &project_root.join(".yode").join("status"),
+                "inspector-action-metrics.json",
+                12,
+            ))
+            .collect(),
         "checkpoints" => recent_artifacts_by_suffix(&project_root.join(".yode").join("checkpoints"), ".md", 12)
             .into_iter()
             .chain(recent_artifacts_by_suffix(

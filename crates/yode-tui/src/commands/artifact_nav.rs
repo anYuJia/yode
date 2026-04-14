@@ -126,10 +126,31 @@ pub(crate) fn latest_remote_queue_execution_artifact(project_root: &Path) -> Opt
     )
 }
 
+pub(crate) fn latest_remote_transport_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("remote"),
+        "remote-transport.md",
+    )
+}
+
+pub(crate) fn latest_remote_transport_state_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("remote"),
+        "remote-transport-state.json",
+    )
+}
+
 pub(crate) fn latest_action_history_artifact(project_root: &Path) -> Option<PathBuf> {
     latest_artifact_by_suffix(
         &project_root.join(".yode").join("status"),
         "inspector-action-history.md",
+    )
+}
+
+pub(crate) fn latest_action_metrics_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("status"),
+        "inspector-action-metrics.json",
     )
 }
 
@@ -319,6 +340,35 @@ pub(crate) fn record_inspector_action_history(
         let body = format!("# Inspector Action History\n\n{}", line);
         std::fs::write(&path, body).ok()?;
     }
+    let metrics_path = dir.join(format!("{}-inspector-action-metrics.json", short_session));
+    let mut count = 1u64;
+    let mut commands = std::collections::BTreeMap::<String, u64>::new();
+    if let Ok(body) = std::fs::read_to_string(&metrics_path) {
+        if let Ok(mut payload) = serde_json::from_str::<serde_json::Value>(&body) {
+            count = payload
+                .get("count")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(0)
+                .saturating_add(1);
+            commands = payload
+                .get_mut("commands")
+                .and_then(|value| value.as_object_mut())
+                .map(|map| {
+                    map.iter()
+                        .map(|(key, value)| (key.clone(), value.as_u64().unwrap_or(0)))
+                        .collect()
+                })
+                .unwrap_or_default();
+        }
+    }
+    *commands.entry(command.to_string()).or_default() += 1;
+    let payload = serde_json::json!({
+        "count": count,
+        "last_command": command,
+        "updated_at": chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+        "commands": commands,
+    });
+    let _ = std::fs::write(&metrics_path, serde_json::to_string_pretty(&payload).ok()?);
     Some(path.display().to_string())
 }
 
@@ -357,6 +407,9 @@ pub(crate) fn build_runtime_orchestration_timeline_lines(
     if let Some(path) = latest_action_history_artifact(project_root) {
         entries.push(artifact_timeline_entry(&path, "action history"));
     }
+    if let Some(path) = latest_action_metrics_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "action metrics"));
+    }
     if let Some(path) = latest_workflow_state_artifact(project_root) {
         entries.push(artifact_timeline_entry(&path, "workflow state"));
     }
@@ -377,6 +430,12 @@ pub(crate) fn build_runtime_orchestration_timeline_lines(
     }
     if let Some(path) = latest_remote_queue_execution_artifact(project_root) {
         entries.push(artifact_timeline_entry(&path, "remote queue execution"));
+    }
+    if let Some(path) = latest_remote_transport_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "remote transport"));
+    }
+    if let Some(path) = latest_remote_transport_state_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "remote transport state"));
     }
     if let Some(path) = latest_coordinator_artifact(project_root) {
         entries.push(artifact_timeline_entry(&path, "coordinator"));

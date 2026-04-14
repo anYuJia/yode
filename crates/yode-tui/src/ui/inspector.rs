@@ -25,6 +25,7 @@ pub struct InspectorState {
     pub search_active: bool,
     pub search_query: String,
     pub last_action_label: Option<String>,
+    pub last_action_at: Option<String>,
 }
 
 pub(crate) fn inspector_experiment_enabled() -> bool {
@@ -75,6 +76,7 @@ impl InspectorState {
             search_active: false,
             search_query: String::new(),
             last_action_label: None,
+            last_action_at: None,
         }
     }
 }
@@ -292,6 +294,7 @@ impl InspectorDocument {
 
     pub(crate) fn note_action_dispatched(&mut self, label: impl Into<String>) {
         self.state.last_action_label = Some(label.into());
+        self.state.last_action_at = Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
     }
 
     fn sync_scroll(&mut self) {
@@ -441,7 +444,11 @@ pub(crate) fn render_inspector(
             if document.state.search_active || !document.state.search_query.is_empty() {
                 format!(" · search={}", document.state.search_query)
             } else if let Some(last_action) = &document.state.last_action_label {
-                format!(" · last-action={}", last_action)
+                format!(
+                    " · last-action={} @ {}",
+                    last_action,
+                    document.state.last_action_at.as_deref().unwrap_or("unknown")
+                )
             } else {
                 String::new()
             }
