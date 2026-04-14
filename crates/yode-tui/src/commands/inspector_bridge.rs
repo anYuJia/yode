@@ -21,6 +21,7 @@ pub(crate) fn document_from_command_output(title: &str, lines: Vec<String>) -> I
             },
             lines,
             badges: Vec::new(),
+            actions: Vec::new(),
         })
         .collect::<Vec<_>>();
 

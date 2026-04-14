@@ -37,6 +37,7 @@ pub struct InspectorPanel {
     pub tab: InspectorTab,
     pub lines: Vec<String>,
     pub badges: Vec<(String, String)>,
+    pub actions: Vec<InspectorAction>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,6 +45,12 @@ pub struct InspectorDocument {
     pub state: InspectorState,
     pub panels: Vec<InspectorPanel>,
     pub footer: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InspectorAction {
+    pub label: String,
+    pub command: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,6 +89,7 @@ impl InspectorDocument {
                 tab,
                 lines,
                 badges: Vec::new(),
+                actions: Vec::new(),
             }],
             footer: None,
         }
@@ -234,6 +242,7 @@ impl InspectorDocument {
         let panel = self.active_panel()?;
         let line = panel.lines.get(self.state.selected_line)?;
         extract_command_target(line)
+            .or_else(|| panel.actions.first().map(|action| action.command.clone()))
             .or_else(|| self.footer.as_deref().and_then(extract_command_target))
     }
 
@@ -296,6 +305,20 @@ pub(crate) fn inspector_status_badge_row(badges: &[(&str, &str)], accent: Color)
         spans.push(Span::styled(
             format!("{}={}", label, value),
             Style::default().fg(accent),
+        ));
+    }
+    Line::from(spans)
+}
+
+pub(crate) fn inspector_action_row(actions: &[InspectorAction], accent: Color) -> Line<'static> {
+    let mut spans = vec![Span::styled("  actions: ", Style::default().fg(Color::DarkGray))];
+    for (index, action) in actions.iter().enumerate() {
+        if index > 0 {
+            spans.push(Span::raw(" "));
+        }
+        spans.push(Span::styled(
+            format!("[{}]", action.label),
+            Style::default().fg(accent).add_modifier(Modifier::BOLD),
         ));
     }
     Line::from(spans)
@@ -366,6 +389,9 @@ pub(crate) fn render_inspector(
             .collect::<Vec<_>>();
         lines.push(inspector_status_badge_row(&badges, Color::LightCyan));
     }
+    if !panel.actions.is_empty() {
+        lines.push(inspector_action_row(&panel.actions, Color::LightGreen));
+    }
     lines.push(section_title_line(&panel.tab.label, Color::Yellow));
 
     let filtered = document.filtered_indices();
@@ -433,10 +459,10 @@ mod tests {
     use ratatui::style::Color;
 
     use super::{
-        inspector_empty_state_actions, inspector_experiment_enabled,
+        inspector_action_row, inspector_empty_state_actions, inspector_experiment_enabled,
         inspector_pagination_footer, inspector_status_badge_row,
         multi_pane_title_strip, InspectorBodySource, InspectorDocument,
-        InspectorState, InspectorTab, PanelStackCoordinator,
+        InspectorAction, InspectorState, InspectorTab, PanelStackCoordinator,
     };
 
     #[test]
@@ -461,6 +487,14 @@ mod tests {
         assert!(line.to_string().contains("Timeline (2)"));
         let badges = inspector_status_badge_row(&[("status", "running")], Color::Yellow);
         assert!(badges.to_string().contains("status=running"));
+        let actions = inspector_action_row(
+            &[InspectorAction {
+                label: "rerun".to_string(),
+                command: "/workflows run latest".to_string(),
+            }],
+            Color::Green,
+        );
+        assert!(actions.to_string().contains("[rerun]"));
     }
 
     #[test]

@@ -5,7 +5,7 @@ use std::time::SystemTime;
 use chrono::{DateTime, Local};
 
 use crate::commands::inspector_bridge::document_from_command_output;
-use crate::ui::inspector::InspectorDocument;
+use crate::ui::inspector::{InspectorAction, InspectorDocument};
 
 #[derive(Debug, Clone)]
 struct ArtifactTimelineEntry {
@@ -45,10 +45,63 @@ pub(crate) fn latest_checkpoint_artifact(project_root: &Path) -> Option<PathBuf>
     latest_artifact_by_suffix(&project_root.join(".yode").join("checkpoints"), "checkpoint.md")
 }
 
+pub(crate) fn latest_branch_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(&project_root.join(".yode").join("checkpoints"), "branch.md")
+}
+
+pub(crate) fn latest_rewind_anchor_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("checkpoints"),
+        "rewind-anchor.md",
+    )
+}
+
 pub(crate) fn latest_checkpoint_state_artifact(project_root: &Path) -> Option<PathBuf> {
     latest_artifact_by_suffix(
         &project_root.join(".yode").join("checkpoints"),
         "checkpoint-state.json",
+    )
+}
+
+pub(crate) fn latest_branch_state_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("checkpoints"),
+        "branch-state.json",
+    )
+}
+
+pub(crate) fn latest_rewind_anchor_state_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("checkpoints"),
+        "rewind-anchor-state.json",
+    )
+}
+
+pub(crate) fn latest_remote_control_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("remote"),
+        "remote-control.md",
+    )
+}
+
+pub(crate) fn latest_remote_control_state_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("remote"),
+        "remote-control-session.json",
+    )
+}
+
+pub(crate) fn latest_remote_command_queue_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("remote"),
+        "remote-command-queue.md",
+    )
+}
+
+pub(crate) fn latest_remote_task_handoff_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("remote"),
+        "remote-task-handoff.md",
     )
 }
 
@@ -203,6 +256,19 @@ pub(crate) fn open_artifact_inspector(
     Some(doc)
 }
 
+pub(crate) fn attach_inspector_actions(
+    doc: &mut InspectorDocument,
+    actions: Vec<(String, String)>,
+) {
+    let actions = actions
+        .into_iter()
+        .map(|(label, command)| InspectorAction { label, command })
+        .collect::<Vec<_>>();
+    for panel in &mut doc.panels {
+        panel.actions.extend(actions.clone());
+    }
+}
+
 pub(crate) fn build_runtime_orchestration_timeline_lines(
     project_root: &Path,
     max_items: usize,
@@ -217,11 +283,35 @@ pub(crate) fn build_runtime_orchestration_timeline_lines(
     if let Some(path) = latest_checkpoint_artifact(project_root) {
         entries.push(artifact_timeline_entry(&path, "checkpoint"));
     }
+    if let Some(path) = latest_branch_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "branch"));
+    }
+    if let Some(path) = latest_rewind_anchor_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "rewind anchor"));
+    }
+    if let Some(path) = latest_remote_control_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "remote control"));
+    }
+    if let Some(path) = latest_remote_command_queue_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "remote command queue"));
+    }
+    if let Some(path) = latest_remote_task_handoff_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "remote task handoff"));
+    }
     if let Some(path) = latest_workflow_state_artifact(project_root) {
         entries.push(artifact_timeline_entry(&path, "workflow state"));
     }
     if let Some(path) = latest_checkpoint_state_artifact(project_root) {
         entries.push(artifact_timeline_entry(&path, "checkpoint state"));
+    }
+    if let Some(path) = latest_branch_state_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "branch state"));
+    }
+    if let Some(path) = latest_rewind_anchor_state_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "rewind anchor state"));
+    }
+    if let Some(path) = latest_remote_control_state_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "remote control state"));
     }
     if let Some(path) = latest_coordinator_artifact(project_root) {
         entries.push(artifact_timeline_entry(&path, "coordinator"));

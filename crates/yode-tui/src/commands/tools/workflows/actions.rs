@@ -1,7 +1,8 @@
 use std::path::Path;
 
 use crate::commands::artifact_nav::{
-    artifact_freshness_badge, latest_workflow_execution_artifact, open_artifact_inspector,
+    artifact_freshness_badge, attach_inspector_actions, latest_workflow_execution_artifact,
+    open_artifact_inspector,
     recent_artifacts_by_suffix, stale_artifact_actions,
     write_runtime_orchestration_timeline_artifact,
 };
@@ -38,6 +39,16 @@ pub(super) fn execute_workflows_command(
             vec![("kind".into(), "workflow".into())],
         )
         .ok_or_else(|| format!("Failed to open workflow artifact {}.", path.display()))?;
+        let mut doc = doc;
+        attach_inspector_actions(
+            &mut doc,
+            vec![
+                ("history".to_string(), "/workflows history".to_string()),
+                ("preview".to_string(), "/workflows preview latest".to_string()),
+                ("rerun".to_string(), "/workflows run latest".to_string()),
+                ("rerun-write".to_string(), "/workflows run-write latest".to_string()),
+            ],
+        );
         return Ok(CommandOutput::OpenInspector(doc));
     }
     if let ["timeline"] = parts.as_slice() {
@@ -53,6 +64,14 @@ pub(super) fn execute_workflows_command(
             vec![("kind".into(), "orchestration".into())],
         )
         .ok_or_else(|| format!("Failed to open timeline artifact {}.", path))?;
+        let mut doc = doc;
+        attach_inspector_actions(
+            &mut doc,
+            vec![
+                ("workflow".to_string(), "/inspect workflows latest".to_string()),
+                ("coordinate".to_string(), "/coordinate latest".to_string()),
+            ],
+        );
         return Ok(CommandOutput::OpenInspector(doc));
     }
     if let ["history"] = parts.as_slice() {

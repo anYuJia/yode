@@ -1,10 +1,14 @@
 use std::path::PathBuf;
 
 use crate::commands::artifact_nav::{
-    artifact_display_line, artifact_history_lines, latest_artifact_by_suffix,
-    latest_bundle_workspace_index, latest_checkpoint_artifact, latest_checkpoint_state_artifact,
-    latest_coordinator_artifact,
+    artifact_display_line, artifact_history_lines, attach_inspector_actions,
+    latest_artifact_by_suffix,
+    latest_branch_artifact, latest_branch_state_artifact, latest_bundle_workspace_index,
+    latest_checkpoint_artifact, latest_checkpoint_state_artifact, latest_coordinator_artifact,
     latest_coordinator_state_artifact,
+    latest_remote_command_queue_artifact, latest_remote_control_artifact,
+    latest_remote_control_state_artifact, latest_remote_task_handoff_artifact,
+    latest_rewind_anchor_artifact, latest_rewind_anchor_state_artifact,
     latest_runtime_orchestration_artifact, latest_workflow_execution_artifact,
     latest_workflow_state_artifact, open_artifact_inspector, recent_artifacts_by_suffix,
     recent_bundle_workspace_indexes, resolve_artifact_basename, stale_artifact_actions,
@@ -30,7 +34,7 @@ impl InspectCommand {
                 args: vec![ArgDef {
                     name: "target".to_string(),
                     required: false,
-                    hint: "[tasks|memory|reviews|status|diagnostics|doctor|hooks|permissions|workflows|coordinate|checkpoint|artifact]".to_string(),
+                    hint: "[tasks|memory|reviews|status|diagnostics|doctor|hooks|permissions|workflows|coordinate|checkpoint|remote-control|artifact]".to_string(),
                     completions: ArgCompletionSource::Dynamic(inspect_completion_targets),
                 }],
                 category: CommandCategory::Info,
@@ -66,6 +70,11 @@ impl Command for InspectCommand {
                 "checkpoint",
                 value.strip_prefix("checkpoint").unwrap_or("").trim(),
                 "Checkpoint inspector".to_string(),
+            ),
+            value if value.starts_with("remote-control") => (
+                "remote-control",
+                value.strip_prefix("remote-control").unwrap_or("").trim(),
+                "Remote control inspector".to_string(),
             ),
             value if value.starts_with("tasks") => (
                 "tasks",
@@ -195,6 +204,62 @@ fn inspect_artifact_target(args: &str, ctx: &mut CommandContext) -> CommandResul
             "Session checkpoint state".to_string(),
             "checkpoint".to_string(),
             vec!["/checkpoint latest".to_string(), "/checkpoint restore-dry-run latest".to_string()],
+        ),
+        "latest-branch" => (
+            latest_branch_artifact(&project_root)
+                .ok_or_else(|| "No branch artifact found.".to_string())?,
+            "Session branch inspector".to_string(),
+            "branch".to_string(),
+            vec!["/checkpoint branch latest".to_string(), "/checkpoint branch list".to_string()],
+        ),
+        "latest-branch-state" => (
+            latest_branch_state_artifact(&project_root)
+                .ok_or_else(|| "No branch state artifact found.".to_string())?,
+            "Session branch state".to_string(),
+            "branch".to_string(),
+            vec!["/checkpoint branch latest".to_string()],
+        ),
+        "latest-rewind-anchor" => (
+            latest_rewind_anchor_artifact(&project_root)
+                .ok_or_else(|| "No rewind anchor artifact found.".to_string())?,
+            "Rewind anchor inspector".to_string(),
+            "rewind".to_string(),
+            vec!["/checkpoint rewind latest".to_string(), "/checkpoint rewind-anchor latest".to_string()],
+        ),
+        "latest-rewind-anchor-state" => (
+            latest_rewind_anchor_state_artifact(&project_root)
+                .ok_or_else(|| "No rewind anchor state artifact found.".to_string())?,
+            "Rewind anchor state".to_string(),
+            "rewind".to_string(),
+            vec!["/checkpoint rewind latest".to_string()],
+        ),
+        "latest-remote-control" => (
+            latest_remote_control_artifact(&project_root)
+                .ok_or_else(|| "No remote control artifact found.".to_string())?,
+            "Remote control inspector".to_string(),
+            "remote_control".to_string(),
+            vec!["/remote-control latest".to_string()],
+        ),
+        "latest-remote-control-state" => (
+            latest_remote_control_state_artifact(&project_root)
+                .ok_or_else(|| "No remote control state artifact found.".to_string())?,
+            "Remote control state".to_string(),
+            "remote_control".to_string(),
+            vec!["/remote-control latest".to_string(), "/remote-control doctor".to_string()],
+        ),
+        "latest-remote-queue" => (
+            latest_remote_command_queue_artifact(&project_root)
+                .ok_or_else(|| "No remote command queue artifact found.".to_string())?,
+            "Remote command queue".to_string(),
+            "remote_control".to_string(),
+            vec!["/remote-control queue".to_string()],
+        ),
+        "latest-remote-task-handoff" => (
+            latest_remote_task_handoff_artifact(&project_root)
+                .ok_or_else(|| "No remote task handoff artifact found.".to_string())?,
+            "Remote task handoff".to_string(),
+            "remote_task".to_string(),
+            vec!["/remote-control handoff latest".to_string()],
         ),
         "latest-workflow-state" => (
             latest_workflow_state_artifact(&project_root)
@@ -386,6 +451,16 @@ fn inspect_artifact_target(args: &str, ctx: &mut CommandContext) -> CommandResul
         vec![("kind".into(), kind)],
     )
     .ok_or_else(|| format!("Failed to open artifact {}.", path.display()))?;
+    let mut doc = doc;
+    if !refresh.is_empty() {
+        attach_inspector_actions(
+            &mut doc,
+            refresh
+                .iter()
+                .map(|command| (command.clone(), command.clone()))
+                .collect(),
+        );
+    }
     Ok(CommandOutput::OpenInspector(doc))
 }
 
@@ -407,6 +482,8 @@ fn inspect_completion_targets(ctx: &crate::commands::context::CompletionContext)
         "artifact summary".to_string(),
         "artifact history".to_string(),
         "artifact history checkpoints".to_string(),
+        "artifact history branches".to_string(),
+        "artifact history rewind".to_string(),
         "artifact history status".to_string(),
         "artifact history state".to_string(),
         "artifact history remote".to_string(),
@@ -420,6 +497,14 @@ fn inspect_completion_targets(ctx: &crate::commands::context::CompletionContext)
         "artifact latest-workflow".to_string(),
         "artifact latest-checkpoint".to_string(),
         "artifact latest-checkpoint-state".to_string(),
+        "artifact latest-branch".to_string(),
+        "artifact latest-branch-state".to_string(),
+        "artifact latest-rewind-anchor".to_string(),
+        "artifact latest-rewind-anchor-state".to_string(),
+        "artifact latest-remote-control".to_string(),
+        "artifact latest-remote-control-state".to_string(),
+        "artifact latest-remote-queue".to_string(),
+        "artifact latest-remote-task-handoff".to_string(),
         "artifact latest-workflow-state".to_string(),
         "artifact latest-coordinate".to_string(),
         "artifact latest-coordinate-state".to_string(),
@@ -471,6 +556,9 @@ fn artifact_inventory_lines(project_root: &std::path::Path, cwd: &std::path::Pat
         "latest-workflow | latest-coordinate | latest-orchestration".to_string(),
         "latest-workflow-state | latest-coordinate-state".to_string(),
         "latest-checkpoint | latest-checkpoint-state".to_string(),
+        "latest-branch | latest-branch-state | latest-rewind-anchor | latest-rewind-anchor-state".to_string(),
+        "latest-remote-control | latest-remote-control-state | latest-remote-queue".to_string(),
+        "latest-remote-task-handoff".to_string(),
         "latest-runtime-timeline | latest-runtime-tasks | latest-hook-failures".to_string(),
         "latest-startup-profile | latest-startup-manifest | latest-provider-inventory | latest-mcp-failures".to_string(),
         "latest-review | latest-transcript | latest-session-memory | latest-tool | latest-recovery | latest-permission".to_string(),
@@ -572,6 +660,30 @@ fn artifact_summary_lines(project_root: &std::path::Path, cwd: &std::path::Path)
         latest_checkpoint_state_artifact(project_root)
             .map(|path| format!("checkpoint_state -> {}", artifact_display_line(&path)))
             .unwrap_or_else(|| "checkpoint_state -> none".to_string()),
+        latest_branch_artifact(project_root)
+            .map(|path| format!("branch -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "branch -> none".to_string()),
+        latest_branch_state_artifact(project_root)
+            .map(|path| format!("branch_state -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "branch_state -> none".to_string()),
+        latest_rewind_anchor_artifact(project_root)
+            .map(|path| format!("rewind_anchor -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "rewind_anchor -> none".to_string()),
+        latest_rewind_anchor_state_artifact(project_root)
+            .map(|path| format!("rewind_anchor_state -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "rewind_anchor_state -> none".to_string()),
+        latest_remote_control_artifact(project_root)
+            .map(|path| format!("remote_control -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "remote_control -> none".to_string()),
+        latest_remote_control_state_artifact(project_root)
+            .map(|path| format!("remote_control_state -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "remote_control_state -> none".to_string()),
+        latest_remote_command_queue_artifact(project_root)
+            .map(|path| format!("remote_queue -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "remote_queue -> none".to_string()),
+        latest_remote_task_handoff_artifact(project_root)
+            .map(|path| format!("remote_handoff -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "remote_handoff -> none".to_string()),
         latest_coordinator_artifact(project_root)
             .map(|path| format!("coordinate -> {}", artifact_display_line(&path)))
             .unwrap_or_else(|| "coordinate -> none".to_string()),
@@ -601,6 +713,22 @@ fn artifact_history_family_lines(
             .chain(recent_artifacts_by_suffix(
                 &project_root.join(".yode").join("checkpoints"),
                 ".json",
+                12,
+            ))
+            .collect(),
+        "branches" => recent_artifacts_by_suffix(&project_root.join(".yode").join("checkpoints"), "branch.md", 12)
+            .into_iter()
+            .chain(recent_artifacts_by_suffix(
+                &project_root.join(".yode").join("checkpoints"),
+                "branch-state.json",
+                12,
+            ))
+            .collect(),
+        "rewind" => recent_artifacts_by_suffix(&project_root.join(".yode").join("checkpoints"), "rewind-anchor.md", 12)
+            .into_iter()
+            .chain(recent_artifacts_by_suffix(
+                &project_root.join(".yode").join("checkpoints"),
+                "rewind-anchor-state.json",
                 12,
             ))
             .collect(),

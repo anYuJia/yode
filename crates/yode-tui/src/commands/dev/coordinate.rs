@@ -1,6 +1,7 @@
 use crate::commands::context::CommandContext;
 use crate::commands::artifact_nav::{
-    artifact_freshness_badge, latest_coordinator_artifact, open_artifact_inspector,
+    artifact_freshness_badge, attach_inspector_actions, latest_coordinator_artifact,
+    open_artifact_inspector,
     recent_artifacts_by_suffix, stale_artifact_actions, write_runtime_orchestration_timeline_artifact,
 };
 use crate::commands::{
@@ -56,6 +57,15 @@ impl Command for CoordinateCommand {
                 vec![("kind".into(), "coordinate".into())],
             )
             .ok_or_else(|| format!("Failed to open coordinator artifact {}.", path.display()))?;
+            let mut doc = doc;
+            attach_inspector_actions(
+                &mut doc,
+                vec![
+                    ("history".to_string(), "/coordinate history".to_string()),
+                    ("timeline".to_string(), "/coordinate timeline".to_string()),
+                    ("rerun".to_string(), "/coordinate".to_string()),
+                ],
+            );
             return Ok(CommandOutput::OpenInspector(doc));
         }
 
@@ -95,6 +105,14 @@ impl Command for CoordinateCommand {
                 vec![("kind".into(), "orchestration".into())],
             )
             .ok_or_else(|| format!("Failed to open timeline artifact {}.", path))?;
+            let mut doc = doc;
+            attach_inspector_actions(
+                &mut doc,
+                vec![
+                    ("coordinate".to_string(), "/coordinate latest".to_string()),
+                    ("workflow".to_string(), "/inspect workflows latest".to_string()),
+                ],
+            );
             return Ok(CommandOutput::OpenInspector(doc));
         }
 

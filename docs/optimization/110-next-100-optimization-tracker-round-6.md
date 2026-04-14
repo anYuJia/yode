@@ -16,7 +16,7 @@
 
 当前进度：
 
-- `20 / 100` 已完成
+- `60 / 100` 已完成
 
 ## 001-010 Orchestration Runtime State
 
@@ -46,55 +46,55 @@
 
 ## 021-030 Session Branch / Rewind
 
-- `[ ]` 021 branchable session snapshot model
-- `[ ]` 022 transcript rewind anchor
-- `[ ]` 023 session branch inventory
-- `[ ]` 024 branch compare helper
-- `[ ]` 025 rewind safety summary
-- `[ ]` 026 branch/rewind inspector
-- `[ ]` 027 branch/rewind review
-- `[ ]` 028 branch/rewind closeout
-- `[ ]` 029 branch merge notes
-- `[ ]` 030 session control next-step doc
+- `[x]` 021 branchable session snapshot model
+- `[x]` 022 transcript rewind anchor
+- `[x]` 023 session branch inventory
+- `[x]` 024 branch compare helper
+- `[x]` 025 rewind safety summary
+- `[x]` 026 branch/rewind inspector
+- `[x]` 027 branch/rewind review
+- `[x]` 028 branch/rewind closeout
+- `[x]` 029 branch merge notes
+- `[x]` 030 session control next-step doc
 
 ## 031-040 Remote Control Foundations
 
-- `[ ]` 031 remote control session state model
-- `[ ]` 032 remote session artifact schema
-- `[ ]` 033 remote command queue preview
-- `[ ]` 034 remote control inspector
-- `[ ]` 035 remote control doctor checks
-- `[ ]` 036 remote control bundle export
-- `[ ]` 037 remote control review
-- `[ ]` 038 remote control closeout
-- `[ ]` 039 remote execution gap refresh
-- `[ ]` 040 remote control next-step doc
+- `[x]` 031 remote control session state model
+- `[x]` 032 remote session artifact schema
+- `[x]` 033 remote command queue preview
+- `[x]` 034 remote control inspector
+- `[x]` 035 remote control doctor checks
+- `[x]` 036 remote control bundle export
+- `[x]` 037 remote control review
+- `[x]` 038 remote control closeout
+- `[x]` 039 remote execution gap refresh
+- `[x]` 040 remote control next-step doc
 
 ## 041-050 Remote Task Continuation
 
-- `[ ]` 041 remote task continuation inventory
-- `[ ]` 042 remote transcript backlink model
-- `[ ]` 043 remote task follow surface
-- `[ ]` 044 remote task retry summary
-- `[ ]` 045 remote task handoff artifact
-- `[ ]` 046 remote task continuation review
-- `[ ]` 047 remote task continuation closeout
-- `[ ]` 048 remote task operator guide
-- `[ ]` 049 remote task changelog
-- `[ ]` 050 remote task release note draft
+- `[x]` 041 remote task continuation inventory
+- `[x]` 042 remote transcript backlink model
+- `[x]` 043 remote task follow surface
+- `[x]` 044 remote task retry summary
+- `[x]` 045 remote task handoff artifact
+- `[x]` 046 remote task continuation review
+- `[x]` 047 remote task continuation closeout
+- `[x]` 048 remote task operator guide
+- `[x]` 049 remote task changelog
+- `[x]` 050 remote task release note draft
 
 ## 051-060 Inspector Direct Actions
 
-- `[ ]` 051 direct action descriptor model
-- `[ ]` 052 inspector action row render path
-- `[ ]` 053 artifact refresh action bridge
-- `[ ]` 054 workflow rerun action bridge
-- `[ ]` 055 coordinate rerun action bridge
-- `[ ]` 056 checkpoint action bridge
-- `[ ]` 057 direct action review
-- `[ ]` 058 direct action closeout
-- `[ ]` 059 action safety affordance review
-- `[ ]` 060 action quickstart update
+- `[x]` 051 direct action descriptor model
+- `[x]` 052 inspector action row render path
+- `[x]` 053 artifact refresh action bridge
+- `[x]` 054 workflow rerun action bridge
+- `[x]` 055 coordinate rerun action bridge
+- `[x]` 056 checkpoint action bridge
+- `[x]` 057 direct action review
+- `[x]` 058 direct action closeout
+- `[x]` 059 action safety affordance review
+- `[x]` 060 action quickstart update
 
 ## 061-070 Product / Parity Review
 

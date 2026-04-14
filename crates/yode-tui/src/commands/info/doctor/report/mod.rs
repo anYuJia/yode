@@ -24,6 +24,11 @@ pub(super) fn render_remote_review_prereqs(ctx: &mut CommandContext) -> String {
     remote::render_remote_review_prereqs(ctx)
 }
 
+pub(super) fn render_remote_control_doctor(ctx: &mut CommandContext) -> String {
+    let project_root = std::path::PathBuf::from(&ctx.session.working_dir);
+    crate::commands::dev::remote_control_workspace::render_remote_control_doctor(&project_root)
+}
+
 pub(super) fn render_remote_artifact_index(ctx: &mut CommandContext) -> String {
     remote::render_remote_artifact_index(ctx)
 }
@@ -143,6 +148,15 @@ pub(super) fn export_doctor_bundle(ctx: &mut CommandContext) -> Result<String, S
         let dest = bundle_dir.join("remote-execution-inventory.md");
         std::fs::copy(&path, &dest)
             .map_err(|err| format!("Failed to copy {}: {}", path, err))?;
+        copied_files.push(dest);
+    }
+    if let Some(bundle) =
+        crate::commands::dev::remote_control_workspace::export_remote_control_bundle(&working_dir)
+            .map_err(|err| format!("Failed to export remote control bundle: {}", err))?
+    {
+        let dest = bundle_dir.join("remote-control-bundle.txt");
+        std::fs::write(&dest, bundle.display().to_string())
+            .map_err(|err| format!("Failed to write {}: {}", dest.display(), err))?;
         copied_files.push(dest);
     }
 
