@@ -1,9 +1,9 @@
 use crate::commands::context::CommandContext;
 use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
 use crate::commands::artifact_nav::{
-    artifact_freshness_badge, latest_coordinator_artifact, latest_remote_control_artifact,
-    latest_remote_task_handoff_artifact, latest_runtime_orchestration_artifact,
-    latest_workflow_execution_artifact,
+    artifact_freshness_badge, latest_action_history_artifact, latest_coordinator_artifact,
+    latest_remote_control_artifact, latest_remote_task_handoff_artifact,
+    latest_runtime_orchestration_artifact, latest_workflow_execution_artifact,
 };
 use crate::commands::info::runtime_inspectors::preview_runtime_artifact;
 use crate::runtime_display::format_turn_artifact_status;
@@ -59,6 +59,7 @@ impl Command for BriefCommand {
         let latest_orchestration = latest_runtime_orchestration_artifact(&working_dir);
         let latest_remote_control = latest_remote_control_artifact(&working_dir);
         let latest_remote_handoff = latest_remote_task_handoff_artifact(&working_dir);
+        let latest_action_history = latest_action_history_artifact(&working_dir);
         let latest_review_preview = latest_review
             .as_ref()
             .and_then(|path| preview_markdown(path, "## Result"));
@@ -199,6 +200,13 @@ impl Command for BriefCommand {
         output.push_str(&format!(
             "    - remote-handoff: {}\n",
             latest_remote_handoff
+                .as_ref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "none".to_string())
+        ));
+        output.push_str(&format!(
+            "    - action-history: {}\n",
+            latest_action_history
                 .as_ref()
                 .map(|path| path.display().to_string())
                 .unwrap_or_else(|| "none".to_string())

@@ -19,10 +19,12 @@ pub struct InspectorState {
     pub selected_tab: usize,
     pub tabs: Vec<InspectorTab>,
     pub selected_line: usize,
+    pub selected_action: usize,
     pub scroll_offset: usize,
     pub focus: InspectorFocus,
     pub search_active: bool,
     pub search_query: String,
+    pub last_action_label: Option<String>,
 }
 
 pub(crate) fn inspector_experiment_enabled() -> bool {
@@ -57,6 +59,7 @@ pub struct InspectorAction {
 pub enum InspectorFocus {
     Tabs,
     Body,
+    Actions,
 }
 
 impl InspectorState {
@@ -66,10 +69,12 @@ impl InspectorState {
             selected_tab: 0,
             tabs,
             selected_line: 0,
+            selected_action: 0,
             scroll_offset: 0,
             focus: InspectorFocus::Body,
             search_active: false,
             search_query: String::new(),
+            last_action_label: None,
         }
     }
 }
@@ -188,7 +193,14 @@ impl InspectorDocument {
     pub(crate) fn toggle_focus(&mut self) {
         self.state.focus = match self.state.focus {
             InspectorFocus::Tabs => InspectorFocus::Body,
-            InspectorFocus::Body => InspectorFocus::Tabs,
+            InspectorFocus::Body => {
+                if self.active_panel().is_some_and(|panel| !panel.actions.is_empty()) {
+                    InspectorFocus::Actions
+                } else {
+                    InspectorFocus::Tabs
+                }
+            }
+            InspectorFocus::Actions => InspectorFocus::Tabs,
         };
     }
 
@@ -240,10 +252,46 @@ impl InspectorDocument {
 
     pub(crate) fn handoff_command(&self) -> Option<String> {
         let panel = self.active_panel()?;
+        if matches!(self.state.focus, InspectorFocus::Actions) && !panel.actions.is_empty() {
+            return panel
+                .actions
+                .get(self.state.selected_action.min(panel.actions.len().saturating_sub(1)))
+                .map(|action| action.command.clone());
+        }
         let line = panel.lines.get(self.state.selected_line)?;
         extract_command_target(line)
             .or_else(|| panel.actions.first().map(|action| action.command.clone()))
             .or_else(|| self.footer.as_deref().and_then(extract_command_target))
+    }
+
+    pub(crate) fn cycle_action_next(&mut self) {
+        let Some(panel) = self.active_panel() else {
+            return;
+        };
+        if panel.actions.is_empty() {
+            self.state.selected_action = 0;
+        } else {
+            self.state.selected_action = (self.state.selected_action + 1) % panel.actions.len();
+        }
+    }
+
+    pub(crate) fn cycle_action_prev(&mut self) {
+        let Some(panel) = self.active_panel() else {
+            return;
+        };
+        if panel.actions.is_empty() {
+            self.state.selected_action = 0;
+        } else {
+            self.state.selected_action = if self.state.selected_action == 0 {
+                panel.actions.len() - 1
+            } else {
+                self.state.selected_action - 1
+            };
+        }
+    }
+
+    pub(crate) fn note_action_dispatched(&mut self, label: impl Into<String>) {
+        self.state.last_action_label = Some(label.into());
     }
 
     fn sync_scroll(&mut self) {
@@ -310,7 +358,12 @@ pub(crate) fn inspector_status_badge_row(badges: &[(&str, &str)], accent: Color)
     Line::from(spans)
 }
 
-pub(crate) fn inspector_action_row(actions: &[InspectorAction], accent: Color) -> Line<'static> {
+pub(crate) fn inspector_action_row(
+    actions: &[InspectorAction],
+    selected: usize,
+    accent: Color,
+    focused: bool,
+) -> Line<'static> {
     let mut spans = vec![Span::styled("  actions: ", Style::default().fg(Color::DarkGray))];
     for (index, action) in actions.iter().enumerate() {
         if index > 0 {
@@ -318,10 +371,30 @@ pub(crate) fn inspector_action_row(actions: &[InspectorAction], accent: Color) -
         }
         spans.push(Span::styled(
             format!("[{}]", action.label),
-            Style::default().fg(accent).add_modifier(Modifier::BOLD),
+            if index == selected {
+                Style::default()
+                    .fg(accent)
+                    .add_modifier(if focused { Modifier::REVERSED | Modifier::BOLD } else { Modifier::BOLD })
+            } else {
+                Style::default().fg(Color::Gray)
+            },
         ));
     }
     Line::from(spans)
+}
+
+pub(crate) fn inspector_action_safety_summary(actions: &[InspectorAction]) -> Option<String> {
+    if actions.is_empty() {
+        return None;
+    }
+    let has_write = actions
+        .iter()
+        .any(|action| action.command.contains("run-write") || action.command.contains(" restore "));
+    Some(if has_write {
+        "action safety: prefer preview/diff/doctor before write-capable run or restore".to_string()
+    } else {
+        "action safety: Ctrl+Enter executes the selected action immediately".to_string()
+    })
 }
 
 pub(crate) fn inspector_empty_state_actions(actions: &[&str]) -> Vec<String> {
@@ -362,10 +435,13 @@ pub(crate) fn render_inspector(
             match document.state.focus {
                 InspectorFocus::Tabs => "tabs",
                 InspectorFocus::Body => "body",
+                InspectorFocus::Actions => "actions",
             },
             document.tab_cycle_summary(),
             if document.state.search_active || !document.state.search_query.is_empty() {
                 format!(" · search={}", document.state.search_query)
+            } else if let Some(last_action) = &document.state.last_action_label {
+                format!(" · last-action={}", last_action)
             } else {
                 String::new()
             }
@@ -378,6 +454,7 @@ pub(crate) fn render_inspector(
         match document.state.focus {
             InspectorFocus::Tabs => Color::LightCyan,
             InspectorFocus::Body => Color::Yellow,
+            InspectorFocus::Actions => Color::LightGreen,
         },
         Color::Gray,
     ));
@@ -390,7 +467,18 @@ pub(crate) fn render_inspector(
         lines.push(inspector_status_badge_row(&badges, Color::LightCyan));
     }
     if !panel.actions.is_empty() {
-        lines.push(inspector_action_row(&panel.actions, Color::LightGreen));
+        lines.push(inspector_action_row(
+            &panel.actions,
+            document.state.selected_action,
+            Color::LightGreen,
+            matches!(document.state.focus, InspectorFocus::Actions),
+        ));
+        if let Some(summary) = inspector_action_safety_summary(&panel.actions) {
+            lines.push(Line::from(vec![Span::styled(
+                format!("  {}", summary),
+                Style::default().fg(Color::DarkGray),
+            )]));
+        }
     }
     lines.push(section_title_line(&panel.tab.label, Color::Yellow));
 
@@ -459,10 +547,11 @@ mod tests {
     use ratatui::style::Color;
 
     use super::{
-        inspector_action_row, inspector_empty_state_actions, inspector_experiment_enabled,
+        inspector_action_row, inspector_action_safety_summary, inspector_empty_state_actions,
+        inspector_experiment_enabled,
         inspector_pagination_footer, inspector_status_badge_row,
         multi_pane_title_strip, InspectorBodySource, InspectorDocument,
-        InspectorAction, InspectorState, InspectorTab, PanelStackCoordinator,
+        InspectorAction, InspectorFocus, InspectorState, InspectorTab, PanelStackCoordinator,
     };
 
     #[test]
@@ -492,9 +581,17 @@ mod tests {
                 label: "rerun".to_string(),
                 command: "/workflows run latest".to_string(),
             }],
+            0,
             Color::Green,
+            true,
         );
         assert!(actions.to_string().contains("[rerun]"));
+        let safety = inspector_action_safety_summary(&[InspectorAction {
+            label: "restore".to_string(),
+            command: "/checkpoint restore latest".to_string(),
+        }])
+        .unwrap();
+        assert!(safety.contains("prefer preview"));
     }
 
     #[test]
@@ -555,5 +652,18 @@ mod tests {
         assert_eq!(doc.state.selected_line, 2);
         doc.page_up(10);
         assert_eq!(doc.state.selected_line, 0);
+    }
+
+    #[test]
+    fn inspector_action_focus_cycles_when_actions_exist() {
+        let mut doc = InspectorDocument::single("demo", vec!["a".to_string()]);
+        doc.panels[0].actions.push(InspectorAction {
+            label: "run".to_string(),
+            command: "/status".to_string(),
+        });
+        doc.toggle_focus();
+        assert!(matches!(doc.state.focus, InspectorFocus::Actions));
+        doc.note_action_dispatched("run");
+        assert_eq!(doc.state.last_action_label.as_deref(), Some("run"));
     }
 }

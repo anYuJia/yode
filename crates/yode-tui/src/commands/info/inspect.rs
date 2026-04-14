@@ -8,6 +8,7 @@ use crate::commands::artifact_nav::{
     latest_coordinator_state_artifact,
     latest_remote_command_queue_artifact, latest_remote_control_artifact,
     latest_remote_control_state_artifact, latest_remote_task_handoff_artifact,
+    latest_action_history_artifact,
     latest_rewind_anchor_artifact, latest_rewind_anchor_state_artifact,
     latest_runtime_orchestration_artifact, latest_workflow_execution_artifact,
     latest_workflow_state_artifact, open_artifact_inspector, recent_artifacts_by_suffix,
@@ -310,6 +311,13 @@ fn inspect_artifact_target(args: &str, ctx: &mut CommandContext) -> CommandResul
             "runtime".to_string(),
             vec!["/tasks latest".to_string()],
         ),
+        "latest-action-history" => (
+            latest_action_history_artifact(&project_root)
+                .ok_or_else(|| "No inspector action history artifact found.".to_string())?,
+            "Inspector action history".to_string(),
+            "actions".to_string(),
+            vec!["/inspect artifact history status".to_string()],
+        ),
         "latest-hook-failures" => (
             latest_artifact_by_suffix(&status_dir, "hook-failures.md")
                 .ok_or_else(|| "No hook failure artifact found.".to_string())?,
@@ -511,6 +519,7 @@ fn inspect_completion_targets(ctx: &crate::commands::context::CompletionContext)
         "artifact latest-orchestration".to_string(),
         "artifact latest-runtime-timeline".to_string(),
         "artifact latest-runtime-tasks".to_string(),
+        "artifact latest-action-history".to_string(),
         "artifact latest-hook-failures".to_string(),
         "artifact latest-startup-profile".to_string(),
         "artifact latest-startup-manifest".to_string(),
@@ -560,6 +569,7 @@ fn artifact_inventory_lines(project_root: &std::path::Path, cwd: &std::path::Pat
         "latest-remote-control | latest-remote-control-state | latest-remote-queue".to_string(),
         "latest-remote-task-handoff".to_string(),
         "latest-runtime-timeline | latest-runtime-tasks | latest-hook-failures".to_string(),
+        "latest-action-history".to_string(),
         "latest-startup-profile | latest-startup-manifest | latest-provider-inventory | latest-mcp-failures".to_string(),
         "latest-review | latest-transcript | latest-session-memory | latest-tool | latest-recovery | latest-permission".to_string(),
         "latest-remote-capability | latest-remote-execution | bundle".to_string(),
@@ -684,6 +694,9 @@ fn artifact_summary_lines(project_root: &std::path::Path, cwd: &std::path::Path)
         latest_remote_task_handoff_artifact(project_root)
             .map(|path| format!("remote_handoff -> {}", artifact_display_line(&path)))
             .unwrap_or_else(|| "remote_handoff -> none".to_string()),
+        latest_action_history_artifact(project_root)
+            .map(|path| format!("action_history -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "action_history -> none".to_string()),
         latest_coordinator_artifact(project_root)
             .map(|path| format!("coordinate -> {}", artifact_display_line(&path)))
             .unwrap_or_else(|| "coordinate -> none".to_string()),

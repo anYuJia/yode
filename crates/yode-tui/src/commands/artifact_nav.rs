@@ -105,6 +105,13 @@ pub(crate) fn latest_remote_task_handoff_artifact(project_root: &Path) -> Option
     )
 }
 
+pub(crate) fn latest_action_history_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("status"),
+        "inspector-action-history.md",
+    )
+}
+
 pub(crate) fn latest_workflow_state_artifact(project_root: &Path) -> Option<PathBuf> {
     latest_artifact_by_suffix(
         &project_root.join(".yode").join("status"),
@@ -269,6 +276,31 @@ pub(crate) fn attach_inspector_actions(
     }
 }
 
+pub(crate) fn record_inspector_action_history(
+    project_root: &Path,
+    session_id: &str,
+    command: &str,
+) -> Option<String> {
+    let dir = project_root.join(".yode").join("status");
+    std::fs::create_dir_all(&dir).ok()?;
+    let short_session = session_id.chars().take(8).collect::<String>();
+    let path = dir.join(format!("{}-inspector-action-history.md", short_session));
+    let line = format!(
+        "- {} | {}\n",
+        chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+        command
+    );
+    if path.exists() {
+        let mut body = std::fs::read_to_string(&path).ok()?;
+        body.push_str(&line);
+        std::fs::write(&path, body).ok()?;
+    } else {
+        let body = format!("# Inspector Action History\n\n{}", line);
+        std::fs::write(&path, body).ok()?;
+    }
+    Some(path.display().to_string())
+}
+
 pub(crate) fn build_runtime_orchestration_timeline_lines(
     project_root: &Path,
     max_items: usize,
@@ -297,6 +329,9 @@ pub(crate) fn build_runtime_orchestration_timeline_lines(
     }
     if let Some(path) = latest_remote_task_handoff_artifact(project_root) {
         entries.push(artifact_timeline_entry(&path, "remote task handoff"));
+    }
+    if let Some(path) = latest_action_history_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "action history"));
     }
     if let Some(path) = latest_workflow_state_artifact(project_root) {
         entries.push(artifact_timeline_entry(&path, "workflow state"));

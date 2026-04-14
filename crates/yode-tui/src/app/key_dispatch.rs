@@ -11,6 +11,7 @@ use yode_core::engine::{AgentEngine, ConfirmResponse, EngineEvent};
 use yode_tools::registry::ToolRegistry;
 
 use crate::event;
+use crate::commands::artifact_nav::record_inspector_action_history;
 
 use super::engine_events::provider::reload_provider_from_config;
 use super::key_handlers::{handle_char, handle_down, handle_tab, handle_up};
@@ -99,6 +100,12 @@ pub(super) fn handle_key_event(
             KeyCode::Down => inspector.document.move_down(),
             KeyCode::PageUp => inspector.document.page_up(10),
             KeyCode::PageDown => inspector.document.page_down(10),
+            KeyCode::Left if matches!(inspector.document.state.focus, crate::ui::inspector::InspectorFocus::Actions) => {
+                inspector.document.cycle_action_prev();
+            }
+            KeyCode::Right if matches!(inspector.document.state.focus, crate::ui::inspector::InspectorFocus::Actions) => {
+                inspector.document.cycle_action_next();
+            }
             KeyCode::Tab => {
                 if key.modifiers.contains(KeyModifiers::SHIFT) {
                     inspector.document.toggle_focus();
@@ -116,6 +123,27 @@ pub(super) fn handle_key_event(
             KeyCode::Enter => {
                 if let Some(command) = inspector.document.handoff_command() {
                     let execute_now = key.modifiers.contains(KeyModifiers::CONTROL);
+                    if let Some(panel) = inspector.document.active_panel() {
+                        if matches!(inspector.document.state.focus, crate::ui::inspector::InspectorFocus::Actions)
+                            && !panel.actions.is_empty()
+                        {
+                            let index = inspector
+                                .document
+                                .state
+                                .selected_action
+                                .min(panel.actions.len().saturating_sub(1));
+                            inspector
+                                .document
+                                .note_action_dispatched(panel.actions[index].label.clone());
+                        }
+                    }
+                    if execute_now {
+                        let _ = record_inspector_action_history(
+                            std::path::Path::new(&app.session.working_dir),
+                            &app.session.session_id,
+                            &command,
+                        );
+                    }
                     app.input.set_text(&command);
                     app.inspector.views.pop();
                     app.inspector.stack.pop();

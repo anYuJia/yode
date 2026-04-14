@@ -16,7 +16,7 @@
 
 当前进度：
 
-- `40 / 100` 已完成
+- `60 / 100` 已完成
 
 ## 001-010 Checkpoint Restore Execution
 
@@ -72,29 +72,29 @@
 
 ## 041-050 Remote Session Execution
 
-- `[ ]` 041 remote session run status artifact
-- `[ ]` 042 remote session transcript backlink
-- `[ ]` 043 remote session completion summary
-- `[ ]` 044 remote session retry artifact
-- `[ ]` 045 remote session handoff refresh
-- `[ ]` 046 remote session execution review
-- `[ ]` 047 remote session execution closeout
-- `[ ]` 048 remote session quickstart
-- `[ ]` 049 remote session gap map
-- `[ ]` 050 remote session next-step doc
+- `[x]` 041 remote session run status artifact
+- `[x]` 042 remote session transcript backlink
+- `[x]` 043 remote session completion summary
+- `[x]` 044 remote session retry artifact
+- `[x]` 045 remote session handoff refresh
+- `[x]` 046 remote session execution review
+- `[x]` 047 remote session execution closeout
+- `[x]` 048 remote session quickstart
+- `[x]` 049 remote session gap map
+- `[x]` 050 remote session next-step doc
 
 ## 051-060 Inspector Native Actions
 
-- `[ ]` 051 action selection state
-- `[ ]` 052 action focus keyboard path
-- `[ ]` 053 action execution feedback badge
-- `[ ]` 054 action last-run artifact
-- `[ ]` 055 action safety modal summary
-- `[ ]` 056 action history inventory
-- `[ ]` 057 inspector native action review
-- `[ ]` 058 inspector native action closeout
-- `[ ]` 059 action UX parity notes
-- `[ ]` 060 action UX release note draft
+- `[x]` 051 action selection state
+- `[x]` 052 action focus keyboard path
+- `[x]` 053 action execution feedback badge
+- `[x]` 054 action last-run artifact
+- `[x]` 055 action safety modal summary
+- `[x]` 056 action history inventory
+- `[x]` 057 inspector native action review
+- `[x]` 058 inspector native action closeout
+- `[x]` 059 action UX parity notes
+- `[x]` 060 action UX release note draft
 
 ## 061-070 Product / Parity Review
 
