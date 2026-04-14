@@ -1,5 +1,5 @@
 mod checkpoint;
-mod checkpoint_workspace;
+pub(crate) mod checkpoint_workspace;
 mod clear;
 mod compact;
 mod exit;
