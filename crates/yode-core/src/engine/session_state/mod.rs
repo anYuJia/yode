@@ -32,6 +32,12 @@ impl AgentEngine {
         );
     }
 
+    pub fn restore_and_persist_messages(&mut self, messages: Vec<Message>) {
+        self.restore_messages(messages);
+        self.sync_persisted_messages_snapshot();
+        self.persist_session_artifacts();
+    }
+
     /// Clear conversation history, keeping only the system prompt.
     pub fn clear_conversation(&mut self) {
         if self.messages.len() > 1 {

@@ -333,10 +333,10 @@ pub(crate) fn inspector_empty_state_actions(actions: &[&str]) -> Vec<String> {
 
 pub(crate) fn inspector_pagination_footer(selected: usize, total: usize) -> String {
     if total == 0 {
-        "0/0 · PgUp/PgDn page · Esc close".to_string()
+        "0/0 · Enter load · Ctrl+Enter run · PgUp/PgDn page · Esc close".to_string()
     } else {
         format!(
-            "{}/{} · PgUp/PgDn page · Esc close",
+            "{}/{} · Enter load · Ctrl+Enter run · PgUp/PgDn page · Esc close",
             selected.min(total.saturating_sub(1)) + 1,
             total
         )

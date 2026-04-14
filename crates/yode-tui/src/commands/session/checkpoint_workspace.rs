@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use yode_llm::types::{Message, Role};
 
 use crate::app::{ChatEntry, ChatRole};
 use crate::commands::artifact_nav::{
@@ -54,6 +55,8 @@ pub(crate) struct SessionCheckpointPayload {
     pub artifacts: CheckpointArtifacts,
     #[serde(default)]
     pub lineage: CheckpointLineage,
+    #[serde(default)]
+    pub engine_messages: Vec<Message>,
     pub messages: Vec<CheckpointMessage>,
 }
 
@@ -77,6 +80,7 @@ pub(crate) fn write_session_checkpoint(
     model: &str,
     label: &str,
     chat_entries: &[ChatEntry],
+    engine_messages: &[Message],
 ) -> anyhow::Result<SessionCheckpointArtifactSet> {
     let dir = checkpoint_dir(project_root);
     std::fs::create_dir_all(&dir)?;
@@ -87,7 +91,15 @@ pub(crate) fn write_session_checkpoint(
     let state_path = dir.join(format!("{}-checkpoint-state.json", base));
     let summary_path = dir.join(format!("{}-checkpoint.md", base));
 
-    let payload = build_checkpoint_payload(project_root, session_id, provider, model, label, chat_entries);
+    let payload = build_checkpoint_payload(
+        project_root,
+        session_id,
+        provider,
+        model,
+        label,
+        chat_entries,
+        engine_messages,
+    );
     std::fs::write(&state_path, serde_json::to_string_pretty(&payload)?)?;
     std::fs::write(&summary_path, render_checkpoint_summary(&payload, &state_path, None))?;
 
@@ -256,6 +268,7 @@ pub(crate) fn checkpoint_completion_targets(working_dir: &str) -> Vec<String> {
         "rewind-anchor latest".to_string(),
         "rewind-anchor save latest".to_string(),
         "rewind latest".to_string(),
+        "restore latest".to_string(),
         "diff latest latest-1".to_string(),
         "restore-dry-run latest".to_string(),
     ];
@@ -487,8 +500,17 @@ pub(crate) fn build_current_checkpoint_payload(
     model: &str,
     label: &str,
     chat_entries: &[ChatEntry],
+    engine_messages: &[Message],
 ) -> SessionCheckpointPayload {
-    build_checkpoint_payload(project_root, session_id, provider, model, label, chat_entries)
+    build_checkpoint_payload(
+        project_root,
+        session_id,
+        provider,
+        model,
+        label,
+        chat_entries,
+        engine_messages,
+    )
 }
 
 pub(crate) fn load_checkpoint_payload(path: &Path) -> anyhow::Result<SessionCheckpointPayload> {
@@ -583,6 +605,7 @@ fn build_checkpoint_payload(
     model: &str,
     label: &str,
     chat_entries: &[ChatEntry],
+    engine_messages: &[Message],
 ) -> SessionCheckpointPayload {
     let messages = chat_entries
         .iter()
@@ -629,8 +652,36 @@ fn build_checkpoint_payload(
                 .map(|path| path.display().to_string()),
         },
         lineage: CheckpointLineage::default(),
+        engine_messages: engine_messages.to_vec(),
         messages,
     }
+}
+
+pub(crate) fn checkpoint_restore_messages(payload: &SessionCheckpointPayload) -> Vec<Message> {
+    if !payload.engine_messages.is_empty() {
+        return payload.engine_messages.clone();
+    }
+
+    payload
+        .messages
+        .iter()
+        .filter_map(|message| checkpoint_message_to_engine_message(message))
+        .collect()
+}
+
+pub(crate) fn checkpoint_restore_chat_entries(payload: &SessionCheckpointPayload) -> Vec<ChatEntry> {
+    payload
+        .messages
+        .iter()
+        .map(|message| {
+            let role = checkpoint_role_to_chat_role(&message.role);
+            let mut entry = ChatEntry::new(role, message.content.clone());
+            entry.reasoning = message.reasoning.clone();
+            entry.tool_metadata = message.tool_metadata.clone();
+            entry.tool_error_type = message.tool_error_type.clone();
+            entry
+        })
+        .collect()
 }
 
 fn render_checkpoint_summary(
@@ -794,6 +845,98 @@ fn checkpoint_role_label(role: &ChatRole) -> String {
     }
 }
 
+fn checkpoint_role_to_chat_role(role: &str) -> ChatRole {
+    if let Some(name) = role.strip_prefix("tool_call:") {
+        return ChatRole::ToolCall {
+            id: format!("restored-{}", checkpoint_slug(name)),
+            name: name.to_string(),
+        };
+    }
+    if let Some(name) = role.strip_prefix("tool_result_error:") {
+        return ChatRole::ToolResult {
+            id: format!("restored-{}", checkpoint_slug(name)),
+            name: name.to_string(),
+            is_error: true,
+        };
+    }
+    if let Some(name) = role.strip_prefix("tool_result:") {
+        return ChatRole::ToolResult {
+            id: format!("restored-{}", checkpoint_slug(name)),
+            name: name.to_string(),
+            is_error: false,
+        };
+    }
+    if let Some(name) = role.strip_prefix("subagent_call:") {
+        return ChatRole::SubAgentCall {
+            description: name.to_string(),
+        };
+    }
+    if let Some(name) = role.strip_prefix("subagent_tool:") {
+        return ChatRole::SubAgentToolCall {
+            name: name.to_string(),
+        };
+    }
+    if let Some(id) = role.strip_prefix("ask_user:") {
+        return ChatRole::AskUser {
+            id: id.to_string(),
+        };
+    }
+    match role {
+        "assistant" => ChatRole::Assistant,
+        "system" => ChatRole::System,
+        "error" => ChatRole::Error,
+        "subagent_result" => ChatRole::SubAgentResult,
+        _ => ChatRole::User,
+    }
+}
+
+fn checkpoint_message_to_engine_message(message: &CheckpointMessage) -> Option<Message> {
+    if message.role.starts_with("tool_call:") {
+        return Some(Message {
+            role: Role::Assistant,
+            content: Some(message.content.clone()),
+            content_blocks: Vec::new(),
+            reasoning: message.reasoning.clone(),
+            tool_calls: Vec::new(),
+            tool_call_id: None,
+            images: Vec::new(),
+        }
+        .normalized());
+    }
+
+    if message.role.starts_with("tool_result") {
+        return Some(Message::tool_result(
+            format!("restored-{}", message.index),
+            message.content.clone(),
+        ));
+    }
+
+    let role = match message.role.as_str() {
+        "user" => Role::User,
+        "assistant" => Role::Assistant,
+        "system" => Role::System,
+        "error" => Role::System,
+        "subagent_result" => Role::Assistant,
+        other if other.starts_with("subagent_call:") => Role::Assistant,
+        other if other.starts_with("subagent_tool:") => Role::Tool,
+        other if other.starts_with("ask_user:") => Role::System,
+        _ => return None,
+    };
+
+    Some(
+        Message {
+            role,
+            content: Some(message.content.clone()),
+            content_blocks: Vec::new(),
+            reasoning: message.reasoning.clone(),
+            tool_calls: Vec::new(),
+            tool_call_id: None,
+            images: Vec::new(),
+        }
+        .normalized(),
+    )
+}
+
 fn checkpoint_tail_preview(payload: &SessionCheckpointPayload) -> String {
     payload
         .messages
@@ -814,13 +957,15 @@ fn truncate_preview(text: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use crate::app::{ChatEntry, ChatRole};
+    use yode_llm::types::{Message, Role};
 
     use super::{
         branch_inventory, build_current_checkpoint_payload, checkpoint_completion_targets,
-        checkpoint_inventory, checkpoint_operator_guide, render_checkpoint_diff,
-        render_restore_dry_run, render_rewind_safety_summary, resolve_branch_target,
-        resolve_checkpoint_target, rewind_anchor_inventory, write_branch_snapshot,
-        write_rewind_anchor, write_session_checkpoint,
+        checkpoint_inventory, checkpoint_operator_guide, checkpoint_restore_chat_entries,
+        checkpoint_restore_messages, render_checkpoint_diff, render_restore_dry_run,
+        render_rewind_safety_summary, resolve_branch_target, resolve_checkpoint_target,
+        rewind_anchor_inventory, write_branch_snapshot, write_rewind_anchor,
+        write_session_checkpoint,
     };
 
     #[test]
@@ -839,6 +984,7 @@ mod tests {
             "claude",
             "demo",
             &chat,
+            &[Message::user("hello"), Message::assistant("world")],
         )
         .unwrap();
         assert!(artifacts.summary_path.exists());
@@ -861,6 +1007,7 @@ mod tests {
             "claude",
             "left",
             &[ChatEntry::new(ChatRole::User, "hello".to_string())],
+            &[Message::user("hello")],
         );
         let right = build_current_checkpoint_payload(
             &dir,
@@ -872,6 +1019,7 @@ mod tests {
                 ChatEntry::new(ChatRole::User, "hello".to_string()),
                 ChatEntry::new(ChatRole::Assistant, "world".to_string()),
             ],
+            &[Message::user("hello"), Message::assistant("world")],
         );
         let diff = render_checkpoint_diff(&left, &right, "left", "right");
         assert!(diff.contains("Session checkpoint diff"));
@@ -894,6 +1042,7 @@ mod tests {
             "claude",
             "demo",
             &chat,
+            &[Message::user("hello")],
         )
         .unwrap();
         let targets = checkpoint_completion_targets(dir.to_str().unwrap());
@@ -914,6 +1063,7 @@ mod tests {
             "claude",
             "base",
             &[ChatEntry::new(ChatRole::User, "hello".to_string())],
+            &[Message::user("hello")],
         );
         let branch = write_branch_snapshot(&dir, "feature-a", &base, None).unwrap();
         let rewind = write_rewind_anchor(&dir, &base, &base, "latest").unwrap();
@@ -924,6 +1074,33 @@ mod tests {
         assert!(resolve_branch_target(&dir, "latest").is_some());
         let summary = render_rewind_safety_summary(&base, &base, "latest", Some(&rewind.summary_path));
         assert!(summary.contains("Rewind safety summary"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn restore_helpers_rebuild_engine_messages_and_chat_entries() {
+        let dir = std::env::temp_dir().join(format!("yode-checkpoint-restore-{}", uuid::Uuid::new_v4()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let chat = vec![
+            ChatEntry::new(ChatRole::User, "hello".to_string()),
+            ChatEntry::new(ChatRole::Assistant, "world".to_string()),
+        ];
+        let payload = build_current_checkpoint_payload(
+            &dir,
+            "session-a",
+            "anthropic",
+            "claude",
+            "restore",
+            &chat,
+            &[Message::user("hello"), Message::assistant("world")],
+        );
+        let restored_messages = checkpoint_restore_messages(&payload);
+        let restored_chat = checkpoint_restore_chat_entries(&payload);
+        assert_eq!(restored_messages.len(), 2);
+        assert!(matches!(restored_messages[0].role, Role::User));
+        assert_eq!(restored_chat.len(), 2);
+        assert!(matches!(restored_chat[0].role, ChatRole::User));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

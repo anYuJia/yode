@@ -115,9 +115,20 @@ pub(super) fn handle_key_event(
             }
             KeyCode::Enter => {
                 if let Some(command) = inspector.document.handoff_command() {
+                    let execute_now = key.modifiers.contains(KeyModifiers::CONTROL);
                     app.input.set_text(&command);
                     app.inspector.views.pop();
                     app.inspector.stack.pop();
+                    if execute_now {
+                        super::turn_flow::handle_enter(
+                            terminal,
+                            app,
+                            crossterm::event::KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+                            engine,
+                            tools,
+                            engine_event_tx,
+                        );
+                    }
                 }
             }
             KeyCode::Char(c) if inspector.document.state.search_active => {

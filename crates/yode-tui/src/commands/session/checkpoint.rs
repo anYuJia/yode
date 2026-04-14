@@ -7,10 +7,11 @@ use crate::commands::{
 
 use super::checkpoint_workspace::{
     build_current_checkpoint_payload, checkpoint_completion_targets, checkpoint_operator_guide,
-    render_branch_list, render_checkpoint_diff, render_checkpoint_list,
-    render_restore_dry_run, render_rewind_anchor_list, render_rewind_safety_summary,
-    resolve_branch_target, resolve_checkpoint_target, resolve_rewind_anchor_target,
-    write_branch_snapshot, write_rewind_anchor, write_session_checkpoint,
+    checkpoint_restore_chat_entries, checkpoint_restore_messages, render_branch_list,
+    render_checkpoint_diff, render_checkpoint_list, render_restore_dry_run,
+    render_rewind_anchor_list, render_rewind_safety_summary, resolve_branch_target,
+    resolve_checkpoint_target, resolve_rewind_anchor_target, write_branch_snapshot,
+    write_rewind_anchor, write_session_checkpoint,
 };
 
 pub struct CheckpointCommand {
@@ -48,6 +49,13 @@ impl Command for CheckpointCommand {
         let project_root = std::path::PathBuf::from(&ctx.session.working_dir);
         let trimmed = args.trim();
         let parts = trimmed.split_whitespace().collect::<Vec<_>>();
+        let engine_snapshot = || -> Vec<yode_llm::types::Message> {
+            ctx.engine
+                .try_lock()
+                .ok()
+                .map(|engine| engine.messages().iter().skip(1).cloned().collect())
+                .unwrap_or_default()
+        };
 
         if let ["branch", "list"] = parts.as_slice() {
             return Ok(CommandOutput::Message(render_branch_list(&project_root)));
@@ -84,6 +92,7 @@ impl Command for CheckpointCommand {
                 &ctx.session.model,
                 "current session",
                 ctx.chat_entries,
+                &engine_snapshot(),
             );
             let artifacts = write_branch_snapshot(&project_root, name, &current, None)
                 .map_err(|err| format!("Failed to write branch snapshot: {}", err))?;
@@ -142,6 +151,7 @@ impl Command for CheckpointCommand {
                 &ctx.session.model,
                 "current session",
                 ctx.chat_entries,
+                &engine_snapshot(),
             );
             let entry = resolve_checkpoint_target(&project_root, target)
                 .ok_or_else(|| format!("Unknown checkpoint target '{}'.", target))?;
@@ -161,6 +171,7 @@ impl Command for CheckpointCommand {
                 &ctx.session.model,
                 "current session",
                 ctx.chat_entries,
+                &engine_snapshot(),
             );
             let entry = resolve_checkpoint_target(&project_root, target)
                 .ok_or_else(|| format!("Unknown checkpoint target '{}'.", target))?;
@@ -187,6 +198,7 @@ impl Command for CheckpointCommand {
                 &ctx.session.model,
                 &label,
                 ctx.chat_entries,
+                &engine_snapshot(),
             )
             .map_err(|err| format!("Failed to write checkpoint: {}", err))?;
             return Ok(CommandOutput::Message(format!(
@@ -247,6 +259,7 @@ impl Command for CheckpointCommand {
                 &ctx.session.model,
                 "current session",
                 ctx.chat_entries,
+                &engine_snapshot(),
             );
             return Ok(CommandOutput::Message(render_restore_dry_run(
                 &current,
@@ -255,7 +268,29 @@ impl Command for CheckpointCommand {
             )));
         }
 
-        Err("Usage: /checkpoint [save [label]|list|latest|<index>|<file>|diff <a> <b>|restore-dry-run <target>|branch [list|latest|save <name>|diff <a> <b>]|rewind-anchor [list|latest|save <target>]|rewind <target>]".to_string())
+        if let ["restore", target] = parts.as_slice() {
+            let entry = resolve_checkpoint_target(&project_root, target)
+                .ok_or_else(|| format!("Unknown checkpoint target '{}'.", target))?;
+            let restored_messages = checkpoint_restore_messages(&entry.payload);
+            {
+                let mut engine = ctx
+                    .engine
+                    .try_lock()
+                    .map_err(|_| "Engine is busy, try again.".to_string())?;
+                engine.restore_and_persist_messages(restored_messages);
+            }
+            *ctx.chat_entries = checkpoint_restore_chat_entries(&entry.payload);
+            ctx.chat_entries.push(crate::app::ChatEntry::new(
+                crate::app::ChatRole::System,
+                format!("Session restored from checkpoint '{}'.", entry.payload.label),
+            ));
+            return Ok(CommandOutput::Message(format!(
+                "Restored session from checkpoint '{}'.",
+                entry.payload.label
+            )));
+        }
+
+        Err("Usage: /checkpoint [save [label]|list|latest|<index>|<file>|diff <a> <b>|restore <target>|restore-dry-run <target>|branch [list|latest|save <name>|diff <a> <b>]|rewind-anchor [list|latest|save <target>]|rewind <target>]".to_string())
     }
 }
 
