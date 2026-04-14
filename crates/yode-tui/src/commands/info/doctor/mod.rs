@@ -11,6 +11,7 @@ use crate::commands::{
 use self::report::{
     export_doctor_bundle, render_doctor_report, render_remote_artifact_index,
     render_remote_control_doctor, render_remote_env_check, render_remote_review_prereqs,
+    render_restore_doctor,
 };
 
 pub struct DoctorCommand {
@@ -27,13 +28,14 @@ impl DoctorCommand {
                 args: vec![ArgDef {
                     name: "target".to_string(),
                     required: false,
-                    hint: "[remote|remote-review|remote-artifacts|bundle]".to_string(),
+                    hint: "[remote|remote-control|remote-review|remote-artifacts|restore|bundle]".to_string(),
                     completions: ArgCompletionSource::Static(vec![
                         "bundle".to_string(),
                         "remote".to_string(),
                         "remote-control".to_string(),
                         "remote-review".to_string(),
                         "remote-artifacts".to_string(),
+                        "restore".to_string(),
                     ]),
                 }],
                 category: CommandCategory::Info,
@@ -55,6 +57,7 @@ impl Command for DoctorCommand {
             "remote-control" => render_remote_control_doctor(ctx),
             "remote-review" => render_remote_review_prereqs(ctx),
             "remote-artifacts" => render_remote_artifact_index(ctx),
+            "restore" => render_restore_doctor(ctx),
             _ => render_doctor_report(ctx),
         };
         Ok(CommandOutput::Message(message))

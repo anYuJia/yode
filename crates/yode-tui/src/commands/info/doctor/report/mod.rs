@@ -29,6 +29,11 @@ pub(super) fn render_remote_control_doctor(ctx: &mut CommandContext) -> String {
     crate::commands::dev::remote_control_workspace::render_remote_control_doctor(&project_root)
 }
 
+pub(super) fn render_restore_doctor(ctx: &mut CommandContext) -> String {
+    let project_root = std::path::PathBuf::from(&ctx.session.working_dir);
+    crate::commands::session::checkpoint_workspace::render_restore_doctor(&project_root)
+}
+
 pub(super) fn render_remote_artifact_index(ctx: &mut CommandContext) -> String {
     remote::render_remote_artifact_index(ctx)
 }

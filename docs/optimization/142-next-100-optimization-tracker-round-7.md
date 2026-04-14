@@ -16,7 +16,7 @@
 
 当前进度：
 
-- `30 / 100` 已完成
+- `40 / 100` 已完成
 
 ## 001-010 Checkpoint Restore Execution
 
@@ -59,16 +59,16 @@
 
 ## 031-040 Restore / Branch Merge
 
-- `[ ]` 031 branch merge preview model
-- `[ ]` 032 branch merge artifact
-- `[ ]` 033 branch merge dry-run command
-- `[ ]` 034 restore conflict summary
-- `[ ]` 035 restore/merge inspector
-- `[ ]` 036 restore safety doctor checks
-- `[ ]` 037 restore/merge review
-- `[ ]` 038 restore/merge closeout
-- `[ ]` 039 restore/merge changelog
-- `[ ]` 040 restore/merge release note draft
+- `[x]` 031 branch merge preview model
+- `[x]` 032 branch merge artifact
+- `[x]` 033 branch merge dry-run command
+- `[x]` 034 restore conflict summary
+- `[x]` 035 restore/merge inspector
+- `[x]` 036 restore safety doctor checks
+- `[x]` 037 restore/merge review
+- `[x]` 038 restore/merge closeout
+- `[x]` 039 restore/merge changelog
+- `[x]` 040 restore/merge release note draft
 
 ## 041-050 Remote Session Execution
 

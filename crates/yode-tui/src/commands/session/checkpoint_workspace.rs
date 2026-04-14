@@ -6,8 +6,8 @@ use yode_llm::types::{Message, Role};
 
 use crate::app::{ChatEntry, ChatRole};
 use crate::commands::artifact_nav::{
-    artifact_freshness_badge, latest_coordinator_artifact, latest_runtime_orchestration_artifact,
-    latest_workflow_execution_artifact,
+    artifact_freshness_badge, latest_artifact_by_suffix, latest_coordinator_artifact,
+    latest_runtime_orchestration_artifact, latest_workflow_execution_artifact,
 };
 use crate::commands::workspace_text::{workspace_bullets, WorkspaceText};
 
@@ -58,6 +58,19 @@ pub(crate) struct SessionCheckpointPayload {
     #[serde(default)]
     pub engine_messages: Vec<Message>,
     pub messages: Vec<CheckpointMessage>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct BranchMergePreview {
+    pub kind: String,
+    pub branch_label: String,
+    pub current_label: String,
+    pub common_prefix_messages: usize,
+    pub branch_only_messages: usize,
+    pub current_only_messages: usize,
+    pub merged_message_count: usize,
+    pub conflicts: Vec<String>,
+    pub generated_at: String,
 }
 
 #[derive(Debug, Clone)]
@@ -263,6 +276,7 @@ pub(crate) fn checkpoint_completion_targets(working_dir: &str) -> Vec<String> {
         "branch latest".to_string(),
         "branch save workstream-a".to_string(),
         "branch diff latest latest-1".to_string(),
+        "branch merge-dry-run latest".to_string(),
         "rewind-anchor".to_string(),
         "rewind-anchor list".to_string(),
         "rewind-anchor latest".to_string(),
@@ -489,8 +503,84 @@ pub(crate) fn render_rewind_safety_summary(
         .render()
 }
 
+pub(crate) fn render_branch_merge_preview(
+    preview: &BranchMergePreview,
+    state_path: &Path,
+) -> String {
+    WorkspaceText::new("Branch merge preview")
+        .subtitle(preview.branch_label.clone())
+        .field("Current", preview.current_label.clone())
+        .field("Common prefix", preview.common_prefix_messages.to_string())
+        .field("Branch only", preview.branch_only_messages.to_string())
+        .field("Current only", preview.current_only_messages.to_string())
+        .field("Merged count", preview.merged_message_count.to_string())
+        .field("State artifact", state_path.display().to_string())
+        .section("Conflicts", workspace_bullets(preview.conflicts.clone()))
+        .footer(checkpoint_operator_guide())
+        .render()
+}
+
 pub(crate) fn checkpoint_operator_guide() -> &'static str {
     "Operator guide: save with `/checkpoint save [label]`, branch with `/checkpoint branch save <name>`, inspect with `/checkpoint latest`, compare with `/checkpoint diff latest latest-1`, and preview rewind/restore via `/checkpoint rewind latest` or `/checkpoint restore-dry-run latest`."
+}
+
+pub(crate) fn render_restore_doctor(project_root: &Path) -> String {
+    let latest_checkpoint = checkpoint_inventory(project_root, 1).into_iter().next();
+    let latest_branch = branch_inventory(project_root, 1).into_iter().next();
+    let latest_rewind = rewind_anchor_inventory(project_root, 1).into_iter().next();
+    let latest_merge = latest_artifact_by_suffix(&checkpoint_dir(project_root), "branch-merge.md");
+    WorkspaceText::new("Restore control doctor")
+        .subtitle(project_root.display().to_string())
+        .field(
+            "Latest checkpoint",
+            latest_checkpoint
+                .as_ref()
+                .map(|entry| entry.summary_path.display().to_string())
+                .unwrap_or_else(|| "none".to_string()),
+        )
+        .field(
+            "Latest branch",
+            latest_branch
+                .as_ref()
+                .map(|entry| entry.summary_path.display().to_string())
+                .unwrap_or_else(|| "none".to_string()),
+        )
+        .field(
+            "Latest rewind",
+            latest_rewind
+                .as_ref()
+                .map(|entry| entry.summary_path.display().to_string())
+                .unwrap_or_else(|| "none".to_string()),
+        )
+        .field(
+            "Latest merge preview",
+            latest_merge
+                .as_ref()
+                .map(|path: &PathBuf| path.display().to_string())
+                .unwrap_or_else(|| "none".to_string()),
+        )
+        .section(
+            "Checks",
+            workspace_bullets([
+                if latest_checkpoint.is_some() {
+                    "[ok] checkpoint artifact available".to_string()
+                } else {
+                    "[--] checkpoint artifact unavailable".to_string()
+                },
+                if latest_branch.is_some() {
+                    "[ok] branch artifact available".to_string()
+                } else {
+                    "[--] branch artifact unavailable".to_string()
+                },
+                if latest_rewind.is_some() {
+                    "[ok] rewind anchor available".to_string()
+                } else {
+                    "[--] rewind anchor unavailable".to_string()
+                },
+            ]),
+        )
+        .footer(checkpoint_operator_guide())
+        .render()
 }
 
 pub(crate) fn build_current_checkpoint_payload(
@@ -514,6 +604,10 @@ pub(crate) fn build_current_checkpoint_payload(
 }
 
 pub(crate) fn load_checkpoint_payload(path: &Path) -> anyhow::Result<SessionCheckpointPayload> {
+    Ok(serde_json::from_str(&std::fs::read_to_string(path)?)?)
+}
+
+pub(crate) fn load_branch_merge_preview(path: &Path) -> anyhow::Result<BranchMergePreview> {
     Ok(serde_json::from_str(&std::fs::read_to_string(path)?)?)
 }
 
@@ -574,6 +668,28 @@ pub(crate) fn write_rewind_anchor(
     payload.lineage.transcript_anchor = current.artifacts.latest_transcript.clone();
     std::fs::write(&state_path, serde_json::to_string_pretty(&payload)?)?;
     std::fs::write(&summary_path, render_checkpoint_summary(&payload, &state_path, None))?;
+    Ok(SessionCheckpointArtifactSet {
+        summary_path,
+        state_path,
+    })
+}
+
+pub(crate) fn write_branch_merge_preview(
+    project_root: &Path,
+    current: &SessionCheckpointPayload,
+    branch: &SessionCheckpointPayload,
+    branch_label: &str,
+) -> anyhow::Result<SessionCheckpointArtifactSet> {
+    let dir = checkpoint_dir(project_root);
+    std::fs::create_dir_all(&dir)?;
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+    let slug = checkpoint_slug(branch_label);
+    let base = format!("{}-{}", stamp, slug);
+    let state_path = dir.join(format!("{}-branch-merge-state.json", base));
+    let summary_path = dir.join(format!("{}-branch-merge.md", base));
+    let preview = build_branch_merge_preview(current, branch, branch_label);
+    std::fs::write(&state_path, serde_json::to_string_pretty(&preview)?)?;
+    std::fs::write(&summary_path, render_branch_merge_preview(&preview, &state_path))?;
     Ok(SessionCheckpointArtifactSet {
         summary_path,
         state_path,
@@ -655,6 +771,64 @@ fn build_checkpoint_payload(
         engine_messages: engine_messages.to_vec(),
         messages,
     }
+}
+
+fn build_branch_merge_preview(
+    current: &SessionCheckpointPayload,
+    branch: &SessionCheckpointPayload,
+    branch_label: &str,
+) -> BranchMergePreview {
+    let common_prefix_messages = current
+        .messages
+        .iter()
+        .zip(branch.messages.iter())
+        .take_while(|(left, right)| left.role == right.role && left.content == right.content)
+        .count();
+    let branch_only_messages = branch.messages.len().saturating_sub(common_prefix_messages);
+    let current_only_messages = current.messages.len().saturating_sub(common_prefix_messages);
+    let merged_message_count = common_prefix_messages + branch_only_messages + current_only_messages;
+    let conflicts = render_restore_conflict_summary(current, branch);
+    BranchMergePreview {
+        kind: "branch_merge_preview".to_string(),
+        branch_label: branch_label.to_string(),
+        current_label: current.label.clone(),
+        common_prefix_messages,
+        branch_only_messages,
+        current_only_messages,
+        merged_message_count,
+        conflicts,
+        generated_at: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+    }
+}
+
+fn render_restore_conflict_summary(
+    current: &SessionCheckpointPayload,
+    target: &SessionCheckpointPayload,
+) -> Vec<String> {
+    let mut conflicts = Vec::new();
+    if current.provider != target.provider || current.model != target.model {
+        conflicts.push(format!(
+            "provider/model drift: {}:{} -> {}:{}",
+            current.provider, current.model, target.provider, target.model
+        ));
+    }
+    if current.working_dir != target.working_dir {
+        conflicts.push(format!(
+            "working dir drift: {} -> {}",
+            current.working_dir, target.working_dir
+        ));
+    }
+    if checkpoint_tail_preview(current) != checkpoint_tail_preview(target) {
+        conflicts.push(format!(
+            "tail divergence: {} -> {}",
+            checkpoint_tail_preview(current),
+            checkpoint_tail_preview(target)
+        ));
+    }
+    if conflicts.is_empty() {
+        conflicts.push("no structural conflicts detected".to_string());
+    }
+    conflicts
 }
 
 pub(crate) fn checkpoint_restore_messages(payload: &SessionCheckpointPayload) -> Vec<Message> {
