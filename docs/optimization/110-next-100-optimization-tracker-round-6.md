@@ -16,7 +16,7 @@
 
 当前进度：
 
-- `60 / 100` 已完成
+- `100 / 100` 已完成
 
 ## 001-010 Orchestration Runtime State
 
@@ -98,46 +98,46 @@
 
 ## 061-070 Product / Parity Review
 
-- `[ ]` 061 direct compare against Claude checkpointing
-- `[ ]` 062 direct compare against Claude rewind/branch flows
-- `[ ]` 063 direct compare against Claude remote control
-- `[ ]` 064 direct compare against Claude cloud task continuation
-- `[ ]` 065 direct compare against Claude direct actions
-- `[ ]` 066 round-6 gap map refresh after 50 items
-- `[ ]` 067 round-6 gap map refresh after 100 items
-- `[ ]` 068 round-6 parity review draft
-- `[ ]` 069 round-6 final parity review
-- `[ ]` 070 round-6 release note draft
+- `[x]` 061 direct compare against Claude checkpointing
+- `[x]` 062 direct compare against Claude rewind/branch flows
+- `[x]` 063 direct compare against Claude remote control
+- `[x]` 064 direct compare against Claude cloud task continuation
+- `[x]` 065 direct compare against Claude direct actions
+- `[x]` 066 round-6 gap map refresh after 50 items
+- `[x]` 067 round-6 gap map refresh after 100 items
+- `[x]` 068 round-6 parity review draft
+- `[x]` 069 round-6 final parity review
+- `[x]` 070 round-6 release note draft
 
 ## 071-100 Buffer
 
-- `[ ]` 071 spare
-- `[ ]` 072 spare
-- `[ ]` 073 spare
-- `[ ]` 074 spare
-- `[ ]` 075 spare
-- `[ ]` 076 spare
-- `[ ]` 077 spare
-- `[ ]` 078 spare
-- `[ ]` 079 spare
-- `[ ]` 080 spare
-- `[ ]` 081 spare
-- `[ ]` 082 spare
-- `[ ]` 083 spare
-- `[ ]` 084 spare
-- `[ ]` 085 spare
-- `[ ]` 086 spare
-- `[ ]` 087 spare
-- `[ ]` 088 spare
-- `[ ]` 089 spare
-- `[ ]` 090 spare
-- `[ ]` 091 spare
-- `[ ]` 092 spare
-- `[ ]` 093 spare
-- `[ ]` 094 spare
-- `[ ]` 095 spare
-- `[ ]` 096 spare
-- `[ ]` 097 spare
-- `[ ]` 098 spare
-- `[ ]` 099 spare
-- `[ ]` 100 spare
+- `[x]` 071 checkpoint branch save surface
+- `[x]` 072 checkpoint branch list surface
+- `[x]` 073 rewind anchor save surface
+- `[x]` 074 rewind anchor list surface
+- `[x]` 075 rewind safety preview surface
+- `[x]` 076 branch inspector alias
+- `[x]` 077 rewind anchor inspector alias
+- `[x]` 078 checkpoint completion includes branch commands
+- `[x]` 079 inspect target supports remote-control
+- `[x]` 080 remote control session command
+- `[x]` 081 remote command queue inspector
+- `[x]` 082 remote task inventory surface
+- `[x]` 083 remote follow prompt bridge
+- `[x]` 084 remote retry summary surface
+- `[x]` 085 remote task handoff artifact
+- `[x]` 086 remote task handoff inspect alias
+- `[x]` 087 remote-control doctor target
+- `[x]` 088 remote-control bundle export
+- `[x]` 089 doctor bundle remote-control reference
+- `[x]` 090 artifact inventory includes checkpoint families
+- `[x]` 091 artifact inventory includes remote control families
+- `[x]` 092 artifact summary includes branch/rewind state
+- `[x]` 093 artifact summary includes remote control state
+- `[x]` 094 orchestration timeline includes branch artifacts
+- `[x]` 095 orchestration timeline includes rewind artifacts
+- `[x]` 096 orchestration timeline includes remote control artifacts
+- `[x]` 097 inspector handoff prefers direct action
+- `[x]` 098 generic artifact action bridge
+- `[x]` 099 orchestration inspector action rows
+- `[x]` 100 checkpoint and remote-control action rows
