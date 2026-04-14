@@ -16,7 +16,7 @@
 
 当前进度：
 
-- `60 / 100` 已完成
+- `100 / 100` 已完成
 
 ## 001-010 Checkpoint Restore Execution
 
@@ -98,46 +98,46 @@
 
 ## 061-070 Product / Parity Review
 
-- `[ ]` 061 direct compare against Claude restore execution
-- `[ ]` 062 direct compare against Claude branch merge
-- `[ ]` 063 direct compare against Claude remote queue execution
-- `[ ]` 064 direct compare against Claude direct action dispatch
-- `[ ]` 065 direct compare against Claude cloud restore/session continuation
-- `[ ]` 066 round-7 gap map refresh after 50 items
-- `[ ]` 067 round-7 gap map refresh after 100 items
-- `[ ]` 068 round-7 parity review draft
-- `[ ]` 069 round-7 final parity review
-- `[ ]` 070 round-7 release note draft
+- `[x]` 061 direct compare against Claude restore execution
+- `[x]` 062 direct compare against Claude branch merge
+- `[x]` 063 direct compare against Claude remote queue execution
+- `[x]` 064 direct compare against Claude direct action dispatch
+- `[x]` 065 direct compare against Claude cloud restore/session continuation
+- `[x]` 066 round-7 gap map refresh after 50 items
+- `[x]` 067 round-7 gap map refresh after 100 items
+- `[x]` 068 round-7 parity review draft
+- `[x]` 069 round-7 final parity review
+- `[x]` 070 round-7 release note draft
 
 ## 071-100 Buffer
 
-- `[ ]` 071 spare
-- `[ ]` 072 spare
-- `[ ]` 073 spare
-- `[ ]` 074 spare
-- `[ ]` 075 spare
-- `[ ]` 076 spare
-- `[ ]` 077 spare
-- `[ ]` 078 spare
-- `[ ]` 079 spare
-- `[ ]` 080 spare
-- `[ ]` 081 spare
-- `[ ]` 082 spare
-- `[ ]` 083 spare
-- `[ ]` 084 spare
-- `[ ]` 085 spare
-- `[ ]` 086 spare
-- `[ ]` 087 spare
-- `[ ]` 088 spare
-- `[ ]` 089 spare
-- `[ ]` 090 spare
-- `[ ]` 091 spare
-- `[ ]` 092 spare
-- `[ ]` 093 spare
-- `[ ]` 094 spare
-- `[ ]` 095 spare
-- `[ ]` 096 spare
-- `[ ]` 097 spare
-- `[ ]` 098 spare
-- `[ ]` 099 spare
-- `[ ]` 100 spare
+- `[x]` 071 branch merge inspect alias
+- `[x]` 072 branch merge state inspect alias
+- `[x]` 073 remote queue execution inspect alias
+- `[x]` 074 action history inspect alias
+- `[x]` 075 action history timeline inclusion
+- `[x]` 076 action history brief surfacing
+- `[x]` 077 action history status surfacing
+- `[x]` 078 restore doctor target
+- `[x]` 079 remote-control inspect command target
+- `[x]` 080 checkpoint restore completion target
+- `[x]` 081 branch merge completion target
+- `[x]` 082 remote queue run/retry/ack surface
+- `[x]` 083 queue status counter in doctor
+- `[x]` 084 queue status counter in summary
+- `[x]` 085 queue execution bundle inclusion
+- `[x]` 086 queue execution artifact preview
+- `[x]` 087 remote task handoff artifact preview
+- `[x]` 088 branch merge preview artifact render
+- `[x]` 089 restore conflict detector
+- `[x]` 090 rewind safety summary transcript anchor
+- `[x]` 091 action focus color state
+- `[x]` 092 action selection cycling
+- `[x]` 093 action row safety note
+- `[x]` 094 ctrl-enter footer hint
+- `[x]` 095 action dispatch from workflow inspector
+- `[x]` 096 action dispatch from coordinate inspector
+- `[x]` 097 action dispatch from checkpoint inspector
+- `[x]` 098 action dispatch from remote-control inspector
+- `[x]` 099 action dispatch history persistence
+- `[x]` 100 action dispatch artifact alias

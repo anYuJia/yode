@@ -3,11 +3,13 @@ use std::path::PathBuf;
 use crate::commands::artifact_nav::{
     artifact_display_line, artifact_history_lines, attach_inspector_actions,
     latest_artifact_by_suffix,
-    latest_branch_artifact, latest_branch_state_artifact, latest_bundle_workspace_index,
+    latest_branch_artifact, latest_branch_merge_artifact, latest_branch_merge_state_artifact,
+    latest_branch_state_artifact, latest_bundle_workspace_index,
     latest_checkpoint_artifact, latest_checkpoint_state_artifact, latest_coordinator_artifact,
     latest_coordinator_state_artifact,
     latest_remote_command_queue_artifact, latest_remote_control_artifact,
-    latest_remote_control_state_artifact, latest_remote_task_handoff_artifact,
+    latest_remote_control_state_artifact, latest_remote_queue_execution_artifact,
+    latest_remote_task_handoff_artifact,
     latest_action_history_artifact,
     latest_rewind_anchor_artifact, latest_rewind_anchor_state_artifact,
     latest_runtime_orchestration_artifact, latest_workflow_execution_artifact,
@@ -163,7 +165,7 @@ fn inspect_artifact_target(args: &str, ctx: &mut CommandContext) -> CommandResul
         )));
     }
 
-    let (path, title, kind, refresh) = match args {
+    let (path, title, kind, refresh): (PathBuf, String, String, Vec<String>) = match args {
         "" | "latest-orchestration" => (
             latest_runtime_orchestration_artifact(&project_root)
                 .ok_or_else(|| "No orchestration timeline artifact found.".to_string())?,
@@ -234,6 +236,20 @@ fn inspect_artifact_target(args: &str, ctx: &mut CommandContext) -> CommandResul
             "rewind".to_string(),
             vec!["/checkpoint rewind latest".to_string()],
         ),
+        "latest-branch-merge" => (
+            latest_branch_merge_artifact(&project_root)
+                .ok_or_else(|| "No branch merge preview artifact found.".to_string())?,
+            "Branch merge preview".to_string(),
+            "branch_merge".to_string(),
+            vec!["/checkpoint branch merge-dry-run latest".to_string()],
+        ),
+        "latest-branch-merge-state" => (
+            latest_branch_merge_state_artifact(&project_root)
+                .ok_or_else(|| "No branch merge state artifact found.".to_string())?,
+            "Branch merge state".to_string(),
+            "branch_merge".to_string(),
+            vec!["/checkpoint branch merge-dry-run latest".to_string()],
+        ),
         "latest-remote-control" => (
             latest_remote_control_artifact(&project_root)
                 .ok_or_else(|| "No remote control artifact found.".to_string())?,
@@ -261,6 +277,13 @@ fn inspect_artifact_target(args: &str, ctx: &mut CommandContext) -> CommandResul
             "Remote task handoff".to_string(),
             "remote_task".to_string(),
             vec!["/remote-control handoff latest".to_string()],
+        ),
+        "latest-remote-queue-execution" => (
+            latest_remote_queue_execution_artifact(&project_root)
+                .ok_or_else(|| "No remote queue execution artifact found.".to_string())?,
+            "Remote queue execution".to_string(),
+            "remote_queue".to_string(),
+            vec!["/remote-control run latest".to_string()],
         ),
         "latest-workflow-state" => (
             latest_workflow_state_artifact(&project_root)
@@ -507,11 +530,14 @@ fn inspect_completion_targets(ctx: &crate::commands::context::CompletionContext)
         "artifact latest-checkpoint-state".to_string(),
         "artifact latest-branch".to_string(),
         "artifact latest-branch-state".to_string(),
+        "artifact latest-branch-merge".to_string(),
+        "artifact latest-branch-merge-state".to_string(),
         "artifact latest-rewind-anchor".to_string(),
         "artifact latest-rewind-anchor-state".to_string(),
         "artifact latest-remote-control".to_string(),
         "artifact latest-remote-control-state".to_string(),
         "artifact latest-remote-queue".to_string(),
+        "artifact latest-remote-queue-execution".to_string(),
         "artifact latest-remote-task-handoff".to_string(),
         "artifact latest-workflow-state".to_string(),
         "artifact latest-coordinate".to_string(),
@@ -565,8 +591,8 @@ fn artifact_inventory_lines(project_root: &std::path::Path, cwd: &std::path::Pat
         "latest-workflow | latest-coordinate | latest-orchestration".to_string(),
         "latest-workflow-state | latest-coordinate-state".to_string(),
         "latest-checkpoint | latest-checkpoint-state".to_string(),
-        "latest-branch | latest-branch-state | latest-rewind-anchor | latest-rewind-anchor-state".to_string(),
-        "latest-remote-control | latest-remote-control-state | latest-remote-queue".to_string(),
+        "latest-branch | latest-branch-state | latest-branch-merge | latest-branch-merge-state | latest-rewind-anchor | latest-rewind-anchor-state".to_string(),
+        "latest-remote-control | latest-remote-control-state | latest-remote-queue | latest-remote-queue-execution".to_string(),
         "latest-remote-task-handoff".to_string(),
         "latest-runtime-timeline | latest-runtime-tasks | latest-hook-failures".to_string(),
         "latest-action-history".to_string(),
@@ -676,6 +702,12 @@ fn artifact_summary_lines(project_root: &std::path::Path, cwd: &std::path::Path)
         latest_branch_state_artifact(project_root)
             .map(|path| format!("branch_state -> {}", artifact_display_line(&path)))
             .unwrap_or_else(|| "branch_state -> none".to_string()),
+        latest_branch_merge_artifact(project_root)
+            .map(|path| format!("branch_merge -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "branch_merge -> none".to_string()),
+        latest_branch_merge_state_artifact(project_root)
+            .map(|path| format!("branch_merge_state -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "branch_merge_state -> none".to_string()),
         latest_rewind_anchor_artifact(project_root)
             .map(|path| format!("rewind_anchor -> {}", artifact_display_line(&path)))
             .unwrap_or_else(|| "rewind_anchor -> none".to_string()),
@@ -694,6 +726,11 @@ fn artifact_summary_lines(project_root: &std::path::Path, cwd: &std::path::Path)
         latest_remote_task_handoff_artifact(project_root)
             .map(|path| format!("remote_handoff -> {}", artifact_display_line(&path)))
             .unwrap_or_else(|| "remote_handoff -> none".to_string()),
+        latest_remote_queue_execution_artifact(project_root)
+            .map(|path: std::path::PathBuf| {
+                format!("remote_queue_execution -> {}", artifact_display_line(&path))
+            })
+            .unwrap_or_else(|| "remote_queue_execution -> none".to_string()),
         latest_action_history_artifact(project_root)
             .map(|path| format!("action_history -> {}", artifact_display_line(&path)))
             .unwrap_or_else(|| "action_history -> none".to_string()),

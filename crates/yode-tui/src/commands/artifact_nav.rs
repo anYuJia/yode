@@ -77,6 +77,20 @@ pub(crate) fn latest_rewind_anchor_state_artifact(project_root: &Path) -> Option
     )
 }
 
+pub(crate) fn latest_branch_merge_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("checkpoints"),
+        "branch-merge.md",
+    )
+}
+
+pub(crate) fn latest_branch_merge_state_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("checkpoints"),
+        "branch-merge-state.json",
+    )
+}
+
 pub(crate) fn latest_remote_control_artifact(project_root: &Path) -> Option<PathBuf> {
     latest_artifact_by_suffix(
         &project_root.join(".yode").join("remote"),
@@ -102,6 +116,13 @@ pub(crate) fn latest_remote_task_handoff_artifact(project_root: &Path) -> Option
     latest_artifact_by_suffix(
         &project_root.join(".yode").join("remote"),
         "remote-task-handoff.md",
+    )
+}
+
+pub(crate) fn latest_remote_queue_execution_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("remote"),
+        "remote-queue-execution.md",
     )
 }
 
@@ -321,6 +342,9 @@ pub(crate) fn build_runtime_orchestration_timeline_lines(
     if let Some(path) = latest_rewind_anchor_artifact(project_root) {
         entries.push(artifact_timeline_entry(&path, "rewind anchor"));
     }
+    if let Some(path) = latest_branch_merge_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "branch merge"));
+    }
     if let Some(path) = latest_remote_control_artifact(project_root) {
         entries.push(artifact_timeline_entry(&path, "remote control"));
     }
@@ -345,8 +369,14 @@ pub(crate) fn build_runtime_orchestration_timeline_lines(
     if let Some(path) = latest_rewind_anchor_state_artifact(project_root) {
         entries.push(artifact_timeline_entry(&path, "rewind anchor state"));
     }
+    if let Some(path) = latest_branch_merge_state_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "branch merge state"));
+    }
     if let Some(path) = latest_remote_control_state_artifact(project_root) {
         entries.push(artifact_timeline_entry(&path, "remote control state"));
+    }
+    if let Some(path) = latest_remote_queue_execution_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "remote queue execution"));
     }
     if let Some(path) = latest_coordinator_artifact(project_root) {
         entries.push(artifact_timeline_entry(&path, "coordinator"));
