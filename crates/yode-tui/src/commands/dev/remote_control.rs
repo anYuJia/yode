@@ -8,8 +8,9 @@ use crate::commands::{
 };
 
 use super::remote_control_workspace::{
-    export_remote_control_bundle, latest_remote_command_queue_artifact,
-    latest_remote_control_artifact, mark_remote_queue_item, queue_item_target,
+    bind_remote_queue_item_runtime, export_remote_control_bundle,
+    latest_remote_command_queue_artifact, latest_remote_control_artifact,
+    mark_remote_queue_item, queue_item_target,
     render_remote_control_doctor, render_remote_retry_summary, render_remote_task_inventory,
     write_remote_control_artifacts, write_remote_queue_execution_artifact,
     write_remote_task_handoff_artifact,
@@ -111,8 +112,51 @@ impl Command for RemoteControlCommand {
                 .map_err(|err| format!("Failed to resolve queue item: {}", err))?
                 .ok_or_else(|| format!("Unknown queue target '{}'.", target))?;
             let item = payload.command_queue[index].clone();
+            let runtime_task = {
+                let engine = ctx
+                    .engine
+                    .try_lock()
+                    .map_err(|_| "Engine is busy, try again.".to_string())?;
+                let output_dir = project_root.join(".yode").join("tasks");
+                let _ = std::fs::create_dir_all(&output_dir);
+                let output_path = output_dir.join(format!("remote-queue-{}.log", uuid::Uuid::new_v4()));
+                let transcript_path = item.transcript_path.clone().or_else(|| {
+                    queue_item_target(&project_root, target)
+                        .ok()
+                        .flatten()
+                        .map(|_| yode_tools::runtime_tasks::latest_transcript_artifact_path(&project_root))
+                        .flatten()
+                });
+                engine.create_runtime_task(
+                    "remote-control",
+                    "remote-control",
+                    &format!("queue {}", item.command),
+                    &output_path.display().to_string(),
+                    transcript_path,
+                )
+            }
+            .ok_or_else(|| "Failed to allocate runtime task for remote queue item.".to_string())?;
+            {
+                let engine = ctx
+                    .engine
+                    .try_lock()
+                    .map_err(|_| "Engine is busy, try again.".to_string())?;
+                engine.mark_runtime_task_running(&runtime_task.id);
+                engine.update_runtime_task_progress(
+                    &runtime_task.id,
+                    format!("dispatching {}", item.command),
+                );
+            }
             let _ = mark_remote_queue_item(&project_root, target, "running", None)
                 .map_err(|err| format!("Failed to mark queue item running: {}", err))?;
+            let _ = bind_remote_queue_item_runtime(
+                &project_root,
+                target,
+                Some(runtime_task.id.clone()),
+                runtime_task.transcript_path.clone(),
+                None,
+            )
+            .map_err(|err| format!("Failed to bind queue runtime task: {}", err))?;
             let command = item.command.trim_start_matches('/').trim();
             let (cmd_name, cmd_args) = match command.find(' ') {
                 Some(pos) => (&command[..pos], command[pos + 1..].trim()),
@@ -144,9 +188,26 @@ impl Command for RemoteControlCommand {
             let item = payload.command_queue[index].clone();
             let execution = write_remote_queue_execution_artifact(&project_root, &item, &preview)
                 .map_err(|err| format!("Failed to write remote queue execution artifact: {}", err))?;
+            {
+                let engine = ctx
+                    .engine
+                    .try_lock()
+                    .map_err(|_| "Engine is busy, try again.".to_string())?;
+                engine.update_runtime_task_progress(&runtime_task.id, preview.clone());
+                engine.mark_runtime_task_completed(&runtime_task.id);
+            }
+            let _ = bind_remote_queue_item_runtime(
+                &project_root,
+                target,
+                Some(runtime_task.id.clone()),
+                runtime_task.transcript_path.clone(),
+                Some(execution.display().to_string()),
+            )
+            .map_err(|err| format!("Failed to update queue execution artifact: {}", err))?;
             return Ok(CommandOutput::Message(format!(
-                "Remote queue item executed.\nItem: {}\nExecution: {}",
+                "Remote queue item executed.\nItem: {}\nTask: {}\nExecution: {}",
                 item.id,
+                runtime_task.id,
                 execution.display()
             )));
         }
@@ -163,6 +224,13 @@ impl Command for RemoteControlCommand {
                 Some(format!("retry queued for {}", item.command)),
             )
             .map_err(|err| format!("Failed to queue retry: {}", err))?;
+            if let Some(task_id) = item.runtime_task_id {
+                let engine = ctx
+                    .engine
+                    .try_lock()
+                    .map_err(|_| "Engine is busy, try again.".to_string())?;
+                engine.mark_runtime_task_failed(&task_id, "re-queued for retry");
+            }
             return Ok(CommandOutput::Message(format!(
                 "Remote queue item re-queued: {}",
                 item.id

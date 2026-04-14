@@ -13,8 +13,11 @@ pub(crate) struct RemoteQueueItem {
     pub command: String,
     pub status: String,
     pub attempts: u32,
+    pub runtime_task_id: Option<String>,
+    pub transcript_path: Option<String>,
     pub last_run_at: Option<String>,
     pub last_result_preview: Option<String>,
+    pub execution_artifact: Option<String>,
     pub acknowledged_at: Option<String>,
 }
 
@@ -324,6 +327,30 @@ pub(crate) fn mark_remote_queue_item(
     Ok(Some((payload, artifacts)))
 }
 
+pub(crate) fn bind_remote_queue_item_runtime(
+    project_root: &Path,
+    target: &str,
+    runtime_task_id: Option<String>,
+    transcript_path: Option<String>,
+    execution_artifact: Option<String>,
+) -> anyhow::Result<Option<(RemoteControlPayload, RemoteControlArtifacts)>> {
+    let Some((mut payload, artifacts, index)) = queue_item_target(project_root, target)? else {
+        return Ok(None);
+    };
+    let item = &mut payload.command_queue[index];
+    if runtime_task_id.is_some() {
+        item.runtime_task_id = runtime_task_id;
+    }
+    if transcript_path.is_some() {
+        item.transcript_path = transcript_path;
+    }
+    if execution_artifact.is_some() {
+        item.execution_artifact = execution_artifact;
+    }
+    rewrite_remote_control_artifacts(&payload, &artifacts)?;
+    Ok(Some((payload, artifacts)))
+}
+
 pub(crate) fn write_remote_queue_execution_artifact(
     project_root: &Path,
     item: &RemoteQueueItem,
@@ -379,8 +406,11 @@ fn build_remote_control_payload(
         command: command.to_string(),
         status: "queued".to_string(),
         attempts: 0,
+        runtime_task_id: None,
+        transcript_path: None,
         last_run_at: None,
         last_result_preview: None,
+        execution_artifact: None,
         acknowledged_at: None,
     })
     .collect::<Vec<_>>();
@@ -455,14 +485,22 @@ fn render_remote_control_queue(payload: &RemoteControlPayload) -> String {
     ];
     for (index, item) in payload.command_queue.iter().enumerate() {
         lines.push(format!(
-            "- {}. {} [{}] attempts={}{}",
+            "- {}. {} [{}] attempts={}{}{}{}",
             index + 1,
             item.command,
             item.status,
             item.attempts,
+            item.runtime_task_id
+                .as_ref()
+                .map(|task_id| format!(" / task={}", task_id))
+                .unwrap_or_default(),
             item.last_result_preview
                 .as_ref()
                 .map(|preview| format!(" / {}", preview))
+                .unwrap_or_default(),
+            item.execution_artifact
+                .as_ref()
+                .map(|path| format!(" / execution={}", path))
                 .unwrap_or_default()
         ));
     }

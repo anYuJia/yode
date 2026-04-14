@@ -206,6 +206,54 @@ impl AgentEngine {
             .unwrap_or_default()
     }
 
+    pub fn create_runtime_task(
+        &self,
+        kind: &str,
+        source_tool: &str,
+        description: &str,
+        output_path: &str,
+        transcript_path: Option<String>,
+    ) -> Option<RuntimeTask> {
+        self.runtime_task_store
+            .try_lock()
+            .ok()
+            .map(|mut store| {
+                store
+                    .create_with_transcript(
+                        kind.to_string(),
+                        source_tool.to_string(),
+                        description.to_string(),
+                        output_path.to_string(),
+                        transcript_path,
+                    )
+                    .0
+            })
+    }
+
+    pub fn mark_runtime_task_running(&self, id: &str) {
+        if let Ok(mut store) = self.runtime_task_store.try_lock() {
+            store.mark_running(id);
+        }
+    }
+
+    pub fn update_runtime_task_progress(&self, id: &str, message: impl Into<String>) {
+        if let Ok(mut store) = self.runtime_task_store.try_lock() {
+            store.update_progress(id, message.into());
+        }
+    }
+
+    pub fn mark_runtime_task_completed(&self, id: &str) {
+        if let Ok(mut store) = self.runtime_task_store.try_lock() {
+            store.mark_completed(id);
+        }
+    }
+
+    pub fn mark_runtime_task_failed(&self, id: &str, error: impl Into<String>) {
+        if let Ok(mut store) = self.runtime_task_store.try_lock() {
+            store.mark_failed(id, error.into());
+        }
+    }
+
     /// Set channels for the ask_user tool.
     pub fn set_ask_user_channels(
         &mut self,

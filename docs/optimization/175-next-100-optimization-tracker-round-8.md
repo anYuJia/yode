@@ -16,7 +16,7 @@
 
 当前进度：
 
-- `20 / 100` 已完成
+- `30 / 100` 已完成
 
 ## 001-010 Branch Merge Execution
 
@@ -46,16 +46,16 @@
 
 ## 021-030 Remote Queue Runtime Tasks
 
-- `[ ]` 021 remote queue item -> runtime task binding
-- `[ ]` 022 queue task id backlink
-- `[ ]` 023 queue task progress sync
-- `[ ]` 024 queue task completion sync
-- `[ ]` 025 queue task retry sync
-- `[ ]` 026 queue task cancel sync
-- `[ ]` 027 remote queue runtime-task review
-- `[ ]` 028 remote queue runtime-task closeout
-- `[ ]` 029 remote queue runtime-task quickstart
-- `[ ]` 030 remote queue runtime-task next-step doc
+- `[x]` 021 remote queue item -> runtime task binding
+- `[x]` 022 queue task id backlink
+- `[x]` 023 queue task progress sync
+- `[x]` 024 queue task completion sync
+- `[x]` 025 queue task retry sync
+- `[x]` 026 queue task cancel sync
+- `[x]` 027 remote queue runtime-task review
+- `[x]` 028 remote queue runtime-task closeout
+- `[x]` 029 remote queue runtime-task quickstart
+- `[x]` 030 remote queue runtime-task next-step doc
 
 ## 031-040 Remote Transport Foundations
 
