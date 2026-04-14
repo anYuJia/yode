@@ -73,6 +73,17 @@ pub(crate) struct BranchMergePreview {
     pub generated_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct BranchMergeExecutionPayload {
+    pub kind: String,
+    pub branch_label: String,
+    pub current_label: String,
+    pub merged_message_count: usize,
+    pub current_tail_count: usize,
+    pub branch_tail_count: usize,
+    pub merged_at: String,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct SessionCheckpointArtifactSet {
     pub summary_path: PathBuf,
@@ -521,7 +532,7 @@ pub(crate) fn render_branch_merge_preview(
 }
 
 pub(crate) fn checkpoint_operator_guide() -> &'static str {
-    "Operator guide: save with `/checkpoint save [label]`, branch with `/checkpoint branch save <name>`, inspect with `/checkpoint latest`, compare with `/checkpoint diff latest latest-1`, and preview rewind/restore via `/checkpoint rewind latest` or `/checkpoint restore-dry-run latest`."
+    "Operator guide: save with `/checkpoint save [label]`, branch with `/checkpoint branch save <name>`, inspect with `/checkpoint latest`, compare with `/checkpoint diff latest latest-1`, and preview rewind/restore via `/checkpoint rewind latest` or `/checkpoint restore-dry-run latest`. Merge a branch with `/checkpoint branch merge <target>` after previewing it with `merge-dry-run`."
 }
 
 pub(crate) fn render_restore_doctor(project_root: &Path) -> String {
@@ -696,6 +707,38 @@ pub(crate) fn write_branch_merge_preview(
     })
 }
 
+pub(crate) fn write_branch_merge_execution_artifact(
+    project_root: &Path,
+    current: &SessionCheckpointPayload,
+    branch: &SessionCheckpointPayload,
+    branch_label: &str,
+) -> anyhow::Result<SessionCheckpointArtifactSet> {
+    let dir = checkpoint_dir(project_root);
+    std::fs::create_dir_all(&dir)?;
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+    let slug = checkpoint_slug(branch_label);
+    let base = format!("{}-{}", stamp, slug);
+    let state_path = dir.join(format!("{}-branch-merge-execution-state.json", base));
+    let summary_path = dir.join(format!("{}-branch-merge-execution.md", base));
+    let payload = build_branch_merge_execution_payload(current, branch, branch_label);
+    std::fs::write(&state_path, serde_json::to_string_pretty(&payload)?)?;
+    let body = format!(
+        "# Branch Merge Execution\n\n- Branch: {}\n- Current: {}\n- Merged messages: {}\n- Current tail: {}\n- Branch tail: {}\n- Timestamp: {}\n- State artifact: {}\n",
+        payload.branch_label,
+        payload.current_label,
+        payload.merged_message_count,
+        payload.current_tail_count,
+        payload.branch_tail_count,
+        payload.merged_at,
+        state_path.display(),
+    );
+    std::fs::write(&summary_path, body)?;
+    Ok(SessionCheckpointArtifactSet {
+        summary_path,
+        state_path,
+    })
+}
+
 fn recent_snapshot_summary_paths(project_root: &Path, suffixes: &[&str], limit: usize) -> Vec<PathBuf> {
     let mut entries = std::fs::read_dir(checkpoint_dir(project_root))
         .ok()
@@ -801,6 +844,30 @@ fn build_branch_merge_preview(
     }
 }
 
+fn build_branch_merge_execution_payload(
+    current: &SessionCheckpointPayload,
+    branch: &SessionCheckpointPayload,
+    branch_label: &str,
+) -> BranchMergeExecutionPayload {
+    let common_prefix_messages = current
+        .messages
+        .iter()
+        .zip(branch.messages.iter())
+        .take_while(|(left, right)| left.role == right.role && left.content == right.content)
+        .count();
+    let branch_tail_count = branch.messages.len().saturating_sub(common_prefix_messages);
+    let current_tail_count = current.messages.len().saturating_sub(common_prefix_messages);
+    BranchMergeExecutionPayload {
+        kind: "branch_merge_execution".to_string(),
+        branch_label: branch_label.to_string(),
+        current_label: current.label.clone(),
+        merged_message_count: common_prefix_messages + current_tail_count + branch_tail_count,
+        current_tail_count,
+        branch_tail_count,
+        merged_at: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+    }
+}
+
 fn render_restore_conflict_summary(
     current: &SessionCheckpointPayload,
     target: &SessionCheckpointPayload,
@@ -856,6 +923,34 @@ pub(crate) fn checkpoint_restore_chat_entries(payload: &SessionCheckpointPayload
             entry
         })
         .collect()
+}
+
+pub(crate) fn merge_checkpoint_payloads(
+    current: &SessionCheckpointPayload,
+    branch: &SessionCheckpointPayload,
+) -> (Vec<Message>, Vec<ChatEntry>) {
+    let common_prefix_messages = current
+        .messages
+        .iter()
+        .zip(branch.messages.iter())
+        .take_while(|(left, right)| left.role == right.role && left.content == right.content)
+        .count();
+
+    let mut merged_engine = checkpoint_restore_messages(current);
+    merged_engine.extend(
+        checkpoint_restore_messages(branch)
+            .into_iter()
+            .skip(common_prefix_messages),
+    );
+
+    let mut merged_chat = checkpoint_restore_chat_entries(current);
+    merged_chat.extend(
+        checkpoint_restore_chat_entries(branch)
+            .into_iter()
+            .skip(common_prefix_messages),
+    );
+
+    (merged_engine, merged_chat)
 }
 
 fn render_checkpoint_summary(
