@@ -8,6 +8,17 @@ use crate::commands::artifact_nav::{
 use yode_tools::{RuntimeTask, RuntimeTaskStatus};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct RemoteQueueItem {
+    pub id: String,
+    pub command: String,
+    pub status: String,
+    pub attempts: u32,
+    pub last_run_at: Option<String>,
+    pub last_result_preview: Option<String>,
+    pub acknowledged_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct RemoteControlPayload {
     pub kind: String,
     pub goal: String,
@@ -18,7 +29,7 @@ pub(crate) struct RemoteControlPayload {
     pub remote_dir: String,
     pub created_at: String,
     pub status: String,
-    pub command_queue: Vec<String>,
+    pub command_queue: Vec<RemoteQueueItem>,
     pub latest_remote_capability: Option<String>,
     pub latest_remote_execution: Option<String>,
     pub latest_checkpoint: Option<String>,
@@ -86,6 +97,13 @@ pub(crate) fn latest_remote_task_handoff_artifact(project_root: &Path) -> Option
     )
 }
 
+pub(crate) fn latest_remote_queue_execution_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("remote"),
+        "remote-queue-execution.md",
+    )
+}
+
 pub(crate) fn render_remote_control_doctor(project_root: &Path) -> String {
     let payload = latest_remote_control_state_artifact(project_root)
         .and_then(|path| load_remote_control_payload(&path).ok());
@@ -94,10 +112,15 @@ pub(crate) fn render_remote_control_doctor(project_root: &Path) -> String {
     };
 
     format!(
-        "Remote control doctor\n  Goal: {}\n  Status: {}\n  Queue: {}\n  Capability: {}\n  Execution: {}\n  Checkpoint: {}\n  Orchestration: {}",
+        "Remote control doctor\n  Goal: {}\n  Status: {}\n  Queue: {} total / {} completed\n  Capability: {}\n  Execution: {}\n  Checkpoint: {}\n  Orchestration: {}",
         payload.goal,
         payload.status,
         payload.command_queue.len(),
+        payload
+            .command_queue
+            .iter()
+            .filter(|item| item.status == "completed")
+            .count(),
         payload.latest_remote_capability.as_deref().unwrap_or("none"),
         payload.latest_remote_execution.as_deref().unwrap_or("none"),
         payload.latest_checkpoint.as_deref().unwrap_or("none"),
@@ -129,6 +152,9 @@ pub(crate) fn export_remote_control_bundle(
     }
     if let Some(handoff) = handoff {
         let _ = std::fs::copy(&handoff, bundle_dir.join("remote-task-handoff.md"));
+    }
+    if let Some(execution) = latest_remote_queue_execution_artifact(project_root) {
+        let _ = std::fs::copy(&execution, bundle_dir.join("remote-queue-execution.md"));
     }
     Ok(Some(bundle_dir))
 }
@@ -226,6 +252,100 @@ pub(crate) fn load_remote_control_payload(path: &Path) -> anyhow::Result<RemoteC
     Ok(serde_json::from_str(&std::fs::read_to_string(path)?)?)
 }
 
+pub(crate) fn latest_remote_control_payload(
+    project_root: &Path,
+) -> anyhow::Result<Option<(RemoteControlPayload, RemoteControlArtifacts)>> {
+    let Some(summary_path) = latest_remote_control_artifact(project_root) else {
+        return Ok(None);
+    };
+    let Some(state_path) = latest_remote_control_state_artifact(project_root) else {
+        return Ok(None);
+    };
+    let Some(queue_path) = latest_remote_command_queue_artifact(project_root) else {
+        return Ok(None);
+    };
+    Ok(Some((
+        load_remote_control_payload(&state_path)?,
+        RemoteControlArtifacts {
+            summary_path,
+            state_path,
+            queue_path,
+        },
+    )))
+}
+
+pub(crate) fn queue_item_target(
+    project_root: &Path,
+    target: &str,
+) -> anyhow::Result<Option<(RemoteControlPayload, RemoteControlArtifacts, usize)>> {
+    let Some((payload, artifacts)) = latest_remote_control_payload(project_root)? else {
+        return Ok(None);
+    };
+    if payload.command_queue.is_empty() {
+        return Ok(None);
+    }
+    let trimmed = target.trim();
+    let index = if trimmed.is_empty() || trimmed == "latest" {
+        Some(0usize)
+    } else if let Ok(index) = trimmed.parse::<usize>() {
+        index.checked_sub(1)
+    } else {
+        payload
+            .command_queue
+            .iter()
+            .position(|item| item.id == trimmed || item.command == trimmed)
+    };
+    Ok(index
+        .filter(|index| *index < payload.command_queue.len())
+        .map(|index| (payload, artifacts, index)))
+}
+
+pub(crate) fn mark_remote_queue_item(
+    project_root: &Path,
+    target: &str,
+    next_status: &str,
+    preview: Option<String>,
+) -> anyhow::Result<Option<(RemoteControlPayload, RemoteControlArtifacts)>> {
+    let Some((mut payload, artifacts, index)) = queue_item_target(project_root, target)? else {
+        return Ok(None);
+    };
+    let item = &mut payload.command_queue[index];
+    item.status = next_status.to_string();
+    item.attempts = item.attempts.saturating_add(u32::from(next_status != "acked"));
+    item.last_run_at = Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
+    if next_status == "acked" {
+        item.acknowledged_at = item.last_run_at.clone();
+    }
+    if let Some(preview) = preview {
+        item.last_result_preview = Some(truncate_preview(&preview, 180));
+    }
+    payload.status = summarize_queue_status(&payload.command_queue);
+    rewrite_remote_control_artifacts(&payload, &artifacts)?;
+    Ok(Some((payload, artifacts)))
+}
+
+pub(crate) fn write_remote_queue_execution_artifact(
+    project_root: &Path,
+    item: &RemoteQueueItem,
+    output_preview: &str,
+) -> anyhow::Result<PathBuf> {
+    let dir = project_root.join(".yode").join("remote");
+    std::fs::create_dir_all(&dir)?;
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+    let path = dir.join(format!("{}-{}-remote-queue-execution.md", stamp, item.id));
+    let body = format!(
+        "# Remote Queue Execution\n\n- Item: {}\n- Command: {}\n- Status: {}\n- Attempts: {}\n- Last run: {}\n\n## Result Preview\n\n```text\n{}\n```\n",
+        item.id,
+        item.command,
+        item.status,
+        item.attempts,
+        item.last_run_at.as_deref().unwrap_or("none"),
+        output_preview,
+    );
+    std::fs::write(&path, body)?;
+    Ok(path)
+}
+
 fn build_remote_control_payload(
     project_root: &Path,
     session_id: &str,
@@ -244,14 +364,26 @@ fn build_remote_control_payload(
         .map(|path| path.display().to_string());
     let latest_orchestration = latest_runtime_orchestration_artifact(project_root)
         .map(|path| path.display().to_string());
-    let command_queue = vec![
-        "/doctor remote".to_string(),
-        "/doctor remote-review".to_string(),
-        "/inspect artifact latest-remote-capability".to_string(),
-        "/inspect artifact latest-remote-execution".to_string(),
-        "/inspect artifact latest-checkpoint".to_string(),
-        "/inspect artifact latest-orchestration".to_string(),
-    ];
+    let command_queue = [
+        "/doctor remote",
+        "/doctor remote-review",
+        "/inspect artifact latest-remote-capability",
+        "/inspect artifact latest-remote-execution",
+        "/inspect artifact latest-checkpoint",
+        "/inspect artifact latest-orchestration",
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, command)| RemoteQueueItem {
+        id: format!("q-{}", index + 1),
+        command: command.to_string(),
+        status: "queued".to_string(),
+        attempts: 0,
+        last_run_at: None,
+        last_result_preview: None,
+        acknowledged_at: None,
+    })
+    .collect::<Vec<_>>();
 
     RemoteControlPayload {
         kind: "remote_control_session".to_string(),
@@ -291,6 +423,14 @@ fn render_remote_control_summary(
         format!("- Remote dir: {}", payload.remote_dir),
         format!("- Status: {}", payload.status),
         format!("- Queue size: {}", payload.command_queue.len()),
+        format!(
+            "- Queue completed: {}",
+            payload
+                .command_queue
+                .iter()
+                .filter(|item| item.status == "completed")
+                .count()
+        ),
         format!("- State artifact: {}", state_path.display()),
         format!("- Queue artifact: {}", queue_path.display()),
         String::new(),
@@ -313,10 +453,47 @@ fn render_remote_control_queue(payload: &RemoteControlPayload) -> String {
         String::new(),
         "Commands:".to_string(),
     ];
-    for (index, command) in payload.command_queue.iter().enumerate() {
-        lines.push(format!("- {}. {}", index + 1, command));
+    for (index, item) in payload.command_queue.iter().enumerate() {
+        lines.push(format!(
+            "- {}. {} [{}] attempts={}{}",
+            index + 1,
+            item.command,
+            item.status,
+            item.attempts,
+            item.last_result_preview
+                .as_ref()
+                .map(|preview| format!(" / {}", preview))
+                .unwrap_or_default()
+        ));
     }
     lines.join("\n")
+}
+
+fn rewrite_remote_control_artifacts(
+    payload: &RemoteControlPayload,
+    artifacts: &RemoteControlArtifacts,
+) -> anyhow::Result<()> {
+    std::fs::write(&artifacts.state_path, serde_json::to_string_pretty(payload)?)?;
+    std::fs::write(
+        &artifacts.summary_path,
+        render_remote_control_summary(payload, &artifacts.state_path, &artifacts.queue_path),
+    )?;
+    std::fs::write(&artifacts.queue_path, render_remote_control_queue(payload))?;
+    Ok(())
+}
+
+fn summarize_queue_status(items: &[RemoteQueueItem]) -> String {
+    if items.iter().any(|item| item.status == "running") {
+        "running".to_string()
+    } else if items.iter().all(|item| item.status == "acked") {
+        "acked".to_string()
+    } else if items.iter().any(|item| item.status == "failed") {
+        "attention".to_string()
+    } else if items.iter().all(|item| item.status == "completed") {
+        "completed".to_string()
+    } else {
+        "planned".to_string()
+    }
 }
 
 fn remote_slug(raw: &str) -> String {
@@ -325,6 +502,15 @@ fn remote_slug(raw: &str) -> String {
         .map(|ch| if ch.is_ascii_alphanumeric() { ch.to_ascii_lowercase() } else { '-' })
         .collect::<String>();
     slug.trim_matches('-').to_string()
+}
+
+fn truncate_preview(text: &str, max_chars: usize) -> String {
+    let squashed = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if squashed.chars().count() <= max_chars {
+        squashed
+    } else {
+        format!("{}...", squashed.chars().take(max_chars).collect::<String>())
+    }
 }
 
 fn task_status_label(status: &RuntimeTaskStatus) -> &'static str {

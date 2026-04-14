@@ -16,7 +16,7 @@
 
 当前进度：
 
-- `20 / 100` 已完成
+- `30 / 100` 已完成
 
 ## 001-010 Checkpoint Restore Execution
 
@@ -46,16 +46,16 @@
 
 ## 021-030 Remote Queue Execution
 
-- `[ ]` 021 remote queue execution status model
-- `[ ]` 022 remote queue item state transitions
-- `[ ]` 023 remote queue execution artifact
-- `[ ]` 024 remote queue execution inspector
-- `[ ]` 025 remote queue retry command
-- `[ ]` 026 remote queue acknowledgement command
-- `[ ]` 027 remote queue execution review
-- `[ ]` 028 remote queue execution closeout
-- `[ ]` 029 remote queue operator guide
-- `[ ]` 030 remote queue next-step doc
+- `[x]` 021 remote queue execution status model
+- `[x]` 022 remote queue item state transitions
+- `[x]` 023 remote queue execution artifact
+- `[x]` 024 remote queue execution inspector
+- `[x]` 025 remote queue retry command
+- `[x]` 026 remote queue acknowledgement command
+- `[x]` 027 remote queue execution review
+- `[x]` 028 remote queue execution closeout
+- `[x]` 029 remote queue operator guide
+- `[x]` 030 remote queue next-step doc
 
 ## 031-040 Restore / Branch Merge
 

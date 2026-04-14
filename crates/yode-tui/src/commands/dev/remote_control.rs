@@ -9,9 +9,10 @@ use crate::commands::{
 
 use super::remote_control_workspace::{
     export_remote_control_bundle, latest_remote_command_queue_artifact,
-    latest_remote_control_artifact,
+    latest_remote_control_artifact, mark_remote_queue_item, queue_item_target,
     render_remote_control_doctor, render_remote_retry_summary, render_remote_task_inventory,
-    write_remote_control_artifacts, write_remote_task_handoff_artifact,
+    write_remote_control_artifacts, write_remote_queue_execution_artifact,
+    write_remote_task_handoff_artifact,
 };
 
 pub struct RemoteControlCommand {
@@ -28,11 +29,14 @@ impl RemoteControlCommand {
                 args: vec![ArgDef {
                     name: "action".to_string(),
                     required: false,
-                    hint: "[plan [goal]|latest|queue|tasks|follow <id>|retry-summary|handoff <id>|doctor|bundle]".to_string(),
+                    hint: "[plan [goal]|latest|queue|run <item>|retry <item>|ack <item>|tasks|follow <id>|retry-summary|handoff <id>|doctor|bundle]".to_string(),
                     completions: ArgCompletionSource::Static(vec![
                         "plan".to_string(),
                         "latest".to_string(),
                         "queue".to_string(),
+                        "run".to_string(),
+                        "retry".to_string(),
+                        "ack".to_string(),
                         "tasks".to_string(),
                         "follow".to_string(),
                         "retry-summary".to_string(),
@@ -102,6 +106,87 @@ impl Command for RemoteControlCommand {
             return Ok(CommandOutput::OpenInspector(doc));
         }
 
+        if let ["run", target] = parts.as_slice() {
+            let (payload, _, index) = queue_item_target(&project_root, target)
+                .map_err(|err| format!("Failed to resolve queue item: {}", err))?
+                .ok_or_else(|| format!("Unknown queue target '{}'.", target))?;
+            let item = payload.command_queue[index].clone();
+            let _ = mark_remote_queue_item(&project_root, target, "running", None)
+                .map_err(|err| format!("Failed to mark queue item running: {}", err))?;
+            let command = item.command.trim_start_matches('/').trim();
+            let (cmd_name, cmd_args) = match command.find(' ') {
+                Some(pos) => (&command[..pos], command[pos + 1..].trim()),
+                None => (command, ""),
+            };
+            let output = ctx
+                .cmd_registry
+                .execute_command(cmd_name, cmd_args, ctx)
+                .ok_or_else(|| format!("Command '{}' not found.", cmd_name))??;
+            let preview = match &output {
+                CommandOutput::Message(body) => body.lines().take(3).collect::<Vec<_>>().join(" | "),
+                CommandOutput::Messages(lines) => lines.iter().take(3).cloned().collect::<Vec<_>>().join(" | "),
+                CommandOutput::OpenInspector(doc) => doc
+                    .active_panel()
+                    .map(|panel| panel.lines.iter().take(3).cloned().collect::<Vec<_>>().join(" | "))
+                    .unwrap_or_else(|| "inspector".to_string()),
+                CommandOutput::Silent => "silent".to_string(),
+                CommandOutput::StartWizard(_) => "wizard".to_string(),
+                CommandOutput::ReloadProvider { .. } => "reload-provider".to_string(),
+            };
+            let (payload, _) = mark_remote_queue_item(
+                &project_root,
+                target,
+                "completed",
+                Some(preview.clone()),
+            )
+            .map_err(|err| format!("Failed to mark queue item completed: {}", err))?
+            .ok_or_else(|| format!("Unknown queue target '{}'.", target))?;
+            let item = payload.command_queue[index].clone();
+            let execution = write_remote_queue_execution_artifact(&project_root, &item, &preview)
+                .map_err(|err| format!("Failed to write remote queue execution artifact: {}", err))?;
+            return Ok(CommandOutput::Message(format!(
+                "Remote queue item executed.\nItem: {}\nExecution: {}",
+                item.id,
+                execution.display()
+            )));
+        }
+
+        if let ["retry", target] = parts.as_slice() {
+            let (payload, _, index) = queue_item_target(&project_root, target)
+                .map_err(|err| format!("Failed to resolve queue item: {}", err))?
+                .ok_or_else(|| format!("Unknown queue target '{}'.", target))?;
+            let item = payload.command_queue[index].clone();
+            let _ = mark_remote_queue_item(
+                &project_root,
+                target,
+                "queued",
+                Some(format!("retry queued for {}", item.command)),
+            )
+            .map_err(|err| format!("Failed to queue retry: {}", err))?;
+            return Ok(CommandOutput::Message(format!(
+                "Remote queue item re-queued: {}",
+                item.id
+            )));
+        }
+
+        if let ["ack", target] = parts.as_slice() {
+            let (payload, _, index) = queue_item_target(&project_root, target)
+                .map_err(|err| format!("Failed to resolve queue item: {}", err))?
+                .ok_or_else(|| format!("Unknown queue target '{}'.", target))?;
+            let item = payload.command_queue[index].clone();
+            let _ = mark_remote_queue_item(
+                &project_root,
+                target,
+                "acked",
+                Some("acknowledged".to_string()),
+            )
+            .map_err(|err| format!("Failed to acknowledge queue item: {}", err))?;
+            return Ok(CommandOutput::Message(format!(
+                "Remote queue item acknowledged: {}",
+                item.id
+            )));
+        }
+
         if trimmed == "queue" {
             let path = latest_remote_command_queue_artifact(&project_root)
                 .ok_or_else(|| "No remote command queue artifact found.".to_string())?;
@@ -117,6 +202,9 @@ impl Command for RemoteControlCommand {
                 &mut doc,
                 vec![
                     ("latest".to_string(), "/remote-control latest".to_string()),
+                    ("run".to_string(), "/remote-control run latest".to_string()),
+                    ("retry".to_string(), "/remote-control retry latest".to_string()),
+                    ("ack".to_string(), "/remote-control ack latest".to_string()),
                     ("tasks".to_string(), "/remote-control tasks".to_string()),
                     ("bundle".to_string(), "/remote-control bundle".to_string()),
                 ],
@@ -218,7 +306,7 @@ impl Command for RemoteControlCommand {
             }));
         }
 
-        Err("Usage: /remote-control [plan [goal]|latest|queue|doctor|bundle]".to_string())
+        Err("Usage: /remote-control [plan [goal]|latest|queue|run <item>|retry <item>|ack <item>|tasks|follow <id>|retry-summary|handoff <id>|doctor|bundle]".to_string())
     }
 }
 
