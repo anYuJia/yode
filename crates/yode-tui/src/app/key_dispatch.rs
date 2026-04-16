@@ -71,11 +71,19 @@ pub(super) fn handle_key_event(
                     Ok(Some(messages)) => {
                         let reload_name =
                             app.wizard.as_ref().and_then(|w| w.reload_provider.clone());
+                        let apply_model =
+                            app.wizard.as_ref().and_then(|w| w.apply_model.clone());
                         for msg in messages {
                             app.chat_entries.push(ChatEntry::new(ChatRole::System, msg));
                         }
                         if let Some(name) = reload_name {
                             reload_provider_from_config(&name, app);
+                        }
+                        if let Some(model) = apply_model {
+                            if let Ok(mut eng) = engine.try_lock() {
+                                eng.set_model(model.clone());
+                            }
+                            app.session.model = model.clone();
                         }
                         app.wizard = None;
                     }

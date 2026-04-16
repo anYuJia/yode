@@ -1,4 +1,4 @@
-use crate::app::wizard::{Wizard, WizardStep};
+use crate::app::wizard::{Wizard, WizardCompletion, WizardStep};
 
 pub(crate) fn build_edit_provider_wizard(name: &str) -> Result<Wizard, String> {
     let config = yode_core::config::Config::load().map_err(|e| e.to_string())?;
@@ -16,6 +16,7 @@ pub(crate) fn build_edit_provider_wizard(name: &str) -> Result<Wizard, String> {
     } else {
         provider.models.join(", ")
     };
+    let model_picker_options = editable_model_options(name, &provider.models, &current_models);
     let provider_name = name.to_string();
 
     let format_default = match current_format.as_str() {
@@ -62,9 +63,16 @@ pub(crate) fn build_edit_provider_wizard(name: &str) -> Result<Wizard, String> {
                 default: Some(current_api_key),
                 key: "api_key".into(),
             },
+            WizardStep::Select {
+                prompt: "Select a model preset (fills the next field, you can still edit it):"
+                    .into(),
+                options: model_picker_options.clone(),
+                default: editable_model_default_index(&model_picker_options, &current_models),
+                key: "model_picker".into(),
+            },
             WizardStep::Input {
                 prompt: "Models (comma-separated, empty for unrestricted):".into(),
-                default: Some(current_models),
+                default: Some(current_models.clone()),
                 key: "models".into(),
             },
         ],
@@ -111,7 +119,7 @@ pub(crate) fn build_edit_provider_wizard(name: &str) -> Result<Wizard, String> {
             };
 
             config.save().map_err(|e| e.to_string())?;
-            Ok(vec![
+            Ok(WizardCompletion::messages(vec![
                 format!("Provider '{}' updated!", provider_name),
                 format!("  format:   {}", format),
                 format!(
@@ -125,8 +133,78 @@ pub(crate) fn build_edit_provider_wizard(name: &str) -> Result<Wizard, String> {
                 format!("  api_key:  {}", key_display),
                 format!("  models:   {}", model_info),
                 "✓ Applied immediately.".into(),
-            ])
+            ]))
         }),
     )
+    .with_step_callback(Box::new(move |value, steps| {
+        if !model_picker_options.iter().any(|item| item == value) {
+            return;
+        }
+        if let Some(WizardStep::Input { default, .. }) = steps.get_mut(4) {
+            *default = Some(match value.trim() {
+                "(keep current list)" => default.clone().unwrap_or_default(),
+                "(unrestricted)" => String::new(),
+                other => other.to_string(),
+            });
+        }
+    }))
     .with_reload_provider(name.to_string()))
+}
+
+fn editable_model_options(
+    provider_name: &str,
+    current_models: &[String],
+    current_models_joined: &str,
+) -> Vec<String> {
+    let mut options = Vec::<String>::new();
+    if !current_models_joined.trim().is_empty() {
+        options.push("(keep current list)".to_string());
+    }
+    for model in current_models {
+        if !options.contains(model) {
+            options.push(model.clone());
+        }
+    }
+    if let Some(info) = yode_llm::find_provider_info(provider_name) {
+        for model in info.default_models {
+            let model = model.to_string();
+            if !options.contains(&model) {
+                options.push(model);
+            }
+        }
+    }
+    options.push("(unrestricted)".to_string());
+    options
+}
+
+fn editable_model_default_index(options: &[String], current_models_joined: &str) -> usize {
+    if !current_models_joined.trim().is_empty() {
+        options
+            .iter()
+            .position(|item| item == "(keep current list)")
+            .unwrap_or(0)
+    } else {
+        options
+            .iter()
+            .position(|item| item == "(unrestricted)")
+            .unwrap_or(0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::editable_model_options;
+
+    #[test]
+    fn edit_picker_options_include_known_and_current_models() {
+        let options = editable_model_options(
+            "anthropic",
+            &["claude-sonnet-4-20250514".to_string()],
+            "claude-sonnet-4-20250514",
+        );
+        assert!(options.iter().any(|item| item == "(keep current list)"));
+        assert!(options
+            .iter()
+            .any(|item| item.contains("claude-opus")));
+    }
 }

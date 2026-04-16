@@ -35,9 +35,30 @@ impl WizardStep {
     }
 }
 
+pub struct WizardCompletion {
+    pub messages: Vec<String>,
+    pub apply_model: Option<String>,
+}
+
+impl WizardCompletion {
+    pub fn messages(messages: Vec<String>) -> Self {
+        Self {
+            messages,
+            apply_model: None,
+        }
+    }
+
+    pub fn apply_model(messages: Vec<String>, model: impl Into<String>) -> Self {
+        Self {
+            messages,
+            apply_model: Some(model.into()),
+        }
+    }
+}
+
 /// Callback type for when a wizard completes.
 pub type WizardCallback =
-    Box<dyn FnOnce(&HashMap<String, String>) -> Result<Vec<String>, String> + Send>;
+    Box<dyn FnOnce(&HashMap<String, String>) -> Result<WizardCompletion, String> + Send>;
 
 /// Callback type for when a step completes — can modify subsequent steps' defaults.
 pub type StepCallback = Box<dyn Fn(&str, &mut Vec<WizardStep>) + Send>;
@@ -62,6 +83,8 @@ pub struct Wizard {
     on_step: Option<StepCallback>,
     /// Provider name to hot-reload after wizard completes (set by provider edit/add)
     pub reload_provider: Option<String>,
+    /// Model to apply immediately after wizard completion.
+    pub apply_model: Option<String>,
     /// Error message to display (from validation)
     pub error: Option<String>,
 }
@@ -82,6 +105,7 @@ impl Wizard {
             on_complete: Some(on_complete),
             on_step: None,
             reload_provider: None,
+            apply_model: None,
             error: None,
         }
     }
@@ -209,7 +233,8 @@ impl Wizard {
             }
             if let Some(callback) = self.on_complete.take() {
                 let result = callback(&self.answers)?;
-                Ok(Some(result))
+                self.apply_model = result.apply_model;
+                Ok(Some(result.messages))
             } else {
                 Ok(Some(vec!["Done.".into()]))
             }

@@ -6,7 +6,7 @@ use ratatui::Frame;
 
 use crate::app::wizard::{Wizard, WizardStep};
 use super::panels::{
-    keyhint_bar_line, panel_rect_for_density, search_prompt_label, section_title_line,
+    keyhint_bar_line, leading_panel_rect_for_density, search_prompt_label, section_title_line,
     PanelFocusState,
 };
 use super::palette::{ERROR_COLOR, INPUT_BG, LIGHT, MUTED, PANEL_ACCENT, SELECT_ACCENT};
@@ -24,7 +24,7 @@ pub fn render_wizard(frame: &mut Frame, area: Rect, wizard: &Wizard) {
     };
 
     let density = density_from_width(area.width, 68, 96);
-    let area = panel_rect_for_density(area, density, 80, wizard.viewport_height());
+    let area = leading_panel_rect_for_density(area, density, 80, wizard.viewport_height());
     let mut lines: Vec<Line> = vec![Line::from(vec![Span::styled(
         format!(
             "  {} · {}",

@@ -148,6 +148,36 @@ pub(crate) fn panel_rect_for_density(
     }
 }
 
+pub(crate) fn leading_panel_rect(area: Rect, max_width: u16, max_height: u16) -> Rect {
+    let width = area.width.min(max_width.max(1));
+    let height = area.height.min(max_height.max(1));
+    Rect {
+        x: area.x,
+        y: area.y,
+        width,
+        height,
+    }
+}
+
+pub(crate) fn leading_panel_rect_for_density(
+    area: Rect,
+    density: crate::ui::responsive::Density,
+    wide_max_width: u16,
+    max_height: u16,
+) -> Rect {
+    match density {
+        crate::ui::responsive::Density::Narrow => Rect {
+            x: area.x,
+            y: area.y,
+            width: area.width,
+            height: area.height.min(max_height.max(1)),
+        },
+        crate::ui::responsive::Density::Medium | crate::ui::responsive::Density::Wide => {
+            leading_panel_rect(area, wide_max_width, max_height)
+        }
+    }
+}
+
 pub(crate) fn button_row_line(
     labels: &[String],
     selected: usize,
@@ -258,7 +288,8 @@ mod tests {
 
     use super::{
         button_row_line, centered_panel_rect, footer_hint_line, keyhint_bar_line,
-        panel_rect_for_density, preview_empty_state, preview_panel_lines,
+        leading_panel_rect, leading_panel_rect_for_density, panel_rect_for_density,
+        preview_empty_state, preview_panel_lines,
         preview_selection_label, search_prompt_label, section_title_line,
         sync_panel_scroll, timeline_hotkey_inventory, timeline_panel_lines,
         PanelFocusState, PanelPagerState,
@@ -282,6 +313,15 @@ mod tests {
         let rect = centered_panel_rect(Rect::new(0, 0, 20, 4), 80, 10);
         assert_eq!(rect.width, 20);
         assert_eq!(rect.height, 4);
+    }
+
+    #[test]
+    fn leading_panel_rect_sticks_to_left_edge() {
+        let rect = leading_panel_rect(Rect::new(5, 2, 100, 20), 40, 8);
+        assert_eq!(rect.x, 5);
+        assert_eq!(rect.y, 2);
+        assert_eq!(rect.width, 40);
+        assert_eq!(rect.height, 8);
     }
 
     #[test]
@@ -359,5 +399,13 @@ mod tests {
         assert_eq!(narrow.width, 40);
         let wide = panel_rect_for_density(Rect::new(0, 0, 120, 8), Density::Wide, 80, 10);
         assert_eq!(wide.width, 80);
+    }
+
+    #[test]
+    fn leading_panel_rect_for_density_keeps_wide_layout_left_aligned() {
+        let rect =
+            leading_panel_rect_for_density(Rect::new(3, 1, 120, 10), Density::Wide, 80, 6);
+        assert_eq!(rect.x, 3);
+        assert_eq!(rect.width, 80);
     }
 }

@@ -33,8 +33,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             .constraints([Constraint::Length(wiz_height), Constraint::Length(1)])
             .split(frame.area());
 
-        let panel_area = panels::centered_panel_rect(chunks[0], 80, wiz_height);
-        wizard::render_wizard(frame, panel_area, wiz);
+        wizard::render_wizard(frame, chunks[0], wiz);
         status_bar::render_info_line(frame, chunks[1], app);
     } else if app.pending_confirmation.is_some() {
         use ratatui::layout::{Constraint, Direction, Layout};
