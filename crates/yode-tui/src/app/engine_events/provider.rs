@@ -66,3 +66,39 @@ pub(in crate::app) fn reload_provider_from_config(name: &str, app: &mut App) {
         }
     }
 }
+
+pub(in crate::app) fn switch_provider_from_config(name: &str, app: &mut App) -> Result<String, String> {
+    let new_models = app
+        .all_provider_models
+        .get(name)
+        .cloned()
+        .unwrap_or_default();
+    let new_model = new_models
+        .first()
+        .cloned()
+        .unwrap_or_else(|| app.session.model.clone());
+
+    app.provider_name = name.to_string();
+    reload_provider_from_config(name, app);
+    app.provider_models = new_models;
+
+    let provider = app
+        .provider_registry
+        .get(name)
+        .ok_or_else(|| format!("Provider '{}' not found.", name))?;
+
+    if let Some(ref engine) = app.engine {
+        if let Ok(mut eng) = engine.try_lock() {
+            eng.set_provider(provider, name.to_string());
+            if !new_model.is_empty() {
+                eng.set_model(new_model.clone());
+            }
+        }
+    }
+
+    if !new_model.is_empty() {
+        app.session.model = new_model.clone();
+    }
+
+    Ok(new_model)
+}

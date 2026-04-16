@@ -37,6 +37,7 @@ impl WizardStep {
 
 pub struct WizardCompletion {
     pub messages: Vec<String>,
+    pub apply_provider: Option<String>,
     pub apply_model: Option<String>,
 }
 
@@ -44,6 +45,15 @@ impl WizardCompletion {
     pub fn messages(messages: Vec<String>) -> Self {
         Self {
             messages,
+            apply_provider: None,
+            apply_model: None,
+        }
+    }
+
+    pub fn apply_provider(messages: Vec<String>, provider: impl Into<String>) -> Self {
+        Self {
+            messages,
+            apply_provider: Some(provider.into()),
             apply_model: None,
         }
     }
@@ -51,6 +61,19 @@ impl WizardCompletion {
     pub fn apply_model(messages: Vec<String>, model: impl Into<String>) -> Self {
         Self {
             messages,
+            apply_provider: None,
+            apply_model: Some(model.into()),
+        }
+    }
+
+    pub fn apply_provider_and_model(
+        messages: Vec<String>,
+        provider: impl Into<String>,
+        model: impl Into<String>,
+    ) -> Self {
+        Self {
+            messages,
+            apply_provider: Some(provider.into()),
             apply_model: Some(model.into()),
         }
     }
@@ -83,6 +106,8 @@ pub struct Wizard {
     on_step: Option<StepCallback>,
     /// Provider name to hot-reload after wizard completes (set by provider edit/add)
     pub reload_provider: Option<String>,
+    /// Provider to apply immediately after wizard completion.
+    pub apply_provider: Option<String>,
     /// Model to apply immediately after wizard completion.
     pub apply_model: Option<String>,
     /// Error message to display (from validation)
@@ -105,6 +130,7 @@ impl Wizard {
             on_complete: Some(on_complete),
             on_step: None,
             reload_provider: None,
+            apply_provider: None,
             apply_model: None,
             error: None,
         }
@@ -233,6 +259,7 @@ impl Wizard {
             }
             if let Some(callback) = self.on_complete.take() {
                 let result = callback(&self.answers)?;
+                self.apply_provider = result.apply_provider;
                 self.apply_model = result.apply_model;
                 Ok(Some(result.messages))
             } else {

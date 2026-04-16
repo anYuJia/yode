@@ -13,7 +13,7 @@ use yode_tools::registry::ToolRegistry;
 use crate::event;
 use crate::commands::artifact_nav::record_inspector_action_history;
 
-use super::engine_events::provider::reload_provider_from_config;
+use super::engine_events::provider::{reload_provider_from_config, switch_provider_from_config};
 use super::key_handlers::{handle_char, handle_down, handle_tab, handle_up};
 use super::turn_flow::handle_enter;
 use super::{input, App, ChatEntry, ChatRole};
@@ -69,12 +69,19 @@ pub(super) fn handle_key_event(
                 match result {
                     Ok(None) => {}
                     Ok(Some(messages)) => {
+                        let apply_provider =
+                            app.wizard.as_ref().and_then(|w| w.apply_provider.clone());
                         let reload_name =
                             app.wizard.as_ref().and_then(|w| w.reload_provider.clone());
                         let apply_model =
                             app.wizard.as_ref().and_then(|w| w.apply_model.clone());
                         for msg in messages {
                             app.chat_entries.push(ChatEntry::new(ChatRole::System, msg));
+                        }
+                        if let Some(name) = apply_provider {
+                            if let Err(err) = switch_provider_from_config(&name, app) {
+                                app.chat_entries.push(ChatEntry::new(ChatRole::Error, err));
+                            }
                         }
                         if let Some(name) = reload_name {
                             reload_provider_from_config(&name, app);

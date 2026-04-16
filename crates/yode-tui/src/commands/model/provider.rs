@@ -1,6 +1,7 @@
 mod config_ops;
 mod wizard_builders;
 
+use crate::app::wizard::{Wizard, WizardCompletion, WizardStep};
 use crate::commands::context::CommandContext;
 use crate::commands::{
     ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
@@ -22,20 +23,16 @@ impl ProviderCommand {
         Self {
             meta: CommandMeta {
                 name: "provider",
-                description: "Manage LLM providers (list/switch/add/remove/edit)",
+                description: "Show or switch the current provider",
                 aliases: &[],
                 args: vec![
                     ArgDef {
-                        name: "subcommand".into(),
+                        name: "provider".into(),
                         required: false,
-                        hint: "<list|switch|add|remove|edit>".into(),
-                        completions: ArgCompletionSource::Static(vec![
-                            "list".into(),
-                            "switch".into(),
-                            "add".into(),
-                            "remove".into(),
-                            "edit".into(),
-                        ]),
+                        hint: "<provider-name|add|remove|edit>".into(),
+                        completions: ArgCompletionSource::Dynamic(|ctx| provider_completions(
+                            ctx.all_provider_models,
+                        )),
                     },
                     ArgDef {
                         name: "name".into(),
@@ -62,103 +59,23 @@ impl Command for ProviderCommand {
     }
 
     fn execute(&self, args: &str, ctx: &mut CommandContext) -> CommandResult {
-        let parts: Vec<&str> = args.trim().split_whitespace().collect();
+        let trimmed = args.trim();
+        let parts: Vec<&str> = trimmed.split_whitespace().collect();
 
         match parts.as_slice() {
-            // /provider — show current
-            [] => {
-                let models = if ctx.provider_models.is_empty() {
-                    "(unrestricted)".to_string()
-                } else {
-                    ctx.provider_models.join(", ")
-                };
-                Ok(CommandOutput::Messages(vec![
-                    format!("Current provider: {}", ctx.provider_name),
-                    format!("Current model:    {}", ctx.session.model),
-                    format!("Available models: {}", models),
-                    String::new(),
-                    "Subcommands:".into(),
-                    "  /provider list                                — List all providers".into(),
-                    "  /provider switch <name>                       — Switch provider (persisted)"
-                        .into(),
-                    "  /provider add <name> <format> <url> [models]  — Add provider".into(),
-                    "  /provider remove <name>                       — Remove provider".into(),
-                    "  /provider edit <name>                         — Show config for editing"
-                        .into(),
-                    "  /provider edit <name> <field> <value>         — Edit a field".into(),
-                ]))
+            [] | ["list"] => Ok(CommandOutput::StartWizard(build_provider_picker_wizard(
+                ctx.provider_name,
+                &ctx.session.model,
+                ctx.all_provider_models,
+            ))),
+
+            [name] if !matches!(*name, "add" | "remove" | "edit" | "switch") => {
+                switch_provider_in_context(name, ctx)
             }
 
-            // /provider list
-            ["list"] => {
-                let mut lines = vec!["Available providers:".to_string()];
-                for (name, models) in ctx.all_provider_models.iter() {
-                    let marker = if *name == *ctx.provider_name {
-                        "*"
-                    } else {
-                        " "
-                    };
-                    let model_str = if models.is_empty() {
-                        "(unrestricted)".to_string()
-                    } else {
-                        models.join(", ")
-                    };
-                    lines.push(format!(" {} {:<15} — {}", marker, name, model_str));
-                }
-                Ok(CommandOutput::Messages(lines))
-            }
+            ["switch", name] => switch_provider_in_context(name, ctx),
 
-            // /provider switch <name>
-            ["switch", name] => {
-                if let Some(provider) = ctx.provider_registry.get(name) {
-                    let new_models = ctx
-                        .all_provider_models
-                        .get(*name)
-                        .cloned()
-                        .unwrap_or_default();
-                    let new_model = new_models.first().cloned().unwrap_or_default(); // empty if unrestricted
-                    if let Ok(mut eng) = ctx.engine.try_lock() {
-                        eng.set_provider(provider, name.to_string());
-                        if !new_model.is_empty() {
-                            eng.set_model(new_model.clone());
-                        }
-                    }
-                    *ctx.provider_name = name.to_string();
-                    *ctx.provider_models = new_models;
-                    if !new_model.is_empty() {
-                        ctx.session.model = new_model.clone();
-                    }
-
-                    // Persist to config file
-                    let persist_result = persist_default_provider(name, new_model.as_str());
-
-                    let mut messages = vec![format!(
-                        "Switched to provider: {}, model: {}",
-                        name,
-                        if new_model.is_empty() {
-                            &ctx.session.model
-                        } else {
-                            &new_model
-                        }
-                    )];
-                    if let Ok(msg) = persist_result {
-                        messages.push(msg);
-                    }
-
-                    Ok(CommandOutput::Messages(messages))
-                } else {
-                    let available: Vec<String> = ctx.all_provider_models.keys().cloned().collect();
-                    Err(format!(
-                        "Provider '{}' not found. Available: {}",
-                        name,
-                        available.join(", ")
-                    ))
-                }
-            }
-
-            // /provider add — start interactive wizard (matches setup.rs flow)
             ["add"] | ["add", ..] => {
-                // If full args provided, do it directly
                 if parts.len() >= 4 {
                     let name = parts[1];
                     let format = parts[2];
@@ -204,16 +121,9 @@ impl Command for ProviderCommand {
                     }
                 }
 
-                // Interactive wizard — matches setup.rs flow:
-                // 1. Select provider type (preset or custom)
-                // 2. Base URL (with smart default)
-                // 3. API Key (required)
-                // 4. Provider name (with suggestion)
-                // 5. Default model (with recommendation)
                 Ok(CommandOutput::StartWizard(build_add_provider_wizard()))
             }
 
-            // /provider remove <name>
             ["remove", name] => {
                 if !ctx.all_provider_models.contains_key(*name) {
                     return Err(format!("Provider '{}' not found.", name));
@@ -233,15 +143,11 @@ impl Command for ProviderCommand {
                 }
             }
 
-            // /provider edit <name> — interactive edit wizard with current values as defaults
-            ["edit", name] => Ok(CommandOutput::StartWizard(build_edit_provider_wizard(
-                name,
-            )?)),
+            ["edit", name] => Ok(CommandOutput::StartWizard(build_edit_provider_wizard(name)?)),
 
-            // /provider edit <name> format <value>
             ["edit", name, "format", value] => {
-                if *value != "openai" && *value != "anthropic" {
-                    return Err("Format must be 'openai' or 'anthropic'.".into());
+                if *value != "openai" && *value != "anthropic" && *value != "gemini" {
+                    return Err("Format must be 'openai', 'anthropic', or 'gemini'.".into());
                 }
                 let msgs = edit_provider_field(name, "format", value)?;
                 Ok(CommandOutput::ReloadProvider {
@@ -250,7 +156,6 @@ impl Command for ProviderCommand {
                 })
             }
 
-            // /provider edit <name> base_url <value>
             ["edit", name, "base_url", value] => {
                 let msgs = edit_provider_field(name, "base_url", value)?;
                 Ok(CommandOutput::ReloadProvider {
@@ -259,7 +164,6 @@ impl Command for ProviderCommand {
                 })
             }
 
-            // /provider edit <name> api_key <value>
             ["edit", name, "api_key", value] => {
                 let msgs = edit_provider_field(name, "api_key", value)?;
                 Ok(CommandOutput::ReloadProvider {
@@ -268,7 +172,6 @@ impl Command for ProviderCommand {
                 })
             }
 
-            // /provider edit <name> models <model1,model2,...>
             ["edit", name, "models", ..] => {
                 let models_str = parts[3..].join(" ");
                 let msgs = edit_provider_field(name, "models", &models_str)?;
@@ -278,7 +181,203 @@ impl Command for ProviderCommand {
                 })
             }
 
-            _ => Err("Unknown subcommand. Use /provider for help.".into()),
+            _ => Err("Usage: /provider | /provider <name> | /provider add | /provider remove <name> | /provider edit <name> [field value]".into()),
         }
+    }
+}
+
+fn switch_provider_in_context(name: &str, ctx: &mut CommandContext) -> CommandResult {
+    let provider = ctx
+        .provider_registry
+        .get(name)
+        .ok_or_else(|| {
+            let mut available: Vec<String> = ctx.all_provider_models.keys().cloned().collect();
+            available.sort();
+            format!(
+                "Provider '{}' not found. Available: {}",
+                name,
+                available.join(", ")
+            )
+        })?;
+
+    let new_models = ctx
+        .all_provider_models
+        .get(name)
+        .cloned()
+        .unwrap_or_default();
+    let new_model = new_models
+        .first()
+        .cloned()
+        .unwrap_or_else(|| ctx.session.model.clone());
+
+    if let Ok(mut eng) = ctx.engine.try_lock() {
+        eng.set_provider(provider, name.to_string());
+        if !new_model.is_empty() {
+            eng.set_model(new_model.clone());
+        }
+    }
+    *ctx.provider_name = name.to_string();
+    *ctx.provider_models = new_models;
+    if !new_model.is_empty() {
+        ctx.session.model = new_model.clone();
+    }
+
+    let persist_result = persist_default_provider(name, new_model.as_str());
+    let mut messages = vec![format!(
+        "Switched to provider: {}, model: {}",
+        name, new_model
+    )];
+    if let Ok(msg) = persist_result {
+        messages.push(msg);
+    }
+    Ok(CommandOutput::Messages(messages))
+}
+
+fn provider_completions(
+    all_provider_models: &std::collections::HashMap<String, Vec<String>>,
+) -> Vec<String> {
+    let mut values = vec!["add".to_string(), "remove".to_string(), "edit".to_string()];
+    values.extend(all_provider_models.keys().cloned());
+    values.sort();
+    values.dedup();
+    values
+}
+
+fn build_provider_picker_wizard(
+    current_provider: &str,
+    current_model: &str,
+    all_provider_models: &std::collections::HashMap<String, Vec<String>>,
+) -> Wizard {
+    let choices = build_provider_choices(current_provider, current_model, all_provider_models);
+    let options = choices
+        .iter()
+        .map(|choice| choice.display.clone())
+        .collect::<Vec<_>>();
+    let default = choices
+        .iter()
+        .position(|choice| choice.name == current_provider)
+        .unwrap_or(0);
+    let choice_map = choices
+        .iter()
+        .map(|choice| (choice.display.clone(), (choice.name.clone(), choice.model.clone())))
+        .collect::<std::collections::HashMap<_, _>>();
+
+    Wizard::new(
+        "Select provider".into(),
+        vec![WizardStep::Select {
+            prompt: "Choose a provider:".into(),
+            options,
+            default,
+            key: "provider".into(),
+        }],
+        Box::new(move |answers| {
+            let picked = answers
+                .get("provider")
+                .ok_or("Missing provider selection")?;
+            let (provider, model) = choice_map
+                .get(picked)
+                .cloned()
+                .ok_or_else(|| "Unknown provider selection".to_string())?;
+            Ok(WizardCompletion::apply_provider_and_model(
+                vec![format!(
+                    "Switched to provider: {}, model: {}",
+                    provider, model
+                )],
+                provider,
+                model,
+            ))
+        }),
+    )
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProviderChoice {
+    display: String,
+    name: String,
+    model: String,
+}
+
+fn build_provider_choices(
+    current_provider: &str,
+    current_model: &str,
+    all_provider_models: &std::collections::HashMap<String, Vec<String>>,
+) -> Vec<ProviderChoice> {
+    let default_provider = load_default_provider_name();
+    let default_model = load_default_model_name();
+    let mut names = all_provider_models.keys().cloned().collect::<Vec<_>>();
+    names.sort();
+
+    names.into_iter()
+        .map(|name| {
+            let models = all_provider_models.get(&name).cloned().unwrap_or_default();
+            let chosen_model = if name == current_provider {
+                current_model.to_string()
+            } else if models.is_empty() {
+                default_model.clone().unwrap_or_else(|| "(unrestricted)".to_string())
+            } else {
+                models
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| "(unrestricted)".to_string())
+            };
+            let summary = if models.is_empty() {
+                "(unrestricted)".to_string()
+            } else {
+                models.join(", ")
+            };
+            let mut display = format!("{} — {}", name, summary);
+            if name == current_provider {
+                display.push_str(" [current]");
+            } else if default_provider.as_deref() == Some(name.as_str()) {
+                display.push_str(" [default]");
+            }
+            ProviderChoice {
+                display,
+                name,
+                model: chosen_model,
+            }
+        })
+        .collect()
+}
+
+fn load_default_provider_name() -> Option<String> {
+    yode_core::config::Config::load()
+        .ok()
+        .map(|config| config.llm.default_provider)
+        .filter(|provider| !provider.trim().is_empty())
+}
+
+fn load_default_model_name() -> Option<String> {
+    yode_core::config::Config::load()
+        .ok()
+        .map(|config| config.llm.default_model)
+        .filter(|model| !model.trim().is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_provider_choices, provider_completions};
+    use std::collections::HashMap;
+
+    #[test]
+    fn provider_completions_prefer_direct_provider_names() {
+        let mut providers = HashMap::new();
+        providers.insert("anthropic".to_string(), vec![]);
+        providers.insert("pyu".to_string(), vec!["glm-5".to_string()]);
+        let completions = provider_completions(&providers);
+        assert!(completions.iter().any(|item| item == "anthropic"));
+        assert!(!completions.iter().any(|item| item == "list"));
+        assert!(!completions.iter().any(|item| item == "switch"));
+    }
+
+    #[test]
+    fn provider_choices_mark_current_provider() {
+        let mut providers = HashMap::new();
+        providers.insert("anthropic".to_string(), vec![]);
+        providers.insert("pyu".to_string(), vec!["glm-5".to_string()]);
+        let choices = build_provider_choices("pyu", "glm-5", &providers);
+        assert!(choices
+            .iter()
+            .any(|choice| choice.display.contains("[current]")));
     }
 }
