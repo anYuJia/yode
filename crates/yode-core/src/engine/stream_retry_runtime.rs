@@ -23,14 +23,19 @@ impl AgentEngine {
             .entry(retry_reason)
             .or_insert(0) += 1;
         if kind == ErrorKind::Fatal {
-            let _ = event_tx.send(EngineEvent::Error(format!("{}", err)));
+            let _ = event_tx.send(EngineEvent::Error(format!(
+                "Request failed after 1 attempt: {}",
+                summarize_retry_error_message(&format!("{}", err))
+            )));
             self.complete_tool_turn_artifact();
             let _ = event_tx.send(EngineEvent::Done);
             return Err(err).context("LLM chat request failed");
         }
 
         let max_attempts = max_retries_for(kind);
+        let total_attempts = total_attempts_for(kind);
         let mut retry_succeeded = false;
+        let mut final_error_summary = summarize_retry_error_message(&format!("{}", err));
 
         for attempt in 0..max_attempts {
             let delay = retry_delay(kind, attempt);
@@ -38,9 +43,9 @@ impl AgentEngine {
 
             for remaining in (0..=total_secs).rev() {
                 let _ = event_tx.send(EngineEvent::Retrying {
-                    error_message: format!("{}", err),
-                    attempt: attempt + 1,
-                    max_attempts,
+                    error_message: final_error_summary.clone(),
+                    attempt: attempt + 2,
+                    max_attempts: total_attempts,
                     delay_secs: remaining,
                 });
                 if remaining > 0 {
@@ -146,6 +151,7 @@ impl AgentEngine {
                     break;
                 }
                 Ok(Err(e2)) => {
+                    final_error_summary = summarize_retry_error_message(&format!("{}", e2));
                     warn!(
                         "Stream retry {}/{} failed: {}",
                         attempt + 1,
@@ -154,6 +160,8 @@ impl AgentEngine {
                     );
                 }
                 Err(e2) => {
+                    final_error_summary =
+                        summarize_retry_error_message(&format!("Stream task error: {}", e2));
                     warn!(
                         "Stream retry {}/{} panicked: {}",
                         attempt + 1,
@@ -170,10 +178,17 @@ impl AgentEngine {
         }
 
         if !retry_succeeded {
-            let _ = event_tx.send(EngineEvent::Error(format!("{}", err)));
+            let _ = event_tx.send(EngineEvent::Error(format!(
+                "Request failed after {} attempts: {}",
+                total_attempts, final_error_summary
+            )));
             self.complete_tool_turn_artifact();
             let _ = event_tx.send(EngineEvent::Done);
-            return Err(err).context("LLM chat request failed");
+            return Err(anyhow::anyhow!(
+                "Request failed after {} attempts: {}",
+                total_attempts, final_error_summary
+            ))
+            .context("LLM chat request failed");
         }
 
         Ok(StreamRetryAction::Continue)

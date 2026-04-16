@@ -167,3 +167,23 @@ pub(super) fn make_engine(tools: Vec<Arc<dyn Tool>>, confirm_tools: Vec<String>)
     let context = AgentContext::new(workdir, "mock".to_string(), "claude-sonnet-4".to_string());
     AgentEngine::new(provider, Arc::new(registry), permissions, context)
 }
+
+#[test]
+fn stream_error_event_is_not_forwarded_directly_to_ui() {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut full_text = String::new();
+    let mut full_reasoning = String::new();
+    let mut tool_calls = Vec::new();
+    let mut final_response = None;
+
+    AgentEngine::process_stream_event(
+        yode_llm::types::StreamEvent::Error("connection reset".to_string()),
+        &mut full_text,
+        &mut full_reasoning,
+        &mut tool_calls,
+        &mut final_response,
+        &tx,
+    );
+
+    assert!(rx.try_recv().is_err());
+}

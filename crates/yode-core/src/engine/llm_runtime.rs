@@ -46,9 +46,7 @@ impl AgentEngine {
                 }
                 *final_response = Some(resp);
             }
-            StreamEvent::Error(e) => {
-                let _ = event_tx.send(EngineEvent::Error(e));
-            }
+            StreamEvent::Error(_e) => {}
         }
     }
 
@@ -73,14 +71,18 @@ impl AgentEngine {
                     .as_ref()
                     .map(classify_error)
                     .unwrap_or(ErrorKind::Transient);
+                let total_attempts = total_attempts_for(kind);
                 let delay = retry_delay(kind, attempt - 1);
                 let total_secs = delay.as_secs();
                 if let Some(tx) = event_tx {
                     for remaining in (0..=total_secs).rev() {
                         let _ = tx.send(EngineEvent::Retrying {
-                            error_message: format!("{}", last_err.as_ref().unwrap()),
-                            attempt,
-                            max_attempts,
+                            error_message: summarize_retry_error_message(&format!(
+                                "{}",
+                                last_err.as_ref().unwrap()
+                            )),
+                            attempt: attempt + 1,
+                            max_attempts: total_attempts,
                             delay_secs: remaining,
                         });
                         if remaining > 0 {
@@ -133,8 +135,14 @@ impl AgentEngine {
             attempt += 1;
         }
 
-        Err(last_err
-            .unwrap_or_else(|| anyhow::anyhow!("LLM call failed after {} retries", max_attempts)))
+        let final_err = last_err.unwrap_or_else(|| anyhow::anyhow!("LLM call failed"));
+        let kind = classify_error(&final_err);
+        let total_attempts = total_attempts_for(kind);
+        Err(anyhow::anyhow!(
+            "Request failed after {} attempts: {}",
+            total_attempts,
+            summarize_retry_error_message(&format!("{}", final_err))
+        ))
         .context("LLM chat request failed")
     }
 }

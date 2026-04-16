@@ -138,6 +138,11 @@ impl AgentEngine {
                     )
                     .await?;
                 return Ok(Some(action));
+            } else {
+                let _ = event_tx.send(EngineEvent::Error(format!(
+                    "Stream ended early: {}",
+                    summarize_retry_error_message(&format!("{}", error))
+                )));
             }
         }
 

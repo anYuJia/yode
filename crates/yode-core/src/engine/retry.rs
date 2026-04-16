@@ -9,9 +9,9 @@ pub(super) enum ErrorKind {
 }
 
 /// Maximum retry count for retryable errors.
-const MAX_RETRIES: u32 = 5;
+const MAX_RETRIES: u32 = 9;
 /// Maximum retry count for rate-limit (429) errors.
-const MAX_RATE_LIMIT_RETRIES: u32 = 10;
+const MAX_RATE_LIMIT_RETRIES: u32 = 9;
 
 pub(super) fn classify_error(err: &anyhow::Error) -> ErrorKind {
     let msg = format!("{:#}", err);
@@ -88,5 +88,40 @@ pub(super) fn max_retries_for(kind: ErrorKind) -> u32 {
         ErrorKind::RateLimit => MAX_RATE_LIMIT_RETRIES,
         ErrorKind::Transient => MAX_RETRIES,
         ErrorKind::Fatal => 0,
+    }
+}
+
+pub(super) fn total_attempts_for(kind: ErrorKind) -> u32 {
+    max_retries_for(kind).saturating_add(1)
+}
+
+pub(super) fn summarize_retry_error_message(message: &str) -> String {
+    let first_line = message
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or("request failed");
+    let squashed = first_line.split_whitespace().collect::<Vec<_>>().join(" ");
+    if squashed.chars().count() <= 140 {
+        squashed
+    } else {
+        format!("{}...", squashed.chars().take(140).collect::<String>())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{summarize_retry_error_message, total_attempts_for, ErrorKind};
+
+    #[test]
+    fn total_attempts_are_capped_at_ten() {
+        assert_eq!(total_attempts_for(ErrorKind::Transient), 10);
+        assert_eq!(total_attempts_for(ErrorKind::RateLimit), 10);
+    }
+
+    #[test]
+    fn retry_error_summary_uses_first_non_empty_line() {
+        let summary = summarize_retry_error_message("\n  connection reset by peer\nmore detail");
+        assert_eq!(summary, "connection reset by peer");
     }
 }

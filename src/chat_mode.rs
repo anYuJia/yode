@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::io::Write;
 
 use crate::app_bootstrap::shutdown_mcp_clients;
 use anyhow::Result;
@@ -76,7 +77,13 @@ pub(crate) async fn run_noninteractive_chat(
     });
 
     let mut full_text = String::new();
+    let mut retry_line_active = false;
+    let mut saw_final_error = false;
     while let Some(event) = event_rx.recv().await {
+        if retry_line_active && !matches!(event, EngineEvent::Retrying { .. }) {
+            eprintln!();
+            retry_line_active = false;
+        }
         match event {
             EngineEvent::TextDelta(delta) => {
                 print!("{}", delta);
@@ -114,6 +121,7 @@ pub(crate) async fn run_noninteractive_chat(
             }
             EngineEvent::Error(error) => {
                 eprintln!("\x1b[31m错误: {}\x1b[0m", error);
+                saw_final_error = true;
             }
             EngineEvent::Retrying {
                 error_message,
@@ -121,11 +129,12 @@ pub(crate) async fn run_noninteractive_chat(
                 max_attempts,
                 delay_secs,
             } => {
-                eprintln!("\x1b[31m⎿  {}\x1b[0m", error_message);
-                eprintln!(
-                    "\x1b[33m   Retrying in {} seconds… (attempt {}/{})\x1b[0m",
-                    delay_secs, attempt, max_attempts
+                eprint!(
+                    "\r\x1b[33m↻ {} · retrying in {}s ({}/{})\x1b[0m",
+                    error_message, delay_secs, attempt, max_attempts
                 );
+                let _ = std::io::stderr().flush();
+                retry_line_active = true;
             }
             EngineEvent::SessionMemoryUpdated {
                 path,
@@ -146,11 +155,19 @@ pub(crate) async fn run_noninteractive_chat(
         }
     }
 
+    if retry_line_active {
+        eprintln!();
+    }
+
     if !full_text.is_empty() && !full_text.ends_with('\n') {
         println!();
     }
 
     if let Err(err) = engine_handle.await? {
+        if saw_final_error {
+            shutdown_mcp_clients(mcp_clients).await;
+            return Ok(());
+        }
         eprintln!("\x1b[31m引擎错误: {}\x1b[0m", err);
     }
 
