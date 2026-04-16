@@ -10,7 +10,8 @@ pub const TEXT_COLOR: Color = Color::White;
 pub const HINT_COLOR: Color = Color::DarkGray;
 pub const GHOST_COLOR: Color = Color::DarkGray;
 
-pub const SELECT_ACCENT: Color = Color::LightGreen;
+pub const SELECT_ACCENT: Color = Color::Indexed(31);
+pub const SELECT_BG: Color = Color::Indexed(24);
 pub const PANEL_ACCENT: Color = Color::Yellow;
 pub const INPUT_BG: Color = Color::Indexed(236);
 pub const ERROR_COLOR: Color = Color::LightRed;

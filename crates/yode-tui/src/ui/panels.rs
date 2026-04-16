@@ -190,7 +190,7 @@ pub(crate) fn button_row_line(
             spans.push(Span::raw(" "));
         }
         let style = if index == selected {
-            Style::default().fg(Color::Black).bg(active).add_modifier(Modifier::BOLD)
+            Style::default().fg(Color::White).bg(active).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(muted)
         };

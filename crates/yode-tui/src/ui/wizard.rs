@@ -9,7 +9,9 @@ use super::panels::{
     keyhint_bar_line, leading_panel_rect_for_density, search_prompt_label, section_title_line,
     PanelFocusState,
 };
-use super::palette::{ERROR_COLOR, INPUT_BG, LIGHT, MUTED, PANEL_ACCENT, SELECT_ACCENT};
+use super::palette::{
+    ERROR_COLOR, INPUT_BG, LIGHT, MUTED, PANEL_ACCENT, SELECT_ACCENT, SELECT_BG,
+};
 use super::responsive::density_from_width;
 
 /// Render the wizard in the viewport.
@@ -45,12 +47,14 @@ pub fn render_wizard(frame: &mut Frame, area: Rect, wizard: &Wizard) {
                             "  ❯ ",
                             Style::default()
                                 .fg(SELECT_ACCENT)
+                                .bg(SELECT_BG)
                                 .add_modifier(Modifier::BOLD),
                         ),
                         Span::styled(
                             option.clone(),
                             Style::default()
                                 .fg(Color::White)
+                                .bg(SELECT_BG)
                                 .add_modifier(Modifier::BOLD),
                         ),
                     ]));

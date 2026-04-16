@@ -112,27 +112,8 @@ fn build_model_picker_wizard(
     current_model: &str,
     provider_models: &[String],
 ) -> Wizard {
-    if provider_models.is_empty() {
-        return Wizard::new(
-            "Select model".into(),
-            vec![WizardStep::Input {
-                prompt: format!(
-                    "Model name for provider '{}' (Enter to keep current):",
-                    provider_name
-                ),
-                default: Some(current_model.to_string()),
-                key: "model".into(),
-            }],
-            Box::new(|answers| {
-                let model = answers.get("model").cloned().unwrap_or_default();
-                Ok(WizardCompletion::apply_model(
-                    vec![format!("Switched to model: {}", model)],
-                    model,
-                ))
-            }),
-        );
-    }
-
+    let provider_name_owned = provider_name.to_string();
+    let current_model_owned = current_model.to_string();
     let choices = build_model_choices(current_model, provider_models);
     let options = choices
         .iter()
@@ -144,7 +125,7 @@ fn build_model_picker_wizard(
         .unwrap_or(0);
     let choice_map = choices
         .iter()
-        .map(|choice| (choice.display.clone(), choice.value.clone()))
+        .map(|choice| (choice.display.clone(), choice.clone()))
         .collect::<std::collections::HashMap<_, _>>();
 
     Wizard::new(
@@ -157,13 +138,19 @@ fn build_model_picker_wizard(
         }],
         Box::new(move |answers| {
             let picked = answers.get("model").ok_or("Missing model selection")?;
-            let model = choice_map
+            let choice = choice_map
                 .get(picked)
                 .cloned()
                 .ok_or_else(|| "Unknown model selection".to_string())?;
+            if choice.value == "__add_model__" {
+                return Ok(WizardCompletion::next(build_add_model_wizard(
+                    &provider_name_owned,
+                    &current_model_owned,
+                )));
+            }
             Ok(WizardCompletion::apply_model(
-                vec![format!("Switched to model: {}", model)],
-                model,
+                vec![format!("Switched to model: {}", choice.value)],
+                choice.value,
             ))
         }),
     )
@@ -203,6 +190,11 @@ fn build_model_choices(current_model: &str, provider_models: &[String]) -> Vec<M
         );
     }
 
+    choices.push(ModelChoice {
+        display: "Add model…".to_string(),
+        value: "__add_model__".to_string(),
+    });
+
     choices
 }
 
@@ -216,6 +208,7 @@ fn model_completions(provider_name: &str, provider_models: &[String]) -> Vec<Str
                 .map(str::to_string),
         );
     }
+    values.push("add".to_string());
     values.sort();
     values.dedup();
     values
@@ -228,6 +221,9 @@ fn resolve_model_request(
     current_model: &str,
 ) -> Result<String, String> {
     let value = raw.trim();
+    if value.eq_ignore_ascii_case("add") {
+        return Err("Use `/model` and choose `Add model…` from the picker.".to_string());
+    }
     if value.eq_ignore_ascii_case("default") {
         return load_config_default_model()
             .ok_or_else(|| "No default model configured.".to_string());
@@ -285,10 +281,79 @@ fn load_config_default_model() -> Option<String> {
         .filter(|model| !model.trim().is_empty())
 }
 
+fn build_add_model_wizard(provider_name: &str, current_model: &str) -> Wizard {
+    let provider_name = provider_name.to_string();
+    let current_model = current_model.to_string();
+    let reload_provider_name = provider_name.clone();
+    Wizard::new(
+        format!("Add models to provider '{}'", provider_name),
+        vec![WizardStep::Input {
+            prompt:
+                "Models (comma-separated; first one becomes default/current for this provider):"
+                    .into(),
+            default: Some(current_model.clone()),
+            key: "models".into(),
+        }],
+        Box::new(move |answers| {
+            let models_str = answers.get("models").cloned().unwrap_or_default();
+            let models = parse_model_csv(&models_str);
+            if models.is_empty() {
+                return Err("Please enter at least one model.".to_string());
+            }
+
+            let mut config = yode_core::config::Config::load().map_err(|e| e.to_string())?;
+            if !config.llm.providers.contains_key(&provider_name) {
+                let info = yode_llm::find_provider_info(&provider_name)
+                    .ok_or_else(|| format!("Provider '{}' not found.", provider_name))?;
+                config.llm.providers.insert(
+                    provider_name.clone(),
+                    yode_core::config::ProviderConfig {
+                        format: info.format.to_string(),
+                        base_url: (!info.default_base_url.is_empty())
+                            .then(|| info.default_base_url.to_string()),
+                        api_key: None,
+                        models: Vec::new(),
+                    },
+                );
+            }
+            let provider = config
+                .llm
+                .providers
+                .get_mut(&provider_name)
+                .ok_or_else(|| format!("Provider '{}' not found.", provider_name))?;
+            for model in &models {
+                if !provider.models.contains(model) {
+                    provider.models.push(model.clone());
+                }
+            }
+            let first_model = models.first().cloned().unwrap_or_else(|| current_model.clone());
+            config.llm.default_model = first_model.clone();
+            config.save().map_err(|e| e.to_string())?;
+
+            Ok(WizardCompletion::apply_model(
+                vec![
+                    format!("Added models to provider '{}': {}", provider_name, models.join(", ")),
+                    format!("Default/current model: {}", first_model),
+                ],
+                first_model,
+            ))
+        }),
+    )
+    .with_reload_provider(reload_provider_name)
+}
+
+fn parse_model_csv(raw: &str) -> Vec<String> {
+    raw.split(',')
+        .map(|item| item.trim().to_string())
+        .filter(|item| !item.is_empty())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        build_model_choices, model_completions, resolve_anthropic_alias, resolve_model_request,
+        build_model_choices, model_completions, parse_model_csv, resolve_anthropic_alias,
+        resolve_model_request,
     };
 
     #[test]
@@ -301,6 +366,7 @@ mod tests {
             ],
         );
         assert!(choices.iter().any(|choice| choice.display.contains("[current]")));
+        assert!(choices.iter().any(|choice| choice.display == "Add model…"));
     }
 
     #[test]
@@ -326,6 +392,7 @@ mod tests {
         assert!(completions.iter().any(|item| item == "list"));
         assert!(completions.iter().any(|item| item == "default"));
         assert!(completions.iter().any(|item| item == "sonnet"));
+        assert!(completions.iter().any(|item| item == "add"));
     }
 
     #[test]
@@ -338,5 +405,13 @@ mod tests {
         )
         .unwrap();
         assert_eq!(resolved, "claude-sonnet-4-20250514");
+    }
+
+    #[test]
+    fn parse_model_csv_supports_multiple_models() {
+        assert_eq!(
+            parse_model_csv("a, b ,c"),
+            vec!["a".to_string(), "b".to_string(), "c".to_string()]
+        );
     }
 }

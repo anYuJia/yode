@@ -278,6 +278,9 @@ fn build_provider_picker_wizard(
                 .get(picked)
                 .cloned()
                 .ok_or_else(|| "Unknown provider selection".to_string())?;
+            if provider == "__add_provider__" {
+                return Ok(WizardCompletion::next(build_add_provider_wizard()));
+            }
             Ok(WizardCompletion::apply_provider_and_model(
                 vec![format!(
                     "Switched to provider: {}, model: {}",
@@ -307,7 +310,7 @@ fn build_provider_choices(
     let mut names = all_provider_models.keys().cloned().collect::<Vec<_>>();
     names.sort();
 
-    names.into_iter()
+    let mut choices = names.into_iter()
         .map(|name| {
             let models = all_provider_models.get(&name).cloned().unwrap_or_default();
             let chosen_model = if name == current_provider {
@@ -337,7 +340,14 @@ fn build_provider_choices(
                 model: chosen_model,
             }
         })
-        .collect()
+        .collect::<Vec<_>>();
+
+    choices.push(ProviderChoice {
+        display: "Add provider…".to_string(),
+        name: "__add_provider__".to_string(),
+        model: current_model.to_string(),
+    });
+    choices
 }
 
 fn load_default_provider_name() -> Option<String> {
@@ -379,5 +389,8 @@ mod tests {
         assert!(choices
             .iter()
             .any(|choice| choice.display.contains("[current]")));
+        assert!(choices
+            .iter()
+            .any(|choice| choice.display == "Add provider…"));
     }
 }

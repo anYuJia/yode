@@ -39,6 +39,7 @@ pub struct WizardCompletion {
     pub messages: Vec<String>,
     pub apply_provider: Option<String>,
     pub apply_model: Option<String>,
+    pub next_wizard: Option<Box<Wizard>>,
 }
 
 impl WizardCompletion {
@@ -47,6 +48,7 @@ impl WizardCompletion {
             messages,
             apply_provider: None,
             apply_model: None,
+            next_wizard: None,
         }
     }
 
@@ -55,6 +57,7 @@ impl WizardCompletion {
             messages,
             apply_provider: Some(provider.into()),
             apply_model: None,
+            next_wizard: None,
         }
     }
 
@@ -63,6 +66,7 @@ impl WizardCompletion {
             messages,
             apply_provider: None,
             apply_model: Some(model.into()),
+            next_wizard: None,
         }
     }
 
@@ -75,6 +79,16 @@ impl WizardCompletion {
             messages,
             apply_provider: Some(provider.into()),
             apply_model: Some(model.into()),
+            next_wizard: None,
+        }
+    }
+
+    pub fn next(wizard: Wizard) -> Self {
+        Self {
+            messages: Vec::new(),
+            apply_provider: None,
+            apply_model: None,
+            next_wizard: Some(Box::new(wizard)),
         }
     }
 }
@@ -110,6 +124,8 @@ pub struct Wizard {
     pub apply_provider: Option<String>,
     /// Model to apply immediately after wizard completion.
     pub apply_model: Option<String>,
+    /// Wizard to replace the current one after completion.
+    pub next_wizard: Option<Box<Wizard>>,
     /// Error message to display (from validation)
     pub error: Option<String>,
 }
@@ -132,6 +148,7 @@ impl Wizard {
             reload_provider: None,
             apply_provider: None,
             apply_model: None,
+            next_wizard: None,
             error: None,
         }
     }
@@ -261,6 +278,7 @@ impl Wizard {
                 let result = callback(&self.answers)?;
                 self.apply_provider = result.apply_provider;
                 self.apply_model = result.apply_model;
+                self.next_wizard = result.next_wizard;
                 Ok(Some(result.messages))
             } else {
                 Ok(Some(vec!["Done.".into()]))

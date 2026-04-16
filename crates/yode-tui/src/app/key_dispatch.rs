@@ -69,6 +69,11 @@ pub(super) fn handle_key_event(
                 match result {
                     Ok(None) => {}
                     Ok(Some(messages)) => {
+                        let next_wizard = app
+                            .wizard
+                            .as_mut()
+                            .and_then(|w| w.next_wizard.take())
+                            .map(|wizard| *wizard);
                         let apply_provider =
                             app.wizard.as_ref().and_then(|w| w.apply_provider.clone());
                         let reload_name =
@@ -92,7 +97,7 @@ pub(super) fn handle_key_event(
                             }
                             app.session.model = model.clone();
                         }
-                        app.wizard = None;
+                        app.wizard = next_wizard;
                     }
                     Err(e) => {
                         app.chat_entries.push(ChatEntry::new(ChatRole::Error, e));

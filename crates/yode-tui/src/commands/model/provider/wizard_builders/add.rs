@@ -4,7 +4,7 @@ use super::super::config_ops::add_provider_to_config;
 
 pub(crate) fn build_add_provider_wizard() -> Wizard {
     let default_preset = provider_type_defaults("Anthropic (Claude)");
-    let initial_model_step = build_add_model_step(
+    let initial_model_picker_step = build_add_model_picker_step(
         default_preset
             .as_ref()
             .map(|preset| preset.default_models.as_slice())
@@ -61,14 +61,19 @@ pub(crate) fn build_add_provider_wizard() -> Wizard {
                 default: Some("anthropic".into()),
                 key: "name".into(),
             },
-            initial_model_step,
+            initial_model_picker_step,
+            WizardStep::Input {
+                prompt: "模型列表（可用 , 分隔多个；第一个会作为默认模型）:".into(),
+                default: Some("claude-sonnet-4-20250514".into()),
+                key: "models".into(),
+            },
         ],
         Box::new(|answers| {
             let provider_type = answers.get("provider_type").ok_or("Missing type")?;
             let name = answers.get("name").ok_or("Missing name")?;
             let base_url = answers.get("base_url").ok_or("Missing base_url")?;
             let api_key = answers.get("api_key").ok_or("Missing api_key")?;
-            let model = normalize_wizard_model_answer(answers.get("model"));
+            let models_str = normalize_wizard_model_answer(answers.get("models"));
 
             let format = if provider_type.contains("Anthropic") {
                 "anthropic"
@@ -78,10 +83,14 @@ pub(crate) fn build_add_provider_wizard() -> Wizard {
                 "openai"
             };
 
-            let models = if model.is_empty() {
+            let models = if models_str.is_empty() {
                 vec![]
             } else {
-                vec![model.clone()]
+                models_str
+                    .split(',')
+                    .map(|item| item.trim().to_string())
+                    .filter(|item| !item.is_empty())
+                    .collect::<Vec<_>>()
             };
 
             add_provider_to_config(
@@ -97,12 +106,16 @@ pub(crate) fn build_add_provider_wizard() -> Wizard {
                 format!("  format:   {}", format),
                 format!("  base_url: {}", base_url),
                 format!(
-                    "  model:    {}",
-                    if model.is_empty() {
+                    "  models:   {}",
+                    if models_str.is_empty() {
                         "(unrestricted)"
                     } else {
-                        &model
+                        &models_str
                     }
+                ),
+                format!(
+                    "  default:  {}",
+                    models.first().map(String::as_str).unwrap_or("(none)")
                 ),
                 format!(
                     "  api_key:  {}...{}",
@@ -115,17 +128,34 @@ pub(crate) fn build_add_provider_wizard() -> Wizard {
         }),
     )
     .with_step_callback(Box::new(|value, steps| {
-        let Some(preset) = provider_type_defaults(value) else {
+        if let Some(preset) = provider_type_defaults(value) {
+            if let Some(WizardStep::Input { default, .. }) = steps.get_mut(1) {
+                *default = Some(preset.default_url.into());
+            }
+            if let Some(WizardStep::Input { default, .. }) = steps.get_mut(3) {
+                *default = Some(preset.name_hint.into());
+            }
+            if let Some(step) = steps.get_mut(4) {
+                *step = build_add_model_picker_step(&preset.default_models);
+            }
+            if let Some(WizardStep::Input { default, .. }) = steps.get_mut(5) {
+                *default = Some(
+                    preset
+                        .default_models
+                        .first()
+                        .cloned()
+                        .unwrap_or_default(),
+                );
+            }
             return;
-        };
-        if let Some(WizardStep::Input { default, .. }) = steps.get_mut(1) {
-            *default = Some(preset.default_url.into());
         }
-        if let Some(WizardStep::Input { default, .. }) = steps.get_mut(3) {
-            *default = Some(preset.name_hint.into());
-        }
-        if let Some(step) = steps.get_mut(4) {
-            *step = build_add_model_step(&preset.default_models);
+
+        if let Some(WizardStep::Input { default, .. }) = steps.get_mut(5) {
+            *default = Some(match value.trim() {
+                "(custom input)" => default.clone().unwrap_or_default(),
+                "(unrestricted)" => String::new(),
+                other => other.to_string(),
+            });
         }
     }))
 }
@@ -266,21 +296,23 @@ fn provider_type_defaults(value: &str) -> Option<ProviderTypePreset> {
     })
 }
 
-fn build_add_model_step(default_models: &[String]) -> WizardStep {
+fn build_add_model_picker_step(default_models: &[String]) -> WizardStep {
     if default_models.is_empty() {
-        WizardStep::Input {
-            prompt: "默认模型（可留空表示 unrestricted）:".into(),
-            default: Some(String::new()),
-            key: "model".into(),
+        WizardStep::Select {
+            prompt: "选择模型预设:".into(),
+            options: vec!["(custom input)".into(), "(unrestricted)".into()],
+            default: 0,
+            key: "model_picker".into(),
         }
     } else {
         let mut options = default_models.to_vec();
+        options.push("(custom input)".into());
         options.push("(unrestricted)".into());
         WizardStep::Select {
-            prompt: "选择默认模型:".into(),
+            prompt: "选择模型预设:".into(),
             options,
             default: 0,
-            key: "model".into(),
+            key: "model_picker".into(),
         }
     }
 }
@@ -310,5 +342,6 @@ mod tests {
         assert!(matches!(wizard.steps[4], WizardStep::Select { .. }));
         let _ = wizard.submit().unwrap();
         assert!(matches!(wizard.steps[4], WizardStep::Select { .. }));
+        assert!(matches!(wizard.steps[5], WizardStep::Input { .. }));
     }
 }
