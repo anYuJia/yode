@@ -5,6 +5,7 @@ use ratatui::layout::Rect;
 use ratatui::Frame;
 
 use super::panels::{footer_hint_line, section_title_line};
+use super::palette::{BORDER_MUTED, LIGHT, MUTED, PANEL_ACCENT, SELECT_ACCENT, SELECT_BG};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InspectorTab {
@@ -325,7 +326,7 @@ impl InspectorBodySource for Vec<String> {
 pub(crate) fn multi_pane_title_strip(
     tabs: &[InspectorTab],
     selected: usize,
-    accent: Color,
+    _accent: Color,
     muted: Color,
 ) -> Line<'static> {
     let mut spans = vec![Span::styled("  ", Style::default())];
@@ -338,7 +339,10 @@ pub(crate) fn multi_pane_title_strip(
             .map(|count| format!("{} ({})", tab.label, count))
             .unwrap_or_else(|| tab.label.clone());
         let style = if index == selected {
-            Style::default().fg(accent).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(LIGHT)
+                .bg(SELECT_BG)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(muted)
         };
@@ -364,10 +368,10 @@ pub(crate) fn inspector_status_badge_row(badges: &[(&str, &str)], accent: Color)
 pub(crate) fn inspector_action_row(
     actions: &[InspectorAction],
     selected: usize,
-    accent: Color,
+    _accent: Color,
     focused: bool,
 ) -> Line<'static> {
-    let mut spans = vec![Span::styled("  actions: ", Style::default().fg(Color::DarkGray))];
+    let mut spans = vec![Span::styled("  actions: ", Style::default().fg(BORDER_MUTED))];
     for (index, action) in actions.iter().enumerate() {
         if index > 0 {
             spans.push(Span::raw(" "));
@@ -376,10 +380,15 @@ pub(crate) fn inspector_action_row(
             format!("[{}]", action.label),
             if index == selected {
                 Style::default()
-                    .fg(accent)
-                    .add_modifier(if focused { Modifier::REVERSED | Modifier::BOLD } else { Modifier::BOLD })
+                    .fg(LIGHT)
+                    .bg(SELECT_BG)
+                    .add_modifier(if focused {
+                        Modifier::BOLD | Modifier::UNDERLINED
+                    } else {
+                        Modifier::BOLD
+                    })
             } else {
-                Style::default().fg(Color::Gray)
+                Style::default().fg(MUTED)
             },
         ));
     }
@@ -430,7 +439,7 @@ pub(crate) fn render_inspector(
 
     let mut lines = vec![Line::from(vec![Span::styled(
         format!("  {} ", document.state.title),
-        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        Style::default().fg(PANEL_ACCENT).add_modifier(Modifier::BOLD),
     )])];
     lines.push(Line::from(vec![Span::styled(
         format!(
@@ -453,17 +462,17 @@ pub(crate) fn render_inspector(
                 String::new()
             }
         ),
-        Style::default().fg(Color::DarkGray),
+        Style::default().fg(BORDER_MUTED),
     )]));
     lines.push(multi_pane_title_strip(
         &document.state.tabs,
         document.state.selected_tab,
         match document.state.focus {
-            InspectorFocus::Tabs => Color::LightCyan,
-            InspectorFocus::Body => Color::Yellow,
-            InspectorFocus::Actions => Color::LightGreen,
+            InspectorFocus::Tabs => SELECT_ACCENT,
+            InspectorFocus::Body => PANEL_ACCENT,
+            InspectorFocus::Actions => SELECT_ACCENT,
         },
-        Color::Gray,
+        MUTED,
     ));
     if !panel.badges.is_empty() {
         let badges = panel
@@ -471,23 +480,23 @@ pub(crate) fn render_inspector(
             .iter()
             .map(|(label, value)| (label.as_str(), value.as_str()))
             .collect::<Vec<_>>();
-        lines.push(inspector_status_badge_row(&badges, Color::LightCyan));
+        lines.push(inspector_status_badge_row(&badges, SELECT_ACCENT));
     }
     if !panel.actions.is_empty() {
         lines.push(inspector_action_row(
             &panel.actions,
             document.state.selected_action,
-            Color::LightGreen,
+            SELECT_ACCENT,
             matches!(document.state.focus, InspectorFocus::Actions),
         ));
         if let Some(summary) = inspector_action_safety_summary(&panel.actions) {
             lines.push(Line::from(vec![Span::styled(
                 format!("  {}", summary),
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(BORDER_MUTED),
             )]));
         }
     }
-    lines.push(section_title_line(&panel.tab.label, Color::Yellow));
+    lines.push(section_title_line(&panel.tab.label, PANEL_ACCENT));
 
     let filtered = document.filtered_indices();
     let total = filtered.len();
@@ -504,11 +513,19 @@ pub(crate) fn render_inspector(
             lines.push(Line::from(vec![
                 Span::styled(
                     if selected { "  ❯ " } else { "    " },
-                    Style::default().fg(if selected { Color::LightCyan } else { Color::Gray }),
+                    if selected {
+                        Style::default().fg(SELECT_ACCENT).bg(SELECT_BG)
+                    } else {
+                        Style::default().fg(MUTED)
+                    },
                 ),
                 Span::styled(
                     line,
-                    Style::default().fg(if selected { Color::White } else { Color::Gray }),
+                    if selected {
+                        Style::default().fg(LIGHT).bg(SELECT_BG)
+                    } else {
+                        Style::default().fg(MUTED)
+                    },
                 ),
             ]));
         }
@@ -518,7 +535,7 @@ pub(crate) fn render_inspector(
         .footer
         .clone()
         .unwrap_or_else(|| inspector_pagination_footer(document.state.selected_line, total));
-    lines.push(footer_hint_line(&[&footer], Color::DarkGray));
+    lines.push(footer_hint_line(&[&footer], BORDER_MUTED));
     frame.render_widget(Paragraph::new(lines), area);
 }
 

@@ -8,7 +8,7 @@ use super::panels::{
     button_row_line, keyhint_bar_line, panel_rect_for_density, preview_empty_state,
     search_prompt_label, section_title_line, PanelFocusState,
 };
-use super::palette::{MUTED, PANEL_ACCENT, SELECT_ACCENT};
+use super::palette::{MUTED, PANEL_ACCENT, SELECT_BG};
 use super::responsive::density_from_width;
 
 /// Render inline confirmation selector across 4 viewport lines.
@@ -47,7 +47,7 @@ pub fn render_inline_confirm(frame: &mut Frame, _chunks: &[Rect], app: &App) {
     );
     frame.render_widget(Paragraph::new(section_title_line("Confirm", PANEL_ACCENT)), inner[1]);
     frame.render_widget(
-        Paragraph::new(button_row_line(&options, app.confirm_selected, SELECT_ACCENT, MUTED)),
+        Paragraph::new(button_row_line(&options, app.confirm_selected, SELECT_BG, MUTED)),
         inner[2],
     );
     frame.render_widget(

@@ -9,7 +9,8 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 
 use crate::app::ChatEntry;
-use crate::ui::chat::{CODE_BG, CYAN, GREEN, WHITE};
+use crate::ui::chat::{CODE_BG, CYAN, WHITE};
+use crate::ui::palette::{INFO_COLOR, USER_PREFIX};
 
 pub(super) use assistant::render_assistant;
 pub(crate) use plain_lines::{assistant_plain_lines, user_plain_lines};
@@ -20,14 +21,18 @@ pub(super) fn render_user(lines: &mut Vec<Line<'static>>, entry: &ChatEntry) {
     let highlighted_style = Style::default().fg(WHITE).bg(CODE_BG);
     for (index, line) in user_plain_lines(entry).into_iter().enumerate() {
         let prefix_style = if index == 0 {
-            Style::default().fg(GREEN).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(USER_PREFIX)
+                .add_modifier(Modifier::BOLD)
         } else {
             user_style
         };
         let content_style = if line.highlight_code {
             highlighted_style
         } else if index == 0 {
-            user_style.add_modifier(Modifier::BOLD)
+            user_style
+                .fg(INFO_COLOR)
+                .add_modifier(Modifier::BOLD)
         } else {
             user_style
         };

@@ -7,7 +7,8 @@ use ratatui::Frame;
 use crate::app::App;
 use crate::ui::palette::{HINT_COLOR, TEXT_COLOR};
 use super::formatting::{
-    completion_candidate_line, truncate_ellipsis, COMPLETION_BG, COMPLETION_SELECTED_FG,
+    completion_candidate_line, truncate_ellipsis, COMPLETION_BG, COMPLETION_SELECTED_BG,
+    COMPLETION_SELECTED_FG,
 };
 
 
@@ -108,6 +109,7 @@ pub(super) fn render_file_popup(frame: &mut Frame, area: Rect, app: &App) {
     let selected = app.file_completion.selected.unwrap_or(0);
     let bg = COMPLETION_BG;
     let selected_fg = COMPLETION_SELECTED_FG;
+    let selected_bg = COMPLETION_SELECTED_BG;
     let window_start = if total <= max_show {
         0
     } else {
@@ -128,14 +130,14 @@ pub(super) fn render_file_popup(frame: &mut Frame, area: Rect, app: &App) {
                         " ❯ ",
                         Style::default()
                             .fg(selected_fg)
-                            .bg(bg)
+                            .bg(selected_bg)
                             .add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(
                         format!("@{} ", truncate_ellipsis(path, 40)),
                         Style::default()
                             .fg(selected_fg)
-                            .bg(bg)
+                            .bg(selected_bg)
                             .add_modifier(Modifier::BOLD),
                     ),
                 ])

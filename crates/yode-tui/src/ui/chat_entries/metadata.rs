@@ -1,5 +1,6 @@
-use ratatui::style::{Color, Style};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
+use crate::ui::palette::{ERROR_COLOR, SUCCESS_COLOR, WARNING_COLOR};
 
 pub(super) fn render_metadata_lines(
     lines: &mut Vec<Line<'static>>,
@@ -14,7 +15,7 @@ pub(super) fn render_metadata_lines(
         if let Some(reason) = truncation.get("reason").and_then(|value| value.as_str()) {
             lines.push(Line::from(Span::styled(
                 format!("  │ truncated: {}", reason),
-                Style::default().fg(Color::LightYellow),
+                Style::default().fg(WARNING_COLOR),
             )));
         }
     }
@@ -48,13 +49,13 @@ pub(super) fn render_diff_preview_lines(
         for line in removed {
             lines.push(Line::from(Span::styled(
                 format!("     - {}", line),
-                Style::default().fg(Color::LightRed),
+                Style::default().fg(ERROR_COLOR),
             )));
         }
         for line in added {
             lines.push(Line::from(Span::styled(
                 format!("     + {}", line),
-                Style::default().fg(Color::LightGreen),
+                Style::default().fg(SUCCESS_COLOR),
             )));
         }
     }

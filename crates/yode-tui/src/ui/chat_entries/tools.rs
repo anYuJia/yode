@@ -2,7 +2,8 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 
 use crate::app::{ChatEntry, ChatRole};
-use crate::ui::chat::{ACCENT, DIM, GREEN, RED, WHITE, YELLOW};
+use crate::ui::chat::{ACCENT, DIM, GREEN, RED, WHITE};
+use crate::ui::palette::{INFO_COLOR, WARNING_COLOR};
 use super::folding::{
     render_bash_preview_lines, render_edit_preview_lines, render_folded_result_lines,
     render_write_preview_lines,
@@ -48,7 +49,9 @@ pub(crate) fn render_tool_call(
         let elapsed = timestamp.elapsed();
         title_spans.push(Span::styled(
             format!(" [{:.1}s]", elapsed.as_secs_f32()),
-            Style::default().fg(YELLOW).add_modifier(Modifier::ITALIC),
+            Style::default()
+                .fg(WARNING_COLOR)
+                .add_modifier(Modifier::ITALIC),
         ));
     }
     if is_error {
@@ -64,16 +67,18 @@ pub(crate) fn render_tool_call(
 
     if let Some(progress) = progress {
         let mut progress_spans = vec![
-            Span::styled("  │ ", Style::default().fg(YELLOW)),
+            Span::styled("  │ ", Style::default().fg(INFO_COLOR)),
             Span::styled(
                 progress.message.clone(),
-                Style::default().fg(YELLOW).add_modifier(Modifier::ITALIC),
+                Style::default()
+                    .fg(INFO_COLOR)
+                    .add_modifier(Modifier::ITALIC),
             ),
         ];
         if let Some(percent) = progress.percent {
             progress_spans.push(Span::styled(
                 format!(" {}%", percent),
-                Style::default().fg(YELLOW).add_modifier(Modifier::BOLD),
+                Style::default().fg(INFO_COLOR).add_modifier(Modifier::BOLD),
             ));
         }
         lines.push(Line::from(progress_spans));

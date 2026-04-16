@@ -1,8 +1,10 @@
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
+use crate::ui::palette::{BORDER_MUTED, LIGHT, MUTED, SELECT_ACCENT, SELECT_BG, SURFACE_BG};
 
-pub(super) const COMPLETION_BG: Color = Color::Indexed(235);
-pub(super) const COMPLETION_SELECTED_FG: Color = Color::LightMagenta;
+pub(super) const COMPLETION_BG: Color = SURFACE_BG;
+pub(super) const COMPLETION_SELECTED_BG: Color = SELECT_BG;
+pub(super) const COMPLETION_SELECTED_FG: Color = LIGHT;
 
 pub(super) fn truncate_ellipsis(text: &str, max_chars: usize) -> String {
     if text.chars().count() <= max_chars {
@@ -27,21 +29,26 @@ pub(super) fn completion_candidate_line(
             Span::styled(
                 " ❯",
                 Style::default()
-                    .fg(COMPLETION_SELECTED_FG)
-                    .bg(bg)
+                    .fg(SELECT_ACCENT)
+                    .bg(COMPLETION_SELECTED_BG)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
                 format!("{:<width$}", command, width = command_width),
                 Style::default()
                     .fg(COMPLETION_SELECTED_FG)
-                    .bg(bg)
+                    .bg(COMPLETION_SELECTED_BG)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled(" │ ", Style::default().fg(Color::DarkGray).bg(bg)),
+            Span::styled(
+                " │ ",
+                Style::default().fg(BORDER_MUTED).bg(COMPLETION_SELECTED_BG),
+            ),
             Span::styled(
                 format!("{} ", desc_truncated),
-                Style::default().fg(COMPLETION_SELECTED_FG).bg(bg),
+                Style::default()
+                    .fg(MUTED)
+                    .bg(COMPLETION_SELECTED_BG),
             ),
         ])
     } else {
@@ -49,12 +56,12 @@ pub(super) fn completion_candidate_line(
             Span::styled("  ", Style::default().bg(bg)),
             Span::styled(
                 format!("{:<width$}", command, width = command_width),
-                Style::default().fg(Color::Gray).bg(bg),
+                Style::default().fg(LIGHT).bg(bg),
             ),
-            Span::styled(" │ ", Style::default().fg(Color::DarkGray).bg(bg)),
+            Span::styled(" │ ", Style::default().fg(BORDER_MUTED).bg(bg)),
             Span::styled(
                 format!("{} ", desc_truncated),
-                Style::default().fg(Color::DarkGray).bg(bg),
+                Style::default().fg(MUTED).bg(bg),
             ),
         ])
     }

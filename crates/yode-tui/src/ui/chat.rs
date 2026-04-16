@@ -3,6 +3,10 @@ use super::chat_entries::{
 };
 use super::chat_layout::{manual_wrap, render_header};
 use super::chat_markdown::render_markdown_impl;
+use super::palette::{
+    ERROR_COLOR, INFO_COLOR, LIGHT, MUTED, SUCCESS_COLOR, SURFACE_BG_ALT, TOOL_ACCENT,
+    USER_COLOR, WARNING_COLOR,
+};
 use crate::app::{App, ChatRole};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
@@ -14,16 +18,16 @@ use ratatui::Frame;
 // Use standard ANSI colors for grays — adapts to user's terminal color scheme.
 // Color::White = ANSI 15 (bright white, usually #ffffff)
 // Color::Gray = ANSI 7 (silver, usually #c0c0c0-#d0d0d0)
-pub const GREEN: Color = Color::LightGreen;
-pub const RED: Color = Color::LightRed;
-pub const YELLOW: Color = Color::LightYellow;
-pub const CYAN: Color = Color::Indexed(51); // RGB #00FFFF - pure cyan (most visible)
-pub const BLUE: Color = Color::LightBlue;
-pub const DIM: Color = Color::Gray; // ANSI 7 — adapts to terminal theme
-pub const WHITE: Color = Color::Indexed(231); // RGB #FFFFFF - pure white
-pub const CODE_BG: Color = Color::Indexed(234); // #1c1c1c
-pub const INLINE_CODE_BG: Color = Color::Indexed(236); // #303030
-pub const ACCENT: Color = Color::LightCyan; // ANSI 14 — crisp terminal cyan
+pub const GREEN: Color = SUCCESS_COLOR;
+pub const RED: Color = ERROR_COLOR;
+pub const YELLOW: Color = WARNING_COLOR;
+pub const CYAN: Color = USER_COLOR;
+pub const BLUE: Color = INFO_COLOR;
+pub const DIM: Color = MUTED;
+pub const WHITE: Color = LIGHT;
+pub const CODE_BG: Color = Color::Indexed(234);
+pub const INLINE_CODE_BG: Color = SURFACE_BG_ALT;
+pub const ACCENT: Color = TOOL_ACCENT;
 
 // ── Main Render ─────────────────────────────────────────────────────
 pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
@@ -82,16 +86,40 @@ pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
             }
             ChatRole::Error => {
                 lines.push(Line::from(vec![
-                    Span::styled("! ", Style::default().fg(RED).add_modifier(Modifier::BOLD)),
-                    Span::styled(entry.content.clone(), Style::default().fg(RED)),
+                    Span::styled(
+                        "  ✕ ",
+                        Style::default().fg(RED).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        entry.content.clone(),
+                        Style::default().fg(RED).add_modifier(Modifier::BOLD),
+                    ),
                 ]));
             }
             ChatRole::System | ChatRole::AskUser { .. } => {
-                for line in entry.content.lines() {
-                    lines.push(Line::from(Span::styled(
-                        format!("  {}", line),
-                        Style::default().fg(DIM),
-                    )));
+                for (index, line) in entry.content.lines().enumerate() {
+                    let prefix = match &entry.role {
+                        ChatRole::AskUser { .. } => {
+                            if index == 0 { "  ? " } else { "    " }
+                        }
+                        _ => {
+                            if index == 0 { "  · " } else { "    " }
+                        }
+                    };
+                    let prefix_style = match &entry.role {
+                        ChatRole::AskUser { .. } => Style::default()
+                            .fg(INFO_COLOR)
+                            .add_modifier(Modifier::BOLD),
+                        _ => Style::default().fg(MUTED),
+                    };
+                    let content_style = match &entry.role {
+                        ChatRole::AskUser { .. } => Style::default().fg(LIGHT),
+                        _ => Style::default().fg(MUTED),
+                    };
+                    lines.push(Line::from(vec![
+                        Span::styled(prefix.to_string(), prefix_style),
+                        Span::styled(line.to_string(), content_style),
+                    ]));
                 }
             }
             ChatRole::SubAgentCall { .. }
@@ -112,8 +140,11 @@ pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
         let spinner = app.spinner_char();
         let elapsed_str = app.thinking_elapsed_str();
         lines.push(Line::from(vec![
-            Span::styled(format!("  {} ", spinner), Style::default().fg(YELLOW)),
-            Span::styled("Working…", Style::default().fg(YELLOW)),
+            Span::styled(format!("  {} ", spinner), Style::default().fg(INFO_COLOR)),
+            Span::styled(
+                "Working…",
+                Style::default().fg(INFO_COLOR).add_modifier(Modifier::BOLD),
+            ),
             Span::styled(format!(" ({})", elapsed_str), Style::default().fg(DIM)),
         ]));
         lines.push(Line::from(""));
