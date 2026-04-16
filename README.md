@@ -6,7 +6,7 @@
   <img alt="Yode" src="assets/logo-dark.svg" width="200">
 </picture>
 
-### Open-source AI coding agent for your terminal
+### Terminal-native AI coding agent runtime built with Rust
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-1.75+-orange.svg)](https://www.rust-lang.org/)
@@ -19,24 +19,27 @@
 
 ---
 
-> **Yode** is a terminal-native AI coding agent built in Rust.
-> It reads, edits, searches, and runs commands — all from a single conversation.
+**Yode** is an open-source coding agent for people who want a serious local terminal workflow:
 
-```
-╭─── Yode ──────────────────────────────────────╮
-│  claude-sonnet-4-20250514 · ~/my-project       │
-╰────────────────────────────────────────────────╯
+- built-in tools for reading, editing, searching, shell execution, web fetch, LSP, workflows, review, and MCP
+- operator surfaces for `/status`, `/brief`, `/diagnostics`, `/inspect`, `/tasks`, `/remote-control`, `/checkpoint`
+- inspectable runtime artifacts for permissions, hooks, team runs, remote sessions, startup settings, and task history
+- a tool/runtime model that has been pushed toward Claude Code-style parity, while staying local-first and Rust-native
 
-❯ Fix the authentication bug in login.rs
+```text
+╭─── Yode ───────────────────────────────────────────────╮
+│  claude-sonnet · ~/my-project · Default · 3 jobs       │
+╰─────────────────────────────────────────────────────────╯
 
-⏺ Read(src/login.rs)
-  ⎿  (248 lines)
+❯ review the current workspace changes and propose a safe fix
 
-⏺ Edit(src/login.rs)
-   - if token.is_expired() { return None; }
-   + if token.is_expired() { return Err(AuthError::Expired); }
+⏺ review_pipeline(...)
+⏺ coordinate_agents(...)
+⏺ remote_queue_dispatch(...)
 
-⏺ Done. Expired tokens now return a proper error.
+/status
+/inspect artifact latest-runtime-timeline
+/tasks monitor
 ```
 
 ## Install
@@ -50,7 +53,7 @@ curl -fsSL https://raw.githubusercontent.com/anYuJia/yode/main/install.sh | bash
 ### Cargo
 
 ```bash
-cargo install --git https://github.com/anYuJia/yode.git
+cargo install --git https://github.com/anYuJia/yode.git --tag v0.0.11
 ```
 
 ### From source
@@ -61,149 +64,199 @@ cd yode
 cargo install --path .
 ```
 
-> **Windows**: Download `yode-x86_64-pc-windows-msvc.zip` from [Releases](https://github.com/anYuJia/yode/releases).
+### Windows
+
+Download `yode-x86_64-pc-windows-msvc.zip` from [Releases](https://github.com/anYuJia/yode/releases).
 
 ## Quick Start
 
 ```bash
-# Set API key
-export ANTHROPIC_API_KEY="sk-ant-..."   # or OPENAI_API_KEY
+# Set one provider API key
+export ANTHROPIC_API_KEY="..."
+# or OPENAI_API_KEY / GEMINI_API_KEY
 
-# Launch Yode
+# Launch the TUI
 yode
 
-# Specify a model
-yode --model claude-sonnet-4-20250514
+# Non-interactive one-shot
+yode --chat "Summarize the repository structure"
+
+# Pick a provider/model explicitly
+yode --provider anthropic --model <model-name>
 
 # Resume a previous session
 yode --resume <session-id>
+
+# Run environment checks
+yode doctor
 ```
 
-## Features
+If you have not configured a provider yet, run:
 
-### LLM Integration
-- **Multi-provider** — OpenAI, Anthropic, or any OpenAI-compatible endpoint
-- **Streaming responses** — Real-time token streaming with cancellation support
-- **Context management** — Automatic summarization when approaching context limits
+```bash
+yode provider add
+```
 
-### Built-in Tools
-| Tool | Description |
-|------|-------------|
-| `bash` | Shell execution with dangerous command detection |
-| `read_file` / `write_file` / `edit_file` | Precise file operations |
-| `glob` / `grep` | Fast codebase search |
-| `web_fetch` / `web_search` | Web scraping and search |
-| `lsp` | Language server integration (go-to-definition, references, hover) |
-| `agent` | Spawn sub-agents for parallel task execution |
-| `memory` | Persistent memory across sessions |
-| MCP support | Extend via Model Context Protocol servers |
+## Why Yode
 
-### Terminal UI
-- **Markdown rendering** — Tables, code blocks with syntax highlighting, blockquotes, task lists
-- **Braille loading animation** and streaming indicators
-- **Scrollback navigation** with input history search (`Ctrl+R`)
-- **Permission mode switching** (`Shift+Tab`)
-- **Tool confirmation** — `[y]` Allow, `[n]` Deny, `[a]` Always allow
-- **File attachments** via `@file` and shell shortcuts via `!command`
-- Bracketed paste mode support
+### 1. Tool Runtime, Not Just Chat
 
-### Safety & Control
-- **Permission system** — Normal, Auto-Accept, and Plan modes
-- **Dangerous command detection** — Blocks destructive `git` operations, `rm -rf`, etc.
-- **Session persistence** — SQLite-backed with `--resume` support
+Yode is not only a shell around an LLM. It ships a real tool/runtime plane with:
 
-## Keybindings
+- code tools: `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `bash`, `lsp`
+- orchestration tools: `agent`, `team_create`, `send_message`, `team_monitor`, `coordinate_agents`
+- workflow/review tools: `workflow_run`, `workflow_run_with_writes`, `review_changes`, `review_pipeline`, `review_then_commit`
+- remote runtime tools: `remote_queue_dispatch`, `remote_queue_result`, `remote_transport_control`
+- runtime helpers: `task_output`, `tool_search`, plan-mode tools, worktree tools, cron tools, MCP resource tools
 
-| Key | Action |
-|-----|--------|
-| `Enter` | Send message |
-| `Ctrl+Enter` / `Shift+Enter` | Insert newline |
-| `Ctrl+C` | Stop generation (press twice to quit) |
-| `Esc` | Stop generation |
-| `↑` / `↓` | Scroll chat |
-| `Ctrl+P` / `Ctrl+N` | Browse input history |
-| `Ctrl+R` | Reverse search history |
-| `Ctrl+L` | Clear screen |
-| `Ctrl+K` | Delete to end of line |
-| `Ctrl+W` | Delete previous word |
-| `PageUp` / `PageDown` | Scroll chat (10 lines) |
-| `Shift+Tab` | Cycle permission mode |
-| `Tab` | Auto-complete command |
+### 2. Inspectable Operator Surface
 
-## Slash Commands
+The runtime is visible and debuggable from inside the product:
+
+- `/status`, `/brief`, `/diagnostics` for session and runtime summaries
+- `/inspect artifact ...` for startup, runtime, hook, permission, team, and remote artifacts
+- `/tasks monitor` and `/tasks follow latest` for background work
+- `/remote-control monitor`, `/remote-control queue`, and `/remote-control follow latest` for remote/live-session flows
+- `/checkpoint` for checkpoint, branch, rewind, restore, and rollback-oriented session control
+
+### 3. Governance, Hooks, and Safety
+
+Yode now includes a much richer control plane than the early versions:
+
+- permission modes: `default`, `plan`, `auto`, `accept-edits`, `bypass`
+- inspectable permission governance and precedence chain
+- hook lifecycle coverage for tool, task, sub-agent, and worktree flows
+- hook `defer` support with resumable artifacts/state
+- dangerous shell detection and runtime confirmation rules
+
+### 4. MCP and Managed Settings Visibility
+
+Yode surfaces more than "which tools are loaded":
+
+- provider inventory artifacts
+- settings scope artifacts
+- managed MCP inventory artifacts
+- tool-search activation artifacts
+- operator-facing MCP diagnostics and remediation paths
+
+## Commands Worth Learning First
+
+| Command | What it is for |
+| --- | --- |
+| `/status` | Full session/runtime snapshot |
+| `/brief` | Compact current-state summary |
+| `/diagnostics` | Runtime health and observability overview |
+| `/inspect artifact summary` | Entry point into artifact families |
+| `/tools diag` | Tool pool, hidden/deferred tool, and failure diagnostics |
+| `/permissions mode` | Permission mode guide and switching |
+| `/tasks monitor` | Background runtime task workspace |
+| `/remote-control monitor` | Remote live-session monitor surface |
+| `/mcp` | MCP and settings control-plane summary |
+| `/workflows` | Workflow inspection and run prompts |
+| `/checkpoint` | Save/restore/branch/rewind/rollback session state |
+
+## CLI Entry Points
 
 | Command | Description |
-|---------|-------------|
-| `/help` | Show all commands |
-| `/keys` | Keyboard shortcuts reference |
-| `/clear` | Clear chat display |
-| `/model` | Show current model |
-| `/provider` | Switch LLM provider |
-| `/providers` | List available providers |
-| `/tools` | List registered tools |
-| `/cost` | Show token usage & estimated cost |
-| `/diff` | Show `git diff --stat` |
-| `/status` | Session status summary |
-| `/context` | Context window usage |
-| `/compact` | Compact chat history |
-| `/copy` | Copy last response to clipboard |
-| `/sessions` | List recent sessions |
-| `/bug` | Generate bug report |
-| `/doctor` | Environment health check |
-| `/config` | Show current configuration |
-| `/version` | Version info |
+| --- | --- |
+| `yode` | Start the TUI |
+| `yode --chat "<msg>"` | Non-interactive single-turn mode |
+| `yode --serve-mcp` | Run Yode as an MCP server over stdio |
+| `yode provider list` | List configured providers |
+| `yode provider add` | Interactive provider setup |
+| `yode update check` | Check and apply updates |
+| `yode completions zsh` | Generate shell completions |
+| `yode doctor` | Environment health checks |
 
-## Architecture
+## Configuration Layers
 
+Yode merges configuration and permission/governance state from multiple layers:
+
+- `~/.yode/managed-config.toml`
+- `~/.yode/config.toml`
+- `.yode/config.toml`
+- `.yode/config.local.toml`
+- session and CLI overrides
+
+Example:
+
+```toml
+[llm]
+default_provider = "anthropic"
+default_model = "your-model-name"
+
+[permissions]
+default_mode = "auto"
+
+[[permissions.always_allow]]
+category = "read"
+description = "allow read-only tools"
+
+[[hooks.hooks]]
+command = "scripts/pre_tool_use.sh"
+events = ["pre_tool_use", "permission_request"]
+tool_filter = ["bash", "write_file"]
+timeout_secs = 10
+can_block = true
+
+[mcp.servers.github]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-github"]
 ```
-crates/
-├── yode-core     # Engine, context, permissions, database
-├── yode-llm      # LLM provider abstraction (OpenAI, Anthropic)
-├── yode-tools    # Tool registry & built-in tools
-├── yode-tui      # Terminal UI (ratatui-based)
-├── yode-mcp      # Model Context Protocol support
-└── yode-agent    # Agent orchestration
-```
 
-## Project-specific Instructions
+## Project Instructions
 
-Drop a `YODE.md` file in your project root to provide context-aware instructions:
+Yode loads project instructions from multiple compatible filenames, including:
+
+- `YODE.md`
+- `docs/YODE.md`
+- `.yode/instructions.md`
+- `CLAUDE.md`
+- `AGENTS.md`
+- `.claude/CLAUDE.md`
+
+Example:
 
 ```markdown
 # Project Guidelines
 
-This is a Rust project using Actix-web.
-- Always run `cargo clippy` after code changes
-- Prefer `anyhow::Result` over custom error types
-- Use async/await for all I/O operations
+- Run `cargo test -p yode-core --lib` after engine changes
+- Prefer small reviewable patches
+- Keep migration notes in `docs/optimization/`
 ```
 
-## Configuration
+## Architecture
 
-Config file location: `~/.config/yode/config.toml`
-
-```toml
-[provider]
-default = "anthropic"
-model = "claude-sonnet-4-20250514"
-
-[permissions]
-# Tools that never require confirmation
-allow = ["read_file", "glob", "grep"]
-# Tools that always require confirmation
-confirm = ["bash", "write_file", "edit_file"]
+```text
+crates/
+├── yode-core     # engine, context, permissions, hooks, session/runtime state
+├── yode-llm      # provider abstraction
+├── yode-tools    # built-in tools and runtime tool surface
+├── yode-tui      # terminal UI and operator commands
+├── yode-mcp      # MCP integration
+└── yode-agent    # agent/runtime helpers
 ```
+
+## What 0.0.11 Adds
+
+The `0.0.11` release completes the round-9 tool-platform push:
+
+- remote queue dispatch/result and transport control are now first-class tools
+- permission governance, hook defer, team runtime, managed settings/MCP, and remote live session all have inspectable runtime planes
+- tool/operator UX now includes taxonomy, monitor/follow surfaces, permission mode guides, and fuller verification/docs
+
+Release: [v0.0.11](https://github.com/anYuJia/yode/releases/tag/v0.0.11)
 
 ## Contributing
 
-Contributions are welcome! Here's how you can help:
+Contributions are welcome.
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+1. Fork the repository.
+2. Create a branch.
+3. Make a focused change.
+4. Run the relevant checks.
+5. Open a pull request.
 
 ## License
 
-[MIT](LICENSE) — feel free to use, modify, and distribute.
+[MIT](LICENSE)

@@ -6,7 +6,7 @@
   <img alt="Yode" src="assets/logo-dark.svg" width="200">
 </picture>
 
-### 终端原生的开源 AI 编程助手
+### 用 Rust 构建的终端原生 AI 编程代理 runtime
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-1.75+-orange.svg)](https://www.rust-lang.org/)
@@ -19,24 +19,27 @@
 
 ---
 
-> **Yode** 是一款用 Rust 构建的终端原生 AI 编程助手。
-> 它在一个统一的会话中读取、编辑、搜索文件并执行命令。
+**Yode** 面向希望在本地终端里获得“真正可操作的 AI 编程 runtime”体验的用户：
 
-```
-╭─── Yode ──────────────────────────────────────╮
-│  claude-sonnet-4-20250514 · ~/my-project       │
-╰────────────────────────────────────────────────╯
+- 有内置工具：读写文件、搜索、shell、web、LSP、workflow、review、MCP
+- 有 operator surface：`/status`、`/brief`、`/diagnostics`、`/inspect`、`/tasks`、`/remote-control`、`/checkpoint`
+- 有可回看的 runtime artifact：permissions、hooks、team、remote session、startup settings、task history
+- 有一整套向 Claude Code 风格靠近的 tool/runtime 平台，而不是只有聊天框
 
-❯ 修复 login.rs 中的认证 bug
+```text
+╭─── Yode ───────────────────────────────────────────────╮
+│  claude-sonnet · ~/my-project · Default · 3 jobs       │
+╰─────────────────────────────────────────────────────────╯
 
-⏺ Read(src/login.rs)
-  ⎿  (248 行)
+❯ review the current workspace changes and propose a safe fix
 
-⏺ Edit(src/login.rs)
-   - if token.is_expired() { return None; }
-   + if token.is_expired() { return Err(AuthError::Expired); }
+⏺ review_pipeline(...)
+⏺ coordinate_agents(...)
+⏺ remote_queue_dispatch(...)
 
-⏺ 完成。过期的 token 现在会返回正确的错误。
+/status
+/inspect artifact latest-runtime-timeline
+/tasks monitor
 ```
 
 ## 安装
@@ -47,13 +50,13 @@
 curl -fsSL https://raw.githubusercontent.com/anYuJia/yode/main/install.sh | bash
 ```
 
-### Cargo 安装
+### Cargo
 
 ```bash
-cargo install --git https://github.com/anYuJia/yode.git
+cargo install --git https://github.com/anYuJia/yode.git --tag v0.0.11
 ```
 
-### 从源码编译
+### 从源码安装
 
 ```bash
 git clone https://github.com/anYuJia/yode.git
@@ -61,149 +64,199 @@ cd yode
 cargo install --path .
 ```
 
-> **Windows**: 从 [Releases](https://github.com/anYuJia/yode/releases) 下载 `yode-x86_64-pc-windows-msvc.zip`。
+### Windows
+
+从 [Releases](https://github.com/anYuJia/yode/releases) 下载 `yode-x86_64-pc-windows-msvc.zip`。
 
 ## 快速开始
 
 ```bash
-# 设置 API 密钥
-export ANTHROPIC_API_KEY="sk-ant-..."   # 或 OPENAI_API_KEY
+# 先设置一个 provider 的 API key
+export ANTHROPIC_API_KEY="..."
+# 或 OPENAI_API_KEY / GEMINI_API_KEY
 
-# 启动 Yode
+# 启动 TUI
 yode
 
-# 指定模型
-yode --model claude-sonnet-4-20250514
+# 非交互单轮模式
+yode --chat "Summarize the repository structure"
+
+# 显式指定 provider / model
+yode --provider anthropic --model <model-name>
 
 # 恢复历史会话
 yode --resume <session-id>
+
+# 环境检查
+yode doctor
 ```
 
-## 功能特性
+如果还没有 provider 配置，先运行：
 
-### LLM 集成
-- **多提供商支持** — OpenAI、Anthropic 或任何 OpenAI 兼容端点
-- **流式响应** — 实时 token 流传输，支持取消
-- **上下文管理** — 接近上下文限制时自动摘要压缩
+```bash
+yode provider add
+```
 
-### 内置工具
-| 工具 | 说明 |
-|------|------|
-| `bash` | Shell 命令执行，带危险命令检测 |
-| `read_file` / `write_file` / `edit_file` | 精确的文件操作 |
-| `glob` / `grep` | 快速代码库搜索 |
-| `web_fetch` / `web_search` | 网页抓取和网络搜索 |
-| `lsp` | 语言服务器集成（跳转定义、查找引用、悬停信息） |
-| `agent` | 启动子代理执行并行任务 |
-| `memory` | 跨会话持久化记忆 |
-| MCP 支持 | 通过 Model Context Protocol 服务器扩展功能 |
+## 为什么是 Yode
 
-### 终端界面
-- **Markdown 渲染** — 表格、代码块（语法高亮）、引用块、任务列表
-- **Braille 加载动画** 和流式传输指示器
-- **滚动导航** 支持输入历史搜索（`Ctrl+R`）
-- **权限模式切换**（`Shift+Tab`）
-- **工具确认** — `[y]` 允许、`[n]` 拒绝、`[a]` 始终允许
-- **文件附件** 支持 `@file` 和 Shell 快捷方式 `!command`
-- 括号粘贴模式支持
+### 1. 它是 Tool Runtime，不只是聊天 UI
 
-### 安全与控制
-- **权限系统** — 普通、自动接受、计划三种模式
-- **危险命令检测** — 阻止破坏性 `git` 操作、`rm -rf` 等
-- **会话持久化** — SQLite 存储，支持 `--resume` 恢复
+Yode 不是简单把 LLM 包在 shell 外面，而是自带一套 runtime plane：
 
-## 快捷键
+- 基础代码工具：`read_file`、`write_file`、`edit_file`、`glob`、`grep`、`bash`、`lsp`
+- 编排工具：`agent`、`team_create`、`send_message`、`team_monitor`、`coordinate_agents`
+- workflow / review 工具：`workflow_run`、`workflow_run_with_writes`、`review_changes`、`review_pipeline`、`review_then_commit`
+- remote runtime 工具：`remote_queue_dispatch`、`remote_queue_result`、`remote_transport_control`
+- 运行时辅助：`task_output`、`tool_search`、plan mode、worktree、cron、MCP resource
 
-| 快捷键 | 功能 |
-|--------|------|
-| `Enter` | 发送消息 |
-| `Ctrl+Enter` / `Shift+Enter` | 插入换行 |
-| `Ctrl+C` | 停止生成（连按两次退出） |
-| `Esc` | 停止生成 |
-| `↑` / `↓` | 滚动聊天 |
-| `Ctrl+P` / `Ctrl+N` | 浏览输入历史 |
-| `Ctrl+R` | 反向搜索历史 |
-| `Ctrl+L` | 清屏 |
-| `Ctrl+K` | 删除到行尾 |
-| `Ctrl+W` | 删除前一个单词 |
-| `PageUp` / `PageDown` | 滚动聊天（10 行） |
-| `Shift+Tab` | 切换权限模式 |
-| `Tab` | 自动补全命令 |
+### 2. 它有 Inspectable Operator Surface
 
-## 斜杠命令
+runtime 不是黑盒，可以在产品内部被复盘和诊断：
+
+- `/status`、`/brief`、`/diagnostics` 看整体状态
+- `/inspect artifact ...` 看 startup、runtime、hook、permission、team、remote 产物
+- `/tasks monitor`、`/tasks follow latest` 看后台任务
+- `/remote-control monitor`、`/remote-control queue`、`/remote-control follow latest` 看远端/持续运行面
+- `/checkpoint` 做 session checkpoint、branch、rewind、restore、rollback 类操作
+
+### 3. 它有 Governance、Hooks 和 Safety
+
+相比早期版本，Yode 现在有更完整的控制平面：
+
+- permission modes：`default`、`plan`、`auto`、`accept-edits`、`bypass`
+- 可检查的 permission governance 与 precedence chain
+- 覆盖 tool / task / sub-agent / worktree 的 hook lifecycle
+- hook `defer` 语义和可恢复 artifact/state
+- 对危险 shell 行为的检测与 runtime confirmation 规则
+
+### 4. 它把 MCP 和 Managed Settings 也做成了可见平面
+
+不再只是“当前加载了哪些工具”：
+
+- provider inventory artifact
+- settings scope artifact
+- managed MCP inventory artifact
+- tool-search activation artifact
+- 面向 operator 的 MCP diagnostics 与 remediation 跳转
+
+## 建议先掌握的命令
+
+| 命令 | 用途 |
+| --- | --- |
+| `/status` | 会话与 runtime 全量快照 |
+| `/brief` | 当前状态的紧凑摘要 |
+| `/diagnostics` | runtime health / observability 总览 |
+| `/inspect artifact summary` | artifact family 总入口 |
+| `/tools diag` | tool pool、hidden/deferred tool、失败诊断 |
+| `/permissions mode` | permission mode 指南与切换 |
+| `/tasks monitor` | 后台 runtime task 工作区 |
+| `/remote-control monitor` | remote live-session monitor 面 |
+| `/mcp` | MCP 与 settings control-plane 摘要 |
+| `/workflows` | workflow 检查与运行入口 |
+| `/checkpoint` | 保存/恢复/branch/rewind/rollback |
+
+## 常用 CLI 入口
 
 | 命令 | 说明 |
-|------|------|
-| `/help` | 显示所有命令 |
-| `/keys` | 快捷键参考 |
-| `/clear` | 清除聊天显示 |
-| `/model` | 显示当前模型 |
-| `/provider` | 切换 LLM 提供商 |
-| `/providers` | 列出可用提供商 |
-| `/tools` | 列出可用工具 |
-| `/cost` | 显示 token 用量和预估费用 |
-| `/diff` | 显示 `git diff --stat` |
-| `/status` | 会话状态摘要 |
-| `/context` | 上下文窗口使用情况 |
-| `/compact` | 压缩聊天历史 |
-| `/copy` | 复制最后一条回复到剪贴板 |
-| `/sessions` | 列出历史会话 |
-| `/bug` | 生成 bug 报告 |
-| `/doctor` | 环境健康检查 |
-| `/config` | 显示当前配置 |
-| `/version` | 显示版本信息 |
+| --- | --- |
+| `yode` | 启动 TUI |
+| `yode --chat "<msg>"` | 非交互单轮模式 |
+| `yode --serve-mcp` | 以 stdio MCP server 方式运行 |
+| `yode provider list` | 列出已配置 provider |
+| `yode provider add` | 交互式 provider 配置 |
+| `yode update check` | 检查并应用更新 |
+| `yode completions zsh` | 生成 shell 补全 |
+| `yode doctor` | 环境健康检查 |
+
+## 配置分层
+
+Yode 会从多层来源合并配置与 governance 状态：
+
+- `~/.yode/managed-config.toml`
+- `~/.yode/config.toml`
+- `.yode/config.toml`
+- `.yode/config.local.toml`
+- session 与 CLI override
+
+示例：
+
+```toml
+[llm]
+default_provider = "anthropic"
+default_model = "your-model-name"
+
+[permissions]
+default_mode = "auto"
+
+[[permissions.always_allow]]
+category = "read"
+description = "allow read-only tools"
+
+[[hooks.hooks]]
+command = "scripts/pre_tool_use.sh"
+events = ["pre_tool_use", "permission_request"]
+tool_filter = ["bash", "write_file"]
+timeout_secs = 10
+can_block = true
+
+[mcp.servers.github]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-github"]
+```
+
+## 项目指令文件
+
+Yode 会加载多种兼容命名的项目说明文件，包括：
+
+- `YODE.md`
+- `docs/YODE.md`
+- `.yode/instructions.md`
+- `CLAUDE.md`
+- `AGENTS.md`
+- `.claude/CLAUDE.md`
+
+示例：
+
+```markdown
+# Project Guidelines
+
+- Run `cargo test -p yode-core --lib` after engine changes
+- Prefer small reviewable patches
+- Keep migration notes in `docs/optimization/`
+```
 
 ## 架构
 
-```
+```text
 crates/
-├── yode-core     # 引擎、上下文、权限、数据库
-├── yode-llm      # LLM 提供商抽象层（OpenAI、Anthropic）
-├── yode-tools    # 工具注册表和内置工具
-├── yode-tui      # 终端界面（基于 ratatui）
-├── yode-mcp      # Model Context Protocol 支持
-└── yode-agent    # Agent 编排
+├── yode-core     # engine、context、permissions、hooks、session/runtime state
+├── yode-llm      # provider abstraction
+├── yode-tools    # built-in tools 与 runtime tool surface
+├── yode-tui      # terminal UI 与 operator commands
+├── yode-mcp      # MCP integration
+└── yode-agent    # agent/runtime helpers
 ```
 
-## 项目级配置
+## 0.0.11 版本重点
 
-在项目根目录创建 `YODE.md` 文件，为 AI 提供项目特定的上下文和指令：
+`0.0.11` 完成了 round-9 的 tool-platform 收口：
 
-```markdown
-# 项目说明
+- remote queue dispatch/result 和 transport control 已升级为 first-class tools
+- permission governance、hook defer、team runtime、managed settings / MCP、remote live session 都已经进入 inspectable runtime plane
+- tool/operator UX 已补齐 taxonomy、monitor/follow surface、permission mode guide 和完整 verification/docs
 
-这是一个使用 Actix-web 的 Rust 项目。
-- 代码修改后始终运行 `cargo clippy`
-- 优先使用 `anyhow::Result` 而非自定义错误类型
-- 所有 I/O 操作使用 async/await
-```
-
-## 配置
-
-配置文件位置：`~/.config/yode/config.toml`
-
-```toml
-[provider]
-default = "anthropic"
-model = "claude-sonnet-4-20250514"
-
-[permissions]
-# 始终允许、无需确认的工具
-allow = ["read_file", "glob", "grep"]
-# 始终需要确认的工具
-confirm = ["bash", "write_file", "edit_file"]
-```
+Release: [v0.0.11](https://github.com/anYuJia/yode/releases/tag/v0.0.11)
 
 ## 贡献
 
-欢迎贡献！以下是帮助方式：
+欢迎贡献。
 
-1. Fork 本仓库
-2. 创建功能分支 (`git checkout -b feature/amazing-feature`)
-3. 提交更改 (`git commit -m 'Add amazing feature'`)
-4. 推送分支 (`git push origin feature/amazing-feature`)
-5. 创建 Pull Request
+1. Fork 仓库
+2. 新建分支
+3. 做聚焦、可 review 的改动
+4. 运行相关检查
+5. 提交 PR
 
 ## 许可证
 
-[MIT](LICENSE) — 欢迎使用、修改和分发。
+[MIT](LICENSE)
