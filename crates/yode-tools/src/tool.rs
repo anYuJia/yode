@@ -46,6 +46,8 @@ pub struct SubAgentOptions {
     pub isolation: Option<String>,
     pub cwd: Option<PathBuf>,
     pub allowed_tools: Vec<String>,
+    pub team_id: Option<String>,
+    pub member_id: Option<String>,
 }
 
 /// Sub-agent runner trait (implemented by yode-core).
@@ -113,6 +115,12 @@ pub struct ToolContext {
     pub progress_tx: Option<mpsc::UnboundedSender<ToolProgress>>,
     /// Current working directory.
     pub working_dir: Option<PathBuf>,
+    /// Current session identifier.
+    pub session_id: Option<String>,
+    /// Current provider name.
+    pub provider: Option<String>,
+    /// Current model name.
+    pub model: Option<String>,
     /// Sub-agent runner for the `agent` tool.
     pub sub_agent_runner: Option<Arc<dyn SubAgentRunner>>,
     /// MCP resource provider for list/read MCP resources.
@@ -142,6 +150,9 @@ impl ToolContext {
             user_input_rx: None,
             progress_tx: None,
             working_dir: None,
+            session_id: None,
+            provider: None,
+            model: None,
             sub_agent_runner: None,
             mcp_resources: None,
             cron_manager: None,

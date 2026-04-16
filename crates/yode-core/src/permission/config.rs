@@ -9,14 +9,21 @@ pub struct PermissionConfig {
     #[serde(default)]
     pub always_allow: Vec<PermissionRuleConfig>,
     #[serde(default)]
+    pub always_ask: Vec<PermissionRuleConfig>,
+    #[serde(default)]
     pub always_deny: Vec<PermissionRuleConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PermissionRuleConfig {
+    #[serde(default)]
     pub tool: String,
     #[serde(default)]
+    pub category: Option<String>,
+    #[serde(default)]
     pub pattern: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
 }
 
 impl PermissionConfig {
@@ -28,7 +35,19 @@ impl PermissionConfig {
                 source,
                 behavior: RuleBehavior::Allow,
                 tool_name: r.tool.clone(),
+                category: r.category.clone(),
                 pattern: r.pattern.clone(),
+                description: r.description.clone(),
+            });
+        }
+        for r in &self.always_ask {
+            rules.push(PermissionRule {
+                source,
+                behavior: RuleBehavior::Ask,
+                tool_name: r.tool.clone(),
+                category: r.category.clone(),
+                pattern: r.pattern.clone(),
+                description: r.description.clone(),
             });
         }
         for r in &self.always_deny {
@@ -36,7 +55,9 @@ impl PermissionConfig {
                 source,
                 behavior: RuleBehavior::Deny,
                 tool_name: r.tool.clone(),
+                category: r.category.clone(),
                 pattern: r.pattern.clone(),
+                description: r.description.clone(),
             });
         }
         rules

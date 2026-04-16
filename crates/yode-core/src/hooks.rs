@@ -19,6 +19,11 @@ pub enum HookEvent {
     PreToolUse,
     PostToolUse,
     PostToolUseFailure,
+    SubagentStart,
+    SubagentStop,
+    TaskCreated,
+    TaskCompleted,
+    WorktreeCreate,
     PermissionRequest,
     PermissionDenied,
     UserPromptSubmit,
@@ -36,6 +41,11 @@ impl std::fmt::Display for HookEvent {
             Self::PreToolUse => write!(f, "pre_tool_use"),
             Self::PostToolUse => write!(f, "post_tool_use"),
             Self::PostToolUseFailure => write!(f, "post_tool_use_failure"),
+            Self::SubagentStart => write!(f, "subagent_start"),
+            Self::SubagentStop => write!(f, "subagent_stop"),
+            Self::TaskCreated => write!(f, "task_created"),
+            Self::TaskCompleted => write!(f, "task_completed"),
+            Self::WorktreeCreate => write!(f, "worktree_create"),
             Self::PermissionRequest => write!(f, "permission_request"),
             Self::PermissionDenied => write!(f, "permission_denied"),
             Self::UserPromptSubmit => write!(f, "user_prompt_submit"),
@@ -67,10 +77,12 @@ pub struct HookContext {
 #[derive(Debug, Clone, Default)]
 pub struct HookResult {
     pub blocked: bool,
+    pub deferred: bool,
     pub reason: Option<String>,
     pub modified_input: Option<Value>,
     pub stdout: Option<String>,
     pub wake_notification: Option<String>,
+    pub source_hook_command: Option<String>,
 }
 
 impl HookResult {
@@ -81,6 +93,14 @@ impl HookResult {
     pub fn blocked(reason: String) -> Self {
         Self {
             blocked: true,
+            reason: Some(reason),
+            ..Default::default()
+        }
+    }
+
+    pub fn deferred(reason: String) -> Self {
+        Self {
+            deferred: true,
             reason: Some(reason),
             ..Default::default()
         }
@@ -124,11 +144,15 @@ pub struct HookManagerStats {
     pub execution_error_count: u32,
     pub nonzero_exit_count: u32,
     pub wake_notification_count: u32,
+    pub defer_count: u32,
     pub last_failure_event: Option<String>,
     pub last_failure_command: Option<String>,
     pub last_failure_reason: Option<String>,
     pub last_failure_at: Option<String>,
     pub last_timeout_command: Option<String>,
+    pub last_defer_command: Option<String>,
+    pub last_defer_reason: Option<String>,
+    pub last_defer_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

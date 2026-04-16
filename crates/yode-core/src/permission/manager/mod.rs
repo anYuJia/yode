@@ -16,6 +16,15 @@ pub struct PermissionExplanation {
     pub matched_rule: Option<String>,
     pub denial_count: u32,
     pub auto_skip_due_to_denials: bool,
+    pub precedence_chain: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PermissionSourceView {
+    pub source: RuleSource,
+    pub path: Option<String>,
+    pub default_mode: Option<String>,
+    pub rules: Vec<PermissionRule>,
 }
 
 /// Manages permissions for tool execution with modes, rules, and tracking.
@@ -25,6 +34,7 @@ pub struct PermissionManager {
     rules: Vec<PermissionRule>,
     denial_tracker: DenialTracker,
     confirmation_prefix_counts: HashMap<String, u32>,
+    source_views: Vec<PermissionSourceView>,
     /// Read-only tool names that are always allowed in plan mode
     readonly_tools: Vec<String>,
 }
@@ -36,6 +46,7 @@ impl PermissionManager {
             rules: Vec::new(),
             denial_tracker: DenialTracker::new(),
             confirmation_prefix_counts: HashMap::new(),
+            source_views: Vec::new(),
             readonly_tools: vec![
                 "read_file".into(),
                 "glob".into(),
@@ -63,7 +74,9 @@ impl PermissionManager {
                 source: RuleSource::UserConfig,
                 behavior: RuleBehavior::Ask,
                 tool_name: tool.clone(),
+                category: None,
                 pattern: None,
+                description: None,
             });
         }
         manager
@@ -82,7 +95,9 @@ impl PermissionManager {
                 source: RuleSource::UserConfig,
                 behavior: RuleBehavior::Ask,
                 tool_name: tool.to_string(),
+                category: None,
                 pattern: None,
+                description: None,
             });
         }
         manager
@@ -182,12 +197,33 @@ impl PermissionManager {
         self.rules.clone()
     }
 
+    pub fn set_source_views(&mut self, views: Vec<PermissionSourceView>) {
+        self.source_views = views;
+    }
+
+    pub fn source_views_snapshot(&self) -> Vec<PermissionSourceView> {
+        self.source_views.clone()
+    }
+
     pub fn allow(&mut self, tool_name: &str) {
         self.rules.push(PermissionRule {
             source: RuleSource::Session,
             behavior: RuleBehavior::Allow,
             tool_name: tool_name.to_string(),
+            category: None,
             pattern: None,
+            description: None,
+        });
+    }
+
+    pub fn allow_category(&mut self, category: &str) {
+        self.rules.push(PermissionRule {
+            source: RuleSource::Session,
+            behavior: RuleBehavior::Allow,
+            tool_name: "*".to_string(),
+            category: Some(category.to_string()),
+            pattern: None,
+            description: Some(format!("session allow for category {}", category)),
         });
     }
 
@@ -196,7 +232,31 @@ impl PermissionManager {
             source: RuleSource::Session,
             behavior: RuleBehavior::Deny,
             tool_name: tool_name.to_string(),
+            category: None,
             pattern: None,
+            description: None,
+        });
+    }
+
+    pub fn deny_category(&mut self, category: &str) {
+        self.rules.push(PermissionRule {
+            source: RuleSource::Session,
+            behavior: RuleBehavior::Deny,
+            tool_name: "*".to_string(),
+            category: Some(category.to_string()),
+            pattern: None,
+            description: Some(format!("session deny for category {}", category)),
+        });
+    }
+
+    pub fn ask_category(&mut self, category: &str) {
+        self.rules.push(PermissionRule {
+            source: RuleSource::Session,
+            behavior: RuleBehavior::Ask,
+            tool_name: "*".to_string(),
+            category: Some(category.to_string()),
+            pattern: None,
+            description: Some(format!("session ask for category {}", category)),
         });
     }
 

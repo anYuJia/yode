@@ -1,14 +1,18 @@
 use yode_core::engine::EngineRuntimeState;
-use yode_core::permission::{PermissionMode, PermissionRule, RuleBehavior, RuleSource};
+use yode_core::permission::{
+    PermissionMode, PermissionRule, PermissionSourceView, RuleBehavior, RuleSource,
+};
 
-use crate::commands::workspace_nav::{runtime_artifact_jump_targets, workspace_jump_inventory};
+use crate::commands::workspace_nav::{runtime_operator_jump_targets, workspace_jump_inventory};
 use crate::commands::workspace_text::{workspace_artifact_lines, workspace_bullets, WorkspaceText};
 use crate::runtime_display::format_permission_decision_summary;
 
 pub(crate) fn rule_source_badge(source: RuleSource) -> &'static str {
     match source {
+        RuleSource::ManagedConfig => "[managed]",
         RuleSource::UserConfig => "[user]",
         RuleSource::ProjectConfig => "[project]",
+        RuleSource::LocalConfig => "[local]",
         RuleSource::Session => "[session]",
         RuleSource::CliArg => "[cli]",
     }
@@ -55,9 +59,9 @@ pub(crate) fn permission_recovery_jump_inventory(
     recovery_artifact: Option<&str>,
 ) -> String {
     workspace_jump_inventory(
-        runtime_artifact_jump_targets(permission_artifact)
+        runtime_operator_jump_targets(permission_artifact)
             .into_iter()
-            .chain(runtime_artifact_jump_targets(recovery_artifact))
+            .chain(runtime_operator_jump_targets(recovery_artifact))
             .collect::<Vec<_>>(),
     )
 }
@@ -70,10 +74,12 @@ pub(crate) fn render_permission_workspace(
     mode: PermissionMode,
     confirmable_tools: &[&str],
     rules: &[PermissionRule],
+    source_views: &[PermissionSourceView],
     recent_denials: &[String],
     denial_prefixes: &[String],
     safe_prefixes: &str,
     confirmation_suggestions: &[String],
+    governance_artifact: Option<&str>,
     runtime: &EngineRuntimeState,
 ) -> String {
     let mut rule_lines = rules
@@ -107,6 +113,22 @@ pub(crate) fn render_permission_workspace(
             .map(|suggestion| format!("[{}] {}", suggestion_severity(suggestion), suggestion))
             .collect()
     };
+    let source_lines = if source_views.is_empty() {
+        vec!["none".to_string()]
+    } else {
+        source_views
+            .iter()
+            .map(|view| {
+                format!(
+                    "{} path={} mode={} rules={}",
+                    rule_source_badge(view.source),
+                    view.path.as_deref().unwrap_or("none"),
+                    view.default_mode.as_deref().unwrap_or("inherit"),
+                    view.rules.len(),
+                )
+            })
+            .collect()
+    };
 
     WorkspaceText::new("Permission and recovery workspace")
         .field("Mode", mode.to_string())
@@ -129,6 +151,7 @@ pub(crate) fn render_permission_workspace(
             },
         )
         .section("Rules", workspace_bullets(rule_lines))
+        .section("Source Views", workspace_bullets(source_lines))
         .section(
             "Recent denials",
             if recent_denials.is_empty() {
@@ -165,6 +188,10 @@ pub(crate) fn render_permission_workspace(
                         .unwrap_or("none")
                         .to_string(),
                 ),
+                (
+                    "governance",
+                    governance_artifact.unwrap_or("none").to_string(),
+                ),
             ]),
         )
         .footer(permission_recovery_jump_inventory(
@@ -189,7 +216,9 @@ pub(crate) fn render_hook_workspace(
             "Artifacts",
             workspace_artifact_lines([("hook", hook_artifact.unwrap_or("none"))]),
         )
-        .footer(workspace_jump_inventory(runtime_artifact_jump_targets(hook_artifact)))
+        .footer(workspace_jump_inventory(runtime_operator_jump_targets(
+            hook_artifact,
+        )))
         .render()
 }
 
@@ -334,6 +363,8 @@ mod tests {
     #[test]
     fn rule_and_suggestion_helpers_render() {
         assert_eq!(rule_source_badge(RuleSource::CliArg), "[cli]");
+        assert_eq!(rule_source_badge(RuleSource::ManagedConfig), "[managed]");
+        assert_eq!(rule_source_badge(RuleSource::LocalConfig), "[local]");
         assert_eq!(suggestion_severity("consider allow rule"), "high");
         assert!(permission_recovery_operator_guide().contains("/permissions"));
     }
@@ -351,12 +382,16 @@ mod tests {
                 source: RuleSource::Session,
                 behavior: RuleBehavior::Allow,
                 tool_name: "bash".to_string(),
+                category: None,
                 pattern: None,
+                description: None,
             }],
+            &[],
             &[],
             &[],
             "git status",
             &["consider allow rule".to_string()],
+            None,
             &state,
         );
         assert!(permission.contains("Permission and recovery workspace"));

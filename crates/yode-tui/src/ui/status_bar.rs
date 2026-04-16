@@ -6,7 +6,8 @@ use ratatui::Frame;
 
 use crate::app::App;
 use super::badges::{
-    budget_badge_label, permission_mode_badge, queue_badge_label, task_badge_label,
+    budget_badge_label, permission_mode_badge, queue_badge_label, runtime_family_badge,
+    task_badge_label,
 };
 use super::palette::{LIGHT, MUTED, SEP};
 use super::responsive::{density_from_width, status_section_mode, Density, StatusSectionMode};
@@ -26,6 +27,7 @@ pub fn render_info_line(frame: &mut Frame, area: Rect, app: &App) {
     let density = density_from_width(area.width, 68, 96);
     let section_mode = status_section_mode(area.width);
     let running_tasks = running_task_count(app);
+    let working_dir = std::path::PathBuf::from(&app.session.working_dir);
     let mut parts: Vec<Span> = Vec::new();
 
     // Prefix
@@ -134,6 +136,28 @@ pub fn render_info_line(frame: &mut Frame, area: Rect, app: &App) {
         parts.push(Span::styled("· ", Style::default().fg(SEP)));
     }
 
+    if crate::commands::artifact_nav::latest_agent_team_monitor_artifact(&working_dir).is_some() {
+        parts.push(Span::styled(
+            runtime_family_badge("team", density),
+            Style::default().fg(Color::LightCyan),
+        ));
+        parts.push(Span::styled("· ", Style::default().fg(SEP)));
+    }
+    if crate::commands::artifact_nav::latest_remote_live_session_artifact(&working_dir).is_some() {
+        parts.push(Span::styled(
+            runtime_family_badge("live", density),
+            Style::default().fg(Color::LightGreen),
+        ));
+        parts.push(Span::styled("· ", Style::default().fg(SEP)));
+    }
+    if crate::commands::artifact_nav::latest_hook_deferred_artifact(&working_dir).is_some() {
+        parts.push(Span::styled(
+            runtime_family_badge("defer", density),
+            Style::default().fg(Color::Yellow),
+        ));
+        parts.push(Span::styled("· ", Style::default().fg(SEP)));
+    }
+
     if let Some(budget_badge) = budget_badge_label(app.turn_tool_count, density) {
         parts.push(Span::styled(
             budget_badge,
@@ -227,8 +251,8 @@ mod tests {
 
     #[test]
     fn task_badge_label_compacts_for_small_widths() {
-        assert_eq!(task_badge_label(3, Density::Wide), "3 tasks ");
-        assert_eq!(task_badge_label(3, Density::Medium), "t3 ");
-        assert_eq!(task_badge_label(3, Density::Narrow), "3t ");
+        assert_eq!(task_badge_label(3, Density::Wide), "3 jobs ");
+        assert_eq!(task_badge_label(3, Density::Medium), "j3 ");
+        assert_eq!(task_badge_label(3, Density::Narrow), "3j ");
     }
 }

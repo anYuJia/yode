@@ -101,7 +101,26 @@ pub fn turn_runtime_indicator_text(app: &App) -> String {
         "NeedUserGuidance" => " · ask-user",
         _ => "",
     };
-    format!(" · compact {} · {}{}", state.total_compactions, mem, recovery)
+    let working_dir = std::path::PathBuf::from(&app.session.working_dir);
+    let live = if crate::commands::artifact_nav::latest_remote_live_session_artifact(&working_dir).is_some() {
+        " · live"
+    } else {
+        ""
+    };
+    let team = if crate::commands::artifact_nav::latest_agent_team_monitor_artifact(&working_dir).is_some() {
+        " · team"
+    } else {
+        ""
+    };
+    let defer = if crate::commands::artifact_nav::latest_hook_deferred_artifact(&working_dir).is_some() {
+        " · defer"
+    } else {
+        ""
+    };
+    format!(
+        " · compact {} · {}{}{}{}{}",
+        state.total_compactions, mem, recovery, live, team, defer
+    )
 }
 
 fn format_tok(n: u32) -> String {

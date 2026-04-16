@@ -25,6 +25,8 @@ impl SubAgentRunner for MockRunner {
 async fn coordinate_agents_runs_multiple_workstreams() {
     let seen = Arc::new(Mutex::new(Vec::new()));
     let mut ctx = ToolContext::empty();
+    let dir = tempfile::tempdir().unwrap();
+    ctx.working_dir = Some(dir.path().to_path_buf());
     ctx.sub_agent_runner = Some(Arc::new(MockRunner {
         seen: Arc::clone(&seen),
     }));
@@ -58,11 +60,20 @@ async fn coordinate_agents_runs_multiple_workstreams() {
     assert_eq!(seen.lock().unwrap().len(), 2);
     assert!(result.content.contains("\"phase\": 1"));
     assert!(result.content.contains("\"phase\": 2"));
+    let metadata = result.metadata.unwrap();
+    assert!(metadata.get("team_id").and_then(|v| v.as_str()).is_some());
+    let team_state = metadata
+        .get("team_state_artifact")
+        .and_then(|v| v.as_str())
+        .unwrap();
+    assert!(std::path::Path::new(team_state).exists());
 }
 
 #[tokio::test]
 async fn coordinate_agents_dry_run_returns_phase_plan() {
-    let ctx = ToolContext::empty();
+    let dir = tempfile::tempdir().unwrap();
+    let mut ctx = ToolContext::empty();
+    ctx.working_dir = Some(dir.path().to_path_buf());
 
     let tool = CoordinateAgentsTool;
     let result = tool
@@ -93,7 +104,9 @@ async fn coordinate_agents_dry_run_returns_phase_plan() {
     assert!(result.content.contains("Coordinator phase timeline"));
     assert!(result.content.contains("\"phase\": 1"));
     assert!(result.content.contains("\"phase\": 2"));
-    assert_eq!(result.metadata.unwrap()["dry_run"], true);
+    let metadata = result.metadata.unwrap();
+    assert_eq!(metadata["dry_run"], true);
+    assert!(metadata.get("team_id").and_then(|v| v.as_str()).is_some());
 }
 
 #[test]

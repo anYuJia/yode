@@ -1,7 +1,7 @@
 use yode_core::engine::EngineRuntimeState;
 use yode_tools::RuntimeTask;
 
-use crate::runtime_timeline::render_runtime_timeline_markdown;
+use crate::runtime_timeline::render_runtime_timeline_markdown_with_project_root;
 
 pub(crate) fn write_runtime_task_inventory_artifact(
     project_root: &std::path::Path,
@@ -41,7 +41,11 @@ pub(crate) fn write_runtime_timeline_artifact(
     std::fs::create_dir_all(&dir).ok()?;
     let short_session = session_id.chars().take(8).collect::<String>();
     let path = dir.join(format!("{}-runtime-timeline.md", short_session));
-    std::fs::write(&path, render_runtime_timeline_markdown(state, tasks, 25)).ok()?;
+    std::fs::write(
+        &path,
+        render_runtime_timeline_markdown_with_project_root(project_root, state, tasks, 25),
+    )
+    .ok()?;
     Some(path.display().to_string())
 }
 

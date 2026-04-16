@@ -5,7 +5,9 @@ mod sections;
 use crate::commands::context::CommandContext;
 use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
 use crate::commands::artifact_nav::{
-    latest_coordinator_artifact, latest_runtime_orchestration_artifact,
+    latest_agent_team_monitor_artifact, latest_coordinator_artifact,
+    latest_hook_deferred_artifact, latest_permission_governance_artifact,
+    latest_remote_live_session_artifact, latest_runtime_orchestration_artifact,
     latest_workflow_execution_artifact,
 };
 use crate::runtime_artifacts::{
@@ -111,6 +113,8 @@ impl Command for StatusCommand {
             provider_inventory_artifact: provider_inventory
                 .as_ref()
                 .map(|summary| summary.path.display().to_string()),
+            settings_scope_artifact: latest_startup_artifact_link(&working_dir, "settings-scopes.json"),
+            managed_mcp_artifact: latest_startup_artifact_link(&working_dir, "managed-mcp-inventory.json"),
             resume_warmup_artifact: latest_startup_artifact_link(&working_dir, "resume-warmup.json"),
             mcp_failure_artifact: mcp_startup_failures
                 .as_ref()
@@ -124,11 +128,23 @@ impl Command for StatusCommand {
             permission_artifact: runtime
                 .as_ref()
                 .and_then(|state| state.last_permission_artifact_path.clone()),
+            permission_governance_artifact: latest_permission_governance_artifact(&working_dir)
+                .map(|path| path.display().to_string()),
             transcript_artifact: runtime
                 .as_ref()
                 .and_then(|state| state.last_compaction_transcript_path.clone()),
             runtime_task_artifact,
             hook_artifact,
+            hook_deferred_artifact: latest_hook_deferred_artifact(&working_dir)
+                .map(|path| path.display().to_string()),
+            team_monitor_artifact: latest_agent_team_monitor_artifact(&working_dir)
+                .map(|path| path.display().to_string()),
+            remote_live_artifact: latest_remote_live_session_artifact(&working_dir)
+                .map(|path| path.display().to_string()),
+            tool_search_activation_artifact: latest_startup_artifact_link(
+                &working_dir,
+                "tool-search-activation.json",
+            ),
             workflow_artifact: latest_workflow_execution_artifact(&working_dir)
                 .map(|path| path.display().to_string()),
             coordinator_artifact: latest_coordinator_artifact(&working_dir)
@@ -143,6 +159,7 @@ impl Command for StatusCommand {
         );
         let runtime_sections =
             build_runtime_sections(
+                &working_dir,
                 runtime,
                 &runtime_tasks,
                 latest_review.as_ref(),

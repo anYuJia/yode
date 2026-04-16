@@ -38,7 +38,7 @@ impl std::str::FromStr for PermissionMode {
             "plan" => Ok(Self::Plan),
             "auto" => Ok(Self::Auto),
             "accept-edits" | "acceptedits" | "accept_edits" => Ok(Self::AcceptEdits),
-            "bypass" => Ok(Self::Bypass),
+            "bypass" | "dont-ask" | "dontask" | "don't-ask" => Ok(Self::Bypass),
             _ => Err(format!(
                 "Unknown permission mode: {s}. Valid: default, plan, auto, accept-edits, bypass"
             )),
@@ -69,10 +69,14 @@ pub enum RuleSource {
     UserConfig = 0,
     /// Project-level config (.yode/config.toml)
     ProjectConfig = 1,
+    /// Local developer override (.yode/config.local.toml)
+    LocalConfig = 2,
     /// Session-level rules (dynamic)
-    Session = 2,
+    Session = 3,
+    /// Managed/enterprise policy (~/.yode/managed-config.toml)
+    ManagedConfig = 4,
     /// CLI arguments (highest priority)
-    CliArg = 3,
+    CliArg = 5,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -82,19 +86,42 @@ pub enum RuleBehavior {
     Ask,
 }
 
+impl RuleBehavior {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Allow => "allow",
+            Self::Deny => "deny",
+            Self::Ask => "ask",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PermissionRule {
     pub source: RuleSource,
     pub behavior: RuleBehavior,
     pub tool_name: String,
+    /// Optional tool category match (e.g. read, write, shell, agent, mcp)
+    pub category: Option<String>,
     /// Optional glob/pattern for command content matching
     pub pattern: Option<String>,
+    /// Optional operator-facing description for the rule.
+    pub description: Option<String>,
 }
 
 impl PermissionRule {
     /// Check if this rule matches a given tool name and optional command content.
     pub(crate) fn matches(&self, tool_name: &str, content: Option<&str>) -> bool {
-        if self.tool_name != "*" && self.tool_name.to_lowercase() != tool_name.to_lowercase() {
+        let category_match = self
+            .category
+            .as_deref()
+            .is_some_and(|category| tool_categories(tool_name).iter().any(|item| *item == category));
+        let tool_match = if self.tool_name == "*" {
+            self.category.is_none()
+        } else {
+            self.tool_name.to_lowercase() == tool_name.to_lowercase()
+        };
+        if !(tool_match || category_match) {
             return false;
         }
         match (&self.pattern, content) {
@@ -134,4 +161,44 @@ pub(crate) fn glob_match(pattern: &str, text: &str) -> bool {
         return pos == text.len();
     }
     true
+}
+
+pub fn tool_categories(tool_name: &str) -> Vec<&'static str> {
+    let mut categories = Vec::new();
+    match tool_name {
+        "read_file" | "glob" | "grep" | "ls" | "git_status" | "git_log" | "git_diff"
+        | "project_map" | "tool_search" | "web_search" | "web_fetch" | "lsp"
+        | "mcp_list_resources" | "mcp_read_resource" | "task_output" | "cron_list" => {
+            categories.push("read");
+        }
+        "write_file" | "edit_file" | "multi_edit" | "notebook_edit" | "git_commit"
+        | "cron_create" | "cron_delete" | "enter_worktree" | "exit_worktree" => {
+            categories.push("write");
+        }
+        "bash" => categories.push("shell"),
+        "agent" | "coordinate_agents" | "verification_agent" => {
+            categories.push("agent");
+            categories.push("team");
+        }
+        "team_create" | "send_message" | "team_monitor" => categories.push("team"),
+        "remote_queue_dispatch" | "remote_queue_result" | "remote_transport_control" => {
+            categories.push("remote");
+        }
+        name if name.starts_with("mcp__") => categories.push("mcp"),
+        name if name.starts_with("workflow") => categories.push("workflow"),
+        _ => {}
+    }
+    if matches!(tool_name, "task_output" | "cron_create" | "cron_list" | "cron_delete") {
+        categories.push("background");
+    }
+    if matches!(
+        tool_name,
+        "remote_queue_dispatch" | "remote_queue_result" | "remote_transport_control"
+    ) {
+        categories.push("background");
+    }
+    if categories.is_empty() {
+        categories.push("general");
+    }
+    categories
 }

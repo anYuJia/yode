@@ -105,8 +105,8 @@ pub struct InspectorRuntime {
 impl PermissionMode {
     pub fn label(&self) -> &'static str {
         match self {
-            PermissionMode::Normal => "Normal",
-            PermissionMode::AutoAccept => "Auto-Accept",
+            PermissionMode::Normal => "Default",
+            PermissionMode::AutoAccept => "Auto",
             PermissionMode::Plan => "Plan",
         }
     }

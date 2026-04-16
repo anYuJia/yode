@@ -7,9 +7,17 @@ use crate::commands::artifact_nav::{
     latest_branch_state_artifact, latest_bundle_workspace_index,
     latest_checkpoint_artifact, latest_checkpoint_state_artifact, latest_coordinator_artifact,
     latest_coordinator_state_artifact,
+    latest_agent_team_artifact, latest_agent_team_bundle_artifact,
+    latest_agent_team_messages_artifact, latest_agent_team_monitor_artifact,
+    latest_agent_team_state_artifact, latest_subagent_result_artifact,
+    latest_hook_deferred_artifact, latest_hook_deferred_state_artifact,
+    latest_permission_governance_artifact,
     latest_remote_command_queue_artifact, latest_remote_control_artifact,
-    latest_remote_control_state_artifact, latest_remote_queue_execution_artifact,
-    latest_remote_transport_artifact, latest_remote_transport_state_artifact,
+    latest_remote_control_state_artifact, latest_remote_live_session_artifact,
+    latest_remote_live_session_state_artifact, latest_remote_queue_execution_artifact,
+    latest_remote_session_transcript_sync_artifact,
+    latest_remote_transport_artifact, latest_remote_transport_events_artifact,
+    latest_remote_transport_state_artifact,
     latest_remote_task_handoff_artifact,
     latest_action_history_artifact, latest_action_metrics_artifact,
     latest_rewind_anchor_artifact, latest_rewind_anchor_state_artifact,
@@ -284,7 +292,10 @@ fn inspect_artifact_target(args: &str, ctx: &mut CommandContext) -> CommandResul
                 .ok_or_else(|| "No remote queue execution artifact found.".to_string())?,
             "Remote queue execution".to_string(),
             "remote_queue".to_string(),
-            vec!["/remote-control run latest".to_string()],
+            vec![
+                "/remote-control dispatch latest".to_string(),
+                "/remote-control complete latest remote completion confirmed".to_string(),
+            ],
         ),
         "latest-remote-transport" => (
             latest_remote_transport_artifact(&project_root)
@@ -299,6 +310,79 @@ fn inspect_artifact_target(args: &str, ctx: &mut CommandContext) -> CommandResul
             "Remote transport state".to_string(),
             "remote_transport".to_string(),
             vec!["/remote-control doctor".to_string()],
+        ),
+        "latest-remote-transport-events" => (
+            latest_remote_transport_events_artifact(&project_root)
+                .ok_or_else(|| "No remote transport event artifact found.".to_string())?,
+            "Remote transport events".to_string(),
+            "remote_transport".to_string(),
+            vec![
+                "/remote-control transport".to_string(),
+                "/remote-control run latest".to_string(),
+            ],
+        ),
+        "latest-remote-live-session" => (
+            latest_remote_live_session_artifact(&project_root)
+                .ok_or_else(|| "No remote live session artifact found.".to_string())?,
+            "Remote live session".to_string(),
+            "remote_live_session".to_string(),
+            vec!["/remote-control session".to_string()],
+        ),
+        "latest-remote-live-session-state" => (
+            latest_remote_live_session_state_artifact(&project_root)
+                .ok_or_else(|| "No remote live session state artifact found.".to_string())?,
+            "Remote live session state".to_string(),
+            "remote_live_session".to_string(),
+            vec!["/remote-control session sync".to_string()],
+        ),
+        "latest-remote-session-transcript-sync" => (
+            latest_remote_session_transcript_sync_artifact(&project_root)
+                .ok_or_else(|| "No remote session transcript sync artifact found.".to_string())?,
+            "Remote session transcript sync".to_string(),
+            "remote_live_session".to_string(),
+            vec!["/remote-control session".to_string()],
+        ),
+        "latest-agent-team" => (
+            latest_agent_team_artifact(&project_root)
+                .ok_or_else(|| "No agent team artifact found.".to_string())?,
+            "Agent team".to_string(),
+            "agent_team".to_string(),
+            vec!["/inspect artifact history teams".to_string()],
+        ),
+        "latest-agent-team-state" => (
+            latest_agent_team_state_artifact(&project_root)
+                .ok_or_else(|| "No agent team state artifact found.".to_string())?,
+            "Agent team state".to_string(),
+            "agent_team".to_string(),
+            vec!["/inspect artifact latest-agent-team".to_string()],
+        ),
+        "latest-agent-team-messages" => (
+            latest_agent_team_messages_artifact(&project_root)
+                .ok_or_else(|| "No agent team messages artifact found.".to_string())?,
+            "Agent team messages".to_string(),
+            "agent_team".to_string(),
+            vec!["/inspect artifact latest-agent-team".to_string()],
+        ),
+        "latest-agent-team-monitor" => (
+            latest_agent_team_monitor_artifact(&project_root)
+                .ok_or_else(|| "No agent team monitor artifact found.".to_string())?,
+            "Agent team monitor".to_string(),
+            "agent_team".to_string(),
+            vec!["/inspect artifact latest-agent-team-state".to_string()],
+        ),
+        "latest-agent-team-bundle" => (
+            latest_agent_team_bundle_artifact(&project_root)
+                .ok_or_else(|| "No agent team bundle artifact found.".to_string())?,
+            "Agent team bundle".to_string(),
+            "agent_team".to_string(),
+            vec!["/inspect artifact latest-agent-team-monitor".to_string()],
+        ),
+        "latest-subagent-result" => (
+            latest_subagent_result_artifact(&project_root)
+                .ok_or_else(|| "No subagent result artifact found.".to_string())?,
+            "Subagent result".to_string(),
+            "agent_team".to_string(),
+            vec!["/inspect artifact history teams".to_string()],
         ),
         "latest-workflow-state" => (
             latest_workflow_state_artifact(&project_root)
@@ -370,6 +454,20 @@ fn inspect_artifact_target(args: &str, ctx: &mut CommandContext) -> CommandResul
             "hook".to_string(),
             vec!["/hooks".to_string()],
         ),
+        "latest-hook-deferred" => (
+            latest_hook_deferred_artifact(&project_root)
+                .ok_or_else(|| "No hook deferred artifact found.".to_string())?,
+            "Hook deferred artifact".to_string(),
+            "hook".to_string(),
+            vec!["/inspect artifact history hooks".to_string()],
+        ),
+        "latest-hook-deferred-state" => (
+            latest_hook_deferred_state_artifact(&project_root)
+                .ok_or_else(|| "No hook deferred state artifact found.".to_string())?,
+            "Hook deferred state artifact".to_string(),
+            "hook".to_string(),
+            vec!["/inspect artifact latest-hook-deferred".to_string()],
+        ),
         "latest-startup-profile" => (
             latest_artifact_by_suffix(&startup_dir, "startup-profile.txt")
                 .ok_or_else(|| "No startup profile artifact found.".to_string())?,
@@ -397,6 +495,34 @@ fn inspect_artifact_target(args: &str, ctx: &mut CommandContext) -> CommandResul
             "MCP startup failures artifact".to_string(),
             "startup".to_string(),
             vec!["/status".to_string()],
+        ),
+        "latest-permission-policy" => (
+            latest_artifact_by_suffix(&startup_dir, "permission-policy.json")
+                .ok_or_else(|| "No permission policy artifact found.".to_string())?,
+            "Permission policy artifact".to_string(),
+            "permission".to_string(),
+            vec!["/permissions governance".to_string()],
+        ),
+        "latest-settings-scopes" => (
+            latest_artifact_by_suffix(&startup_dir, "settings-scopes.json")
+                .ok_or_else(|| "No settings scopes artifact found.".to_string())?,
+            "Settings scopes artifact".to_string(),
+            "startup".to_string(),
+            vec!["/mcp".to_string()],
+        ),
+        "latest-managed-mcp-inventory" => (
+            latest_artifact_by_suffix(&startup_dir, "managed-mcp-inventory.json")
+                .ok_or_else(|| "No managed MCP inventory artifact found.".to_string())?,
+            "Managed MCP inventory artifact".to_string(),
+            "startup".to_string(),
+            vec!["/mcp".to_string()],
+        ),
+        "latest-tool-search-activation" => (
+            latest_artifact_by_suffix(&startup_dir, "tool-search-activation.json")
+                .ok_or_else(|| "No tool search activation artifact found.".to_string())?,
+            "Tool search activation artifact".to_string(),
+            "startup".to_string(),
+            vec!["/tools diag".to_string()],
         ),
         "latest-review" => (
             recent_artifacts_by_suffix(&review_dir, ".md", 1)
@@ -467,6 +593,13 @@ fn inspect_artifact_target(args: &str, ctx: &mut CommandContext) -> CommandResul
             "Permission artifact".to_string(),
             "permission".to_string(),
             vec!["/permissions".to_string()],
+        ),
+        "latest-permission-governance" => (
+            latest_permission_governance_artifact(&project_root)
+                .ok_or_else(|| "No permission governance artifact found.".to_string())?,
+            "Permission governance artifact".to_string(),
+            "permission".to_string(),
+            vec!["/permissions governance".to_string()],
         ),
         other => {
             let path = PathBuf::from(other);
@@ -540,6 +673,7 @@ fn inspect_completion_targets(ctx: &crate::commands::context::CompletionContext)
         "artifact history status".to_string(),
         "artifact history state".to_string(),
         "artifact history remote".to_string(),
+        "artifact history hooks".to_string(),
         "artifact history startup".to_string(),
         "artifact history reviews".to_string(),
         "artifact history transcripts".to_string(),
@@ -548,6 +682,7 @@ fn inspect_completion_targets(ctx: &crate::commands::context::CompletionContext)
         "artifact history coordinate".to_string(),
         "artifact history runtime".to_string(),
         "artifact history actions".to_string(),
+        "artifact history teams".to_string(),
         "artifact latest-workflow".to_string(),
         "artifact latest-checkpoint".to_string(),
         "artifact latest-checkpoint-state".to_string(),
@@ -563,6 +698,16 @@ fn inspect_completion_targets(ctx: &crate::commands::context::CompletionContext)
         "artifact latest-remote-queue-execution".to_string(),
         "artifact latest-remote-transport".to_string(),
         "artifact latest-remote-transport-state".to_string(),
+        "artifact latest-remote-transport-events".to_string(),
+        "artifact latest-remote-live-session".to_string(),
+        "artifact latest-remote-live-session-state".to_string(),
+        "artifact latest-remote-session-transcript-sync".to_string(),
+        "artifact latest-agent-team".to_string(),
+        "artifact latest-agent-team-state".to_string(),
+        "artifact latest-agent-team-messages".to_string(),
+        "artifact latest-agent-team-monitor".to_string(),
+        "artifact latest-agent-team-bundle".to_string(),
+        "artifact latest-subagent-result".to_string(),
         "artifact latest-remote-task-handoff".to_string(),
         "artifact latest-workflow-state".to_string(),
         "artifact latest-coordinate".to_string(),
@@ -573,16 +718,23 @@ fn inspect_completion_targets(ctx: &crate::commands::context::CompletionContext)
         "artifact latest-action-history".to_string(),
         "artifact latest-action-metrics".to_string(),
         "artifact latest-hook-failures".to_string(),
+        "artifact latest-hook-deferred".to_string(),
+        "artifact latest-hook-deferred-state".to_string(),
         "artifact latest-startup-profile".to_string(),
         "artifact latest-startup-manifest".to_string(),
         "artifact latest-provider-inventory".to_string(),
         "artifact latest-mcp-failures".to_string(),
+        "artifact latest-permission-policy".to_string(),
+        "artifact latest-settings-scopes".to_string(),
+        "artifact latest-managed-mcp-inventory".to_string(),
+        "artifact latest-tool-search-activation".to_string(),
         "artifact latest-review".to_string(),
         "artifact latest-transcript".to_string(),
         "artifact latest-session-memory".to_string(),
         "artifact latest-tool".to_string(),
         "artifact latest-recovery".to_string(),
         "artifact latest-permission".to_string(),
+        "artifact latest-permission-governance".to_string(),
         "artifact latest-remote-capability".to_string(),
         "artifact latest-remote-execution".to_string(),
         "artifact bundle".to_string(),
@@ -590,6 +742,9 @@ fn inspect_completion_targets(ctx: &crate::commands::context::CompletionContext)
     let status_dir = project_root.join(".yode").join("status");
     let remote_dir = project_root.join(".yode").join("remote");
     let startup_dir = project_root.join(".yode").join("startup");
+    let hooks_dir = project_root.join(".yode").join("hooks");
+    let teams_dir = project_root.join(".yode").join("teams");
+    let agent_results_dir = project_root.join(".yode").join("agent-results");
     let checkpoint_dir = project_root.join(".yode").join("checkpoints");
     let review_dir = project_root.join(".yode").join("reviews");
     let transcript_dir = project_root.join(".yode").join("transcripts");
@@ -601,7 +756,12 @@ fn inspect_completion_targets(ctx: &crate::commands::context::CompletionContext)
         .chain(recent_artifacts_by_suffix(&checkpoint_dir, ".json", 4))
         .chain(recent_artifacts_by_suffix(&startup_dir, ".json", 4))
         .chain(recent_artifacts_by_suffix(&startup_dir, ".txt", 2))
+        .chain(recent_artifacts_by_suffix(&hooks_dir, ".md", 3))
+        .chain(recent_artifacts_by_suffix(&hooks_dir, ".json", 3))
+        .chain(recent_artifacts_by_suffix(&teams_dir, ".md", 4))
+        .chain(recent_artifacts_by_suffix(&teams_dir, ".json", 3))
         .chain(recent_artifacts_by_suffix(&review_dir, ".md", 3))
+        .chain(recent_artifacts_by_suffix(&agent_results_dir, ".md", 3))
         .chain(recent_artifacts_by_suffix(&transcript_dir, ".md", 3))
     {
         if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
@@ -615,15 +775,17 @@ fn artifact_inventory_lines(project_root: &std::path::Path, cwd: &std::path::Pat
     let mut lines = vec![
         "Aliases:".to_string(),
         "latest-workflow | latest-coordinate | latest-orchestration".to_string(),
+        "latest-agent-team | latest-agent-team-state | latest-agent-team-messages | latest-agent-team-monitor | latest-agent-team-bundle | latest-subagent-result".to_string(),
         "latest-workflow-state | latest-coordinate-state".to_string(),
         "latest-checkpoint | latest-checkpoint-state".to_string(),
         "latest-branch | latest-branch-state | latest-branch-merge | latest-branch-merge-state | latest-rewind-anchor | latest-rewind-anchor-state".to_string(),
-        "latest-remote-control | latest-remote-control-state | latest-remote-queue | latest-remote-queue-execution | latest-remote-transport | latest-remote-transport-state".to_string(),
+        "latest-remote-control | latest-remote-control-state | latest-remote-queue | latest-remote-queue-execution | latest-remote-transport | latest-remote-transport-state | latest-remote-transport-events | latest-remote-live-session | latest-remote-live-session-state | latest-remote-session-transcript-sync".to_string(),
         "latest-remote-task-handoff".to_string(),
-        "latest-runtime-timeline | latest-runtime-tasks | latest-hook-failures".to_string(),
+        "latest-runtime-timeline | latest-runtime-tasks | latest-hook-failures | latest-hook-deferred | latest-hook-deferred-state".to_string(),
+        "latest-permission | latest-permission-governance | latest-permission-policy".to_string(),
         "latest-action-history | latest-action-metrics".to_string(),
-        "latest-startup-profile | latest-startup-manifest | latest-provider-inventory | latest-mcp-failures".to_string(),
-        "latest-review | latest-transcript | latest-session-memory | latest-tool | latest-recovery | latest-permission".to_string(),
+        "latest-startup-profile | latest-startup-manifest | latest-provider-inventory | latest-mcp-failures | latest-permission-policy | latest-settings-scopes | latest-managed-mcp-inventory | latest-tool-search-activation".to_string(),
+        "latest-review | latest-transcript | latest-session-memory | latest-tool | latest-recovery | latest-permission | latest-permission-governance".to_string(),
         "latest-remote-capability | latest-remote-execution | bundle".to_string(),
         "Recent status artifacts:".to_string(),
     ];
@@ -659,12 +821,39 @@ fn artifact_inventory_lines(project_root: &std::path::Path, cwd: &std::path::Pat
             ))
             .collect::<Vec<_>>(),
     ));
+    lines.push("Recent hook artifacts:".to_string());
+    lines.extend(artifact_history_lines(
+        recent_artifacts_by_suffix(&project_root.join(".yode").join("hooks"), ".md", 6)
+            .into_iter()
+            .chain(recent_artifacts_by_suffix(
+                &project_root.join(".yode").join("hooks"),
+                ".json",
+                6,
+            ))
+            .collect::<Vec<_>>(),
+    ));
     lines.push("Recent review artifacts:".to_string());
     lines.extend(artifact_history_lines(recent_artifacts_by_suffix(
         &project_root.join(".yode").join("reviews"),
         ".md",
         4,
     )));
+    lines.push("Recent team artifacts:".to_string());
+    lines.extend(artifact_history_lines(
+        recent_artifacts_by_suffix(&project_root.join(".yode").join("teams"), ".md", 6)
+            .into_iter()
+            .chain(recent_artifacts_by_suffix(
+                &project_root.join(".yode").join("teams"),
+                ".json",
+                6,
+            ))
+            .chain(recent_artifacts_by_suffix(
+                &project_root.join(".yode").join("agent-results"),
+                ".md",
+                4,
+            ))
+            .collect::<Vec<_>>(),
+    ));
     lines.push("Recent transcript artifacts:".to_string());
     lines.extend(artifact_history_lines(recent_artifacts_by_suffix(
         &project_root.join(".yode").join("transcripts"),
@@ -696,15 +885,20 @@ fn artifact_summary_lines(project_root: &std::path::Path, cwd: &std::path::Path)
     vec![
         "Counts:".to_string(),
         format!(
-            "status={} state={} checkpoints={} startup={} remote={} reviews={} transcripts={} bundles={}",
+            "status={} state={} checkpoints={} startup={} hooks={} remote={} teams={} reviews={} transcripts={} bundles={}",
             recent_artifacts_by_suffix(&project_root.join(".yode").join("status"), ".md", usize::MAX).len(),
             recent_artifacts_by_suffix(&project_root.join(".yode").join("status"), ".json", usize::MAX).len(),
             recent_artifacts_by_suffix(&project_root.join(".yode").join("checkpoints"), ".md", usize::MAX).len()
                 + recent_artifacts_by_suffix(&project_root.join(".yode").join("checkpoints"), ".json", usize::MAX).len(),
             recent_artifacts_by_suffix(&project_root.join(".yode").join("startup"), ".json", usize::MAX).len()
                 + recent_artifacts_by_suffix(&project_root.join(".yode").join("startup"), ".txt", usize::MAX).len(),
+            recent_artifacts_by_suffix(&project_root.join(".yode").join("hooks"), ".md", usize::MAX).len()
+                + recent_artifacts_by_suffix(&project_root.join(".yode").join("hooks"), ".json", usize::MAX).len(),
             recent_artifacts_by_suffix(&project_root.join(".yode").join("remote"), ".json", usize::MAX).len()
                 + recent_artifacts_by_suffix(&project_root.join(".yode").join("remote"), ".md", usize::MAX).len(),
+            recent_artifacts_by_suffix(&project_root.join(".yode").join("teams"), ".json", usize::MAX).len()
+                + recent_artifacts_by_suffix(&project_root.join(".yode").join("teams"), ".md", usize::MAX).len()
+                + recent_artifacts_by_suffix(&project_root.join(".yode").join("agent-results"), ".md", usize::MAX).len(),
             recent_artifacts_by_suffix(&project_root.join(".yode").join("reviews"), ".md", usize::MAX).len(),
             recent_artifacts_by_suffix(&project_root.join(".yode").join("transcripts"), ".md", usize::MAX).len(),
             recent_bundle_workspace_indexes(cwd, usize::MAX).len(),
@@ -763,6 +957,45 @@ fn artifact_summary_lines(project_root: &std::path::Path, cwd: &std::path::Path)
         latest_remote_transport_state_artifact(project_root)
             .map(|path| format!("remote_transport_state -> {}", artifact_display_line(&path)))
             .unwrap_or_else(|| "remote_transport_state -> none".to_string()),
+        latest_remote_transport_events_artifact(project_root)
+            .map(|path| format!("remote_transport_events -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "remote_transport_events -> none".to_string()),
+        latest_remote_live_session_artifact(project_root)
+            .map(|path| format!("remote_live_session -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "remote_live_session -> none".to_string()),
+        latest_remote_live_session_state_artifact(project_root)
+            .map(|path| format!("remote_live_session_state -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "remote_live_session_state -> none".to_string()),
+        latest_remote_session_transcript_sync_artifact(project_root)
+            .map(|path| format!("remote_session_transcript_sync -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "remote_session_transcript_sync -> none".to_string()),
+        latest_agent_team_artifact(project_root)
+            .map(|path| format!("agent_team -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "agent_team -> none".to_string()),
+        latest_agent_team_state_artifact(project_root)
+            .map(|path| format!("agent_team_state -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "agent_team_state -> none".to_string()),
+        latest_agent_team_messages_artifact(project_root)
+            .map(|path| format!("agent_team_messages -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "agent_team_messages -> none".to_string()),
+        latest_agent_team_monitor_artifact(project_root)
+            .map(|path| format!("agent_team_monitor -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "agent_team_monitor -> none".to_string()),
+        latest_agent_team_bundle_artifact(project_root)
+            .map(|path| format!("agent_team_bundle -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "agent_team_bundle -> none".to_string()),
+        latest_subagent_result_artifact(project_root)
+            .map(|path| format!("subagent_result -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "subagent_result -> none".to_string()),
+        latest_hook_deferred_artifact(project_root)
+            .map(|path| format!("hook_deferred -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "hook_deferred -> none".to_string()),
+        latest_hook_deferred_state_artifact(project_root)
+            .map(|path| format!("hook_deferred_state -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "hook_deferred_state -> none".to_string()),
+        latest_permission_governance_artifact(project_root)
+            .map(|path| format!("permission_governance -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "permission_governance -> none".to_string()),
         latest_action_history_artifact(project_root)
             .map(|path| format!("action_history -> {}", artifact_display_line(&path)))
             .unwrap_or_else(|| "action_history -> none".to_string()),
@@ -798,6 +1031,32 @@ fn artifact_history_family_lines(
             .chain(recent_artifacts_by_suffix(
                 &project_root.join(".yode").join("status"),
                 "inspector-action-metrics.json",
+                12,
+            ))
+            .collect(),
+        "teams" => recent_artifacts_by_suffix(&project_root.join(".yode").join("teams"), ".md", 12)
+            .into_iter()
+            .chain(recent_artifacts_by_suffix(
+                &project_root.join(".yode").join("teams"),
+                ".json",
+                12,
+            ))
+            .chain(recent_artifacts_by_suffix(
+                &project_root.join(".yode").join("agent-results"),
+                ".md",
+                12,
+            ))
+            .collect(),
+        "hooks" => recent_artifacts_by_suffix(&project_root.join(".yode").join("hooks"), ".md", 12)
+            .into_iter()
+            .chain(recent_artifacts_by_suffix(
+                &project_root.join(".yode").join("hooks"),
+                ".json",
+                12,
+            ))
+            .chain(recent_artifacts_by_suffix(
+                &project_root.join(".yode").join("status"),
+                "hook-failures.md",
                 12,
             ))
             .collect(),

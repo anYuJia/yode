@@ -42,8 +42,28 @@ pub(crate) fn workspace_jump_inventory(lines: impl IntoIterator<Item = String>) 
     lines.into_iter().collect::<Vec<_>>().join(" | ")
 }
 
+pub(crate) fn runtime_family_jump_targets() -> Vec<String> {
+    vec![
+        "/inspect artifact latest-agent-team-monitor".to_string(),
+        "/inspect artifact latest-remote-live-session-state".to_string(),
+        "/inspect artifact latest-hook-deferred-state".to_string(),
+        "/inspect artifact latest-permission-governance".to_string(),
+        "/inspect artifact latest-tool-search-activation".to_string(),
+    ]
+}
+
+pub(crate) fn background_monitor_jump_targets() -> Vec<String> {
+    vec![
+        "/tasks monitor".to_string(),
+        "/tasks follow latest".to_string(),
+        "/remote-control monitor".to_string(),
+        "/remote-control follow latest".to_string(),
+    ]
+}
+
 pub(crate) fn task_jump_targets(task_id: &str, transcript_path: Option<&str>) -> Vec<String> {
     let mut targets = vec![
+        "/tasks monitor".to_string(),
         format!("/tasks {}", task_id),
         format!("/tasks read {}", task_id),
         format!("/tasks follow {}", task_id),
@@ -71,10 +91,29 @@ pub(crate) fn transcript_jump_targets(path: &Path) -> Vec<String> {
 }
 
 pub(crate) fn runtime_artifact_jump_targets(path: Option<&str>) -> Vec<String> {
-    let mut targets = vec!["/brief".to_string(), "/status".to_string(), "/diagnostics".to_string()];
+    let mut targets = vec![
+        "/brief".to_string(),
+        "/status".to_string(),
+        "/diagnostics".to_string(),
+    ];
+    targets.extend(background_monitor_jump_targets());
+    targets.extend(runtime_family_jump_targets());
     if let Some(path) = path {
         targets.push(format!("/memory {}", compact_path_badge(path)));
     }
+    targets
+}
+
+pub(crate) fn runtime_operator_jump_targets(path: Option<&str>) -> Vec<String> {
+    let mut targets = vec![
+        "/tools diag".to_string(),
+        "/tools list".to_string(),
+        "/permissions mode".to_string(),
+        "/permissions governance".to_string(),
+        "/remote-control session".to_string(),
+        "/remote-control queue".to_string(),
+    ];
+    targets.extend(runtime_artifact_jump_targets(path));
     targets
 }
 
@@ -111,8 +150,9 @@ mod tests {
     use std::path::Path;
 
     use super::{
-        compact_path_badge, review_completion_targets, review_jump_targets,
-        runtime_artifact_jump_targets, task_jump_targets, transcript_completion_targets,
+        background_monitor_jump_targets, compact_path_badge, review_completion_targets,
+        review_jump_targets, runtime_artifact_jump_targets, runtime_family_jump_targets,
+        runtime_operator_jump_targets, task_jump_targets, transcript_completion_targets,
         transcript_jump_targets, workspace_breadcrumb, workspace_jump_inventory,
         workspace_selection_summary,
     };
@@ -146,6 +186,15 @@ mod tests {
         assert!(runtime_artifact_jump_targets(Some("/tmp/x.md"))
             .iter()
             .any(|line| line.contains("/memory x.md")));
+        assert!(runtime_family_jump_targets()
+            .iter()
+            .any(|line| line.contains("latest-tool-search-activation")));
+        assert!(background_monitor_jump_targets()
+            .iter()
+            .any(|line| line == "/tasks monitor"));
+        assert!(runtime_operator_jump_targets(None)
+            .iter()
+            .any(|line| line == "/permissions mode"));
     }
 
     #[test]

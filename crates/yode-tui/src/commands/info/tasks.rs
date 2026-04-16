@@ -36,6 +36,7 @@ impl TasksCommand {
                         required: false,
                         hint: "<task-id|stop|read|list|latest>".into(),
                         completions: ArgCompletionSource::Static(vec![
+                            "monitor".to_string(),
                             "summary".to_string(),
                             "notifications".to_string(),
                             "bundle".to_string(),
@@ -95,7 +96,9 @@ impl Command for TasksCommand {
 
         match parts.as_slice() {
             [] | ["list"] => render_task_list(engine.runtime_tasks_snapshot()),
-            ["summary"] => render_task_summary(engine.runtime_tasks_snapshot(), Some(&engine.runtime_state())),
+            ["monitor"] | ["summary"] => {
+                render_task_summary(engine.runtime_tasks_snapshot(), Some(&engine.runtime_state()))
+            }
             ["notifications"] => render_task_notifications(engine.runtime_tasks_snapshot()),
             ["list", filter] => {
                 let filter = parse_task_filter(filter)
@@ -194,7 +197,7 @@ impl Command for TasksCommand {
                 )))
             }
             [id] => render_task_detail(&engine, id),
-            _ => Err("Usage: /tasks | /tasks summary | /tasks notifications | /tasks list [filter] | /tasks latest [filter] | /tasks <task-id> | /tasks read <task-id> | /tasks bundle <task-id> | /tasks issue <task-id> | /tasks follow <task-id> | /tasks stop <task-id>".into()),
+            _ => Err("Usage: /tasks | /tasks monitor | /tasks summary | /tasks notifications | /tasks list [filter] | /tasks latest [filter] | /tasks <task-id> | /tasks read <task-id> | /tasks bundle <task-id> | /tasks issue <task-id> | /tasks follow <task-id> | /tasks stop <task-id>".into()),
         }
     }
 }

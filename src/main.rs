@@ -20,9 +20,11 @@ use crate::app_bootstrap::{
     append_startup_segments, build_startup_resume_segment, configure_permissions,
     ensure_session_exists, init_logging, parse_startup_summary_segment,
     restore_or_create_context, setup_tooling, shutdown_mcp_clients,
-    write_mcp_startup_failure_artifact,
+    write_managed_mcp_inventory_artifact, write_mcp_startup_failure_artifact,
     write_permission_policy_artifact, write_provider_inventory_artifact,
+    write_settings_scope_artifact,
     write_startup_bundle_manifest_artifact, write_startup_profile_artifact,
+    write_tool_search_activation_artifact,
     write_tooling_inventory_artifact, StartupProfiler,
 };
 
@@ -225,7 +227,7 @@ async fn main() -> Result<()> {
     let db_open_elapsed_ms = db_open_started_at.elapsed().as_millis() as u64;
     startup_profiler.checkpoint("db_ready");
 
-    let permissions = configure_permissions(&config);
+    let permissions = configure_permissions(&config, &workdir);
     startup_profiler.checkpoint("permission_setup");
     let session_bootstrap_started_at = Instant::now();
     let (context, restored_messages, restore_report) =
@@ -296,6 +298,23 @@ async fn main() -> Result<()> {
         &context.working_dir_compat(),
         &context.session_id,
         &permissions,
+    );
+    let _ = write_settings_scope_artifact(
+        &context.working_dir_compat(),
+        &context.session_id,
+        &context.working_dir_compat(),
+    );
+    let _ = write_managed_mcp_inventory_artifact(
+        &context.working_dir_compat(),
+        &context.session_id,
+        &context.working_dir_compat(),
+        &tooling.metrics,
+    );
+    let _ = write_tool_search_activation_artifact(
+        &context.working_dir_compat(),
+        &context.session_id,
+        &tooling.metrics,
+        &tooling.tool_registry,
     );
     let _ = write_mcp_startup_failure_artifact(
         &context.working_dir_compat(),

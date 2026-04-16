@@ -13,13 +13,23 @@ pub(in crate::hooks) fn parse_structured_hook_output(stdout: &str) -> Option<Hoo
     let decision = object
         .get("decision")
         .and_then(|v| v.as_str())
-        .map(|s| s.eq_ignore_ascii_case("block"))
-        .unwrap_or(false);
-    let blocked = continue_flag.map(|v| !v).unwrap_or(false) || decision;
+        .map(|s| s.to_string());
+    let blocked = continue_flag.map(|v| !v).unwrap_or(false)
+        || decision
+            .as_deref()
+            .is_some_and(|value| value.eq_ignore_ascii_case("block"));
+    let deferred = object
+        .get("defer")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+        || decision
+            .as_deref()
+            .is_some_and(|value| value.eq_ignore_ascii_case("defer"));
 
     let reason = object
         .get("reason")
         .or_else(|| object.get("stopReason"))
+        .or_else(|| object.get("deferReason"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
@@ -54,10 +64,12 @@ pub(in crate::hooks) fn parse_structured_hook_output(stdout: &str) -> Option<Hoo
 
     Some(HookResult {
         blocked,
+        deferred,
         reason,
         modified_input,
         stdout,
         wake_notification,
+        source_hook_command: None,
     })
 }
 

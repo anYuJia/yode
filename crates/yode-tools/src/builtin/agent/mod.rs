@@ -5,6 +5,7 @@ use serde_json::json;
 use serde_json::Value;
 
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
+use crate::builtin::team_runtime::{persist_agent_team_runtime, update_agent_team_member, AgentTeamMemberState};
 
 pub struct AgentTool;
 
@@ -126,6 +127,17 @@ impl Tool for AgentTool {
                     .collect()
             })
             .unwrap_or_default();
+        let team_id = params
+            .get("team_id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let member_id = params
+            .get("member_id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let allowed_tools_clone = allowed_tools.clone();
+        let subagent_type_clone = subagent_type.clone();
+        let model_clone = model.clone();
 
         let runner = ctx
             .sub_agent_runner
@@ -140,6 +152,8 @@ impl Tool for AgentTool {
             isolation,
             cwd,
             allowed_tools,
+            team_id: team_id.clone(),
+            member_id: member_id.clone(),
         };
 
         match runner.run_sub_agent(prompt, options).await {
@@ -149,6 +163,43 @@ impl Tool for AgentTool {
                         .as_deref()
                         .and_then(|dir| persist_sub_agent_artifact(dir, &description, &result).ok())
                         .map(|path| path.display().to_string())
+                } else {
+                    None
+                };
+                let team_artifacts = if let (Some(team_id), Some(working_dir)) = (team_id.as_deref(), ctx.working_dir.as_deref()) {
+                    let _ = persist_agent_team_runtime(
+                        working_dir,
+                        &description,
+                        Some(team_id),
+                        if run_in_background { "background" } else { "foreground" },
+                        vec![AgentTeamMemberState {
+                            member_id: member_id.clone().unwrap_or_else(|| "member-1".to_string()),
+                            description: description.clone(),
+                            subagent_type: subagent_type_clone.clone(),
+                            model: model_clone.clone(),
+                            run_in_background,
+                            allowed_tools: allowed_tools_clone.clone(),
+                            permission_inheritance: if allowed_tools_clone.is_empty() {
+                                "parent_tool_pool".to_string()
+                            } else {
+                                "explicit_allowlist".to_string()
+                            },
+                            status: if run_in_background { "running".to_string() } else { "completed".to_string() },
+                            runtime_task_id: parse_background_task_id(&result),
+                            last_result_preview: Some(result.chars().take(240).collect()),
+                            result_artifact_path: artifact_path.clone(),
+                            last_updated_at: Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()),
+                        }],
+                    );
+                    update_agent_team_member(
+                        working_dir,
+                        team_id,
+                        member_id.as_deref().unwrap_or("member-1"),
+                        if run_in_background { "running" } else { "completed" },
+                        parse_background_task_id(&result),
+                        Some(result.clone()),
+                        artifact_path.clone(),
+                    ).ok()
                 } else {
                     None
                 };
@@ -163,12 +214,33 @@ impl Tool for AgentTool {
                         "description": description,
                         "run_in_background": run_in_background,
                         "subagent_artifact_path": artifact_path,
+                        "team_summary_artifact": team_artifacts
+                            .as_ref()
+                            .and_then(|set| set.summary_path.as_ref())
+                            .map(|path| path.display().to_string()),
+                        "team_state_artifact": team_artifacts
+                            .as_ref()
+                            .and_then(|set| set.state_path.as_ref())
+                            .map(|path| path.display().to_string()),
+                        "team_monitor_artifact": team_artifacts
+                            .as_ref()
+                            .and_then(|set| set.monitor_path.as_ref())
+                            .map(|path| path.display().to_string()),
+                        "team_id": team_id,
+                        "member_id": member_id,
                     }),
                 ))
             }
             Err(e) => Ok(ToolResult::error(format!("Sub-agent failed: {}", e))),
         }
     }
+}
+
+fn parse_background_task_id(output: &str) -> Option<String> {
+    output
+        .strip_prefix("Background sub-agent launched as ")
+        .and_then(|rest| rest.split_once('.'))
+        .map(|(task_id, _)| task_id.trim().to_string())
 }
 
 fn persist_sub_agent_artifact(
@@ -244,5 +316,40 @@ mod tests {
         assert!(artifact_path.contains(".yode/agent-results/agent-"));
         assert!(std::path::Path::new(artifact_path).exists());
         assert!(result.content.contains("Sub-agent artifact:"));
+    }
+
+    #[tokio::test]
+    async fn agent_tool_updates_team_artifacts_when_team_is_provided() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ToolContext::empty();
+        ctx.working_dir = Some(dir.path().to_path_buf());
+        ctx.sub_agent_runner = Some(Arc::new(MockRunner));
+
+        let tool = AgentTool;
+        let result = tool
+            .execute(
+                json!({
+                    "description": "inspect code",
+                    "prompt": "inspect the workspace",
+                    "run_in_background": false,
+                    "team_id": "team-demo",
+                    "member_id": "review"
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        let metadata = result.metadata.unwrap();
+        let team_state = metadata
+            .get("team_state_artifact")
+            .and_then(|value| value.as_str())
+            .unwrap();
+        let team_monitor = metadata
+            .get("team_monitor_artifact")
+            .and_then(|value| value.as_str())
+            .unwrap();
+        assert!(std::path::Path::new(team_state).exists());
+        assert!(std::path::Path::new(team_monitor).exists());
     }
 }

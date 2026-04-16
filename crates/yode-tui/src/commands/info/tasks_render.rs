@@ -1,7 +1,7 @@
 use crate::commands::{CommandOutput, CommandResult};
 use crate::commands::workspace_nav::{
-    runtime_artifact_jump_targets, task_jump_targets, workspace_breadcrumb, workspace_jump_inventory,
-    workspace_selection_summary,
+    runtime_operator_jump_targets, task_jump_targets, workspace_breadcrumb,
+    workspace_jump_inventory, workspace_selection_summary,
 };
 use crate::commands::workspace_text::{
     workspace_artifact_lines, workspace_bullets, workspace_preview_line, WorkspaceText,
@@ -209,7 +209,9 @@ pub(super) fn render_task_summary(
             .field("Freshness", runtime_freshness_banner(&tasks, runtime))
             .section("By kind", workspace_bullets(grouped_task_runtime_summary(&tasks)))
             .section("Notifications", workspace_bullets(task_notification_summary(&tasks)))
-            .footer(workspace_jump_inventory(runtime_artifact_jump_targets(latest_artifact)))
+            .footer(workspace_jump_inventory(runtime_operator_jump_targets(
+                latest_artifact,
+            )))
             .render(),
     ))
 }

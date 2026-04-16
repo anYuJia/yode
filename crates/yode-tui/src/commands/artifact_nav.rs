@@ -140,6 +140,91 @@ pub(crate) fn latest_remote_transport_state_artifact(project_root: &Path) -> Opt
     )
 }
 
+pub(crate) fn latest_remote_transport_events_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("remote"),
+        "remote-transport-events.md",
+    )
+}
+
+pub(crate) fn latest_remote_live_session_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("remote"),
+        "remote-live-session.md",
+    )
+}
+
+pub(crate) fn latest_remote_live_session_state_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("remote"),
+        "remote-live-session-state.json",
+    )
+}
+
+pub(crate) fn latest_remote_session_transcript_sync_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("remote"),
+        "remote-session-transcript-sync.md",
+    )
+}
+
+pub(crate) fn latest_hook_deferred_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(&project_root.join(".yode").join("hooks"), "hook-deferred.md")
+}
+
+pub(crate) fn latest_hook_deferred_state_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("hooks"),
+        "hook-deferred-state.json",
+    )
+}
+
+pub(crate) fn latest_permission_governance_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("hooks"),
+        "permission-governance.json",
+    )
+}
+
+pub(crate) fn latest_agent_team_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(&project_root.join(".yode").join("teams"), "agent-team.md")
+}
+
+pub(crate) fn latest_agent_team_state_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("teams"),
+        "agent-team-state.json",
+    )
+}
+
+pub(crate) fn latest_agent_team_messages_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("teams"),
+        "agent-team-messages.md",
+    )
+}
+
+pub(crate) fn latest_agent_team_monitor_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("teams"),
+        "agent-team-monitor.md",
+    )
+}
+
+pub(crate) fn latest_agent_team_bundle_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("teams"),
+        "agent-team-bundle.md",
+    )
+}
+
+pub(crate) fn latest_subagent_result_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("agent-results"),
+        ".md",
+    )
+}
+
 pub(crate) fn latest_action_history_artifact(project_root: &Path) -> Option<PathBuf> {
     latest_artifact_by_suffix(
         &project_root.join(".yode").join("status"),
@@ -210,6 +295,9 @@ pub(crate) fn resolve_artifact_basename(project_root: &Path, target: &str) -> Op
     for dir in [
         project_root.join(".yode").join("status"),
         project_root.join(".yode").join("remote"),
+        project_root.join(".yode").join("teams"),
+        project_root.join(".yode").join("agent-results"),
+        project_root.join(".yode").join("hooks"),
         project_root.join(".yode").join("startup"),
     ] {
         let mut entries = std::fs::read_dir(&dir)
@@ -436,6 +524,42 @@ pub(crate) fn build_runtime_orchestration_timeline_lines(
     }
     if let Some(path) = latest_remote_transport_state_artifact(project_root) {
         entries.push(artifact_timeline_entry(&path, "remote transport state"));
+    }
+    if let Some(path) = latest_remote_transport_events_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "remote transport events"));
+    }
+    if let Some(path) = latest_remote_live_session_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "remote live session"));
+    }
+    if let Some(path) = latest_remote_live_session_state_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "remote live session state"));
+    }
+    if let Some(path) = latest_remote_session_transcript_sync_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "remote transcript sync"));
+    }
+    if let Some(path) = latest_hook_deferred_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "hook deferred"));
+    }
+    if let Some(path) = latest_hook_deferred_state_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "hook deferred state"));
+    }
+    if let Some(path) = latest_agent_team_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "agent team"));
+    }
+    if let Some(path) = latest_agent_team_state_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "agent team state"));
+    }
+    if let Some(path) = latest_agent_team_messages_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "agent team messages"));
+    }
+    if let Some(path) = latest_agent_team_monitor_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "agent team monitor"));
+    }
+    if let Some(path) = latest_agent_team_bundle_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "agent team bundle"));
+    }
+    if let Some(path) = latest_subagent_result_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "subagent result"));
     }
     if let Some(path) = latest_coordinator_artifact(project_root) {
         entries.push(artifact_timeline_entry(&path, "coordinator"));

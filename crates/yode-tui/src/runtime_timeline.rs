@@ -6,6 +6,12 @@ use chrono::{DateTime, Local};
 use yode_core::engine::EngineRuntimeState;
 use yode_tools::{RuntimeTask, RuntimeTaskStatus};
 
+use crate::commands::artifact_nav::{
+    latest_agent_team_artifact, latest_agent_team_monitor_artifact, latest_hook_deferred_artifact,
+    latest_hook_deferred_state_artifact, latest_permission_governance_artifact,
+    latest_remote_live_session_artifact, latest_remote_live_session_state_artifact,
+    latest_remote_session_transcript_sync_artifact,
+};
 use crate::runtime_display::{
     fold_recovery_breadcrumbs, format_permission_decision_summary, format_tool_progress_summary,
 };
@@ -16,7 +22,17 @@ struct RuntimeTimelineEntry {
     detail: String,
 }
 
+#[allow(dead_code)]
 pub(crate) fn build_runtime_timeline_lines(
+    state: &EngineRuntimeState,
+    tasks: &[RuntimeTask],
+    max_items: usize,
+) -> Vec<String> {
+    build_runtime_timeline_lines_with_project_root(None, state, tasks, max_items)
+}
+
+pub(crate) fn build_runtime_timeline_lines_with_project_root(
+    project_root: Option<&Path>,
     state: &EngineRuntimeState,
     tasks: &[RuntimeTask],
     max_items: usize,
@@ -174,15 +190,34 @@ pub(crate) fn build_runtime_timeline_lines(
         }
     }
 
+    if let Some(project_root) = project_root {
+        extend_with_runtime_family_entries(&mut entries, project_root);
+    }
+
     render_runtime_timeline_entries(entries, max_items)
 }
 
+#[allow(dead_code)]
 pub(crate) fn render_runtime_timeline_markdown(
     state: &EngineRuntimeState,
     tasks: &[RuntimeTask],
     max_items: usize,
 ) -> String {
     let lines = build_runtime_timeline_lines(state, tasks, max_items)
+        .into_iter()
+        .map(|line| format!("- {}", line))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!("# Runtime Timeline\n\n{}\n", lines)
+}
+
+pub(crate) fn render_runtime_timeline_markdown_with_project_root(
+    project_root: &Path,
+    state: &EngineRuntimeState,
+    tasks: &[RuntimeTask],
+    max_items: usize,
+) -> String {
+    let lines = build_runtime_timeline_lines_with_project_root(Some(project_root), state, tasks, max_items)
         .into_iter()
         .map(|line| format!("- {}", line))
         .collect::<Vec<_>>()
@@ -282,6 +317,59 @@ fn artifact_timestamp(path: &str) -> Option<String> {
     Some(format_system_time(modified))
 }
 
+fn extend_with_runtime_family_entries(entries: &mut Vec<RuntimeTimelineEntry>, project_root: &Path) {
+    for (path, label) in [
+        (latest_hook_deferred_artifact(project_root), "hook deferred"),
+        (
+            latest_hook_deferred_state_artifact(project_root),
+            "hook deferred state",
+        ),
+        (
+            latest_permission_governance_artifact(project_root),
+            "permission governance",
+        ),
+        (latest_agent_team_artifact(project_root), "agent team"),
+        (
+            latest_agent_team_monitor_artifact(project_root),
+            "agent team monitor",
+        ),
+        (
+            latest_remote_live_session_artifact(project_root),
+            "remote live session",
+        ),
+        (
+            latest_remote_live_session_state_artifact(project_root),
+            "remote live session state",
+        ),
+        (
+            latest_remote_session_transcript_sync_artifact(project_root),
+            "remote transcript sync",
+        ),
+    ] {
+        if let Some(path) = path {
+            entries.push(RuntimeTimelineEntry {
+                at: artifact_timestamp(&path.display().to_string()),
+                detail: format!("{}: artifact={}", label, path.display()),
+            });
+        }
+    }
+    for suffix in [
+        ("settings-scopes.json", "settings scopes"),
+        ("managed-mcp-inventory.json", "managed mcp inventory"),
+        ("tool-search-activation.json", "tool search activation"),
+        ("permission-policy.json", "permission policy"),
+    ] {
+        if let Some(path) =
+            crate::commands::artifact_nav::latest_artifact_by_suffix(&project_root.join(".yode").join("startup"), suffix.0)
+        {
+            entries.push(RuntimeTimelineEntry {
+                at: artifact_timestamp(&path.display().to_string()),
+                detail: format!("{}: artifact={}", suffix.1, path.display()),
+            });
+        }
+    }
+}
+
 fn format_system_time(value: SystemTime) -> String {
     let dt: DateTime<Local> = DateTime::<Local>::from(value);
     dt.format("%Y-%m-%d %H:%M:%S").to_string()
@@ -337,8 +425,8 @@ mod tests {
     use yode_tools::{registry::ToolPoolSnapshot, RuntimeTask, RuntimeTaskStatus};
 
     use super::{
-        build_runtime_timeline_lines, render_runtime_timeline_entries,
-        task_timeline_entry, RuntimeTimelineEntry,
+        build_runtime_timeline_lines, build_runtime_timeline_lines_with_project_root,
+        render_runtime_timeline_entries, task_timeline_entry, RuntimeTimelineEntry,
     };
 
     fn test_runtime_state() -> EngineRuntimeState {
@@ -569,5 +657,33 @@ mod tests {
     fn empty_timeline_renders_placeholder_line() {
         let lines = render_runtime_timeline_entries(Vec::new(), 4);
         assert_eq!(lines, vec!["no runtime events recorded".to_string()]);
+    }
+
+    #[test]
+    fn project_root_timeline_includes_extended_runtime_families() {
+        let dir = std::env::temp_dir().join(format!(
+            "yode-runtime-extended-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join(".yode").join("hooks")).unwrap();
+        std::fs::create_dir_all(dir.join(".yode").join("teams")).unwrap();
+        std::fs::create_dir_all(dir.join(".yode").join("remote")).unwrap();
+        std::fs::create_dir_all(dir.join(".yode").join("startup")).unwrap();
+        std::fs::write(dir.join(".yode").join("hooks").join("a-hook-deferred.md"), "x").unwrap();
+        std::fs::write(dir.join(".yode").join("teams").join("a-agent-team-monitor.md"), "x").unwrap();
+        std::fs::write(dir.join(".yode").join("remote").join("a-remote-live-session-state.json"), "{}").unwrap();
+        std::fs::write(dir.join(".yode").join("startup").join("a-settings-scopes.json"), "{}").unwrap();
+        std::fs::write(dir.join(".yode").join("startup").join("a-managed-mcp-inventory.json"), "{}").unwrap();
+        std::fs::write(dir.join(".yode").join("startup").join("a-tool-search-activation.json"), "{}").unwrap();
+
+        let lines = build_runtime_timeline_lines_with_project_root(Some(&dir), &test_runtime_state(), &[], 12);
+        assert!(lines.iter().any(|line| line.contains("hook deferred: artifact=")));
+        assert!(lines.iter().any(|line| line.contains("agent team monitor: artifact=")));
+        assert!(lines.iter().any(|line| line.contains("remote live session state: artifact=")));
+        assert!(lines.iter().any(|line| line.contains("settings scopes: artifact=")));
+        assert!(lines.iter().any(|line| line.contains("managed mcp inventory: artifact=")));
+        assert!(lines.iter().any(|line| line.contains("tool search activation: artifact=")));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -43,7 +43,16 @@ impl HookManager {
         let mut results = Vec::new();
 
         for hook in matching {
-            let result = self.execute_hook(hook, context).await;
+            let mut result = self.execute_hook(hook, context).await;
+            if result.source_hook_command.is_none() {
+                result.source_hook_command = Some(hook.command.clone());
+            }
+            if result.deferred {
+                self.record_hook_defer(
+                    &hook.command,
+                    result.reason.as_deref().unwrap_or("deferred by hook"),
+                );
+            }
             if let Some(message) = result.wake_notification.clone() {
                 if let Ok(mut notifications) = self.wake_notifications.lock() {
                     notifications.push(WakeNotification {
@@ -149,6 +158,7 @@ impl HookManager {
 
                     return HookResult {
                         blocked: false,
+                        deferred: false,
                         reason: None,
                         modified_input: None,
                         stdout: if stdout.is_empty() {
@@ -157,6 +167,7 @@ impl HookManager {
                             Some(stdout)
                         },
                         wake_notification: wake_message,
+                        source_hook_command: None,
                     };
                 }
 
@@ -195,6 +206,7 @@ impl HookManager {
                     } else {
                         HookResult {
                             blocked: true,
+                            deferred: false,
                             reason: Some(if stderr.is_empty() {
                                 format!(
                                     "Hook '{}' exited with code {}",
@@ -206,6 +218,7 @@ impl HookManager {
                             modified_input: None,
                             stdout: Some(stdout),
                             wake_notification: None,
+                            source_hook_command: None,
                         }
                     }
                 } else if let Some(parsed) = structured {
@@ -213,6 +226,7 @@ impl HookManager {
                 } else {
                     HookResult {
                         blocked: false,
+                        deferred: false,
                         reason: None,
                         modified_input: None,
                         stdout: if stdout.is_empty() {
@@ -221,6 +235,7 @@ impl HookManager {
                             Some(stdout)
                         },
                         wake_notification: None,
+                        source_hook_command: None,
                     }
                 }
             }
@@ -260,6 +275,16 @@ impl HookManager {
     fn record_hook_wake(&self) {
         if let Ok(mut stats) = self.stats.lock() {
             stats.wake_notification_count = stats.wake_notification_count.saturating_add(1);
+        }
+    }
+
+    fn record_hook_defer(&self, command: &str, reason: &str) {
+        if let Ok(mut stats) = self.stats.lock() {
+            stats.defer_count = stats.defer_count.saturating_add(1);
+            stats.last_defer_command = Some(command.to_string());
+            stats.last_defer_reason = Some(reason.to_string());
+            stats.last_defer_at =
+                Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
         }
     }
 

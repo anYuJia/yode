@@ -1,5 +1,8 @@
 use crate::commands::context::CommandContext;
 use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
+use crate::commands::info::startup_artifacts::{
+    latest_managed_mcp_inventory, latest_settings_scopes,
+};
 use std::collections::{BTreeMap, BTreeSet};
 use super::mcp_workspace::{
     auth_session_summary, browser_mcp_capability_summary, latency_sparkline,
@@ -108,8 +111,75 @@ impl Command for McpCommand {
             "  Capability merge: {}",
             browser_mcp_capability_summary(browser_tools_present, configured_servers.len())
         ));
+        let project_root = std::path::PathBuf::from(&ctx.session.working_dir);
+        if let Some(scopes) = latest_settings_scopes(&project_root) {
+            let scope_summary = scopes
+                .scopes
+                .iter()
+                .map(|scope| {
+                    format!(
+                        "{}(exists={} mode={} rules={} mcp={} path={})",
+                        scope.scope,
+                        scope.exists,
+                        scope.permission_default_mode.as_deref().unwrap_or("inherit"),
+                        scope.permission_rule_count,
+                        scope.mcp_server_count,
+                        scope.path
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(" | ");
+            lines.push(format!(
+                "  Settings scopes: {} [{}]",
+                scope_summary,
+                scopes.path.display()
+            ));
+        }
+        if let Some(managed_inventory) = latest_managed_mcp_inventory(&project_root) {
+            lines.push(format!(
+                "  Managed MCP: effective={} configured={} connected={} tools={} failures={} search={} reason={} deferred={} deferred_total={} activations={} last={} [{}]",
+                managed_inventory.effective_server_count,
+                managed_inventory.configured_server_count,
+                managed_inventory.connected_server_count,
+                managed_inventory.mcp_tool_count,
+                managed_inventory.failure_count,
+                if let Some(tool_search) = crate::commands::info::startup_artifacts::latest_tool_search_activation(&project_root) {
+                    tool_search.tool_search_enabled
+                } else {
+                    false
+                },
+                crate::commands::info::startup_artifacts::latest_tool_search_activation(&project_root)
+                    .map(|summary| summary.tool_search_reason)
+                    .unwrap_or_else(|| "none".to_string()),
+                crate::commands::info::startup_artifacts::latest_tool_search_activation(&project_root)
+                    .map(|summary| summary.deferred_mcp_tool_count)
+                    .unwrap_or(0),
+                crate::commands::info::startup_artifacts::latest_tool_search_activation(&project_root)
+                    .map(|summary| summary.deferred_tool_count)
+                    .unwrap_or(0),
+                crate::commands::info::startup_artifacts::latest_tool_search_activation(&project_root)
+                    .map(|summary| summary.activation_count)
+                    .unwrap_or(0),
+                crate::commands::info::startup_artifacts::latest_tool_search_activation(&project_root)
+                    .and_then(|summary| summary.last_activated_tool)
+                    .unwrap_or_else(|| "none".to_string()),
+                managed_inventory.path.display()
+            ));
+        }
+        if !configured_servers.is_empty() && latency_stats.is_empty() {
+            lines.push(
+                "  Remediation: configured MCP servers have no recent tool latency; inspect `/inspect artifact latest-managed-mcp-inventory` and `/inspect artifact latest-settings-scopes`."
+                    .to_string(),
+            );
+        }
+        if reconnect_stats.iter().any(|entry| entry.failures > 0) {
+            lines.push(
+                "  Remediation: reconnect failures detected; inspect `/inspect artifact latest-mcp-failures` and compare scope policy in `/inspect artifact latest-settings-scopes`."
+                    .to_string(),
+            );
+        }
         if let Some(path) = write_browser_access_state_artifact(
-            &std::path::PathBuf::from(&ctx.session.working_dir),
+            &project_root,
             &ctx.session.session_id,
             browser_tools_present,
             configured_servers.len(),

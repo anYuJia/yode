@@ -122,7 +122,15 @@ impl Tool for EnterWorktreeTool {
             branch_info
         );
 
-        Ok(ToolResult::success(msg))
+        Ok(ToolResult::success_with_metadata(
+            msg,
+            json!({
+                "worktree_dir": worktree_dir.display().to_string(),
+                "branch_name": branch_name,
+                "action": "create",
+                "original_dir": working_dir.display().to_string(),
+            }),
+        ))
     }
 }
 
@@ -257,6 +265,71 @@ impl Tool for ExitWorktreeTool {
             )
         };
 
-        Ok(ToolResult::success(msg))
+        Ok(ToolResult::success_with_metadata(
+            msg,
+            json!({
+                "original_dir": original_dir.display().to_string(),
+                "worktree_dir": worktree_dir.display().to_string(),
+                "branch_name": branch_name,
+                "action": action,
+                "discard_changes": discard_changes,
+            }),
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::EnterWorktreeTool;
+    use crate::tool::{Tool, ToolContext, WorktreeState};
+    use serde_json::json;
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+
+    #[tokio::test]
+    async fn enter_worktree_returns_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.email", "test@example.com"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.name", "Test User"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        std::fs::write(dir.path().join("README.md"), "hello\n").unwrap();
+        std::process::Command::new("git")
+            .args(["add", "README.md"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+
+        let ctx = ToolContext {
+            working_dir: Some(dir.path().to_path_buf()),
+            worktree_state: Some(Arc::new(Mutex::new(WorktreeState::default()))),
+            ..ToolContext::empty()
+        };
+        let tool = EnterWorktreeTool;
+        let result = tool.execute(json!({ "name": "demo" }), &ctx).await.unwrap();
+
+        assert!(!result.is_error);
+        let metadata = result.metadata.unwrap();
+        assert_eq!(metadata["action"].as_str(), Some("create"));
+        assert_eq!(metadata["branch_name"].as_str(), Some("yode-demo"));
+        assert!(metadata["worktree_dir"]
+            .as_str()
+            .is_some_and(|path| path.contains(".yode/worktrees/demo")));
     }
 }

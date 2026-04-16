@@ -8,9 +8,11 @@ use tokio_util::sync::CancellationToken;
 use yode_llm::provider::LlmProvider;
 use yode_tools::registry::ToolRegistry;
 use yode_tools::runtime_tasks::{latest_transcript_artifact_path, RuntimeTaskStore};
+use yode_tools::builtin::team_runtime::update_agent_team_member;
 use yode_tools::tool::{SubAgentOptions, SubAgentRunner};
 
 use crate::context::{AgentContext, QuerySource};
+use crate::hooks::{HookContext, HookEvent, HookManager};
 use crate::permission::PermissionManager;
 
 use super::{AgentEngine, EngineEvent};
@@ -21,6 +23,7 @@ pub struct SubAgentRunnerImpl {
     pub tools: Arc<ToolRegistry>,
     pub context: AgentContext,
     pub runtime_tasks: Arc<Mutex<RuntimeTaskStore>>,
+    pub hook_manager: Option<Arc<HookManager>>,
 }
 
 impl SubAgentRunner for SubAgentRunnerImpl {
@@ -33,6 +36,22 @@ impl SubAgentRunner for SubAgentRunnerImpl {
         let subagent_model = options.model.clone();
 
         Box::pin(async move {
+            emit_subagent_hook(
+                self.hook_manager.as_ref(),
+                HookEvent::SubagentStart,
+                &self.context,
+                &options.description,
+                None,
+                None,
+                Some(serde_json::json!({
+                    "run_in_background": options.run_in_background,
+                    "isolation": options.isolation,
+                    "model_override": options.model,
+                    "cwd_override": options.cwd.as_ref().map(|path| path.display().to_string()),
+                    "allowed_tools_count": options.allowed_tools.len(),
+                })),
+            )
+            .await;
             if options.run_in_background {
                 let tasks_dir = self
                     .context
@@ -54,6 +73,21 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                         transcript_path,
                     )
                 };
+                emit_task_hook(
+                    self.hook_manager.as_ref(),
+                    HookEvent::TaskCreated,
+                    &self.context,
+                    &task.id,
+                    &options.description,
+                    "agent",
+                    Some("pending"),
+                    None,
+                    Some(serde_json::json!({
+                        "run_in_background": true,
+                        "allowed_tools_count": allowed_tools.len(),
+                    })),
+                )
+                .await;
 
                 let provider = Arc::clone(&self.provider);
                 let tools = Arc::clone(&self.tools);
@@ -62,9 +96,13 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                     sub_context.model = m;
                 }
                 let runtime_tasks = Arc::clone(&self.runtime_tasks);
+                let hook_manager = self.hook_manager.clone();
                 let turn_prompt = format!("[Sub-task: {}]\n\n{}", options.description, prompt);
                 let allowed_tools = allowed_tools.clone();
                 let task_id = task.id.clone();
+                let subagent_description = options.description.clone();
+                let team_id = options.team_id.clone();
+                let member_id = options.member_id.clone();
                 tokio::spawn(async move {
                     {
                         let mut store = runtime_tasks.lock().await;
@@ -89,6 +127,7 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                     }
 
                     let permissions = PermissionManager::permissive();
+                    let hook_context = sub_context.clone();
                     let mut engine = AgentEngine::new(
                         provider,
                         Arc::new(sub_registry),
@@ -167,6 +206,39 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                     if cancelled {
                         let _ = tokio::fs::write(&output_path, "Sub-agent task cancelled.\n").await;
                         runtime_tasks.lock().await.mark_cancelled(&task_id);
+                        if let (Some(team_id), Some(member_id)) = (team_id.as_deref(), member_id.as_deref()) {
+                            let _ = update_agent_team_member(
+                                &hook_context.working_dir_compat(),
+                                team_id,
+                                member_id,
+                                "cancelled",
+                                Some(task_id.clone()),
+                                Some("Sub-agent task cancelled.".to_string()),
+                                None,
+                            );
+                        }
+                        emit_task_hook(
+                            hook_manager.as_ref(),
+                            HookEvent::TaskCompleted,
+                            &hook_context,
+                            &task_id,
+                            &subagent_description,
+                            "agent",
+                            Some("cancelled"),
+                            Some("Sub-agent task cancelled."),
+                            None,
+                        )
+                        .await;
+                        emit_subagent_hook(
+                            hook_manager.as_ref(),
+                            HookEvent::SubagentStop,
+                            &hook_context,
+                            &subagent_description,
+                            Some("cancelled"),
+                            Some("Sub-agent task cancelled."),
+                            None,
+                        )
+                        .await;
                         return;
                     }
 
@@ -180,8 +252,78 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                             let _ = tokio::fs::write(&output_path, content).await;
                             if let Some(error) = error_text {
                                 runtime_tasks.lock().await.mark_failed(&task_id, error);
+                                if let (Some(team_id), Some(member_id)) =
+                                    (team_id.as_deref(), member_id.as_deref())
+                                {
+                                    let _ = update_agent_team_member(
+                                        &hook_context.working_dir_compat(),
+                                        team_id,
+                                        member_id,
+                                        "failed",
+                                        Some(task_id.clone()),
+                                        Some("Sub-agent finished with error text.".to_string()),
+                                        None,
+                                    );
+                                }
+                                emit_task_hook(
+                                    hook_manager.as_ref(),
+                                    HookEvent::TaskCompleted,
+                                    &hook_context,
+                                    &task_id,
+                                    &subagent_description,
+                                    "agent",
+                                    Some("failed"),
+                                    Some("Sub-agent finished with error text."),
+                                    None,
+                                )
+                                .await;
+                                emit_subagent_hook(
+                                    hook_manager.as_ref(),
+                                    HookEvent::SubagentStop,
+                                    &hook_context,
+                                    &subagent_description,
+                                    Some("failed"),
+                                    Some("Sub-agent finished with error text."),
+                                    None,
+                                )
+                                .await;
                             } else {
                                 runtime_tasks.lock().await.mark_completed(&task_id);
+                                if let (Some(team_id), Some(member_id)) =
+                                    (team_id.as_deref(), member_id.as_deref())
+                                {
+                                    let _ = update_agent_team_member(
+                                        &hook_context.working_dir_compat(),
+                                        team_id,
+                                        member_id,
+                                        "completed",
+                                        Some(task_id.clone()),
+                                        Some("Sub-agent completed successfully.".to_string()),
+                                        None,
+                                    );
+                                }
+                                emit_task_hook(
+                                    hook_manager.as_ref(),
+                                    HookEvent::TaskCompleted,
+                                    &hook_context,
+                                    &task_id,
+                                    &subagent_description,
+                                    "agent",
+                                    Some("completed"),
+                                    Some("Sub-agent completed successfully."),
+                                    None,
+                                )
+                                .await;
+                                emit_subagent_hook(
+                                    hook_manager.as_ref(),
+                                    HookEvent::SubagentStop,
+                                    &hook_context,
+                                    &subagent_description,
+                                    Some("completed"),
+                                    Some("Sub-agent completed successfully."),
+                                    None,
+                                )
+                                .await;
                             }
                         }
                         Ok(Err(err)) => {
@@ -194,6 +336,41 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                                 .lock()
                                 .await
                                 .mark_failed(&task_id, format!("{}", err));
+                            if let (Some(team_id), Some(member_id)) =
+                                (team_id.as_deref(), member_id.as_deref())
+                            {
+                                let _ = update_agent_team_member(
+                                    &hook_context.working_dir_compat(),
+                                    team_id,
+                                    member_id,
+                                    "failed",
+                                    Some(task_id.clone()),
+                                    Some(format!("{}", err)),
+                                    None,
+                                );
+                            }
+                            emit_task_hook(
+                                hook_manager.as_ref(),
+                                HookEvent::TaskCompleted,
+                                &hook_context,
+                                &task_id,
+                                &subagent_description,
+                                "agent",
+                                Some("failed"),
+                                Some(&format!("{}", err)),
+                                None,
+                            )
+                            .await;
+                            emit_subagent_hook(
+                                hook_manager.as_ref(),
+                                HookEvent::SubagentStop,
+                                &hook_context,
+                                &subagent_description,
+                                Some("failed"),
+                                Some(&format!("{}", err)),
+                                None,
+                            )
+                            .await;
                         }
                         Err(err) => {
                             let _ = tokio::fs::write(
@@ -205,6 +382,41 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                                 .lock()
                                 .await
                                 .mark_failed(&task_id, format!("Join error: {}", err));
+                            if let (Some(team_id), Some(member_id)) =
+                                (team_id.as_deref(), member_id.as_deref())
+                            {
+                                let _ = update_agent_team_member(
+                                    &hook_context.working_dir_compat(),
+                                    team_id,
+                                    member_id,
+                                    "failed",
+                                    Some(task_id.clone()),
+                                    Some(format!("Join error: {}", err)),
+                                    None,
+                                );
+                            }
+                            emit_task_hook(
+                                hook_manager.as_ref(),
+                                HookEvent::TaskCompleted,
+                                &hook_context,
+                                &task_id,
+                                &subagent_description,
+                                "agent",
+                                Some("failed"),
+                                Some(&format!("Join error: {}", err)),
+                                None,
+                            )
+                            .await;
+                            emit_subagent_hook(
+                                hook_manager.as_ref(),
+                                HookEvent::SubagentStop,
+                                &hook_context,
+                                &subagent_description,
+                                Some("failed"),
+                                Some(&format!("Join error: {}", err)),
+                                None,
+                            )
+                            .await;
                         }
                     }
                 });
@@ -266,7 +478,197 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                 result_text = "Sub-agent completed without text output.".to_string();
             }
 
+            emit_subagent_hook(
+                self.hook_manager.as_ref(),
+                HookEvent::SubagentStop,
+                &self.context,
+                &options.description,
+                Some("completed"),
+                Some("Foreground sub-agent completed."),
+                Some(serde_json::json!({
+                    "run_in_background": false,
+                    "isolation": options.isolation,
+                    "model_override": options.model,
+                    "cwd_override": options.cwd.as_ref().map(|path| path.display().to_string()),
+                    "allowed_tools_count": options.allowed_tools.len(),
+                })),
+            )
+            .await;
+
             Ok(result_text)
         })
+    }
+}
+
+async fn emit_subagent_hook(
+    hook_manager: Option<&Arc<HookManager>>,
+    event: HookEvent,
+    context: &AgentContext,
+    description: &str,
+    status: Option<&str>,
+    summary: Option<&str>,
+    extra_metadata: Option<serde_json::Value>,
+) {
+    let Some(hook_manager) = hook_manager else {
+        return;
+    };
+    let hook_context = HookContext {
+        event: event.to_string(),
+        session_id: context.session_id.clone(),
+        working_dir: context.working_dir_compat().display().to_string(),
+        tool_name: Some("agent".to_string()),
+        tool_input: None,
+        tool_output: summary.map(str::to_string),
+        error: status
+            .filter(|status| *status == "failed" || *status == "cancelled")
+            .and(summary.map(str::to_string)),
+        user_prompt: None,
+        metadata: Some(merge_hook_metadata(
+            serde_json::json!({
+            "description": description,
+            "status": status,
+            }),
+            extra_metadata,
+        )),
+    };
+    let _ = hook_manager.execute(event, &hook_context).await;
+}
+
+async fn emit_task_hook(
+    hook_manager: Option<&Arc<HookManager>>,
+    event: HookEvent,
+    context: &AgentContext,
+    task_id: &str,
+    description: &str,
+    kind: &str,
+    status: Option<&str>,
+    error: Option<&str>,
+    extra_metadata: Option<serde_json::Value>,
+) {
+    let Some(hook_manager) = hook_manager else {
+        return;
+    };
+    let hook_context = HookContext {
+        event: event.to_string(),
+        session_id: context.session_id.clone(),
+        working_dir: context.working_dir_compat().display().to_string(),
+        tool_name: Some("runtime_task".to_string()),
+        tool_input: None,
+        tool_output: status.map(str::to_string),
+        error: error.map(str::to_string),
+        user_prompt: None,
+        metadata: Some(merge_hook_metadata(
+            serde_json::json!({
+            "task_id": task_id,
+            "description": description,
+            "kind": kind,
+            "status": status,
+            }),
+            extra_metadata,
+        )),
+    };
+    let _ = hook_manager.execute(event, &hook_context).await;
+}
+
+fn merge_hook_metadata(
+    base: serde_json::Value,
+    extra: Option<serde_json::Value>,
+) -> serde_json::Value {
+    let mut base_object = base.as_object().cloned().unwrap_or_default();
+    if let Some(extra) = extra.and_then(|value| value.as_object().cloned()) {
+        for (key, value) in extra {
+            base_object.insert(key, value);
+        }
+    }
+    serde_json::Value::Object(base_object)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{emit_subagent_hook, emit_task_hook};
+    use crate::context::AgentContext;
+    use crate::hooks::{HookEvent, HookManager};
+
+    #[tokio::test]
+    async fn subagent_hook_emits_rich_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let dump_path = dir.path().join("subagent-start.json");
+        let mut hook_mgr = HookManager::new(dir.path().to_path_buf());
+        hook_mgr.register(crate::hooks::HookDefinition {
+            command: format!(
+                "printf '%s' \"$YODE_HOOK_CONTEXT\" > {}",
+                dump_path.display()
+            ),
+            events: vec!["subagent_start".into()],
+            tool_filter: Some(vec!["agent".into()]),
+            timeout_secs: 5,
+            can_block: false,
+        });
+        let context = AgentContext::new(
+            dir.path().to_path_buf(),
+            "mock".to_string(),
+            "claude-sonnet-4".to_string(),
+        );
+
+        emit_subagent_hook(
+            Some(&std::sync::Arc::new(hook_mgr)),
+            HookEvent::SubagentStart,
+            &context,
+            "analyze hook parity",
+            Some("running"),
+            Some("subagent started"),
+            Some(serde_json::json!({
+                "run_in_background": true,
+                "allowed_tools_count": 3,
+            })),
+        )
+        .await;
+
+        let body = std::fs::read_to_string(dump_path).unwrap();
+        assert!(body.contains("\"event\":\"subagent_start\""));
+        assert!(body.contains("\"description\":\"analyze hook parity\""));
+        assert!(body.contains("\"allowed_tools_count\":3"));
+    }
+
+    #[tokio::test]
+    async fn task_hook_emits_task_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let dump_path = dir.path().join("task-created.json");
+        let mut hook_mgr = HookManager::new(dir.path().to_path_buf());
+        hook_mgr.register(crate::hooks::HookDefinition {
+            command: format!(
+                "printf '%s' \"$YODE_HOOK_CONTEXT\" > {}",
+                dump_path.display()
+            ),
+            events: vec!["task_created".into()],
+            tool_filter: Some(vec!["runtime_task".into()]),
+            timeout_secs: 5,
+            can_block: false,
+        });
+        let context = AgentContext::new(
+            dir.path().to_path_buf(),
+            "mock".to_string(),
+            "claude-sonnet-4".to_string(),
+        );
+
+        emit_task_hook(
+            Some(&std::sync::Arc::new(hook_mgr)),
+            HookEvent::TaskCreated,
+            &context,
+            "task-1",
+            "background agent",
+            "agent",
+            Some("pending"),
+            None,
+            Some(serde_json::json!({
+                "run_in_background": true,
+            })),
+        )
+        .await;
+
+        let body = std::fs::read_to_string(dump_path).unwrap();
+        assert!(body.contains("\"event\":\"task_created\""));
+        assert!(body.contains("\"task_id\":\"task-1\""));
+        assert!(body.contains("\"run_in_background\":true"));
     }
 }

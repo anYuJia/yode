@@ -41,7 +41,7 @@ use yode_llm::types::{ChatRequest, ChatResponse, Message, Role, StreamEvent, Too
 use yode_tools::registry::ToolRegistry;
 use yode_tools::runtime_tasks::{RuntimeTask, RuntimeTaskNotification, RuntimeTaskStore};
 use yode_tools::state::TaskStore;
-use yode_tools::tool::{ToolContext, ToolErrorType, ToolResult, UserQuery};
+use yode_tools::tool::{ToolContext, ToolErrorType, ToolResult, UserQuery, WorktreeState};
 use yode_tools::validation;
 
 use crate::context::{AgentContext, EffortLevel, QuerySource};
@@ -107,6 +107,8 @@ pub struct AgentEngine {
     task_store: Arc<Mutex<TaskStore>>,
     /// Shared runtime task store for background bash/sub-agent work.
     runtime_task_store: Arc<Mutex<RuntimeTaskStore>>,
+    /// Shared worktree state for enter/exit worktree tools.
+    worktree_state: Arc<Mutex<WorktreeState>>,
     /// Channel for ask_user questions (engine → TUI).
     ask_user_tx: Option<mpsc::UnboundedSender<UserQuery>>,
     /// Channel for ask_user answers (TUI → engine).
@@ -126,7 +128,7 @@ pub struct AgentEngine {
     /// Cost tracker for token usage and estimated cost.
     cost_tracker: CostTracker,
     /// Hook manager for pre/post tool use hooks.
-    hook_manager: Option<HookManager>,
+    hook_manager: Option<Arc<HookManager>>,
     /// Files the agent has already read in this turn (path → line count).
     files_read: std::collections::HashMap<String, usize>,
     /// Files the agent has modified in this turn.

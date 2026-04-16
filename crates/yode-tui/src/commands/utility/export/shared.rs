@@ -63,6 +63,9 @@ pub(crate) fn startup_artifact_candidates(project_root: &std::path::Path) -> Vec
         "provider-inventory.json",
         "startup-bundle-manifest.json",
         "mcp-startup-failures.json",
+        "settings-scopes.json",
+        "managed-mcp-inventory.json",
+        "tool-search-activation.json",
     ]
     .into_iter()
     .filter_map(|suffix| latest_artifact_by_suffix(&dir, suffix))

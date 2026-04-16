@@ -108,18 +108,46 @@ fn test_rule_priority() {
         source: RuleSource::UserConfig,
         behavior: RuleBehavior::Allow,
         tool_name: "bash".to_string(),
+        category: None,
         pattern: Some("cargo *".to_string()),
+        description: None,
     });
     pm.add_rule(PermissionRule {
         source: RuleSource::CliArg,
         behavior: RuleBehavior::Deny,
         tool_name: "bash".to_string(),
+        category: None,
         pattern: Some("cargo *".to_string()),
+        description: None,
     });
     assert_eq!(
         pm.check_with_content("bash", Some("cargo build")),
         PermissionAction::Deny
     );
+}
+
+#[test]
+fn test_category_rule_matches_tool_category() {
+    let mut pm = PermissionManager::new(PermissionMode::Default);
+    pm.add_rule(PermissionRule {
+        source: RuleSource::ProjectConfig,
+        behavior: RuleBehavior::Deny,
+        tool_name: "*".to_string(),
+        category: Some("write".to_string()),
+        pattern: None,
+        description: Some("deny all write tools".to_string()),
+    });
+    assert_eq!(pm.check("write_file"), PermissionAction::Deny);
+    assert_eq!(pm.check("edit_file"), PermissionAction::Deny);
+    assert_eq!(pm.check("read_file"), PermissionAction::Allow);
+}
+
+#[test]
+fn test_extended_tool_categories_cover_remote_team_and_background() {
+    assert!(tool_categories("remote_queue_dispatch").contains(&"remote"));
+    assert!(tool_categories("remote_queue_dispatch").contains(&"background"));
+    assert!(tool_categories("team_monitor").contains(&"team"));
+    assert!(tool_categories("task_output").contains(&"background"));
 }
 
 #[test]
@@ -164,6 +192,10 @@ fn test_permission_explanation_surfaces_classifier_reason() {
     );
     assert!(explanation.reason.contains("potentially risky"));
     assert!(explanation.reason.contains("rewrites remote history"));
+    assert!(explanation
+        .precedence_chain
+        .iter()
+        .any(|line| line.contains("auto-classifier:bash_classifier")));
 }
 
 #[test]
@@ -173,13 +205,44 @@ fn test_permission_explanation_surfaces_pattern_match_reason() {
         source: RuleSource::UserConfig,
         behavior: RuleBehavior::Deny,
         tool_name: "bash".to_string(),
+        category: None,
         pattern: Some("git push *".to_string()),
+        description: None,
     });
 
     let explanation = pm.explain_with_content("bash", Some("git push origin main"));
     assert_eq!(explanation.action, PermissionAction::Deny);
     assert!(explanation.reason.contains("matched pattern 'git push *'"));
     assert!(explanation.reason.contains("git push origin main"));
+}
+
+#[test]
+fn test_permission_explanation_includes_precedence_chain() {
+    let mut pm = PermissionManager::new(PermissionMode::Default);
+    pm.add_rule(PermissionRule {
+        source: RuleSource::ProjectConfig,
+        behavior: RuleBehavior::Ask,
+        tool_name: "*".to_string(),
+        category: Some("write".to_string()),
+        pattern: None,
+        description: Some("project write gate".to_string()),
+    });
+    pm.add_rule(PermissionRule {
+        source: RuleSource::LocalConfig,
+        behavior: RuleBehavior::Allow,
+        tool_name: "write_file".to_string(),
+        category: None,
+        pattern: None,
+        description: Some("local override".to_string()),
+    });
+
+    let explanation = pm.explain_with_content("write_file", None);
+    assert_eq!(explanation.action, PermissionAction::Allow);
+    assert!(!explanation.precedence_chain.is_empty());
+    assert!(explanation
+        .precedence_chain
+        .iter()
+        .any(|line| line.contains("LocalConfig")));
 }
 
 #[test]
@@ -233,17 +296,45 @@ fn test_permission_config_to_rules() {
         default_mode: Some("auto".into()),
         always_allow: vec![PermissionRuleConfig {
             tool: "bash".into(),
+            category: None,
             pattern: Some("cargo *".into()),
+            description: None,
         }],
+        always_ask: vec![],
         always_deny: vec![PermissionRuleConfig {
             tool: "bash".into(),
+            category: None,
             pattern: Some("rm -rf *".into()),
+            description: None,
         }],
     };
     let rules = config.to_rules(RuleSource::UserConfig);
     assert_eq!(rules.len(), 2);
     assert_eq!(rules[0].behavior, RuleBehavior::Allow);
     assert_eq!(rules[1].behavior, RuleBehavior::Deny);
+}
+
+#[test]
+fn test_source_views_snapshot_round_trips() {
+    let mut pm = PermissionManager::new(PermissionMode::Default);
+    pm.set_source_views(vec![
+        crate::permission::PermissionSourceView {
+            source: RuleSource::ManagedConfig,
+            path: Some("/tmp/managed.toml".to_string()),
+            default_mode: Some("auto".to_string()),
+            rules: vec![],
+        },
+        crate::permission::PermissionSourceView {
+            source: RuleSource::LocalConfig,
+            path: Some("/tmp/config.local.toml".to_string()),
+            default_mode: None,
+            rules: vec![],
+        },
+    ]);
+    let views = pm.source_views_snapshot();
+    assert_eq!(views.len(), 2);
+    assert_eq!(views[0].source, RuleSource::ManagedConfig);
+    assert_eq!(views[1].source, RuleSource::LocalConfig);
 }
 
 #[test]

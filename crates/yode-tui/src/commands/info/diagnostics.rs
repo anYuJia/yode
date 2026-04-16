@@ -38,6 +38,10 @@ impl Command for DiagnosticsCommand {
             ));
         };
 
-        Ok(CommandOutput::Message(render_diagnostics_overview(&state, &tasks)))
+        Ok(CommandOutput::Message(render_diagnostics_overview(
+            std::path::Path::new(&ctx.session.working_dir),
+            &state,
+            &tasks,
+        )))
     }
 }

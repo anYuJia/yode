@@ -77,6 +77,47 @@ pub(crate) struct StartupManifestSummary {
     pub artifact_count: usize,
 }
 
+#[derive(Debug, Clone, Default, Deserialize)]
+pub(crate) struct SettingsScopeEntry {
+    pub scope: String,
+    pub path: String,
+    #[serde(default)]
+    pub exists: bool,
+    #[serde(default)]
+    pub permission_default_mode: Option<String>,
+    #[serde(default)]
+    pub permission_rule_count: usize,
+    #[serde(default)]
+    pub mcp_server_count: usize,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SettingsScopeSummary {
+    pub path: PathBuf,
+    pub scopes: Vec<SettingsScopeEntry>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ManagedMcpInventorySummary {
+    pub path: PathBuf,
+    pub effective_server_count: usize,
+    pub configured_server_count: usize,
+    pub connected_server_count: usize,
+    pub mcp_tool_count: usize,
+    pub failure_count: usize,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ToolSearchActivationSummary {
+    pub path: PathBuf,
+    pub tool_search_enabled: bool,
+    pub tool_search_reason: String,
+    pub deferred_tool_count: usize,
+    pub deferred_mcp_tool_count: usize,
+    pub activation_count: usize,
+    pub last_activated_tool: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 struct RawProviderInventorySummary {
     #[serde(default)]
@@ -115,6 +156,42 @@ struct RawMcpStartupFailureSummary {
 struct RawStartupManifestSummary {
     #[serde(default)]
     artifact_count: usize,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawSettingsScopeSummary {
+    #[serde(default)]
+    scopes: Vec<SettingsScopeEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawManagedMcpInventorySummary {
+    #[serde(default)]
+    effective_server_count: usize,
+    #[serde(default)]
+    configured_server_count: usize,
+    #[serde(default)]
+    connected_server_count: usize,
+    #[serde(default)]
+    mcp_tool_count: usize,
+    #[serde(default)]
+    failure_count: usize,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawToolSearchActivationSummary {
+    #[serde(default)]
+    tool_search_enabled: bool,
+    #[serde(default)]
+    tool_search_reason: String,
+    #[serde(default)]
+    deferred_tool_count: usize,
+    #[serde(default)]
+    deferred_mcp_tool_count: usize,
+    #[serde(default)]
+    activation_count: usize,
+    #[serde(default)]
+    last_activated_tool: Option<String>,
 }
 
 pub(crate) fn latest_startup_artifact(project_root: &Path, suffix: &str) -> Option<PathBuf> {
@@ -180,11 +257,51 @@ pub(crate) fn latest_startup_manifest(project_root: &Path) -> Option<StartupMani
     })
 }
 
+pub(crate) fn latest_settings_scopes(project_root: &Path) -> Option<SettingsScopeSummary> {
+    let path = latest_startup_artifact(project_root, "settings-scopes.json")?;
+    let payload: RawSettingsScopeSummary =
+        serde_json::from_str(&std::fs::read_to_string(&path).ok()?).ok()?;
+    Some(SettingsScopeSummary {
+        path,
+        scopes: payload.scopes,
+    })
+}
+
+pub(crate) fn latest_managed_mcp_inventory(project_root: &Path) -> Option<ManagedMcpInventorySummary> {
+    let path = latest_startup_artifact(project_root, "managed-mcp-inventory.json")?;
+    let payload: RawManagedMcpInventorySummary =
+        serde_json::from_str(&std::fs::read_to_string(&path).ok()?).ok()?;
+    Some(ManagedMcpInventorySummary {
+        path,
+        effective_server_count: payload.effective_server_count,
+        configured_server_count: payload.configured_server_count,
+        connected_server_count: payload.connected_server_count,
+        mcp_tool_count: payload.mcp_tool_count,
+        failure_count: payload.failure_count,
+    })
+}
+
+pub(crate) fn latest_tool_search_activation(project_root: &Path) -> Option<ToolSearchActivationSummary> {
+    let path = latest_startup_artifact(project_root, "tool-search-activation.json")?;
+    let payload: RawToolSearchActivationSummary =
+        serde_json::from_str(&std::fs::read_to_string(&path).ok()?).ok()?;
+    Some(ToolSearchActivationSummary {
+        path,
+        tool_search_enabled: payload.tool_search_enabled,
+        tool_search_reason: payload.tool_search_reason,
+        deferred_tool_count: payload.deferred_tool_count,
+        deferred_mcp_tool_count: payload.deferred_mcp_tool_count,
+        activation_count: payload.activation_count,
+        last_activated_tool: payload.last_activated_tool,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        latest_mcp_startup_failures, latest_provider_inventory, latest_startup_artifact_link,
-        latest_startup_manifest,
+        latest_managed_mcp_inventory, latest_mcp_startup_failures, latest_provider_inventory,
+        latest_settings_scopes, latest_startup_artifact_link, latest_startup_manifest,
+        latest_tool_search_activation,
     };
 
     fn temp_project_dir(suffix: &str) -> std::path::PathBuf {
@@ -272,6 +389,69 @@ mod tests {
         let summary = latest_mcp_startup_failures(&dir).unwrap();
         assert_eq!(summary.failure_count, 2);
         assert_eq!(summary.failures[1].phase, "discover_tools");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn parses_settings_scopes_and_managed_mcp_inventory() {
+        let dir = temp_project_dir("settings");
+        std::fs::write(
+            dir.join(".yode").join("startup").join("session12-settings-scopes.json"),
+            r#"{
+  "scopes": [
+    {
+      "scope": "managed",
+      "path": "/tmp/managed.toml",
+      "exists": true,
+      "permission_default_mode": "auto",
+      "permission_rule_count": 2,
+      "mcp_server_count": 1
+    },
+    {
+      "scope": "local",
+      "path": "/tmp/project/.yode/config.local.toml",
+      "exists": true,
+      "permission_default_mode": "accept-edits",
+      "permission_rule_count": 1,
+      "mcp_server_count": 0
+    }
+  ]
+}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join(".yode").join("startup").join("session12-managed-mcp-inventory.json"),
+            r#"{
+  "effective_server_count": 2,
+  "configured_server_count": 2,
+  "connected_server_count": 1,
+  "mcp_tool_count": 4,
+  "failure_count": 1
+}"#,
+        )
+        .unwrap();
+
+        let scopes = latest_settings_scopes(&dir).unwrap();
+        assert_eq!(scopes.scopes.len(), 2);
+        assert_eq!(scopes.scopes[0].scope, "managed");
+        let inventory = latest_managed_mcp_inventory(&dir).unwrap();
+        assert_eq!(inventory.effective_server_count, 2);
+        assert_eq!(inventory.mcp_tool_count, 4);
+        std::fs::write(
+            dir.join(".yode").join("startup").join("session12-tool-search-activation.json"),
+            r#"{
+  "tool_search_enabled": true,
+  "tool_search_reason": "enabled:test",
+  "deferred_tool_count": 5,
+  "deferred_mcp_tool_count": 3,
+  "activation_count": 2,
+  "last_activated_tool": "mcp__github_list_prs"
+}"#,
+        )
+        .unwrap();
+        let tool_search = latest_tool_search_activation(&dir).unwrap();
+        assert!(tool_search.tool_search_enabled);
+        assert_eq!(tool_search.deferred_mcp_tool_count, 3);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

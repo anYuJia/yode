@@ -1,4 +1,5 @@
 use super::*;
+use serde_json::json;
 
 impl AgentEngine {
     pub(in crate::engine) async fn run_pre_tool_use_hook(
@@ -42,6 +43,49 @@ impl AgentEngine {
                 ));
             }
 
+            if result.deferred {
+                let reason = result
+                    .reason
+                    .clone()
+                    .unwrap_or_else(|| format!("pre_tool_use deferred {}", tool_name));
+                let original_input = Self::parse_tool_input(tool_arguments);
+                let input_changed_by_hook = *params != original_input;
+                let effective_arguments_snapshot =
+                    serde_json::to_string(params).unwrap_or_else(|_| tool_arguments.to_string());
+                let (summary_path, state_path) = self.write_hook_defer_artifact(
+                    tool_name,
+                    working_dir,
+                    params,
+                    &original_input,
+                    &effective_arguments_snapshot,
+                    tool_arguments,
+                    input_changed_by_hook,
+                    &reason,
+                    result.source_hook_command.as_deref(),
+                );
+                return Some(ToolResult::success_with_metadata(
+                    format!(
+                        "Deferred by hook: {}.\nSummary: {}\nState: {}\nResume by retrying the tool call after the external action completes.",
+                        reason,
+                        summary_path.as_deref().unwrap_or("none"),
+                        state_path.as_deref().unwrap_or("none"),
+                    ),
+                    json!({
+                        "deferred": true,
+                        "defer_reason": reason,
+                        "defer_summary_artifact": summary_path,
+                        "defer_state_artifact": state_path,
+                        "tool_name": tool_name,
+                        "source_hook_command": result.source_hook_command,
+                        "effective_input_snapshot": params,
+                        "original_input_snapshot": original_input,
+                        "effective_arguments_snapshot": effective_arguments_snapshot,
+                        "original_arguments_snapshot": tool_arguments,
+                        "input_changed_by_hook": input_changed_by_hook,
+                    }),
+                ));
+            }
+
             if let Some(stdout) = result.stdout {
                 let trimmed = stdout.trim();
                 if !trimmed.is_empty() {
@@ -60,6 +104,69 @@ impl AgentEngine {
         }
 
         None
+    }
+
+    fn write_hook_defer_artifact(
+        &self,
+        tool_name: &str,
+        working_dir: &str,
+        params: &Value,
+        original_input: &Value,
+        effective_arguments: &str,
+        original_arguments: &str,
+        input_changed_by_hook: bool,
+        reason: &str,
+        source_hook_command: Option<&str>,
+    ) -> (Option<String>, Option<String>) {
+        let dir = self
+            .context
+            .working_dir_compat()
+            .join(".yode")
+            .join("hooks");
+        if std::fs::create_dir_all(&dir).is_err() {
+            return (None, None);
+        }
+        let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+        let short_session = self.context.session_id.chars().take(8).collect::<String>();
+        let summary_path = dir.join(format!("{}-{}-hook-deferred.md", stamp, short_session));
+        let state_path = dir.join(format!(
+            "{}-{}-hook-deferred-state.json",
+            stamp, short_session
+        ));
+        let payload = json!({
+            "kind": "hook_deferred_tool_call",
+            "updated_at": Self::now_timestamp(),
+            "session_id": self.context.session_id,
+            "tool_name": tool_name,
+            "working_dir": working_dir,
+            "reason": reason,
+            "source_hook_command": source_hook_command,
+            "effective_input_snapshot": params,
+            "original_input_snapshot": original_input,
+            "effective_arguments_snapshot": effective_arguments,
+            "original_arguments_snapshot": original_arguments,
+            "input_changed_by_hook": input_changed_by_hook,
+            "resume_hint": format!("Retry tool '{}' after completing the deferred external action.", tool_name),
+        });
+        let summary = format!(
+            "# Hook Deferred Tool Call\n\n- Tool: {}\n- Working dir: {}\n- Reason: {}\n- Source hook: {}\n- Resume hint: Retry tool `{}` after the deferred external action completes.\n- State artifact: {}\n",
+            tool_name,
+            working_dir,
+            reason,
+            source_hook_command.unwrap_or("unknown"),
+            tool_name,
+            state_path.display(),
+        );
+        let summary_ok = std::fs::write(&summary_path, summary).is_ok();
+        let state_ok = std::fs::write(
+            &state_path,
+            serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()),
+        )
+        .is_ok();
+        (
+            summary_ok.then(|| summary_path.display().to_string()),
+            state_ok.then(|| state_path.display().to_string()),
+        )
     }
 
     pub(in crate::engine) async fn run_post_tool_use_hooks(

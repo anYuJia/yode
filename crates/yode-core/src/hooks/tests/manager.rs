@@ -6,12 +6,16 @@ fn test_hook_event_display() {
     assert_eq!(HookEvent::SessionStart.to_string(), "session_start");
     assert_eq!(HookEvent::PreCompact.to_string(), "pre_compact");
     assert_eq!(HookEvent::PostCompact.to_string(), "post_compact");
+    assert_eq!(HookEvent::SubagentStart.to_string(), "subagent_start");
+    assert_eq!(HookEvent::TaskCreated.to_string(), "task_created");
+    assert_eq!(HookEvent::WorktreeCreate.to_string(), "worktree_create");
 }
 
 #[test]
 fn test_hook_result_default() {
     let r = HookResult::allowed();
     assert!(!r.blocked);
+    assert!(!r.deferred);
     assert!(r.reason.is_none());
 }
 
@@ -20,6 +24,13 @@ fn test_hook_result_blocked() {
     let r = HookResult::blocked("denied".into());
     assert!(r.blocked);
     assert_eq!(r.reason.as_deref(), Some("denied"));
+}
+
+#[test]
+fn test_hook_result_deferred() {
+    let r = HookResult::deferred("wait for external approval".into());
+    assert!(r.deferred);
+    assert_eq!(r.reason.as_deref(), Some("wait for external approval"));
 }
 
 #[tokio::test]
@@ -126,6 +137,38 @@ async fn test_hook_manager_parses_structured_json_output() {
             .and_then(|v| v.as_str()),
         Some("src/main.rs")
     );
+}
+
+#[tokio::test]
+async fn test_hook_manager_parses_defer_output() {
+    let mut mgr = HookManager::new(PathBuf::from("/tmp"));
+    mgr.register(HookDefinition {
+        command: "printf '%s' '{\"decision\":\"defer\",\"deferReason\":\"wait for browser auth\",\"systemMessage\":\"deferred\"}'".into(),
+        events: vec!["pre_tool_use".into()],
+        tool_filter: None,
+        timeout_secs: 5,
+        can_block: false,
+    });
+    let ctx = HookContext {
+        event: "pre_tool_use".into(),
+        session_id: "test".into(),
+        working_dir: "/tmp".into(),
+        tool_name: Some("bash".into()),
+        tool_input: None,
+        tool_output: None,
+        error: None,
+        user_prompt: None,
+        metadata: None,
+    };
+    let results = mgr.execute(HookEvent::PreToolUse, &ctx).await;
+    assert_eq!(results.len(), 1);
+    assert!(results[0].deferred);
+    assert_eq!(results[0].reason.as_deref(), Some("wait for browser auth"));
+    assert_eq!(results[0].stdout.as_deref(), Some("deferred"));
+    assert_eq!(results[0].source_hook_command.as_deref(), Some("printf '%s' '{\"decision\":\"defer\",\"deferReason\":\"wait for browser auth\",\"systemMessage\":\"deferred\"}'"));
+    let stats = mgr.stats_snapshot();
+    assert_eq!(stats.defer_count, 1);
+    assert_eq!(stats.last_defer_reason.as_deref(), Some("wait for browser auth"));
 }
 
 #[tokio::test]

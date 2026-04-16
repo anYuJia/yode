@@ -105,6 +105,8 @@ impl AgentEngine {
         let effective_input = Self::parse_tool_input(&tool_call.arguments);
         self.run_post_tool_use_hooks(tool_call, &effective_input, &working_dir, &mut result)
             .await;
+        self.emit_tool_specific_lifecycle_hooks(tool_call, &working_dir, &result)
+            .await;
         annotate_tool_result_runtime_metadata(
             &mut result,
             duration_ms,
@@ -124,6 +126,33 @@ impl AgentEngine {
         );
         self.record_tool_result_status(&tool_call.id, &result);
         result
+    }
+
+    async fn emit_tool_specific_lifecycle_hooks(
+        &mut self,
+        tool_call: &ToolCall,
+        working_dir: &str,
+        result: &ToolResult,
+    ) {
+        if result.is_error {
+            return;
+        }
+
+        if tool_call.name == "enter_worktree" {
+            let metadata = result.metadata.clone().unwrap_or_else(|| json!({}));
+            let ctx = HookContext {
+                event: HookEvent::WorktreeCreate.to_string(),
+                session_id: self.context.session_id.clone(),
+                working_dir: working_dir.to_string(),
+                tool_name: Some(tool_call.name.clone()),
+                tool_input: Some(Self::parse_tool_input(&tool_call.arguments)),
+                tool_output: Some(result.content.clone()),
+                error: None,
+                user_prompt: None,
+                metadata: Some(metadata),
+            };
+            self.execute_advisory_hooks(HookEvent::WorktreeCreate, ctx).await;
+        }
     }
 
     pub(super) fn immediate_tool_outcome(

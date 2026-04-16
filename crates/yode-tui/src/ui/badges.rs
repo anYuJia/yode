@@ -24,9 +24,19 @@ pub fn queue_badge_label(count: usize, density: Density) -> String {
 
 pub fn task_badge_label(count: usize, density: Density) -> String {
     match density {
-        Density::Wide => format!("{} tasks ", count),
-        Density::Medium => format!("t{} ", count),
-        Density::Narrow => format!("{}t ", count),
+        Density::Wide => format!("{} jobs ", count),
+        Density::Medium => format!("j{} ", count),
+        Density::Narrow => format!("{}j ", count),
+    }
+}
+
+pub fn runtime_family_badge(label: &str, density: Density) -> String {
+    match density {
+        Density::Wide => format!("{} ", label),
+        Density::Medium | Density::Narrow => {
+            let compact = label.chars().take(4).collect::<String>();
+            format!("{} ", compact)
+        }
     }
 }
 

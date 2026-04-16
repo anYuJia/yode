@@ -1,6 +1,7 @@
 use super::mcp::parse_mcp_tool_name;
 use crate::commands::context::CommandContext;
 use crate::commands::registry::VisibleCommandName;
+use crate::commands::workspace_nav::workspace_jump_inventory;
 use crate::commands::{
     ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
     CommandResult,
@@ -58,6 +59,7 @@ impl ToolsCommand {
             } else {
                 def.name.clone()
             };
+            let taxonomy = yode_core::permission::tool_categories(&def.name).join("+");
             let policy = runtime
                 .as_ref()
                 .and_then(|state| state.tool_pool.find_entry(&def.name))
@@ -76,13 +78,13 @@ impl ToolsCommand {
                 .unwrap_or("runtime unavailable");
             if verbose {
                 lines.push(format!(
-                    "  {} — {}\n    policy: {}\n    reason: {}\n    schema: {}",
-                    display_name, def.description, policy, reason, def.parameters
+                    "  {} — {}\n    policy: {}\n    taxonomy: {}\n    reason: {}\n    schema: {}",
+                    display_name, def.description, policy, taxonomy, reason, def.parameters
                 ));
             } else {
                 lines.push(format!(
-                    "  {} [{}] — {}",
-                    display_name, policy, def.description
+                    "  {} [{} | {}] — {}",
+                    display_name, policy, taxonomy, def.description
                 ));
             }
         }
@@ -186,6 +188,11 @@ impl Command for ToolsCommand {
         );
         let repeated_failure_summary =
             format_repeated_tool_failure_summary(state.latest_repeated_tool_failure.as_deref());
+        let tool_search_follow_up = tool_search_operator_affordance(
+            inventory.tool_search_enabled,
+            state.tool_pool.hidden_active_count(),
+            state.tool_pool.visible_deferred_count(),
+        );
 
         let mut traces = String::new();
         if state.tool_traces.is_empty() {
@@ -231,7 +238,7 @@ impl Command for ToolsCommand {
         }
 
         Ok(CommandOutput::Message(format!(
-            "Tool diagnostics:\n  Registry tools:  {} total / {} active / {} deferred\n  Model pool:      {} active visible / {} active hidden / {} deferred visible / {} deferred hidden\n  Pool policy:     mode={} confirm={} deny={}\n  Visible sources: {} builtin / {} mcp\n  Search mode:     {} ({})\n  Activations:     {} (last: {})\n  Duplicate regs:  {} ({})\n  Cmd/tool overlap: {}\n  Hidden tools:    {}\n  Deferred visible: {}\n  Session calls:    {}\n  Current turn:     {} calls / {} bytes / {} progress\n  Budget notices:   {} (warnings {})\n  Budget active:    notice={} warning={}\n  Parallel:         {} batches / {} calls (max {})\n  Read history:     {}\n  Duplication hints: {}\n  Hook/tool line:   {}\n  Truncations:      {} (last: {})\n  Error types:      {}\n  Failure clusters: {}\n  Repeat failures:  {}\n  Last progress:    {}\n  Last artifact:    {}\n  Last turn done:   {}\n{}\
+            "Tool diagnostics:\n  Registry tools:  {} total / {} active / {} deferred\n  Model pool:      {} active visible / {} active hidden / {} deferred visible / {} deferred hidden\n  Pool policy:     mode={} confirm={} deny={}\n  Visible sources: {} builtin / {} mcp\n  Search mode:     {} ({})\n  Activations:     {} (last: {})\n  Duplicate regs:  {} ({})\n  Cmd/tool overlap: {}\n  Hidden tools:    {}\n  Deferred visible: {}\n  Search affordance: {}\n  Session calls:    {}\n  Current turn:     {} calls / {} bytes / {} progress\n  Budget notices:   {} (warnings {})\n  Budget active:    notice={} warning={}\n  Parallel:         {} batches / {} calls (max {})\n  Read history:     {}\n  Duplication hints: {}\n  Hook/tool line:   {}\n  Truncations:      {} (last: {})\n  Error types:      {}\n  Failure clusters: {}\n  Repeat failures:  {}\n  Last progress:    {}\n  Last artifact:    {}\n  Last turn done:   {}\n{}\
 \nUse `/tools list` or `/tools verbose` to inspect the full registry.",
             inventory.total_count,
             inventory.active_count,
@@ -257,6 +264,7 @@ impl Command for ToolsCommand {
             command_tool_overlaps,
             hidden_tools,
             deferred_visible,
+            tool_search_follow_up,
             state.session_tool_calls_total,
             state.current_turn_tool_calls,
             state.current_turn_tool_output_bytes,
@@ -308,6 +316,25 @@ fn tool_output_preview_line(output: &str) -> String {
     }
 }
 
+fn tool_search_operator_affordance(
+    search_enabled: bool,
+    hidden_active: usize,
+    deferred_visible: usize,
+) -> String {
+    if !search_enabled && hidden_active == 0 && deferred_visible == 0 {
+        return "inactive; no hidden/deferred tool surface".to_string();
+    }
+
+    workspace_jump_inventory([
+        format!("search={}", if search_enabled { "active" } else { "inactive" }),
+        format!("hidden={}", hidden_active),
+        format!("deferred={}", deferred_visible),
+        "/tools list".to_string(),
+        "/inspect artifact latest-tool-search-activation".to_string(),
+        "/status".to_string(),
+    ])
+}
+
 fn collect_command_tool_overlaps(
     command_names: &[VisibleCommandName],
     tool_names: &[String],
@@ -334,7 +361,10 @@ fn collect_command_tool_overlaps(
 
 #[cfg(test)]
 mod tests {
-    use super::{collect_command_tool_overlaps, failure_cluster_summary, tool_output_preview_line};
+    use super::{
+        collect_command_tool_overlaps, failure_cluster_summary, tool_output_preview_line,
+        tool_search_operator_affordance,
+    };
     use crate::commands::registry::VisibleCommandName;
 
     #[test]
@@ -381,6 +411,14 @@ mod tests {
             },
         ];
         assert_eq!(failure_cluster_summary(&traces), "bash:Execution x2");
+    }
+
+    #[test]
+    fn tool_search_affordance_mentions_hidden_and_deferred_surface() {
+        let affordance = tool_search_operator_affordance(true, 2, 3);
+        assert!(affordance.contains("hidden=2"));
+        assert!(affordance.contains("deferred=3"));
+        assert!(affordance.contains("/inspect artifact latest-tool-search-activation"));
     }
 }
 

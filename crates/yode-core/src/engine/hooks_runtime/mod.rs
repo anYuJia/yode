@@ -6,7 +6,7 @@ use super::*;
 impl AgentEngine {
     /// Set hook manager.
     pub fn set_hook_manager(&mut self, mgr: HookManager) {
-        self.hook_manager = Some(mgr);
+        self.hook_manager = Some(Arc::new(mgr));
     }
 
     pub(super) fn append_hook_wake_notifications_as_system_message(&mut self) {

@@ -67,6 +67,8 @@ pub(super) async fn execute_review_then_commit(
                     "test_runner".to_string(),
                     "bash".to_string(),
                 ],
+                team_id: None,
+                member_id: None,
             },
         )
         .await?;

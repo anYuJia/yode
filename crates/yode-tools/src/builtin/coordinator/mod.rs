@@ -7,6 +7,9 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::builtin::orchestration_common::persist_coordinator_runtime_artifacts;
+use crate::builtin::team_runtime::{
+    persist_agent_team_runtime, update_agent_team_member, AgentTeamMemberState,
+};
 use crate::tool::{SubAgentOptions, Tool, ToolCapabilities, ToolContext, ToolResult};
 
 use self::planning::{
@@ -141,6 +144,42 @@ impl Tool for CoordinateAgentsTool {
             .map(|value| value.max(1) as usize)
             .unwrap_or(usize::MAX);
         let phases = build_execution_phases(&normalized)?;
+        let team_id = format!(
+            "team-{}",
+            goal.chars()
+                .map(|ch| if ch.is_ascii_alphanumeric() { ch.to_ascii_lowercase() } else { '-' })
+                .collect::<String>()
+                .trim_matches('-')
+        );
+        let team_members = normalized
+            .iter()
+            .map(|workstream| AgentTeamMemberState {
+                member_id: workstream.id.clone(),
+                description: workstream.description.clone(),
+                subagent_type: workstream.subagent_type.clone(),
+                model: workstream.model.clone(),
+                run_in_background: workstream.run_in_background.unwrap_or(true),
+                allowed_tools: workstream.allowed_tools.clone(),
+                permission_inheritance: if workstream.allowed_tools.is_empty() {
+                    "parent_tool_pool".to_string()
+                } else {
+                    "explicit_allowlist".to_string()
+                },
+                status: if dry_run {
+                    "planned".to_string()
+                } else {
+                    "running".to_string()
+                },
+                runtime_task_id: None,
+                last_result_preview: None,
+                result_artifact_path: None,
+                last_updated_at: Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()),
+            })
+            .collect::<Vec<_>>();
+        let team_artifacts = ctx
+            .working_dir
+            .as_deref()
+            .and_then(|dir| persist_agent_team_runtime(dir, &goal, Some(&team_id), if dry_run { "dry_run" } else { "coordinate" }, team_members).ok());
 
         if dry_run {
             let plan = render_phase_plan(&phases, max_parallel);
@@ -187,6 +226,19 @@ impl Tool for CoordinateAgentsTool {
                     "orchestration_timeline_artifact": artifacts
                         .as_ref()
                         .and_then(|set| set.timeline_path.as_ref())
+                        .map(|path| path.display().to_string()),
+                    "team_id": team_id,
+                    "team_summary_artifact": team_artifacts
+                        .as_ref()
+                        .and_then(|set| set.summary_path.as_ref())
+                        .map(|path| path.display().to_string()),
+                    "team_state_artifact": team_artifacts
+                        .as_ref()
+                        .and_then(|set| set.state_path.as_ref())
+                        .map(|path| path.display().to_string()),
+                    "team_monitor_artifact": team_artifacts
+                        .as_ref()
+                        .and_then(|set| set.monitor_path.as_ref())
                         .map(|path| path.display().to_string()),
                 }),
             ));
@@ -237,6 +289,8 @@ impl Tool for CoordinateAgentsTool {
                             isolation: None,
                             cwd: None,
                             allowed_tools: workstream.allowed_tools.clone(),
+                            team_id: Some(team_id.clone()),
+                            member_id: Some(workstream.id.clone()),
                         },
                     )
                 });
@@ -246,6 +300,21 @@ impl Tool for CoordinateAgentsTool {
                     match result {
                         Ok(output) => {
                             completed_outputs.insert(workstream.id.clone(), output.clone());
+                            if let Some(dir) = ctx.working_dir.as_deref() {
+                                let _ = update_agent_team_member(
+                                    dir,
+                                    &team_id,
+                                    &workstream.id,
+                                    if workstream.run_in_background.unwrap_or(true) {
+                                        "running"
+                                    } else {
+                                        "completed"
+                                    },
+                                    parse_team_task_id(&output),
+                                    Some(output.clone()),
+                                    None,
+                                );
+                            }
                             rendered.push(json!({
                                 "phase": phase_index + 1,
                                 "batch": batch_index + 1,
@@ -256,6 +325,17 @@ impl Tool for CoordinateAgentsTool {
                             }));
                         }
                         Err(err) => {
+                            if let Some(dir) = ctx.working_dir.as_deref() {
+                                let _ = update_agent_team_member(
+                                    dir,
+                                    &team_id,
+                                    &workstream.id,
+                                    "failed",
+                                    None,
+                                    Some(format!("{}", err)),
+                                    None,
+                                );
+                            }
                             rendered.push(json!({
                                 "phase": phase_index + 1,
                                 "batch": batch_index + 1,
@@ -312,10 +392,30 @@ impl Tool for CoordinateAgentsTool {
                     .as_ref()
                     .and_then(|set| set.timeline_path.as_ref())
                     .map(|path| path.display().to_string()),
+                "team_id": team_id,
+                "team_summary_artifact": team_artifacts
+                    .as_ref()
+                    .and_then(|set| set.summary_path.as_ref())
+                    .map(|path| path.display().to_string()),
+                "team_state_artifact": team_artifacts
+                    .as_ref()
+                    .and_then(|set| set.state_path.as_ref())
+                    .map(|path| path.display().to_string()),
+                "team_monitor_artifact": team_artifacts
+                    .as_ref()
+                    .and_then(|set| set.monitor_path.as_ref())
+                    .map(|path| path.display().to_string()),
                 "results": rendered,
             }),
         ))
     }
+}
+
+fn parse_team_task_id(output: &str) -> Option<String> {
+    output
+        .strip_prefix("Background sub-agent launched as ")
+        .and_then(|rest| rest.split_once('.'))
+        .map(|(task_id, _)| task_id.trim().to_string())
 }
 
 #[cfg(test)]

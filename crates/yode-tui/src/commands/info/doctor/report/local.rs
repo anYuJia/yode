@@ -17,6 +17,7 @@ pub(super) fn render_doctor_report(ctx: &mut CommandContext) -> String {
             engine.runtime_state(),
             engine.runtime_tasks_snapshot(),
             engine.permissions().mode(),
+            engine.permissions().source_views_snapshot(),
             engine
                 .permissions()
                 .confirmable_tools()
@@ -212,13 +213,14 @@ pub(super) fn render_doctor_report(ctx: &mut CommandContext) -> String {
         tooling_checks.push("  [ok] MCP startup failures: none recorded".to_string());
     }
 
-    if let Some((state, tasks, permission_mode, confirmable_tools, denial_prefixes, safe_prefixes, confirmation_suggestions)) = runtime {
+    if let Some((state, tasks, permission_mode, source_views, confirmable_tools, denial_prefixes, safe_prefixes, confirmation_suggestions)) = runtime {
         runtime_checks.extend(runtime_health_checks(
             &project_root,
             &ctx.session.session_id,
             &state,
             &tasks,
             permission_mode,
+            &source_views,
             &confirmable_tools,
             &denial_prefixes
                 .into_iter()
@@ -291,6 +293,7 @@ fn runtime_health_checks(
     state: &yode_core::engine::EngineRuntimeState,
     tasks: &[yode_tools::RuntimeTask],
     permission_mode: yode_core::PermissionMode,
+    source_views: &[yode_core::permission::PermissionSourceView],
     confirmable_tools: &[String],
     denial_prefixes: &[String],
     safe_prefixes: &str,
@@ -399,6 +402,23 @@ fn runtime_health_checks(
         state.tool_pool.confirm_count(),
         state.tool_pool.deny_count()
     ));
+    if source_views.is_empty() {
+        checks.push("  [--] Permission scopes: none recorded".to_string());
+    } else {
+        let scope_summary = source_views
+            .iter()
+            .map(|view| {
+                format!(
+                    "{:?}(mode={},rules={})",
+                    view.source,
+                    view.default_mode.as_deref().unwrap_or("inherit"),
+                    view.rules.len()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" | ");
+        checks.push(format!("  [ok] Permission scopes: {}", scope_summary));
+    }
     checks.push(format!("  [ok] Safe bash readonly prefixes: {}", safe_prefixes));
     if denial_prefixes.is_empty() {
         checks.push("  [ok] No bash denial prefixes recorded".to_string());

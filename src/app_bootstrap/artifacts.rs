@@ -16,6 +16,9 @@ enum StartupArtifactKind {
     ProviderInventory,
     McpStartupFailures,
     PermissionPolicy,
+    SettingsScopes,
+    ManagedMcpInventory,
+    ToolSearchActivation,
     BundleManifest,
 }
 
@@ -27,6 +30,9 @@ impl StartupArtifactKind {
             Self::ProviderInventory => "provider-inventory",
             Self::McpStartupFailures => "mcp-startup-failures",
             Self::PermissionPolicy => "permission-policy",
+            Self::SettingsScopes => "settings-scopes",
+            Self::ManagedMcpInventory => "managed-mcp-inventory",
+            Self::ToolSearchActivation => "tool-search-activation",
             Self::BundleManifest => "startup-bundle-manifest",
         }
     }
@@ -38,6 +44,9 @@ impl StartupArtifactKind {
             | Self::ProviderInventory
             | Self::McpStartupFailures
             | Self::PermissionPolicy
+            | Self::SettingsScopes
+            | Self::ManagedMcpInventory
+            | Self::ToolSearchActivation
             | Self::BundleManifest => "json",
         }
     }
@@ -186,6 +195,28 @@ pub(crate) fn write_permission_policy_artifact(
         "mode": permissions.mode().to_string(),
         "confirmable_tools": permissions.confirmable_tools(),
         "safe_readonly_shell_prefixes": permissions.safe_readonly_shell_prefixes(),
+        "source_views": permissions
+            .source_views_snapshot()
+            .into_iter()
+            .map(|view| {
+                serde_json::json!({
+                    "source": format!("{:?}", view.source),
+                    "path": view.path,
+                    "default_mode": view.default_mode,
+                    "rule_count": view.rules.len(),
+                    "rules": view.rules.into_iter().map(|rule| {
+                        serde_json::json!({
+                            "source": format!("{:?}", rule.source),
+                            "tool": rule.tool_name,
+                            "category": rule.category,
+                            "behavior": rule.behavior.label(),
+                            "pattern": rule.pattern,
+                            "description": rule.description,
+                        })
+                    }).collect::<Vec<_>>(),
+                })
+            })
+            .collect::<Vec<_>>(),
         "rules": permissions
             .rules_snapshot()
             .into_iter()
@@ -193,12 +224,10 @@ pub(crate) fn write_permission_policy_artifact(
                 serde_json::json!({
                     "source": format!("{:?}", rule.source),
                     "tool": rule.tool_name,
-                    "behavior": match rule.behavior {
-                        yode_core::permission::RuleBehavior::Allow => "allow",
-                        yode_core::permission::RuleBehavior::Deny => "deny",
-                        yode_core::permission::RuleBehavior::Ask => "ask",
-                    },
+                    "category": rule.category,
+                    "behavior": rule.behavior.label(),
                     "pattern": rule.pattern,
+                    "description": rule.description,
                 })
             })
             .collect::<Vec<_>>(),
@@ -207,6 +236,96 @@ pub(crate) fn write_permission_policy_artifact(
         project_root,
         session_id,
         StartupArtifactKind::PermissionPolicy,
+        &serde_json::to_string_pretty(&payload).ok()?,
+    )
+}
+
+pub(crate) fn write_settings_scope_artifact(
+    project_root: &Path,
+    session_id: &str,
+    workdir: &Path,
+) -> Option<String> {
+    let payload = serde_json::json!({
+        "updated_at": chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+        "scopes": collect_settings_scope_views(workdir),
+    });
+    write_startup_artifact(
+        project_root,
+        session_id,
+        StartupArtifactKind::SettingsScopes,
+        &serde_json::to_string_pretty(&payload).ok()?,
+    )
+}
+
+pub(crate) fn write_managed_mcp_inventory_artifact(
+    project_root: &Path,
+    session_id: &str,
+    workdir: &Path,
+    tooling: &ToolingSetupMetrics,
+) -> Option<String> {
+    let scopes = collect_settings_scope_views(workdir);
+    let managed_scope = scopes
+        .iter()
+        .find(|scope| scope["scope"].as_str() == Some("managed"))
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+    let effective_servers = scopes
+        .iter()
+        .filter_map(|scope| scope.get("mcp_servers").and_then(|value| value.as_array()).cloned())
+        .flatten()
+        .collect::<Vec<_>>();
+    let payload = serde_json::json!({
+        "updated_at": chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+        "managed_scope": managed_scope,
+        "effective_server_count": effective_servers.len(),
+        "effective_servers": effective_servers,
+        "configured_server_count": tooling.configured_mcp_server_count,
+        "connected_server_count": tooling.connected_mcp_server_count,
+        "mcp_tool_count": tooling.mcp_tool_count,
+        "failure_count": tooling.mcp_startup_failures.len(),
+        "tool_search_enabled": tooling.tool_search_enabled,
+        "tool_search_reason": tooling.tool_search_reason,
+        "failures": tooling.mcp_startup_failures,
+    });
+    write_startup_artifact(
+        project_root,
+        session_id,
+        StartupArtifactKind::ManagedMcpInventory,
+        &serde_json::to_string_pretty(&payload).ok()?,
+    )
+}
+
+pub(crate) fn write_tool_search_activation_artifact(
+    project_root: &Path,
+    session_id: &str,
+    tooling: &ToolingSetupMetrics,
+    tools: &ToolRegistry,
+) -> Option<String> {
+    let inventory = tools.inventory();
+    let payload = serde_json::json!({
+        "updated_at": chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+        "tool_search_enabled": tooling.tool_search_enabled,
+        "tool_search_reason": tooling.tool_search_reason,
+        "configured_mcp_server_count": tooling.configured_mcp_server_count,
+        "connected_mcp_server_count": tooling.connected_mcp_server_count,
+        "mcp_tool_count": tooling.mcp_tool_count,
+        "discovered_skill_count": tooling.discovered_skill_count,
+        "active_tool_count": inventory.active_count,
+        "deferred_tool_count": inventory.deferred_count,
+        "deferred_mcp_tool_count": inventory.mcp_deferred_count,
+        "activation_count": inventory.activation_count,
+        "last_activated_tool": inventory.last_activated_tool,
+        "visible_deferred_tools": tools
+            .list_deferred()
+            .into_iter()
+            .map(|(name, _)| name)
+            .take(20)
+            .collect::<Vec<_>>(),
+    });
+    write_startup_artifact(
+        project_root,
+        session_id,
+        StartupArtifactKind::ToolSearchActivation,
         &serde_json::to_string_pretty(&payload).ok()?,
     )
 }
@@ -247,6 +366,102 @@ pub(crate) fn write_startup_bundle_manifest_artifact(
         StartupArtifactKind::BundleManifest,
         &serde_json::to_string_pretty(&payload).ok()?,
     )
+}
+
+fn collect_settings_scope_views(workdir: &Path) -> Vec<serde_json::Value> {
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+    let scopes = [
+        ("managed", home.join(".yode").join("managed-config.toml")),
+        ("user", home.join(".yode").join("config.toml")),
+        ("project", workdir.join(".yode").join("config.toml")),
+        ("local", workdir.join(".yode").join("config.local.toml")),
+    ];
+    scopes
+        .into_iter()
+        .map(|(scope, path)| {
+            let parsed = read_partial_scope_config(&path);
+            serde_json::json!({
+                "scope": scope,
+                "path": path.display().to_string(),
+                "exists": path.exists(),
+                "permission_default_mode": parsed
+                    .as_ref()
+                    .and_then(|value| value.get("permission_default_mode"))
+                    .cloned(),
+                "permission_rule_count": parsed
+                    .as_ref()
+                    .and_then(|value| value.get("permission_rule_count"))
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!(0)),
+                "mcp_server_count": parsed
+                    .as_ref()
+                    .and_then(|value| value.get("mcp_server_count"))
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!(0)),
+                "mcp_servers": parsed
+                    .as_ref()
+                    .and_then(|value| value.get("mcp_servers"))
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!([])),
+            })
+        })
+        .collect()
+}
+
+fn read_partial_scope_config(path: &Path) -> Option<serde_json::Value> {
+    if !path.exists() {
+        return None;
+    }
+    let body = std::fs::read_to_string(path).ok()?;
+    let value: toml::Value = toml::from_str(&body).ok()?;
+    let permission_default_mode = value
+        .get("permissions")
+        .and_then(|value| value.get("default_mode"))
+        .and_then(|value| value.as_str())
+        .map(str::to_string);
+    let permission_rule_count = ["always_allow", "always_ask", "always_deny"]
+        .into_iter()
+        .map(|key| {
+            value
+                .get("permissions")
+                .and_then(|value| value.get(key))
+                .and_then(|value| value.as_array())
+                .map(|items| items.len())
+                .unwrap_or(0)
+        })
+        .sum::<usize>();
+    let mcp_servers = value
+        .get("mcp")
+        .and_then(|value| value.get("servers"))
+        .and_then(|value| value.as_table())
+        .map(|servers| {
+            servers
+                .iter()
+                .map(|(name, config)| {
+                    serde_json::json!({
+                        "name": name,
+                        "command": config.get("command").and_then(|value| value.as_str()),
+                        "arg_count": config
+                            .get("args")
+                            .and_then(|value| value.as_array())
+                            .map(|items| items.len())
+                            .unwrap_or(0),
+                        "env_keys": config
+                            .get("env")
+                            .and_then(|value| value.as_table())
+                            .map(|table| table.keys().cloned().collect::<Vec<_>>())
+                            .unwrap_or_default(),
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    Some(serde_json::json!({
+        "permission_default_mode": permission_default_mode,
+        "permission_rule_count": permission_rule_count,
+        "mcp_server_count": mcp_servers.len(),
+        "mcp_servers": mcp_servers,
+    }))
 }
 
 #[cfg(test)]
@@ -300,6 +515,13 @@ mod tests {
             "session-1234",
             &PermissionManager::strict(),
         );
+        let settings = write_settings_scope_artifact(&dir, "session-1234", &dir);
+        let managed_mcp = write_managed_mcp_inventory_artifact(
+            &dir,
+            "session-1234",
+            &dir,
+            &ToolingSetupMetrics::default(),
+        );
 
         assert!(startup.as_deref().is_some_and(|path| Path::new(path).exists()));
         assert!(startup
@@ -309,6 +531,8 @@ mod tests {
         assert!(provider.as_deref().is_some_and(|path| Path::new(path).exists()));
         assert!(manifest.as_deref().is_some_and(|path| Path::new(path).exists()));
         assert!(permissions.as_deref().is_some_and(|path| Path::new(path).exists()));
+        assert!(settings.as_deref().is_some_and(|path| Path::new(path).exists()));
+        assert!(managed_mcp.as_deref().is_some_and(|path| Path::new(path).exists()));
         std::fs::remove_dir_all(&dir).ok();
     }
 

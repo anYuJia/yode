@@ -83,7 +83,10 @@ pub struct PermissionsConfig {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PermissionRuleEntry {
+    #[serde(default)]
     pub tool: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pattern: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

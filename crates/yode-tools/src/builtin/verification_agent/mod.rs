@@ -122,6 +122,8 @@ impl Tool for VerificationAgentTool {
                         "bash".to_string(),
                         "task_output".to_string(),
                     ],
+                    team_id: None,
+                    member_id: None,
                 },
             )
             .await?;

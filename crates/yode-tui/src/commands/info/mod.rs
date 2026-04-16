@@ -13,7 +13,7 @@ pub(crate) mod memory;
 pub(crate) mod permission_recovery_workspace;
 pub(crate) mod runtime_inspectors;
 mod shared;
-mod startup_artifacts;
+pub(crate) mod startup_artifacts;
 mod status;
 mod task_runtime_workspace;
 mod tasks;

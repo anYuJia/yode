@@ -1,13 +1,15 @@
 use crate::commands::context::CommandContext;
 use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
 use crate::commands::artifact_nav::{
-    artifact_freshness_badge, latest_action_history_artifact, latest_coordinator_artifact,
-    latest_remote_control_artifact, latest_remote_task_handoff_artifact,
+    artifact_freshness_badge, latest_action_history_artifact, latest_agent_team_monitor_artifact,
+    latest_coordinator_artifact, latest_hook_deferred_artifact,
+    latest_permission_governance_artifact, latest_remote_control_artifact,
+    latest_remote_live_session_artifact, latest_remote_task_handoff_artifact,
     latest_runtime_orchestration_artifact, latest_workflow_execution_artifact,
 };
 use crate::commands::info::runtime_inspectors::preview_runtime_artifact;
 use crate::runtime_display::format_turn_artifact_status;
-use crate::runtime_timeline::build_runtime_timeline_lines;
+use crate::runtime_timeline::build_runtime_timeline_lines_with_project_root;
 use super::artifact_preview::{compact_tool_runtime_summary, latest_markdown_file, preview_markdown};
 
 pub struct BriefCommand {
@@ -58,8 +60,12 @@ impl Command for BriefCommand {
         let latest_coordinate = latest_coordinator_artifact(&working_dir);
         let latest_orchestration = latest_runtime_orchestration_artifact(&working_dir);
         let latest_remote_control = latest_remote_control_artifact(&working_dir);
+        let latest_remote_live = latest_remote_live_session_artifact(&working_dir);
         let latest_remote_handoff = latest_remote_task_handoff_artifact(&working_dir);
         let latest_action_history = latest_action_history_artifact(&working_dir);
+        let latest_team_monitor = latest_agent_team_monitor_artifact(&working_dir);
+        let latest_hook_defer = latest_hook_deferred_artifact(&working_dir);
+        let latest_permission_governance = latest_permission_governance_artifact(&working_dir);
         let latest_review_preview = latest_review
             .as_ref()
             .and_then(|path| preview_markdown(path, "## Result"));
@@ -71,7 +77,8 @@ impl Command for BriefCommand {
             .and_then(|path| preview_markdown(path, "## Calls"));
         let recovery_preview =
             preview_runtime_artifact(state.last_recovery_artifact_path.as_deref(), "## Breadcrumbs");
-        let timeline_lines = build_runtime_timeline_lines(&state, &tasks, 4);
+        let timeline_lines =
+            build_runtime_timeline_lines_with_project_root(Some(&working_dir), &state, &tasks, 6);
         let running_tasks = tasks
             .iter()
             .filter(|task| matches!(task.status, yode_tools::RuntimeTaskStatus::Running))
@@ -95,6 +102,25 @@ impl Command for BriefCommand {
         output.push_str(&format!(
             "  Tools:     {}\n",
             compact_tool_runtime_summary(&state)
+        ));
+        output.push_str(&format!(
+            "  Runtime+:  defer={} team={} remote={} perm={}\n",
+            latest_hook_defer
+                .as_ref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "none".to_string()),
+            latest_team_monitor
+                .as_ref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "none".to_string()),
+            latest_remote_live
+                .as_ref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "none".to_string()),
+            latest_permission_governance
+                .as_ref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "none".to_string()),
         ));
         output.push_str(&format!("  Tasks:     {} running\n", running_tasks.len()));
         for task in running_tasks.iter().take(3) {
@@ -198,6 +224,17 @@ impl Command for BriefCommand {
                 .unwrap_or_default()
         ));
         output.push_str(&format!(
+            "    - remote-live: {}{}\n",
+            latest_remote_live
+                .as_ref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "none".to_string()),
+            latest_remote_live
+                .as_ref()
+                .map(|path| format!(" [{} | /remote-control session]", artifact_freshness_badge(path)))
+                .unwrap_or_default()
+        ));
+        output.push_str(&format!(
             "    - remote-handoff: {}\n",
             latest_remote_handoff
                 .as_ref()
@@ -207,6 +244,13 @@ impl Command for BriefCommand {
         output.push_str(&format!(
             "    - action-history: {}\n",
             latest_action_history
+                .as_ref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "none".to_string())
+        ));
+        output.push_str(&format!(
+            "    - team-monitor: {}\n",
+            latest_team_monitor
                 .as_ref()
                 .map(|path| path.display().to_string())
                 .unwrap_or_else(|| "none".to_string())

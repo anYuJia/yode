@@ -50,6 +50,8 @@ pub(crate) fn permission_rule_diff_summary(rules: &[PermissionRule]) -> String {
     let mut session = 0usize;
     let mut user = 0usize;
     let mut project = 0usize;
+    let mut local = 0usize;
+    let mut managed = 0usize;
     let mut cli = 0usize;
 
     for rule in rules {
@@ -62,13 +64,15 @@ pub(crate) fn permission_rule_diff_summary(rules: &[PermissionRule]) -> String {
             RuleSource::Session => session += 1,
             RuleSource::UserConfig => user += 1,
             RuleSource::ProjectConfig => project += 1,
+            RuleSource::LocalConfig => local += 1,
+            RuleSource::ManagedConfig => managed += 1,
             RuleSource::CliArg => cli += 1,
         }
     }
 
     format!(
-        "allow={} deny={} ask={} / session={} user={} project={} cli={}",
-        allow, deny, ask, session, user, project, cli
+        "allow={} deny={} ask={} / session={} user={} project={} local={} managed={} cli={}",
+        allow, deny, ask, session, user, project, local, managed, cli
     )
 }
 
@@ -120,19 +124,25 @@ mod tests {
                 source: RuleSource::Session,
                 behavior: RuleBehavior::Allow,
                 tool_name: "bash".to_string(),
+                category: None,
                 pattern: None,
+                description: None,
             },
             PermissionRule {
                 source: RuleSource::UserConfig,
                 behavior: RuleBehavior::Deny,
                 tool_name: "edit_file".to_string(),
+                category: None,
                 pattern: None,
+                description: None,
             },
             PermissionRule {
                 source: RuleSource::CliArg,
                 behavior: RuleBehavior::Ask,
                 tool_name: "write_file".to_string(),
+                category: None,
                 pattern: None,
+                description: None,
             },
         ]);
         assert!(summary.contains("allow=1"));

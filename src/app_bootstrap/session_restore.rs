@@ -7,7 +7,7 @@ use crate::Cli;
 use yode_core::config::Config;
 use yode_core::context::AgentContext;
 use yode_core::db::{Database, StoredMessage};
-use yode_core::permission::PermissionManager;
+use yode_core::permission::{PermissionConfig, PermissionManager, PermissionSourceView};
 use yode_core::session::Session;
 use yode_llm::types::{ContentBlock, Message, Role, ToolCall};
 
@@ -19,35 +19,118 @@ pub(crate) struct SessionRestoreReport {
     pub skipped_messages: usize,
 }
 
-pub(crate) fn configure_permissions(config: &Config) -> PermissionManager {
+pub(crate) fn configure_permissions(config: &Config, workdir: &std::path::Path) -> PermissionManager {
     let mut permissions =
         PermissionManager::from_confirmation_list(config.tools.require_confirmation.clone());
 
-    if let Some(mode_str) = &config.permissions.default_mode {
-        if let Ok(mode) = mode_str.parse::<yode_core::PermissionMode>() {
-            permissions.set_mode(mode);
+    let mut source_views = Vec::new();
+    let layers = permission_layers(config, workdir);
+    for (source, path, layer) in layers {
+        if let Some(mode_str) = &layer.default_mode {
+            if let Ok(mode) = mode_str.parse::<yode_core::PermissionMode>() {
+                permissions.set_mode(mode);
+            }
+        }
+        let rules = layer.to_rules(source);
+        if !rules.is_empty() {
+            permissions.add_rules(rules.clone());
+        }
+        source_views.push(PermissionSourceView {
+            source,
+            path,
+            default_mode: layer.default_mode.clone(),
+            rules,
+        });
+    }
+    permissions.set_source_views(source_views);
+
+    permissions
+}
+
+fn permission_layers(
+    root_config: &Config,
+    workdir: &std::path::Path,
+) -> Vec<(yode_core::permission::RuleSource, Option<String>, PermissionConfig)> {
+    use yode_core::permission::RuleSource;
+
+    let mut layers = vec![(
+        RuleSource::UserConfig,
+        dirs::home_dir()
+            .map(|home| home.join(".yode").join("config.toml").display().to_string()),
+        permission_config_from_runtime_config(root_config),
+    )];
+
+    let managed_path = dirs::home_dir()
+        .map(|home| home.join(".yode").join("managed-config.toml"))
+        .filter(|path| path.exists());
+    if let Some(path) = managed_path.as_deref() {
+        if let Some(config) = load_permission_config_from_path(path) {
+            layers.push((
+                RuleSource::ManagedConfig,
+                Some(path.display().to_string()),
+                config,
+            ));
         }
     }
 
-    use yode_core::permission::{PermissionRule, RuleBehavior, RuleSource};
-    for entry in &config.permissions.always_allow {
-        permissions.add_rule(PermissionRule {
-            source: RuleSource::UserConfig,
-            behavior: RuleBehavior::Allow,
-            tool_name: entry.tool.clone(),
-            pattern: entry.pattern.clone(),
-        });
-    }
-    for entry in &config.permissions.always_deny {
-        permissions.add_rule(PermissionRule {
-            source: RuleSource::UserConfig,
-            behavior: RuleBehavior::Deny,
-            tool_name: entry.tool.clone(),
-            pattern: entry.pattern.clone(),
-        });
+    let project_path = workdir.join(".yode").join("config.toml");
+    if let Some(config) = load_permission_config_from_path(&project_path) {
+        layers.push((
+            RuleSource::ProjectConfig,
+            Some(project_path.display().to_string()),
+            config,
+        ));
     }
 
-    permissions
+    let local_path = workdir.join(".yode").join("config.local.toml");
+    if let Some(config) = load_permission_config_from_path(&local_path) {
+        layers.push((
+            RuleSource::LocalConfig,
+            Some(local_path.display().to_string()),
+            config,
+        ));
+    }
+
+    layers
+}
+
+fn permission_config_from_runtime_config(config: &Config) -> PermissionConfig {
+    PermissionConfig {
+        default_mode: config.permissions.default_mode.clone(),
+        always_allow: config
+            .permissions
+            .always_allow
+            .iter()
+            .map(permission_rule_entry_to_config)
+            .collect(),
+        always_ask: Vec::new(),
+        always_deny: config
+            .permissions
+            .always_deny
+            .iter()
+            .map(permission_rule_entry_to_config)
+            .collect(),
+    }
+}
+
+fn permission_rule_entry_to_config(
+    entry: &yode_core::config::PermissionRuleEntry,
+) -> yode_core::permission::PermissionRuleConfig {
+    yode_core::permission::PermissionRuleConfig {
+        tool: entry.tool.clone(),
+        category: entry.category.clone(),
+        pattern: entry.pattern.clone(),
+        description: entry.description.clone(),
+    }
+}
+
+fn load_permission_config_from_path(path: &std::path::Path) -> Option<PermissionConfig> {
+    if !path.exists() {
+        return None;
+    }
+    yode_core::config::Config::load_from(Some(path))
+        .ok()
+        .map(|config| permission_config_from_runtime_config(&config))
 }
 
 pub(crate) fn restore_or_create_context(
@@ -147,6 +230,7 @@ fn restore_messages_full(
 mod tests {
     use super::*;
     use chrono::Utc;
+    use yode_core::permission::RuleSource;
     use yode_core::session::Session;
 
     fn test_cli(resume: Option<&str>) -> crate::Cli {
@@ -169,6 +253,39 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).unwrap();
         Database::open(&dir.join("sessions.db")).unwrap()
+    }
+
+    fn test_config() -> Config {
+        let dir = std::env::temp_dir().join(format!(
+            "yode-session-restore-config-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(
+            &path,
+            r#"
+[llm]
+default_provider = "openai"
+default_model = "gpt-4o"
+
+[tools]
+bash_timeout = 120
+require_confirmation = ["bash"]
+
+[session]
+db_path = ""
+
+[ui]
+language = "zh-CN"
+theme = "dark"
+            "#,
+        )
+        .unwrap();
+        let config = Config::load_from(Some(&path)).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        config
     }
 
     #[test]
@@ -242,6 +359,80 @@ mod tests {
         let (_messages, report) = restore_messages_full(&db, "resume-2").unwrap();
         assert_eq!(report.decoded_messages, 1);
         assert_eq!(report.skipped_messages, 1);
+    }
+
+    #[test]
+    fn configure_permissions_merges_project_and_local_layers() {
+        let workdir = std::env::temp_dir().join(format!(
+            "yode-permission-layer-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&workdir);
+        let yode_dir = workdir.join(".yode");
+        std::fs::create_dir_all(&yode_dir).unwrap();
+        std::fs::write(
+            yode_dir.join("config.toml"),
+            r#"
+[llm]
+default_provider = "openai"
+default_model = "gpt-4o"
+
+[tools]
+bash_timeout = 120
+require_confirmation = ["bash"]
+
+[session]
+db_path = ""
+
+[ui]
+language = "zh-CN"
+theme = "dark"
+
+[permissions]
+default_mode = "plan"
+
+[[permissions.always_deny]]
+category = "write"
+description = "project deny writes"
+            "#,
+        )
+        .unwrap();
+        std::fs::write(
+            yode_dir.join("config.local.toml"),
+            r#"
+[llm]
+default_provider = "openai"
+default_model = "gpt-4o"
+
+[tools]
+bash_timeout = 120
+require_confirmation = ["bash"]
+
+[session]
+db_path = ""
+
+[ui]
+language = "zh-CN"
+theme = "dark"
+
+[permissions]
+default_mode = "accept-edits"
+
+[[permissions.always_allow]]
+tool = "write_file"
+description = "local override"
+            "#,
+        )
+        .unwrap();
+
+        let permissions = configure_permissions(&test_config(), &workdir);
+        assert_eq!(permissions.mode(), yode_core::PermissionMode::AcceptEdits);
+        let views = permissions.source_views_snapshot();
+        assert!(views.iter().any(|view| view.source == RuleSource::ProjectConfig));
+        assert!(views.iter().any(|view| view.source == RuleSource::LocalConfig));
+        let explanation = permissions.explain_with_content("write_file", None);
+        assert_eq!(explanation.action, yode_core::permission::PermissionAction::Allow);
+        let _ = std::fs::remove_dir_all(&workdir);
     }
 }
 
