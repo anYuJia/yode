@@ -53,7 +53,7 @@ curl -fsSL https://raw.githubusercontent.com/anYuJia/yode/main/install.sh | bash
 ### Cargo
 
 ```bash
-cargo install --git https://github.com/anYuJia/yode.git --tag v0.0.12
+cargo install --git https://github.com/anYuJia/yode.git --tag v0.0.13
 ```
 
 ### From source
@@ -237,15 +237,16 @@ crates/
 └── yode-agent    # agent/runtime helpers
 ```
 
-## What 0.0.12 Adds
+## What 0.0.13 Adds
 
-The `0.0.12` release tightens Claude Code-style rendering and retry recovery:
+The `0.0.13` release finishes a broad Claude Code-style output pass across the TUI:
 
-- fenced code blocks now split into dedicated `HighlightedCode` and `StructuredDiff` render paths instead of one generic markdown code path
-- diff rendering now has line-number gutters, add/remove backgrounds, file-path language detection, and word-level emphasis for paired hunks
-- retry status now recovers correctly from `Retrying` back to `Working` once network/stream activity resumes, so stale 429 retry banners no longer stick
+- tool reads/searches now collapse into compact summary-first blocks instead of dumping raw output by default
+- status, diagnostics, brief/context, doctor, inspect, and export artifacts now share one runtime/context/tool summary model
+- system messages now have semantic grouping and lightweight status batches for compact/memory/export/task/update events
+- retry banners now surface root-cause transport details and retry provider `403` API failures instead of stopping after one attempt
 
-Release: [v0.0.12](https://github.com/anYuJia/yode/releases/tag/v0.0.12)
+Release: [v0.0.13](https://github.com/anYuJia/yode/releases/tag/v0.0.13)
 
 ## Contributing
 
