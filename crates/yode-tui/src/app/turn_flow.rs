@@ -119,6 +119,8 @@ pub(super) fn handle_enter(
                 streaming_buf: &mut app.streaming_buf,
                 streaming_printed_lines: &mut app.streaming_printed_lines,
                 streaming_in_code_block: &mut app.streaming_in_code_block,
+                streaming_code_block_language: &mut app.streaming_code_block_language,
+                streaming_shell_session_state: &mut app.streaming_shell_session_state,
                 tools,
                 session: &mut app.session,
                 input: &mut app.input,
@@ -161,8 +163,8 @@ pub(super) fn handle_enter(
             return;
         }
 
-use crate::app::InspectorView;
-use crate::commands::CommandOutput;
+        use crate::app::InspectorView;
+        use crate::commands::CommandOutput;
         match result {
             Some(Ok(CommandOutput::Message(msg))) => {
                 app.chat_entries.push(ChatEntry::new(ChatRole::System, msg));

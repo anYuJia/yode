@@ -20,8 +20,8 @@ use super::wizard;
 
 pub(crate) use self::types::SPINNER_VERBS;
 pub use self::types::{
-    ChatEntry, ChatRole, InspectorRuntime, InspectorView, PendingConfirmation, PermissionMode, SessionState, ThinkingState,
-    TurnStatus,
+    ChatEntry, ChatRole, InspectorRuntime, InspectorView, PendingConfirmation, PermissionMode,
+    SessionState, ThinkingState, TurnStatus,
 };
 
 /// Main application state.
@@ -39,6 +39,8 @@ pub struct App {
     pub streaming_tag_buf: String,
     pub streaming_printed_lines: usize,
     pub streaming_in_code_block: bool,
+    pub streaming_code_block_language: Option<crate::app::rendering::CodeLanguage>,
+    pub streaming_shell_session_state: crate::app::rendering::ShellSessionState,
     pub streaming_remainder: Option<(Vec<String>, bool)>,
     pub thinking_printed: bool,
     pub received_reasoning_delta: bool,
@@ -118,6 +120,8 @@ impl App {
             streaming_tag_buf: String::new(),
             streaming_printed_lines: 0,
             streaming_in_code_block: false,
+            streaming_code_block_language: None,
+            streaming_shell_session_state: crate::app::rendering::ShellSessionState::Idle,
             streaming_remainder: None,
             thinking_printed: false,
             received_reasoning_delta: false,

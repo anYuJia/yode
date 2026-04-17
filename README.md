@@ -53,7 +53,7 @@ curl -fsSL https://raw.githubusercontent.com/anYuJia/yode/main/install.sh | bash
 ### Cargo
 
 ```bash
-cargo install --git https://github.com/anYuJia/yode.git --tag v0.0.11
+cargo install --git https://github.com/anYuJia/yode.git --tag v0.0.12
 ```
 
 ### From source
@@ -237,15 +237,15 @@ crates/
 └── yode-agent    # agent/runtime helpers
 ```
 
-## What 0.0.11 Adds
+## What 0.0.12 Adds
 
-The `0.0.11` release completes the round-9 tool-platform push:
+The `0.0.12` release tightens Claude Code-style rendering and retry recovery:
 
-- remote queue dispatch/result and transport control are now first-class tools
-- permission governance, hook defer, team runtime, managed settings/MCP, and remote live session all have inspectable runtime planes
-- tool/operator UX now includes taxonomy, monitor/follow surfaces, permission mode guides, and fuller verification/docs
+- fenced code blocks now split into dedicated `HighlightedCode` and `StructuredDiff` render paths instead of one generic markdown code path
+- diff rendering now has line-number gutters, add/remove backgrounds, file-path language detection, and word-level emphasis for paired hunks
+- retry status now recovers correctly from `Retrying` back to `Working` once network/stream activity resumes, so stale 429 retry banners no longer stick
 
-Release: [v0.0.11](https://github.com/anYuJia/yode/releases/tag/v0.0.11)
+Release: [v0.0.12](https://github.com/anYuJia/yode/releases/tag/v0.0.12)
 
 ## Contributing
 

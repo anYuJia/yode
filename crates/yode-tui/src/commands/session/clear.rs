@@ -43,6 +43,8 @@ impl Command for ClearCommand {
         ctx.streaming_buf.clear();
         *ctx.streaming_printed_lines = 0;
         *ctx.streaming_in_code_block = false;
+        *ctx.streaming_code_block_language = None;
+        *ctx.streaming_shell_session_state = crate::app::rendering::ShellSessionState::Idle;
 
         // Reset turn tokens
         ctx.session.turn_input_tokens = 0;

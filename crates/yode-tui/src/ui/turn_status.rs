@@ -52,6 +52,7 @@ pub fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &
             )])
         }
         TurnStatus::Retrying {
+            verb: _,
             error,
             attempt,
             max_attempts,

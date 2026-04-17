@@ -51,7 +51,7 @@ pub(crate) fn assistant_plain_lines(entry: &ChatEntry) -> Vec<PlainChatLine> {
         result.push(PlainChatLine {
             prefix,
             content: line.to_string(),
-            highlight_code: !first_content && is_code_block_line(line),
+            highlight_code: is_code_block_line(line),
         });
         first_content = false;
     }
@@ -107,6 +107,27 @@ mod tests {
                 PlainChatLine {
                     prefix: "  ",
                     content: "    fn main() {}".to_string(),
+                    highlight_code: true,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn assistant_plain_lines_mark_code_when_message_starts_with_block() {
+        let entry = ChatEntry::new(ChatRole::Assistant, "```python\nprint(1)\n```".to_string());
+
+        assert_eq!(
+            assistant_plain_lines(&entry),
+            vec![
+                PlainChatLine {
+                    prefix: "⏺ ",
+                    content: "─── python ───".to_string(),
+                    highlight_code: true,
+                },
+                PlainChatLine {
+                    prefix: "  ",
+                    content: "    print(1)".to_string(),
                     highlight_code: true,
                 },
             ]

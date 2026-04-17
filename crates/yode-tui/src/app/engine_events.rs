@@ -28,7 +28,7 @@ pub(super) fn handle_engine_event(
     engine_event_tx: &mpsc::UnboundedSender<EngineEvent>,
 ) {
     match event {
-        EngineEvent::Thinking => {}
+        EngineEvent::Thinking => resume_working_after_retry(&mut app.turn_status),
         EngineEvent::UsageUpdate(usage) => {
             if usage.prompt_tokens > 0 {
                 let new_tokens = if usage.prompt_tokens > app.session.previous_prompt_tokens {
@@ -44,8 +44,14 @@ pub(super) fn handle_engine_event(
                 app.session.turn_output_tokens = usage.completion_tokens;
             }
         }
-        EngineEvent::TextDelta(delta) => handle_text_delta(app, delta),
-        EngineEvent::ReasoningDelta(delta) => handle_reasoning_delta(app, delta),
+        EngineEvent::TextDelta(delta) => {
+            resume_working_after_retry(&mut app.turn_status);
+            handle_text_delta(app, delta)
+        }
+        EngineEvent::ReasoningDelta(delta) => {
+            resume_working_after_retry(&mut app.turn_status);
+            handle_reasoning_delta(app, delta)
+        }
         EngineEvent::TextComplete(text) => handle_text_complete(app, text),
         EngineEvent::ReasoningComplete(text) => handle_reasoning_complete(app, text),
         EngineEvent::ToolCallStart {
@@ -53,6 +59,7 @@ pub(super) fn handle_engine_event(
             name,
             arguments,
         } => {
+            resume_working_after_retry(&mut app.turn_status);
             finalize_streaming(app);
             app.turn_tool_count += 1;
 
@@ -125,6 +132,7 @@ pub(super) fn handle_engine_event(
             name: _,
             progress,
         } => {
+            resume_working_after_retry(&mut app.turn_status);
             let existing =
                 app.chat_entries.iter_mut().rev().take(15).find(
                     |e| matches!(&e.role, ChatRole::ToolCall { id: ref eid, .. } if eid == &id),
@@ -134,6 +142,7 @@ pub(super) fn handle_engine_event(
             }
         }
         EngineEvent::ToolResult { id, name, result } => {
+            resume_working_after_retry(&mut app.turn_status);
             let duration = app
                 .tool_call_starts
                 .remove(&id)
@@ -166,6 +175,7 @@ pub(super) fn handle_engine_event(
             finalize_streaming(app);
             app.thinking_printed = false;
             app.turn_status = TurnStatus::Retrying {
+                verb: retry_verb(&app.turn_status),
                 error: error_message,
                 attempt,
                 max_attempts,
@@ -289,6 +299,56 @@ pub(super) fn handle_engine_event(
                 ChatRole::System,
                 format_budget_exceeded_message(cost, limit),
             ));
+        }
+    }
+}
+
+fn retry_verb(status: &TurnStatus) -> &'static str {
+    match status {
+        TurnStatus::Working { verb } | TurnStatus::Retrying { verb, .. } => *verb,
+        _ => "Working",
+    }
+}
+
+fn resume_working_after_retry(status: &mut TurnStatus) {
+    if let TurnStatus::Retrying { verb, .. } = *status {
+        *status = TurnStatus::Working { verb };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{resume_working_after_retry, retry_verb};
+    use crate::app::TurnStatus;
+
+    #[test]
+    fn retry_status_preserves_original_verb() {
+        let status = TurnStatus::Working { verb: "Brewing" };
+        assert_eq!(retry_verb(&status), "Brewing");
+
+        let status = TurnStatus::Retrying {
+            verb: "Weaving",
+            error: "network".to_string(),
+            attempt: 2,
+            max_attempts: 10,
+            delay_secs: 0,
+        };
+        assert_eq!(retry_verb(&status), "Weaving");
+    }
+
+    #[test]
+    fn retry_status_recovers_to_working_on_progress() {
+        let mut status = TurnStatus::Retrying {
+            verb: "Forging",
+            error: "network".to_string(),
+            attempt: 3,
+            max_attempts: 10,
+            delay_secs: 0,
+        };
+        resume_working_after_retry(&mut status);
+        match status {
+            TurnStatus::Working { verb } => assert_eq!(verb, "Forging"),
+            other => panic!("expected working status, got {:?}", other),
         }
     }
 }

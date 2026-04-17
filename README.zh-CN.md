@@ -53,7 +53,7 @@ curl -fsSL https://raw.githubusercontent.com/anYuJia/yode/main/install.sh | bash
 ### Cargo
 
 ```bash
-cargo install --git https://github.com/anYuJia/yode.git --tag v0.0.11
+cargo install --git https://github.com/anYuJia/yode.git --tag v0.0.12
 ```
 
 ### 从源码安装
@@ -237,15 +237,15 @@ crates/
 └── yode-agent    # agent/runtime helpers
 ```
 
-## 0.0.11 版本重点
+## 0.0.12 版本重点
 
-`0.0.11` 完成了 round-9 的 tool-platform 收口：
+`0.0.12` 重点补齐了 Claude Code 风格的渲染结构与重试恢复：
 
-- remote queue dispatch/result 和 transport control 已升级为 first-class tools
-- permission governance、hook defer、team runtime、managed settings / MCP、remote live session 都已经进入 inspectable runtime plane
-- tool/operator UX 已补齐 taxonomy、monitor/follow surface、permission mode guide 和完整 verification/docs
+- fenced code block 已拆成独立的 `HighlightedCode` 和 `StructuredDiff` 渲染路径，不再走单一路径的 markdown code renderer
+- diff 渲染现在支持行号 gutter、增删背景、基于文件路径的语言探测，以及相邻增删行的 word-level 强调
+- 当网络恢复、流式输出重新开始后，顶部状态会从 `Retrying` 正确恢复到 `Working`，不会再卡住旧的 429 重试提示
 
-Release: [v0.0.11](https://github.com/anYuJia/yode/releases/tag/v0.0.11)
+Release: [v0.0.12](https://github.com/anYuJia/yode/releases/tag/v0.0.12)
 
 ## 贡献
 

@@ -1,3 +1,4 @@
+use super::super::code::{parse_code_language, CodeLanguage};
 use super::inline::{render_inline_md, strip_inline_md};
 
 pub(crate) fn markdown_to_plain(text: &str) -> String {
@@ -186,7 +187,11 @@ fn render_table(rows: &[Vec<String>]) -> String {
     result
 }
 
-pub(crate) fn process_md_line(line: &str, in_code_block: &mut bool) -> String {
+pub(crate) fn process_md_line(
+    line: &str,
+    in_code_block: &mut bool,
+    code_language: &mut Option<CodeLanguage>,
+) -> String {
     let trimmed = line.trim();
 
     if trimmed.starts_with("```") {
@@ -194,9 +199,12 @@ pub(crate) fn process_md_line(line: &str, in_code_block: &mut bool) -> String {
         *in_code_block = !*in_code_block;
         if !was_in_block {
             let lang = trimmed[3..].trim();
+            *code_language = Some(parse_code_language(lang));
             if !lang.is_empty() {
-                return format!("\x1b[38;2;100;100;120m─── {} ───\x1b[0m", lang);
+                return format!("─── {} ───", lang);
             }
+        } else {
+            *code_language = None;
         }
         return String::new();
     }

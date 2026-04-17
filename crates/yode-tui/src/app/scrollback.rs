@@ -10,7 +10,10 @@ use ratatui::style::{Color, Modifier};
 use ratatui::Terminal;
 
 use self::entry_formatting::{format_entry_as_strings, md_line_color};
-use super::rendering::{highlight_code_line, is_code_block_line, process_md_line, strip_ansi};
+use super::rendering::{
+    highlight_code_line_in_block, is_code_block_line, process_md_line, strip_ansi,
+    ShellSessionState,
+};
 use super::{App, ChatRole};
 use crate::ui::chat_layout::render_header;
 
@@ -199,16 +202,34 @@ pub(super) fn flush_entries_to_scrollback(
                 if is_first && needs_spacer {
                     all_output.push((String::new(), None, false));
                 }
-                let text = process_md_line(raw_text, &mut app.streaming_in_code_block);
+                let text = process_md_line(
+                    raw_text,
+                    &mut app.streaming_in_code_block,
+                    &mut app.streaming_code_block_language,
+                );
+                if !app.streaming_in_code_block {
+                    app.streaming_shell_session_state = ShellSessionState::Idle;
+                }
+                if text.is_empty() {
+                    lines_printed_in_this_batch += 1;
+                    continue;
+                }
                 let prefix = if is_first { "⏺ " } else { "  " };
-                if is_first {
+                if is_code_block_line(&text) {
+                    let highlighted = highlight_code_line_in_block(
+                        &text,
+                        app.streaming_code_block_language,
+                        &mut app.streaming_shell_session_state,
+                    );
+                    all_output.push((format!("{}{}", prefix, highlighted), None, false));
+                    first_printed = true;
+                } else if is_first {
+                    app.streaming_shell_session_state = ShellSessionState::Idle;
                     let color = crossterm::style::Color::White;
                     all_output.push((format!("{}{}", prefix, text), Some(color), false));
                     first_printed = true;
-                } else if is_code_block_line(&text) {
-                    let highlighted = highlight_code_line(&text);
-                    all_output.push((format!("{}{}", prefix, highlighted), None, false));
                 } else {
+                    app.streaming_shell_session_state = ShellSessionState::Idle;
                     let (color, bold) = md_line_color(&text);
                     let color_opt = if matches!(color, crossterm::style::Color::Reset) {
                         None
@@ -232,15 +253,36 @@ pub(super) fn flush_entries_to_scrollback(
                 if !first_done && line.trim().is_empty() {
                     continue;
                 }
-                let text = process_md_line(line, &mut app.streaming_in_code_block);
-                if !first_done {
+                let text = process_md_line(
+                    line,
+                    &mut app.streaming_in_code_block,
+                    &mut app.streaming_code_block_language,
+                );
+                if !app.streaming_in_code_block {
+                    app.streaming_shell_session_state = ShellSessionState::Idle;
+                }
+                if text.is_empty() {
+                    continue;
+                }
+                if is_code_block_line(&text) {
+                    let highlighted = highlight_code_line_in_block(
+                        &text,
+                        app.streaming_code_block_language,
+                        &mut app.streaming_shell_session_state,
+                    );
+                    let prefix = if first_done { "  " } else { "⏺ " };
+                    if !first_done {
+                        all_output.push((String::new(), None, false));
+                        first_done = true;
+                    }
+                    all_output.push((format!("{}{}", prefix, highlighted), None, false));
+                } else if !first_done {
+                    app.streaming_shell_session_state = ShellSessionState::Idle;
                     all_output.push((String::new(), None, false));
                     all_output.push((format!("⏺ {}", text), Some(white), false));
                     first_done = true;
-                } else if is_code_block_line(&text) {
-                    let highlighted = highlight_code_line(&text);
-                    all_output.push((format!("  {}", highlighted), None, false));
                 } else {
+                    app.streaming_shell_session_state = ShellSessionState::Idle;
                     let (color, bold) = md_line_color(&text);
                     let color_opt = if matches!(color, crossterm::style::Color::Reset) {
                         None

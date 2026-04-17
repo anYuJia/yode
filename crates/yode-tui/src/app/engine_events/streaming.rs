@@ -227,5 +227,7 @@ pub(super) fn finalize_streaming(app: &mut App) {
         }
         app.streaming_printed_lines = 0;
         app.streaming_in_code_block = false;
+        app.streaming_code_block_language = None;
+        app.streaming_shell_session_state = crate::app::rendering::ShellSessionState::Idle;
     }
 }

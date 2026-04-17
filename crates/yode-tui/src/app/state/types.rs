@@ -151,6 +151,7 @@ pub enum TurnStatus {
         tools: u32,
     },
     Retrying {
+        verb: &'static str,
         error: String,
         attempt: u32,
         max_attempts: u32,

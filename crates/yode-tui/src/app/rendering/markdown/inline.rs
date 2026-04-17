@@ -1,3 +1,5 @@
+use crate::app::rendering::{highlight_code_line_with_language, CodeLanguage};
+
 pub(super) fn strip_inline_md(text: &str) -> String {
     render_inline_md(text, false)
 }
@@ -5,7 +7,6 @@ pub(super) fn strip_inline_md(text: &str) -> String {
 pub(super) fn render_inline_md(text: &str, ansi: bool) -> String {
     const BOLD_ON: &str = "\x1b[1m";
     const BOLD_OFF: &str = "\x1b[22m";
-    const CODE_COLOR: &str = "\x1b[38;2;180;220;170m";
     const RESET: &str = "\x1b[0m";
     const LINK_COLOR: &str = "\x1b[38;2;100;180;255m";
 
@@ -40,8 +41,10 @@ pub(super) fn render_inline_md(text: &str, ansi: bool) -> String {
             }
             let content: String = chars[start..index].iter().collect();
             if ansi {
-                result.push_str(CODE_COLOR);
-                result.push_str(&content);
+                result.push_str(&highlight_code_line_with_language(
+                    &content,
+                    Some(CodeLanguage::Plain),
+                ));
                 result.push_str(RESET);
             } else {
                 result.push_str(&content);

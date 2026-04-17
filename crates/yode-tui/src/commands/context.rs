@@ -22,6 +22,8 @@ pub struct CommandContext<'a> {
     pub streaming_buf: &'a mut String,
     pub streaming_printed_lines: &'a mut usize,
     pub streaming_in_code_block: &'a mut bool,
+    pub streaming_code_block_language: &'a mut Option<crate::app::rendering::CodeLanguage>,
+    pub streaming_shell_session_state: &'a mut crate::app::rendering::ShellSessionState,
     pub tools: &'a Arc<ToolRegistry>,
     pub session: &'a mut SessionState,
     pub input: &'a mut InputState,
