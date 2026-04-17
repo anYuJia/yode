@@ -16,7 +16,7 @@ use crate::ui;
 use super::super::engine_events::handle_engine_event;
 use super::super::key_dispatch::handle_key_event;
 use super::super::scrollback::flush_entries_to_scrollback;
-use super::super::{push_grouped_system_entry, App, ChatEntry, ChatRole};
+use super::super::{push_system_entry, App};
 
 pub(super) async fn run_app(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
@@ -84,14 +84,14 @@ pub(super) async fn run_app(
 fn maybe_surface_runtime_task_notifications(app: &mut App, engine: &Arc<Mutex<AgentEngine>>) {
     if let Ok(engine_guard) = engine.try_lock() {
         for notification in engine_guard.drain_runtime_task_notifications() {
-            app.chat_entries.push(ChatEntry::new(
-                ChatRole::System,
+            push_system_entry(
+                app,
                 format!(
                     "[Task:{}] {}",
                     notification.severity.label(),
                     notification.message
                 ),
-            ));
+            );
         }
 
         if app.last_task_brief_time.elapsed() >= Duration::from_secs(45) {
@@ -114,7 +114,7 @@ fn maybe_surface_runtime_task_notifications(app: &mut App, engine: &Arc<Mutex<Ag
                             .unwrap_or_default()
                     ));
                 }
-                push_grouped_system_entry(app, "Background tasks still running", lines.join("\n"));
+                push_system_entry(app, lines.join("\n"));
                 app.last_task_brief_time = Instant::now();
             }
         }

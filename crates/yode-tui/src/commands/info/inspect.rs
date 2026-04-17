@@ -158,7 +158,7 @@ fn inspect_artifact_target(args: &str, ctx: &mut CommandContext) -> CommandResul
         )));
     }
     if args == "summary" {
-        let lines = artifact_summary_lines(&project_root, &cwd);
+        let lines = artifact_summary_lines(&project_root, &cwd, runtime.as_ref());
         return Ok(CommandOutput::OpenInspector(document_from_command_output(
             "Artifact summary",
             lines,
@@ -881,8 +881,39 @@ fn artifact_inventory_lines(project_root: &std::path::Path, cwd: &std::path::Pat
     lines
 }
 
-fn artifact_summary_lines(project_root: &std::path::Path, cwd: &std::path::Path) -> Vec<String> {
-    vec![
+fn artifact_summary_lines(
+    project_root: &std::path::Path,
+    cwd: &std::path::Path,
+    runtime: Option<&yode_core::engine::EngineRuntimeState>,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    if let Some(state) = runtime {
+        let snapshot = crate::ui::status_summary::runtime_status_snapshot_from_parts(
+            project_root,
+            Some(state.clone()),
+            0,
+        );
+        lines.push("Runtime:".to_string());
+        lines.push(format!(
+            "runtime -> {}",
+            crate::ui::status_summary::session_runtime_summary_text(
+                &snapshot,
+                state.estimated_context_tokens,
+            )
+        ));
+        lines.push(format!(
+            "context -> {}",
+            crate::ui::status_summary::context_window_summary_text(
+                Some(state),
+                state.estimated_context_tokens,
+            )
+        ));
+        lines.push(format!(
+            "tools -> {}",
+            crate::ui::status_summary::tool_runtime_summary_text(state)
+        ));
+    }
+    lines.extend([
         "Counts:".to_string(),
         format!(
             "status={} state={} checkpoints={} startup={} hooks={} remote={} teams={} reviews={} transcripts={} bundles={}",
@@ -1014,7 +1045,8 @@ fn artifact_summary_lines(project_root: &std::path::Path, cwd: &std::path::Path)
         latest_bundle_workspace_index(cwd)
             .map(|path| format!("bundle -> {}", artifact_display_line(&path)))
             .unwrap_or_else(|| "bundle -> none".to_string()),
-    ]
+    ]);
+    lines
 }
 
 fn artifact_history_family_lines(
@@ -1182,7 +1214,7 @@ mod tests {
         assert!(inventory.iter().any(|line| line.contains("latest-runtime-timeline")));
         assert!(inventory.iter().any(|line| line.contains("[fresh]")));
 
-        let summary = artifact_summary_lines(&dir, &dir);
+        let summary = artifact_summary_lines(&dir, &dir, None);
         assert!(summary.iter().any(|line| line.contains("status=")));
         assert!(summary.iter().any(|line| line.contains("bundle ->")));
 
@@ -1196,6 +1228,108 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let err = artifact_history_family_lines("unknown", &dir, &dir, None).unwrap_err();
         assert!(err.contains("Unknown artifact history family"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn artifact_summary_surfaces_runtime_summaries_when_available() {
+        let dir = std::env::temp_dir().join(format!("yode-inspect-runtime-{}", uuid::Uuid::new_v4()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join(".yode").join("status")).unwrap();
+        let state = yode_core::engine::EngineRuntimeState {
+            query_source: "User".to_string(),
+            autocompact_disabled: false,
+            compaction_failures: 0,
+            total_compactions: 1,
+            auto_compactions: 1,
+            manual_compactions: 0,
+            last_compaction_breaker_reason: None,
+            context_window_tokens: 128_000,
+            compaction_threshold_tokens: 96_000,
+            estimated_context_tokens: 64_000,
+            message_count: 4,
+            live_session_memory_initialized: true,
+            live_session_memory_updating: false,
+            live_session_memory_path: String::new(),
+            session_tool_calls_total: 5,
+            last_compaction_mode: None,
+            last_compaction_at: None,
+            last_compaction_summary_excerpt: None,
+            last_compaction_session_memory_path: None,
+            last_compaction_transcript_path: None,
+            last_session_memory_update_at: None,
+            last_session_memory_update_path: None,
+            last_session_memory_generated_summary: false,
+            session_memory_update_count: 2,
+            tracked_failed_tool_results: 0,
+            hook_total_executions: 0,
+            hook_timeout_count: 0,
+            hook_execution_error_count: 0,
+            hook_nonzero_exit_count: 0,
+            hook_wake_notification_count: 0,
+            last_hook_failure_event: None,
+            last_hook_failure_command: None,
+            last_hook_failure_reason: None,
+            last_hook_failure_at: None,
+            last_hook_timeout_command: None,
+            last_compaction_prompt_tokens: None,
+            avg_compaction_prompt_tokens: None,
+            compaction_cause_histogram: std::collections::BTreeMap::new(),
+            system_prompt_estimated_tokens: 0,
+            system_prompt_segments: Vec::new(),
+            prompt_cache: yode_core::engine::PromptCacheRuntimeState::default(),
+            last_turn_duration_ms: None,
+            last_turn_stop_reason: None,
+            last_turn_artifact_path: None,
+            last_stream_watchdog_stage: None,
+            stream_retry_reason_histogram: std::collections::BTreeMap::new(),
+            recovery_state: "Normal".to_string(),
+            recovery_single_step_count: 0,
+            recovery_reanchor_count: 0,
+            recovery_need_user_guidance_count: 0,
+            last_failed_signature: None,
+            recovery_breadcrumbs: Vec::new(),
+            last_recovery_artifact_path: None,
+            last_permission_tool: None,
+            last_permission_action: None,
+            last_permission_explanation: None,
+            last_permission_artifact_path: None,
+            recent_permission_denials: Vec::new(),
+            tool_pool: yode_tools::registry::ToolPoolSnapshot::default(),
+            current_turn_tool_calls: 1,
+            current_turn_tool_output_bytes: 0,
+            current_turn_tool_progress_events: 0,
+            current_turn_parallel_batches: 0,
+            current_turn_parallel_calls: 0,
+            current_turn_max_parallel_batch_size: 0,
+            current_turn_truncated_results: 0,
+            current_turn_budget_notice_emitted: false,
+            current_turn_budget_warning_emitted: false,
+            tool_budget_notice_count: 0,
+            tool_budget_warning_count: 0,
+            last_tool_budget_warning: None,
+            tool_progress_event_count: 2,
+            last_tool_progress_message: None,
+            last_tool_progress_tool: None,
+            last_tool_progress_at: None,
+            parallel_tool_batch_count: 0,
+            parallel_tool_call_count: 0,
+            max_parallel_batch_size: 0,
+            tool_truncation_count: 0,
+            last_tool_truncation_reason: None,
+            latest_repeated_tool_failure: None,
+            read_file_history: Vec::new(),
+            command_tool_duplication_hints: Vec::new(),
+            last_tool_turn_completed_at: None,
+            last_tool_turn_artifact_path: None,
+            tool_error_type_counts: std::collections::BTreeMap::new(),
+            tool_trace_scope: "last".to_string(),
+            tool_traces: Vec::new(),
+        };
+        let summary = artifact_summary_lines(&dir, &dir, Some(&state));
+        assert!(summary.iter().any(|line| line.contains("runtime ->")));
+        assert!(summary.iter().any(|line| line.contains("context ->")));
+        assert!(summary.iter().any(|line| line.contains("tools ->")));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

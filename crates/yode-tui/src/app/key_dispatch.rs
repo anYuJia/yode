@@ -16,7 +16,7 @@ use crate::commands::artifact_nav::record_inspector_action_history;
 use super::engine_events::provider::{reload_provider_from_config, switch_provider_from_config};
 use super::key_handlers::{handle_char, handle_down, handle_tab, handle_up};
 use super::turn_flow::handle_enter;
-use super::{input, App, ChatEntry, ChatRole};
+use super::{input, push_system_entry, App, ChatEntry, ChatRole};
 
 /// Centralized key event handler.
 pub(super) fn handle_key_event(
@@ -33,8 +33,7 @@ pub(super) fn handle_key_event(
         match key.code {
             KeyCode::Esc => {
                 app.wizard = None;
-                app.chat_entries
-                    .push(ChatEntry::new(ChatRole::System, "Wizard cancelled.".into()));
+                push_system_entry(app, "Wizard cancelled.");
             }
             KeyCode::Up => {
                 if let Some(ref mut wiz) = app.wizard {
@@ -49,8 +48,7 @@ pub(super) fn handle_key_event(
             KeyCode::Char(c) => {
                 if key.modifiers.contains(KeyModifiers::CONTROL) && c == 'c' {
                     app.wizard = None;
-                    app.chat_entries
-                        .push(ChatEntry::new(ChatRole::System, "Wizard cancelled.".into()));
+                    push_system_entry(app, "Wizard cancelled.");
                 } else if let Some(ref mut wiz) = app.wizard {
                     if matches!(wiz.current_step(), Some(WizardStep::Input { .. })) {
                         wiz.input_char(c);
@@ -81,7 +79,7 @@ pub(super) fn handle_key_event(
                         let apply_model =
                             app.wizard.as_ref().and_then(|w| w.apply_model.clone());
                         for msg in messages {
-                            app.chat_entries.push(ChatEntry::new(ChatRole::System, msg));
+                            push_system_entry(app, msg);
                         }
                         if let Some(name) = apply_provider {
                             if let Err(err) = switch_provider_from_config(&name, app) {

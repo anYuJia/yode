@@ -139,8 +139,7 @@ impl App {
 
     /// Helper to add a system message.
     pub(crate) fn add_system_message(&mut self, content: String) {
-        self.chat_entries
-            .push(ChatEntry::new(ChatRole::System, content));
+        crate::app::push_system_entry(self, content);
     }
 }
 

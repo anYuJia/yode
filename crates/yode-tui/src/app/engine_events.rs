@@ -17,7 +17,7 @@ use self::streaming::{
     handle_suggestion_ready, handle_text_complete, handle_text_delta, handle_turn_complete,
 };
 use super::{
-    push_grouped_system_entry, App, ChatEntry, ChatRole, PendingConfirmation, PermissionMode,
+    push_system_entry, App, ChatEntry, ChatRole, PendingConfirmation, PermissionMode,
     TurnStatus,
 };
 
@@ -195,11 +195,7 @@ pub(super) fn handle_engine_event(
             path,
             generated_summary,
         } => {
-            push_grouped_system_entry(
-                app,
-                "Session memory updated",
-                format_session_memory_update_message(&path, generated_summary),
-            );
+            push_system_entry(app, format_session_memory_update_message(&path, generated_summary));
         }
         EngineEvent::UpdateAvailable(version) => {
             app.update_available = Some(version);
@@ -235,10 +231,7 @@ pub(super) fn handle_engine_event(
             app.chat_entries.push(entry);
         }
         EngineEvent::PlanModeEntered => {
-            app.chat_entries.push(ChatEntry::new(
-                ChatRole::System,
-                "📋 Entered plan mode (read-only tools only)".to_string(),
-            ));
+            push_system_entry(app, "📋 Entered plan mode (read-only tools only)");
         }
         EngineEvent::PlanApprovalRequired { plan_content } => {
             let preview = if plan_content.len() > 500 {
@@ -246,16 +239,10 @@ pub(super) fn handle_engine_event(
             } else {
                 plan_content
             };
-            app.chat_entries.push(ChatEntry::new(
-                ChatRole::System,
-                format!("📋 Plan ready for approval:\n{}", preview),
-            ));
+            push_system_entry(app, format!("📋 Plan ready for approval:\n{}", preview));
         }
         EngineEvent::PlanModeExited => {
-            app.chat_entries.push(ChatEntry::new(
-                ChatRole::System,
-                "📋 Exited plan mode".to_string(),
-            ));
+            push_system_entry(app, "📋 Exited plan mode");
         }
         EngineEvent::ContextCompressed {
             mode,
@@ -265,9 +252,8 @@ pub(super) fn handle_engine_event(
             session_memory_path,
             transcript_path,
         } => {
-            push_grouped_system_entry(
+            push_system_entry(
                 app,
-                "Context compressed",
                 format_context_compressed_message(
                     &mode,
                     removed,
@@ -295,10 +281,7 @@ pub(super) fn handle_engine_event(
             );
         }
         EngineEvent::BudgetExceeded { cost, limit } => {
-            app.chat_entries.push(ChatEntry::new(
-                ChatRole::System,
-                format_budget_exceeded_message(cost, limit),
-            ));
+            push_system_entry(app, format_budget_exceeded_message(cost, limit));
         }
     }
 }

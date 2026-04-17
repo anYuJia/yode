@@ -13,6 +13,10 @@ use crate::commands::artifact_nav::{
 use crate::runtime_artifacts::{
     write_hook_failure_artifact, write_runtime_task_inventory_artifact,
 };
+use crate::ui::status_summary::{
+    context_window_summary_text, runtime_status_snapshot_from_parts,
+    session_runtime_summary_text, tool_runtime_summary_text,
+};
 
 use super::startup_artifacts::{
     latest_mcp_startup_failures, latest_provider_inventory, latest_startup_artifact_link,
@@ -94,9 +98,28 @@ impl Command for StatusCommand {
             .ok()
             .map(|engine| engine.runtime_tasks_snapshot())
             .unwrap_or_default();
+        let fallback_context_tokens: usize = ctx.chat_entries.iter().map(|e| e.content.len()).sum::<usize>() / 4;
+        let runtime_snapshot = runtime_status_snapshot_from_parts(
+            &working_dir,
+            runtime.clone(),
+            runtime_tasks
+                .iter()
+                .filter(|task| matches!(task.status, yode_tools::RuntimeTaskStatus::Running))
+                .count(),
+        );
+        let runtime_summary =
+            session_runtime_summary_text(&runtime_snapshot, fallback_context_tokens);
+        let context_summary =
+            context_window_summary_text(runtime_snapshot.state.as_ref(), fallback_context_tokens);
+        let tool_summary = runtime_snapshot
+            .state
+            .as_ref()
+            .map(tool_runtime_summary_text)
+            .unwrap_or_else(|| "engine busy".to_string());
         let runtime_task_artifact = write_runtime_task_inventory_artifact(
             &working_dir,
             &ctx.session.session_id,
+            runtime_snapshot.state.as_ref(),
             runtime_tasks.clone(),
         );
         let hook_artifact = runtime
@@ -175,6 +198,9 @@ impl Command for StatusCommand {
             cost,
             &resume_warmup,
             startup_profile,
+            &runtime_summary,
+            &context_summary,
+            &tool_summary,
         )))
     }
 }

@@ -1,6 +1,10 @@
 use std::path::Path;
 
-pub(crate) fn format_retry_delay_summary(delay_secs: u64, attempt: u32, max_attempts: u32) -> String {
+pub(crate) fn format_retry_delay_summary(
+    delay_secs: u64,
+    attempt: u32,
+    max_attempts: u32,
+) -> String {
     format!("Retrying in {}s ({}/{})", delay_secs, attempt, max_attempts)
 }
 
@@ -12,31 +16,25 @@ pub(crate) fn format_context_compressed_message(
     session_memory_path: Option<&str>,
     transcript_path: Option<&str>,
 ) -> String {
-    let mut content = match (removed, tool_results_truncated) {
-        (0, truncated) => format!(
-            "Context compressed ({}): truncated {} oversized tool results to stay within the window.",
-            mode, truncated
-        ),
-        (removed, 0) => format!(
-            "Context compressed ({}): removed {} messages to fit window.",
-            mode, removed
-        ),
-        (removed, truncated) => format!(
-            "Context compressed ({}): removed {} messages and truncated {} oversized tool results.",
-            mode, removed, truncated
-        ),
-    };
-
-    if let Some(summary) = summary {
-        content.push('\n');
-        content.push_str(summary);
+    let mut parts = vec!["Context compressed".to_string(), mode.to_string()];
+    if removed > 0 {
+        parts.push(format!("-{} msgs", removed));
     }
+    if tool_results_truncated > 0 {
+        parts.push(format!("{} tool results truncated", tool_results_truncated));
+    }
+
+    let mut content = parts.join(" · ");
+    if let Some(summary) = summary.filter(|summary| !summary.trim().is_empty()) {
+        content.push_str("\nsummary · ");
+        content.push_str(summary.trim());
+    };
     if let Some(path) = session_memory_path {
-        content.push_str("\nSession memory: ");
+        content.push_str("\nmemory · ");
         content.push_str(path);
     }
     if let Some(path) = transcript_path {
-        content.push_str("\nTranscript backup: ");
+        content.push_str("\ntranscript · ");
         content.push_str(path);
     }
 
@@ -45,14 +43,18 @@ pub(crate) fn format_context_compressed_message(
 
 pub(crate) fn format_session_memory_update_message(path: &str, generated_summary: bool) -> String {
     format!(
-        "Session memory updated ({}): {}",
-        if generated_summary { "summary" } else { "snapshot" },
-        path
+        "Session memory updated · {} · {}",
+        if generated_summary {
+            "summary"
+        } else {
+            "snapshot"
+        },
+        path,
     )
 }
 
 pub(crate) fn format_budget_exceeded_message(cost: f64, limit: f64) -> String {
-    format!("⚠ Budget limit exceeded: ${:.4} (limit: ${:.2})", cost, limit)
+    format!("Budget exceeded · ${:.4} / ${:.2}", cost, limit)
 }
 
 pub(crate) fn format_tool_progress_summary(
@@ -139,6 +141,21 @@ mod tests {
     }
 
     #[test]
+    fn context_compressed_message_is_compact() {
+        assert_eq!(
+            super::format_context_compressed_message(
+                "auto",
+                4,
+                2,
+                Some("trimmed older turns"),
+                Some("/tmp/memory.md"),
+                Some("/tmp/transcript.md"),
+            ),
+            "Context compressed · auto · -4 msgs · 2 tool results truncated\nsummary · trimmed older turns\nmemory · /tmp/memory.md\ntranscript · /tmp/transcript.md"
+        );
+    }
+
+    #[test]
     fn tool_progress_summary_includes_timestamp_when_available() {
         assert_eq!(
             format_tool_progress_summary(Some("bash"), Some("running tests"), Some("10:00")),
@@ -151,6 +168,22 @@ mod tests {
         assert_eq!(
             format_turn_artifact_status(Some("/definitely/missing/artifact.md")),
             "missing: /definitely/missing/artifact.md"
+        );
+    }
+
+    #[test]
+    fn session_memory_update_message_is_compact() {
+        assert_eq!(
+            super::format_session_memory_update_message("/tmp/live.md", true),
+            "Session memory updated · summary · /tmp/live.md"
+        );
+    }
+
+    #[test]
+    fn budget_exceeded_message_is_compact() {
+        assert_eq!(
+            super::format_budget_exceeded_message(0.3456, 0.20),
+            "Budget exceeded · $0.3456 / $0.20"
         );
     }
 }

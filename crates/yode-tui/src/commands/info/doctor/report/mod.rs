@@ -4,7 +4,10 @@ mod remote_workspace;
 mod shared;
 
 use crate::commands::context::CommandContext;
-use crate::runtime_artifacts::{write_hook_failure_artifact, write_runtime_timeline_artifact};
+use crate::runtime_artifacts::{
+    write_hook_failure_artifact, write_runtime_task_inventory_artifact,
+    write_runtime_timeline_artifact,
+};
 use crate::commands::tools::mcp_workspace::write_browser_access_state_artifact;
 use self::remote_workspace::{
     build_remote_execution_state, build_remote_workflow_state, remote_command_surface_inventory,
@@ -73,19 +76,30 @@ pub(super) fn export_doctor_bundle(ctx: &mut CommandContext) -> Result<String, S
     }
 
     let working_dir = std::path::PathBuf::from(&ctx.session.working_dir);
-    if let Some((state, tasks)) = ctx
+    let runtime_bundle = ctx
         .engine
         .try_lock()
         .ok()
-        .map(|engine| (engine.runtime_state(), engine.runtime_tasks_snapshot()))
-    {
+        .map(|engine| (engine.runtime_state(), engine.runtime_tasks_snapshot()));
+    if let Some((state, tasks)) = runtime_bundle.as_ref() {
         if let Some(path) = write_runtime_timeline_artifact(
             &working_dir,
             &ctx.session.session_id,
-            &state,
-            &tasks,
+            state,
+            tasks,
         ) {
             let dest = bundle_dir.join("runtime-timeline.md");
+            std::fs::copy(&path, &dest)
+                .map_err(|err| format!("Failed to copy {}: {}", path, err))?;
+            copied_files.push(dest);
+        }
+        if let Some(path) = write_runtime_task_inventory_artifact(
+            &working_dir,
+            &ctx.session.session_id,
+            Some(state),
+            tasks.clone(),
+        ) {
+            let dest = bundle_dir.join("runtime-tasks.md");
             std::fs::copy(&path, &dest)
                 .map_err(|err| format!("Failed to copy {}: {}", path, err))?;
             copied_files.push(dest);
@@ -186,7 +200,17 @@ pub(super) fn export_doctor_bundle(ctx: &mut CommandContext) -> Result<String, S
     let overview_path = bundle_dir.join("bundle-overview.txt");
     std::fs::write(
         &overview_path,
-        shared::render_support_bundle_overview(&bundle_dir, &copied_files, &severity_summaries),
+        shared::render_support_bundle_overview(
+            &bundle_dir,
+            &working_dir,
+            &copied_files,
+            &severity_summaries,
+            runtime_bundle.as_ref().map(|(state, _)| state),
+            runtime_bundle
+                .as_ref()
+                .map(|(_, tasks)| tasks.as_slice())
+                .unwrap_or(&[]),
+        ),
     )
     .map_err(|err| format!("Failed to write {}: {}", overview_path.display(), err))?;
     copied_files.push(overview_path.clone());

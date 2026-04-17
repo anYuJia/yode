@@ -15,6 +15,10 @@ use crate::commands::artifact_nav::{
 use crate::runtime_display::{
     fold_recovery_breadcrumbs, format_permission_decision_summary, format_tool_progress_summary,
 };
+use crate::ui::status_summary::{
+    context_window_summary_text, runtime_status_snapshot_from_parts, session_runtime_summary_text,
+    tool_runtime_summary_text, RuntimeStatusSnapshot,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RuntimeTimelineEntry {
@@ -208,7 +212,11 @@ pub(crate) fn render_runtime_timeline_markdown(
         .map(|line| format!("- {}", line))
         .collect::<Vec<_>>()
         .join("\n");
-    format!("# Runtime Timeline\n\n{}\n", lines)
+    format!(
+        "# Runtime Timeline\n\n{}## Timeline\n\n{}\n",
+        timeline_summary_markdown(None, state, tasks),
+        lines
+    )
 }
 
 pub(crate) fn render_runtime_timeline_markdown_with_project_root(
@@ -222,7 +230,41 @@ pub(crate) fn render_runtime_timeline_markdown_with_project_root(
         .map(|line| format!("- {}", line))
         .collect::<Vec<_>>()
         .join("\n");
-    format!("# Runtime Timeline\n\n{}\n", lines)
+    format!(
+        "# Runtime Timeline\n\n{}## Timeline\n\n{}\n",
+        timeline_summary_markdown(Some(project_root), state, tasks),
+        lines
+    )
+}
+
+fn timeline_summary_markdown(
+    project_root: Option<&Path>,
+    state: &EngineRuntimeState,
+    tasks: &[RuntimeTask],
+) -> String {
+    let running_tasks = tasks
+        .iter()
+        .filter(|task| matches!(task.status, RuntimeTaskStatus::Running))
+        .count();
+    let snapshot = if let Some(project_root) = project_root {
+        runtime_status_snapshot_from_parts(project_root, Some(state.clone()), running_tasks)
+    } else {
+        RuntimeStatusSnapshot {
+            state: Some(state.clone()),
+            running_tasks,
+            has_team_artifact: false,
+            has_live_artifact: false,
+            has_defer_artifact: false,
+        }
+    };
+    format!(
+        "## Summary\n\n- Runtime: {}\n- Context: {}\n- Tools: {}\n- Tasks: total {} / running {}\n\n",
+        session_runtime_summary_text(&snapshot, state.estimated_context_tokens),
+        context_window_summary_text(Some(state), state.estimated_context_tokens),
+        tool_runtime_summary_text(state),
+        tasks.len(),
+        running_tasks,
+    )
 }
 
 fn task_timeline_entry(task: &RuntimeTask) -> Option<RuntimeTimelineEntry> {

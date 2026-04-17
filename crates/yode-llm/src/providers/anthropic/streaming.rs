@@ -58,7 +58,12 @@ impl AnthropicProvider {
             .body(body_json)
             .send()
             .await
-            .context("Failed to send Anthropic streaming request")?;
+            .with_context(|| {
+                format!(
+                    "Failed to send Anthropic streaming request to {}",
+                    self.messages_url()
+                )
+            })?;
 
         let status = resp.status();
         if !status.is_success() {

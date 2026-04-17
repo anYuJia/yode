@@ -31,13 +31,3 @@ pub(crate) fn preview_markdown(path: &std::path::Path, section_hint: &str) -> Op
         Some(squashed)
     }
 }
-
-pub(crate) fn compact_tool_runtime_summary(state: &yode_core::engine::EngineRuntimeState) -> String {
-    format!(
-        "{} calls / {} progress / {} truncations / {} batches",
-        state.session_tool_calls_total,
-        state.tool_progress_event_count,
-        state.tool_truncation_count,
-        state.parallel_tool_batch_count
-    )
-}

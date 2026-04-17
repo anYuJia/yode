@@ -169,10 +169,7 @@ impl App {
         self.thinking.cancel();
         self.pending_confirmation = None;
         self.sync_thinking();
-        self.chat_entries.push(ChatEntry::new(
-            ChatRole::System,
-            "Generation cancelled.".to_string(),
-        ));
+        crate::app::push_system_entry(self, "Generation cancelled.");
     }
 
     pub fn spinner_char(&self) -> char {

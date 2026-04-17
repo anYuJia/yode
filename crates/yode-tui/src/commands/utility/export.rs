@@ -15,6 +15,10 @@ use crate::commands::{
 use crate::runtime_artifacts::{
     write_runtime_task_inventory_artifact, write_runtime_timeline_artifact,
 };
+use crate::ui::status_summary::{
+    context_window_summary_text, runtime_status_snapshot_from_parts,
+    session_runtime_summary_text, tool_runtime_summary_text,
+};
 
 mod shared;
 use shared::{
@@ -153,17 +157,9 @@ fn render_conversation(ctx: &CommandContext) -> String {
         output.push_str("\n\n");
     }
 
-    // Add stats summary
     output.push_str(&"=".repeat(60));
     output.push_str("\n\n");
-    output.push_str("Statistics:\n");
-    output.push_str(&format!("  Input tokens:  {}\n", ctx.session.input_tokens));
-    output.push_str(&format!("  Output tokens: {}\n", ctx.session.output_tokens));
-    output.push_str(&format!("  Total tokens:  {}\n", ctx.session.total_tokens));
-    output.push_str(&format!(
-        "  Tool calls:    {}\n",
-        ctx.session.tool_call_count
-    ));
+    output.push_str(&render_conversation_summary(ctx));
 
     output
 }
@@ -189,31 +185,8 @@ fn export_diagnostics_bundle(custom_name: Option<&str>, ctx: &mut CommandContext
         .ok()
         .map(|engine| (Some(engine.runtime_state()), engine.runtime_tasks_snapshot()))
         .unwrap_or((None, Vec::new()));
-    let runtime_summary = if let Some(ref state) = runtime {
-        format!(
-            "Runtime summary\n  Query source: {}\n  Tool calls: {}\n  Tool progress: {}\n  Parallel batches: {}\n  Last tool artifact: {}\n  Last transcript: {}\n  Last compact summary: {}\n  Prompt cache turns: {}\n  System prompt est tokens: {}\n",
-            state.query_source,
-            state.session_tool_calls_total,
-            state.tool_progress_event_count,
-            state.parallel_tool_batch_count,
-            state
-                .last_tool_turn_artifact_path
-                .as_deref()
-                .unwrap_or("none"),
-            state
-                .last_compaction_transcript_path
-                .as_deref()
-                .unwrap_or("none"),
-            state
-                .last_compaction_summary_excerpt
-                .as_deref()
-                .unwrap_or("none"),
-            state.prompt_cache.reported_turns,
-            state.system_prompt_estimated_tokens,
-        )
-    } else {
-        "Runtime summary unavailable: engine busy.".to_string()
-    };
+    let project_root = PathBuf::from(&ctx.session.working_dir);
+    let runtime_summary = render_runtime_bundle_summary(&project_root, runtime.as_ref(), &tasks);
     std::fs::write(&diagnostics_path, runtime_summary)
         .map_err(|err| format!("Failed to write {}: {}", diagnostics_path.display(), err))?;
 
@@ -259,49 +232,70 @@ fn export_diagnostics_bundle(custom_name: Option<&str>, ctx: &mut CommandContext
     }
 
     let workspace_index = bundle_dir.join("workspace-index.md");
-    let workflow_artifact = latest_workflow_execution_artifact(&PathBuf::from(&ctx.session.working_dir))
+    let workflow_artifact = latest_workflow_execution_artifact(&project_root)
         .map(|path| format!("[{}] {}", artifact_freshness_badge(&path), path.display()))
         .unwrap_or_else(|| "none".to_string());
-    let coordinator_artifact = latest_coordinator_artifact(&PathBuf::from(&ctx.session.working_dir))
+    let coordinator_artifact = latest_coordinator_artifact(&project_root)
         .map(|path| format!("[{}] {}", artifact_freshness_badge(&path), path.display()))
         .unwrap_or_else(|| "none".to_string());
-    let orchestration_artifact =
-        latest_runtime_orchestration_artifact(&PathBuf::from(&ctx.session.working_dir))
-            .map(|path| format!("[{}] {}", artifact_freshness_badge(&path), path.display()))
-            .unwrap_or_else(|| "none".to_string());
-    let workspace_body = format!(
-        "# Workspace Index\n\n- Bundle: {}\n- Conversation: {}\n- Runtime summary: {}\n- Runtime timeline: {}\n- Doctor refs: {}\n\nJump targets:\n- /tasks latest\n- /memory latest\n- /reviews latest\n- /status\n- /diagnostics\n- /doctor bundle\n\nOrchestration artifacts:\n- workflow: {}\n- coordinator: {}\n- timeline: {}\n\nInspect aliases:\n- /inspect artifact summary\n- /inspect artifact latest-workflow\n- /inspect artifact latest-coordinate\n- /inspect artifact latest-orchestration\n- /inspect artifact latest-runtime-timeline\n- /inspect artifact latest-provider-inventory\n- /inspect artifact latest-review\n- /inspect artifact latest-transcript\n- /inspect artifact bundle\n",
-        bundle_dir.display(),
-        conversation_path.display(),
-        diagnostics_path.display(),
-        timeline_path.display(),
+    let orchestration_artifact = latest_runtime_orchestration_artifact(&project_root)
+        .map(|path| format!("[{}] {}", artifact_freshness_badge(&path), path.display()))
+        .unwrap_or_else(|| "none".to_string());
+    let workspace_body = render_workspace_index(
+        &bundle_dir,
+        &project_root,
+        runtime.as_ref(),
+        &tasks,
+        &conversation_path,
+        &diagnostics_path,
+        &timeline_path,
         if doctor_refs.is_empty() {
-            "none".to_string()
+            None
         } else {
-            doctor_ref_path.display().to_string()
+            Some(doctor_ref_path.as_path())
         },
-        workflow_artifact,
-        coordinator_artifact,
-        orchestration_artifact,
+        &workflow_artifact,
+        &coordinator_artifact,
+        &orchestration_artifact,
     );
     let _ = std::fs::write(&workspace_index, workspace_body);
 
-    Ok(CommandOutput::Message(format!(
-        "Diagnostics bundle exported to: {}\n  Conversation: {}\n  Runtime: {}\n  Copied artifacts: {}\n  Doctor refs: {}\n  Workspace index: {}\n  Inspect: /inspect artifact bundle",
-        bundle_dir.display(),
-        conversation_path.display(),
-        diagnostics_path.display(),
-        if copied.is_empty() {
-            "none".to_string()
-        } else {
-            copied.join(", ")
-        },
+    let runtime_snapshot = runtime.as_ref().map(|state| {
+        runtime_status_snapshot_from_parts(
+            &project_root,
+            Some(state.clone()),
+            tasks.iter()
+                .filter(|task| matches!(task.status, yode_tools::RuntimeTaskStatus::Running))
+                .count(),
+        )
+    });
+    let runtime_line = runtime_snapshot
+        .as_ref()
+        .map(|snapshot| session_runtime_summary_text(snapshot, runtime.as_ref().map(|state| state.estimated_context_tokens).unwrap_or(0)))
+        .unwrap_or_else(|| "engine busy".to_string());
+    let context_line = runtime
+        .as_ref()
+        .map(|state| context_window_summary_text(Some(state), state.estimated_context_tokens))
+        .unwrap_or_else(|| "engine busy".to_string());
+    let tool_line = runtime
+        .as_ref()
+        .map(tool_runtime_summary_text)
+        .unwrap_or_else(|| "engine busy".to_string());
+
+    Ok(CommandOutput::Message(render_bundle_completion_message(
+        &bundle_dir,
+        &runtime_line,
+        &context_line,
+        &tool_line,
+        &conversation_path,
+        &diagnostics_path,
+        &workspace_index,
+        &copied,
         if doctor_refs.is_empty() {
-            "none".to_string()
+            None
         } else {
-            doctor_ref_path.display().to_string()
+            Some(doctor_ref_path.as_path())
         },
-        workspace_index.display(),
     )))
 }
 
@@ -312,15 +306,19 @@ fn latest_artifact_candidates(ctx: &mut CommandContext) -> Vec<PathBuf> {
         .ok()
         .map(|engine| engine.runtime_state());
     let project_root = PathBuf::from(&ctx.session.working_dir);
-    let mut paths = latest_artifact_candidates_from_links(&latest_runtime_artifact_links(runtime));
+    let mut paths =
+        latest_artifact_candidates_from_links(&latest_runtime_artifact_links(runtime.clone()));
+    let runtime_tasks = ctx
+        .engine
+        .try_lock()
+        .ok()
+        .map(|engine| engine.runtime_tasks_snapshot())
+        .unwrap_or_default();
     if let Some(runtime_task_artifact) = write_runtime_task_inventory_artifact(
         &project_root,
         &ctx.session.session_id,
-        ctx.engine
-            .try_lock()
-            .ok()
-            .map(|engine| engine.runtime_tasks_snapshot())
-            .unwrap_or_default(),
+        runtime.as_ref(),
+        runtime_tasks,
     ) {
         paths.push(PathBuf::from(runtime_task_artifact));
     }
@@ -352,6 +350,188 @@ fn latest_artifact_candidates(ctx: &mut CommandContext) -> Vec<PathBuf> {
     dedup_artifact_paths(paths)
 }
 
+fn render_runtime_bundle_summary(
+    project_root: &std::path::Path,
+    runtime: Option<&yode_core::engine::EngineRuntimeState>,
+    tasks: &[yode_tools::RuntimeTask],
+) -> String {
+    let running_tasks = tasks
+        .iter()
+        .filter(|task| matches!(task.status, yode_tools::RuntimeTaskStatus::Running))
+        .count();
+    let Some(state) = runtime else {
+        return "Runtime summary\n\n- Runtime: engine busy\n- Context: engine busy\n- Tools: engine busy\n- Tasks: unavailable\n".to_string();
+    };
+    let snapshot =
+        runtime_status_snapshot_from_parts(project_root, Some(state.clone()), running_tasks);
+    format!(
+        "Runtime summary\n\n- Runtime: {}\n- Context: {}\n- Tools: {}\n- Tasks: total {} / running {}\n- Tool artifact: {}\n- Transcript: {}\n- Compact summary: {}\n- Prompt cache turns: {}\n- System prompt est: {} tokens\n",
+        session_runtime_summary_text(&snapshot, state.estimated_context_tokens),
+        context_window_summary_text(Some(state), state.estimated_context_tokens),
+        tool_runtime_summary_text(state),
+        tasks.len(),
+        running_tasks,
+        state.last_tool_turn_artifact_path.as_deref().unwrap_or("none"),
+        state.last_compaction_transcript_path.as_deref().unwrap_or("none"),
+        state.last_compaction_summary_excerpt.as_deref().unwrap_or("none"),
+        state.prompt_cache.reported_turns,
+        state.system_prompt_estimated_tokens,
+    )
+}
+
+fn render_workspace_index(
+    bundle_dir: &std::path::Path,
+    project_root: &std::path::Path,
+    runtime: Option<&yode_core::engine::EngineRuntimeState>,
+    tasks: &[yode_tools::RuntimeTask],
+    conversation_path: &std::path::Path,
+    diagnostics_path: &std::path::Path,
+    timeline_path: &std::path::Path,
+    doctor_ref_path: Option<&std::path::Path>,
+    workflow_artifact: &str,
+    coordinator_artifact: &str,
+    orchestration_artifact: &str,
+) -> String {
+    let running_tasks = tasks
+        .iter()
+        .filter(|task| matches!(task.status, yode_tools::RuntimeTaskStatus::Running))
+        .count();
+    let (runtime_line, context_line, tool_line) = if let Some(state) = runtime {
+        let snapshot =
+            runtime_status_snapshot_from_parts(project_root, Some(state.clone()), running_tasks);
+        (
+            session_runtime_summary_text(&snapshot, state.estimated_context_tokens),
+            context_window_summary_text(Some(state), state.estimated_context_tokens),
+            tool_runtime_summary_text(state),
+        )
+    } else {
+        (
+            "engine busy".to_string(),
+            "engine busy".to_string(),
+            "engine busy".to_string(),
+        )
+    };
+    format!(
+        "# Workspace Index\n\n## Summary\n\n- Bundle: {}\n- Runtime: {}\n- Context: {}\n- Tools: {}\n- Tasks: total {} / running {}\n- Conversation: {}\n- Runtime summary: {}\n- Runtime timeline: {}\n- Doctor refs: {}\n\n## Jump Targets\n\n- /tasks latest\n- /memory latest\n- /reviews latest\n- /status\n- /diagnostics\n- /doctor bundle\n\n## Orchestration Artifacts\n\n- workflow: {}\n- coordinator: {}\n- timeline: {}\n\n## Inspect Aliases\n\n- /inspect artifact summary\n- /inspect artifact latest-workflow\n- /inspect artifact latest-coordinate\n- /inspect artifact latest-orchestration\n- /inspect artifact latest-runtime-timeline\n- /inspect artifact latest-provider-inventory\n- /inspect artifact latest-review\n- /inspect artifact latest-transcript\n- /inspect artifact bundle\n",
+        bundle_dir.display(),
+        runtime_line,
+        context_line,
+        tool_line,
+        tasks.len(),
+        running_tasks,
+        conversation_path.display(),
+        diagnostics_path.display(),
+        timeline_path.display(),
+        doctor_ref_path
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "none".to_string()),
+        workflow_artifact,
+        coordinator_artifact,
+        orchestration_artifact,
+    )
+}
+
+fn render_conversation_summary(ctx: &CommandContext) -> String {
+    let project_root = PathBuf::from(&ctx.session.working_dir);
+    let (runtime, tasks) = ctx
+        .engine
+        .try_lock()
+        .ok()
+        .map(|engine| (Some(engine.runtime_state()), engine.runtime_tasks_snapshot()))
+        .unwrap_or((None, Vec::new()));
+    let running_tasks = tasks
+        .iter()
+        .filter(|task| matches!(task.status, yode_tools::RuntimeTaskStatus::Running))
+        .count();
+
+    let (runtime_line, context_line, tool_line) = if let Some(state) = runtime.as_ref() {
+        let snapshot =
+            runtime_status_snapshot_from_parts(&project_root, Some(state.clone()), running_tasks);
+        (
+            session_runtime_summary_text(&snapshot, state.estimated_context_tokens),
+            context_window_summary_text(Some(state), state.estimated_context_tokens),
+            tool_runtime_summary_text(state),
+        )
+    } else {
+        (
+            "engine busy".to_string(),
+            "engine busy".to_string(),
+            "engine busy".to_string(),
+        )
+    };
+
+    render_conversation_summary_block(
+        &runtime_line,
+        &context_line,
+        &tool_line,
+        ctx.chat_entries.len(),
+        ctx.session.input_tokens,
+        ctx.session.output_tokens,
+        ctx.session.total_tokens,
+        ctx.session.tool_call_count,
+        tasks.len(),
+        running_tasks,
+    )
+}
+
+fn render_conversation_summary_block(
+    runtime_line: &str,
+    context_line: &str,
+    tool_line: &str,
+    entry_count: usize,
+    input_tokens: u32,
+    output_tokens: u32,
+    total_tokens: u32,
+    tool_calls: u32,
+    total_tasks: usize,
+    running_tasks: usize,
+) -> String {
+    format!(
+        "Summary:\n  Runtime:      {}\n  Context:      {}\n  Tools:        {}\n  Entries:       {}\n  Tokens:        in {} / out {} / total {}\n  Tool calls:    {}\n  Tasks:         total {} / running {}\n",
+        runtime_line,
+        context_line,
+        tool_line,
+        entry_count,
+        input_tokens,
+        output_tokens,
+        total_tokens,
+        tool_calls,
+        total_tasks,
+        running_tasks,
+    )
+}
+
+fn render_bundle_completion_message(
+    bundle_dir: &std::path::Path,
+    runtime_line: &str,
+    context_line: &str,
+    tool_line: &str,
+    conversation_path: &std::path::Path,
+    diagnostics_path: &std::path::Path,
+    workspace_index: &std::path::Path,
+    copied: &[String],
+    doctor_ref_path: Option<&std::path::Path>,
+) -> String {
+    format!(
+        "Diagnostics bundle exported to: {}\n  Runtime:      {}\n  Context:      {}\n  Tools:        {}\n  Core files:    {}, {}, {}\n  Copied files:  {}\n  Doctor refs:   {}\n  Inspect:       /inspect artifact bundle",
+        bundle_dir.display(),
+        runtime_line,
+        context_line,
+        tool_line,
+        conversation_path.display(),
+        diagnostics_path.display(),
+        workspace_index.display(),
+        if copied.is_empty() {
+            "none".to_string()
+        } else {
+            format!("{}", copied.len())
+        },
+        doctor_ref_path
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "none".to_string()),
+    )
+}
+
 /// Sanitize string for use as filename
 fn sanitize_filename(text: &str) -> String {
     text.to_lowercase()
@@ -369,4 +549,184 @@ fn sanitize_filename(text: &str) -> String {
 /// Generate timestamp-based filename
 fn timestamp_filename() -> String {
     chrono::Local::now().format("%Y-%m-%d-%H%M%S").to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use super::{
+        render_bundle_completion_message, render_conversation_summary_block,
+        render_runtime_bundle_summary, render_workspace_index,
+    };
+    use yode_core::engine::{EngineRuntimeState, PromptCacheRuntimeState};
+    use yode_core::tool_runtime::ToolRuntimeCallView;
+    use yode_tools::registry::ToolPoolSnapshot;
+    use yode_tools::RuntimeTask;
+
+    fn state() -> EngineRuntimeState {
+        EngineRuntimeState {
+            query_source: "User".to_string(),
+            autocompact_disabled: false,
+            compaction_failures: 0,
+            total_compactions: 2,
+            auto_compactions: 1,
+            manual_compactions: 1,
+            last_compaction_breaker_reason: None,
+            context_window_tokens: 128_000,
+            compaction_threshold_tokens: 96_000,
+            estimated_context_tokens: 64_000,
+            message_count: 10,
+            live_session_memory_initialized: true,
+            live_session_memory_updating: false,
+            live_session_memory_path: String::new(),
+            session_tool_calls_total: 6,
+            last_compaction_mode: None,
+            last_compaction_at: None,
+            last_compaction_summary_excerpt: Some("trimmed old turns".to_string()),
+            last_compaction_session_memory_path: None,
+            last_compaction_transcript_path: Some("/tmp/transcript.md".to_string()),
+            last_session_memory_update_at: None,
+            last_session_memory_update_path: None,
+            last_session_memory_generated_summary: false,
+            session_memory_update_count: 2,
+            tracked_failed_tool_results: 0,
+            hook_total_executions: 0,
+            hook_timeout_count: 0,
+            hook_execution_error_count: 0,
+            hook_nonzero_exit_count: 0,
+            hook_wake_notification_count: 0,
+            last_hook_failure_event: None,
+            last_hook_failure_command: None,
+            last_hook_failure_reason: None,
+            last_hook_failure_at: None,
+            last_hook_timeout_command: None,
+            last_compaction_prompt_tokens: None,
+            avg_compaction_prompt_tokens: None,
+            compaction_cause_histogram: BTreeMap::new(),
+            system_prompt_estimated_tokens: 1234,
+            system_prompt_segments: Vec::new(),
+            prompt_cache: PromptCacheRuntimeState {
+                reported_turns: 4,
+                ..PromptCacheRuntimeState::default()
+            },
+            last_turn_duration_ms: None,
+            last_turn_stop_reason: None,
+            last_turn_artifact_path: None,
+            last_stream_watchdog_stage: None,
+            stream_retry_reason_histogram: BTreeMap::new(),
+            recovery_state: "Normal".to_string(),
+            recovery_single_step_count: 0,
+            recovery_reanchor_count: 0,
+            recovery_need_user_guidance_count: 0,
+            last_failed_signature: None,
+            recovery_breadcrumbs: Vec::new(),
+            last_recovery_artifact_path: None,
+            last_permission_tool: None,
+            last_permission_action: None,
+            last_permission_explanation: None,
+            last_permission_artifact_path: None,
+            recent_permission_denials: Vec::new(),
+            tool_pool: ToolPoolSnapshot::default(),
+            current_turn_tool_calls: 1,
+            current_turn_tool_output_bytes: 0,
+            current_turn_tool_progress_events: 0,
+            current_turn_parallel_batches: 0,
+            current_turn_parallel_calls: 0,
+            current_turn_max_parallel_batch_size: 0,
+            current_turn_truncated_results: 0,
+            current_turn_budget_notice_emitted: false,
+            current_turn_budget_warning_emitted: false,
+            tool_budget_notice_count: 0,
+            tool_budget_warning_count: 0,
+            last_tool_budget_warning: None,
+            tool_progress_event_count: 3,
+            last_tool_progress_message: None,
+            last_tool_progress_tool: None,
+            last_tool_progress_at: None,
+            parallel_tool_batch_count: 1,
+            parallel_tool_call_count: 2,
+            max_parallel_batch_size: 2,
+            tool_truncation_count: 0,
+            last_tool_truncation_reason: None,
+            latest_repeated_tool_failure: None,
+            read_file_history: Vec::new(),
+            command_tool_duplication_hints: Vec::new(),
+            last_tool_turn_completed_at: None,
+            last_tool_turn_artifact_path: Some("/tmp/tool.md".to_string()),
+            tool_error_type_counts: BTreeMap::new(),
+            tool_trace_scope: "last".to_string(),
+            tool_traces: Vec::<ToolRuntimeCallView>::new(),
+        }
+    }
+
+    #[test]
+    fn runtime_bundle_summary_uses_shared_runtime_lines() {
+        let rendered = render_runtime_bundle_summary(std::path::Path::new("/tmp"), Some(&state()), &[]);
+        assert!(rendered.contains("- Runtime:"));
+        assert!(rendered.contains("- Context:"));
+        assert!(rendered.contains("- Tools:"));
+        assert!(rendered.contains("- Prompt cache turns: 4"));
+    }
+
+    #[test]
+    fn workspace_index_includes_summary_section() {
+        let rendered = render_workspace_index(
+            std::path::Path::new("/tmp/bundle"),
+            std::path::Path::new("/tmp"),
+            Some(&state()),
+            &Vec::<RuntimeTask>::new(),
+            std::path::Path::new("/tmp/bundle/conversation.txt"),
+            std::path::Path::new("/tmp/bundle/runtime-summary.txt"),
+            std::path::Path::new("/tmp/bundle/runtime-timeline.txt"),
+            None,
+            "workflow",
+            "coordinate",
+            "timeline",
+        );
+        assert!(rendered.contains("## Summary"));
+        assert!(rendered.contains("- Runtime:"));
+        assert!(rendered.contains("## Jump Targets"));
+        assert!(rendered.contains("## Inspect Aliases"));
+    }
+
+    #[test]
+    fn bundle_completion_message_uses_summary_layout() {
+        let rendered = render_bundle_completion_message(
+            std::path::Path::new("/tmp/bundle"),
+            "runtime",
+            "context",
+            "tools",
+            std::path::Path::new("/tmp/bundle/conversation.txt"),
+            std::path::Path::new("/tmp/bundle/runtime-summary.txt"),
+            std::path::Path::new("/tmp/bundle/workspace-index.md"),
+            &["a".to_string(), "b".to_string()],
+            None,
+        );
+        assert!(rendered.contains("Diagnostics bundle exported to:"));
+        assert!(rendered.contains("Core files:"));
+        assert!(rendered.contains("Copied files:  2"));
+    }
+
+    #[test]
+    fn conversation_summary_block_renders_shared_lines() {
+        let summary = render_conversation_summary_block(
+            "runtime",
+            "context",
+            "tools",
+            3,
+            10,
+            20,
+            30,
+            2,
+            4,
+            1,
+        );
+        assert!(summary.contains("Summary:"));
+        assert!(summary.contains("Runtime:      runtime"));
+        assert!(summary.contains("Context:      context"));
+        assert!(summary.contains("Tools:        tools"));
+        assert!(summary.contains("Entries:       3"));
+        assert!(summary.contains("Tool calls:    2"));
+    }
 }

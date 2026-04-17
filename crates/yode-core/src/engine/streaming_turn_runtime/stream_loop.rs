@@ -1,4 +1,5 @@
 use super::*;
+use crate::engine::retry::summarize_retry_error;
 
 pub(super) struct StreamLoopState {
     pub(super) cancelled: bool,
@@ -141,7 +142,7 @@ impl AgentEngine {
             } else {
                 let _ = event_tx.send(EngineEvent::Error(format!(
                     "Stream ended early: {}",
-                    summarize_retry_error_message(&format!("{}", error))
+                    summarize_retry_error(&error)
                 )));
             }
         }

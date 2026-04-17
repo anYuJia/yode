@@ -168,9 +168,9 @@ impl Command for CheckpointCommand {
                 engine.restore_and_persist_messages(merged_messages);
             }
             *ctx.chat_entries = merged_chat_entries;
-            ctx.chat_entries.push(crate::app::ChatEntry::new(
-                crate::app::ChatRole::System,
-                format!("Merged branch '{}' into the current session.", target),
+            ctx.push_system_message(format!(
+                "Merged branch '{}' into the current session.",
+                target
             ));
             let artifacts = write_branch_merge_execution_artifact(
                 &project_root,
@@ -401,9 +401,9 @@ impl Command for CheckpointCommand {
                 engine.restore_and_persist_messages(restored_messages);
             }
             *ctx.chat_entries = checkpoint_restore_chat_entries(&entry.payload);
-            ctx.chat_entries.push(crate::app::ChatEntry::new(
-                crate::app::ChatRole::System,
-                format!("Session restored from checkpoint '{}'.", entry.payload.label),
+            ctx.push_system_message(format!(
+                "Session restored from checkpoint '{}'.",
+                entry.payload.label
             ));
             return Ok(CommandOutput::Message(format!(
                 "Restored session from checkpoint '{}'.",

@@ -1,4 +1,5 @@
 use super::*;
+use super::retry::summarize_retry_error;
 
 impl AgentEngine {
     /// Process a single stream event.
@@ -77,10 +78,7 @@ impl AgentEngine {
                 if let Some(tx) = event_tx {
                     for remaining in (0..=total_secs).rev() {
                         let _ = tx.send(EngineEvent::Retrying {
-                            error_message: summarize_retry_error_message(&format!(
-                                "{}",
-                                last_err.as_ref().unwrap()
-                            )),
+                            error_message: summarize_retry_error(last_err.as_ref().unwrap()),
                             attempt: attempt + 1,
                             max_attempts: total_attempts,
                             delay_secs: remaining,
@@ -141,7 +139,7 @@ impl AgentEngine {
         Err(anyhow::anyhow!(
             "Request failed after {} attempts: {}",
             total_attempts,
-            summarize_retry_error_message(&format!("{}", final_err))
+            summarize_retry_error(&final_err)
         ))
         .context("LLM chat request failed")
     }

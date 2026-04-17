@@ -4,6 +4,10 @@ use crate::commands::info::startup_artifacts::{
     latest_mcp_startup_failures, latest_provider_inventory, latest_startup_manifest,
 };
 use crate::runtime_artifacts::write_runtime_timeline_artifact;
+use crate::ui::status_summary::{
+    context_window_summary_text, runtime_status_snapshot_from_parts,
+    session_runtime_summary_text, tool_runtime_summary_text,
+};
 use yode_core::updater::{latest_local_release_tag, release_version_matches_tag, CURRENT_VERSION};
 use super::shared::render_section;
 
@@ -302,6 +306,24 @@ fn runtime_health_checks(
     let mut checks = Vec::new();
     let benchmark = crate::commands::info::run_long_session_benchmark(project_root);
     let cache_stats = crate::commands::info::transcript_cache_stats();
+    let running_tasks = tasks
+        .iter()
+        .filter(|task| matches!(task.status, yode_tools::RuntimeTaskStatus::Running))
+        .count();
+    let runtime_snapshot =
+        runtime_status_snapshot_from_parts(project_root, Some(state.clone()), running_tasks);
+    checks.push(format!(
+        "  [ok] Runtime summary: {}",
+        session_runtime_summary_text(&runtime_snapshot, state.estimated_context_tokens)
+    ));
+    checks.push(format!(
+        "  [ok] Context summary: {}",
+        context_window_summary_text(Some(state), state.estimated_context_tokens)
+    ));
+    checks.push(format!(
+        "  [ok] Tool summary: {}",
+        tool_runtime_summary_text(state)
+    ));
     checks.push(format!(
         "  [ok] Compact count: {} (auto {}, manual {})",
         state.total_compactions, state.auto_compactions, state.manual_compactions
@@ -521,4 +543,131 @@ fn runtime_health_checks(
     }
 
     checks
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use yode_core::engine::{EngineRuntimeState, PromptCacheRuntimeState};
+    use yode_core::tool_runtime::ToolRuntimeCallView;
+    use yode_tools::registry::ToolPoolSnapshot;
+
+    use super::runtime_health_checks;
+
+    fn state() -> EngineRuntimeState {
+        EngineRuntimeState {
+            query_source: "User".to_string(),
+            autocompact_disabled: false,
+            compaction_failures: 0,
+            total_compactions: 2,
+            auto_compactions: 1,
+            manual_compactions: 1,
+            last_compaction_breaker_reason: None,
+            context_window_tokens: 128_000,
+            compaction_threshold_tokens: 96_000,
+            estimated_context_tokens: 64_000,
+            message_count: 12,
+            live_session_memory_initialized: true,
+            live_session_memory_updating: false,
+            live_session_memory_path: "/tmp/live.md".to_string(),
+            session_tool_calls_total: 9,
+            last_compaction_mode: None,
+            last_compaction_at: None,
+            last_compaction_summary_excerpt: None,
+            last_compaction_session_memory_path: None,
+            last_compaction_transcript_path: None,
+            last_session_memory_update_at: None,
+            last_session_memory_update_path: None,
+            last_session_memory_generated_summary: false,
+            session_memory_update_count: 3,
+            tracked_failed_tool_results: 0,
+            hook_total_executions: 0,
+            hook_timeout_count: 0,
+            hook_execution_error_count: 0,
+            hook_nonzero_exit_count: 0,
+            hook_wake_notification_count: 0,
+            last_hook_failure_event: None,
+            last_hook_failure_command: None,
+            last_hook_failure_reason: None,
+            last_hook_failure_at: None,
+            last_hook_timeout_command: None,
+            last_compaction_prompt_tokens: None,
+            avg_compaction_prompt_tokens: None,
+            compaction_cause_histogram: BTreeMap::new(),
+            system_prompt_estimated_tokens: 0,
+            system_prompt_segments: Vec::new(),
+            prompt_cache: PromptCacheRuntimeState::default(),
+            last_turn_duration_ms: None,
+            last_turn_stop_reason: None,
+            last_turn_artifact_path: None,
+            last_stream_watchdog_stage: None,
+            stream_retry_reason_histogram: BTreeMap::new(),
+            recovery_state: "Normal".to_string(),
+            recovery_single_step_count: 0,
+            recovery_reanchor_count: 0,
+            recovery_need_user_guidance_count: 0,
+            last_failed_signature: None,
+            recovery_breadcrumbs: Vec::new(),
+            last_recovery_artifact_path: None,
+            last_permission_tool: None,
+            last_permission_action: None,
+            last_permission_explanation: None,
+            last_permission_artifact_path: None,
+            recent_permission_denials: Vec::new(),
+            tool_pool: ToolPoolSnapshot::default(),
+            current_turn_tool_calls: 2,
+            current_turn_tool_output_bytes: 0,
+            current_turn_tool_progress_events: 0,
+            current_turn_parallel_batches: 0,
+            current_turn_parallel_calls: 0,
+            current_turn_max_parallel_batch_size: 0,
+            current_turn_truncated_results: 0,
+            current_turn_budget_notice_emitted: false,
+            current_turn_budget_warning_emitted: false,
+            tool_budget_notice_count: 0,
+            tool_budget_warning_count: 0,
+            last_tool_budget_warning: None,
+            tool_progress_event_count: 4,
+            last_tool_progress_message: None,
+            last_tool_progress_tool: None,
+            last_tool_progress_at: None,
+            parallel_tool_batch_count: 1,
+            parallel_tool_call_count: 3,
+            max_parallel_batch_size: 2,
+            tool_truncation_count: 0,
+            last_tool_truncation_reason: None,
+            latest_repeated_tool_failure: None,
+            read_file_history: Vec::new(),
+            command_tool_duplication_hints: Vec::new(),
+            last_tool_turn_completed_at: None,
+            last_tool_turn_artifact_path: None,
+            tool_error_type_counts: BTreeMap::new(),
+            tool_trace_scope: "last".to_string(),
+            tool_traces: Vec::<ToolRuntimeCallView>::new(),
+        }
+    }
+
+    #[test]
+    fn runtime_health_checks_include_shared_runtime_summaries() {
+        let dir = std::env::temp_dir().join(format!("yode-doctor-runtime-{}", uuid::Uuid::new_v4()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join(".yode").join("transcripts")).unwrap();
+        let rendered = runtime_health_checks(
+            &dir,
+            "session",
+            &state(),
+            &[],
+            yode_core::PermissionMode::Default,
+            &[],
+            &["bash".to_string()],
+            &[],
+            "",
+            &[],
+        );
+        assert!(rendered.iter().any(|line| line.contains("Runtime summary:")));
+        assert!(rendered.iter().any(|line| line.contains("Context summary:")));
+        assert!(rendered.iter().any(|line| line.contains("Tool summary:")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

@@ -15,7 +15,7 @@ use yode_llm::types::Message;
 use yode_tools::registry::ToolRegistry;
 
 use super::super::scrollback::{print_entries_to_stdout, print_header_to_stdout};
-use super::super::{App, ChatEntry, ChatRole, SkillCommandWrapper};
+use super::super::{push_system_entry, App, ChatEntry, ChatRole, SkillCommandWrapper};
 
 pub(super) struct RuntimeStartup {
     pub(super) app: App,
@@ -172,10 +172,7 @@ fn hydrate_restored_messages(
             }
         }
         if is_resumed {
-            app.chat_entries.push(ChatEntry::new(
-                ChatRole::System,
-                "Session resumed.".to_string(),
-            ));
+            push_system_entry(app, "Session resumed.");
         }
     }
 }

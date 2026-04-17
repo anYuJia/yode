@@ -1,5 +1,6 @@
 use crate::commands::context::CommandContext;
 use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
+use crate::ui::status_summary::{context_window_summary_text, tool_runtime_summary_text};
 
 pub struct ContextCommand {
     meta: CommandMeta,
@@ -47,7 +48,8 @@ impl Command for ContextCommand {
         let pct = (est_tokens as f64 / context_window as f64 * 100.0).min(100.0);
         let runtime_lines = if let Some(state) = runtime {
             format!(
-                "\n  Messages:        {}\n  Compaction line: ~{} tokens\n  Query source:    {}\n  Autocompact:     {}\n  Compact count:   {} (auto {}, manual {})\n  Breaker reason:  {}\n  Live memory:     {}\n  Session tools:   {}\n  Memory updates:  {}",
+                "\n  Summary:         {}\n  Messages:        {}\n  Compaction line: ~{} tokens\n  Query source:    {}\n  Autocompact:     {}\n  Compact count:   {} (auto {}, manual {})\n  Breaker reason:  {}\n  Live memory:     {}\n  Tool runtime:    {}\n  Memory updates:  {}",
+                context_window_summary_text(Some(&state), total_chars / 4),
                 state.message_count,
                 state.compaction_threshold_tokens,
                 state.query_source,
@@ -64,7 +66,7 @@ impl Command for ContextCommand {
                     .as_deref()
                     .unwrap_or("none"),
                 state.live_session_memory_path,
-                state.session_tool_calls_total,
+                tool_runtime_summary_text(&state),
                 state.session_memory_update_count,
             )
         } else {

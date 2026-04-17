@@ -16,7 +16,8 @@ pub mod wizard;
 
 use regex::Regex;
 use std::sync::LazyLock;
-use std::time::Duration;
+
+use crate::system_message::append_grouped_system_entry;
 
 pub use self::runtime::run;
 pub(crate) use self::time::format_duration;
@@ -73,21 +74,74 @@ fn find_case_insensitive(haystack: &str, needle: &str) -> Option<usize> {
     haystack.to_lowercase().find(&needle.to_lowercase())
 }
 
-fn push_grouped_system_entry(app: &mut App, group_prefix: &str, content: String) {
-    if let Some(last) = app.chat_entries.last_mut() {
-        if matches!(last.role, ChatRole::System)
-            && last.content.starts_with(group_prefix)
-            && last.timestamp.elapsed() <= Duration::from_secs(5)
-        {
-            if !last.content.contains(&content) {
-                last.content.push('\n');
-                last.content.push_str(&content);
-            }
-            return;
-        }
-    }
-    app.chat_entries
-        .push(ChatEntry::new(ChatRole::System, content));
+pub(crate) fn push_system_entry(app: &mut App, content: impl Into<String>) {
+    append_grouped_system_entry(&mut app.chat_entries, content);
 }
 
 // ── Scrollback printing ─────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use yode_llm::registry::ProviderRegistry;
+    use yode_tools::registry::ToolRegistry;
+
+    use crate::system_message::append_grouped_system_entry;
+
+    use super::{push_system_entry, App};
+
+    fn test_app() -> App {
+        App::new(
+            "test-model".to_string(),
+            "session-1234".to_string(),
+            "/tmp".to_string(),
+            "test".to_string(),
+            Vec::new(),
+            HashMap::new(),
+            Arc::new(ProviderRegistry::new()),
+            Arc::new(ToolRegistry::new()),
+        )
+    }
+
+    #[test]
+    fn groups_system_entries_by_semantic_title() {
+        let mut app = test_app();
+        append_grouped_system_entry(
+            &mut app.chat_entries,
+            "Context compressed · auto · -4 msgs".to_string(),
+        );
+        append_grouped_system_entry(
+            &mut app.chat_entries,
+            "Context compressed · manual · -2 msgs".to_string(),
+        );
+        assert_eq!(app.chat_entries.len(), 1);
+        assert!(app.chat_entries[0].content.contains("auto · -4 msgs"));
+        assert!(app.chat_entries[0].content.contains("manual · -2 msgs"));
+    }
+
+    #[test]
+    fn keeps_unrelated_system_entries_separate() {
+        let mut app = test_app();
+        append_grouped_system_entry(
+            &mut app.chat_entries,
+            "Context compressed · auto · -4 msgs".to_string(),
+        );
+        append_grouped_system_entry(
+            &mut app.chat_entries,
+            "Session memory updated · summary · /tmp/live.md".to_string(),
+        );
+        assert_eq!(app.chat_entries.len(), 2);
+    }
+
+    #[test]
+    fn push_system_entry_uses_semantic_title_for_grouping() {
+        let mut app = test_app();
+        push_system_entry(&mut app, "Session memory updated · summary · /tmp/a.md");
+        push_system_entry(&mut app, "Session memory updated · snapshot · /tmp/b.md");
+        assert_eq!(app.chat_entries.len(), 1);
+        assert!(app.chat_entries[0].content.contains("/tmp/a.md"));
+        assert!(app.chat_entries[0].content.contains("/tmp/b.md"));
+    }
+}

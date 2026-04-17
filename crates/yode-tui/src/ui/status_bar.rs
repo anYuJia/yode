@@ -4,13 +4,16 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
-use crate::app::App;
 use super::badges::{
-    budget_badge_label, permission_mode_badge, queue_badge_label, runtime_family_badge,
-    task_badge_label,
+    budget_badge_label, permission_mode_badge, queue_badge_label, task_badge_label,
 };
 use super::palette::{LIGHT, MUTED, SEP};
 use super::responsive::{density_from_width, status_section_mode, Density, StatusSectionMode};
+use super::status_summary::{
+    compaction_badge, context_badge, memory_badge, prompt_cache_badge, push_badge,
+    runtime_family_badges, runtime_status_snapshot,
+};
+use crate::app::App;
 
 /// Top separator line: ────────────────────────────
 pub fn render_separator(frame: &mut Frame, area: Rect) {
@@ -26,8 +29,7 @@ pub fn render_separator(frame: &mut Frame, area: Rect) {
 pub fn render_info_line(frame: &mut Frame, area: Rect, app: &App) {
     let density = density_from_width(area.width, 68, 96);
     let section_mode = status_section_mode(area.width);
-    let running_tasks = running_task_count(app);
-    let working_dir = std::path::PathBuf::from(&app.session.working_dir);
+    let snapshot = runtime_status_snapshot(app);
     let mut parts: Vec<Span> = Vec::new();
 
     // Prefix
@@ -43,10 +45,7 @@ pub fn render_info_line(frame: &mut Frame, area: Rect, app: &App) {
     // Permission mode badge
     let (mode_text, mode_color) = permission_mode_badge(app.session.permission_mode, density);
     if !matches!(section_mode, StatusSectionMode::Collapsed) {
-        parts.push(Span::styled(
-            mode_text,
-            Style::default().fg(mode_color),
-        ));
+        parts.push(Span::styled(mode_text, Style::default().fg(mode_color)));
         parts.push(Span::styled("· ", Style::default().fg(SEP)));
     }
 
@@ -71,55 +70,38 @@ pub fn render_info_line(frame: &mut Frame, area: Rect, app: &App) {
     ));
     parts.push(Span::styled("· ", Style::default().fg(SEP)));
 
-    // Tool calls (with correct pluralization)
+    // Tool calls (Claude Code-style session total)
     if app.session.tool_call_count > 0 {
-        let label = if app.session.tool_call_count == 1 {
-            "call"
-        } else {
-            "calls"
-        };
         parts.push(Span::styled(
             match density {
-                Density::Wide => format!("{} {} ", app.session.tool_call_count, label),
-                Density::Medium | Density::Narrow => {
-                    format!("{}c ", app.session.tool_call_count)
-                }
+                Density::Wide => format!("{} tools ", app.session.tool_call_count),
+                Density::Medium | Density::Narrow => format!("{}t ", app.session.tool_call_count),
             },
             Style::default().fg(LIGHT),
         ));
         parts.push(Span::styled("· ", Style::default().fg(SEP)));
     }
 
-    // Context window estimate
-    let total_chars: usize = app.chat_entries.iter().map(|e| e.content.len()).sum();
-    let ctx_tokens = total_chars / 4;
-    let ctx_pct = if ctx_tokens > 0 {
-        (ctx_tokens as f64 / 128000.0 * 100.0).min(100.0)
-    } else {
-        0.0
-    };
-    let ctx_color = if ctx_pct > 80.0 {
-        Color::LightRed // red when high
-    } else if ctx_pct > 50.0 {
-        Color::Yellow // yellow
-    } else {
-        LIGHT
-    };
-    let ctx_str = if ctx_pct > 0.0 && ctx_pct < 1.0 {
-        if matches!(density, Density::Wide) {
-            "ctx <1% ".to_string()
-        } else {
-            "c<1 ".to_string()
-        }
-    } else {
-        match density {
-            Density::Wide => format!("ctx {:.0}% ", ctx_pct),
-            Density::Medium | Density::Narrow => format!("c{:.0}% ", ctx_pct),
-        }
-    };
+    let fallback_context_tokens: usize = app
+        .chat_entries
+        .iter()
+        .map(|e| e.content.len())
+        .sum::<usize>()
+        / 4;
     if !matches!(section_mode, StatusSectionMode::Collapsed) {
-        parts.push(Span::styled(ctx_str, Style::default().fg(ctx_color)));
-        parts.push(Span::styled("· ", Style::default().fg(SEP)));
+        push_badge(
+            &mut parts,
+            context_badge(snapshot.state.as_ref(), fallback_context_tokens, density),
+        );
+        if let Some(badge) = compaction_badge(snapshot.state.as_ref(), density) {
+            push_badge(&mut parts, badge);
+        }
+        if let Some(badge) = memory_badge(snapshot.state.as_ref(), density) {
+            push_badge(&mut parts, badge);
+        }
+        if let Some(badge) = prompt_cache_badge(snapshot.state.as_ref(), density) {
+            push_badge(&mut parts, badge);
+        }
     }
 
     // Queue
@@ -131,31 +113,16 @@ pub fn render_info_line(frame: &mut Frame, area: Rect, app: &App) {
         parts.push(Span::styled("· ", Style::default().fg(SEP)));
     }
 
-    if running_tasks > 0 {
-        parts.push(Span::styled(task_badge_label(running_tasks, density), Style::default().fg(Color::LightBlue)));
+    if snapshot.running_tasks > 0 {
+        parts.push(Span::styled(
+            task_badge_label(snapshot.running_tasks, density),
+            Style::default().fg(Color::LightBlue),
+        ));
         parts.push(Span::styled("· ", Style::default().fg(SEP)));
     }
 
-    if crate::commands::artifact_nav::latest_agent_team_monitor_artifact(&working_dir).is_some() {
-        parts.push(Span::styled(
-            runtime_family_badge("team", density),
-            Style::default().fg(Color::LightCyan),
-        ));
-        parts.push(Span::styled("· ", Style::default().fg(SEP)));
-    }
-    if crate::commands::artifact_nav::latest_remote_live_session_artifact(&working_dir).is_some() {
-        parts.push(Span::styled(
-            runtime_family_badge("live", density),
-            Style::default().fg(Color::LightGreen),
-        ));
-        parts.push(Span::styled("· ", Style::default().fg(SEP)));
-    }
-    if crate::commands::artifact_nav::latest_hook_deferred_artifact(&working_dir).is_some() {
-        parts.push(Span::styled(
-            runtime_family_badge("defer", density),
-            Style::default().fg(Color::Yellow),
-        ));
-        parts.push(Span::styled("· ", Style::default().fg(SEP)));
+    for badge in runtime_family_badges(&snapshot, density) {
+        push_badge(&mut parts, badge);
     }
 
     if let Some(budget_badge) = budget_badge_label(app.turn_tool_count, density) {
@@ -220,20 +187,6 @@ pub fn render_blank_line(frame: &mut Frame, area: Rect, app: &App) {
     }
 
     frame.render_widget(Paragraph::new(Line::from(parts)), area);
-}
-
-fn running_task_count(app: &App) -> usize {
-    app.engine
-        .as_ref()
-        .and_then(|engine| engine.try_lock().ok())
-        .map(|engine| {
-            engine
-                .runtime_tasks_snapshot()
-                .into_iter()
-                .filter(|task| matches!(task.status, yode_tools::RuntimeTaskStatus::Running))
-                .count()
-        })
-        .unwrap_or(0)
 }
 
 #[cfg(test)]

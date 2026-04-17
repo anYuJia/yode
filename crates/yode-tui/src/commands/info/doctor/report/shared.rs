@@ -1,4 +1,10 @@
 use crate::commands::workspace_text::{workspace_bullets, WorkspaceText};
+use crate::ui::status_summary::{
+    context_window_summary_text, runtime_status_snapshot_from_parts,
+    session_runtime_summary_text, tool_runtime_summary_text,
+};
+use yode_core::engine::EngineRuntimeState;
+use yode_tools::RuntimeTask;
 
 pub(super) fn render_section(title: &str, checks: &[String]) -> String {
     if checks.is_empty() {
@@ -68,13 +74,42 @@ pub(super) fn artifact_freshness_summary(paths: &[std::path::PathBuf]) -> String
 
 pub(super) fn render_support_bundle_overview(
     bundle_dir: &std::path::Path,
+    project_root: &std::path::Path,
     copied_files: &[std::path::PathBuf],
     report_summaries: &[String],
+    runtime: Option<&EngineRuntimeState>,
+    tasks: &[RuntimeTask],
 ) -> String {
-    WorkspaceText::new("Support bundle overview")
+    let mut workspace = WorkspaceText::new("Support bundle overview")
         .subtitle(bundle_dir.display().to_string())
         .field("Files", copied_files.len().to_string())
-        .field("Freshness", artifact_freshness_summary(copied_files))
+        .field("Freshness", artifact_freshness_summary(copied_files));
+    if let Some(state) = runtime {
+        let running_tasks = tasks
+            .iter()
+            .filter(|task| matches!(task.status, yode_tools::RuntimeTaskStatus::Running))
+            .count();
+        let snapshot = runtime_status_snapshot_from_parts(
+            project_root,
+            Some(state.clone()),
+            running_tasks,
+        );
+        workspace = workspace
+            .field(
+                "Runtime",
+                session_runtime_summary_text(&snapshot, state.estimated_context_tokens),
+            )
+            .field(
+                "Context",
+                context_window_summary_text(Some(state), state.estimated_context_tokens),
+            )
+            .field("Tools", tool_runtime_summary_text(state))
+            .field(
+                "Tasks",
+                format!("{} total / {} running", tasks.len(), running_tasks),
+            );
+    }
+    workspace
         .section("Report severities", workspace_bullets(report_summaries.to_vec()))
         .render()
 }
@@ -84,7 +119,7 @@ pub(super) fn support_handoff_template(
     report_names: &[&str],
 ) -> String {
     format!(
-        "# Support Handoff\n\n- Bundle: {}\n- Included reports:\n{}\n\n```text\nWhat to inspect first: local-doctor.txt, bundle-overview.txt, runtime-timeline.md\nIf runtime stalls or hook failures are suspected, inspect hook-failures.md and runtime-timeline.md\n```\n",
+        "# Support Handoff\n\n- Bundle: {}\n- Included reports:\n{}\n\n```text\nWhat to inspect first: local-doctor.txt, bundle-overview.txt, runtime-timeline.md, runtime-tasks.md\nIf runtime stalls or hook failures are suspected, inspect hook-failures.md, runtime-timeline.md, and runtime-tasks.md\n```\n",
         bundle_dir.display(),
         doctor_checklist(report_names)
     )
@@ -92,7 +127,7 @@ pub(super) fn support_handoff_template(
 
 pub(super) fn doctor_bundle_navigation_summary(bundle_dir: &std::path::Path) -> String {
     format!(
-        "bundle={} | local-doctor.txt | bundle-overview.txt | runtime-timeline.md | support-handoff.md",
+        "bundle={} | local-doctor.txt | bundle-overview.txt | runtime-timeline.md | runtime-tasks.md | support-handoff.md",
         bundle_dir.display()
     )
 }
@@ -131,6 +166,7 @@ mod tests {
         assert!(checklist.contains("local-doctor.txt"));
         let handoff = support_handoff_template(std::path::Path::new("/tmp/bundle"), &["local-doctor.txt"]);
         assert!(handoff.contains("Support Handoff"));
+        assert!(handoff.contains("runtime-tasks.md"));
     }
 
     #[test]
@@ -142,7 +178,14 @@ mod tests {
         std::fs::write(&file, "x").unwrap();
         let freshness = artifact_freshness_summary(std::slice::from_ref(&file));
         assert!(freshness.contains("local-doctor.txt"));
-        let overview = render_support_bundle_overview(&dir, std::slice::from_ref(&file), &["local: ok=1 warn=0 err=0".to_string()]);
+        let overview = render_support_bundle_overview(
+            &dir,
+            &dir,
+            std::slice::from_ref(&file),
+            &["local: ok=1 warn=0 err=0".to_string()],
+            None,
+            &[],
+        );
         assert!(overview.contains("Support bundle overview"));
         let summary = doctor_copy_paste_summary(&dir, std::slice::from_ref(&file));
         assert!(summary.contains("local-doctor.txt"));

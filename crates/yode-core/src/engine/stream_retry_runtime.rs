@@ -1,4 +1,5 @@
 use super::*;
+use super::retry::summarize_retry_error;
 
 pub(super) enum StreamRetryAction {
     Continue,
@@ -25,7 +26,7 @@ impl AgentEngine {
         if kind == ErrorKind::Fatal {
             let _ = event_tx.send(EngineEvent::Error(format!(
                 "Request failed after 1 attempt: {}",
-                summarize_retry_error_message(&format!("{}", err))
+                summarize_retry_error(&err)
             )));
             self.complete_tool_turn_artifact();
             let _ = event_tx.send(EngineEvent::Done);
@@ -35,7 +36,7 @@ impl AgentEngine {
         let max_attempts = max_retries_for(kind);
         let total_attempts = total_attempts_for(kind);
         let mut retry_succeeded = false;
-        let mut final_error_summary = summarize_retry_error_message(&format!("{}", err));
+        let mut final_error_summary = summarize_retry_error(&err);
 
         for attempt in 0..max_attempts {
             let delay = retry_delay(kind, attempt);
@@ -151,7 +152,7 @@ impl AgentEngine {
                     break;
                 }
                 Ok(Err(e2)) => {
-                    final_error_summary = summarize_retry_error_message(&format!("{}", e2));
+                    final_error_summary = summarize_retry_error(&e2);
                     warn!(
                         "Stream retry {}/{} failed: {}",
                         attempt + 1,

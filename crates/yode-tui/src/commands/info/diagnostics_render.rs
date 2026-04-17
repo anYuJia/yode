@@ -2,6 +2,10 @@ use crate::runtime_display::{
     format_permission_decision_summary, format_tool_progress_summary,
 };
 use crate::runtime_timeline::build_runtime_timeline_lines_with_project_root;
+use crate::ui::status_summary::{
+    context_window_summary_text, runtime_status_snapshot_from_parts,
+    session_runtime_summary_text, tool_runtime_summary_text,
+};
 
 pub(crate) fn render_diagnostics_overview(
     project_root: &std::path::Path,
@@ -12,6 +16,13 @@ pub(crate) fn render_diagnostics_overview(
         .iter()
         .filter(|task| matches!(task.status, yode_tools::RuntimeTaskStatus::Running))
         .count();
+    let runtime_snapshot =
+        runtime_status_snapshot_from_parts(project_root, Some(state.clone()), running_tasks);
+    let runtime_summary =
+        session_runtime_summary_text(&runtime_snapshot, state.estimated_context_tokens);
+    let context_summary =
+        context_window_summary_text(Some(state), state.estimated_context_tokens);
+    let tool_summary = tool_runtime_summary_text(state);
     let recent_denials = if state.recent_permission_denials.is_empty() {
         "none".to_string()
     } else {
@@ -75,7 +86,10 @@ pub(crate) fn render_diagnostics_overview(
         .unwrap_or_else(|| "none".to_string());
 
     format!(
-        "Diagnostics overview:\n\nContext:\n  Query source:   {}\n  Compact count:  {} (auto {}, manual {})\n  Breaker reason: {}\n  Compact tokens: {}\n\nMemory:\n  Live memory:    {}{}\n  Memory updates: {}\n  Last memory:    {}\n\nRecovery:\n  State:          {}\n  Last signature: {}\n  Permission:     {}\n  Denials:        {}\n\nTools:\n  Session calls:  {}\n  Progress:       {}\n  Parallel:       {} batches / {} calls\n  Truncations:    {}\n  Errors:         {}\n  Last artifact:  {}\n\nObservability:\n  Hook defer:     {}\n  Agent team:     {}\n  Remote live:    {}\n  Settings:       {}\n  Managed MCP:    {}\n\nTasks:\n  Total:          {}\n  Running:        {}\n\nHooks:\n  Total runs:     {}\n  Timeouts:       {}\n  Wake notices:   {}\n\nTimeline:\n{}",
+        "Diagnostics overview:\n  Runtime summary: {}\n  Context summary: {}\n  Tool summary:    {}\n\nContext:\n  Query source:   {}\n  Compact count:  {} (auto {}, manual {})\n  Breaker reason: {}\n  Compact tokens: {}\n\nMemory:\n  Live memory:    {}{}\n  Memory updates: {}\n  Last memory:    {}\n\nRecovery:\n  State:          {}\n  Last signature: {}\n  Permission:     {}\n  Denials:        {}\n\nTools:\n  Session calls:  {}\n  Progress:       {}\n  Parallel:       {} batches / {} calls\n  Truncations:    {}\n  Errors:         {}\n  Last artifact:  {}\n\nObservability:\n  Hook defer:     {}\n  Agent team:     {}\n  Remote live:    {}\n  Settings:       {}\n  Managed MCP:    {}\n\nTasks:\n  Total:          {}\n  Running:        {}\n\nHooks:\n  Total runs:     {}\n  Timeouts:       {}\n  Wake notices:   {}\n\nTimeline:\n{}",
+        runtime_summary,
+        context_summary,
+        tool_summary,
         state.query_source,
         state.total_compactions,
         state.auto_compactions,
@@ -260,5 +274,13 @@ mod tests {
         assert!(rendered.contains("Remote live:"));
         assert!(rendered.contains("Managed MCP:"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn diagnostics_overview_includes_shared_runtime_summaries() {
+        let rendered = render_diagnostics_overview(std::path::Path::new("/tmp"), &state(), &[]);
+        assert!(rendered.contains("Runtime summary:"));
+        assert!(rendered.contains("Context summary:"));
+        assert!(rendered.contains("Tool summary:"));
     }
 }

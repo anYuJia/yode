@@ -43,3 +43,9 @@ pub struct CompletionContext<'a> {
     pub tools: &'a Arc<ToolRegistry>,
     pub working_dir: &'a str,
 }
+
+impl<'a> CommandContext<'a> {
+    pub fn push_system_message(&mut self, content: impl Into<String>) {
+        crate::system_message::append_grouped_system_entry(self.chat_entries, content);
+    }
+}

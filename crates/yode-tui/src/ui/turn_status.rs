@@ -5,13 +5,45 @@ use ratatui::Frame;
 
 use crate::app::{App, TurnStatus};
 use crate::runtime_display::format_retry_delay_summary;
+use crate::ui::responsive::density_from_width;
+use crate::ui::status_summary::{
+    compaction_badge, context_badge, memory_badge, push_badge, runtime_status_snapshot,
+    tool_progress_badge, turn_tool_badge,
+};
 
 pub fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &App) {
     if area.height == 0 {
         return;
     }
 
-    let indicators = turn_runtime_indicator_text(app);
+    let density = density_from_width(area.width, 72, 108);
+    let snapshot = runtime_status_snapshot(app);
+    let fallback_context_tokens: usize = app
+        .chat_entries
+        .iter()
+        .map(|e| e.content.len())
+        .sum::<usize>()
+        / 4;
+    let mut indicator_spans: Vec<Span<'static>> = Vec::new();
+    if let Some(badge) = tool_progress_badge(snapshot.state.as_ref(), density) {
+        push_badge(&mut indicator_spans, badge);
+    }
+    if let Some(badge) = turn_tool_badge(snapshot.state.as_ref(), app.turn_tool_count, density) {
+        push_badge(&mut indicator_spans, badge);
+    }
+    push_badge(
+        &mut indicator_spans,
+        context_badge(snapshot.state.as_ref(), fallback_context_tokens, density),
+    );
+    if let Some(badge) = compaction_badge(snapshot.state.as_ref(), density) {
+        push_badge(&mut indicator_spans, badge);
+    }
+    if let Some(badge) = memory_badge(snapshot.state.as_ref(), density) {
+        push_badge(&mut indicator_spans, badge);
+    }
+    if matches!(indicator_spans.last(), Some(span) if span.content == "· ") {
+        indicator_spans.pop();
+    }
     let status_line = match &app.turn_status {
         TurnStatus::Idle => return,
         TurnStatus::Working { verb } => {
@@ -19,8 +51,11 @@ pub fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &
             let elapsed = app.thinking_elapsed_str();
             let stream_chars = app.streaming_buf.len() as u32;
             let output_tok = app.session.turn_output_tokens + stream_chars / 4;
-            Line::from(vec![
-                Span::styled(format!("  {} ", spinner), Style::default().fg(Color::LightMagenta)),
+            let mut spans = vec![
+                Span::styled(
+                    format!("  {} ", spinner),
+                    Style::default().fg(Color::LightMagenta),
+                ),
                 Span::styled(
                     format!("{}…", verb),
                     Style::default().fg(Color::LightMagenta),
@@ -29,27 +64,42 @@ pub fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &
                     format!(" ({} · ↓{} tokens)", elapsed, format_tok(output_tok)),
                     Style::default().fg(Color::DarkGray),
                 ),
-                Span::styled(indicators.clone(), Style::default().fg(Color::DarkGray)),
-            ])
+            ];
+            if !indicator_spans.is_empty() {
+                spans.push(Span::styled(" · ", Style::default().fg(Color::DarkGray)));
+                spans.extend(indicator_spans.clone());
+            }
+            Line::from(spans)
         }
         TurnStatus::Done { elapsed, tools } => {
             let elapsed_str = crate::app::format_duration(*elapsed);
-            let tools_str = if *tools > 0 {
-                format!(" · {} tool calls", tools)
-            } else {
-                String::new()
-            };
             let turn_out = app.session.turn_output_tokens;
-            Line::from(vec![Span::styled(
+            let mut spans = vec![Span::styled(
                 format!(
-                    "  ⚡ Done · {}{} (↓{} tokens){}",
+                    "  ⚡ Done · {} (↓{} tokens)",
                     elapsed_str,
-                    tools_str,
-                    format_tok(turn_out),
-                    indicators
+                    format_tok(turn_out)
                 ),
                 Style::default().fg(Color::DarkGray),
-            )])
+            )];
+            if *tools > 0 {
+                spans.push(Span::styled(" · ", Style::default().fg(Color::DarkGray)));
+                spans.push(Span::styled(
+                    match density {
+                        crate::ui::responsive::Density::Wide => format!("{} tools", tools),
+                        crate::ui::responsive::Density::Medium
+                        | crate::ui::responsive::Density::Narrow => format!("t{}", tools),
+                    },
+                    Style::default().fg(Color::DarkGray),
+                ));
+            }
+            if *tools > 0 && !indicator_spans.is_empty() {
+                spans.push(Span::styled(" · ", Style::default().fg(Color::DarkGray)));
+            } else if *tools == 0 && !indicator_spans.is_empty() {
+                spans.push(Span::styled(" · ", Style::default().fg(Color::DarkGray)));
+            }
+            spans.extend(indicator_spans.clone());
+            Line::from(spans)
         }
         TurnStatus::Retrying {
             verb: _,
@@ -57,20 +107,26 @@ pub fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &
             attempt,
             max_attempts,
             delay_secs,
-        } => Line::from(vec![
-            Span::styled(
-                format!("  ⎿ {}", error),
-                Style::default().fg(Color::LightRed),
-            ),
-            Span::styled(
-                format!(
-                    " · {}",
-                    format_retry_delay_summary(*delay_secs, *attempt, *max_attempts)
+        } => {
+            let mut spans = vec![
+                Span::styled(
+                    format!("  ⎿ {}", error),
+                    Style::default().fg(Color::LightRed),
                 ),
-                Style::default().fg(Color::Yellow),
-            ),
-            Span::styled(indicators, Style::default().fg(Color::DarkGray)),
-        ]),
+                Span::styled(
+                    format!(
+                        " · {}",
+                        format_retry_delay_summary(*delay_secs, *attempt, *max_attempts)
+                    ),
+                    Style::default().fg(Color::Yellow),
+                ),
+            ];
+            if !indicator_spans.is_empty() {
+                spans.push(Span::styled(" · ", Style::default().fg(Color::DarkGray)));
+                spans.extend(indicator_spans);
+            }
+            Line::from(spans)
+        }
     };
 
     let lines = if area.height >= 3 {
@@ -79,49 +135,6 @@ pub fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &
         vec![status_line]
     };
     frame.render_widget(Paragraph::new(lines), area);
-}
-
-pub fn turn_runtime_indicator_text(app: &App) -> String {
-    let Some(engine) = &app.engine else {
-        return String::new();
-    };
-    let Ok(engine) = engine.try_lock() else {
-        return String::new();
-    };
-    let state = engine.runtime_state();
-    let mem = if state.live_session_memory_updating {
-        format!("mem {}*", state.session_memory_update_count)
-    } else if state.live_session_memory_initialized {
-        format!("mem {}", state.session_memory_update_count)
-    } else {
-        "mem cold".to_string()
-    };
-    let recovery = match state.recovery_state.as_str() {
-        "ReanchorRequired" => " · reanchor",
-        "SingleStepMode" => " · single-step",
-        "NeedUserGuidance" => " · ask-user",
-        _ => "",
-    };
-    let working_dir = std::path::PathBuf::from(&app.session.working_dir);
-    let live = if crate::commands::artifact_nav::latest_remote_live_session_artifact(&working_dir).is_some() {
-        " · live"
-    } else {
-        ""
-    };
-    let team = if crate::commands::artifact_nav::latest_agent_team_monitor_artifact(&working_dir).is_some() {
-        " · team"
-    } else {
-        ""
-    };
-    let defer = if crate::commands::artifact_nav::latest_hook_deferred_artifact(&working_dir).is_some() {
-        " · defer"
-    } else {
-        ""
-    };
-    format!(
-        " · compact {} · {}{}{}{}{}",
-        state.total_compactions, mem, recovery, live, team, defer
-    )
 }
 
 fn format_tok(n: u32) -> String {

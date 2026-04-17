@@ -2,10 +2,15 @@ use yode_core::engine::EngineRuntimeState;
 use yode_tools::RuntimeTask;
 
 use crate::runtime_timeline::render_runtime_timeline_markdown_with_project_root;
+use crate::ui::status_summary::{
+    context_window_summary_text, runtime_status_snapshot_from_parts,
+    session_runtime_summary_text, tool_runtime_summary_text,
+};
 
 pub(crate) fn write_runtime_task_inventory_artifact(
     project_root: &std::path::Path,
     session_id: &str,
+    state: Option<&EngineRuntimeState>,
     tasks: Vec<yode_tools::RuntimeTask>,
 ) -> Option<String> {
     if tasks.is_empty() {
@@ -15,7 +20,9 @@ pub(crate) fn write_runtime_task_inventory_artifact(
     std::fs::create_dir_all(&dir).ok()?;
     let short_session = session_id.chars().take(8).collect::<String>();
     let path = dir.join(format!("{}-runtime-tasks.md", short_session));
-    let mut body = format!("# Runtime Task Inventory\n\n- Total tasks: {}\n\n", tasks.len());
+    let mut body = String::from("# Runtime Task Inventory\n\n");
+    body.push_str(&runtime_summary_markdown(project_root, state, &tasks));
+    body.push_str("## Tasks\n\n");
     for task in tasks {
         body.push_str(&format!(
             "## {}\n\n- Kind: {}\n- Status: {:?}\n- Description: {}\n- Output: {}\n- Transcript: {}\n\n",
@@ -67,7 +74,8 @@ pub(crate) fn write_hook_failure_artifact(
     let short_session = session_id.chars().take(8).collect::<String>();
     let path = dir.join(format!("{}-hook-failures.md", short_session));
     let body = format!(
-        "# Hook Failure Inspector\n\n- Total runs: {}\n- Timeouts: {}\n- Exec errors: {}\n- Non-zero exits: {}\n- Last failure command: {}\n- Last failure event: {}\n- Last failure reason: {}\n- Last failure at: {}\n- Last timeout command: {}\n",
+        "# Hook Failure Inspector\n\n{}## Hook Health\n\n- Total runs: {}\n- Timeouts: {}\n- Exec errors: {}\n- Non-zero exits: {}\n- Last failure command: {}\n- Last failure event: {}\n- Last failure reason: {}\n- Last failure at: {}\n- Last timeout command: {}\n",
+        runtime_summary_markdown(project_root, Some(state), &[]),
         state.hook_total_executions,
         state.hook_timeout_count,
         state.hook_execution_error_count,
@@ -80,6 +88,42 @@ pub(crate) fn write_hook_failure_artifact(
     );
     std::fs::write(&path, body).ok()?;
     Some(path.display().to_string())
+}
+
+fn runtime_summary_markdown(
+    project_root: &std::path::Path,
+    state: Option<&EngineRuntimeState>,
+    tasks: &[RuntimeTask],
+) -> String {
+    let running_tasks = tasks
+        .iter()
+        .filter(|task| matches!(task.status, yode_tools::RuntimeTaskStatus::Running))
+        .count();
+    let mut lines = vec!["## Summary".to_string(), String::new()];
+    if let Some(state) = state {
+        let snapshot = runtime_status_snapshot_from_parts(
+            project_root,
+            Some(state.clone()),
+            running_tasks,
+        );
+        lines.push(format!(
+            "- Runtime: {}",
+            session_runtime_summary_text(&snapshot, state.estimated_context_tokens)
+        ));
+        lines.push(format!(
+            "- Context: {}",
+            context_window_summary_text(Some(state), state.estimated_context_tokens)
+        ));
+        lines.push(format!("- Tools: {}", tool_runtime_summary_text(state)));
+    }
+    lines.push(format!(
+        "- Tasks: total {} / running {}",
+        tasks.len(),
+        running_tasks
+    ));
+    lines.push(String::new());
+    lines.push(String::new());
+    lines.join("\n")
 }
 
 pub(crate) fn write_task_workspace_bundle_artifact(
@@ -240,6 +284,7 @@ mod tests {
         let path = write_runtime_task_inventory_artifact(
             &dir,
             "session-1234",
+            Some(&test_runtime_state()),
             vec![RuntimeTask {
                 id: "task-1".to_string(),
                 kind: "bash".to_string(),
@@ -263,6 +308,8 @@ mod tests {
 
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("# Runtime Task Inventory"));
+        assert!(content.contains("## Summary"));
+        assert!(content.contains("- Runtime:"));
         assert!(content.contains("task-1"));
         assert!(content.contains("/tmp/task.md"));
         let _ = std::fs::remove_dir_all(&dir);
@@ -282,6 +329,8 @@ mod tests {
                 .unwrap();
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("# Runtime Timeline"));
+        assert!(content.contains("## Summary"));
+        assert!(content.contains("## Timeline"));
         assert!(content.contains("no runtime events recorded"));
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -303,6 +352,7 @@ mod tests {
         let path = write_hook_failure_artifact(&dir, "session-1234", &state).unwrap();
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("# Hook Failure Inspector"));
+        assert!(content.contains("## Summary"));
         assert!(content.contains("scripts/pre-tool"));
         let _ = std::fs::remove_dir_all(&dir);
     }

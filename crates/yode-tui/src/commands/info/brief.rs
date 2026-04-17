@@ -10,7 +10,11 @@ use crate::commands::artifact_nav::{
 use crate::commands::info::runtime_inspectors::preview_runtime_artifact;
 use crate::runtime_display::format_turn_artifact_status;
 use crate::runtime_timeline::build_runtime_timeline_lines_with_project_root;
-use super::artifact_preview::{compact_tool_runtime_summary, latest_markdown_file, preview_markdown};
+use crate::ui::status_summary::{
+    context_window_summary_text, runtime_status_snapshot_from_parts,
+    session_runtime_summary_text, tool_runtime_summary_text,
+};
+use super::artifact_preview::{latest_markdown_file, preview_markdown};
 
 pub struct BriefCommand {
     meta: CommandMeta,
@@ -83,12 +87,17 @@ impl Command for BriefCommand {
             .iter()
             .filter(|task| matches!(task.status, yode_tools::RuntimeTaskStatus::Running))
             .collect::<Vec<_>>();
+        let runtime_snapshot =
+            runtime_status_snapshot_from_parts(&working_dir, Some(state.clone()), running_tasks.len());
 
         let mut output = String::from("Brief:\n");
         output.push_str(&format!(
-            "  Compact:   {} total (last mode: {})\n",
-            state.total_compactions,
-            state.last_compaction_mode.as_deref().unwrap_or("none")
+            "  Runtime:   {}\n",
+            session_runtime_summary_text(&runtime_snapshot, state.estimated_context_tokens)
+        ));
+        output.push_str(&format!(
+            "  Context:   {}\n",
+            context_window_summary_text(Some(&state), state.estimated_context_tokens)
         ));
         output.push_str(&format!(
             "  Recovery:  {}{}\n",
@@ -101,7 +110,7 @@ impl Command for BriefCommand {
         ));
         output.push_str(&format!(
             "  Tools:     {}\n",
-            compact_tool_runtime_summary(&state)
+            tool_runtime_summary_text(&state)
         ));
         output.push_str(&format!(
             "  Runtime+:  defer={} team={} remote={} perm={}\n",

@@ -2,9 +2,9 @@
 pub(super) enum ErrorKind {
     /// 429 Too Many Requests — retry with long backoff
     RateLimit,
-    /// 500/502/503/504, timeout, network — retry with standard backoff
+    /// API/provider/network failures — retry with standard backoff
     Transient,
-    /// 400/401/403/404 etc. — do not retry
+    /// Clear local construction/serialization failures — do not retry
     Fatal,
 }
 
@@ -17,10 +17,23 @@ pub(super) fn classify_error(err: &anyhow::Error) -> ErrorKind {
     let msg = format!("{:#}", err);
     if msg.contains("429") || msg.contains("rate_limit") || msg.contains("Too Many Requests") {
         ErrorKind::RateLimit
+    } else if is_non_retryable_local_error(&msg) {
+        ErrorKind::Fatal
     } else if msg.contains("500")
         || msg.contains("502")
         || msg.contains("503")
         || msg.contains("504")
+        || msg.contains("400")
+        || msg.contains("401")
+        || msg.contains("403")
+        || msg.contains("404")
+        || msg.contains("API error (")
+        || msg.contains("Forbidden")
+        || msg.contains("Unauthorized")
+        || msg.contains("Bad Request")
+        || msg.contains("Not Found")
+        || msg.contains("额度不足")
+        || msg.contains("insufficient")
         || msg.contains("timeout")
         || msg.contains("超时")
         || msg.contains("timed out")
@@ -44,8 +57,14 @@ pub(super) fn classify_error(err: &anyhow::Error) -> ErrorKind {
     {
         ErrorKind::Transient
     } else {
-        ErrorKind::Fatal
+        ErrorKind::Transient
     }
+}
+
+fn is_non_retryable_local_error(msg: &str) -> bool {
+    msg.contains("Failed to serialize request")
+        || msg.contains("Failed to serialize")
+        || msg.contains("invalid header value")
 }
 
 /// Compute retry delay based on error kind and attempt number.
@@ -95,6 +114,24 @@ pub(super) fn total_attempts_for(kind: ErrorKind) -> u32 {
     max_retries_for(kind).saturating_add(1)
 }
 
+pub(super) fn summarize_retry_error(err: &anyhow::Error) -> String {
+    let mut parts = err
+        .chain()
+        .map(|cause| cause.to_string())
+        .filter(|part| !part.trim().is_empty())
+        .collect::<Vec<_>>();
+    parts.dedup();
+
+    let summary = match parts.as_slice() {
+        [] => "request failed".to_string(),
+        [single] => single.clone(),
+        [first, .., last] if first != last => format!("{}: {}", first, last),
+        [first, ..] => first.clone(),
+    };
+
+    summarize_retry_error_message(&summary)
+}
+
 pub(super) fn summarize_retry_error_message(message: &str) -> String {
     let first_line = message
         .lines()
@@ -111,7 +148,12 @@ pub(super) fn summarize_retry_error_message(message: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{summarize_retry_error_message, total_attempts_for, ErrorKind};
+    use anyhow::anyhow;
+
+    use super::{
+        classify_error, summarize_retry_error, summarize_retry_error_message, total_attempts_for,
+        ErrorKind,
+    };
 
     #[test]
     fn total_attempts_are_capped_at_ten() {
@@ -123,5 +165,29 @@ mod tests {
     fn retry_error_summary_uses_first_non_empty_line() {
         let summary = summarize_retry_error_message("\n  connection reset by peer\nmore detail");
         assert_eq!(summary, "connection reset by peer");
+    }
+
+    #[test]
+    fn retry_error_summary_includes_root_cause_from_chain() {
+        let err = anyhow!("dns lookup failed").context("Failed to send Anthropic streaming request");
+        let summary = summarize_retry_error(&err);
+        assert_eq!(
+            summary,
+            "Failed to send Anthropic streaming request: dns lookup failed"
+        );
+    }
+
+    #[test]
+    fn provider_403_errors_are_retryable() {
+        let err = anyhow!(
+            "Anthropic API error (403 Forbidden): 用户额度不足, 剩余额度: ＄-1.97"
+        );
+        assert_eq!(classify_error(&err), ErrorKind::Transient);
+    }
+
+    #[test]
+    fn local_serialize_errors_remain_fatal() {
+        let err = anyhow!("Failed to serialize request");
+        assert_eq!(classify_error(&err), ErrorKind::Fatal);
     }
 }

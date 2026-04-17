@@ -15,7 +15,7 @@ use yode_tools::registry::ToolRegistry;
 
 use super::engine_events::provider::reload_provider_from_config;
 use super::scrollback::print_header_to_stdout;
-use super::{App, ChatEntry, ChatRole, PermissionMode, TurnStatus};
+use super::{push_system_entry, App, ChatEntry, ChatRole, PermissionMode, TurnStatus};
 
 pub(super) fn handle_enter(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
@@ -83,21 +83,21 @@ pub(super) fn handle_enter(
 
         if app.cmd_registry.find(cmd_name).is_none() {
             if let Some(suggestion) = app.cmd_registry.suggest_similar(cmd_name) {
-                app.chat_entries.push(ChatEntry::new(
-                    ChatRole::System,
+                push_system_entry(
+                    app,
                     format!(
                         "Unknown command: /{}. Did you mean /{}?",
                         cmd_name, suggestion
                     ),
-                ));
+                );
             } else {
-                app.chat_entries.push(ChatEntry::new(
-                    ChatRole::System,
+                push_system_entry(
+                    app,
                     format!(
                         "Unknown command: /{}. Type /help for available commands.",
                         cmd_name
                     ),
-                ));
+                );
             }
             return;
         }
@@ -167,11 +167,11 @@ pub(super) fn handle_enter(
         use crate::commands::CommandOutput;
         match result {
             Some(Ok(CommandOutput::Message(msg))) => {
-                app.chat_entries.push(ChatEntry::new(ChatRole::System, msg));
+                push_system_entry(app, msg);
             }
             Some(Ok(CommandOutput::Messages(msgs))) => {
                 for msg in msgs {
-                    app.chat_entries.push(ChatEntry::new(ChatRole::System, msg));
+                    push_system_entry(app, msg);
                 }
             }
             Some(Ok(CommandOutput::Silent)) => {}
@@ -184,7 +184,7 @@ pub(super) fn handle_enter(
             }
             Some(Ok(CommandOutput::ReloadProvider { name, messages })) => {
                 for msg in messages {
-                    app.chat_entries.push(ChatEntry::new(ChatRole::System, msg));
+                    push_system_entry(app, msg);
                 }
                 reload_provider_from_config(&name, app);
             }
@@ -192,13 +192,13 @@ pub(super) fn handle_enter(
                 app.chat_entries.push(ChatEntry::new(ChatRole::Error, e));
             }
             None => {
-                app.chat_entries.push(ChatEntry::new(
-                    ChatRole::System,
+                push_system_entry(
+                    app,
                     format!(
                         "Unknown command: /{}. Type /help for available commands.",
                         cmd_name
                     ),
-                ));
+                );
             }
         }
         return;
@@ -210,10 +210,10 @@ pub(super) fn handle_enter(
     if app.session.permission_mode == PermissionMode::Plan {
         app.chat_entries
             .push(ChatEntry::new(ChatRole::User, processed_display.clone()));
-        app.chat_entries.push(ChatEntry::new(
-            ChatRole::System,
-            "[Plan mode] Input recorded. Switch to Normal or Auto-Accept to execute.".to_string(),
-        ));
+        push_system_entry(
+            app,
+            "[Plan mode] Input recorded. Switch to Normal or Auto-Accept to execute.",
+        );
     } else {
         send_input(
             app,
