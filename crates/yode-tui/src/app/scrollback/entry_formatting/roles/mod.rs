@@ -1,5 +1,6 @@
-mod subagents;
 mod style;
+mod subagents;
+mod system;
 mod tool_calls;
 mod users;
 
@@ -7,9 +8,10 @@ use ratatui::style::{Color, Modifier};
 
 use crate::app::{ChatEntry, ChatRole};
 
-use self::subagents::render_subagent_call;
 use self::style::role_style_palette;
-use self::tool_calls::render_tool_call;
+use self::subagents::render_subagent_call;
+use self::system::{render_grouped_system_entries, render_system_entry};
+use self::tool_calls::{render_grouped_tool_call, render_tool_call};
 use self::users::{render_assistant, render_user};
 
 pub(crate) fn format_entry_as_strings(
@@ -57,13 +59,7 @@ pub(crate) fn format_entry_as_strings(
             result.push(("╰──────────────────────────────────".to_string(), err_style));
         }
         ChatRole::System => {
-            if entry.content.is_empty() {
-                result.push((String::new(), palette.dim));
-            } else {
-                for line in entry.content.lines() {
-                    result.push((format!("  {}", line), palette.dim));
-                }
-            }
+            result.extend(render_system_entry(entry));
         }
         ChatRole::SubAgentCall { description } => {
             render_subagent_call(
@@ -80,4 +76,21 @@ pub(crate) fn format_entry_as_strings(
         ChatRole::AskUser { .. } => {}
     }
     result
+}
+
+pub(crate) fn format_grouped_tool_batch(
+    all_entries: &[ChatEntry],
+    batch: &crate::tool_grouping::ToolBatch,
+) -> Vec<(String, ratatui::style::Style)> {
+    let mut result: Vec<(String, ratatui::style::Style)> = Vec::new();
+    let palette = role_style_palette();
+    render_grouped_tool_call(all_entries, batch, &mut result, palette.dim, palette.accent);
+    result
+}
+
+pub(crate) fn format_grouped_system_batch(
+    all_entries: &[ChatEntry],
+    batch: &crate::tool_grouping::SystemBatch,
+) -> Vec<(String, ratatui::style::Style)> {
+    render_grouped_system_entries(all_entries, batch)
 }

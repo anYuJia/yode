@@ -4,6 +4,7 @@ use std::process::Command;
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
+use std::collections::BTreeSet;
 
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
@@ -189,7 +190,19 @@ Usage:
         }
 
         if stdout.is_empty() {
-            return Ok(ToolResult::success("No matches found.".to_string()));
+            return Ok(ToolResult::success_with_metadata(
+                "No matches found.".to_string(),
+                json!({
+                    "pattern": pattern,
+                    "path": path,
+                    "output_mode": output_mode,
+                    "file_count": 0,
+                    "line_count": 0,
+                    "match_count": 0,
+                    "applied_limit": serde_json::Value::Null,
+                    "applied_offset": 0,
+                }),
+            ));
         }
 
         // Apply head_limit and offset
@@ -219,6 +232,98 @@ Usage:
             ));
         }
 
-        Ok(ToolResult::success(final_output))
+        let applied_limit = if end < total_count && head_limit != 0 {
+            Some(head_limit)
+        } else {
+            None
+        };
+        let file_count = match output_mode {
+            "files_with_matches" | "count" => total_count,
+            "content" => infer_content_file_count(result_lines, path, working_dir),
+            _ => total_count,
+        };
+        let line_count = if output_mode == "content" {
+            result_lines
+                .iter()
+                .filter(|line| !line.trim().is_empty() && **line != "--")
+                .count()
+        } else {
+            0
+        };
+        let match_count = if output_mode == "count" {
+            result_lines
+                .iter()
+                .filter_map(|line| parse_count_line(line))
+                .sum()
+        } else {
+            0
+        };
+
+        Ok(ToolResult::success_with_metadata(
+            final_output,
+            json!({
+                "pattern": pattern,
+                "path": path,
+                "output_mode": output_mode,
+                "file_count": file_count,
+                "line_count": line_count,
+                "match_count": match_count,
+                "applied_limit": applied_limit,
+                "applied_offset": offset,
+            }),
+        ))
+    }
+}
+
+fn parse_count_line(line: &str) -> Option<usize> {
+    let trimmed = line.trim();
+    if let Ok(value) = trimmed.parse::<usize>() {
+        return Some(value);
+    }
+    trimmed.rsplit(':').next()?.parse().ok()
+}
+
+fn infer_content_file_count(lines: &[&str], search_path: &str, working_dir: &Path) -> usize {
+    let candidate = working_dir.join(search_path);
+    if candidate.is_file() {
+        return 1;
+    }
+
+    let mut files = BTreeSet::new();
+    for line in lines {
+        if let Some((file, _rest)) = split_grep_content_prefix(line) {
+            files.insert(file.to_string());
+        }
+    }
+    files.len().max(1)
+}
+
+fn split_grep_content_prefix(line: &str) -> Option<(&str, &str)> {
+    let (prefix, rest) = line.split_once(':')?;
+    if prefix.chars().all(|ch| ch.is_ascii_digit()) {
+        return None;
+    }
+    Some((prefix, rest))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{infer_content_file_count, parse_count_line};
+    use std::path::Path;
+
+    #[test]
+    fn parse_count_line_supports_plain_and_prefixed_output() {
+        assert_eq!(parse_count_line("4"), Some(4));
+        assert_eq!(parse_count_line("src/main.rs:12"), Some(12));
+    }
+
+    #[test]
+    fn infer_content_file_count_uses_unique_file_prefixes() {
+        let lines = vec![
+            "src/main.rs:12:todo",
+            "src/lib.rs:8:todo",
+            "src/main.rs:13:todo",
+        ];
+        assert_eq!(infer_content_file_count(&lines, ".", Path::new(".")), 2);
     }
 }

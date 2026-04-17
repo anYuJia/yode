@@ -2,6 +2,7 @@ mod assistant;
 pub(crate) mod folding;
 mod metadata;
 mod plain_lines;
+mod system;
 mod tool_helpers;
 mod tools;
 
@@ -14,7 +15,8 @@ use crate::ui::palette::{INFO_COLOR, USER_PREFIX};
 
 pub(super) use assistant::render_assistant;
 pub(crate) use plain_lines::{assistant_plain_lines, user_plain_lines};
-pub(super) use tools::{render_standalone_result, render_tool_call};
+pub(super) use system::{render_grouped_system_entries, render_system_entry};
+pub(super) use tools::{render_grouped_tool_call, render_standalone_result, render_tool_call};
 
 pub(super) fn render_user(lines: &mut Vec<Line<'static>>, entry: &ChatEntry) {
     let user_style = Style::default().fg(CYAN);
@@ -30,9 +32,7 @@ pub(super) fn render_user(lines: &mut Vec<Line<'static>>, entry: &ChatEntry) {
         let content_style = if line.highlight_code {
             highlighted_style
         } else if index == 0 {
-            user_style
-                .fg(INFO_COLOR)
-                .add_modifier(Modifier::BOLD)
+            user_style.fg(INFO_COLOR).add_modifier(Modifier::BOLD)
         } else {
             user_style
         };

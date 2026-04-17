@@ -1,13 +1,17 @@
 use super::chat_entries::{
-    render_assistant, render_standalone_result, render_tool_call, render_user,
+    render_assistant, render_grouped_system_entries, render_grouped_tool_call,
+    render_standalone_result, render_system_entry,
+    render_tool_call,
+    render_user,
 };
 use super::chat_layout::{manual_wrap, render_header};
 use super::chat_markdown::render_markdown_impl;
 use super::palette::{
-    ERROR_COLOR, INFO_COLOR, LIGHT, MUTED, SUCCESS_COLOR, SURFACE_BG_ALT, TOOL_ACCENT,
-    USER_COLOR, WARNING_COLOR,
+    ERROR_COLOR, INFO_COLOR, LIGHT, MUTED, SUCCESS_COLOR, SURFACE_BG_ALT, TOOL_ACCENT, USER_COLOR,
+    WARNING_COLOR,
 };
 use crate::app::{App, ChatRole};
+use crate::tool_grouping::{detect_groupable_system_batch, detect_groupable_tool_batch};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -45,14 +49,18 @@ pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
     }
 
     let entries = &app.chat_entries;
-    for (i, entry) in entries.iter().enumerate() {
+    let mut i = 0;
+    let mut rendered_any_entry = false;
+    while i < entries.len() {
+        let entry = &entries[i];
         // Skip empty assistant
         if matches!(entry.role, ChatRole::Assistant) && entry.content.trim().is_empty() {
+            i += 1;
             continue;
         }
 
         // Add separator between entries (blank line before each entry except the first)
-        if i > 0 {
+        if rendered_any_entry {
             lines.push(Line::from(""));
         }
 
@@ -60,6 +68,12 @@ pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
             ChatRole::User => render_user(&mut lines, entry),
             ChatRole::Assistant => render_assistant(&mut lines, entry),
             ChatRole::ToolCall { id, name } => {
+                if let Some(batch) = detect_groupable_tool_batch(entries, i) {
+                    render_grouped_tool_call(&mut lines, entries, &batch);
+                    rendered_any_entry = true;
+                    i = batch.next_index;
+                    continue;
+                }
                 // Find matching ToolResult (next entry with same ID)
                 let result_entry = entries[i + 1..]
                     .iter()
@@ -96,29 +110,24 @@ pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
                     ),
                 ]));
             }
-            ChatRole::System | ChatRole::AskUser { .. } => {
+            ChatRole::System => {
+                if let Some(batch) = detect_groupable_system_batch(entries, i) {
+                    render_grouped_system_entries(&mut lines, entries, &batch);
+                    rendered_any_entry = true;
+                    i = batch.next_index;
+                    continue;
+                }
+                render_system_entry(&mut lines, entry)
+            }
+            ChatRole::AskUser { .. } => {
                 for (index, line) in entry.content.lines().enumerate() {
-                    let prefix = match &entry.role {
-                        ChatRole::AskUser { .. } => {
-                            if index == 0 { "  ? " } else { "    " }
-                        }
-                        _ => {
-                            if index == 0 { "  · " } else { "    " }
-                        }
-                    };
-                    let prefix_style = match &entry.role {
-                        ChatRole::AskUser { .. } => Style::default()
-                            .fg(INFO_COLOR)
-                            .add_modifier(Modifier::BOLD),
-                        _ => Style::default().fg(MUTED),
-                    };
-                    let content_style = match &entry.role {
-                        ChatRole::AskUser { .. } => Style::default().fg(LIGHT),
-                        _ => Style::default().fg(MUTED),
-                    };
+                    let prefix = if index == 0 { "  ? " } else { "    " };
                     lines.push(Line::from(vec![
-                        Span::styled(prefix.to_string(), prefix_style),
-                        Span::styled(line.to_string(), content_style),
+                        Span::styled(
+                            prefix.to_string(),
+                            Style::default().fg(INFO_COLOR).add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(line.to_string(), Style::default().fg(LIGHT)),
                     ]));
                 }
             }
@@ -128,6 +137,8 @@ pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
                 // These are rendered via scrollback printing, not the ratatui viewport
             }
         }
+        rendered_any_entry = true;
+        i += 1;
     }
 
     // Thinking indicator at the bottom of chat

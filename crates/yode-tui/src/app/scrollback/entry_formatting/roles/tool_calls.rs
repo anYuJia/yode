@@ -4,6 +4,8 @@ use ratatui::style::Color;
 
 use crate::app::rendering::{capitalize, truncate_line};
 use crate::app::{ChatEntry, ChatRole};
+use crate::tool_grouping::ToolBatch;
+use crate::tool_output_summary::{summarize_tool_result, ToolSummaryTone};
 
 pub(super) fn render_tool_call(
     entry: &ChatEntry,
@@ -20,6 +22,17 @@ pub(super) fn render_tool_call(
     let tool_result = all_entries[index + 1..]
         .iter()
         .find(|e| matches!(&e.role, ChatRole::ToolResult { id: ref eid, .. } if eid == tool_id));
+    let is_error = tool_result
+        .map(|r| matches!(r.role, ChatRole::ToolResult { is_error, .. } if is_error))
+        .unwrap_or(false);
+    let result_content = tool_result.map(|r| r.content.as_str()).unwrap_or("");
+    let summary_result = summarize_tool_result(
+        name,
+        &args,
+        tool_result.and_then(|entry| entry.tool_metadata.as_ref()),
+        result_content,
+        is_error,
+    );
 
     let timing = tool_result
         .and_then(|r| r.duration)
@@ -43,7 +56,12 @@ pub(super) fn render_tool_call(
             accent,
         ));
 
+        render_summary_lines(result, &summary_result.lines, dim, green, red, red_dim);
+
         if let Some(res) = tool_result {
+            if summary_result.hide_body_by_default {
+                return;
+            }
             let max_lines = 3;
             let max_line_chars = crossterm::terminal::size()
                 .map(|(width, _)| (width as usize).saturating_sub(10))
@@ -70,6 +88,79 @@ pub(super) fn render_tool_call(
                 result.push((format!("{}{}", prefix, display), style));
             }
         }
+    }
+}
+
+pub(super) fn render_grouped_tool_call(
+    all_entries: &[ChatEntry],
+    batch: &ToolBatch,
+    result: &mut Vec<(String, ratatui::style::Style)>,
+    dim: ratatui::style::Style,
+    accent: ratatui::style::Style,
+) {
+    result.push((
+        format!(
+            "⏺ {}({})",
+            grouped_tool_display_name(&batch.tool_name),
+            batch.items.len()
+        ),
+        accent,
+    ));
+
+    let max_items = 4;
+    for (index, item) in batch.items.iter().take(max_items).enumerate() {
+        let call = &all_entries[item.call_index];
+        let args: serde_json::Value = serde_json::from_str(&call.content).unwrap_or_default();
+        let tool_result = item
+            .result_index
+            .and_then(|result_index| all_entries.get(result_index));
+        let is_error = tool_result
+            .map(|r| matches!(r.role, ChatRole::ToolResult { is_error, .. } if is_error))
+            .unwrap_or(false);
+        let summary_result = summarize_tool_result(
+            &batch.tool_name,
+            &args,
+            tool_result.and_then(|entry| entry.tool_metadata.as_ref()),
+            tool_result
+                .map(|entry| entry.content.as_str())
+                .unwrap_or(""),
+            is_error,
+        );
+        let target = group_item_target(&batch.tool_name, &args);
+        let detail = summary_result
+            .lines
+            .first()
+            .map(|line| line.text.clone())
+            .unwrap_or_else(|| {
+                if is_error {
+                    "failed".to_string()
+                } else {
+                    "completed".to_string()
+                }
+            });
+        let prefix = if index == 0 { "  ⎿  " } else { "     " };
+        let style = match summary_result
+            .lines
+            .first()
+            .map(|line| line.tone)
+            .unwrap_or(ToolSummaryTone::Neutral)
+        {
+            ToolSummaryTone::Neutral => dim,
+            ToolSummaryTone::Success => ratatui::style::Style::default().fg(Color::LightGreen),
+            ToolSummaryTone::Warning => ratatui::style::Style::default().fg(Color::Yellow),
+        };
+        result.push((format!("{}{} · {}", prefix, target, detail), style));
+    }
+
+    if batch.items.len() > max_items {
+        result.push((
+            format!(
+                "     … +{} more {} calls (ctrl+o to expand)",
+                batch.items.len() - max_items,
+                grouped_tool_display_name(&batch.tool_name).to_ascii_lowercase()
+            ),
+            dim,
+        ));
     }
 }
 
@@ -230,5 +321,40 @@ fn tool_summary_str(name: &str, args: &serde_json::Value) -> String {
             }
             String::new()
         }
+    }
+}
+
+fn grouped_tool_display_name(name: &str) -> &'static str {
+    match name {
+        "read_file" => "Read",
+        "grep" | "glob" => "Search",
+        _ => "Tool",
+    }
+}
+
+fn group_item_target(name: &str, args: &serde_json::Value) -> String {
+    match name {
+        "read_file" => display_file_path(args["file_path"].as_str().unwrap_or("???")).to_string(),
+        "grep" | "glob" => truncate_line(args["pattern"].as_str().unwrap_or("???"), 40),
+        _ => tool_summary_str(name, args),
+    }
+}
+
+fn render_summary_lines(
+    result: &mut Vec<(String, ratatui::style::Style)>,
+    lines: &[crate::tool_output_summary::ToolSummaryLine],
+    dim: ratatui::style::Style,
+    green: ratatui::style::Style,
+    _red: ratatui::style::Style,
+    _red_dim: ratatui::style::Style,
+) {
+    for (index, line) in lines.iter().enumerate() {
+        let prefix = if index == 0 { "  ⎿  " } else { "     " };
+        let style = match line.tone {
+            ToolSummaryTone::Neutral => dim,
+            ToolSummaryTone::Success => green,
+            ToolSummaryTone::Warning => ratatui::style::Style::default().fg(Color::Yellow),
+        };
+        result.push((format!("{}{}", prefix, line.text), style));
     }
 }

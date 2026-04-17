@@ -9,12 +9,15 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::style::{Color, Modifier};
 use ratatui::Terminal;
 
-use self::entry_formatting::{format_entry_as_strings, md_line_color};
+use self::entry_formatting::{
+    format_entry_as_strings, format_grouped_system_batch, format_grouped_tool_batch, md_line_color,
+};
 use super::rendering::{
     highlight_code_line_in_block, is_code_block_line, process_md_line, strip_ansi,
     ShellSessionState,
 };
 use super::{App, ChatRole};
+use crate::tool_grouping::{detect_groupable_system_batch, detect_groupable_tool_batch};
 use crate::ui::chat_layout::render_header;
 
 /// Print lines to terminal scrollback.
@@ -142,9 +145,23 @@ pub(super) fn print_entries_to_stdout(app: &mut App) -> Result<()> {
     }
 
     let mut stdout = io::stdout();
-    for i in 0..app.chat_entries.len() {
+    let mut i = 0;
+    while i < app.chat_entries.len() {
         let entry = &app.chat_entries[i];
-        let text_lines = format_entry_as_strings(entry, &app.chat_entries, i);
+        let (text_lines, next_index) =
+            if let Some(batch) = detect_groupable_tool_batch(&app.chat_entries, i) {
+                (
+                    format_grouped_tool_batch(&app.chat_entries, &batch),
+                    batch.next_index,
+                )
+            } else if let Some(batch) = detect_groupable_system_batch(&app.chat_entries, i) {
+                (
+                    format_grouped_system_batch(&app.chat_entries, &batch),
+                    batch.next_index,
+                )
+            } else {
+                (format_entry_as_strings(entry, &app.chat_entries, i), i + 1)
+            };
 
         if i > 0 && matches!(entry.role, ChatRole::User) {
             stdout.execute(crossterm::style::Print("\r\n"))?;
@@ -166,6 +183,7 @@ pub(super) fn print_entries_to_stdout(app: &mut App) -> Result<()> {
             ))?;
             stdout.execute(crossterm::style::Print("\r\n"))?;
         }
+        i = next_index;
     }
     app.printed_count = app.chat_entries.len();
     stdout.flush()?;
@@ -330,7 +348,26 @@ pub(super) fn flush_entries_to_scrollback(
             continue;
         }
 
-        let text_lines = format_entry_as_strings(entry, &app.chat_entries, app.printed_count);
+        let (text_lines, next_index) = if let Some(batch) =
+            detect_groupable_tool_batch(&app.chat_entries, app.printed_count)
+        {
+            (
+                format_grouped_tool_batch(&app.chat_entries, &batch),
+                batch.next_index,
+            )
+        } else if let Some(batch) =
+            detect_groupable_system_batch(&app.chat_entries, app.printed_count)
+        {
+            (
+                format_grouped_system_batch(&app.chat_entries, &batch),
+                batch.next_index,
+            )
+        } else {
+            (
+                format_entry_as_strings(entry, &app.chat_entries, app.printed_count),
+                app.printed_count + 1,
+            )
+        };
         let needs_spacer = matches!(entry.role, ChatRole::User) && app.printed_count > 0;
 
         if needs_spacer {
@@ -342,7 +379,7 @@ pub(super) fn flush_entries_to_scrollback(
             all_output.push((text.clone(), color, bold));
         }
 
-        app.printed_count += 1;
+        app.printed_count = next_index;
     }
 
     if !all_output.is_empty() {

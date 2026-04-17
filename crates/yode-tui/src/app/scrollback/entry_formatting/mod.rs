@@ -1,6 +1,6 @@
 mod roles;
 
-pub(super) use roles::format_entry_as_strings;
+pub(super) use roles::{format_entry_as_strings, format_grouped_system_batch, format_grouped_tool_batch};
 
 pub(super) fn md_line_color(line: &str) -> (crossterm::style::Color, bool) {
     if line.starts_with("━━ ") || line.starts_with("━━━") {
