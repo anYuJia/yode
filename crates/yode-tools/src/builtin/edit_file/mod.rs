@@ -205,3 +205,123 @@ Usage:
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+    use std::sync::Arc;
+
+    use serde_json::json;
+    use tokio::sync::Mutex;
+
+    use crate::tool::{Tool, ToolContext, ToolErrorType};
+
+    use super::EditFileTool;
+
+    fn temp_path(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("yode-edit-file-{}-{}", name, uuid::Uuid::new_v4()))
+    }
+
+    #[tokio::test]
+    async fn requires_preread_for_existing_files() {
+        let path = temp_path("preread.txt");
+        tokio::fs::write(&path, "let value = 1;\n").await.unwrap();
+
+        let history = Arc::new(Mutex::new(HashSet::new()));
+        let mut ctx = ToolContext::empty();
+        ctx.read_file_history = Some(history);
+
+        let result = EditFileTool
+            .execute(
+                json!({
+                    "file_path": path.display().to_string(),
+                    "old_string": "value",
+                    "new_string": "answer"
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(result.is_error);
+        assert_eq!(result.error_type, Some(ToolErrorType::Validation));
+        assert!(result.content.contains("has not been read yet"));
+        assert!(
+            result
+                .suggestion
+                .as_deref()
+                .unwrap_or("")
+                .contains("read_file")
+        );
+
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[tokio::test]
+    async fn replace_all_updates_file_and_metadata() {
+        let path = temp_path("replace-all.txt");
+        tokio::fs::write(&path, "foo = 1\nfoo = 2\n").await.unwrap();
+
+        let mut seen = HashSet::new();
+        seen.insert(path.clone());
+        let history = Arc::new(Mutex::new(seen));
+        let mut ctx = ToolContext::empty();
+        ctx.read_file_history = Some(history);
+
+        let result = EditFileTool
+            .execute(
+                json!({
+                    "file_path": path.display().to_string(),
+                    "old_string": "foo",
+                    "new_string": "bar",
+                    "replace_all": true
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert_eq!(
+            result.metadata.as_ref().unwrap()["replacements"],
+            json!(2)
+        );
+        let updated = tokio::fs::read_to_string(&path).await.unwrap();
+        assert_eq!(updated, "bar = 1\nbar = 2\n");
+        assert_eq!(
+            result.metadata.as_ref().unwrap()["diff_preview"]["added"][0],
+            json!("bar")
+        );
+
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[tokio::test]
+    async fn rejects_ambiguous_match_without_replace_all() {
+        let path = temp_path("ambiguous.txt");
+        tokio::fs::write(&path, "foo = 1\nfoo = 2\n").await.unwrap();
+
+        let mut seen = HashSet::new();
+        seen.insert(path.clone());
+        let history = Arc::new(Mutex::new(seen));
+        let mut ctx = ToolContext::empty();
+        ctx.read_file_history = Some(history);
+
+        let result = EditFileTool
+            .execute(
+                json!({
+                    "file_path": path.display().to_string(),
+                    "old_string": "foo",
+                    "new_string": "bar"
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(result.is_error);
+        assert!(result.content.contains("replace_all is false"));
+
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+}

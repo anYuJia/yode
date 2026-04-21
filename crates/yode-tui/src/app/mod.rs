@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod completion;
+mod detail_inspector;
 mod engine_events;
 pub mod history;
 pub mod input;
@@ -22,6 +23,9 @@ use crate::system_message::append_grouped_system_entry;
 pub use self::runtime::run;
 pub(crate) use self::time::format_duration;
 pub(crate) use self::state::SPINNER_VERBS;
+pub(crate) use self::detail_inspector::{
+    open_latest_tool_inspector, open_pending_confirmation_inspector,
+};
 pub use self::state::{
     App, ChatEntry, ChatRole, InspectorView, PendingConfirmation, PermissionMode, SessionState,
     ThinkingState, TurnStatus,
@@ -77,6 +81,12 @@ fn find_case_insensitive(haystack: &str, needle: &str) -> Option<usize> {
 pub(crate) fn push_system_entry(app: &mut App, content: impl Into<String>) {
     append_grouped_system_entry(&mut app.chat_entries, content);
 }
+
+pub(crate) use self::scrollback::entry_formatting::{
+    format_entry_as_strings as format_scrollback_entry_as_strings,
+    format_grouped_system_batch as format_scrollback_grouped_system_batch,
+    format_grouped_tool_batch as format_scrollback_grouped_tool_batch,
+};
 
 // ── Scrollback printing ─────────────────────────────────────────────
 

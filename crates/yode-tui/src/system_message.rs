@@ -5,6 +5,7 @@ pub(crate) enum SystemMessageKind {
     Budget,
     Export,
     Task,
+    Turn,
     Warning,
     Lifecycle,
     Plan,
@@ -52,6 +53,12 @@ pub(crate) fn parse_system_message(content: &str) -> SystemMessageView {
             (
                 SystemMessageKind::Budget,
                 "Budget exceeded".to_string(),
+                detail,
+            )
+        } else if let Some(detail) = strip_title_suffix(first_line, "Turn completed") {
+            (
+                SystemMessageKind::Turn,
+                "Turn completed".to_string(),
                 detail,
             )
         } else if let Some((title, detail)) = split_task_line(first_line) {
@@ -111,10 +118,13 @@ pub(crate) fn append_grouped_system_entry(
         {
             let last_view = parse_system_message(&last.content);
             let next_view = parse_system_message(&content);
-            let same_semantic_group = next_view.kind != SystemMessageKind::Generic
+            let allow_merge =
+                allows_grouped_append(last_view.kind) && allows_grouped_append(next_view.kind);
+            let same_semantic_group = allow_merge
+                && next_view.kind != SystemMessageKind::Generic
                 && last_view.kind == next_view.kind
                 && last_view.title == next_view.title;
-            let same_first_line = last.content.lines().next() == content.lines().next();
+            let same_first_line = allow_merge && last.content.lines().next() == content.lines().next();
             if same_semantic_group || same_first_line {
                 if !last.content.contains(&content) {
                     last.content.push('\n');
@@ -125,6 +135,10 @@ pub(crate) fn append_grouped_system_entry(
         }
     }
     entries.push(ChatEntry::new(ChatRole::System, content));
+}
+
+fn allows_grouped_append(kind: SystemMessageKind) -> bool {
+    !matches!(kind, SystemMessageKind::Turn)
 }
 
 fn strip_title_suffix(line: &str, title: &str) -> Option<Option<String>> {
@@ -261,6 +275,14 @@ mod tests {
     }
 
     #[test]
+    fn parses_turn_completion_messages() {
+        let view = parse_system_message("Turn completed · 1.4s · 3 tools · 1.2k↑ 180↓ tok");
+        assert_eq!(view.kind, SystemMessageKind::Turn);
+        assert_eq!(view.title, "Turn completed");
+        assert_eq!(view.detail_lines, vec!["1.4s · 3 tools · 1.2k↑ 180↓ tok".to_string()]);
+    }
+
+    #[test]
     fn parses_warning_messages() {
         let view = parse_system_message("Unknown command: /oops. Type /help.");
         assert_eq!(view.kind, SystemMessageKind::Warning);
@@ -280,6 +302,19 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert!(entries[0].content.contains("/tmp/a.md"));
         assert!(entries[0].content.contains("/tmp/b.md"));
+    }
+
+    #[test]
+    fn append_grouped_system_entry_keeps_turn_summaries_separate() {
+        let mut entries = vec![ChatEntry::new(
+            ChatRole::System,
+            "Turn completed · 1.0s · 1 tool · 10↑ 20↓ tok".to_string(),
+        )];
+        append_grouped_system_entry(
+            &mut entries,
+            "Turn completed · 1.1s · 2 tools · 11↑ 21↓ tok".to_string(),
+        );
+        assert_eq!(entries.len(), 2);
     }
 }
 use std::time::Duration;

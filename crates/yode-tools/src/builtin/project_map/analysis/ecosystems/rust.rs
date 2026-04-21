@@ -92,3 +92,41 @@ pub(in crate::builtin::project_map) fn analyze_dependencies(dir: &Path) -> Vec<(
     result.sort_by(|a, b| a.0.cmp(&b.0));
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{analyze_dependencies, entry_points, is_workspace};
+
+    #[test]
+    fn rust_workspace_and_dependency_analysis_are_detected() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("crates").join("app").join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[workspace]\ncrates/app\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("crates").join("app").join("Cargo.toml"),
+            "[package]\nname='app'\n[dependencies]\nserde = \"1\"\nanyhow = \"1\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("crates").join("app").join("src").join("main.rs"),
+            "fn main() {}\n",
+        )
+        .unwrap();
+
+        assert!(is_workspace(dir.path()));
+        let entries = entry_points(dir.path());
+        assert!(entries
+            .iter()
+            .any(|path| path.ends_with("crates/app/src/main.rs")));
+
+        let deps = analyze_dependencies(dir.path());
+        assert_eq!(deps.len(), 1);
+        assert_eq!(deps[0].0, "crates/app");
+        assert!(deps[0].1.contains(&"serde".to_string()));
+        assert!(deps[0].1.contains(&"anyhow".to_string()));
+    }
+}

@@ -1,4 +1,5 @@
 mod tool_wrapper;
+use self::tool_wrapper::wrapper_tool_name;
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, LazyLock, Mutex};
@@ -160,9 +161,8 @@ impl McpClient {
 
         let mut wrappers: Vec<Arc<dyn Tool>> = Vec::with_capacity(count);
         for tool in tools {
-            let name = format!("mcp__{}_{}", self.server_name, tool.name);
             let wrapper = McpToolWrapper {
-                tool_name: name,
+                tool_name: wrapper_tool_name(&self.server_name, &tool.name),
                 original_name: tool.name.to_string(),
                 description: tool
                     .description
@@ -260,9 +260,15 @@ pub(crate) fn reset_mcp_reconnect_diagnostics() {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use rmcp::model::Tool;
+    use serde_json::json;
+
     use super::{
         mcp_reconnect_diagnostics, record_mcp_connect_result, reset_mcp_reconnect_diagnostics,
     };
+    use super::tool_wrapper::wrapper_tool_name;
 
     #[test]
     fn reconnect_diagnostics_track_failures_and_backoff() {
@@ -277,5 +283,16 @@ mod tests {
         assert_eq!(stats[0].failures, 2);
         assert_eq!(stats[0].next_backoff_secs, 0);
         assert_eq!(stats[0].last_error, None);
+    }
+
+    #[test]
+    fn wrapper_name_matches_discovery_shape() {
+        let input_schema: Arc<rmcp::model::JsonObject> =
+            serde_json::from_value(json!({"type":"object"})).unwrap();
+        let tool = Tool::new("search_issues", "desc", input_schema);
+        assert_eq!(
+            wrapper_tool_name("github", &tool.name),
+            "mcp__github_search_issues"
+        );
     }
 }

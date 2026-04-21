@@ -2,7 +2,10 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 
-use crate::app::ChatRole;
+use crate::app::{
+    format_scrollback_entry_as_strings, format_scrollback_grouped_system_batch,
+    format_scrollback_grouped_tool_batch, ChatRole,
+};
 use crate::commands::artifact_nav::{
     artifact_freshness_badge, latest_coordinator_artifact,
     latest_runtime_orchestration_artifact, latest_workflow_execution_artifact,
@@ -15,6 +18,7 @@ use crate::commands::{
 use crate::runtime_artifacts::{
     write_runtime_task_inventory_artifact, write_runtime_timeline_artifact,
 };
+use crate::tool_grouping::{detect_groupable_system_batch, detect_groupable_tool_batch};
 use crate::ui::status_summary::{
     context_window_summary_text, runtime_status_snapshot_from_parts,
     session_runtime_summary_text, tool_runtime_summary_text,
@@ -131,36 +135,45 @@ fn render_conversation(ctx: &CommandContext) -> String {
     output.push_str(&format!("Model: {}\n\n", ctx.session.model));
     output.push_str(&"=".repeat(60));
     output.push_str("\n\n");
-
-    for entry in ctx.chat_entries.iter() {
-        let role_label = match &entry.role {
-            ChatRole::User => "User",
-            ChatRole::Assistant => "Assistant",
-            ChatRole::ToolCall { name, .. } => &format!("[Tool: {}]", name),
-            ChatRole::ToolResult { name, is_error, .. } => {
-                if *is_error {
-                    &format!("[Tool Error: {}]", name)
-                } else {
-                    &format!("[Tool Result: {}]", name)
-                }
-            }
-            ChatRole::Error => "[Error]",
-            ChatRole::System => "[System]",
-            ChatRole::SubAgentCall { description } => &format!("[SubAgent: {}]", description),
-            ChatRole::SubAgentToolCall { name } => &format!("[SubAgent Tool: {}]", name),
-            ChatRole::SubAgentResult => "[SubAgent Result]",
-            ChatRole::AskUser { id } => &format!("[AskUser: {}]", id),
-        };
-
-        output.push_str(&format!("--- {}\n", role_label));
-        output.push_str(&entry.content);
-        output.push_str("\n\n");
-    }
+    output.push_str(&render_conversation_body(ctx.chat_entries));
 
     output.push_str(&"=".repeat(60));
     output.push_str("\n\n");
     output.push_str(&render_conversation_summary(ctx));
 
+    output
+}
+
+fn render_conversation_body(entries: &[crate::app::ChatEntry]) -> String {
+    let mut output = String::new();
+    let mut index = 0;
+    while index < entries.len() {
+        let (lines, next_index) = if let Some(batch) = detect_groupable_tool_batch(entries, index) {
+            (
+                format_scrollback_grouped_tool_batch(entries, &batch),
+                batch.next_index,
+            )
+        } else if let Some(batch) = detect_groupable_system_batch(entries, index) {
+            (
+                format_scrollback_grouped_system_batch(entries, &batch),
+                batch.next_index,
+            )
+        } else {
+            (
+                format_scrollback_entry_as_strings(&entries[index], entries, index),
+                index + 1,
+            )
+        };
+
+        for (line, _) in lines {
+            output.push_str(&line);
+            output.push('\n');
+        }
+        if next_index < entries.len() {
+            output.push('\n');
+        }
+        index = next_index;
+    }
     output
 }
 
@@ -556,9 +569,10 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::{
-        render_bundle_completion_message, render_conversation_summary_block,
+        render_bundle_completion_message, render_conversation_body, render_conversation_summary_block,
         render_runtime_bundle_summary, render_workspace_index,
     };
+    use crate::app::{ChatEntry, ChatRole};
     use yode_core::engine::{EngineRuntimeState, PromptCacheRuntimeState};
     use yode_core::tool_runtime::ToolRuntimeCallView;
     use yode_tools::registry::ToolPoolSnapshot;
@@ -728,5 +742,65 @@ mod tests {
         assert!(summary.contains("Tools:        tools"));
         assert!(summary.contains("Entries:       3"));
         assert!(summary.contains("Tool calls:    2"));
+    }
+
+    #[test]
+    fn conversation_body_uses_grouped_and_styled_export_rendering() {
+        let mut entries = vec![
+            ChatEntry::new(ChatRole::User, "show me the code".to_string()),
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "a".to_string(),
+                    name: "grep".to_string(),
+                },
+                "{\"pattern\":\"retry\"}".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolResult {
+                    id: "a".to_string(),
+                    name: "grep".to_string(),
+                    is_error: false,
+                },
+                "src/app.rs:12: retry".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "b".to_string(),
+                    name: "read_file".to_string(),
+                },
+                "{\"file_path\":\"/tmp/src/app.rs\"}".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolResult {
+                    id: "b".to_string(),
+                    name: "read_file".to_string(),
+                    is_error: false,
+                },
+                "fn retry() {}".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::System,
+                "Turn completed · 1.4s · 2 tools · 1.2k↑ 180↓ tok".to_string(),
+            ),
+        ];
+        entries[2].tool_metadata = Some(serde_json::json!({
+            "output_mode": "content",
+            "line_count": 1,
+            "file_count": 1,
+            "match_count": 1,
+            "pattern": "retry"
+        }));
+        entries[4].tool_metadata = Some(serde_json::json!({
+            "file_path": "/tmp/src/app.rs",
+            "total_lines": 40,
+            "start_line": 1,
+            "end_line": 20,
+            "was_truncated": true
+        }));
+
+        let body = render_conversation_body(&entries);
+        assert!(body.contains("⏺ Searched for 1 pattern, read 1 file"));
+        assert!(body.contains("Turn completed"));
+        assert!(!body.contains("--- [Tool: grep]"));
     }
 }

@@ -73,3 +73,26 @@ fn count_code_files(dir: &Path) -> usize {
     });
     count
 }
+
+#[cfg(test)]
+mod tests {
+    use super::build_module_tree;
+
+    #[test]
+    fn build_module_tree_skips_hidden_and_counts_code_files() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src").join("nested")).unwrap();
+        std::fs::create_dir_all(dir.path().join(".git")).unwrap();
+        std::fs::write(dir.path().join("src").join("main.rs"), "fn main() {}\n").unwrap();
+        std::fs::write(
+            dir.path().join("src").join("nested").join("mod.rs"),
+            "pub fn nested() {}\n",
+        )
+        .unwrap();
+
+        let rendered = build_module_tree(dir.path(), 2);
+        assert!(rendered.contains("src (2 files)"));
+        assert!(rendered.contains("src/nested (1 files)"));
+        assert!(!rendered.contains(".git"));
+    }
+}

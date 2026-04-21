@@ -179,3 +179,79 @@ fn walk_dir(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use crate::tool::Tool;
+
+    use super::GlobTool;
+
+    #[tokio::test]
+    async fn finds_matching_files_and_reports_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        tokio::fs::create_dir_all(dir.path().join("src")).await.unwrap();
+        tokio::fs::write(dir.path().join("src").join("main.rs"), "fn main() {}")
+            .await
+            .unwrap();
+        tokio::fs::write(dir.path().join("README.md"), "hello")
+            .await
+            .unwrap();
+
+        let result = GlobTool
+            .execute(
+                json!({
+                    "pattern": "**/*.rs",
+                    "path": dir.path().display().to_string()
+                }),
+                &crate::tool::ToolContext::empty(),
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("src/main.rs"));
+        assert_eq!(result.metadata.as_ref().unwrap()["match_count"], json!(1));
+    }
+
+    #[tokio::test]
+    async fn reports_no_matches_with_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        tokio::fs::write(dir.path().join("README.md"), "hello")
+            .await
+            .unwrap();
+
+        let result = GlobTool
+            .execute(
+                json!({
+                    "pattern": "**/*.rs",
+                    "path": dir.path().display().to_string()
+                }),
+                &crate::tool::ToolContext::empty(),
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("No files matching"));
+        assert_eq!(result.metadata.as_ref().unwrap()["match_count"], json!(0));
+    }
+
+    #[tokio::test]
+    async fn rejects_invalid_glob_patterns() {
+        let result = GlobTool
+            .execute(
+                json!({
+                    "pattern": "[",
+                    "path": "."
+                }),
+                &crate::tool::ToolContext::empty(),
+            )
+            .await
+            .unwrap();
+
+        assert!(result.is_error);
+        assert!(result.content.contains("Invalid glob pattern"));
+    }
+}

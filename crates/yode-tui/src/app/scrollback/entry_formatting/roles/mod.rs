@@ -11,7 +11,7 @@ use crate::app::{ChatEntry, ChatRole};
 use self::style::role_style_palette;
 use self::subagents::render_subagent_call;
 use self::system::{render_grouped_system_entries, render_system_entry};
-use self::tool_calls::{render_grouped_tool_call, render_tool_call};
+use self::tool_calls::{render_grouped_tool_call, render_standalone_result, render_tool_call};
 use self::users::{render_assistant, render_user};
 
 pub(crate) fn format_entry_as_strings(
@@ -42,10 +42,7 @@ pub(crate) fn format_entry_as_strings(
                     |e| matches!(&e.role, ChatRole::ToolCall { id: ref tid, .. } if tid == rid),
                 );
             if !has_preceding {
-                result.push((
-                    format!("  ⎿ {}", entry.content.lines().next().unwrap_or("")),
-                    palette.dim,
-                ));
+                render_standalone_result(entry, &mut result, palette.dim, palette.accent, palette.red);
             }
         }
         ChatRole::Error => {

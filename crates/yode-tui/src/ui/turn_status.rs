@@ -3,8 +3,11 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
-use crate::app::{App, TurnStatus};
+use crate::app::{App, ChatRole, TurnStatus};
 use crate::runtime_display::format_retry_delay_summary;
+use crate::tool_grouping::{
+    detect_groupable_tool_batch, summarize_groupable_tool_call, tool_batch_summary_text,
+};
 use crate::ui::responsive::density_from_width;
 use crate::ui::status_summary::{
     compaction_badge, context_badge, memory_badge, push_badge, runtime_status_snapshot,
@@ -51,13 +54,14 @@ pub fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &
             let elapsed = app.thinking_elapsed_str();
             let stream_chars = app.streaming_buf.len() as u32;
             let output_tok = app.session.turn_output_tokens + stream_chars / 4;
+            let working_label = active_working_label(app, verb);
             let mut spans = vec![
                 Span::styled(
                     format!("  {} ", spinner),
                     Style::default().fg(Color::LightMagenta),
                 ),
                 Span::styled(
-                    format!("{}…", verb),
+                    working_label,
                     Style::default().fg(Color::LightMagenta),
                 ),
                 Span::styled(
@@ -137,10 +141,160 @@ pub fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &
     frame.render_widget(Paragraph::new(lines), area);
 }
 
+pub(crate) fn active_working_label(app: &App, fallback_verb: &str) -> String {
+    for index in (0..app.chat_entries.len()).rev() {
+        if let Some(batch) = detect_groupable_tool_batch(&app.chat_entries, index) {
+            if batch.is_active && batch.next_index == app.chat_entries.len() {
+                return tool_batch_summary_text(&batch);
+            }
+        }
+    }
+
+    if let Some(entry) = app.chat_entries.last() {
+        if let ChatRole::ToolCall { id, name } = &entry.role {
+            let has_result = app.chat_entries.iter().rev().skip(1).any(|candidate| {
+                matches!(&candidate.role, ChatRole::ToolResult { id: result_id, .. } if result_id == id)
+            });
+            if !has_result {
+                if let Some(summary) = summarize_groupable_tool_call(name, &entry.content, true) {
+                    return summary;
+                }
+                if let Some(summary) = tool_activity_label(app, name, &entry.content) {
+                    return summary;
+                }
+            }
+        }
+    }
+
+    format!("{}…", fallback_verb)
+}
+
+fn tool_activity_label(app: &App, tool_name: &str, args_json: &str) -> Option<String> {
+    let tool = app.tools.get(tool_name)?;
+    let args: serde_json::Value = serde_json::from_str(args_json).unwrap_or(serde_json::Value::Null);
+    let description = tool.activity_description(&args);
+    if description.trim().is_empty() {
+        return None;
+    }
+    Some(ensure_active_ellipsis(&description))
+}
+
+fn ensure_active_ellipsis(text: &str) -> String {
+    let trimmed = text.trim_end();
+    if trimmed.ends_with('…') || trimmed.ends_with("...") {
+        trimmed.to_string()
+    } else if let Some(stripped) = trimmed.strip_suffix('.') {
+        format!("{}…", stripped)
+    } else {
+        format!("{}…", trimmed)
+    }
+}
+
 fn format_tok(n: u32) -> String {
     if n >= 1000 {
         format!("{:.1}k", n as f64 / 1000.0)
     } else {
         n.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use yode_llm::registry::ProviderRegistry;
+    use yode_tools::builtin::EditFileTool;
+    use yode_tools::registry::ToolRegistry;
+
+    use crate::app::{App, ChatEntry, ChatRole};
+
+    use super::active_working_label;
+
+    fn test_app() -> App {
+        App::new(
+            "test-model".to_string(),
+            "session-1234".to_string(),
+            "/tmp".to_string(),
+            "test".to_string(),
+            Vec::new(),
+            HashMap::new(),
+            Arc::new(ProviderRegistry::new()),
+            Arc::new(ToolRegistry::new()),
+        )
+    }
+
+    #[test]
+    fn working_label_prefers_active_tool_batch_summary() {
+        let mut app = test_app();
+        app.chat_entries = vec![
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "a".to_string(),
+                    name: "web_search".to_string(),
+                },
+                "{\"query\":\"ratatui\"}".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "b".to_string(),
+                    name: "read_file".to_string(),
+                },
+                "{\"file_path\":\"/tmp/src/main.rs\"}".to_string(),
+            ),
+        ];
+
+        assert_eq!(
+            active_working_label(&app, "Working"),
+            "Searching the web for 1 query, reading 1 file..."
+        );
+    }
+
+    #[test]
+    fn working_label_falls_back_to_turn_verb_without_active_batch() {
+        let app = test_app();
+        assert_eq!(active_working_label(&app, "Forging"), "Forging…");
+    }
+
+    #[test]
+    fn working_label_uses_single_tool_summary_when_only_one_tool_is_active() {
+        let mut app = test_app();
+        app.chat_entries = vec![ChatEntry::new(
+            ChatRole::ToolCall {
+                id: "a".to_string(),
+                name: "project_map".to_string(),
+            },
+            "{}".to_string(),
+        )];
+
+        assert_eq!(active_working_label(&app, "Working"), "Analyzing 1 project...");
+    }
+
+    #[test]
+    fn working_label_uses_tool_activity_description_for_non_groupable_tools() {
+        let registry = Arc::new(ToolRegistry::new());
+        registry.register(Arc::new(EditFileTool));
+        let mut app = App::new(
+            "test-model".to_string(),
+            "session-1234".to_string(),
+            "/tmp".to_string(),
+            "test".to_string(),
+            Vec::new(),
+            HashMap::new(),
+            Arc::new(ProviderRegistry::new()),
+            registry,
+        );
+        app.chat_entries = vec![ChatEntry::new(
+            ChatRole::ToolCall {
+                id: "a".to_string(),
+                name: "edit_file".to_string(),
+            },
+            "{\"file_path\":\"/tmp/demo.rs\",\"old_string\":\"a\",\"new_string\":\"b\"}".to_string(),
+        )];
+
+        assert_eq!(
+            active_working_label(&app, "Working"),
+            "Editing file: /tmp/demo.rs…"
+        );
     }
 }

@@ -1,4 +1,7 @@
 use std::path::Path;
+use std::time::Duration;
+
+use yode_core::engine::EngineRuntimeState;
 
 pub(crate) fn format_retry_delay_summary(
     delay_secs: u64,
@@ -114,12 +117,203 @@ pub(crate) fn format_turn_artifact_status(path: Option<&str>) -> String {
     }
 }
 
+pub(crate) fn format_turn_completed_message(
+    elapsed: Duration,
+    tools: u32,
+    turn_input_tokens: u32,
+    turn_output_tokens: u32,
+    session_total_tokens: u32,
+    session_tool_count: u32,
+    runtime: Option<&EngineRuntimeState>,
+) -> String {
+    let mut content = format!(
+        "Turn completed · {} · {} · {}↑ {}↓ tok",
+        format_turn_elapsed(elapsed),
+        tool_count_label(tools),
+        format_token_count(turn_input_tokens as u64),
+        format_token_count(turn_output_tokens as u64),
+    );
+    content.push_str("\nsession · ");
+    content.push_str(&format!(
+        "{} total tok · {}",
+        format_token_count(session_total_tokens as u64),
+        tool_count_label(session_tool_count)
+    ));
+
+    if let Some(runtime) = runtime {
+        if let Some(cache_line) = format_turn_cache_summary(runtime) {
+            content.push_str("\ncache · ");
+            content.push_str(&cache_line);
+        }
+        if let Some(stop_reason) = runtime.last_turn_stop_reason.as_deref() {
+            if stop_reason != "none" {
+                content.push_str("\nstop · ");
+                content.push_str(stop_reason);
+            }
+        }
+        if let Some(path) = runtime.last_turn_artifact_path.as_deref() {
+            content.push_str("\nartifact · ");
+            content.push_str(path);
+        }
+    }
+
+    content
+}
+
+fn format_turn_cache_summary(runtime: &EngineRuntimeState) -> Option<String> {
+    let prompt = runtime.prompt_cache.last_turn_prompt_tokens.unwrap_or(0);
+    let completion = runtime.prompt_cache.last_turn_completion_tokens.unwrap_or(0);
+    let write = runtime.prompt_cache.last_turn_cache_write_tokens.unwrap_or(0);
+    let read = runtime.prompt_cache.last_turn_cache_read_tokens.unwrap_or(0);
+
+    if prompt == 0 && completion == 0 && write == 0 && read == 0 {
+        return None;
+    }
+
+    let status = match (write > 0, read > 0) {
+        (true, true) => "hit+write",
+        (true, false) => "write",
+        (false, true) => "hit",
+        (false, false) => "miss",
+    };
+
+    Some(format!(
+        "{} · {} prompt / {} completion · {} write / {} read",
+        status,
+        format_token_count(prompt as u64),
+        format_token_count(completion as u64),
+        format_token_count(write as u64),
+        format_token_count(read as u64),
+    ))
+}
+
+fn format_turn_elapsed(elapsed: Duration) -> String {
+    if elapsed.as_secs() >= 60 {
+        crate::app::format_duration(elapsed)
+    } else {
+        format!("{:.1}s", elapsed.as_secs_f64())
+    }
+}
+
+fn tool_count_label(count: u32) -> String {
+    format!("{} {}", count, if count == 1 { "tool" } else { "tools" })
+}
+
+fn format_token_count(value: u64) -> String {
+    if value >= 1_000_000 {
+        format!("{:.1}M", value as f64 / 1_000_000.0)
+    } else if value >= 1_000 {
+        format!("{:.1}k", value as f64 / 1_000.0)
+    } else {
+        value.to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+    use std::time::Duration;
+
+    use yode_core::engine::{EngineRuntimeState, PromptCacheRuntimeState};
+    use yode_tools::registry::ToolPoolSnapshot;
+
     use super::{
         fold_recovery_breadcrumbs, format_retry_delay_summary, format_tool_progress_summary,
-        format_turn_artifact_status,
+        format_turn_artifact_status, format_turn_completed_message,
     };
+
+    fn runtime_state() -> EngineRuntimeState {
+        EngineRuntimeState {
+            query_source: "User".to_string(),
+            autocompact_disabled: false,
+            compaction_failures: 0,
+            total_compactions: 0,
+            auto_compactions: 0,
+            manual_compactions: 0,
+            last_compaction_breaker_reason: None,
+            context_window_tokens: 128_000,
+            compaction_threshold_tokens: 96_000,
+            estimated_context_tokens: 64_000,
+            message_count: 0,
+            live_session_memory_initialized: false,
+            live_session_memory_updating: false,
+            live_session_memory_path: String::new(),
+            session_tool_calls_total: 0,
+            last_compaction_mode: None,
+            last_compaction_at: None,
+            last_compaction_summary_excerpt: None,
+            last_compaction_session_memory_path: None,
+            last_compaction_transcript_path: None,
+            last_session_memory_update_at: None,
+            last_session_memory_update_path: None,
+            last_session_memory_generated_summary: false,
+            session_memory_update_count: 0,
+            tracked_failed_tool_results: 0,
+            hook_total_executions: 0,
+            hook_timeout_count: 0,
+            hook_execution_error_count: 0,
+            hook_nonzero_exit_count: 0,
+            hook_wake_notification_count: 0,
+            last_hook_failure_event: None,
+            last_hook_failure_command: None,
+            last_hook_failure_reason: None,
+            last_hook_failure_at: None,
+            last_hook_timeout_command: None,
+            last_compaction_prompt_tokens: None,
+            avg_compaction_prompt_tokens: None,
+            compaction_cause_histogram: BTreeMap::new(),
+            system_prompt_estimated_tokens: 0,
+            system_prompt_segments: Vec::new(),
+            prompt_cache: PromptCacheRuntimeState::default(),
+            last_turn_duration_ms: None,
+            last_turn_stop_reason: None,
+            last_turn_artifact_path: None,
+            last_stream_watchdog_stage: None,
+            stream_retry_reason_histogram: BTreeMap::new(),
+            recovery_state: "Normal".to_string(),
+            recovery_single_step_count: 0,
+            recovery_reanchor_count: 0,
+            recovery_need_user_guidance_count: 0,
+            last_failed_signature: None,
+            recovery_breadcrumbs: Vec::new(),
+            last_recovery_artifact_path: None,
+            last_permission_tool: None,
+            last_permission_action: None,
+            last_permission_explanation: None,
+            last_permission_artifact_path: None,
+            recent_permission_denials: Vec::new(),
+            tool_pool: ToolPoolSnapshot::default(),
+            current_turn_tool_calls: 0,
+            current_turn_tool_output_bytes: 0,
+            current_turn_tool_progress_events: 0,
+            current_turn_parallel_batches: 0,
+            current_turn_parallel_calls: 0,
+            current_turn_max_parallel_batch_size: 0,
+            current_turn_truncated_results: 0,
+            current_turn_budget_notice_emitted: false,
+            current_turn_budget_warning_emitted: false,
+            tool_budget_notice_count: 0,
+            tool_budget_warning_count: 0,
+            last_tool_budget_warning: None,
+            tool_progress_event_count: 0,
+            last_tool_progress_message: None,
+            last_tool_progress_tool: None,
+            last_tool_progress_at: None,
+            parallel_tool_batch_count: 0,
+            parallel_tool_call_count: 0,
+            max_parallel_batch_size: 0,
+            tool_truncation_count: 0,
+            last_tool_truncation_reason: None,
+            latest_repeated_tool_failure: None,
+            read_file_history: Vec::new(),
+            command_tool_duplication_hints: Vec::new(),
+            last_tool_turn_completed_at: None,
+            last_tool_turn_artifact_path: None,
+            tool_error_type_counts: BTreeMap::new(),
+            tool_trace_scope: "last".to_string(),
+            tool_traces: Vec::new(),
+        }
+    }
 
     #[test]
     fn fold_recovery_breadcrumbs_compacts_older_entries() {
@@ -185,5 +379,34 @@ mod tests {
             super::format_budget_exceeded_message(0.3456, 0.20),
             "Budget exceeded · $0.3456 / $0.20"
         );
+    }
+
+    #[test]
+    fn turn_completed_message_surfaces_turn_and_runtime_details() {
+        let runtime = EngineRuntimeState {
+            prompt_cache: PromptCacheRuntimeState {
+                last_turn_prompt_tokens: Some(1200),
+                last_turn_completion_tokens: Some(180),
+                last_turn_cache_write_tokens: Some(300),
+                last_turn_cache_read_tokens: Some(200),
+                ..Default::default()
+            },
+            last_turn_stop_reason: Some("Stop".to_string()),
+            last_turn_artifact_path: Some("/tmp/turn.md".to_string()),
+            ..runtime_state()
+        };
+        let message = format_turn_completed_message(
+            Duration::from_millis(1450),
+            3,
+            1200,
+            180,
+            15380,
+            34,
+            Some(&runtime),
+        );
+        assert!(message.contains("Turn completed · 1.4s · 3 tools · 1.2k↑ 180↓ tok"));
+        assert!(message.contains("session · 15.4k total tok · 34 tools"));
+        assert!(message.contains("cache · hit+write"));
+        assert!(message.contains("artifact · /tmp/turn.md"));
     }
 }

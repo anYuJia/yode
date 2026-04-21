@@ -147,3 +147,108 @@ Usage:
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+    use std::sync::Arc;
+
+    use serde_json::json;
+    use tokio::sync::Mutex;
+
+    use crate::tool::{Tool, ToolContext, ToolErrorType};
+
+    use super::WriteFileTool;
+
+    fn temp_path(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("yode-write-file-{}-{}", name, uuid::Uuid::new_v4()))
+    }
+
+    #[tokio::test]
+    async fn creates_parent_dirs_and_writes_new_file() {
+        let dir = temp_path("nested");
+        let path = dir.join("a").join("b").join("file.txt");
+
+        let result = WriteFileTool
+            .execute(
+                json!({
+                    "file_path": path.display().to_string(),
+                    "content": "hello\nworld\n"
+                }),
+                &ToolContext::empty(),
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(path.exists());
+        let written = tokio::fs::read_to_string(&path).await.unwrap();
+        assert_eq!(written, "hello\nworld\n");
+        assert_eq!(
+            result.metadata.as_ref().unwrap()["line_count"],
+            json!(2)
+        );
+        assert_eq!(
+            result.metadata.as_ref().unwrap()["diff_preview"]["added"][0],
+            json!("hello")
+        );
+
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+    }
+
+    #[tokio::test]
+    async fn requires_preread_before_overwriting_existing_file() {
+        let path = temp_path("existing.txt");
+        tokio::fs::write(&path, "old\n").await.unwrap();
+
+        let history = Arc::new(Mutex::new(HashSet::new()));
+        let mut ctx = ToolContext::empty();
+        ctx.read_file_history = Some(history);
+
+        let result = WriteFileTool
+            .execute(
+                json!({
+                    "file_path": path.display().to_string(),
+                    "content": "new\n"
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(result.is_error);
+        assert_eq!(result.error_type, Some(ToolErrorType::Validation));
+        assert!(result.content.contains("must use 'read_file'"));
+
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[tokio::test]
+    async fn allows_overwrite_after_preread() {
+        let path = temp_path("overwrite.txt");
+        tokio::fs::write(&path, "old\n").await.unwrap();
+
+        let mut seen = HashSet::new();
+        seen.insert(path.clone());
+        let history = Arc::new(Mutex::new(seen));
+        let mut ctx = ToolContext::empty();
+        ctx.read_file_history = Some(history);
+
+        let result = WriteFileTool
+            .execute(
+                json!({
+                    "file_path": path.display().to_string(),
+                    "content": "new\n"
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        let written = tokio::fs::read_to_string(&path).await.unwrap();
+        assert_eq!(written, "new\n");
+
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+}

@@ -165,3 +165,93 @@ fn list_dir_with_counts(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use crate::tool::Tool;
+
+    use super::LsTool;
+
+    #[tokio::test]
+    async fn lists_recursive_entries_and_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        tokio::fs::create_dir_all(dir.path().join("src").join("nested"))
+            .await
+            .unwrap();
+        tokio::fs::write(dir.path().join("src").join("nested").join("main.rs"), "fn main() {}")
+            .await
+            .unwrap();
+
+        let result = LsTool
+            .execute(
+                json!({
+                    "path": dir.path().display().to_string(),
+                    "recursive": true
+                }),
+                &crate::tool::ToolContext::empty(),
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("src/"));
+        assert!(result.content.contains("src/nested/"));
+        assert!(result.content.contains("src/nested/main.rs"));
+        assert_eq!(result.metadata.as_ref().unwrap()["dir_count"], json!(2));
+        assert_eq!(result.metadata.as_ref().unwrap()["file_count"], json!(1));
+    }
+
+    #[tokio::test]
+    async fn hides_hidden_files_unless_requested() {
+        let dir = tempfile::tempdir().unwrap();
+        tokio::fs::write(dir.path().join(".secret"), "shh")
+            .await
+            .unwrap();
+
+        let hidden = LsTool
+            .execute(
+                json!({
+                    "path": dir.path().display().to_string(),
+                    "show_hidden": false
+                }),
+                &crate::tool::ToolContext::empty(),
+            )
+            .await
+            .unwrap();
+        assert!(!hidden.content.contains(".secret"));
+
+        let shown = LsTool
+            .execute(
+                json!({
+                    "path": dir.path().display().to_string(),
+                    "show_hidden": true
+                }),
+                &crate::tool::ToolContext::empty(),
+            )
+            .await
+            .unwrap();
+        assert!(shown.content.contains(".secret"));
+    }
+
+    #[tokio::test]
+    async fn rejects_non_directory_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("file.txt");
+        tokio::fs::write(&file, "x").await.unwrap();
+
+        let result = LsTool
+            .execute(
+                json!({
+                    "path": file.display().to_string()
+                }),
+                &crate::tool::ToolContext::empty(),
+            )
+            .await
+            .unwrap();
+
+        assert!(result.is_error);
+        assert!(result.content.contains("is not a directory"));
+    }
+}

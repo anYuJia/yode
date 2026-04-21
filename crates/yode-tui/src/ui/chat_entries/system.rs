@@ -89,6 +89,11 @@ fn system_styles(kind: SystemMessageKind) -> (&'static str, Style, Style) {
             Style::default().fg(INFO_COLOR),
             Style::default().fg(MUTED),
         ),
+        SystemMessageKind::Turn => (
+            "  ⚡ ",
+            Style::default().fg(SUCCESS_COLOR),
+            Style::default().fg(MUTED),
+        ),
         SystemMessageKind::Warning => (
             "  ! ",
             Style::default().fg(WARNING_COLOR),
@@ -203,5 +208,19 @@ mod tests {
         let mut lines = Vec::new();
         render_grouped_system_entries(&mut lines, &entries, &batch);
         assert!(lines[0].to_string().contains("Task updates(2)"));
+    }
+
+    #[test]
+    fn render_turn_summary_entry_uses_turn_styling() {
+        let entry = ChatEntry::new(
+            ChatRole::System,
+            "Turn completed · 1.4s · 3 tools · 1.2k↑ 180↓ tok\nsession · 15.4k total tok · 34 tools"
+                .to_string(),
+        );
+        let mut lines = Vec::new();
+        render_system_entry(&mut lines, &entry);
+        assert!(lines[0].to_string().contains("Turn completed"));
+        assert!(lines[1].to_string().contains("1.4s · 3 tools"));
+        assert!(lines[2].to_string().contains("session · 15.4k total tok"));
     }
 }

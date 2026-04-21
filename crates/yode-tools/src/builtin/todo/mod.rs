@@ -6,7 +6,7 @@ use crate::state::TaskStatus;
 use crate::tool::{Tool, ToolContext, ToolResult};
 
 pub mod tasks;
-pub use tasks::{TaskCreateTool, TaskGetTool, TaskListTool};
+pub use tasks::{TaskCreateTool, TaskGetTool, TaskListTool, TaskStopTool, TaskUpdateTool};
 
 pub struct TodoTool;
 

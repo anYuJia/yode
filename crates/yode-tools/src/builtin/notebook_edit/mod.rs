@@ -192,3 +192,161 @@ fn source_to_lines(source: &str) -> Value {
     let lines: Vec<String> = source.lines().map(|l| format!("{}\n", l)).collect();
     json!(lines)
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+    use std::sync::Arc;
+
+    use serde_json::json;
+    use tokio::sync::Mutex;
+
+    use crate::tool::{Tool, ToolContext, ToolErrorType};
+
+    use super::NotebookEditTool;
+
+    fn temp_path(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("yode-notebook-edit-{}-{}", name, uuid::Uuid::new_v4()))
+    }
+
+    fn sample_notebook() -> serde_json::Value {
+        json!({
+            "cells": [
+                {
+                    "cell_type": "code",
+                    "id": "cell-0",
+                    "metadata": {},
+                    "source": ["print('hi')\n"],
+                    "outputs": [{"output_type": "stream"}],
+                    "execution_count": 1
+                },
+                {
+                    "cell_type": "markdown",
+                    "id": "cell-1",
+                    "metadata": {},
+                    "source": ["# title\n"]
+                }
+            ],
+            "metadata": {},
+            "nbformat": 4,
+            "nbformat_minor": 5
+        })
+    }
+
+    #[tokio::test]
+    async fn notebook_edit_requires_preread() {
+        let path = temp_path("preread.ipynb");
+        tokio::fs::write(&path, serde_json::to_string_pretty(&sample_notebook()).unwrap())
+            .await
+            .unwrap();
+
+        let history = Arc::new(Mutex::new(HashSet::new()));
+        let mut ctx = ToolContext::empty();
+        ctx.read_file_history = Some(history);
+
+        let result = NotebookEditTool
+            .execute(
+                json!({
+                    "notebook_path": path.display().to_string(),
+                    "cell_id": "cell-0",
+                    "new_source": "print('bye')",
+                    "edit_mode": "replace"
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(result.is_error);
+        assert_eq!(result.error_type, Some(ToolErrorType::Validation));
+
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[tokio::test]
+    async fn notebook_edit_replace_resets_code_outputs() {
+        let path = temp_path("replace.ipynb");
+        tokio::fs::write(&path, serde_json::to_string_pretty(&sample_notebook()).unwrap())
+            .await
+            .unwrap();
+
+        let mut seen = HashSet::new();
+        seen.insert(path.clone());
+        let history = Arc::new(Mutex::new(seen));
+        let mut ctx = ToolContext::empty();
+        ctx.read_file_history = Some(history);
+
+        let result = NotebookEditTool
+            .execute(
+                json!({
+                    "notebook_path": path.display().to_string(),
+                    "cell_id": "cell-0",
+                    "new_source": "print('bye')",
+                    "edit_mode": "replace"
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        let notebook: serde_json::Value =
+            serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
+        assert_eq!(notebook["cells"][0]["source"][0], json!("print('bye')\n"));
+        assert_eq!(notebook["cells"][0]["outputs"], json!([]));
+        assert_eq!(notebook["cells"][0]["execution_count"], json!(null));
+
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[tokio::test]
+    async fn notebook_edit_insert_and_delete_change_cell_count() {
+        let path = temp_path("insert-delete.ipynb");
+        tokio::fs::write(&path, serde_json::to_string_pretty(&sample_notebook()).unwrap())
+            .await
+            .unwrap();
+
+        let mut seen = HashSet::new();
+        seen.insert(path.clone());
+        let history = Arc::new(Mutex::new(seen));
+        let mut ctx = ToolContext::empty();
+        ctx.read_file_history = Some(history);
+
+        NotebookEditTool
+            .execute(
+                json!({
+                    "notebook_path": path.display().to_string(),
+                    "cell_id": "cell-0",
+                    "new_source": "## inserted",
+                    "cell_type": "markdown",
+                    "edit_mode": "insert"
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        let after_insert: serde_json::Value =
+            serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
+        assert_eq!(after_insert["cells"].as_array().unwrap().len(), 3);
+
+        NotebookEditTool
+            .execute(
+                json!({
+                    "notebook_path": path.display().to_string(),
+                    "cell_id": "cell-1",
+                    "new_source": "",
+                    "edit_mode": "delete"
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        let after_delete: serde_json::Value =
+            serde_json::from_str(&tokio::fs::read_to_string(&path).await.unwrap()).unwrap();
+        assert_eq!(after_delete["cells"].as_array().unwrap().len(), 2);
+
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+}

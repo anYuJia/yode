@@ -119,3 +119,46 @@ pub(in crate::builtin::project_map) fn find_config_files(dir: &Path) -> Vec<Path
 
     configs
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        detect_project_type, find_config_files, find_entry_points, scan_project_stats,
+    };
+    use crate::builtin::project_map::analysis::ProjectType;
+
+    #[test]
+    fn detect_project_type_and_stats_cover_common_layout() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("package.json"), "{}").unwrap();
+        std::fs::write(dir.path().join("index.ts"), "export const a = 1;\n").unwrap();
+        std::fs::write(dir.path().join("README.md"), "hello\n").unwrap();
+
+        assert!(matches!(detect_project_type(dir.path()), ProjectType::Node));
+        let stats = scan_project_stats(dir.path());
+        assert_eq!(stats.file_count, 3);
+        assert_eq!(stats.total_lines, 3);
+        assert!(stats.lines_by_language.iter().any(|(name, _)| name == "TypeScript"));
+        assert!(stats.lines_by_language.iter().any(|(name, _)| name == "Markdown"));
+        assert!(stats.lines_by_language.iter().any(|(name, _)| name == "Config"));
+    }
+
+    #[test]
+    fn find_entry_points_and_config_files_match_known_files() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Cargo.toml"), "[package]\nname='demo'\n").unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(dir.path().join("src").join("main.rs"), "fn main() {}\n").unwrap();
+        std::fs::write(dir.path().join(".env"), "RUST_LOG=debug\n").unwrap();
+        std::fs::create_dir_all(dir.path().join("config")).unwrap();
+        std::fs::write(dir.path().join("config").join("app.yaml"), "name: demo\n").unwrap();
+
+        let project_type = detect_project_type(dir.path());
+        let entries = find_entry_points(dir.path(), &project_type);
+        assert!(entries.iter().any(|path| path.ends_with("src/main.rs")));
+
+        let configs = find_config_files(dir.path());
+        assert!(configs.iter().any(|path| path.ends_with(".env")));
+        assert!(configs.iter().any(|path| path.ends_with("config/app.yaml")));
+    }
+}

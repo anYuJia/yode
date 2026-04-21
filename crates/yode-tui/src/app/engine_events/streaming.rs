@@ -6,9 +6,12 @@ use tokio::sync::{mpsc, Mutex};
 use yode_core::engine::{AgentEngine, EngineEvent};
 use yode_llm::types::ChatResponse;
 
+use crate::runtime_display::format_turn_completed_message;
+
 use super::super::turn_flow::try_process_next;
 use super::super::{
-    find_case_insensitive, strip_internal_tags, App, ChatEntry, ChatRole, TurnStatus, TAG_RE,
+    find_case_insensitive, push_system_entry, strip_internal_tags, App, ChatEntry, ChatRole,
+    TurnStatus, TAG_RE,
 };
 
 pub(super) fn handle_text_delta(app: &mut App, delta: String) {
@@ -95,6 +98,7 @@ pub(super) fn handle_turn_complete(app: &mut App, response: ChatResponse) {
     let prompt = response.usage.prompt_tokens;
     let completion = response.usage.completion_tokens;
     let total = response.usage.total_tokens;
+    let mut turn_input_tokens = app.session.turn_input_tokens;
 
     if prompt > 0 {
         let new_tokens = if prompt > app.session.previous_prompt_tokens {
@@ -105,6 +109,9 @@ pub(super) fn handle_turn_complete(app: &mut App, response: ChatResponse) {
 
         app.session.input_tokens += new_tokens;
         app.session.previous_prompt_tokens = prompt;
+        if new_tokens > 0 {
+            turn_input_tokens = new_tokens;
+        }
     } else if total > completion {
         let inferred_prompt = total - completion;
         let new_tokens = if inferred_prompt > app.session.previous_prompt_tokens {
@@ -114,14 +121,19 @@ pub(super) fn handle_turn_complete(app: &mut App, response: ChatResponse) {
         };
         app.session.input_tokens += new_tokens;
         app.session.previous_prompt_tokens = inferred_prompt;
+        if new_tokens > 0 {
+            turn_input_tokens = new_tokens;
+        }
     } else {
         let chars: usize = app.chat_entries.iter().map(|e| e.content.len()).sum();
-        app.session.input_tokens = (chars as u32) / 3;
+        turn_input_tokens = (chars as u32) / 3;
+        app.session.input_tokens = turn_input_tokens;
         app.session.input_estimated = true;
     }
 
     app.session.output_tokens += completion;
     app.session.total_tokens = app.session.input_tokens + app.session.output_tokens;
+    app.session.turn_input_tokens = turn_input_tokens;
     app.session.turn_output_tokens = completion;
 
     app.thinking.stop();
@@ -135,11 +147,24 @@ pub(super) fn handle_done(
     engine_event_tx: &mpsc::UnboundedSender<EngineEvent>,
 ) {
     finalize_streaming(app);
+    let runtime_state = engine.try_lock().ok().map(|engine| engine.runtime_state());
 
     if let Some(started) = app.turn_started_at.take() {
         let elapsed = started.elapsed();
         let tools = app.turn_tool_count;
         app.turn_status = TurnStatus::Done { elapsed, tools };
+        push_system_entry(
+            app,
+            format_turn_completed_message(
+                elapsed,
+                tools,
+                app.session.turn_input_tokens,
+                app.session.turn_output_tokens,
+                app.session.total_tokens,
+                app.session.tool_call_count,
+                runtime_state.as_ref(),
+            ),
+        );
     }
 
     app.thinking.stop();

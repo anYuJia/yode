@@ -10,6 +10,7 @@ use super::palette::{
     ERROR_COLOR, INFO_COLOR, LIGHT, MUTED, SUCCESS_COLOR, SURFACE_BG_ALT, TOOL_ACCENT, USER_COLOR,
     WARNING_COLOR,
 };
+use super::turn_status::active_working_label;
 use crate::app::{App, ChatRole};
 use crate::tool_grouping::{detect_groupable_system_batch, detect_groupable_tool_batch};
 use ratatui::layout::Rect;
@@ -150,10 +151,11 @@ pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
 
         let spinner = app.spinner_char();
         let elapsed_str = app.thinking_elapsed_str();
+        let working_label = active_working_label(app, "Working");
         lines.push(Line::from(vec![
             Span::styled(format!("  {} ", spinner), Style::default().fg(INFO_COLOR)),
             Span::styled(
-                "Working…",
+                working_label,
                 Style::default().fg(INFO_COLOR).add_modifier(Modifier::BOLD),
             ),
             Span::styled(format!(" ({})", elapsed_str), Style::default().fg(DIM)),

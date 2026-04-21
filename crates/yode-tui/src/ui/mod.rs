@@ -38,12 +38,15 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
         wizard::render_wizard(frame, chunks[0], wiz);
         status_bar::render_info_line(frame, chunks[1], app);
+    } else if let Some(inspector) = app.inspector.views.last() {
+        inspector::render_inspector(frame, frame.area(), &inspector.document);
     } else if app.pending_confirmation.is_some() {
         use ratatui::layout::{Constraint, Direction, Layout};
-        let panel_area = panels::centered_panel_rect(frame.area(), 84, 4);
+        let panel_area = panels::centered_panel_rect(frame.area(), 96, 5);
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
+                Constraint::Length(1),
                 Constraint::Length(1),
                 Constraint::Length(1),
                 Constraint::Length(1),
@@ -52,8 +55,6 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             .split(panel_area);
 
         tool_confirm::render_inline_confirm(frame, &chunks, app);
-    } else if let Some(inspector) = app.inspector.views.last() {
-        inspector::render_inspector(frame, frame.area(), &inspector.document);
     } else {
         let plan = layout::build_main_layout(frame.area(), app);
         if plan.show_completion {

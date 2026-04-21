@@ -40,10 +40,6 @@ pub(crate) fn highlight_code_line_in_block(
     code::highlight_code_line(line, language)
 }
 
-pub(crate) fn capitalize(text: &str) -> String {
-    code::capitalize(text)
-}
-
 pub(crate) fn markdown_to_plain(text: &str) -> String {
     markdown::markdown_to_plain(text)
 }

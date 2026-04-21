@@ -891,4 +891,64 @@ mod tests {
         assert!(monitor_result.content.contains("focus on risk"));
         assert!(monitor_result.content.contains("Agent Team Monitor"));
     }
+
+    #[tokio::test]
+    async fn send_message_returns_artifact_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ToolContext::empty();
+        ctx.working_dir = Some(dir.path().to_path_buf());
+
+        TeamCreateTool
+            .execute(
+                json!({
+                    "goal": "ship feature",
+                    "team_id": "team-demo",
+                    "members": [{ "id": "review", "description": "review" }]
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        let result = SendMessageTool
+            .execute(
+                json!({
+                    "team_id": "team-demo",
+                    "target": "review",
+                    "kind": "handoff",
+                    "message": "focus on tests"
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(
+            result.metadata.as_ref().unwrap()["message_artifact"]
+                .as_str()
+                .unwrap()
+                .contains("agent-team-messages")
+        );
+    }
+
+    #[tokio::test]
+    async fn team_monitor_errors_for_missing_team() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ToolContext::empty();
+        ctx.working_dir = Some(dir.path().to_path_buf());
+
+        let result = TeamMonitorTool
+            .execute(
+                json!({
+                    "team_id": "missing",
+                    "include_messages": true
+                }),
+                &ctx,
+            )
+            .await;
+
+        assert!(result.is_err());
+        assert!(format!("{}", result.unwrap_err()).contains("not found"));
+    }
 }

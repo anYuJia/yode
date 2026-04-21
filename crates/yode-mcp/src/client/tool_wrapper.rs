@@ -5,6 +5,7 @@ use rmcp::service::Peer;
 use rmcp::RoleClient;
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::future::Future;
 use std::sync::{LazyLock, Mutex};
 use std::time::Instant;
 
@@ -38,6 +39,8 @@ struct McpToolLatencyState {
 
 static MCP_TOOL_LATENCY: LazyLock<Mutex<McpToolLatencyState>> =
     LazyLock::new(|| Mutex::new(McpToolLatencyState::default()));
+#[cfg(test)]
+static MCP_TOOL_TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 pub fn mcp_tool_latency_stats() -> Vec<McpToolLatencyEntry> {
     MCP_TOOL_LATENCY
@@ -71,6 +74,75 @@ fn record_mcp_tool_latency(server: &str, tool: &str, duration_ms: u64, is_error:
     }
 }
 
+pub(crate) fn wrapper_tool_name(server_name: &str, tool_name: &str) -> String {
+    format!("mcp__{}_{}", server_name, tool_name)
+}
+
+pub(crate) fn extract_text_content(call_result: &rmcp::model::CallToolResult) -> String {
+    let mut output = String::new();
+    for content in &call_result.content {
+        if let Some(text) = content.as_text() {
+            if !output.is_empty() {
+                output.push('\n');
+            }
+            output.push_str(&text.text);
+        }
+    }
+    output
+}
+
+pub(crate) fn build_call_request(
+    original_name: &str,
+    params: Value,
+) -> CallToolRequestParams {
+    let mut request = CallToolRequestParams::new(original_name.to_string());
+    if let Some(obj) = params.as_object() {
+        request = request.with_arguments(obj.clone());
+    }
+    request
+}
+
+fn map_call_result(
+    server_name: &str,
+    original_name: &str,
+    duration_ms: u64,
+    result: Result<rmcp::model::CallToolResult, String>,
+) -> ToolResult {
+    match result {
+        Ok(call_result) => {
+            let output = extract_text_content(&call_result);
+            if call_result.is_error.unwrap_or(false) {
+                record_mcp_tool_latency(server_name, original_name, duration_ms, true);
+                ToolResult::error(output)
+            } else {
+                record_mcp_tool_latency(server_name, original_name, duration_ms, false);
+                ToolResult::success(output)
+            }
+        }
+        Err(error) => {
+            record_mcp_tool_latency(server_name, original_name, duration_ms, true);
+            ToolResult::error(format!("MCP tool call failed: {}", error))
+        }
+    }
+}
+
+async fn execute_with_caller<F, Fut>(
+    server_name: &str,
+    original_name: &str,
+    params: Value,
+    caller: F,
+) -> ToolResult
+where
+    F: FnOnce(CallToolRequestParams) -> Fut,
+    Fut: Future<Output = Result<rmcp::model::CallToolResult, String>>,
+{
+    let started_at = Instant::now();
+    let request = build_call_request(original_name, params);
+    let result = caller(request).await;
+    let duration_ms = started_at.elapsed().as_millis() as u64;
+    map_call_result(server_name, original_name, duration_ms, result)
+}
+
 #[async_trait]
 impl Tool for McpToolWrapper {
     fn name(&self) -> &str {
@@ -95,51 +167,17 @@ impl Tool for McpToolWrapper {
             tool = %self.original_name,
             "Calling MCP tool"
         );
-        let started_at = Instant::now();
-
-        let mut request = CallToolRequestParams::new(self.original_name.clone());
-        if let Some(obj) = params.as_object() {
-            request = request.with_arguments(obj.clone());
-        }
-
-        let result = self.peer.call_tool(request).await;
-        let duration_ms = started_at.elapsed().as_millis() as u64;
-
-        match result {
-            Ok(call_result) => {
-                let mut output = String::new();
-                for content in &call_result.content {
-                    if let Some(text) = content.as_text() {
-                        if !output.is_empty() {
-                            output.push('\n');
-                        }
-                        output.push_str(&text.text);
-                    }
-                }
-
-                if call_result.is_error.unwrap_or(false) {
-                    record_mcp_tool_latency(
-                        &self.server_name,
-                        &self.original_name,
-                        duration_ms,
-                        true,
-                    );
-                    Ok(ToolResult::error(output))
-                } else {
-                    record_mcp_tool_latency(
-                        &self.server_name,
-                        &self.original_name,
-                        duration_ms,
-                        false,
-                    );
-                    Ok(ToolResult::success(output))
-                }
-            }
-            Err(e) => {
-                record_mcp_tool_latency(&self.server_name, &self.original_name, duration_ms, true);
-                Ok(ToolResult::error(format!("MCP tool call failed: {}", e)))
-            }
-        }
+        Ok(
+            execute_with_caller(
+                &self.server_name,
+                &self.original_name,
+                params,
+                |request| async move {
+                    self.peer.call_tool(request).await.map_err(|e| e.to_string())
+                },
+            )
+            .await,
+        )
     }
 }
 
@@ -152,10 +190,17 @@ pub(crate) fn reset_mcp_tool_latency_stats() {
 
 #[cfg(test)]
 mod tests {
-    use super::{mcp_tool_latency_stats, record_mcp_tool_latency, reset_mcp_tool_latency_stats};
+    use rmcp::model::{CallToolResult, Content};
+
+    use super::{
+        build_call_request, execute_with_caller, extract_text_content, map_call_result,
+        mcp_tool_latency_stats, record_mcp_tool_latency, reset_mcp_tool_latency_stats,
+        wrapper_tool_name, MCP_TOOL_TEST_LOCK,
+    };
 
     #[test]
     fn records_mcp_tool_latency_aggregates() {
+        let _guard = MCP_TOOL_TEST_LOCK.lock().unwrap();
         reset_mcp_tool_latency_stats();
         record_mcp_tool_latency("github", "list_prs", 12, false);
         record_mcp_tool_latency("github", "list_prs", 30, true);
@@ -166,5 +211,89 @@ mod tests {
         assert_eq!(stats[0].errors, 1);
         assert_eq!(stats[0].max_ms, 30);
         assert_eq!(stats[0].last_ms, 30);
+    }
+
+    #[test]
+    fn wrapper_tool_name_is_namespaced_by_server() {
+        assert_eq!(
+            wrapper_tool_name("github", "list_prs"),
+            "mcp__github_list_prs"
+        );
+    }
+
+    #[test]
+    fn extract_text_content_joins_multiple_text_blocks() {
+        let result = CallToolResult::success(vec![
+            Content::text("first"),
+            Content::text("second"),
+        ]);
+        assert_eq!(extract_text_content(&result), "first\nsecond");
+    }
+
+    #[test]
+    fn build_call_request_copies_object_arguments() {
+        let request = build_call_request(
+            "search_issues",
+            serde_json::json!({"query":"bugs","limit":3}),
+        );
+        assert_eq!(request.name.as_ref(), "search_issues");
+        let args = request.arguments.unwrap();
+        assert_eq!(args["query"], serde_json::json!("bugs"));
+        assert_eq!(args["limit"], serde_json::json!(3));
+    }
+
+    #[tokio::test]
+    async fn execute_with_caller_passes_request_and_maps_success() {
+        let _guard = MCP_TOOL_TEST_LOCK.lock().unwrap();
+        reset_mcp_tool_latency_stats();
+
+        let result = execute_with_caller(
+            "github",
+            "list_prs",
+            serde_json::json!({"state":"open"}),
+            |request| async move {
+                assert_eq!(request.name.as_ref(), "list_prs");
+                assert_eq!(request.arguments.unwrap()["state"], serde_json::json!("open"));
+                Ok(CallToolResult::success(vec![Content::text("done")]))
+            },
+        )
+        .await;
+
+        assert!(!result.is_error);
+        assert_eq!(result.content, "done");
+        let stats = mcp_tool_latency_stats();
+        assert_eq!(stats.len(), 1);
+        assert_eq!(stats[0].calls, 1);
+        assert_eq!(stats[0].errors, 0);
+    }
+
+    #[test]
+    fn map_call_result_handles_error_payloads_and_failures() {
+        let _guard = MCP_TOOL_TEST_LOCK.lock().unwrap();
+        reset_mcp_tool_latency_stats();
+
+        let tool_error = map_call_result(
+            "github",
+            "list_prs",
+            15,
+            Ok(CallToolResult::error(vec![Content::text("bad request")])),
+        );
+        assert!(tool_error.is_error);
+        assert_eq!(tool_error.content, "bad request");
+
+        let call_failure = map_call_result(
+            "github",
+            "list_prs",
+            30,
+            Err("transport closed".to_string()),
+        );
+        assert!(call_failure.is_error);
+        assert!(call_failure.content.contains("transport closed"));
+
+        let stats = mcp_tool_latency_stats();
+        assert_eq!(stats.len(), 1);
+        assert_eq!(stats[0].calls, 2);
+        assert_eq!(stats[0].errors, 2);
+        assert_eq!(stats[0].max_ms, 30);
     }
 }

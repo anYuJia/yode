@@ -61,3 +61,49 @@ impl Tool for DiscoverSkillsTool {
         Ok(ToolResult::success(output))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use tokio::sync::Mutex;
+
+    use crate::tool::Tool;
+
+    use super::DiscoverSkillsTool;
+    use crate::builtin::skill::SkillStore;
+
+    #[tokio::test]
+    async fn discover_skills_lists_known_skills() {
+        let store = Arc::new(Mutex::new(SkillStore::new()));
+        {
+            let mut guard = store.lock().await;
+            guard.add(
+                "rust".to_string(),
+                "Rust guidance".to_string(),
+                "Prefer cargo test.".to_string(),
+            );
+        }
+
+        let result = DiscoverSkillsTool { store }
+            .execute(serde_json::json!({}), &crate::tool::ToolContext::empty())
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("rust"));
+        assert!(result.content.contains("Rust guidance"));
+    }
+
+    #[tokio::test]
+    async fn discover_skills_reports_empty_workspace() {
+        let store = Arc::new(Mutex::new(SkillStore::new()));
+        let result = DiscoverSkillsTool { store }
+            .execute(serde_json::json!({}), &crate::tool::ToolContext::empty())
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("No skills discovered"));
+    }
+}

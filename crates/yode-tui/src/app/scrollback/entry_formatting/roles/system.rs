@@ -69,6 +69,11 @@ fn system_styles(kind: SystemMessageKind) -> (&'static str, Style, Style) {
             Style::default().fg(Color::Cyan),
             Style::default().fg(Color::Gray),
         ),
+        SystemMessageKind::Turn => (
+            "  ⚡ ",
+            Style::default().fg(Color::LightGreen),
+            Style::default().fg(Color::Gray),
+        ),
         SystemMessageKind::Warning => (
             "  ! ",
             Style::default().fg(Color::Yellow),
@@ -179,5 +184,18 @@ mod tests {
         };
         let lines = render_grouped_system_entries(&entries, &batch);
         assert!(lines[0].0.contains("Task updates(2)"));
+    }
+
+    #[test]
+    fn scrollback_turn_summary_entry_renders_detail_lines() {
+        let entry = ChatEntry::new(
+            ChatRole::System,
+            "Turn completed · 1.4s · 3 tools · 1.2k↑ 180↓ tok\nsession · 15.4k total tok · 34 tools"
+                .to_string(),
+        );
+        let lines = render_system_entry(&entry);
+        assert!(lines[0].0.contains("Turn completed"));
+        assert!(lines[1].0.contains("1.4s · 3 tools"));
+        assert!(lines[2].0.contains("session · 15.4k total tok"));
     }
 }

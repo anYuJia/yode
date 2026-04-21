@@ -239,3 +239,93 @@ fn collect_memory_files(dir: &Path, base: &Path, entries: &mut Vec<String>) -> R
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use crate::tool::Tool;
+
+    use super::MemoryTool;
+
+    #[tokio::test]
+    async fn memory_save_read_list_delete_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = crate::tool::ToolContext::empty();
+        ctx.working_dir = Some(dir.path().to_path_buf());
+
+        let save = MemoryTool
+            .execute(
+                json!({
+                    "action": "save",
+                    "name": "auth/login",
+                    "content": "remember this",
+                    "scope": "project"
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+        assert!(!save.is_error);
+
+        let read = MemoryTool
+            .execute(
+                json!({
+                    "action": "read",
+                    "name": "auth/login",
+                    "scope": "project"
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+        assert_eq!(read.content, "remember this");
+
+        let list = MemoryTool
+            .execute(
+                json!({
+                    "action": "list",
+                    "scope": "project"
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+        assert!(list.content.contains("auth/login"));
+
+        let delete = MemoryTool
+            .execute(
+                json!({
+                    "action": "delete",
+                    "name": "auth/login",
+                    "scope": "project"
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+        assert!(!delete.is_error);
+    }
+
+    #[tokio::test]
+    async fn memory_list_empty_scope_reports_no_memories() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = crate::tool::ToolContext::empty();
+        ctx.working_dir = Some(dir.path().to_path_buf());
+
+        let result = MemoryTool
+            .execute(
+                json!({
+                    "action": "list",
+                    "scope": "project"
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("No memories found"));
+        assert_eq!(result.metadata.as_ref().unwrap()["count"], json!(0));
+    }
+}

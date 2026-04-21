@@ -192,3 +192,79 @@ impl Tool for AskUserTool {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use serde_json::json;
+    use tokio::sync::{mpsc, Mutex};
+
+    use crate::tool::Tool;
+
+    use super::AskUserTool;
+
+    #[tokio::test]
+    async fn ask_user_sends_query_and_returns_answer() {
+        let (query_tx, mut query_rx) = mpsc::unbounded_channel();
+        let (answer_tx, answer_rx) = mpsc::unbounded_channel();
+        let mut ctx = crate::tool::ToolContext::empty();
+        ctx.user_input_tx = Some(query_tx);
+        ctx.user_input_rx = Some(Arc::new(Mutex::new(answer_rx)));
+
+        let handle = tokio::spawn(async move {
+            AskUserTool
+                .execute(
+                    json!({
+                        "questions": [{
+                            "question": "Pick one?",
+                            "header": "Choice",
+                            "options": [
+                                {"label":"A","description":"first"},
+                                {"label":"B","description":"second"}
+                            ]
+                        }]
+                    }),
+                    &ctx,
+                )
+                .await
+                .unwrap()
+        });
+
+        let query = query_rx.recv().await.unwrap();
+        assert_eq!(query.questions.len(), 1);
+        assert_eq!(query.questions[0].header, "Choice");
+        answer_tx.send("{\"Choice\":\"A\"}".to_string()).unwrap();
+
+        let result = handle.await.unwrap();
+        assert!(!result.is_error);
+        assert!(result.content.contains("User answered"));
+        assert_eq!(
+            result.metadata.as_ref().unwrap()["raw_answers"],
+            json!("{\"Choice\":\"A\"}")
+        );
+    }
+
+    #[tokio::test]
+    async fn ask_user_errors_without_channels() {
+        let result = AskUserTool
+            .execute(
+                json!({
+                    "questions": [{
+                        "question": "Pick one?",
+                        "header": "Choice",
+                        "options": [
+                            {"label":"A","description":"first"},
+                            {"label":"B","description":"second"}
+                        ]
+                    }]
+                }),
+                &crate::tool::ToolContext::empty(),
+            )
+            .await
+            .unwrap();
+
+        assert!(result.is_error);
+        assert!(result.content.contains("channel"));
+    }
+}

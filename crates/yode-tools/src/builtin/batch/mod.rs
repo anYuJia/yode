@@ -153,3 +153,112 @@ impl Tool for BatchTool {
         ))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use anyhow::Result;
+    use async_trait::async_trait;
+    use serde_json::{json, Value};
+
+    use crate::registry::ToolRegistry;
+    use crate::tool::{Tool, ToolContext, ToolResult};
+
+    use super::BatchTool;
+
+    struct DummyReadTool;
+
+    #[async_trait]
+    impl Tool for DummyReadTool {
+        fn name(&self) -> &str {
+            "read_file"
+        }
+
+        fn description(&self) -> &str {
+            "dummy read"
+        }
+
+        fn parameters_schema(&self) -> Value {
+            json!({"type":"object"})
+        }
+
+        async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<ToolResult> {
+            Ok(ToolResult::success(
+                params.get("value").and_then(|v| v.as_str()).unwrap_or("ok").to_string(),
+            ))
+        }
+    }
+
+    struct DummyMutatingTool;
+
+    #[async_trait]
+    impl Tool for DummyMutatingTool {
+        fn name(&self) -> &str {
+            "write_file"
+        }
+
+        fn description(&self) -> &str {
+            "dummy write"
+        }
+
+        fn parameters_schema(&self) -> Value {
+            json!({"type":"object"})
+        }
+
+        async fn execute(&self, _params: Value, _ctx: &ToolContext) -> Result<ToolResult> {
+            Ok(ToolResult::success("mutated".to_string()))
+        }
+    }
+
+    #[tokio::test]
+    async fn batch_executes_allowed_tools_and_preserves_order() {
+        let registry = ToolRegistry::new();
+        registry.register(Arc::new(DummyReadTool));
+
+        let mut ctx = ToolContext::empty();
+        ctx.registry = Some(Arc::new(registry));
+
+        let result = BatchTool
+            .execute(
+                json!({
+                    "invocations": [
+                        {"tool_name":"read_file","params":{"value":"first"}},
+                        {"tool_name":"read_file","params":{"value":"second"}}
+                    ]
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        let results = result.metadata.as_ref().unwrap()["results"].as_array().unwrap();
+        assert_eq!(results[0]["content"], json!("first"));
+        assert_eq!(results[1]["content"], json!("second"));
+    }
+
+    #[tokio::test]
+    async fn batch_rejects_non_readonly_tools() {
+        let registry = ToolRegistry::new();
+        registry.register(Arc::new(DummyMutatingTool));
+
+        let mut ctx = ToolContext::empty();
+        ctx.registry = Some(Arc::new(registry));
+
+        let result = BatchTool
+            .execute(
+                json!({
+                    "invocations": [
+                        {"tool_name":"write_file","params":{}}
+                    ]
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(result.is_error);
+        assert!(result.content.contains("not allowed in batch mode"));
+    }
+}

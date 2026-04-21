@@ -99,3 +99,56 @@ impl Tool for WebBrowserTool {
         Ok(ToolResult::success(msg))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use crate::tool::Tool;
+
+    use super::WebBrowserTool;
+
+    #[tokio::test]
+    async fn web_browser_formats_navigate_and_click_actions() {
+        let navigate = WebBrowserTool
+            .execute(
+                json!({"action":"navigate","url":"https://example.com"}),
+                &crate::tool::ToolContext::empty(),
+            )
+            .await
+            .unwrap();
+        assert!(!navigate.is_error);
+        assert!(navigate.content.contains("Navigated to https://example.com"));
+
+        let click = WebBrowserTool
+            .execute(
+                json!({"action":"click","selector":"#submit"}),
+                &crate::tool::ToolContext::empty(),
+            )
+            .await
+            .unwrap();
+        assert!(!click.is_error);
+        assert!(click.content.contains("Clicked element: #submit"));
+    }
+
+    #[tokio::test]
+    async fn web_browser_formats_screenshot_and_generic_actions() {
+        let screenshot = WebBrowserTool
+            .execute(
+                json!({"action":"screenshot"}),
+                &crate::tool::ToolContext::empty(),
+            )
+            .await
+            .unwrap();
+        assert!(screenshot.content.contains("Captured screenshot"));
+
+        let evaluate = WebBrowserTool
+            .execute(
+                json!({"action":"evaluate","code":"1+1"}),
+                &crate::tool::ToolContext::empty(),
+            )
+            .await
+            .unwrap();
+        assert!(evaluate.content.contains("Performed browser action: evaluate"));
+    }
+}

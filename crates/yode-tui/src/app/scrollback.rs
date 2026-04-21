@@ -1,4 +1,4 @@
-mod entry_formatting;
+pub(crate) mod entry_formatting;
 
 use std::io::{self, Write as IoWrite};
 

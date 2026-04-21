@@ -2,7 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-use crate::tool::{Tool, ToolContext, ToolResult};
+use crate::tool::{Tool, ToolContext, ToolErrorType, ToolResult};
 
 pub struct MultiEditTool;
 
@@ -68,7 +68,7 @@ impl Tool for MultiEditTool {
         true
     }
 
-    async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<ToolResult> {
+    async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
         let file_path = params
             .get("file_path")
             .and_then(|v| v.as_str())
@@ -81,6 +81,21 @@ impl Tool for MultiEditTool {
 
         if edits.is_empty() {
             return Ok(ToolResult::error("No edits provided.".to_string()));
+        }
+
+        if let Some(history) = &ctx.read_file_history {
+            let h = history.lock().await;
+            if !h.contains(&std::path::PathBuf::from(file_path)) {
+                return Ok(ToolResult::error_typed(
+                    format!(
+                        "File '{}' has not been read yet. You must use 'read_file' at least once before applying multi_edit.",
+                        file_path
+                    ),
+                    ToolErrorType::Validation,
+                    true,
+                    Some(format!("Call read_file(file_path=\"{}\") first.", file_path)),
+                ));
+            }
         }
 
         // Read file
@@ -171,5 +186,109 @@ impl Tool for MultiEditTool {
                 file_path, e
             ))),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+    use std::sync::Arc;
+
+    use serde_json::json;
+    use tokio::sync::Mutex;
+
+    use crate::tool::{Tool, ToolContext, ToolErrorType};
+
+    use super::MultiEditTool;
+
+    fn temp_path(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("yode-multi-edit-{}-{}", name, uuid::Uuid::new_v4()))
+    }
+
+    #[tokio::test]
+    async fn multi_edit_requires_preread() {
+        let path = temp_path("preread.txt");
+        tokio::fs::write(&path, "alpha\nbeta\n").await.unwrap();
+
+        let history = Arc::new(Mutex::new(HashSet::new()));
+        let mut ctx = ToolContext::empty();
+        ctx.read_file_history = Some(history);
+
+        let result = MultiEditTool
+            .execute(
+                json!({
+                    "file_path": path.display().to_string(),
+                    "edits": [{"old_string":"alpha","new_string":"one"}]
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(result.is_error);
+        assert_eq!(result.error_type, Some(ToolErrorType::Validation));
+
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[tokio::test]
+    async fn multi_edit_applies_multiple_unique_replacements() {
+        let path = temp_path("apply.txt");
+        tokio::fs::write(&path, "alpha\nbeta\ngamma\n").await.unwrap();
+
+        let mut seen = HashSet::new();
+        seen.insert(path.clone());
+        let history = Arc::new(Mutex::new(seen));
+        let mut ctx = ToolContext::empty();
+        ctx.read_file_history = Some(history);
+
+        let result = MultiEditTool
+            .execute(
+                json!({
+                    "file_path": path.display().to_string(),
+                    "edits": [
+                        {"old_string":"alpha","new_string":"one"},
+                        {"old_string":"beta","new_string":"two"}
+                    ]
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        let updated = tokio::fs::read_to_string(&path).await.unwrap();
+        assert_eq!(updated, "one\ntwo\ngamma\n");
+        assert_eq!(result.metadata.as_ref().unwrap()["applied_edits"], json!(2));
+
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[tokio::test]
+    async fn multi_edit_rejects_non_unique_old_string() {
+        let path = temp_path("duplicate.txt");
+        tokio::fs::write(&path, "alpha\nalpha\n").await.unwrap();
+
+        let mut seen = HashSet::new();
+        seen.insert(path.clone());
+        let history = Arc::new(Mutex::new(seen));
+        let mut ctx = ToolContext::empty();
+        ctx.read_file_history = Some(history);
+
+        let result = MultiEditTool
+            .execute(
+                json!({
+                    "file_path": path.display().to_string(),
+                    "edits": [{"old_string":"alpha","new_string":"one"}]
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(result.is_error);
+        assert!(result.content.contains("must be unique"));
+
+        let _ = tokio::fs::remove_file(&path).await;
     }
 }

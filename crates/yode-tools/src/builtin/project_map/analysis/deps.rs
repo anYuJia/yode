@@ -12,3 +12,16 @@ pub(in crate::builtin::project_map) fn analyze_dependencies(
         _ => Vec::new(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::analyze_dependencies;
+    use crate::builtin::project_map::analysis::ProjectType;
+
+    #[test]
+    fn analyze_dependencies_returns_empty_for_non_rust_projects() {
+        let dir = tempfile::tempdir().unwrap();
+        let deps = analyze_dependencies(dir.path(), &ProjectType::Node);
+        assert!(deps.is_empty());
+    }
+}

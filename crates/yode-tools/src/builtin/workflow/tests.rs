@@ -272,3 +272,74 @@ async fn workflow_resolves_explicit_path() {
     assert!(result.content.contains("Workflow plan: custom"));
     assert!(result.content.contains("1. ls [read]"));
 }
+
+#[tokio::test]
+async fn workflow_errors_for_unknown_tools() {
+    let dir = tempfile::tempdir().unwrap();
+    let workflow_dir = dir.path().join(".yode").join("workflows");
+    tokio::fs::create_dir_all(&workflow_dir).await.unwrap();
+    tokio::fs::write(
+        workflow_dir.join("unknown.json"),
+        r#"{
+            "name": "unknown",
+            "steps": [
+                { "tool_name": "definitely_missing_tool", "params": {} }
+            ]
+        }"#,
+    )
+    .await
+    .unwrap();
+
+    let registry = ToolRegistry::new();
+    crate::builtin::register_builtin_tools(&registry);
+
+    let mut ctx = ToolContext::empty();
+    ctx.registry = Some(Arc::new(registry));
+    ctx.working_dir = Some(dir.path().to_path_buf());
+
+    let tool = WorkflowRunTool;
+    let result = tool
+        .execute(serde_json::json!({ "name": "unknown" }), &ctx)
+        .await
+        .unwrap();
+
+    assert!(result.is_error);
+    assert!(result.content.contains("references unknown tool"));
+}
+
+#[tokio::test]
+async fn workflow_continue_on_error_runs_later_steps() {
+    let dir = tempfile::tempdir().unwrap();
+    let workflow_dir = dir.path().join(".yode").join("workflows");
+    tokio::fs::create_dir_all(&workflow_dir).await.unwrap();
+    tokio::fs::write(
+        workflow_dir.join("continue.json"),
+        r#"{
+            "name": "continue",
+            "steps": [
+                { "tool_name": "ls", "params": { "path": "./missing" }, "continue_on_error": true },
+                { "tool_name": "ls", "params": { "path": "." } }
+            ]
+        }"#,
+    )
+    .await
+    .unwrap();
+
+    let registry = ToolRegistry::new();
+    crate::builtin::register_builtin_tools(&registry);
+
+    let mut ctx = ToolContext::empty();
+    ctx.registry = Some(Arc::new(registry));
+    ctx.working_dir = Some(dir.path().to_path_buf());
+
+    let tool = WorkflowRunTool;
+    let result = tool
+        .execute(serde_json::json!({ "name": "continue" }), &ctx)
+        .await
+        .unwrap();
+
+    assert!(!result.is_error);
+    assert!(result.content.contains("\"is_error\": true"));
+    assert!(result.content.contains("\"tool\": \"ls\""));
+    assert!(result.content.matches("\"tool\": \"ls\"").count() >= 2);
+}

@@ -1639,6 +1639,47 @@ mod tests {
         assert!(live_state.contains("\"latest_result_status\": \"completed\""));
     }
 
+    #[tokio::test]
+    async fn dispatch_requires_connected_transport() {
+        let dir = tempdir().unwrap();
+        let ctx = test_context(dir.path());
+        let result = RemoteQueueDispatchTool
+            .execute(json!({"command":"echo blocked"}), &ctx)
+            .await
+            .unwrap();
+        assert!(result.is_error);
+        assert!(result.recoverable);
+        assert!(
+            result
+                .suggestion
+                .as_deref()
+                .unwrap_or("")
+                .contains("connect remote transport")
+        );
+        assert!(latest_remote_transport_state_artifact(dir.path()).is_some());
+        assert!(latest_remote_live_session_state_artifact(dir.path()).is_some());
+    }
+
+    #[tokio::test]
+    async fn reconnect_increments_transport_attempts() {
+        let dir = tempdir().unwrap();
+        let ctx = test_context(dir.path());
+        RemoteTransportControlTool
+            .execute(json!({"action":"connect"}), &ctx)
+            .await
+            .unwrap();
+        let result = RemoteTransportControlTool
+            .execute(json!({"action":"reconnect","detail":"retry"}), &ctx)
+            .await
+            .unwrap();
+        assert!(!result.is_error);
+        let state = std::fs::read_to_string(
+            latest_remote_transport_state_artifact(dir.path()).unwrap(),
+        )
+        .unwrap();
+        assert!(state.contains("\"reconnect_attempts\": 1"));
+    }
+
     #[test]
     fn queue_labels_match_operator_surface() {
         assert_eq!(queue_status_label("planned"), "queued");

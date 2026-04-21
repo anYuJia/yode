@@ -134,3 +134,61 @@ impl Tool for ProjectMapTool {
         Ok(ToolResult::success_with_metadata(output, metadata))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use crate::tool::Tool;
+
+    use super::ProjectMapTool;
+
+    #[tokio::test]
+    async fn project_map_reports_project_shape_and_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        tokio::fs::write(dir.path().join("Cargo.toml"), "[package]\nname='demo'\n")
+            .await
+            .unwrap();
+        tokio::fs::write(dir.path().join(".env"), "RUST_LOG=debug\n")
+            .await
+            .unwrap();
+        tokio::fs::create_dir_all(dir.path().join("src")).await.unwrap();
+        tokio::fs::write(dir.path().join("src").join("main.rs"), "fn main() {}\n")
+            .await
+            .unwrap();
+
+        let mut ctx = crate::tool::ToolContext::empty();
+        ctx.working_dir = Some(dir.path().to_path_buf());
+
+        let result = ProjectMapTool
+            .execute(
+                json!({
+                    "depth": 2,
+                    "include_deps": true
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("## Project Overview"));
+        assert!(result.content.contains("## Entry Points"));
+        assert!(result.content.contains("## Module Map"));
+        assert!(result.content.contains("## Config Files"));
+        assert_eq!(
+            result.metadata.as_ref().unwrap()["project_type"],
+            json!("Rust project")
+        );
+    }
+
+    #[tokio::test]
+    async fn project_map_requires_working_directory() {
+        let result = ProjectMapTool
+            .execute(json!({}), &crate::tool::ToolContext::empty())
+            .await;
+
+        assert!(result.is_err());
+        assert!(format!("{}", result.unwrap_err()).contains("Working directory not set"));
+    }
+}

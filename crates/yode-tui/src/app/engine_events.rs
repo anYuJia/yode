@@ -4,6 +4,7 @@ mod streaming;
 use std::sync::Arc;
 use std::time::Instant;
 
+use serde_json::json;
 use tokio::sync::{mpsc, Mutex};
 
 use yode_core::engine::{AgentEngine, ConfirmResponse, EngineEvent};
@@ -147,6 +148,56 @@ pub(super) fn handle_engine_event(
                 .tool_call_starts
                 .remove(&id)
                 .map(|start| start.elapsed());
+            let mut metadata = result.metadata.clone();
+            if let Some(error_type) = result.error_type {
+                match metadata.as_mut() {
+                    Some(serde_json::Value::Object(object)) => {
+                        object
+                            .entry("error_type".to_string())
+                            .or_insert_with(|| json!(format!("{:?}", error_type)));
+                        object
+                            .entry("recoverable".to_string())
+                            .or_insert_with(|| json!(result.recoverable));
+                    }
+                    Some(_) => {}
+                    None => {
+                        metadata = Some(json!({
+                            "error_type": format!("{:?}", error_type),
+                            "recoverable": result.recoverable
+                        }));
+                    }
+                }
+            } else if result.recoverable {
+                match metadata.as_mut() {
+                    Some(serde_json::Value::Object(object)) => {
+                        object
+                            .entry("recoverable".to_string())
+                            .or_insert_with(|| json!(true));
+                    }
+                    Some(_) => {}
+                    None => {
+                        metadata = Some(json!({
+                            "recoverable": true
+                        }));
+                    }
+                }
+            }
+
+            if let Some(suggestion) = result.suggestion.as_deref() {
+                match metadata.as_mut() {
+                    Some(serde_json::Value::Object(object)) => {
+                        object
+                            .entry("rewrite_suggestion".to_string())
+                            .or_insert_with(|| json!(suggestion));
+                    }
+                    Some(_) => {}
+                    None => {
+                        metadata = Some(json!({
+                            "rewrite_suggestion": suggestion
+                        }));
+                    }
+                }
+            }
             let mut entry = ChatEntry::new(
                 ChatRole::ToolResult {
                     id,
@@ -156,7 +207,7 @@ pub(super) fn handle_engine_event(
                 result.content,
             );
             entry.duration = duration;
-            entry.tool_metadata = result.metadata.clone();
+            entry.tool_metadata = metadata;
             entry.tool_error_type = result.error_type.map(|kind| format!("{:?}", kind));
             app.chat_entries.push(entry);
         }

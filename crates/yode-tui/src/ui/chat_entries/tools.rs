@@ -3,12 +3,13 @@ use ratatui::text::{Line, Span};
 
 use super::folding::{
     render_bash_preview_lines, render_edit_preview_lines, render_folded_result_lines,
+    render_shell_result_lines,
     render_write_preview_lines,
 };
 use super::metadata::render_metadata_lines;
 use super::tool_helpers::{tool_summary_value, truncate_ellipsis};
 use crate::app::{ChatEntry, ChatRole};
-use crate::tool_grouping::ToolBatch;
+use crate::tool_grouping::{describe_tool_call, tool_batch_summary_text, ToolBatch};
 use crate::tool_output_summary::{summarize_tool_result, ToolSummaryLine, ToolSummaryTone};
 use crate::ui::chat::{ACCENT, DIM, GREEN, RED, WHITE};
 use crate::ui::palette::{INFO_COLOR, WARNING_COLOR};
@@ -37,17 +38,30 @@ pub(crate) fn render_tool_call(
     );
 
     let summary = tool_summary(name, &args);
-    let tool_display = capitalize_tool(name);
+    let activity_title = describe_tool_call(name, &args, result.is_none());
 
-    let mut title_spans = vec![
-        Span::styled("⏺ ", Style::default().fg(ACCENT)),
-        Span::styled(
+    let title_color = if is_error { RED } else { ACCENT };
+    let mut title_spans = vec![Span::styled("⏺ ", Style::default().fg(title_color))];
+    if let Some(activity_title) = activity_title {
+        title_spans.push(Span::styled(
+            truncate_ellipsis(&activity_title, 72),
+            Style::default().fg(WHITE).add_modifier(Modifier::BOLD),
+        ));
+    } else {
+        let tool_display = tool_display_name(name);
+        title_spans.push(Span::styled(
             format!("{}(", tool_display),
             Style::default().fg(WHITE).add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(truncate_ellipsis(&summary, 60), Style::default().fg(DIM)),
-        Span::styled(")", Style::default().fg(WHITE).add_modifier(Modifier::BOLD)),
-    ];
+        ));
+        title_spans.push(Span::styled(
+            truncate_ellipsis(&summary, 60),
+            Style::default().fg(DIM),
+        ));
+        title_spans.push(Span::styled(
+            ")",
+            Style::default().fg(WHITE).add_modifier(Modifier::BOLD),
+        ));
+    }
 
     if let Some(duration) = duration {
         title_spans.push(Span::styled(
@@ -121,11 +135,21 @@ pub(crate) fn render_tool_call(
     render_tool_summary_lines(lines, &summary_result.lines);
 
     if !summary_result.hide_body_by_default && !result_content.is_empty() {
-        render_folded_result_lines(
-            lines,
-            result_content,
-            Style::default().fg(if is_error { RED } else { DIM }),
-        );
+        if matches!(name, "bash" | "powershell") {
+            render_shell_result_lines(
+                lines,
+                result_content,
+                Style::default().fg(DIM),
+                Style::default().fg(RED),
+                Style::default().fg(WARNING_COLOR),
+            );
+        } else {
+            render_folded_result_lines(
+                lines,
+                result_content,
+                Style::default().fg(if is_error { RED } else { DIM }),
+            );
+        }
     }
 }
 
@@ -134,11 +158,10 @@ pub(crate) fn render_grouped_tool_call(
     all_entries: &[ChatEntry],
     batch: &ToolBatch,
 ) {
-    let title = grouped_tool_display_name(&batch.tool_name);
     lines.push(Line::from(vec![
         Span::styled("⏺ ", Style::default().fg(ACCENT)),
         Span::styled(
-            format!("{}({})", title, batch.items.len()),
+            tool_batch_summary_text(batch),
             Style::default().fg(WHITE).add_modifier(Modifier::BOLD),
         ),
     ]));
@@ -155,13 +178,13 @@ pub(crate) fn render_grouped_tool_call(
             .unwrap_or(false);
         let result_content = result.map(|entry| entry.content.as_str()).unwrap_or("");
         let summary_result = summarize_tool_result(
-            &batch.tool_name,
+            &item.tool_name,
             &args,
             result.and_then(|entry| entry.tool_metadata.as_ref()),
             result_content,
             is_error,
         );
-        let target = truncate_ellipsis(&group_item_target(&batch.tool_name, &args), 48);
+        let target = truncate_ellipsis(&group_item_target(&item.tool_name, &args), 48);
         let detail = summary_result
             .lines
             .first()
@@ -197,9 +220,8 @@ pub(crate) fn render_grouped_tool_call(
     if batch.items.len() > max_items {
         lines.push(Line::from(Span::styled(
             format!(
-                "     … +{} more {} calls (ctrl+o to expand)",
-                batch.items.len() - max_items,
-                grouped_tool_display_name(&batch.tool_name).to_ascii_lowercase()
+                "     … +{} more exploration steps (ctrl+o to expand)",
+                batch.items.len() - max_items
             ),
             Style::default().fg(DIM),
         )));
@@ -216,19 +238,34 @@ pub(crate) fn render_standalone_result(lines: &mut Vec<Line<'static>>, entry: &C
             *is_error,
         );
         lines.push(Line::from(vec![
-            Span::styled("  ⎿ ", Style::default().fg(ACCENT)),
+            Span::styled("  ⎿ ", Style::default().fg(if *is_error { RED } else { ACCENT })),
             Span::styled(
-                name.clone(),
-                Style::default().fg(WHITE).add_modifier(Modifier::BOLD),
+                tool_display_name(name),
+                Style::default()
+                    .fg(if *is_error { RED } else { WHITE })
+                    .add_modifier(Modifier::BOLD),
             ),
         ]));
+        if let Some(metadata) = entry.tool_metadata.as_ref() {
+            render_metadata_lines(lines, metadata);
+        }
         render_tool_summary_lines(lines, &summary_result.lines);
         if !summary_result.hide_body_by_default {
-            render_folded_result_lines(
-                lines,
-                &entry.content,
-                Style::default().fg(if *is_error { RED } else { DIM }),
-            );
+            if matches!(name.as_str(), "bash" | "powershell") {
+                render_shell_result_lines(
+                    lines,
+                    &entry.content,
+                    Style::default().fg(DIM),
+                    Style::default().fg(RED),
+                    Style::default().fg(WARNING_COLOR),
+                );
+            } else {
+                render_folded_result_lines(
+                    lines,
+                    &entry.content,
+                    Style::default().fg(if *is_error { RED } else { DIM }),
+                );
+            }
         }
     }
 }
@@ -243,11 +280,30 @@ fn tool_summary(name: &str, args: &serde_json::Value) -> String {
     }
 }
 
-fn capitalize_tool(name: &str) -> String {
-    let mut chars = name.chars();
-    match chars.next() {
-        None => String::new(),
-        Some(first) => first.to_uppercase().to_string() + chars.as_str(),
+fn tool_display_name(name: &str) -> String {
+    match name {
+        "bash" => "Bash".to_string(),
+        "powershell" => "PowerShell".to_string(),
+        "lsp" => "LSP".to_string(),
+        "read_file" => "Read".to_string(),
+        "write_file" => "Write".to_string(),
+        "edit_file" => "Edit".to_string(),
+        "project_map" => "Project Map".to_string(),
+        "web_search" => "Web Search".to_string(),
+        "web_fetch" => "Web Fetch".to_string(),
+        "discover_skills" => "Discover Skills".to_string(),
+        other => other
+            .split('_')
+            .filter(|segment| !segment.is_empty())
+            .map(|segment| {
+                let mut chars = segment.chars();
+                match chars.next() {
+                    Some(first) => first.to_uppercase().to_string() + chars.as_str(),
+                    None => String::new(),
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" "),
     }
 }
 
@@ -260,19 +316,27 @@ fn shorten_path(path: &str) -> String {
     }
 }
 
-fn grouped_tool_display_name(name: &str) -> &'static str {
-    match name {
-        "read_file" => "Read",
-        "grep" | "glob" => "Search",
-        _ => "Tool",
-    }
-}
-
 fn group_item_target(name: &str, args: &serde_json::Value) -> String {
     match name {
         "read_file" => shorten_path(args["file_path"].as_str().unwrap_or("???")),
         "grep" => truncate_ellipsis(args["pattern"].as_str().unwrap_or("???"), 40),
         "glob" => truncate_ellipsis(args["pattern"].as_str().unwrap_or("???"), 40),
+        "ls" => shorten_path(args["path"].as_str().unwrap_or(".")),
+        "web_search" => truncate_ellipsis(args["query"].as_str().unwrap_or("web"), 48),
+        "web_fetch" => truncate_ellipsis(args["url"].as_str().unwrap_or("page"), 48),
+        "project_map" => "workspace".to_string(),
+        "memory" => truncate_ellipsis(args["name"].as_str().unwrap_or("memories"), 40),
+        "skill" => truncate_ellipsis(args["name"].as_str().unwrap_or("skills"), 40),
+        "discover_skills" => "available skills".to_string(),
+        "lsp" => {
+            let operation = args["operation"].as_str().unwrap_or("lsp");
+            let file_path = args["filePath"].as_str().unwrap_or("");
+            if file_path.is_empty() {
+                operation.to_string()
+            } else {
+                format!("{} {}", operation, shorten_path(file_path))
+            }
+        }
         _ => tool_summary(name, args),
     }
 }
@@ -289,5 +353,214 @@ fn render_tool_summary_lines(lines: &mut Vec<Line<'static>>, summary_lines: &[To
             format!("{}{}", prefix, summary.text),
             style,
         )));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ratatui::text::Line;
+
+    use crate::app::{ChatEntry, ChatRole};
+    use crate::tool_grouping::detect_groupable_tool_batch;
+
+    use super::{render_grouped_tool_call, render_standalone_result, render_tool_call};
+
+    #[test]
+    fn grouped_tool_call_uses_exploration_summary_title() {
+        let mut entries = vec![
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "a".to_string(),
+                    name: "grep".to_string(),
+                },
+                "{\"pattern\":\"retry\"}".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolResult {
+                    id: "a".to_string(),
+                    name: "grep".to_string(),
+                    is_error: false,
+                },
+                "src/app.rs:12: retry".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "b".to_string(),
+                    name: "read_file".to_string(),
+                },
+                "{\"file_path\":\"/tmp/src/app.rs\"}".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolResult {
+                    id: "b".to_string(),
+                    name: "read_file".to_string(),
+                    is_error: false,
+                },
+                "fn retry() {}".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "c".to_string(),
+                    name: "ls".to_string(),
+                },
+                "{\"path\":\"/tmp/src\"}".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolResult {
+                    id: "c".to_string(),
+                    name: "ls".to_string(),
+                    is_error: false,
+                },
+                "app.rs".to_string(),
+            ),
+        ];
+        entries[1].tool_metadata = Some(serde_json::json!({
+            "output_mode": "content",
+            "line_count": 1,
+            "file_count": 1,
+            "match_count": 1,
+            "pattern": "retry"
+        }));
+        entries[3].tool_metadata = Some(serde_json::json!({
+            "file_path": "/tmp/src/app.rs",
+            "total_lines": 40,
+            "start_line": 1,
+            "end_line": 20,
+            "was_truncated": true
+        }));
+        entries[5].tool_metadata = Some(serde_json::json!({
+            "path": "/tmp/src",
+            "file_count": 1,
+            "dir_count": 0,
+            "recursive": false
+        }));
+
+        let batch = detect_groupable_tool_batch(&entries, 0).unwrap();
+        let mut lines = Vec::new();
+        render_grouped_tool_call(&mut lines, &entries, &batch);
+
+        assert!(lines[0]
+            .to_string()
+            .contains("Searched for 1 pattern, read 1 file, listed 1 directory"));
+        assert!(lines[1].to_string().contains("retry"));
+        assert!(lines[2].to_string().contains(".../src/app.rs"));
+        assert!(lines[3].to_string().contains(".../tmp/src"));
+    }
+
+    #[test]
+    fn grouped_tool_call_renders_web_and_lsp_targets() {
+        let mut entries = vec![
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "a".to_string(),
+                    name: "web_search".to_string(),
+                },
+                "{\"query\":\"ratatui status summary\"}".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolResult {
+                    id: "a".to_string(),
+                    name: "web_search".to_string(),
+                    is_error: false,
+                },
+                "1. Result".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "b".to_string(),
+                    name: "lsp".to_string(),
+                },
+                "{\"operation\":\"hover\",\"filePath\":\"/tmp/src/main.rs\",\"line\":1,\"character\":1}"
+                    .to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolResult {
+                    id: "b".to_string(),
+                    name: "lsp".to_string(),
+                    is_error: false,
+                },
+                "{\"contents\":\"demo\"}".to_string(),
+            ),
+        ];
+        entries[1].tool_metadata = Some(serde_json::json!({
+            "query": "ratatui status summary",
+            "result_count": 1
+        }));
+        entries[3].tool_metadata = Some(serde_json::json!({
+            "operation": "hover",
+            "file_path": "/tmp/src/main.rs",
+            "line": 1,
+            "character": 1
+        }));
+
+        let batch = detect_groupable_tool_batch(&entries, 0).unwrap();
+        let mut lines = Vec::new();
+        render_grouped_tool_call(&mut lines, &entries, &batch);
+
+        assert!(lines[0]
+            .to_string()
+            .contains("Searched the web for 1 query, inspected 1 symbol"));
+        assert!(lines[1].to_string().contains("ratatui status summary"));
+        assert!(lines[2].to_string().contains("hover .../src/main.rs"));
+    }
+
+    #[test]
+    fn standalone_tool_call_uses_human_friendly_display_name() {
+        let entry = ChatEntry::new(
+            ChatRole::ToolResult {
+                id: "a".to_string(),
+                name: "read_file".to_string(),
+                is_error: false,
+            },
+            "fn main() {}".to_string(),
+        );
+        let call = ChatEntry::new(
+            ChatRole::ToolCall {
+                id: "a".to_string(),
+                name: "read_file".to_string(),
+            },
+            "{\"file_path\":\"/tmp/src/main.rs\"}".to_string(),
+        );
+        let mut lines = Vec::new();
+        render_tool_call(&mut lines, "read_file", &call.content, Some(&entry), None, call.timestamp);
+        assert!(lines[0].to_string().contains("Read .../src/main.rs"));
+        assert!(!lines[0].to_string().contains("Read_file"));
+    }
+
+    #[test]
+    fn standalone_result_renders_metadata_hints() {
+        let mut entry = ChatEntry::new(
+            ChatRole::ToolResult {
+                id: "a".to_string(),
+                name: "powershell".to_string(),
+                is_error: false,
+            },
+            "ok".to_string(),
+        );
+        entry.tool_metadata = Some(serde_json::json!({
+            "read_only_reason": "validated git status",
+            "rewrite_suggestion": "Prefer read_file"
+        }));
+        let mut lines: Vec<Line<'static>> = Vec::new();
+        render_standalone_result(&mut lines, &entry);
+        assert!(lines.iter().any(|line| line.to_string().contains("read-only: validated git status")));
+        assert!(lines.iter().any(|line| line.to_string().contains("hint: Prefer read_file")));
+    }
+
+    #[test]
+    fn standalone_shell_result_splits_stdout_stderr_and_exit_code() {
+        let entry = ChatEntry::new(
+            ChatRole::ToolResult {
+                id: "a".to_string(),
+                name: "bash".to_string(),
+                is_error: false,
+            },
+            "ok\n[stderr]\nwarn\n[exit code: 2]".to_string(),
+        );
+        let mut lines: Vec<Line<'static>> = Vec::new();
+        render_standalone_result(&mut lines, &entry);
+        assert!(lines.iter().any(|line| line.to_string().contains("stdout")));
+        assert!(lines.iter().any(|line| line.to_string().contains("stderr")));
+        assert!(lines.iter().any(|line| line.to_string().contains("exit code 2")));
     }
 }

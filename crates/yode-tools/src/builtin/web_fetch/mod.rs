@@ -119,3 +119,85 @@ IMPORTANT: WebFetch WILL FAIL for authenticated or private URLs. Before using th
         Ok(ToolResult::success_with_metadata(text, metadata))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    use crate::tool::Tool;
+
+    use super::WebFetchTool;
+
+    async fn spawn_http_server(status: &str, content_type: &str, body: &str) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let status = status.to_string();
+        let content_type = content_type.to_string();
+        let body = body.to_string();
+
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buf = [0u8; 2048];
+            let _ = socket.read(&mut buf).await;
+            let response = format!(
+                "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                status,
+                content_type,
+                body.len(),
+                body
+            );
+            let _ = socket.write_all(response.as_bytes()).await;
+        });
+
+        format!("http://{}", addr)
+    }
+
+    #[tokio::test]
+    async fn fetches_html_and_converts_it_to_text() {
+        let url = spawn_http_server(
+            "200 OK",
+            "text/html; charset=utf-8",
+            "<html><body><h1>Hello</h1><p>world</p></body></html>",
+        )
+        .await;
+
+        let result = WebFetchTool
+            .execute(
+                serde_json::json!({
+                    "url": url,
+                    "prompt": "summarize"
+                }),
+                &crate::tool::ToolContext::empty(),
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("Hello"));
+        assert!(result.content.contains("world"));
+        assert_eq!(
+            result.metadata.as_ref().unwrap()["content_type"],
+            serde_json::json!("text/html; charset=utf-8")
+        );
+    }
+
+    #[tokio::test]
+    async fn returns_error_for_non_success_status() {
+        let url = spawn_http_server("404 Not Found", "text/plain", "missing").await;
+
+        let result = WebFetchTool
+            .execute(
+                serde_json::json!({
+                    "url": url,
+                    "prompt": "summarize"
+                }),
+                &crate::tool::ToolContext::empty(),
+            )
+            .await
+            .unwrap();
+
+        assert!(result.is_error);
+        assert!(result.content.contains("HTTP 404"));
+    }
+}

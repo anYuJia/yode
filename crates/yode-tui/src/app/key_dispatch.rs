@@ -16,7 +16,13 @@ use crate::commands::artifact_nav::record_inspector_action_history;
 use super::engine_events::provider::{reload_provider_from_config, switch_provider_from_config};
 use super::key_handlers::{handle_char, handle_down, handle_tab, handle_up};
 use super::turn_flow::handle_enter;
-use super::{input, push_system_entry, App, ChatEntry, ChatRole};
+use super::detail_inspector::{
+    INSPECTOR_CONFIRM_ALLOW, INSPECTOR_CONFIRM_ALWAYS, INSPECTOR_CONFIRM_DENY,
+};
+use super::{
+    input, open_latest_tool_inspector, open_pending_confirmation_inspector, push_system_entry, App,
+    ChatEntry, ChatRole,
+};
 
 /// Centralized key event handler.
 pub(super) fn handle_key_event(
@@ -139,21 +145,33 @@ pub(super) fn handle_key_event(
                 inspector.document.finish_search(true);
             }
             KeyCode::Enter => {
-                if let Some(command) = inspector.document.handoff_command() {
-                    let execute_now = key.modifiers.contains(KeyModifiers::CONTROL);
-                    if let Some(panel) = inspector.document.active_panel() {
-                        if matches!(inspector.document.state.focus, crate::ui::inspector::InspectorFocus::Actions)
-                            && !panel.actions.is_empty()
-                        {
-                            let index = inspector
-                                .document
-                                .state
-                                .selected_action
-                                .min(panel.actions.len().saturating_sub(1));
-                            inspector
-                                .document
-                                .note_action_dispatched(panel.actions[index].label.clone());
-                        }
+                let execute_now = key.modifiers.contains(KeyModifiers::CONTROL);
+                let action_label = if let Some(panel) = inspector.document.active_panel() {
+                    if matches!(inspector.document.state.focus, crate::ui::inspector::InspectorFocus::Actions)
+                        && !panel.actions.is_empty()
+                    {
+                        let index = inspector
+                            .document
+                            .state
+                            .selected_action
+                            .min(panel.actions.len().saturating_sub(1));
+                        Some(panel.actions[index].label.clone())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                if let Some(label) = action_label {
+                    inspector.document.note_action_dispatched(label);
+                }
+                let command = inspector.document.handoff_command();
+                if let Some(command) = command {
+                    let _ = inspector;
+                    if execute_inspector_internal_action(app, &command) {
+                        app.inspector.views.pop();
+                        app.inspector.stack.pop();
+                        return;
                     }
                     if execute_now {
                         let _ = record_inspector_action_history(
@@ -252,6 +270,12 @@ pub(super) fn handle_key_event(
 
     if app.pending_confirmation.is_some() {
         match key.code {
+            KeyCode::Char('o')
+                if key.modifiers.contains(KeyModifiers::CONTROL)
+                    || key.modifiers.contains(KeyModifiers::SUPER) =>
+            {
+                let _ = open_pending_confirmation_inspector(app);
+            }
             KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Char('1') => {
                 if let Some(tx) = &app.confirm_tx {
                     let _ = tx.send(ConfirmResponse::Allow);
@@ -317,6 +341,12 @@ pub(super) fn handle_key_event(
 
     match key.code {
         KeyCode::Enter => handle_enter(terminal, app, key, engine, tools, engine_event_tx),
+        KeyCode::Char('o')
+            if (key.modifiers.contains(KeyModifiers::CONTROL)
+                || key.modifiers.contains(KeyModifiers::SUPER)) =>
+        {
+            let _ = open_latest_tool_inspector(app);
+        }
         KeyCode::Char(c)
             if (key.modifiers.contains(KeyModifiers::CONTROL)
                 || key.modifiers.contains(KeyModifiers::SUPER))
@@ -384,5 +414,113 @@ pub(super) fn handle_key_event(
         KeyCode::PageUp => {}
         KeyCode::PageDown => {}
         _ => {}
+    }
+}
+
+fn execute_inspector_internal_action(app: &mut App, command: &str) -> bool {
+    match command {
+        INSPECTOR_CONFIRM_ALLOW => {
+            if let Some(tx) = &app.confirm_tx {
+                let _ = tx.send(ConfirmResponse::Allow);
+            }
+            app.pending_confirmation = None;
+            true
+        }
+        INSPECTOR_CONFIRM_ALWAYS => {
+            if let Some(ref confirm) = app.pending_confirmation {
+                if !app.session.always_allow_tools.contains(&confirm.name) {
+                    app.session.always_allow_tools.push(confirm.name.clone());
+                }
+            }
+            if let Some(tx) = &app.confirm_tx {
+                let _ = tx.send(ConfirmResponse::Allow);
+            }
+            app.pending_confirmation = None;
+            true
+        }
+        INSPECTOR_CONFIRM_DENY => {
+            if let Some(tx) = &app.confirm_tx {
+                let _ = tx.send(ConfirmResponse::Deny);
+            }
+            app.pending_confirmation = None;
+            true
+        }
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use tokio::sync::mpsc;
+    use yode_core::engine::ConfirmResponse;
+    use yode_llm::registry::ProviderRegistry;
+    use yode_tools::registry::ToolRegistry;
+
+    use crate::app::{App, PendingConfirmation};
+
+    use super::{execute_inspector_internal_action, INSPECTOR_CONFIRM_ALLOW, INSPECTOR_CONFIRM_ALWAYS, INSPECTOR_CONFIRM_DENY};
+
+    fn test_app() -> App {
+        App::new(
+            "test-model".to_string(),
+            "session-1234".to_string(),
+            "/tmp".to_string(),
+            "test".to_string(),
+            Vec::new(),
+            HashMap::new(),
+            Arc::new(ProviderRegistry::new()),
+            Arc::new(ToolRegistry::new()),
+        )
+    }
+
+    #[tokio::test]
+    async fn inspector_internal_actions_resolve_pending_confirmation() {
+        let mut app = test_app();
+        let (tx, mut rx) = mpsc::unbounded_channel::<ConfirmResponse>();
+        app.confirm_tx = Some(tx);
+        app.pending_confirmation = Some(PendingConfirmation {
+            id: "a".to_string(),
+            name: "bash".to_string(),
+            arguments: "{\"command\":\"echo hi\"}".to_string(),
+        });
+
+        assert!(execute_inspector_internal_action(&mut app, INSPECTOR_CONFIRM_ALLOW));
+        assert!(matches!(rx.recv().await, Some(ConfirmResponse::Allow)));
+        assert!(app.pending_confirmation.is_none());
+    }
+
+    #[tokio::test]
+    async fn inspector_internal_action_can_always_allow() {
+        let mut app = test_app();
+        let (tx, mut rx) = mpsc::unbounded_channel::<ConfirmResponse>();
+        app.confirm_tx = Some(tx);
+        app.pending_confirmation = Some(PendingConfirmation {
+            id: "a".to_string(),
+            name: "bash".to_string(),
+            arguments: "{\"command\":\"echo hi\"}".to_string(),
+        });
+
+        assert!(execute_inspector_internal_action(&mut app, INSPECTOR_CONFIRM_ALWAYS));
+        assert!(matches!(rx.recv().await, Some(ConfirmResponse::Allow)));
+        assert!(app.session.always_allow_tools.contains(&"bash".to_string()));
+    }
+
+    #[tokio::test]
+    async fn inspector_internal_action_can_deny() {
+        let mut app = test_app();
+        let (tx, mut rx) = mpsc::unbounded_channel::<ConfirmResponse>();
+        app.confirm_tx = Some(tx);
+        app.pending_confirmation = Some(PendingConfirmation {
+            id: "a".to_string(),
+            name: "bash".to_string(),
+            arguments: "{\"command\":\"echo hi\"}".to_string(),
+        });
+
+        assert!(execute_inspector_internal_action(&mut app, INSPECTOR_CONFIRM_DENY));
+        assert!(matches!(rx.recv().await, Some(ConfirmResponse::Deny)));
+        assert!(app.pending_confirmation.is_none());
     }
 }

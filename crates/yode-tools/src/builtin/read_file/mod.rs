@@ -162,3 +162,90 @@ Usage:
         Ok(ToolResult::success_with_metadata(output, metadata))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+    use std::sync::Arc;
+
+    use serde_json::json;
+    use tokio::sync::Mutex;
+
+    use crate::tool::{Tool, ToolContext, ToolErrorType};
+
+    use super::ReadFileTool;
+
+    fn temp_path(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("yode-read-file-{}-{}", name, uuid::Uuid::new_v4()))
+    }
+
+    #[tokio::test]
+    async fn reads_offset_limit_and_records_history() {
+        let path = temp_path("range.txt");
+        tokio::fs::write(&path, "one\ntwo\nthree\nfour\n").await.unwrap();
+
+        let history = Arc::new(Mutex::new(HashSet::new()));
+        let mut ctx = ToolContext::empty();
+        ctx.read_file_history = Some(history.clone());
+
+        let result = ReadFileTool
+            .execute(
+                json!({
+                    "file_path": path.display().to_string(),
+                    "offset": 2,
+                    "limit": 2
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("     2\ttwo"));
+        assert!(result.content.contains("     3\tthree"));
+        assert!(!result.content.contains("     1\tone"));
+        assert_eq!(
+            result.metadata.as_ref().unwrap()["start_line"],
+            json!(2)
+        );
+        assert_eq!(result.metadata.as_ref().unwrap()["end_line"], json!(3));
+        assert_eq!(
+            result.metadata.as_ref().unwrap()["was_truncated"],
+            json!(true)
+        );
+
+        let recorded = history.lock().await;
+        assert!(recorded.contains(&path));
+
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[tokio::test]
+    async fn returns_validation_error_for_directories() {
+        let dir = temp_path("dir");
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+
+        let result = ReadFileTool
+            .execute(
+                json!({
+                    "file_path": dir.display().to_string()
+                }),
+                &ToolContext::empty(),
+            )
+            .await
+            .unwrap();
+
+        assert!(result.is_error);
+        assert_eq!(result.error_type, Some(ToolErrorType::Validation));
+        assert!(result.content.contains("is a directory"));
+        assert!(
+            result
+                .suggestion
+                .as_deref()
+                .unwrap_or("")
+                .contains("Call ls")
+        );
+
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+    }
+}

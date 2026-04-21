@@ -155,3 +155,71 @@ impl Tool for SkillTool {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use serde_json::json;
+    use tokio::sync::Mutex;
+
+    use crate::tool::Tool;
+
+    use super::{SkillStore, SkillTool};
+
+    #[tokio::test]
+    async fn skill_get_returns_skill_content() {
+        let store = Arc::new(Mutex::new(SkillStore::new()));
+        {
+            let mut guard = store.lock().await;
+            guard.add(
+                "rust".to_string(),
+                "Rust guidance".to_string(),
+                "Prefer cargo test.".to_string(),
+            );
+        }
+
+        let result = SkillTool { store }
+            .execute(
+                json!({
+                    "name": "rust",
+                    "action": "get"
+                }),
+                &crate::tool::ToolContext::empty(),
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert_eq!(result.content, "Prefer cargo test.");
+        assert_eq!(result.metadata.as_ref().unwrap()["name"], json!("rust"));
+    }
+
+    #[tokio::test]
+    async fn skill_list_reports_available_skills() {
+        let store = Arc::new(Mutex::new(SkillStore::new()));
+        {
+            let mut guard = store.lock().await;
+            guard.add(
+                "rust".to_string(),
+                "Rust guidance".to_string(),
+                "Prefer cargo test.".to_string(),
+            );
+            guard.add(
+                "python".to_string(),
+                "Python guidance".to_string(),
+                "Prefer pytest.".to_string(),
+            );
+        }
+
+        let result = SkillTool { store }
+            .execute(json!({"action":"list","name":"ignored"}), &crate::tool::ToolContext::empty())
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("/rust"));
+        assert!(result.content.contains("/python"));
+        assert_eq!(result.metadata.as_ref().unwrap()["count"], json!(2));
+    }
+}
