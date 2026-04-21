@@ -53,7 +53,7 @@ curl -fsSL https://raw.githubusercontent.com/anYuJia/yode/main/install.sh | bash
 ### Cargo
 
 ```bash
-cargo install --git https://github.com/anYuJia/yode.git --tag v0.0.13
+cargo install --git https://github.com/anYuJia/yode.git --tag v0.0.14
 ```
 
 ### From source
@@ -237,16 +237,16 @@ crates/
 └── yode-agent    # agent/runtime helpers
 ```
 
-## What 0.0.13 Adds
+## What 0.0.14 Adds
 
-The `0.0.13` release finishes a broad Claude Code-style output pass across the TUI:
+The `0.0.14` release completes the Claude Code-style output and tool-interaction pass:
 
-- tool reads/searches now collapse into compact summary-first blocks instead of dumping raw output by default
-- status, diagnostics, brief/context, doctor, inspect, and export artifacts now share one runtime/context/tool summary model
-- system messages now have semantic grouping and lightweight status batches for compact/memory/export/task/update events
-- retry banners now surface root-cause transport details and retry provider `403` API failures instead of stopping after one attempt
+- exploration-style tool calls now group across `read/search/list/web/lsp/memory/skill` flows with summary-first rendering
+- main chat, scrollback, and exported transcripts now share one display language for tool activity, tool results, and turn summaries
+- shell and powershell results now surface structured `stdout/stderr/exit code`, rewrite hints, and read-only/destructive metadata
+- confirmation prompts and `Ctrl+O` inspectors now form a closed loop with actionable detail views and direct approval actions
 
-Release: [v0.0.13](https://github.com/anYuJia/yode/releases/tag/v0.0.13)
+Release: [v0.0.14](https://github.com/anYuJia/yode/releases/tag/v0.0.14)
 
 ## Contributing
 
