@@ -29,3 +29,4 @@ dirs = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
 similar = { workspace = true }
+pulldown-cmark = "0.12"

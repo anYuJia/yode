@@ -7,11 +7,13 @@ use yode_core::engine::{AgentEngine, EngineEvent};
 use yode_llm::types::ChatResponse;
 
 use crate::runtime_display::format_turn_completed_message;
+use crate::ui::chat::{
+    render_markdown_ansi_white_with_options, streaming_markdown_advance_stable_boundary,
+};
 
 use super::super::turn_flow::try_process_next;
 use super::super::{
-    find_case_insensitive, push_system_entry, strip_internal_tags, App, ChatEntry, ChatRole,
-    TurnStatus, TAG_RE,
+    find_case_insensitive, strip_internal_tags, App, ChatEntry, ChatRole, TurnStatus, TAG_RE,
 };
 
 pub(super) fn handle_text_delta(app: &mut App, delta: String) {
@@ -152,21 +154,18 @@ pub(super) fn handle_done(
     if let Some(started) = app.turn_started_at.take() {
         let elapsed = started.elapsed();
         let tools = app.turn_tool_count;
-        app.turn_status = TurnStatus::Done { elapsed, tools };
-        push_system_entry(
-            app,
-            format_turn_completed_message(
-                elapsed,
-                tools,
-                app.session.turn_input_tokens,
-                app.session.turn_output_tokens,
-                app.session.total_tokens,
-                app.session.tool_call_count,
-                runtime_state.as_ref(),
-            ),
-        );
+        app.last_turn_completion_message = Some(format_turn_completed_message(
+            elapsed,
+            tools,
+            app.session.turn_input_tokens,
+            app.session.turn_output_tokens,
+            app.session.total_tokens,
+            app.session.tool_call_count,
+            runtime_state.as_ref(),
+        ));
     }
 
+    app.turn_status = TurnStatus::Idle;
     app.thinking.stop();
     app.thinking_printed = false;
     app.sync_thinking();
@@ -235,13 +234,26 @@ pub(super) fn finalize_streaming(app: &mut App) {
         } else {
             Some(std::mem::take(&mut app.streaming_reasoning))
         };
-        let all_lines: Vec<&str> = content.lines().collect();
-        let printed = app.streaming_printed_lines;
-
-        if printed < all_lines.len() {
-            let remainder: Vec<String> =
-                all_lines[printed..].iter().map(|s| s.to_string()).collect();
-            app.streaming_remainder = Some((remainder, printed == 0));
+        let stable_end =
+            streaming_markdown_advance_stable_boundary(&content, app.streaming_markdown_stable_len);
+        let stable_len = app
+            .streaming_markdown_stable_len
+            .min(stable_end)
+            .min(content.len());
+        let remainder = &content[stable_len..];
+        app.streaming_markdown_remainder = None;
+        if !remainder.trim().is_empty() {
+            let render_width = crossterm::terminal::size()
+                .map(|(width, _)| width.saturating_sub(2) as usize)
+                .unwrap_or(78);
+            let rendered = render_markdown_ansi_white_with_options(
+                remainder,
+                Some(render_width),
+                app.terminal_caps.supports_hyperlinks(),
+            );
+            if !rendered.is_empty() {
+                app.streaming_markdown_remainder = Some((rendered, stable_len == 0));
+            }
         }
 
         let mut entry =
@@ -250,9 +262,10 @@ pub(super) fn finalize_streaming(app: &mut App) {
         if !content.trim().is_empty() || entry.reasoning.is_some() {
             app.chat_entries.push(entry);
         }
-        app.streaming_printed_lines = 0;
-        app.streaming_in_code_block = false;
-        app.streaming_code_block_language = None;
-        app.streaming_shell_session_state = crate::app::rendering::ShellSessionState::Idle;
+        app.streaming_markdown_stable_len = 0;
+        app.streaming_markdown_cached_buf_len = 0;
+        app.streaming_markdown_cached_width = 0;
+        app.streaming_markdown_preview_source.clear();
+        app.streaming_markdown_preview.clear();
     }
 }

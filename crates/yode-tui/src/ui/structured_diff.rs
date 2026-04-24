@@ -286,18 +286,24 @@ fn render_structured_diff_line(
 ) -> Line<'static> {
     let background = diff_line_background(line.kind, theme);
     let mut spans = vec![Span::styled(
-        "  │ ",
+        "│ ",
         Style::default().fg(theme.border).bg(background),
     )];
     spans.push(render_structured_diff_gutter(line, gutter_digits, theme));
 
     match line.kind {
-        StructuredDiffLineKind::Meta | StructuredDiffLineKind::Hunk | StructuredDiffLineKind::Plain => {
+        StructuredDiffLineKind::Meta
+        | StructuredDiffLineKind::Hunk
+        | StructuredDiffLineKind::Plain => {
             for token in tokenize_code_line_with_language(&line.raw, CodeLanguage::Diff) {
                 spans.push(Span::styled(
                     token.text,
                     Style::default()
-                        .fg(structured_diff_token_color(token.kind, CodeLanguage::Diff, theme))
+                        .fg(structured_diff_token_color(
+                            token.kind,
+                            CodeLanguage::Diff,
+                            theme,
+                        ))
                         .bg(background),
                 ));
             }
@@ -314,7 +320,11 @@ fn render_structured_diff_line(
                         spans.push(Span::styled(
                             token.text,
                             Style::default()
-                                .fg(structured_diff_token_color(token.kind, line.language, theme))
+                                .fg(structured_diff_token_color(
+                                    token.kind,
+                                    line.language,
+                                    theme,
+                                ))
                                 .bg(segment_bg),
                         ));
                     }
@@ -324,7 +334,11 @@ fn render_structured_diff_line(
                     spans.push(Span::styled(
                         token.text,
                         Style::default()
-                            .fg(structured_diff_token_color(token.kind, line.language, theme))
+                            .fg(structured_diff_token_color(
+                                token.kind,
+                                line.language,
+                                theme,
+                            ))
                             .bg(background),
                     ));
                 }
@@ -335,13 +349,11 @@ fn render_structured_diff_line(
                 for segment in segments {
                     spans.push(Span::styled(
                         segment.text.clone(),
-                        Style::default()
-                            .fg(LIGHT)
-                            .bg(if segment.emphasized {
-                                theme.remove_word_bg
-                            } else {
-                                background
-                            }),
+                        Style::default().fg(LIGHT).bg(if segment.emphasized {
+                            theme.remove_word_bg
+                        } else {
+                            background
+                        }),
                     ));
                 }
             } else {
@@ -353,7 +365,14 @@ fn render_structured_diff_line(
         }
     }
 
-    if line.body.is_empty() && !matches!(line.kind, StructuredDiffLineKind::Meta | StructuredDiffLineKind::Hunk | StructuredDiffLineKind::Plain) {
+    if line.body.is_empty()
+        && !matches!(
+            line.kind,
+            StructuredDiffLineKind::Meta
+                | StructuredDiffLineKind::Hunk
+                | StructuredDiffLineKind::Plain
+        )
+    {
         spans.push(Span::styled(" ", Style::default().bg(background)));
     }
 
@@ -460,7 +479,14 @@ fn diff_language_path(line: &str) -> Option<String> {
         return normalize_diff_path(new).map(ToString::to_string);
     }
 
-    for prefix in ["+++ ", "--- ", "rename to ", "rename from ", "copy to ", "copy from "] {
+    for prefix in [
+        "+++ ",
+        "--- ",
+        "rename to ",
+        "rename from ",
+        "copy to ",
+        "copy from ",
+    ] {
         if let Some(rest) = line.strip_prefix(prefix) {
             return normalize_diff_path(rest.trim()).map(ToString::to_string);
         }
@@ -491,10 +517,7 @@ fn parse_diff_hunk_header(line: &str) -> Option<(usize, usize)> {
 }
 
 fn parse_hunk_start(part: &str) -> Option<usize> {
-    let digits = part
-        .strip_prefix(['-', '+'])?
-        .split(',')
-        .next()?;
+    let digits = part.strip_prefix(['-', '+'])?.split(',').next()?;
     digits.parse().ok()
 }
 

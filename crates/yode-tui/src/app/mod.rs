@@ -84,6 +84,7 @@ pub(crate) fn push_system_entry(app: &mut App, content: impl Into<String>) {
 
 pub(crate) use self::scrollback::entry_formatting::{
     format_entry_as_strings as format_scrollback_entry_as_strings,
+    format_grouped_subagent_batch as format_scrollback_grouped_subagent_batch,
     format_grouped_system_batch as format_scrollback_grouped_system_batch,
     format_grouped_tool_batch as format_scrollback_grouped_tool_batch,
 };

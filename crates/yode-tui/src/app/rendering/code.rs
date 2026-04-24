@@ -162,10 +162,7 @@ pub(crate) fn detect_code_language_from_path(file_path: &str) -> CodeLanguage {
         return CodeLanguage::Plain;
     }
 
-    let file_name = normalized
-        .rsplit(['/', '\\'])
-        .next()
-        .unwrap_or(normalized);
+    let file_name = normalized.rsplit(['/', '\\']).next().unwrap_or(normalized);
 
     match file_name {
         "Dockerfile" | "Containerfile" | "Makefile" | "Justfile" => CodeLanguage::Shell,
@@ -350,9 +347,10 @@ pub(crate) fn tokenize_code_line_with_language(
     match language {
         CodeLanguage::Diff => tokenize_diff_line(line),
         CodeLanguage::Json => tokenize_json_line(line),
-        CodeLanguage::Shell => {
-            tokenize_shell_command_line(line, shell_prompt_prefix(line).map(|prompt| prompt.prefix_len))
-        }
+        CodeLanguage::Shell => tokenize_shell_command_line(
+            line,
+            shell_prompt_prefix(line).map(|prompt| prompt.prefix_len),
+        ),
         CodeLanguage::Rust => tokenize_generic_line(
             line,
             SyntaxProfile {
@@ -2087,8 +2085,8 @@ fn is_shell_keyword(word: &str) -> bool {
 mod tests {
     use super::{
         code_block_header_language, detect_code_language_from_path, parse_code_language,
-        tokenize_code_line_with_language, tokenize_shell_session_line, CodeLanguage,
-        CodeTokenKind, ShellLineKind, ShellSessionState,
+        tokenize_code_line_with_language, tokenize_shell_session_line, CodeLanguage, CodeTokenKind,
+        ShellLineKind, ShellSessionState,
     };
 
     #[test]
@@ -2179,10 +2177,8 @@ mod tests {
 
     #[test]
     fn shell_session_tokenizer_marks_output_after_prompt() {
-        let (kind, tokens, next_session_state) = tokenize_shell_session_line(
-            "running 14 tests",
-            ShellSessionState::AfterCommand,
-        );
+        let (kind, tokens, next_session_state) =
+            tokenize_shell_session_line("running 14 tests", ShellSessionState::AfterCommand);
 
         assert_eq!(kind, ShellLineKind::Output);
         assert!(tokens

@@ -1,8 +1,7 @@
 use super::chat_entries::{
-    render_assistant, render_grouped_system_entries, render_grouped_tool_call,
-    render_standalone_result, render_system_entry,
-    render_tool_call,
-    render_user,
+    render_assistant, render_grouped_subagent_batch, render_grouped_system_entries,
+    render_grouped_tool_call, render_standalone_result, render_subagent_call, render_system_entry,
+    render_tool_call, render_user,
 };
 use super::chat_layout::{manual_wrap, render_header};
 use super::chat_markdown::render_markdown_impl;
@@ -12,7 +11,10 @@ use super::palette::{
 };
 use super::turn_status::active_working_label;
 use crate::app::{App, ChatRole};
-use crate::tool_grouping::{detect_groupable_system_batch, detect_groupable_tool_batch};
+use crate::tool_grouping::{
+    detect_groupable_subagent_batch, detect_groupable_system_batch, detect_groupable_tool_batch,
+    should_hide_tool_from_transcript,
+};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -67,8 +69,17 @@ pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
 
         match &entry.role {
             ChatRole::User => render_user(&mut lines, entry),
-            ChatRole::Assistant => render_assistant(&mut lines, entry),
+            ChatRole::Assistant => render_assistant(
+                &mut lines,
+                entry,
+                area.width.saturating_sub(2) as usize,
+                app.terminal_caps.supports_hyperlinks(),
+            ),
             ChatRole::ToolCall { id, name } => {
+                if should_hide_tool_from_transcript(name) {
+                    i += 1;
+                    continue;
+                }
                 if let Some(batch) = detect_groupable_tool_batch(entries, i) {
                     render_grouped_tool_call(&mut lines, entries, &batch);
                     rendered_any_entry = true;
@@ -89,6 +100,12 @@ pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
                 );
             }
             ChatRole::ToolResult { id, .. } => {
+                if let ChatRole::ToolResult { name, .. } = &entry.role {
+                    if should_hide_tool_from_transcript(name) {
+                        i += 1;
+                        continue;
+                    }
+                }
                 // Already rendered as part of ToolCall above — skip standalone
                 // But if there was no preceding ToolCall, render it
                 let has_preceding_call = i > 0
@@ -120,6 +137,19 @@ pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
                 }
                 render_system_entry(&mut lines, entry)
             }
+            ChatRole::SubAgentCall { description } => {
+                if let Some(batch) = detect_groupable_subagent_batch(entries, i) {
+                    render_grouped_subagent_batch(&mut lines, entries, &batch);
+                    rendered_any_entry = true;
+                    i = batch.next_index;
+                    continue;
+                }
+                render_subagent_call(&mut lines, description, entries, i);
+            }
+            ChatRole::SubAgentToolCall { .. } | ChatRole::SubAgentResult => {
+                i += 1;
+                continue;
+            }
             ChatRole::AskUser { .. } => {
                 for (index, line) in entry.content.lines().enumerate() {
                     let prefix = if index == 0 { "  ? " } else { "    " };
@@ -131,11 +161,6 @@ pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
                         Span::styled(line.to_string(), Style::default().fg(LIGHT)),
                     ]));
                 }
-            }
-            ChatRole::SubAgentCall { .. }
-            | ChatRole::SubAgentToolCall { .. }
-            | ChatRole::SubAgentResult => {
-                // These are rendered via scrollback printing, not the ratatui viewport
             }
         }
         rendered_any_entry = true;
@@ -181,6 +206,43 @@ pub fn render_markdown(text: &str) -> Vec<Line<'static>> {
 /// Render markdown with white foreground color (for assistant messages).
 pub fn render_markdown_white(text: &str) -> Vec<Line<'static>> {
     render_markdown_impl(text, Some(WHITE))
+}
+
+pub fn render_markdown_white_with_options(
+    text: &str,
+    max_width: Option<usize>,
+    enable_hyperlinks: bool,
+) -> Vec<Line<'static>> {
+    super::chat_markdown::render_markdown_with_options(
+        text,
+        Some(WHITE),
+        super::chat_markdown::MarkdownRenderOptions {
+            max_width,
+            enable_hyperlinks,
+        },
+    )
+}
+
+pub(crate) fn render_markdown_ansi_white_with_options(
+    text: &str,
+    max_width: Option<usize>,
+    enable_hyperlinks: bool,
+) -> Vec<String> {
+    super::chat_markdown::render_markdown_ansi_with_options(
+        text,
+        Some(WHITE),
+        super::chat_markdown::MarkdownRenderOptions {
+            max_width,
+            enable_hyperlinks,
+        },
+    )
+}
+
+pub(crate) fn streaming_markdown_advance_stable_boundary(
+    text: &str,
+    current_stable_len: usize,
+) -> usize {
+    super::chat_markdown::streaming_markdown_advance_stable_boundary(text, current_stable_len)
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────

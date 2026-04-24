@@ -1,9 +1,7 @@
-use crate::app::rendering::{
-    code_block_header_language, highlight_code_line, highlight_code_line_in_block,
-    ShellSessionState,
-};
+use crate::app::rendering::highlight_code_line;
 use crate::app::ChatEntry;
-use crate::ui::chat_entries::{assistant_plain_lines, user_plain_lines};
+use crate::ui::chat::{render_markdown_ansi_white_with_options, WHITE};
+use crate::ui::chat_entries::user_plain_lines;
 
 pub(super) fn render_user(
     entry: &ChatEntry,
@@ -29,41 +27,79 @@ pub(super) fn render_assistant(
     entry: &ChatEntry,
     result: &mut Vec<(String, ratatui::style::Style)>,
     dim: ratatui::style::Style,
-    white: ratatui::style::Style,
+    _white: ratatui::style::Style,
 ) {
     result.push((String::new(), dim));
-    let lines = assistant_plain_lines(entry);
-    if lines.is_empty() {
-        return;
-    }
-    let mut current_language = None;
-    let mut shell_session_state = ShellSessionState::Idle;
+    let render_width = crossterm::terminal::size()
+        .map(|(width, _)| width.saturating_sub(2) as usize)
+        .unwrap_or(78);
+    let lines = render_markdown_ansi_white_with_options(&entry.content, Some(render_width), true);
+    let mut first_content = true;
     for line in lines {
-        if line.content.is_empty() {
+        if line.trim().is_empty() {
             result.push((String::new(), dim));
             continue;
         }
-        if line.highlight_code {
-            if let Some(language) = code_block_header_language(&line.content) {
-                current_language = Some(language);
-                shell_session_state = ShellSessionState::Idle;
-            }
-            result.push((
-                format!(
-                    "{}{}",
-                    line.prefix,
-                    highlight_code_line_in_block(
-                        &line.content,
-                        current_language,
-                        &mut shell_session_state,
-                    )
-                ),
-                ratatui::style::Style::default(),
-            ));
-        } else {
-            current_language = None;
-            shell_session_state = ShellSessionState::Idle;
-            result.push((format!("{}{}", line.prefix, line.content), white));
-        }
+        let prefix = if first_content { "⏺ " } else { "  " };
+        result.push((
+            format!("{}{}", prefix, line),
+            ratatui::style::Style::default().fg(WHITE),
+        ));
+        first_content = false;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ratatui::style::Style;
+
+    use crate::app::rendering::strip_ansi;
+    use crate::app::{ChatEntry, ChatRole};
+
+    use super::render_assistant;
+
+    #[test]
+    fn scrollback_assistant_keeps_blank_lines_for_promoted_sections() {
+        let entry = ChatEntry::new(
+            ChatRole::Assistant,
+            "Yode vs Claude Code 综合对比\n基本面\n维度 │ Yode │ Claude Code\n──────┼──────┼─────────────\n语言 │ Rust │ TypeScript\n核心差距 (按影响程度排序)\nP0 - 严重缺失 (阻塞日常使用)\n1. 命令系统缺陷"
+                .to_string(),
+        );
+        let mut result = Vec::new();
+        render_assistant(&entry, &mut result, Style::default(), Style::default());
+
+        let basic_index = result
+            .iter()
+            .position(|(line, _)| line.contains("基本面"))
+            .unwrap();
+        assert!(basic_index > 0);
+        assert!(result[basic_index - 1].0.is_empty());
+
+        let p0_index = result
+            .iter()
+            .position(|(line, _)| line.contains("P0 - 严重缺失"))
+            .unwrap();
+        assert!(p0_index > 0);
+        assert!(result[p0_index - 1].0.is_empty());
+    }
+
+    #[test]
+    fn scrollback_assistant_normalizes_pasted_analysis_sample() {
+        let entry = ChatEntry::new(
+            ChatRole::Assistant,
+            "Yode vs Claude Code 综合对比\n基本面\n 维度 │ Yode           │ Claude Code          \n──────┼────────────────┼──────────────────────\n 语言 │ Rust (~15万行) │ TypeScript (~52万行) \n| 工具数 | ~45 | ~50+ |\n| 命令数 | ~30 | ~80+ |\n| MCP | rmcp (基础) | 完整SDK (SSE/Stdio/HTTP) |\n核心差距 (优先级排序)\nP0 - 严重缺失\n1. 命令系统缺陷"
+                .to_string(),
+        );
+        let mut result = Vec::new();
+        render_assistant(&entry, &mut result, Style::default(), Style::default());
+
+        let rendered = result
+            .iter()
+            .map(|(line, _)| strip_ansi(line))
+            .collect::<Vec<_>>();
+        assert!(rendered.iter().all(|line| !line.contains("###")));
+        assert!(rendered
+            .iter()
+            .all(|line| !line.contains("| 工具数 | ~45 | ~50+ |")));
     }
 }

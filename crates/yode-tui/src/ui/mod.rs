@@ -12,8 +12,8 @@ mod palette;
 pub(crate) mod panels;
 mod pending;
 mod responsive;
-pub(crate) mod status_summary;
 pub mod status_bar;
+pub(crate) mod status_summary;
 mod structured_diff;
 pub mod tool_confirm;
 mod turn_status;
@@ -42,19 +42,14 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         inspector::render_inspector(frame, frame.area(), &inspector.document);
     } else if app.pending_confirmation.is_some() {
         use ratatui::layout::{Constraint, Direction, Layout};
-        let panel_area = panels::centered_panel_rect(frame.area(), 96, 5);
-        let chunks = Layout::default()
+        let panel_area = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(1),
+                Constraint::Min(0),
+                Constraint::Length(tool_confirm::INLINE_CONFIRM_HEIGHT),
             ])
-            .split(panel_area);
-
-        tool_confirm::render_inline_confirm(frame, &chunks, app);
+            .split(frame.area())[1];
+        tool_confirm::render_inline_confirm(frame, panel_area, app);
     } else {
         let plan = layout::build_main_layout(frame.area(), app);
         if plan.show_completion {

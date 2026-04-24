@@ -1,11 +1,11 @@
+use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
-use ratatui::layout::Rect;
 use ratatui::Frame;
 
-use super::panels::{footer_hint_line, section_title_line};
 use super::palette::{BORDER_MUTED, LIGHT, MUTED, PANEL_ACCENT, SELECT_ACCENT, SELECT_BG};
+use super::panels::{footer_hint_line, section_title_line};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InspectorTab {
@@ -197,7 +197,10 @@ impl InspectorDocument {
         self.state.focus = match self.state.focus {
             InspectorFocus::Tabs => InspectorFocus::Body,
             InspectorFocus::Body => {
-                if self.active_panel().is_some_and(|panel| !panel.actions.is_empty()) {
+                if self
+                    .active_panel()
+                    .is_some_and(|panel| !panel.actions.is_empty())
+                {
                     InspectorFocus::Actions
                 } else {
                     InspectorFocus::Tabs
@@ -208,7 +211,10 @@ impl InspectorDocument {
     }
 
     pub(crate) fn jump_to_line(&mut self, line_number: usize) {
-        let total = self.active_panel().map(|panel| panel.lines.line_count()).unwrap_or(0);
+        let total = self
+            .active_panel()
+            .map(|panel| panel.lines.line_count())
+            .unwrap_or(0);
         if total == 0 {
             self.state.selected_line = 0;
         } else {
@@ -258,7 +264,11 @@ impl InspectorDocument {
         if matches!(self.state.focus, InspectorFocus::Actions) && !panel.actions.is_empty() {
             return panel
                 .actions
-                .get(self.state.selected_action.min(panel.actions.len().saturating_sub(1)))
+                .get(
+                    self.state
+                        .selected_action
+                        .min(panel.actions.len().saturating_sub(1)),
+                )
                 .map(|action| action.command.clone());
         }
         let line = panel.lines.get(self.state.selected_line)?;
@@ -295,7 +305,8 @@ impl InspectorDocument {
 
     pub(crate) fn note_action_dispatched(&mut self, label: impl Into<String>) {
         self.state.last_action_label = Some(label.into());
-        self.state.last_action_at = Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
+        self.state.last_action_at =
+            Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
     }
 
     fn sync_scroll(&mut self) {
@@ -371,7 +382,10 @@ pub(crate) fn inspector_action_row(
     _accent: Color,
     focused: bool,
 ) -> Line<'static> {
-    let mut spans = vec![Span::styled("  actions: ", Style::default().fg(BORDER_MUTED))];
+    let mut spans = vec![Span::styled(
+        "  actions: ",
+        Style::default().fg(BORDER_MUTED),
+    )];
     for (index, action) in actions.iter().enumerate() {
         if index > 0 {
             spans.push(Span::raw(" "));
@@ -413,7 +427,10 @@ pub(crate) fn inspector_empty_state_actions(actions: &[&str]) -> Vec<String> {
     if actions.is_empty() {
         return vec!["no actions available".to_string()];
     }
-    actions.iter().map(|action| format!("try {}", action)).collect()
+    actions
+        .iter()
+        .map(|action| format!("try {}", action))
+        .collect()
 }
 
 pub(crate) fn inspector_pagination_footer(selected: usize, total: usize) -> String {
@@ -428,18 +445,16 @@ pub(crate) fn inspector_pagination_footer(selected: usize, total: usize) -> Stri
     }
 }
 
-pub(crate) fn render_inspector(
-    frame: &mut Frame,
-    area: Rect,
-    document: &InspectorDocument,
-) {
+pub(crate) fn render_inspector(frame: &mut Frame, area: Rect, document: &InspectorDocument) {
     let Some(panel) = document.active_panel() else {
         return;
     };
 
     let mut lines = vec![Line::from(vec![Span::styled(
         format!("  {} ", document.state.title),
-        Style::default().fg(PANEL_ACCENT).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(PANEL_ACCENT)
+            .add_modifier(Modifier::BOLD),
     )])];
     lines.push(Line::from(vec![Span::styled(
         format!(
@@ -456,7 +471,11 @@ pub(crate) fn render_inspector(
                 format!(
                     " · last-action={} @ {}",
                     last_action,
-                    document.state.last_action_at.as_deref().unwrap_or("unknown")
+                    document
+                        .state
+                        .last_action_at
+                        .as_deref()
+                        .unwrap_or("unknown")
                 )
             } else {
                 String::new()
@@ -572,10 +591,9 @@ mod tests {
 
     use super::{
         inspector_action_row, inspector_action_safety_summary, inspector_empty_state_actions,
-        inspector_experiment_enabled,
-        inspector_pagination_footer, inspector_status_badge_row,
-        multi_pane_title_strip, InspectorBodySource, InspectorDocument,
-        InspectorAction, InspectorFocus, InspectorState, InspectorTab, PanelStackCoordinator,
+        inspector_experiment_enabled, inspector_pagination_footer, inspector_status_badge_row,
+        multi_pane_title_strip, InspectorAction, InspectorBodySource, InspectorDocument,
+        InspectorFocus, InspectorState, InspectorTab, PanelStackCoordinator,
     };
 
     #[test]

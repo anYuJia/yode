@@ -54,6 +54,42 @@ impl TerminalCaps {
         !self.truecolor || self.in_ssh
     }
 
+    /// Whether the terminal likely supports OSC 8 hyperlinks.
+    pub fn supports_hyperlinks(&self) -> bool {
+        const ADDITIONAL_HYPERLINK_TERMINALS: &[&str] = &[
+            "ghostty",
+            "Hyper",
+            "kitty",
+            "alacritty",
+            "iTerm.app",
+            "iTerm2",
+            "WezTerm",
+            "vscode",
+        ];
+
+        if self.in_vscode
+            || self
+                .term
+                .as_deref()
+                .is_some_and(|term| term.contains("kitty"))
+        {
+            return true;
+        }
+
+        if self
+            .term_program
+            .as_deref()
+            .is_some_and(|program| ADDITIONAL_HYPERLINK_TERMINALS.contains(&program))
+        {
+            return true;
+        }
+
+        std::env::var("LC_TERMINAL")
+            .ok()
+            .as_deref()
+            .is_some_and(|terminal| ADDITIONAL_HYPERLINK_TERMINALS.contains(&terminal))
+    }
+
     /// Get a summary string for diagnostics (e.g. /doctor command).
     pub fn summary(&self) -> String {
         let mut parts = Vec::new();
@@ -73,6 +109,9 @@ impl TerminalCaps {
         }
         if self.in_vscode {
             parts.push("vscode".to_string());
+        }
+        if self.supports_hyperlinks() {
+            parts.push("hyperlinks".to_string());
         }
         parts.join(", ")
     }

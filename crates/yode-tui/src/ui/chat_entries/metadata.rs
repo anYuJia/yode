@@ -1,11 +1,8 @@
+use crate::ui::palette::{ERROR_COLOR, INFO_COLOR, SUCCESS_COLOR, WARNING_COLOR};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use crate::ui::palette::{ERROR_COLOR, INFO_COLOR, SUCCESS_COLOR, WARNING_COLOR};
 
-pub(super) fn render_metadata_lines(
-    lines: &mut Vec<Line<'static>>,
-    metadata: &serde_json::Value,
-) {
+pub(super) fn render_metadata_lines(lines: &mut Vec<Line<'static>>, metadata: &serde_json::Value) {
     render_tool_hint_lines(lines, metadata);
     render_diff_preview_lines(lines, metadata);
     if let Some(truncation) = metadata
@@ -22,10 +19,7 @@ pub(super) fn render_metadata_lines(
     }
 }
 
-pub(super) fn render_tool_hint_lines(
-    lines: &mut Vec<Line<'static>>,
-    metadata: &serde_json::Value,
-) {
+pub(super) fn render_tool_hint_lines(lines: &mut Vec<Line<'static>>, metadata: &serde_json::Value) {
     if let Some(reason) = metadata
         .get("read_only_reason")
         .and_then(|value| value.as_str())
@@ -123,8 +117,12 @@ mod tests {
                 "rewrite_suggestion": "Prefer read_file"
             }),
         );
-        assert!(lines[0].to_string().contains("read-only: validated git status"));
-        assert!(lines[1].to_string().contains("warning: may discard changes"));
+        assert!(lines[0]
+            .to_string()
+            .contains("read-only: validated git status"));
+        assert!(lines[1]
+            .to_string()
+            .contains("warning: may discard changes"));
         assert!(lines[2].to_string().contains("hint: Prefer read_file"));
     }
 

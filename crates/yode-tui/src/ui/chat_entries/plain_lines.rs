@@ -1,4 +1,4 @@
-use crate::app::rendering::{is_code_block_line, markdown_to_plain};
+use crate::app::rendering::is_code_block_line;
 use crate::app::ChatEntry;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,38 +29,9 @@ pub(crate) fn user_plain_lines(entry: &ChatEntry) -> Vec<PlainChatLine> {
     result
 }
 
-pub(crate) fn assistant_plain_lines(entry: &ChatEntry) -> Vec<PlainChatLine> {
-    let processed = markdown_to_plain(&entry.content);
-    if processed.trim().is_empty() {
-        return Vec::new();
-    }
-
-    let mut first_content = true;
-    let mut result = Vec::new();
-    for line in processed.lines() {
-        if line.trim().is_empty() {
-            result.push(PlainChatLine {
-                prefix: "",
-                content: String::new(),
-                highlight_code: false,
-            });
-            continue;
-        }
-
-        let prefix = if first_content { "⏺ " } else { "  " };
-        result.push(PlainChatLine {
-            prefix,
-            content: line.to_string(),
-            highlight_code: is_code_block_line(line),
-        });
-        first_content = false;
-    }
-    result
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{assistant_plain_lines, user_plain_lines, PlainChatLine};
+    use super::{user_plain_lines, PlainChatLine};
     use crate::app::{ChatEntry, ChatRole};
 
     #[test]
@@ -78,56 +49,6 @@ mod tests {
                 PlainChatLine {
                     prefix: "  ",
                     content: "    let x = 1;".to_string(),
-                    highlight_code: true,
-                },
-            ]
-        );
-    }
-
-    #[test]
-    fn assistant_plain_lines_mark_code_after_first_line() {
-        let entry = ChatEntry::new(
-            ChatRole::Assistant,
-            "Here is the fix:\n```rust\nfn main() {}\n```".to_string(),
-        );
-
-        assert_eq!(
-            assistant_plain_lines(&entry),
-            vec![
-                PlainChatLine {
-                    prefix: "⏺ ",
-                    content: "Here is the fix:".to_string(),
-                    highlight_code: false,
-                },
-                PlainChatLine {
-                    prefix: "  ",
-                    content: "─── rust ───".to_string(),
-                    highlight_code: true,
-                },
-                PlainChatLine {
-                    prefix: "  ",
-                    content: "    fn main() {}".to_string(),
-                    highlight_code: true,
-                },
-            ]
-        );
-    }
-
-    #[test]
-    fn assistant_plain_lines_mark_code_when_message_starts_with_block() {
-        let entry = ChatEntry::new(ChatRole::Assistant, "```python\nprint(1)\n```".to_string());
-
-        assert_eq!(
-            assistant_plain_lines(&entry),
-            vec![
-                PlainChatLine {
-                    prefix: "⏺ ",
-                    content: "─── python ───".to_string(),
-                    highlight_code: true,
-                },
-                PlainChatLine {
-                    prefix: "  ",
-                    content: "    print(1)".to_string(),
                     highlight_code: true,
                 },
             ]

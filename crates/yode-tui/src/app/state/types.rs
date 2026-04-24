@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
-use tokio_util::sync::CancellationToken;
 use crate::ui::inspector::{InspectorDocument, PanelStackCoordinator};
+use tokio_util::sync::CancellationToken;
 
 /// A pending tool confirmation.
 #[derive(Debug, Clone)]
@@ -249,11 +249,28 @@ impl ThinkingState {
             .unwrap_or(0)
     }
 
-    pub fn advance_spinner(&mut self) {
+    pub fn advance_spinner(&mut self) -> bool {
         self.tick_count += 1;
         if self.tick_count >= SPINNER_TICK_DIVISOR {
             self.tick_count = 0;
             self.spinner_frame = (self.spinner_frame + 1) % SPINNER_FRAMES.len();
+            true
+        } else {
+            false
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ThinkingState;
+
+    #[test]
+    fn advance_spinner_only_reports_true_on_visible_frame_change() {
+        let mut state = ThinkingState::new();
+        assert!(!state.advance_spinner());
+        assert!(!state.advance_spinner());
+        assert!(!state.advance_spinner());
+        assert!(state.advance_spinner());
     }
 }

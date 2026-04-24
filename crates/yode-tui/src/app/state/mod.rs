@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
+use ratatui::text::Line;
 use tokio::sync::{mpsc, Mutex};
 
 use yode_core::engine::{AgentEngine, ConfirmResponse};
@@ -37,11 +38,12 @@ pub struct App {
     pub streaming_buf: String,
     pub streaming_reasoning: String,
     pub streaming_tag_buf: String,
-    pub streaming_printed_lines: usize,
-    pub streaming_in_code_block: bool,
-    pub streaming_code_block_language: Option<crate::app::rendering::CodeLanguage>,
-    pub streaming_shell_session_state: crate::app::rendering::ShellSessionState,
-    pub streaming_remainder: Option<(Vec<String>, bool)>,
+    pub streaming_markdown_stable_len: usize,
+    pub streaming_markdown_cached_buf_len: usize,
+    pub streaming_markdown_cached_width: usize,
+    pub streaming_markdown_preview_source: String,
+    pub streaming_markdown_preview: Vec<Line<'static>>,
+    pub streaming_markdown_remainder: Option<(Vec<String>, bool)>,
     pub thinking_printed: bool,
     pub received_reasoning_delta: bool,
     pub pending_confirmation: Option<PendingConfirmation>,
@@ -77,6 +79,8 @@ pub struct App {
     pub suggestion_generating: bool,
     pub last_suggestion_time: Instant,
     pub last_task_brief_time: Instant,
+    pub last_turn_completion_message: Option<String>,
+    pub last_session_memory_update_message: Option<String>,
 }
 
 impl App {
@@ -118,11 +122,12 @@ impl App {
             streaming_buf: String::new(),
             streaming_reasoning: String::new(),
             streaming_tag_buf: String::new(),
-            streaming_printed_lines: 0,
-            streaming_in_code_block: false,
-            streaming_code_block_language: None,
-            streaming_shell_session_state: crate::app::rendering::ShellSessionState::Idle,
-            streaming_remainder: None,
+            streaming_markdown_stable_len: 0,
+            streaming_markdown_cached_buf_len: 0,
+            streaming_markdown_cached_width: 0,
+            streaming_markdown_preview_source: String::new(),
+            streaming_markdown_preview: Vec::new(),
+            streaming_markdown_remainder: None,
             thinking_printed: false,
             received_reasoning_delta: false,
             pending_confirmation: None,
@@ -158,6 +163,8 @@ impl App {
             suggestion_generating: false,
             last_suggestion_time: Instant::now(),
             last_task_brief_time: Instant::now(),
+            last_turn_completion_message: None,
+            last_session_memory_update_message: None,
         }
     }
 

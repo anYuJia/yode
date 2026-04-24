@@ -2,11 +2,16 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 
 use crate::app::ChatEntry;
-use crate::ui::chat::{render_markdown_white, ACCENT, DIM};
+use crate::ui::chat::{render_markdown_white_with_options, ACCENT, DIM};
 use crate::ui::palette::{INFO_COLOR, PANEL_ACCENT};
 
 // Claude Code style: ⏺ prefix on first line, indented continuation
-pub(crate) fn render_assistant(lines: &mut Vec<Line<'static>>, entry: &ChatEntry) {
+pub(crate) fn render_assistant(
+    lines: &mut Vec<Line<'static>>,
+    entry: &ChatEntry,
+    max_width: usize,
+    enable_hyperlinks: bool,
+) {
     if let Some(reasoning) = &entry.reasoning {
         if !reasoning.trim().is_empty() {
             lines.push(Line::from(vec![Span::styled(
@@ -32,7 +37,8 @@ pub(crate) fn render_assistant(lines: &mut Vec<Line<'static>>, entry: &ChatEntry
         }
     }
 
-    let markdown = render_markdown_white(&entry.content);
+    let markdown =
+        render_markdown_white_with_options(&entry.content, Some(max_width), enable_hyperlinks);
     for (index, line) in markdown.into_iter().enumerate() {
         let mut spans = Vec::new();
         if index == 0 {

@@ -26,30 +26,38 @@ pub(super) async fn run_app(
     engine_event_tx: mpsc::UnboundedSender<EngineEvent>,
     engine_event_rx: &mut mpsc::UnboundedReceiver<EngineEvent>,
 ) -> Result<()> {
+    let mut force_redraw = true;
     loop {
         app.sync_thinking();
+        let mut ui_dirty = false;
 
         while let Ok(event) = engine_event_rx.try_recv() {
             handle_engine_event(app, event, &engine, &engine_event_tx);
+            ui_dirty = true;
         }
-        maybe_surface_runtime_task_notifications(app, &engine);
+        if maybe_surface_runtime_task_notifications(app, &engine) {
+            ui_dirty = true;
+        }
 
-        crossterm::execute!(
-            terminal.backend_mut(),
-            crossterm::terminal::BeginSynchronizedUpdate
-        )?;
+        let scrollback_dirty = flush_entries_to_scrollback(terminal, app)?;
+        if force_redraw || ui_dirty || scrollback_dirty {
+            crossterm::execute!(
+                terminal.backend_mut(),
+                crossterm::terminal::BeginSynchronizedUpdate
+            )?;
 
-        flush_entries_to_scrollback(terminal, app)?;
-        resize_inline_viewport(terminal, app)?;
+            resize_inline_viewport(terminal, app)?;
 
-        terminal.draw(|frame| {
-            ui::render(frame, app);
-        })?;
+            terminal.draw(|frame| {
+                ui::render(frame, app);
+            })?;
 
-        crossterm::execute!(
-            terminal.backend_mut(),
-            crossterm::terminal::EndSynchronizedUpdate
-        )?;
+            crossterm::execute!(
+                terminal.backend_mut(),
+                crossterm::terminal::EndSynchronizedUpdate
+            )?;
+            force_redraw = false;
+        }
 
         if app.should_quit {
             break;
@@ -59,14 +67,18 @@ pub(super) async fn run_app(
             match app_event {
                 AppEvent::Key(key) => {
                     handle_key_event(terminal, app, key, &engine, &tools, &engine_event_tx);
+                    force_redraw = true;
                 }
                 AppEvent::Paste(text) => {
                     handle_paste_event(app, text);
+                    force_redraw = true;
                 }
-                AppEvent::Resize(_, _) => {}
+                AppEvent::Resize(_, _) => {
+                    force_redraw = true;
+                }
                 AppEvent::Tick => {
-                    if app.is_thinking {
-                        app.thinking.advance_spinner();
+                    if app.is_thinking && app.thinking.advance_spinner() {
+                        force_redraw = true;
                     }
                 }
             }
@@ -81,7 +93,11 @@ pub(super) async fn run_app(
     Ok(())
 }
 
-fn maybe_surface_runtime_task_notifications(app: &mut App, engine: &Arc<Mutex<AgentEngine>>) {
+fn maybe_surface_runtime_task_notifications(
+    app: &mut App,
+    engine: &Arc<Mutex<AgentEngine>>,
+) -> bool {
+    let mut changed = false;
     if let Ok(engine_guard) = engine.try_lock() {
         for notification in engine_guard.drain_runtime_task_notifications() {
             push_system_entry(
@@ -92,6 +108,7 @@ fn maybe_surface_runtime_task_notifications(app: &mut App, engine: &Arc<Mutex<Ag
                     notification.message
                 ),
             );
+            changed = true;
         }
 
         if app.last_task_brief_time.elapsed() >= Duration::from_secs(45) {
@@ -116,9 +133,11 @@ fn maybe_surface_runtime_task_notifications(app: &mut App, engine: &Arc<Mutex<Ag
                 }
                 push_system_entry(app, lines.join("\n"));
                 app.last_task_brief_time = Instant::now();
+                changed = true;
             }
         }
     }
+    changed
 }
 
 fn resize_inline_viewport(
@@ -189,7 +208,7 @@ fn viewport_height(app: &App, terminal: &mut Terminal<CrosstermBackend<io::Stdou
         return wizard.viewport_height() + 1;
     }
     if app.pending_confirmation.is_some() {
-        return 4;
+        return crate::ui::tool_confirm::INLINE_CONFIRM_HEIGHT;
     }
 
     let term_width = terminal.get_frame().area().width;

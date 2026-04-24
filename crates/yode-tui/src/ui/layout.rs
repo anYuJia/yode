@@ -9,6 +9,7 @@ pub struct MainLayoutPlan {
 }
 
 pub fn build_main_layout(area: Rect, app: &App) -> MainLayoutPlan {
+    const STREAMING_PREVIEW_HEIGHT: u16 = 6;
     let term_width = area.width;
     let visual_lines = app.input.visual_line_count(term_width) as u16;
     let input_height = visual_lines.clamp(1, 5);
@@ -30,7 +31,11 @@ pub fn build_main_layout(area: Rect, app: &App) -> MainLayoutPlan {
     let status_area_height = if completion_height > 0 {
         0
     } else if status_height_raw > 0 {
-        3
+        if app.streaming_markdown_preview.is_empty() {
+            3
+        } else {
+            STREAMING_PREVIEW_HEIGHT
+        }
     } else {
         0
     };
@@ -65,5 +70,52 @@ pub fn build_main_layout(area: Rect, app: &App) -> MainLayoutPlan {
             .to_vec(),
         show_turn_status: status_area_height > 0,
         show_completion: completion_height > 0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use yode_llm::registry::ProviderRegistry;
+    use yode_tools::registry::ToolRegistry;
+
+    use crate::app::App;
+
+    use super::build_main_layout;
+
+    fn test_app() -> App {
+        App::new(
+            "test-model".to_string(),
+            "session-1234".to_string(),
+            "/tmp".to_string(),
+            "test".to_string(),
+            Vec::new(),
+            HashMap::new(),
+            Arc::new(ProviderRegistry::new()),
+            Arc::new(ToolRegistry::new()),
+        )
+    }
+
+    #[test]
+    fn streaming_preview_uses_fixed_status_height() {
+        let mut app = test_app();
+        app.turn_status = crate::app::TurnStatus::Working { verb: "Thinking" };
+        app.streaming_markdown_preview = vec![
+            ratatui::text::Line::from("a"),
+            ratatui::text::Line::from("b"),
+        ];
+        let plan = build_main_layout(ratatui::layout::Rect::new(0, 0, 80, 20), &app);
+        assert_eq!(plan.areas[0].height, 6);
+        assert!(plan.show_turn_status);
+    }
+
+    #[test]
+    fn empty_streaming_preview_keeps_compact_status_height() {
+        let mut app = test_app();
+        app.turn_status = crate::app::TurnStatus::Working { verb: "Thinking" };
+        let plan = build_main_layout(ratatui::layout::Rect::new(0, 0, 80, 20), &app);
+        assert_eq!(plan.areas[0].height, 3);
     }
 }

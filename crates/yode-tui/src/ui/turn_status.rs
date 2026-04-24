@@ -60,10 +60,7 @@ pub fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &
                     format!("  {} ", spinner),
                     Style::default().fg(Color::LightMagenta),
                 ),
-                Span::styled(
-                    working_label,
-                    Style::default().fg(Color::LightMagenta),
-                ),
+                Span::styled(working_label, Style::default().fg(Color::LightMagenta)),
                 Span::styled(
                     format!(" ({} · ↓{} tokens)", elapsed, format_tok(output_tok)),
                     Style::default().fg(Color::DarkGray),
@@ -133,11 +130,26 @@ pub fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &
         }
     };
 
-    let lines = if area.height >= 3 {
-        vec![Line::from(""), status_line, Line::from("")]
-    } else {
-        vec![status_line]
-    };
+    let mut lines = Vec::new();
+    if area.height >= 3 {
+        lines.push(Line::from(""));
+    }
+    lines.push(status_line);
+    if !app.streaming_markdown_preview.is_empty() {
+        let preview_capacity = area.height.saturating_sub(lines.len() as u16) as usize;
+        for preview_line in app
+            .streaming_markdown_preview
+            .iter()
+            .take(preview_capacity)
+            .cloned()
+        {
+            let mut spans = vec![Span::styled("  ", Style::default().fg(Color::DarkGray))];
+            spans.extend(preview_line.spans);
+            lines.push(Line::from(spans));
+        }
+    } else if area.height >= 3 {
+        lines.push(Line::from(""));
+    }
     frame.render_widget(Paragraph::new(lines), area);
 }
 
@@ -171,7 +183,8 @@ pub(crate) fn active_working_label(app: &App, fallback_verb: &str) -> String {
 
 fn tool_activity_label(app: &App, tool_name: &str, args_json: &str) -> Option<String> {
     let tool = app.tools.get(tool_name)?;
-    let args: serde_json::Value = serde_json::from_str(args_json).unwrap_or(serde_json::Value::Null);
+    let args: serde_json::Value =
+        serde_json::from_str(args_json).unwrap_or(serde_json::Value::Null);
     let description = tool.activity_description(&args);
     if description.trim().is_empty() {
         return None;
@@ -267,7 +280,10 @@ mod tests {
             "{}".to_string(),
         )];
 
-        assert_eq!(active_working_label(&app, "Working"), "Analyzing 1 project...");
+        assert_eq!(
+            active_working_label(&app, "Working"),
+            "Analyzing 1 project..."
+        );
     }
 
     #[test]
@@ -289,7 +305,8 @@ mod tests {
                 id: "a".to_string(),
                 name: "edit_file".to_string(),
             },
-            "{\"file_path\":\"/tmp/demo.rs\",\"old_string\":\"a\",\"new_string\":\"b\"}".to_string(),
+            "{\"file_path\":\"/tmp/demo.rs\",\"old_string\":\"a\",\"new_string\":\"b\"}"
+                .to_string(),
         )];
 
         assert_eq!(

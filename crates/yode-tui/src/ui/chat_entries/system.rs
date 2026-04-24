@@ -123,9 +123,17 @@ fn system_styles(kind: SystemMessageKind) -> (&'static str, Style, Style) {
 }
 
 fn grouped_batch_title(batch: &SystemBatch) -> &'static str {
-    if batch.items.iter().all(|item| item.kind == SystemMessageKind::Task) {
+    if batch
+        .items
+        .iter()
+        .all(|item| item.kind == SystemMessageKind::Task)
+    {
         "Task updates"
-    } else if batch.items.iter().all(|item| item.kind == SystemMessageKind::Export) {
+    } else if batch
+        .items
+        .iter()
+        .all(|item| item.kind == SystemMessageKind::Export)
+    {
         "Exports"
     } else {
         "Status updates"

@@ -2,8 +2,8 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use unicode_width::UnicodeWidthChar;
 
-use crate::app::App;
 use crate::app::input::PLACEHOLDER;
+use crate::app::App;
 
 pub struct WrappedInputLayout {
     pub lines: Vec<Line<'static>>,
@@ -28,7 +28,8 @@ pub fn build_wrapped_input_layout(
         let prefix_str = if line_index == 0 { "❯ " } else { "  " };
         let prefix_width = 2usize;
 
-        let mut items: Vec<(String, Style, usize)> = vec![(prefix_str.to_string(), prompt_style, prefix_width)];
+        let mut items: Vec<(String, Style, usize)> =
+            vec![(prefix_str.to_string(), prompt_style, prefix_width)];
         let mut buffer = String::new();
         for ch in logical_line.chars() {
             if ch == PLACEHOLDER {
@@ -141,7 +142,11 @@ fn wrap_item_into_lines(
             {
                 break;
             }
-            if term_width > 0 && *col == 0 && chunk_width + char_width > term_width && chunk_width > 0 {
+            if term_width > 0
+                && *col == 0
+                && chunk_width + char_width > term_width
+                && chunk_width > 0
+            {
                 break;
             }
             chunk.push(ch);

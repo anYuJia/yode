@@ -3,6 +3,10 @@ use serde_json::Value;
 use crate::app::{ChatEntry, ChatRole};
 use crate::system_message::{parse_system_message, SystemMessageKind};
 
+pub(crate) fn should_hide_tool_from_transcript(name: &str) -> bool {
+    matches!(name, "task_output")
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ToolBatchKind {
     Read,
@@ -14,7 +18,7 @@ pub(crate) enum ToolBatchKind {
     Explore,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum ToolBatchItemKind {
     SearchPattern,
     SearchWeb,
@@ -58,6 +62,21 @@ pub(crate) struct SystemBatch {
     pub start_index: usize,
     pub next_index: usize,
     pub items: Vec<SystemBatchItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SubAgentBatchItem {
+    pub call_index: usize,
+    pub result_index: usize,
+    pub description: String,
+    pub tool_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SubAgentBatch {
+    pub start_index: usize,
+    pub next_index: usize,
+    pub items: Vec<SubAgentBatchItem>,
 }
 
 pub(crate) fn detect_groupable_tool_batch(
@@ -146,6 +165,44 @@ pub(crate) fn summarize_groupable_tool_call(
     Some(if is_active { format!("{}...", text) } else { text })
 }
 
+pub(crate) fn summarize_batch_invocations(
+    args: &Value,
+    is_active: bool,
+) -> Option<(String, Option<String>)> {
+    let invocations = args.get("invocations")?.as_array()?;
+    let mut counts = std::collections::BTreeMap::new();
+    let mut first_target = None;
+
+    for invocation in invocations {
+        let tool_name = invocation.get("tool_name").and_then(Value::as_str)?;
+        let params = invocation.get("params").unwrap_or(&Value::Null);
+        let kind = classify_groupable_tool(tool_name, params)?;
+        *counts.entry(kind).or_insert(0usize) += 1;
+        if first_target.is_none() {
+            first_target = batch_invocation_target(tool_name, params);
+        }
+    }
+
+    if counts.is_empty() {
+        return None;
+    }
+
+    let mut parts = Vec::new();
+    for kind in SUMMARY_KIND_ORDER {
+        let count = counts.get(kind).copied().unwrap_or(0);
+        if count == 0 {
+            continue;
+        }
+        parts.push(summary_part_for_kind(*kind, count, is_active, parts.is_empty()));
+    }
+
+    let text = parts.join(", ");
+    Some((
+        if is_active { format!("{}...", text) } else { text },
+        first_target,
+    ))
+}
+
 pub(crate) fn describe_tool_call(
     tool_name: &str,
     args: &Value,
@@ -169,15 +226,28 @@ pub(crate) fn describe_tool_call(
         "bash" | "powershell" => Some(format!(
             "{} {}",
             if is_active { "Running" } else { "Ran" },
-            truncate_words(args.get("command").and_then(Value::as_str).unwrap_or("command"), 72)
+            truncate_words(
+                args.get("command")
+                    .and_then(Value::as_str)
+                    .unwrap_or("command")
+                    .lines()
+                    .next()
+                    .unwrap_or("command"),
+                72,
+            )
         )),
         "batch" => Some(format!(
-            "{} {} tools in parallel",
-            if is_active { "Running" } else { "Ran" },
-            args.get("invocations")
-                .and_then(Value::as_array)
-                .map(|items| items.len())
-                .unwrap_or(0)
+            "{}",
+            summarize_batch_invocations(args, is_active)
+                .map(|(summary, _)| summary)
+                .unwrap_or_else(|| format!(
+                    "{} {} tools in parallel",
+                    if is_active { "Running" } else { "Ran" },
+                    args.get("invocations")
+                        .and_then(Value::as_array)
+                        .map(|items| items.len())
+                        .unwrap_or(0)
+                ))
         )),
         "notebook_edit" => Some(format!(
             "{} notebook {}",
@@ -333,6 +403,42 @@ pub(crate) fn detect_groupable_system_batch(
     })
 }
 
+pub(crate) fn detect_groupable_subagent_batch(
+    entries: &[ChatEntry],
+    start_index: usize,
+) -> Option<SubAgentBatch> {
+    let Some(ChatEntry {
+        role: ChatRole::SubAgentCall { .. },
+        ..
+    }) = entries.get(start_index)
+    else {
+        return None;
+    };
+
+    let mut index = start_index;
+    let mut items = Vec::new();
+    while let Some(item) = parse_subagent_segment(entries, index) {
+        index = item.result_index + 1;
+        items.push(item);
+        let Some(next_entry) = entries.get(index) else {
+            break;
+        };
+        if !matches!(next_entry.role, ChatRole::SubAgentCall { .. }) {
+            break;
+        }
+    }
+
+    if items.len() < 2 {
+        return None;
+    }
+
+    Some(SubAgentBatch {
+        start_index,
+        next_index: index,
+        items,
+    })
+}
+
 const SUMMARY_KIND_ORDER: &[ToolBatchItemKind] = &[
     ToolBatchItemKind::SearchPattern,
     ToolBatchItemKind::SearchSymbol,
@@ -372,6 +478,22 @@ fn classify_groupable_tool(name: &str, args: &Value) -> Option<ToolBatchItemKind
             "hover" | "goToDefinition" | "documentSymbol" => Some(ToolBatchItemKind::InspectSymbol),
             _ => None,
         },
+        _ => None,
+    }
+}
+
+fn batch_invocation_target(tool_name: &str, args: &Value) -> Option<String> {
+    match tool_name {
+        "read_file" => Some(compact_path(
+            args.get("file_path").and_then(Value::as_str).unwrap_or("file"),
+        )),
+        "grep" | "glob" => Some(format!(
+            "\"{}\"",
+            args.get("pattern").and_then(Value::as_str).unwrap_or("pattern")
+        )),
+        "ls" => Some(compact_path(
+            args.get("path").and_then(Value::as_str).unwrap_or("."),
+        )),
         _ => None,
     }
 }
@@ -609,6 +731,33 @@ fn describe_memory_action(action: &str, is_active: bool) -> &'static str {
     }
 }
 
+fn parse_subagent_segment(entries: &[ChatEntry], start_index: usize) -> Option<SubAgentBatchItem> {
+    let call = entries.get(start_index)?;
+    let ChatRole::SubAgentCall { description } = &call.role else {
+        return None;
+    };
+    let mut tool_count = 0usize;
+    let mut index = start_index + 1;
+    while let Some(entry) = entries.get(index) {
+        match &entry.role {
+            ChatRole::SubAgentToolCall { .. } => {
+                tool_count += 1;
+                index += 1;
+            }
+            ChatRole::SubAgentResult => {
+                return Some(SubAgentBatchItem {
+                    call_index: start_index,
+                    result_index: index,
+                    description: description.clone(),
+                    tool_count,
+                });
+            }
+            _ => return None,
+        }
+    }
+    None
+}
+
 fn is_groupable_system_kind(kind: SystemMessageKind) -> bool {
     matches!(
         kind,
@@ -626,8 +775,9 @@ mod tests {
     use crate::app::{ChatEntry, ChatRole};
 
     use super::{
-        describe_groupable_tool_call, describe_tool_call, detect_groupable_system_batch,
-        detect_groupable_tool_batch, tool_batch_summary_text, ToolBatchKind, ToolBatchItemKind,
+        describe_groupable_tool_call, describe_tool_call, detect_groupable_subagent_batch,
+        detect_groupable_system_batch, detect_groupable_tool_batch, tool_batch_summary_text,
+        summarize_batch_invocations, ToolBatchKind, ToolBatchItemKind,
     };
 
     #[test]
@@ -822,5 +972,53 @@ mod tests {
         .unwrap();
         assert_eq!(edit, "Editing .../src/main.rs");
         assert_eq!(shell, "Ran cargo test -p yode-tui");
+    }
+
+    #[test]
+    fn detects_consecutive_completed_subagent_segments() {
+        let entries = vec![
+            ChatEntry::new(
+                ChatRole::SubAgentCall {
+                    description: "审查UI/UX分析遗漏".to_string(),
+                },
+                String::new(),
+            ),
+            ChatEntry::new(
+                ChatRole::SubAgentToolCall {
+                    name: "read_file".to_string(),
+                },
+                String::new(),
+            ),
+            ChatEntry::new(ChatRole::SubAgentResult, "done".to_string()),
+            ChatEntry::new(
+                ChatRole::SubAgentCall {
+                    description: "审查交互与动效细节".to_string(),
+                },
+                String::new(),
+            ),
+            ChatEntry::new(ChatRole::SubAgentResult, "done".to_string()),
+        ];
+        let batch = detect_groupable_subagent_batch(&entries, 0).unwrap();
+        assert_eq!(batch.items.len(), 2);
+        assert_eq!(batch.items[0].tool_count, 1);
+        assert_eq!(batch.items[1].tool_count, 0);
+        assert_eq!(batch.next_index, 5);
+    }
+
+    #[test]
+    fn summarizes_batch_invocations_as_exploration_summary() {
+        let (summary, target) = summarize_batch_invocations(
+            &serde_json::json!({
+                "invocations": [
+                    {"tool_name": "grep", "params": {"pattern": "showDialog"}},
+                    {"tool_name": "read_file", "params": {"file_path": "/tmp/lib/a.dart"}},
+                    {"tool_name": "read_file", "params": {"file_path": "/tmp/lib/b.dart"}}
+                ]
+            }),
+            true,
+        )
+        .unwrap();
+        assert_eq!(summary, "Searching for 1 pattern, reading 2 files...");
+        assert_eq!(target.as_deref(), Some("\"showDialog\""));
     }
 }

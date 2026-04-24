@@ -231,6 +231,13 @@ pub(super) fn handle_key_event(
     }
 
     if key.code == KeyCode::Esc {
+        if app.pending_confirmation.is_some() {
+            if let Some(tx) = &app.confirm_tx {
+                let _ = tx.send(ConfirmResponse::Deny);
+            }
+            app.pending_confirmation = None;
+            return;
+        }
         if app.is_thinking {
             app.cancel_generation();
         } else if app.cmd_completion.is_active() {
@@ -270,6 +277,15 @@ pub(super) fn handle_key_event(
 
     if app.pending_confirmation.is_some() {
         match key.code {
+            KeyCode::Tab => {
+                amend_pending_confirmation(app);
+            }
+            KeyCode::Char('e')
+                if key.modifiers.contains(KeyModifiers::CONTROL)
+                    || key.modifiers.contains(KeyModifiers::SUPER) =>
+            {
+                explain_pending_confirmation(app);
+            }
             KeyCode::Char('o')
                 if key.modifiers.contains(KeyModifiers::CONTROL)
                     || key.modifiers.contains(KeyModifiers::SUPER) =>
@@ -415,6 +431,62 @@ pub(super) fn handle_key_event(
         KeyCode::PageDown => {}
         _ => {}
     }
+}
+
+fn amend_pending_confirmation(app: &mut App) {
+    let Some(confirm) = app.pending_confirmation.as_ref() else {
+        return;
+    };
+
+    let replacement = pending_confirmation_amend_text(confirm);
+    app.input.set_text(&replacement);
+    if let Some(tx) = &app.confirm_tx {
+        let _ = tx.send(ConfirmResponse::Deny);
+    }
+    app.pending_confirmation = None;
+}
+
+fn pending_confirmation_amend_text(confirm: &crate::app::PendingConfirmation) -> String {
+    let parsed: serde_json::Value =
+        serde_json::from_str(&confirm.arguments).unwrap_or(serde_json::Value::Null);
+
+    match confirm.name.as_str() {
+        "bash" | "powershell" => parsed
+            .get("command")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        "read_file" | "write_file" | "edit_file" | "multi_edit" => parsed
+            .get("file_path")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        _ => confirm.arguments.clone(),
+    }
+}
+
+fn explain_pending_confirmation(app: &mut App) {
+    let Some(confirm) = app.pending_confirmation.as_ref() else {
+        return;
+    };
+
+    let explanation = match confirm.name.as_str() {
+        "bash" | "powershell" => {
+            "This command requires approval because shell access can run arbitrary programs, read local files, or modify the workspace.".to_string()
+        }
+        "edit_file" | "write_file" | "multi_edit" => {
+            "This command requires approval because it will change files in the workspace.".to_string()
+        }
+        "web_search" | "web_fetch" | "web_browser" => {
+            "This command requires approval because it uses network access.".to_string()
+        }
+        _ => format!(
+            "{} requires approval before execution.",
+            confirm.name
+        ),
+    };
+
+    push_system_entry(app, explanation);
 }
 
 fn execute_inspector_internal_action(app: &mut App, command: &str) -> bool {

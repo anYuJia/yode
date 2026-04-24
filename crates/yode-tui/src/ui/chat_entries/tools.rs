@@ -3,8 +3,7 @@ use ratatui::text::{Line, Span};
 
 use super::folding::{
     render_bash_preview_lines, render_edit_preview_lines, render_folded_result_lines,
-    render_shell_result_lines,
-    render_write_preview_lines,
+    render_shell_result_lines, render_write_preview_lines,
 };
 use super::metadata::render_metadata_lines;
 use super::tool_helpers::{tool_summary_value, truncate_ellipsis};
@@ -132,9 +131,16 @@ pub(crate) fn render_tool_call(
         _ => {}
     }
 
-    render_tool_summary_lines(lines, &summary_result.lines);
+    if name == "batch" && !summary_result.lines.is_empty() {
+        render_tool_summary_lines(lines, &summary_result.lines[1..]);
+    } else {
+        render_tool_summary_lines(lines, &summary_result.lines);
+    }
 
-    if !summary_result.hide_body_by_default && !result_content.is_empty() {
+    if !summary_result.hide_body_by_default
+        && summary_result.lines.is_empty()
+        && !result_content.is_empty()
+    {
         if matches!(name, "bash" | "powershell") {
             render_shell_result_lines(
                 lines,
@@ -166,7 +172,7 @@ pub(crate) fn render_grouped_tool_call(
         ),
     ]));
 
-    let max_items = 4;
+    let max_items = 1;
     for (index, item) in batch.items.iter().take(max_items).enumerate() {
         let call = &all_entries[item.call_index];
         let args: serde_json::Value = serde_json::from_str(&call.content).unwrap_or_default();
@@ -238,7 +244,10 @@ pub(crate) fn render_standalone_result(lines: &mut Vec<Line<'static>>, entry: &C
             *is_error,
         );
         lines.push(Line::from(vec![
-            Span::styled("  ⎿ ", Style::default().fg(if *is_error { RED } else { ACCENT })),
+            Span::styled(
+                "  ⎿ ",
+                Style::default().fg(if *is_error { RED } else { ACCENT }),
+            ),
             Span::styled(
                 tool_display_name(name),
                 Style::default()
@@ -250,7 +259,10 @@ pub(crate) fn render_standalone_result(lines: &mut Vec<Line<'static>>, entry: &C
             render_metadata_lines(lines, metadata);
         }
         render_tool_summary_lines(lines, &summary_result.lines);
-        if !summary_result.hide_body_by_default {
+        if !summary_result.hide_body_by_default
+            && summary_result.lines.is_empty()
+            && !entry.content.is_empty()
+        {
             if matches!(name.as_str(), "bash" | "powershell") {
                 render_shell_result_lines(
                     lines,
@@ -443,8 +455,7 @@ mod tests {
             .to_string()
             .contains("Searched for 1 pattern, read 1 file, listed 1 directory"));
         assert!(lines[1].to_string().contains("retry"));
-        assert!(lines[2].to_string().contains(".../src/app.rs"));
-        assert!(lines[3].to_string().contains(".../tmp/src"));
+        assert!(lines[2].to_string().contains("+2 more exploration steps"));
     }
 
     #[test]
@@ -501,7 +512,7 @@ mod tests {
             .to_string()
             .contains("Searched the web for 1 query, inspected 1 symbol"));
         assert!(lines[1].to_string().contains("ratatui status summary"));
-        assert!(lines[2].to_string().contains("hover .../src/main.rs"));
+        assert!(lines[2].to_string().contains("+1 more exploration steps"));
     }
 
     #[test]
@@ -522,7 +533,14 @@ mod tests {
             "{\"file_path\":\"/tmp/src/main.rs\"}".to_string(),
         );
         let mut lines = Vec::new();
-        render_tool_call(&mut lines, "read_file", &call.content, Some(&entry), None, call.timestamp);
+        render_tool_call(
+            &mut lines,
+            "read_file",
+            &call.content,
+            Some(&entry),
+            None,
+            call.timestamp,
+        );
         assert!(lines[0].to_string().contains("Read .../src/main.rs"));
         assert!(!lines[0].to_string().contains("Read_file"));
     }
@@ -543,12 +561,16 @@ mod tests {
         }));
         let mut lines: Vec<Line<'static>> = Vec::new();
         render_standalone_result(&mut lines, &entry);
-        assert!(lines.iter().any(|line| line.to_string().contains("read-only: validated git status")));
-        assert!(lines.iter().any(|line| line.to_string().contains("hint: Prefer read_file")));
+        assert!(lines
+            .iter()
+            .any(|line| line.to_string().contains("read-only: validated git status")));
+        assert!(lines
+            .iter()
+            .any(|line| line.to_string().contains("hint: Prefer read_file")));
     }
 
     #[test]
-    fn standalone_shell_result_splits_stdout_stderr_and_exit_code() {
+    fn standalone_shell_result_hides_verbose_sections() {
         let entry = ChatEntry::new(
             ChatRole::ToolResult {
                 id: "a".to_string(),
@@ -559,8 +581,15 @@ mod tests {
         );
         let mut lines: Vec<Line<'static>> = Vec::new();
         render_standalone_result(&mut lines, &entry);
-        assert!(lines.iter().any(|line| line.to_string().contains("stdout")));
-        assert!(lines.iter().any(|line| line.to_string().contains("stderr")));
-        assert!(lines.iter().any(|line| line.to_string().contains("exit code 2")));
+        assert!(lines[0].to_string().contains("Bash"));
+        assert!(lines
+            .iter()
+            .all(|line| !line.to_string().contains("stdout")));
+        assert!(lines
+            .iter()
+            .all(|line| !line.to_string().contains("stderr")));
+        assert!(lines
+            .iter()
+            .all(|line| !line.to_string().contains("exit code 2")));
     }
 }

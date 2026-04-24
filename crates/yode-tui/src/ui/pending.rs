@@ -10,7 +10,10 @@ pub fn queued_input_preview(display: &str, max_chars: usize) -> String {
     if first_line.chars().count() <= max_chars {
         first_line.to_string()
     } else {
-        format!("{}...", first_line.chars().take(max_chars).collect::<String>())
+        format!(
+            "{}...",
+            first_line.chars().take(max_chars).collect::<String>()
+        )
     }
 }
 

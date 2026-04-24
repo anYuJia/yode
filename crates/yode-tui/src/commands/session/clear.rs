@@ -41,10 +41,12 @@ impl Command for ClearCommand {
         ctx.chat_entries.clear();
         *ctx.printed_count = 0;
         ctx.streaming_buf.clear();
-        *ctx.streaming_printed_lines = 0;
-        *ctx.streaming_in_code_block = false;
-        *ctx.streaming_code_block_language = None;
-        *ctx.streaming_shell_session_state = crate::app::rendering::ShellSessionState::Idle;
+        *ctx.streaming_markdown_stable_len = 0;
+        *ctx.streaming_markdown_cached_buf_len = 0;
+        *ctx.streaming_markdown_cached_width = 0;
+        ctx.streaming_markdown_preview_source.clear();
+        ctx.streaming_markdown_preview.clear();
+        *ctx.streaming_markdown_remainder = None;
 
         // Reset turn tokens
         ctx.session.turn_input_tokens = 0;

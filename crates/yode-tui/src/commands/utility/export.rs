@@ -3,9 +3,11 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use crate::app::{
-    format_scrollback_entry_as_strings, format_scrollback_grouped_system_batch,
+    format_scrollback_entry_as_strings, format_scrollback_grouped_subagent_batch,
+    format_scrollback_grouped_system_batch,
     format_scrollback_grouped_tool_batch, ChatRole,
 };
+use crate::app::rendering::strip_ansi;
 use crate::commands::artifact_nav::{
     artifact_freshness_badge, latest_coordinator_artifact,
     latest_runtime_orchestration_artifact, latest_workflow_execution_artifact,
@@ -18,7 +20,10 @@ use crate::commands::{
 use crate::runtime_artifacts::{
     write_runtime_task_inventory_artifact, write_runtime_timeline_artifact,
 };
-use crate::tool_grouping::{detect_groupable_system_batch, detect_groupable_tool_batch};
+use crate::tool_grouping::{
+    detect_groupable_subagent_batch, detect_groupable_system_batch, detect_groupable_tool_batch,
+    should_hide_tool_from_transcript,
+};
 use crate::ui::status_summary::{
     context_window_summary_text, runtime_status_snapshot_from_parts,
     session_runtime_summary_text, tool_runtime_summary_text,
@@ -148,9 +153,23 @@ fn render_conversation_body(entries: &[crate::app::ChatEntry]) -> String {
     let mut output = String::new();
     let mut index = 0;
     while index < entries.len() {
+        match &entries[index].role {
+            ChatRole::ToolCall { name, .. } | ChatRole::ToolResult { name, .. }
+                if should_hide_tool_from_transcript(name) =>
+            {
+                index += 1;
+                continue;
+            }
+            _ => {}
+        }
         let (lines, next_index) = if let Some(batch) = detect_groupable_tool_batch(entries, index) {
             (
                 format_scrollback_grouped_tool_batch(entries, &batch),
+                batch.next_index,
+            )
+        } else if let Some(batch) = detect_groupable_subagent_batch(entries, index) {
+            (
+                format_scrollback_grouped_subagent_batch(entries, &batch),
                 batch.next_index,
             )
         } else if let Some(batch) = detect_groupable_system_batch(entries, index) {
@@ -166,7 +185,7 @@ fn render_conversation_body(entries: &[crate::app::ChatEntry]) -> String {
         };
 
         for (line, _) in lines {
-            output.push_str(&line);
+            output.push_str(&strip_ansi(&line));
             output.push('\n');
         }
         if next_index < entries.len() {

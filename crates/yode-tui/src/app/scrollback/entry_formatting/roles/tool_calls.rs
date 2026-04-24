@@ -5,7 +5,9 @@ use ratatui::style::Color;
 use crate::app::rendering::truncate_line;
 use crate::app::{ChatEntry, ChatRole};
 use crate::tool_grouping::{describe_tool_call, tool_batch_summary_text, ToolBatch};
-use crate::tool_output_summary::{parse_shell_output_sections, summarize_tool_result, ToolSummaryTone};
+use crate::tool_output_summary::{
+    parse_shell_output_sections, summarize_tool_result, ToolSummaryTone,
+};
 
 pub(super) fn render_tool_call(
     entry: &ChatEntry,
@@ -49,9 +51,8 @@ pub(super) fn render_tool_call(
     } else {
         let summary = tool_summary_str(name, &args);
         let activity_title = describe_tool_call(name, &args, tool_result.is_none());
-        let title = activity_title.unwrap_or_else(|| {
-            format!("{}({})", tool_display_name(name), summary)
-        });
+        let title =
+            activity_title.unwrap_or_else(|| format!("{}({})", tool_display_name(name), summary));
         result.push((
             format!("⏺ {}{}", title, timing),
             if is_error { red } else { accent },
@@ -60,39 +61,47 @@ pub(super) fn render_tool_call(
         if let Some(metadata) = tool_result.and_then(|entry| entry.tool_metadata.as_ref()) {
             render_metadata_hints(result, metadata, dim);
         }
-        render_summary_lines(result, &summary_result.lines, dim, green, red, red_dim);
+        if name == "batch" && !summary_result.lines.is_empty() {
+            render_summary_lines(result, &summary_result.lines[1..], dim, green, red, red_dim);
+        } else {
+            render_summary_lines(result, &summary_result.lines, dim, green, red, red_dim);
+        }
 
         if let Some(res) = tool_result {
-            if summary_result.hide_body_by_default {
+            if summary_result.hide_body_by_default || !summary_result.lines.is_empty() {
                 return;
             }
             if matches!(name, "bash" | "powershell") {
                 render_shell_output_lines(result, &res.content, dim, red);
             } else {
-                let max_lines = 3;
                 let max_line_chars = crossterm::terminal::size()
                     .map(|(width, _)| (width as usize).saturating_sub(10))
                     .unwrap_or(120);
-                for (line_index, line) in res.content.lines().enumerate() {
-                    if line_index >= max_lines {
-                        result.push((
-                            format!(
-                                "     … +{} lines (ctrl+o to expand)",
-                                res.content.lines().count() - max_lines
-                            ),
-                            dim,
-                        ));
-                        break;
-                    }
-                    let prefix = if line_index == 0 { "  ⎿  " } else { "     " };
+                let preview_lines = res
+                    .content
+                    .lines()
+                    .filter(|line| !line.trim().is_empty())
+                    .collect::<Vec<_>>();
+                if let Some(first_line) = preview_lines.first() {
                     let style = if matches!(res.role, ChatRole::ToolResult { is_error, .. } if is_error)
                     {
                         red
                     } else {
                         dim
                     };
-                    let display = truncate_line(line, max_line_chars);
-                    result.push((format!("{}{}", prefix, display), style));
+                    result.push((
+                        format!("  ⎿  {}", truncate_line(first_line, max_line_chars)),
+                        style,
+                    ));
+                }
+                if preview_lines.len() > 1 {
+                    result.push((
+                        format!(
+                            "     … +{} lines (ctrl+o to expand)",
+                            preview_lines.len() - 1
+                        ),
+                        dim,
+                    ));
                 }
             }
         }
@@ -162,7 +171,7 @@ pub(super) fn render_grouped_tool_call(
 ) {
     result.push((format!("⏺ {}", tool_batch_summary_text(batch)), accent));
 
-    let max_items = 4;
+    let max_items = 1;
     for (index, item) in batch.items.iter().take(max_items).enumerate() {
         let call = &all_entries[item.call_index];
         let args: serde_json::Value = serde_json::from_str(&call.content).unwrap_or_default();
@@ -246,29 +255,36 @@ pub(super) fn render_standalone_result(
     let green = ratatui::style::Style::default().fg(Color::LightGreen);
     let red_dim = ratatui::style::Style::default().fg(Color::LightRed);
     render_summary_lines(result, &summary_result.lines, dim, green, red, red_dim);
-    if !summary_result.hide_body_by_default {
+    if !summary_result.hide_body_by_default
+        && summary_result.lines.is_empty()
+        && !entry.content.is_empty()
+    {
         if matches!(name.as_str(), "bash" | "powershell") {
             render_shell_output_lines(result, &entry.content, dim, red);
         } else {
-            let max_lines = 3;
             let max_line_chars = crossterm::terminal::size()
                 .map(|(width, _)| (width as usize).saturating_sub(10))
                 .unwrap_or(120);
-            for (line_index, line) in entry.content.lines().enumerate() {
-                if line_index >= max_lines {
-                    result.push((
-                        format!(
-                            "     … +{} lines (ctrl+o to expand)",
-                            entry.content.lines().count() - max_lines
-                        ),
-                        dim,
-                    ));
-                    break;
-                }
-                let prefix = if line_index == 0 { "  ⎿  " } else { "     " };
+            let preview_lines = entry
+                .content
+                .lines()
+                .filter(|line| !line.trim().is_empty())
+                .collect::<Vec<_>>();
+            if let Some(first_line) = preview_lines.first() {
                 let style = if *is_error { red } else { dim };
-                let display = truncate_line(line, max_line_chars);
-                result.push((format!("{}{}", prefix, display), style));
+                result.push((
+                    format!("  ⎿  {}", truncate_line(first_line, max_line_chars)),
+                    style,
+                ));
+            }
+            if preview_lines.len() > 1 {
+                result.push((
+                    format!(
+                        "     … +{} lines (ctrl+o to expand)",
+                        preview_lines.len() - 1
+                    ),
+                    dim,
+                ));
             }
         }
     }
@@ -284,44 +300,40 @@ fn render_shell_output_lines(
     let max_line_chars = crossterm::terminal::size()
         .map(|(width, _)| (width as usize).saturating_sub(10))
         .unwrap_or(120);
+    let stdout_line = sections
+        .stdout_lines
+        .iter()
+        .find(|line| !line.trim().is_empty());
+    let stderr_line = sections
+        .stderr_lines
+        .iter()
+        .find(|line| !line.trim().is_empty());
+    let total_lines = sections.stdout_lines.len()
+        + sections.stderr_lines.len()
+        + usize::from(sections.exit_code.is_some());
 
-    if !sections.stdout_lines.is_empty() && sections.stderr_lines.is_empty() && sections.exit_code.is_none() {
-        render_output_lines(result, &sections.stdout_lines, "  ⎿  ", "     ", stdout_style, max_line_chars, 6);
-        return;
+    if let Some(line) = stdout_line {
+        result.push((
+            format!("  ⎿  {}", truncate_line(line, max_line_chars)),
+            stdout_style,
+        ));
+    } else if let Some(line) = stderr_line {
+        result.push((
+            format!("  ⎿  {}", truncate_line(line, max_line_chars)),
+            stderr_style,
+        ));
+    } else if let Some(exit_code) = sections.exit_code {
+        result.push((
+            format!("  ⎿  exit code {}", exit_code),
+            ratatui::style::Style::default().fg(Color::Yellow),
+        ));
     }
 
-    if !sections.stdout_lines.is_empty() {
-        result.push(("  │ stdout".to_string(), stdout_style));
-        render_output_lines(result, &sections.stdout_lines, "     ", "     ", stdout_style, max_line_chars, 5);
-    }
-    if !sections.stderr_lines.is_empty() {
-        result.push(("  │ stderr".to_string(), stderr_style));
-        render_output_lines(result, &sections.stderr_lines, "     ", "     ", stderr_style, max_line_chars, 5);
-    }
-    if let Some(exit_code) = sections.exit_code {
-        result.push((format!("  │ exit code {}", exit_code), ratatui::style::Style::default().fg(Color::Yellow)));
-    }
-}
-
-fn render_output_lines(
-    result: &mut Vec<(String, ratatui::style::Style)>,
-    lines: &[String],
-    first_prefix: &str,
-    rest_prefix: &str,
-    style: ratatui::style::Style,
-    max_line_chars: usize,
-    max_lines: usize,
-) {
-    for (index, line) in lines.iter().enumerate() {
-        if index >= max_lines {
-            result.push((
-                format!("     … +{} lines (ctrl+o to expand)", lines.len() - max_lines),
-                style,
-            ));
-            break;
-        }
-        let prefix = if index == 0 { first_prefix } else { rest_prefix };
-        result.push((format!("{}{}", prefix, truncate_line(line, max_line_chars)), style));
+    if total_lines > 1 {
+        result.push((
+            format!("     … +{} lines (ctrl+o to expand)", total_lines - 1),
+            stdout_style,
+        ));
     }
 }
 
@@ -672,7 +684,7 @@ mod tests {
             .0
             .contains("Searched the web for 1 query, inspected 1 symbol"));
         assert!(result[1].0.contains("ratatui status summary"));
-        assert!(result[2].0.contains("hover /tmp/src/main.rs"));
+        assert!(result[2].0.contains("+1 more exploration steps"));
     }
 
     #[test]
@@ -744,9 +756,15 @@ mod tests {
             Style::default(),
             Style::default(),
         );
-        assert!(result.iter().any(|line| line.0.contains("read-only: validated git status")));
-        assert!(result.iter().any(|line| line.0.contains("warning: may discard changes")));
-        assert!(result.iter().any(|line| line.0.contains("hint: Prefer read_file")));
+        assert!(result
+            .iter()
+            .any(|line| line.0.contains("read-only: validated git status")));
+        assert!(result
+            .iter()
+            .any(|line| line.0.contains("warning: may discard changes")));
+        assert!(result
+            .iter()
+            .any(|line| line.0.contains("hint: Prefer read_file")));
     }
 
     #[test]
@@ -773,12 +791,16 @@ mod tests {
             Style::default(),
         );
         assert!(result[0].0.contains("PowerShell"));
-        assert!(result.iter().any(|line| line.0.contains("read-only: validated git status")));
-        assert!(result.iter().any(|line| line.0.contains("Prefer read_file")));
+        assert!(result
+            .iter()
+            .any(|line| line.0.contains("read-only: validated git status")));
+        assert!(result
+            .iter()
+            .any(|line| line.0.contains("Prefer read_file")));
     }
 
     #[test]
-    fn scrollback_shell_output_splits_stdout_stderr_and_exit_code() {
+    fn scrollback_shell_output_hides_verbose_sections() {
         let entry = ChatEntry::new(
             ChatRole::ToolResult {
                 id: "a".to_string(),
@@ -795,8 +817,9 @@ mod tests {
             Style::default(),
             Style::default(),
         );
-        assert!(result.iter().any(|line| line.0.contains("stdout")));
-        assert!(result.iter().any(|line| line.0.contains("stderr")));
-        assert!(result.iter().any(|line| line.0.contains("exit code 2")));
+        assert!(result[0].0.contains("Bash"));
+        assert!(result.iter().all(|line| !line.0.contains("stdout")));
+        assert!(result.iter().all(|line| !line.0.contains("stderr")));
+        assert!(result.iter().all(|line| !line.0.contains("exit code 2")));
     }
 }

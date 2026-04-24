@@ -67,7 +67,10 @@ pub(in crate::app) fn reload_provider_from_config(name: &str, app: &mut App) {
     }
 }
 
-pub(in crate::app) fn switch_provider_from_config(name: &str, app: &mut App) -> Result<String, String> {
+pub(in crate::app) fn switch_provider_from_config(
+    name: &str,
+    app: &mut App,
+) -> Result<String, String> {
     let new_models = app
         .all_provider_models
         .get(name)

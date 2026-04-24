@@ -28,7 +28,10 @@ pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
     let is_empty = app.input.is_empty() && app.input.attachments.is_empty();
 
     if is_empty && !app.is_thinking {
-        let paragraph = Paragraph::new(ghost_or_hint_line(prompt_color, app.input.ghost_text.as_deref()));
+        let paragraph = Paragraph::new(ghost_or_hint_line(
+            prompt_color,
+            app.input.ghost_text.as_deref(),
+        ));
         frame.render_widget(paragraph, area);
     } else if app.is_thinking && is_empty {
         let paragraph = Paragraph::new(ghost_or_hint_line(prompt_color, None));

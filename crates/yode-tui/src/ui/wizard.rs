@@ -4,15 +4,13 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
-use crate::app::wizard::{Wizard, WizardStep};
+use super::palette::{ERROR_COLOR, INPUT_BG, LIGHT, MUTED, PANEL_ACCENT, SELECT_ACCENT, SELECT_BG};
 use super::panels::{
     keyhint_bar_line, leading_panel_rect_for_density, search_prompt_label, section_title_line,
     PanelFocusState,
 };
-use super::palette::{
-    ERROR_COLOR, INPUT_BG, LIGHT, MUTED, PANEL_ACCENT, SELECT_ACCENT, SELECT_BG,
-};
 use super::responsive::density_from_width;
+use crate::app::wizard::{Wizard, WizardStep};
 
 /// Render the wizard in the viewport.
 pub fn render_wizard(frame: &mut Frame, area: Rect, wizard: &Wizard) {
@@ -33,7 +31,9 @@ pub fn render_wizard(frame: &mut Frame, area: Rect, wizard: &Wizard) {
             wizard.title,
             search_prompt_label(&format!("{} {}", wizard.step_label(), step.prompt()))
         ),
-        Style::default().fg(PANEL_ACCENT).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(PANEL_ACCENT)
+            .add_modifier(Modifier::BOLD),
     )])];
     lines.push(section_title_line("Wizard", PANEL_ACCENT));
 
@@ -92,10 +92,7 @@ pub fn render_wizard(frame: &mut Frame, area: Rect, wizard: &Wizard) {
                 ),
             ];
             if !is_placeholder {
-                spans.push(Span::styled(
-                    "█",
-                    Style::default().fg(LIGHT).bg(INPUT_BG),
-                ));
+                spans.push(Span::styled("█", Style::default().fg(LIGHT).bg(INPUT_BG)));
             }
             lines.push(Line::from(spans));
         }

@@ -299,7 +299,12 @@ pub(crate) fn session_runtime_summary_text(
         parts.push(compact_badge_text(&badge.text));
     }
     parts.push(compact_badge_text(
-        &context_badge(snapshot.state.as_ref(), fallback_context_tokens, Density::Wide).text,
+        &context_badge(
+            snapshot.state.as_ref(),
+            fallback_context_tokens,
+            Density::Wide,
+        )
+        .text,
     ));
     if let Some(badge) = compaction_badge(snapshot.state.as_ref(), Density::Wide) {
         parts.push(compact_badge_text(&badge.text));

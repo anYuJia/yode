@@ -121,14 +121,21 @@ pub(crate) fn preview_selection_label(selected: usize, total: usize) -> String {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn centered_panel_rect(area: Rect, max_width: u16, max_height: u16) -> Rect {
     let width = area.width.min(max_width.max(1));
     let height = area.height.min(max_height.max(1));
     let x = area.x + area.width.saturating_sub(width) / 2;
     let y = area.y + area.height.saturating_sub(height) / 2;
-    Rect { x, y, width, height }
+    Rect {
+        x,
+        y,
+        width,
+        height,
+    }
 }
 
+#[allow(dead_code)]
 pub(crate) fn panel_rect_for_density(
     area: Rect,
     density: crate::ui::responsive::Density,
@@ -176,27 +183,6 @@ pub(crate) fn leading_panel_rect_for_density(
             leading_panel_rect(area, wide_max_width, max_height)
         }
     }
-}
-
-pub(crate) fn button_row_line(
-    labels: &[String],
-    selected: usize,
-    active: Color,
-    muted: Color,
-) -> Line<'static> {
-    let mut spans = vec![Span::styled("  ", Style::default())];
-    for (index, label) in labels.iter().enumerate() {
-        if index > 0 {
-            spans.push(Span::raw(" "));
-        }
-        let style = if index == selected {
-            Style::default().fg(Color::White).bg(active).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(muted)
-        };
-        spans.push(Span::styled(format!("[{}. {}]", index + 1, label), style));
-    }
-    Line::from(spans)
 }
 
 #[allow(dead_code)]
@@ -257,7 +243,10 @@ pub(crate) fn timeline_panel_lines(
     muted: Color,
 ) -> Vec<Line<'static>> {
     let mut rendered = preview_panel_lines(title, lines, pager, accent, light, muted);
-    rendered.push(footer_hint_line(&["↑↓ move", "PgUp/PgDn page", "Esc close"], muted));
+    rendered.push(footer_hint_line(
+        &["↑↓ move", "PgUp/PgDn page", "Esc close"],
+        muted,
+    ));
     rendered
 }
 
@@ -287,12 +276,11 @@ mod tests {
     use ratatui::style::Color;
 
     use super::{
-        button_row_line, centered_panel_rect, footer_hint_line, keyhint_bar_line,
-        leading_panel_rect, leading_panel_rect_for_density, panel_rect_for_density,
-        preview_empty_state, preview_panel_lines,
-        preview_selection_label, search_prompt_label, section_title_line,
-        sync_panel_scroll, timeline_hotkey_inventory, timeline_panel_lines,
-        PanelFocusState, PanelPagerState,
+        centered_panel_rect, footer_hint_line, keyhint_bar_line, leading_panel_rect,
+        leading_panel_rect_for_density, panel_rect_for_density, preview_empty_state,
+        preview_panel_lines, preview_selection_label, search_prompt_label, section_title_line,
+        sync_panel_scroll, timeline_hotkey_inventory, timeline_panel_lines, PanelFocusState,
+        PanelPagerState,
     };
     use crate::ui::responsive::Density;
 
@@ -331,19 +319,12 @@ mod tests {
     }
 
     #[test]
-    fn button_row_marks_selected_option() {
-        let line = button_row_line(
-            &["Yes".to_string(), "No".to_string()],
-            1,
-            Color::Yellow,
-            Color::Gray,
-        );
-        assert!(line.spans.iter().any(|span| span.content.contains("[2. No]")));
-    }
-
-    #[test]
     fn preview_and_timeline_panels_render_headers_and_footer() {
-        let lines = vec!["first".to_string(), "second".to_string(), "third".to_string()];
+        let lines = vec![
+            "first".to_string(),
+            "second".to_string(),
+            "third".to_string(),
+        ];
         let preview = preview_panel_lines(
             "Artifacts",
             &lines,
@@ -352,8 +333,12 @@ mod tests {
             Color::White,
             Color::Gray,
         );
-        assert!(preview.iter().any(|line| line.to_string().contains("Artifacts")));
-        assert!(preview.iter().any(|line| line.to_string().contains("Preview")));
+        assert!(preview
+            .iter()
+            .any(|line| line.to_string().contains("Artifacts")));
+        assert!(preview
+            .iter()
+            .any(|line| line.to_string().contains("Preview")));
 
         let timeline = timeline_panel_lines(
             "Timeline",
@@ -363,7 +348,9 @@ mod tests {
             Color::White,
             Color::Gray,
         );
-        assert!(timeline.iter().any(|line| line.to_string().contains("Esc close")));
+        assert!(timeline
+            .iter()
+            .any(|line| line.to_string().contains("Esc close")));
     }
 
     #[test]
@@ -389,7 +376,10 @@ mod tests {
         assert_eq!(search_prompt_label(""), "Search: (empty)");
         assert_eq!(search_prompt_label("abc"), "Search: abc");
         assert_eq!(sync_panel_scroll(5, 3, 10), 3);
-        assert_eq!(preview_empty_state("Artifact"), "Artifact preview unavailable");
+        assert_eq!(
+            preview_empty_state("Artifact"),
+            "Artifact preview unavailable"
+        );
         assert!(timeline_hotkey_inventory().contains(&"PgUp/PgDn page"));
     }
 
@@ -403,8 +393,7 @@ mod tests {
 
     #[test]
     fn leading_panel_rect_for_density_keeps_wide_layout_left_aligned() {
-        let rect =
-            leading_panel_rect_for_density(Rect::new(3, 1, 120, 10), Density::Wide, 80, 6);
+        let rect = leading_panel_rect_for_density(Rect::new(3, 1, 120, 10), Density::Wide, 80, 6);
         assert_eq!(rect.x, 3);
         assert_eq!(rect.width, 80);
     }

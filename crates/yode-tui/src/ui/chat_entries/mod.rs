@@ -2,6 +2,7 @@ mod assistant;
 pub(crate) mod folding;
 mod metadata;
 mod plain_lines;
+mod subagents;
 mod system;
 mod tool_helpers;
 mod tools;
@@ -14,7 +15,8 @@ use crate::ui::chat::{CODE_BG, CYAN, WHITE};
 use crate::ui::palette::{INFO_COLOR, USER_PREFIX};
 
 pub(super) use assistant::render_assistant;
-pub(crate) use plain_lines::{assistant_plain_lines, user_plain_lines};
+pub(crate) use plain_lines::user_plain_lines;
+pub(super) use subagents::{render_grouped_subagent_batch, render_subagent_call};
 pub(super) use system::{render_grouped_system_entries, render_system_entry};
 pub(super) use tools::{render_grouped_tool_call, render_standalone_result, render_tool_call};
 

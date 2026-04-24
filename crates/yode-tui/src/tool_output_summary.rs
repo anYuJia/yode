@@ -1,5 +1,7 @@
 use serde_json::Value;
 
+use crate::tool_grouping::summarize_batch_invocations;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ToolSummaryTone {
     Neutral,
@@ -49,6 +51,7 @@ pub(crate) fn summarize_tool_result(
         "web_search" => summarize_web_search(args, metadata),
         "web_fetch" => summarize_web_fetch(args, metadata),
         "project_map" => summarize_project_map(metadata),
+        "batch" => summarize_batch(args, metadata),
         "bash" | "powershell" => summarize_shell_command(metadata, result_content),
         _ => ToolResultSummary::default(),
     }
@@ -116,7 +119,7 @@ fn summarize_failed_tool_result(
 
     ToolResultSummary {
         lines,
-        hide_body_by_default: false,
+        hide_body_by_default: true,
     }
 }
 
@@ -316,11 +319,7 @@ fn summarize_glob(
     }
 }
 
-fn summarize_ls(
-    args: &Value,
-    metadata: Option<&Value>,
-    result_content: &str,
-) -> ToolResultSummary {
+fn summarize_ls(args: &Value, metadata: Option<&Value>, result_content: &str) -> ToolResultSummary {
     let file_count = metadata
         .and_then(|m| m.get("file_count"))
         .and_then(Value::as_u64)
@@ -333,7 +332,12 @@ fn summarize_ls(
     let dir_count = metadata
         .and_then(|m| m.get("dir_count"))
         .and_then(Value::as_u64)
-        .unwrap_or_else(|| result_content.lines().filter(|line| line.ends_with('/')).count() as u64);
+        .unwrap_or_else(|| {
+            result_content
+                .lines()
+                .filter(|line| line.ends_with('/'))
+                .count() as u64
+        });
     let path = metadata
         .and_then(|m| m.get("path"))
         .and_then(Value::as_str)
@@ -342,7 +346,11 @@ fn summarize_ls(
     let recursive = metadata
         .and_then(|m| m.get("recursive"))
         .and_then(Value::as_bool)
-        .unwrap_or_else(|| args.get("recursive").and_then(Value::as_bool).unwrap_or(false));
+        .unwrap_or_else(|| {
+            args.get("recursive")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        });
 
     let primary = match (file_count, dir_count) {
         (0, 0) => "listed empty directory".to_string(),
@@ -463,7 +471,12 @@ fn summarize_skill(
             let count = metadata
                 .and_then(|m| m.get("count"))
                 .and_then(Value::as_u64)
-                .unwrap_or_else(|| result_content.lines().filter(|line| line.contains(" /") || line.contains(" — ")).count() as u64);
+                .unwrap_or_else(|| {
+                    result_content
+                        .lines()
+                        .filter(|line| line.contains(" /") || line.contains(" — "))
+                        .count() as u64
+                });
             ToolResultSummary {
                 lines: vec![ToolSummaryLine {
                     text: if count == 1 {
@@ -557,7 +570,12 @@ fn summarize_lsp(args: &Value, metadata: Option<&Value>) -> ToolResultSummary {
     }];
     if !file_path.is_empty() {
         lines.push(ToolSummaryLine {
-            text: format!("{}:{}:{}", shorten_display_path(file_path), line + 1, character + 1),
+            text: format!(
+                "{}:{}:{}",
+                shorten_display_path(file_path),
+                line + 1,
+                character + 1
+            ),
             tone: ToolSummaryTone::Neutral,
         });
     }
@@ -681,41 +699,40 @@ fn summarize_project_map(metadata: Option<&Value>) -> ToolResultSummary {
     }
 }
 
-fn summarize_shell_command(metadata: Option<&Value>, result_content: &str) -> ToolResultSummary {
-    let Some(metadata) = metadata else {
-        return ToolResultSummary::default();
-    };
+fn summarize_batch(args: &Value, metadata: Option<&Value>) -> ToolResultSummary {
+    let invocation_count = metadata
+        .and_then(|m| m.get("invocation_count"))
+        .and_then(Value::as_u64)
+        .or_else(|| {
+            args.get("invocations")
+                .and_then(Value::as_array)
+                .map(|items| items.len() as u64)
+        })
+        .unwrap_or(0);
 
-    let mut lines = Vec::new();
-    if let Some(command_type) = metadata.get("command_type").and_then(Value::as_str) {
-        let tone = if command_type == "generic" {
-            ToolSummaryTone::Neutral
-        } else {
-            ToolSummaryTone::Warning
-        };
+    let (summary, first_target) = summarize_batch_invocations(args, false)
+        .unwrap_or_else(|| (format!("ran {} tools in parallel", invocation_count), None));
+
+    let mut lines = vec![ToolSummaryLine {
+        text: summary,
+        tone: ToolSummaryTone::Success,
+    }];
+    if let Some(target) = first_target {
         lines.push(ToolSummaryLine {
-            text: format!("shell mode: {}", command_type),
-            tone,
+            text: target,
+            tone: ToolSummaryTone::Neutral,
         });
     }
-    if let Some(suggestion) = metadata.get("rewrite_suggestion").and_then(Value::as_str) {
-        lines.push(ToolSummaryLine {
-            text: suggestion.to_string(),
-            tone: ToolSummaryTone::Warning,
-        });
-    }
-
-    let sections = parse_shell_output_sections(result_content);
-    let command_type = metadata
-        .get("command_type")
-        .and_then(Value::as_str)
-        .unwrap_or("generic");
-
     ToolResultSummary {
         lines,
-        hide_body_by_default: matches!(command_type, "search" | "read" | "list")
-            && sections.stderr_lines.is_empty()
-            && sections.exit_code.is_none(),
+        hide_body_by_default: true,
+    }
+}
+
+fn summarize_shell_command(_metadata: Option<&Value>, _result_content: &str) -> ToolResultSummary {
+    ToolResultSummary {
+        lines: Vec::new(),
+        hide_body_by_default: true,
     }
 }
 
@@ -852,7 +869,8 @@ mod tests {
             "file_count": 3,
             "dir_count": 2
         });
-        let summary = summarize_tool_result("ls", &args, Some(&metadata), "src/\nsrc/main.rs", false);
+        let summary =
+            summarize_tool_result("ls", &args, Some(&metadata), "src/\nsrc/main.rs", false);
         assert!(summary.hide_body_by_default);
         assert_eq!(summary.lines[0].text, "listed 3 files and 2 directories");
         assert_eq!(summary.lines[2].text, "recursive view");
@@ -866,9 +884,18 @@ mod tests {
             "content_type": "text/html; charset=utf-8",
             "original_length": 4096
         });
-        let summary = summarize_tool_result("web_fetch", &args, Some(&metadata), "<html>...</html>", false);
+        let summary = summarize_tool_result(
+            "web_fetch",
+            &args,
+            Some(&metadata),
+            "<html>...</html>",
+            false,
+        );
         assert!(summary.hide_body_by_default);
-        assert_eq!(summary.lines[0].text, "fetched 4.0 KB of text/html; charset=utf-8");
+        assert_eq!(
+            summary.lines[0].text,
+            "fetched 4.0 KB of text/html; charset=utf-8"
+        );
     }
 
     #[test]
@@ -878,7 +905,13 @@ mod tests {
             "file_count": 12,
             "total_lines": 840
         });
-        let summary = summarize_tool_result("project_map", &json!({}), Some(&metadata), "## Project Overview", false);
+        let summary = summarize_tool_result(
+            "project_map",
+            &json!({}),
+            Some(&metadata),
+            "## Project Overview",
+            false,
+        );
         assert!(summary.hide_body_by_default);
         assert_eq!(summary.lines[0].text, "mapped rust project");
         assert_eq!(summary.lines[1].text, "12 files · 840 lines");
@@ -903,7 +936,9 @@ mod tests {
         let summary = summarize_tool_result(
             "lsp",
             &json!({"operation": "hover", "filePath": "/tmp/src/main.rs", "line": 4, "character": 2}),
-            Some(&json!({"operation": "hover", "file_path": "/tmp/src/main.rs", "line": 4, "character": 2})),
+            Some(
+                &json!({"operation": "hover", "file_path": "/tmp/src/main.rs", "line": 4, "character": 2}),
+            ),
             "{\"contents\":\"demo\"}",
             false,
         );
@@ -947,7 +982,7 @@ mod tests {
             "File is too large to read at once.",
             true,
         );
-        assert!(!summary.hide_body_by_default);
+        assert!(summary.hide_body_by_default);
         assert_eq!(summary.lines[0].text, "validation error");
         assert_eq!(summary.lines[1].text, "File is too large to read at once.");
         assert_eq!(summary.lines[2].text, "recoverable error");
@@ -965,5 +1000,30 @@ mod tests {
             true,
         );
         assert_eq!(summary.lines[0].text, "failed with exit code 2");
+    }
+
+    #[test]
+    fn summarize_batch_hides_raw_parallel_json_output() {
+        let summary = summarize_tool_result(
+            "batch",
+            &json!({
+                "invocations": [
+                    {"tool_name": "grep", "params": {"pattern": "showDialog"}},
+                    {"tool_name": "read_file", "params": {"file_path": "/tmp/lib/a.dart"}},
+                    {"tool_name": "read_file", "params": {"file_path": "/tmp/lib/b.dart"}}
+                ]
+            }),
+            Some(&json!({
+                "invocation_count": 3
+            })),
+            r#"[{"content":"...","is_error":false}]"#,
+            false,
+        );
+        assert!(summary.hide_body_by_default);
+        assert_eq!(
+            summary.lines[0].text,
+            "Searched for 1 pattern, read 2 files"
+        );
+        assert_eq!(summary.lines[1].text, "\"showDialog\"");
     }
 }

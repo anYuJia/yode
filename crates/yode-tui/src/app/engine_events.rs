@@ -9,17 +9,16 @@ use tokio::sync::{mpsc, Mutex};
 
 use yode_core::engine::{AgentEngine, ConfirmResponse, EngineEvent};
 
-use crate::runtime_display::{
-    format_budget_exceeded_message, format_context_compressed_message,
-    format_session_memory_update_message,
-};
 use self::streaming::{
     finalize_streaming, handle_done, handle_reasoning_complete, handle_reasoning_delta,
     handle_suggestion_ready, handle_text_complete, handle_text_delta, handle_turn_complete,
 };
 use super::{
-    push_system_entry, App, ChatEntry, ChatRole, PendingConfirmation, PermissionMode,
-    TurnStatus,
+    push_system_entry, App, ChatEntry, ChatRole, PendingConfirmation, PermissionMode, TurnStatus,
+};
+use crate::runtime_display::{
+    format_budget_exceeded_message, format_context_compressed_message,
+    format_session_memory_update_message,
 };
 
 pub(super) fn handle_engine_event(
@@ -246,7 +245,10 @@ pub(super) fn handle_engine_event(
             path,
             generated_summary,
         } => {
-            push_system_entry(app, format_session_memory_update_message(&path, generated_summary));
+            app.last_session_memory_update_message = Some(format_session_memory_update_message(
+                &path,
+                generated_summary,
+            ));
         }
         EngineEvent::UpdateAvailable(version) => {
             app.update_available = Some(version);

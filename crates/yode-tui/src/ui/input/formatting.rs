@@ -1,6 +1,6 @@
+use crate::ui::palette::{BORDER_MUTED, LIGHT, MUTED, SELECT_ACCENT, SELECT_BG, SURFACE_BG};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use crate::ui::palette::{BORDER_MUTED, LIGHT, MUTED, SELECT_ACCENT, SELECT_BG, SURFACE_BG};
 
 pub(super) const COMPLETION_BG: Color = SURFACE_BG;
 pub(super) const COMPLETION_SELECTED_BG: Color = SELECT_BG;
@@ -10,7 +10,12 @@ pub(super) fn truncate_ellipsis(text: &str, max_chars: usize) -> String {
     if text.chars().count() <= max_chars {
         return text.to_string();
     }
-    format!("{}…", text.chars().take(max_chars.saturating_sub(1)).collect::<String>())
+    format!(
+        "{}…",
+        text.chars()
+            .take(max_chars.saturating_sub(1))
+            .collect::<String>()
+    )
 }
 
 pub(super) fn completion_candidate_line(
@@ -46,9 +51,7 @@ pub(super) fn completion_candidate_line(
             ),
             Span::styled(
                 format!("{} ", desc_truncated),
-                Style::default()
-                    .fg(MUTED)
-                    .bg(COMPLETION_SELECTED_BG),
+                Style::default().fg(MUTED).bg(COMPLETION_SELECTED_BG),
             ),
         ])
     } else {

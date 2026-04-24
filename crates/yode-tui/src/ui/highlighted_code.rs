@@ -31,7 +31,16 @@ pub(super) fn render_highlighted_code_block(
     let rendered: Vec<Line<'static>> = code_block_lines
         .iter()
         .enumerate()
-        .map(|(index, line)| render_highlighted_code_line(line, index + 1, gutter_digits, language, border, background))
+        .map(|(index, line)| {
+            render_highlighted_code_line(
+                line,
+                index + 1,
+                gutter_digits,
+                language,
+                border,
+                background,
+            )
+        })
         .collect();
 
     if let Ok(mut cache) = HIGHLIGHTED_CODE_CACHE.lock() {
@@ -53,7 +62,7 @@ fn render_highlighted_code_line(
     background: Color,
 ) -> Line<'static> {
     let mut spans = vec![
-        Span::styled("  │ ", Style::default().fg(border).bg(background)),
+        Span::styled("│ ", Style::default().fg(border).bg(background)),
         Span::styled(
             format!(" {:>width$} ", line_number, width = gutter_digits),
             Style::default().fg(Color::Indexed(244)).bg(background),

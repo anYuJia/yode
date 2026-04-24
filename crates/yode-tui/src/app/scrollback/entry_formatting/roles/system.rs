@@ -31,7 +31,10 @@ pub(super) fn render_grouped_system_entries(
         let view = parse_system_message(&all_entries[item.entry_index].content);
         let (_, item_style, _) = system_styles(view.kind);
         let prefix = if index == 0 { "  ⎿  " } else { "     " };
-        result.push((format!("{}{}", prefix, system_message_summary(&view)), item_style));
+        result.push((
+            format!("{}{}", prefix, system_message_summary(&view)),
+            item_style,
+        ));
     }
     if batch.items.len() > max_items {
         result.push((
@@ -103,9 +106,17 @@ fn system_styles(kind: SystemMessageKind) -> (&'static str, Style, Style) {
 }
 
 fn grouped_batch_title(batch: &SystemBatch) -> &'static str {
-    if batch.items.iter().all(|item| item.kind == SystemMessageKind::Task) {
+    if batch
+        .items
+        .iter()
+        .all(|item| item.kind == SystemMessageKind::Task)
+    {
         "Task updates"
-    } else if batch.items.iter().all(|item| item.kind == SystemMessageKind::Export) {
+    } else if batch
+        .items
+        .iter()
+        .all(|item| item.kind == SystemMessageKind::Export)
+    {
         "Exports"
     } else {
         "Status updates"

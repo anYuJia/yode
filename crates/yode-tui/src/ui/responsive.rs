@@ -38,7 +38,13 @@ mod tests {
     fn status_section_mode_collapses_at_narrow_widths() {
         assert!(matches!(density_from_width(120, 68, 96), Density::Wide));
         assert!(matches!(status_section_mode(120), StatusSectionMode::Full));
-        assert!(matches!(status_section_mode(80), StatusSectionMode::Compact));
-        assert!(matches!(status_section_mode(50), StatusSectionMode::Collapsed));
+        assert!(matches!(
+            status_section_mode(80),
+            StatusSectionMode::Compact
+        ));
+        assert!(matches!(
+            status_section_mode(50),
+            StatusSectionMode::Collapsed
+        ));
     }
 }

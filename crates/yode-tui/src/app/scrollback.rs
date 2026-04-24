@@ -7,17 +7,22 @@ use crossterm::terminal::{Clear, ClearType};
 use crossterm::ExecutableCommand;
 use ratatui::backend::CrosstermBackend;
 use ratatui::style::{Color, Modifier};
+use ratatui::text::Line;
 use ratatui::Terminal;
 
 use self::entry_formatting::{
-    format_entry_as_strings, format_grouped_system_batch, format_grouped_tool_batch, md_line_color,
+    format_entry_as_strings, format_grouped_subagent_batch, format_grouped_system_batch,
+    format_grouped_tool_batch,
 };
-use super::rendering::{
-    highlight_code_line_in_block, is_code_block_line, process_md_line, strip_ansi,
-    ShellSessionState,
-};
+use super::rendering::strip_ansi;
 use super::{App, ChatRole};
-use crate::tool_grouping::{detect_groupable_system_batch, detect_groupable_tool_batch};
+use crate::tool_grouping::{
+    detect_groupable_subagent_batch, detect_groupable_system_batch, detect_groupable_tool_batch,
+};
+use crate::ui::chat::{
+    render_markdown_ansi_white_with_options, render_markdown_white_with_options,
+    streaming_markdown_advance_stable_boundary,
+};
 use crate::ui::chat_layout::render_header;
 
 /// Print lines to terminal scrollback.
@@ -154,6 +159,11 @@ pub(super) fn print_entries_to_stdout(app: &mut App) -> Result<()> {
                     format_grouped_tool_batch(&app.chat_entries, &batch),
                     batch.next_index,
                 )
+            } else if let Some(batch) = detect_groupable_subagent_batch(&app.chat_entries, i) {
+                (
+                    format_grouped_subagent_batch(&app.chat_entries, &batch),
+                    batch.next_index,
+                )
             } else if let Some(batch) = detect_groupable_system_batch(&app.chat_entries, i) {
                 (
                     format_grouped_system_batch(&app.chat_entries, &batch),
@@ -193,124 +203,67 @@ pub(super) fn print_entries_to_stdout(app: &mut App) -> Result<()> {
 pub(super) fn flush_entries_to_scrollback(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
-) -> Result<()> {
+) -> Result<bool> {
     let mut all_output: Vec<(String, Option<crossterm::style::Color>, bool)> = Vec::new();
+    let mut dirty = false;
 
-    if !app.streaming_buf.is_empty() {
-        let complete_count = app.streaming_buf.matches('\n').count();
-        if complete_count > app.streaming_printed_lines {
-            let all_lines: Vec<&str> = app.streaming_buf.lines().collect();
-            let to_print =
-                &all_lines[app.streaming_printed_lines..complete_count.min(all_lines.len())];
+    let render_width = terminal.get_frame().area().width.saturating_sub(2) as usize;
+    if !app.streaming_buf.is_empty()
+        && (app.streaming_markdown_cached_buf_len != app.streaming_buf.len()
+            || app.streaming_markdown_cached_width != render_width)
+    {
+        let stable_end = streaming_markdown_advance_stable_boundary(
+            &app.streaming_buf,
+            app.streaming_markdown_stable_len,
+        );
+        if stable_end > app.streaming_markdown_stable_len {
+            let new_stable = &app.streaming_buf[app.streaming_markdown_stable_len..stable_end];
+            let rendered = render_markdown_ansi_white_with_options(
+                new_stable,
+                Some(render_width),
+                app.terminal_caps.supports_hyperlinks(),
+            );
+            let needs_spacer = app.streaming_markdown_stable_len == 0;
+            let mut first_printed = app.streaming_markdown_stable_len > 0;
 
-            let needs_spacer = app.streaming_printed_lines == 0;
-            let mut first_printed = app.streaming_printed_lines > 0;
-            let mut lines_printed_in_this_batch = 0;
-            for raw_text in to_print.iter() {
-                if raw_text.trim().is_empty() {
-                    lines_printed_in_this_batch += 1;
-                    continue;
-                }
-
-                if !first_printed && raw_text.trim().is_empty() {
-                    lines_printed_in_this_batch += 1;
-                    continue;
-                }
-                let is_first = !first_printed;
-                if is_first && needs_spacer {
-                    all_output.push((String::new(), None, false));
-                }
-                let text = process_md_line(
-                    raw_text,
-                    &mut app.streaming_in_code_block,
-                    &mut app.streaming_code_block_language,
-                );
-                if !app.streaming_in_code_block {
-                    app.streaming_shell_session_state = ShellSessionState::Idle;
-                }
-                if text.is_empty() {
-                    lines_printed_in_this_batch += 1;
-                    continue;
-                }
-                let prefix = if is_first { "⏺ " } else { "  " };
-                if is_code_block_line(&text) {
-                    let highlighted = highlight_code_line_in_block(
-                        &text,
-                        app.streaming_code_block_language,
-                        &mut app.streaming_shell_session_state,
-                    );
-                    all_output.push((format!("{}{}", prefix, highlighted), None, false));
-                    first_printed = true;
-                } else if is_first {
-                    app.streaming_shell_session_state = ShellSessionState::Idle;
-                    let color = crossterm::style::Color::White;
-                    all_output.push((format!("{}{}", prefix, text), Some(color), false));
-                    first_printed = true;
-                } else {
-                    app.streaming_shell_session_state = ShellSessionState::Idle;
-                    let (color, bold) = md_line_color(&text);
-                    let color_opt = if matches!(color, crossterm::style::Color::Reset) {
-                        None
-                    } else {
-                        Some(color)
-                    };
-                    all_output.push((format!("{}{}", prefix, text), color_opt, bold));
-                }
-                lines_printed_in_this_batch += 1;
-            }
-            app.streaming_printed_lines += lines_printed_in_this_batch;
+            push_streaming_rendered_lines(
+                &mut all_output,
+                rendered,
+                needs_spacer,
+                &mut first_printed,
+            );
+            app.streaming_markdown_stable_len = stable_end;
+            dirty = true;
         }
+
+        let unstable = &app.streaming_buf[app.streaming_markdown_stable_len..];
+        let next_preview_source = unstable.to_string();
+        let preview_source_changed = app.streaming_markdown_preview_source != next_preview_source;
+        let preview_width_changed = app.streaming_markdown_cached_width != render_width;
+        if preview_source_changed || preview_width_changed {
+            let next_preview = if unstable.trim().is_empty() {
+                Vec::new()
+            } else {
+                render_markdown_white_with_options(
+                    unstable,
+                    Some(render_width),
+                    app.terminal_caps.supports_hyperlinks(),
+                )
+            };
+            let merged_preview = merge_preview_lines(&app.streaming_markdown_preview, next_preview);
+            app.streaming_markdown_preview_source = next_preview_source;
+            if app.streaming_markdown_preview != merged_preview {
+                app.streaming_markdown_preview = merged_preview;
+                dirty = true;
+            }
+        }
+        app.streaming_markdown_cached_buf_len = app.streaming_buf.len();
+        app.streaming_markdown_cached_width = render_width;
     }
 
-    if let Some((remainder, is_first)) = app.streaming_remainder.take() {
-        let has_content = remainder.iter().any(|l| !l.trim().is_empty());
-        if has_content {
-            let white = crossterm::style::Color::White;
-            let mut first_done = !is_first;
-            for line in remainder.iter() {
-                if !first_done && line.trim().is_empty() {
-                    continue;
-                }
-                let text = process_md_line(
-                    line,
-                    &mut app.streaming_in_code_block,
-                    &mut app.streaming_code_block_language,
-                );
-                if !app.streaming_in_code_block {
-                    app.streaming_shell_session_state = ShellSessionState::Idle;
-                }
-                if text.is_empty() {
-                    continue;
-                }
-                if is_code_block_line(&text) {
-                    let highlighted = highlight_code_line_in_block(
-                        &text,
-                        app.streaming_code_block_language,
-                        &mut app.streaming_shell_session_state,
-                    );
-                    let prefix = if first_done { "  " } else { "⏺ " };
-                    if !first_done {
-                        all_output.push((String::new(), None, false));
-                        first_done = true;
-                    }
-                    all_output.push((format!("{}{}", prefix, highlighted), None, false));
-                } else if !first_done {
-                    app.streaming_shell_session_state = ShellSessionState::Idle;
-                    all_output.push((String::new(), None, false));
-                    all_output.push((format!("⏺ {}", text), Some(white), false));
-                    first_done = true;
-                } else {
-                    app.streaming_shell_session_state = ShellSessionState::Idle;
-                    let (color, bold) = md_line_color(&text);
-                    let color_opt = if matches!(color, crossterm::style::Color::Reset) {
-                        None
-                    } else {
-                        Some(color)
-                    };
-                    all_output.push((format!("  {}", text), color_opt, bold));
-                }
-            }
-        }
+    if let Some((remainder, is_first)) = app.streaming_markdown_remainder.take() {
+        let mut first_done = !is_first;
+        push_streaming_rendered_lines(&mut all_output, remainder, false, &mut first_done);
     }
 
     while app.printed_count < app.chat_entries.len() {
@@ -356,6 +309,13 @@ pub(super) fn flush_entries_to_scrollback(
                 batch.next_index,
             )
         } else if let Some(batch) =
+            detect_groupable_subagent_batch(&app.chat_entries, app.printed_count)
+        {
+            (
+                format_grouped_subagent_batch(&app.chat_entries, &batch),
+                batch.next_index,
+            )
+        } else if let Some(batch) =
             detect_groupable_system_batch(&app.chat_entries, app.printed_count)
         {
             (
@@ -380,11 +340,87 @@ pub(super) fn flush_entries_to_scrollback(
         }
 
         app.printed_count = next_index;
+        dirty = true;
     }
 
     if !all_output.is_empty() {
         raw_print_lines(terminal, &all_output)?;
+        dirty = true;
     }
 
-    Ok(())
+    Ok(dirty)
+}
+
+fn merge_preview_lines(existing: &[Line<'static>], next: Vec<Line<'static>>) -> Vec<Line<'static>> {
+    next.into_iter()
+        .enumerate()
+        .map(|(index, line)| {
+            if existing.get(index) == Some(&line) {
+                existing[index].clone()
+            } else {
+                line
+            }
+        })
+        .collect()
+}
+
+fn push_streaming_rendered_lines(
+    all_output: &mut Vec<(String, Option<crossterm::style::Color>, bool)>,
+    rendered: Vec<String>,
+    needs_spacer: bool,
+    first_printed: &mut bool,
+) {
+    for line in rendered {
+        if line.trim().is_empty() {
+            all_output.push((String::new(), None, false));
+            continue;
+        }
+        if !*first_printed && needs_spacer {
+            all_output.push((String::new(), None, false));
+        }
+        let prefix = if *first_printed { "  " } else { "⏺ " };
+        all_output.push((format!("{}{}", prefix, line), None, false));
+        *first_printed = true;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ratatui::style::{Color, Style};
+    use ratatui::text::{Line, Span};
+
+    use super::{merge_preview_lines, push_streaming_rendered_lines};
+
+    #[test]
+    fn merge_preview_lines_reuses_unchanged_lines_and_replaces_changed_ones() {
+        let existing = vec![
+            Line::from(vec![Span::styled("same", Style::default().fg(Color::Blue))]),
+            Line::from(vec![Span::styled("old", Style::default().fg(Color::Red))]),
+        ];
+        let next = vec![
+            Line::from(vec![Span::styled("same", Style::default().fg(Color::Blue))]),
+            Line::from(vec![Span::styled("new", Style::default().fg(Color::Green))]),
+        ];
+
+        let merged = merge_preview_lines(&existing, next);
+        assert_eq!(merged[0], existing[0]);
+        assert_ne!(merged[1], existing[1]);
+        assert_eq!(merged[1].to_string(), "new");
+    }
+
+    #[test]
+    fn push_streaming_rendered_lines_preserves_blank_lines() {
+        let mut output = Vec::new();
+        let mut first_printed = false;
+        push_streaming_rendered_lines(
+            &mut output,
+            vec!["Heading".to_string(), String::new(), "Body".to_string()],
+            true,
+            &mut first_printed,
+        );
+        assert_eq!(output[0].0, String::new());
+        assert_eq!(output[1].0, "⏺ Heading");
+        assert_eq!(output[2].0, String::new());
+        assert_eq!(output[3].0, "  Body");
+    }
 }

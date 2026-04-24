@@ -4,13 +4,12 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph};
 use ratatui::Frame;
 
-use crate::app::App;
-use crate::ui::palette::{HINT_COLOR, TEXT_COLOR};
 use super::formatting::{
     completion_candidate_line, truncate_ellipsis, COMPLETION_BG, COMPLETION_SELECTED_BG,
     COMPLETION_SELECTED_FG,
 };
-
+use crate::app::App;
+use crate::ui::palette::{HINT_COLOR, TEXT_COLOR};
 
 /// Render command completions as an inline list below the input area.
 /// Grows from bottom to top, with the best match at the bottom.
