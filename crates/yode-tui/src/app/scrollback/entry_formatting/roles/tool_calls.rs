@@ -166,65 +166,14 @@ pub(super) fn render_grouped_tool_call(
     all_entries: &[ChatEntry],
     batch: &ToolBatch,
     result: &mut Vec<(String, ratatui::style::Style)>,
-    dim: ratatui::style::Style,
+    _dim: ratatui::style::Style,
     accent: ratatui::style::Style,
 ) {
-    result.push((format!("⏺ {}", tool_batch_summary_text(batch)), accent));
-
-    let max_items = 1;
-    for (index, item) in batch.items.iter().take(max_items).enumerate() {
-        let call = &all_entries[item.call_index];
-        let args: serde_json::Value = serde_json::from_str(&call.content).unwrap_or_default();
-        let tool_result = item
-            .result_index
-            .and_then(|result_index| all_entries.get(result_index));
-        let is_error = tool_result
-            .map(|r| matches!(r.role, ChatRole::ToolResult { is_error, .. } if is_error))
-            .unwrap_or(false);
-        let summary_result = summarize_tool_result(
-            &item.tool_name,
-            &args,
-            tool_result.and_then(|entry| entry.tool_metadata.as_ref()),
-            tool_result
-                .map(|entry| entry.content.as_str())
-                .unwrap_or(""),
-            is_error,
-        );
-        let target = group_item_target(&item.tool_name, &args);
-        let detail = summary_result
-            .lines
-            .first()
-            .map(|line| line.text.clone())
-            .unwrap_or_else(|| {
-                if is_error {
-                    "failed".to_string()
-                } else {
-                    "completed".to_string()
-                }
-            });
-        let prefix = if index == 0 { "  ⎿  " } else { "     " };
-        let style = match summary_result
-            .lines
-            .first()
-            .map(|line| line.tone)
-            .unwrap_or(ToolSummaryTone::Neutral)
-        {
-            ToolSummaryTone::Neutral => dim,
-            ToolSummaryTone::Success => ratatui::style::Style::default().fg(Color::LightGreen),
-            ToolSummaryTone::Warning => ratatui::style::Style::default().fg(Color::Yellow),
-        };
-        result.push((format!("{}{} · {}", prefix, target, detail), style));
-    }
-
-    if batch.items.len() > max_items {
-        result.push((
-            format!(
-                "     … +{} more exploration steps (ctrl+o to expand)",
-                batch.items.len() - max_items
-            ),
-            dim,
-        ));
-    }
+    let _ = all_entries;
+    result.push((
+        format!("⏺ {} (ctrl+o to expand)", tool_batch_summary_text(batch)),
+        accent,
+    ));
 }
 
 pub(super) fn render_standalone_result(
@@ -524,30 +473,6 @@ fn tool_display_name(name: &str) -> String {
     }
 }
 
-fn group_item_target(name: &str, args: &serde_json::Value) -> String {
-    match name {
-        "read_file" => display_file_path(args["file_path"].as_str().unwrap_or("???")).to_string(),
-        "grep" | "glob" => truncate_line(args["pattern"].as_str().unwrap_or("???"), 40),
-        "ls" => display_file_path(args["path"].as_str().unwrap_or(".")).to_string(),
-        "web_search" => truncate_line(args["query"].as_str().unwrap_or("web"), 48),
-        "web_fetch" => truncate_line(args["url"].as_str().unwrap_or("page"), 48),
-        "project_map" => "workspace".to_string(),
-        "memory" => truncate_line(args["name"].as_str().unwrap_or("memories"), 40),
-        "skill" => truncate_line(args["name"].as_str().unwrap_or("skills"), 40),
-        "discover_skills" => "available skills".to_string(),
-        "lsp" => {
-            let operation = args["operation"].as_str().unwrap_or("lsp");
-            let file = args["filePath"].as_str().unwrap_or("");
-            if file.is_empty() {
-                operation.to_string()
-            } else {
-                format!("{} {}", operation, display_file_path(file))
-            }
-        }
-        _ => tool_summary_str(name, args),
-    }
-}
-
 fn render_summary_lines(
     result: &mut Vec<(String, ratatui::style::Style)>,
     lines: &[crate::tool_output_summary::ToolSummaryLine],
@@ -683,8 +608,8 @@ mod tests {
         assert!(result[0]
             .0
             .contains("Searched the web for 1 query, inspected 1 symbol"));
-        assert!(result[1].0.contains("ratatui status summary"));
-        assert!(result[2].0.contains("+1 more exploration steps"));
+        assert!(result[0].0.contains("ctrl+o to expand"));
+        assert_eq!(result.len(), 1);
     }
 
     #[test]

@@ -164,74 +164,18 @@ pub(crate) fn render_grouped_tool_call(
     all_entries: &[ChatEntry],
     batch: &ToolBatch,
 ) {
+    let _ = all_entries;
     lines.push(Line::from(vec![
         Span::styled("⏺ ", Style::default().fg(ACCENT)),
         Span::styled(
             tool_batch_summary_text(batch),
             Style::default().fg(WHITE).add_modifier(Modifier::BOLD),
         ),
+        Span::styled(
+            " (ctrl+o to expand)",
+            Style::default().fg(DIM).add_modifier(Modifier::ITALIC),
+        ),
     ]));
-
-    let max_items = 1;
-    for (index, item) in batch.items.iter().take(max_items).enumerate() {
-        let call = &all_entries[item.call_index];
-        let args: serde_json::Value = serde_json::from_str(&call.content).unwrap_or_default();
-        let result = item
-            .result_index
-            .and_then(|result_index| all_entries.get(result_index));
-        let is_error = result
-            .map(|entry| matches!(entry.role, ChatRole::ToolResult { is_error, .. } if is_error))
-            .unwrap_or(false);
-        let result_content = result.map(|entry| entry.content.as_str()).unwrap_or("");
-        let summary_result = summarize_tool_result(
-            &item.tool_name,
-            &args,
-            result.and_then(|entry| entry.tool_metadata.as_ref()),
-            result_content,
-            is_error,
-        );
-        let target = truncate_ellipsis(&group_item_target(&item.tool_name, &args), 48);
-        let detail = summary_result
-            .lines
-            .first()
-            .map(|line| line.text.clone())
-            .unwrap_or_else(|| {
-                if is_error {
-                    "failed".to_string()
-                } else {
-                    "completed".to_string()
-                }
-            });
-        let prefix = if index == 0 { "  ⎿  " } else { "     " };
-        let tone = summary_result
-            .lines
-            .first()
-            .map(|line| line.tone)
-            .unwrap_or(if is_error {
-                ToolSummaryTone::Warning
-            } else {
-                ToolSummaryTone::Neutral
-            });
-        let style = match tone {
-            ToolSummaryTone::Neutral => Style::default().fg(DIM),
-            ToolSummaryTone::Success => Style::default().fg(GREEN),
-            ToolSummaryTone::Warning => Style::default().fg(WARNING_COLOR),
-        };
-        lines.push(Line::from(Span::styled(
-            format!("{}{} · {}", prefix, target, detail),
-            style,
-        )));
-    }
-
-    if batch.items.len() > max_items {
-        lines.push(Line::from(Span::styled(
-            format!(
-                "     … +{} more exploration steps (ctrl+o to expand)",
-                batch.items.len() - max_items
-            ),
-            Style::default().fg(DIM),
-        )));
-    }
 }
 
 pub(crate) fn render_standalone_result(lines: &mut Vec<Line<'static>>, entry: &ChatEntry) {
@@ -325,31 +269,6 @@ fn shorten_path(path: &str) -> String {
         format!(".../{}/{}", parts[1], parts[0])
     } else {
         path.to_string()
-    }
-}
-
-fn group_item_target(name: &str, args: &serde_json::Value) -> String {
-    match name {
-        "read_file" => shorten_path(args["file_path"].as_str().unwrap_or("???")),
-        "grep" => truncate_ellipsis(args["pattern"].as_str().unwrap_or("???"), 40),
-        "glob" => truncate_ellipsis(args["pattern"].as_str().unwrap_or("???"), 40),
-        "ls" => shorten_path(args["path"].as_str().unwrap_or(".")),
-        "web_search" => truncate_ellipsis(args["query"].as_str().unwrap_or("web"), 48),
-        "web_fetch" => truncate_ellipsis(args["url"].as_str().unwrap_or("page"), 48),
-        "project_map" => "workspace".to_string(),
-        "memory" => truncate_ellipsis(args["name"].as_str().unwrap_or("memories"), 40),
-        "skill" => truncate_ellipsis(args["name"].as_str().unwrap_or("skills"), 40),
-        "discover_skills" => "available skills".to_string(),
-        "lsp" => {
-            let operation = args["operation"].as_str().unwrap_or("lsp");
-            let file_path = args["filePath"].as_str().unwrap_or("");
-            if file_path.is_empty() {
-                operation.to_string()
-            } else {
-                format!("{} {}", operation, shorten_path(file_path))
-            }
-        }
-        _ => tool_summary(name, args),
     }
 }
 
@@ -454,8 +373,8 @@ mod tests {
         assert!(lines[0]
             .to_string()
             .contains("Searched for 1 pattern, read 1 file, listed 1 directory"));
-        assert!(lines[1].to_string().contains("retry"));
-        assert!(lines[2].to_string().contains("+2 more exploration steps"));
+        assert!(lines[0].to_string().contains("ctrl+o to expand"));
+        assert_eq!(lines.len(), 1);
     }
 
     #[test]
@@ -511,8 +430,8 @@ mod tests {
         assert!(lines[0]
             .to_string()
             .contains("Searched the web for 1 query, inspected 1 symbol"));
-        assert!(lines[1].to_string().contains("ratatui status summary"));
-        assert!(lines[2].to_string().contains("+1 more exploration steps"));
+        assert!(lines[0].to_string().contains("ctrl+o to expand"));
+        assert_eq!(lines.len(), 1);
     }
 
     #[test]
