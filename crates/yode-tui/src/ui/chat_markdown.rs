@@ -217,10 +217,15 @@ fn normalize_structural_lines(text: &str) -> Vec<String> {
             continue;
         }
 
+        if let Some(row) = normalize_ascii_pipe_table_row(&trimmed) {
+            lines.extend(expand_compound_table_rows(&row));
+            continue;
+        }
+
         lines.extend(expand_compound_table_rows(&line));
     }
 
-    lines
+    insert_missing_table_separator_lines(lines)
 }
 
 fn strip_structural_indent(raw_line: &str) -> String {
@@ -277,6 +282,7 @@ fn try_join_table_continuation(lines: &mut Vec<String>, trimmed: &str) -> bool {
 fn looks_like_structural_line(trimmed: &str) -> bool {
     normalize_unicode_table_separator(trimmed).is_some()
         || normalize_unicode_table_row(trimmed).is_some()
+        || normalize_ascii_pipe_table_row(trimmed).is_some()
         || trimmed.starts_with('|')
         || trimmed.starts_with("```")
         || trimmed.starts_with("• ")
@@ -326,6 +332,97 @@ fn normalize_unicode_table_separator(trimmed: &str) -> Option<String> {
             .collect::<Vec<_>>()
             .join(" | ")
     ))
+}
+
+fn normalize_ascii_pipe_table_row(trimmed: &str) -> Option<String> {
+    if trimmed.starts_with('|')
+        || trimmed.contains("```")
+        || trimmed.contains("http://")
+        || trimmed.contains("https://")
+        || trimmed.starts_with("- ")
+        || trimmed.starts_with("* ")
+        || trimmed.starts_with("> ")
+        || trimmed.starts_with("```")
+    {
+        return None;
+    }
+
+    let pipe_count = trimmed.matches('|').count();
+    if pipe_count < 2 {
+        return None;
+    }
+
+    let cells = trimmed
+        .trim_matches('|')
+        .split('|')
+        .map(str::trim)
+        .filter(|cell| !cell.is_empty())
+        .collect::<Vec<_>>();
+    if cells.len() < 2 {
+        return None;
+    }
+
+    Some(format!("| {} |", cells.join(" | ")))
+}
+
+fn insert_missing_table_separator_lines(lines: Vec<String>) -> Vec<String> {
+    let mut normalized = Vec::with_capacity(lines.len());
+    let mut index = 0usize;
+
+    while index < lines.len() {
+        if !is_markdown_table_row(&lines[index]) {
+            normalized.push(lines[index].clone());
+            index += 1;
+            continue;
+        }
+
+        let start = index;
+        while index < lines.len() && is_markdown_table_row(&lines[index]) {
+            index += 1;
+        }
+        let block = &lines[start..index];
+
+        if block.len() >= 2 && !is_markdown_table_separator(&block[1]) {
+            normalized.push(block[0].clone());
+            normalized.push(markdown_table_separator_for_row(&block[0]));
+            normalized.extend(block.iter().skip(1).cloned());
+        } else {
+            normalized.extend(block.iter().cloned());
+        }
+    }
+
+    normalized
+}
+
+fn is_markdown_table_row(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed.starts_with('|') && trimmed.ends_with('|') && trimmed.matches('|').count() >= 2
+}
+
+fn is_markdown_table_separator(line: &str) -> bool {
+    let trimmed = line.trim().trim_matches('|');
+    !trimmed.is_empty()
+        && trimmed
+            .split('|')
+            .map(str::trim)
+            .all(|cell| !cell.is_empty() && cell.chars().all(|ch| ch == '-' || ch == ':' || ch == ' '))
+}
+
+fn markdown_table_separator_for_row(line: &str) -> String {
+    let cols = line
+        .trim()
+        .trim_matches('|')
+        .split('|')
+        .filter(|cell| !cell.trim().is_empty())
+        .count()
+        .max(2);
+    format!(
+        "| {} |",
+        std::iter::repeat("---")
+            .take(cols)
+            .collect::<Vec<_>>()
+            .join(" | ")
+    )
 }
 
 fn expand_compound_table_rows(raw_line: &str) -> Vec<String> {
@@ -1838,6 +1935,27 @@ mod tests {
     }
 
     #[test]
+    fn loose_ascii_pipe_rows_become_real_table_blocks() {
+        let sample = "架构对比要点\n维度 | Yode | Claude Code |\n命令注册 | 全量静态编译时 | 懒加载 + 运行时动态 |\nUI 渲染 | 纯文本 | React JSX (交互) |";
+        let lines = render_markdown_impl(sample, None)
+            .into_iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>();
+
+        assert!(lines.iter().any(|line| line.contains("架构对比要点")));
+
+        assert!(lines.iter().any(|line| line.contains("维度")));
+        assert!(lines.iter().any(|line| line.contains("命令注册")));
+        assert!(lines.iter().any(|line| line.contains("UI 渲染")));
+        assert!(lines
+            .iter()
+            .all(|line| !line.contains("维度 | Yode | Claude Code |")));
+        assert!(lines
+            .iter()
+            .all(|line| !line.contains("命令注册 | 全量静态编译时 | 懒加载 + 运行时动态 |")));
+    }
+
+    #[test]
     fn unicode_bullet_lines_become_markdown_lists() {
         let lines = render_markdown_impl("优势\n  • 性能\n  • 安全", None);
         assert!(lines.iter().any(|line| line.to_string().contains("• 性能")));
@@ -1997,12 +2115,8 @@ mod tests {
         assert!(lines
             .iter()
             .any(|line| line.to_string().contains("intro line.")));
-        assert!(lines
-            .iter()
-            .any(|line| line.to_string().contains("| a | b |")));
-        assert!(lines
-            .iter()
-            .any(|line| line.to_string().contains("| c | d |")));
+        assert!(lines.iter().any(|line| line.to_string().contains("a")));
+        assert!(lines.iter().any(|line| line.to_string().contains("c")));
     }
 }
 

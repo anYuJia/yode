@@ -102,4 +102,24 @@ mod tests {
             .iter()
             .all(|line| !line.contains("| 工具数 | ~45 | ~50+ |")));
     }
+
+    #[test]
+    fn scrollback_assistant_normalizes_loose_ascii_pipe_tables() {
+        let entry = ChatEntry::new(
+            ChatRole::Assistant,
+            "架构对比要点\n维度 | Yode | Claude Code |\n命令注册 | 全量静态编译时 | 懒加载 + 运行时动态 |\nUI 渲染 | 纯文本 | React JSX (交互) |"
+                .to_string(),
+        );
+        let mut result = Vec::new();
+        render_assistant(&entry, &mut result, Style::default(), Style::default());
+
+        let rendered = result
+            .iter()
+            .map(|(line, _)| strip_ansi(line))
+            .collect::<Vec<_>>();
+        assert!(rendered.iter().all(|line| !line.contains("维度 | Yode | Claude Code |")));
+        assert!(rendered
+            .iter()
+            .all(|line| !line.contains("命令注册 | 全量静态编译时 | 懒加载 + 运行时动态 |")));
+    }
 }
