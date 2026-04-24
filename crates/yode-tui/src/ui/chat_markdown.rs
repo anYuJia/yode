@@ -564,30 +564,34 @@ fn promote_heading_lines(lines: Vec<String>) -> Vec<String> {
             .find(|candidate| !candidate.trim().is_empty())
             .map(|candidate| candidate.trim().to_string());
 
-        if looks_like_numbered_section_heading(trimmed, next_nonempty.as_deref()) {
-            normalized.push(format!("## {}", trimmed));
-            continue;
-        }
-
-        if !next_nonempty
-            .as_deref()
-            .is_some_and(looks_like_heading_followup)
-        {
+        let Some(level) = classify_promoted_heading_level(trimmed, next_nonempty.as_deref()) else {
             normalized.push(line.clone());
             continue;
-        }
-
-        let marker = if trimmed.starts_with('P')
-            && trimmed.chars().nth(1).is_some_and(|ch| ch.is_ascii_digit())
-        {
-            "###"
-        } else {
-            "##"
         };
+        let marker = "#".repeat(level);
         normalized.push(format!("{} {}", marker, trimmed));
     }
 
     normalized
+}
+
+fn classify_promoted_heading_level(trimmed: &str, next: Option<&str>) -> Option<usize> {
+    if !next.is_some_and(looks_like_heading_followup) {
+        return None;
+    }
+    if is_chinese_section_heading(trimmed) {
+        return Some(1);
+    }
+    if is_priority_heading(trimmed) {
+        return Some(2);
+    }
+    if looks_like_numbered_section_heading(trimmed, next) {
+        return Some(3);
+    }
+    if looks_like_heading_candidate(trimmed) {
+        return Some(2);
+    }
+    None
 }
 
 fn looks_like_heading_candidate(trimmed: &str) -> bool {
@@ -624,8 +628,30 @@ fn looks_like_heading_followup(next: &str) -> bool {
         || next.starts_with("• ")
         || next.starts_with("◦ ")
         || next.starts_with("▪ ")
+        || next.starts_with("P0")
+        || next.starts_with("P1")
+        || next.starts_with("P2")
         || next.starts_with("1. ")
         || looks_like_heading_candidate(next)
+}
+
+fn is_chinese_section_heading(trimmed: &str) -> bool {
+    let Some((prefix, rest)) = trimmed.split_once('、') else {
+        return false;
+    };
+    !rest.trim().is_empty()
+        && prefix
+            .chars()
+            .all(|ch| matches!(ch, '一' | '二' | '三' | '四' | '五' | '六' | '七' | '八' | '九' | '十'))
+}
+
+fn is_priority_heading(trimmed: &str) -> bool {
+    trimmed.starts_with('P')
+        && trimmed.chars().nth(1).is_some_and(|ch| ch.is_ascii_digit())
+        && (trimmed.contains("核心")
+            || trimmed.contains("缺失")
+            || trimmed.contains("增强")
+            || trimmed.contains("优先"))
 }
 
 fn looks_like_numbered_section_heading(trimmed: &str, next: Option<&str>) -> bool {
@@ -2104,6 +2130,26 @@ mod tests {
             .unwrap();
         assert!(third > 0);
         assert!(lines[third - 1].to_string().is_empty());
+    }
+
+    #[test]
+    fn chinese_sections_and_priority_heads_use_distinct_levels() {
+        let lines = render_markdown_impl(
+            "三、Yode 严重缺失的功能（按优先级）\nP0 - 核心缺失\n- /init\nP1 - 重要缺失\n- Skills\n四、Yode 的相对优势\n1. 开源",
+            None,
+        );
+
+        let section = lines
+            .iter()
+            .find(|line| line.to_string().contains("三、Yode 严重缺失的功能"))
+            .unwrap();
+        let p0 = lines
+            .iter()
+            .find(|line| line.to_string().contains("P0 - 核心缺失"))
+            .unwrap();
+        let section_fg = section.spans.iter().find_map(|span| span.style.fg).unwrap();
+        let p0_fg = p0.spans.iter().find_map(|span| span.style.fg).unwrap();
+        assert_ne!(section_fg, p0_fg);
     }
 
     #[test]
