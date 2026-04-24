@@ -256,6 +256,7 @@ pub(super) fn try_process_next(
     let cancel_token = CancellationToken::new();
     app.thinking.start(cancel_token.clone());
     app.turn_started_at = Some(Instant::now());
+    app.turn_done_at = None;
     app.turn_tool_count = 0;
     app.session.turn_input_tokens = 0;
     app.session.turn_output_tokens = 0;

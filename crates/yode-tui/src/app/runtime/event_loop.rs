@@ -32,6 +32,16 @@ pub(super) async fn run_app(
         app.sync_thinking();
         let mut ui_dirty = false;
 
+        if matches!(app.turn_status, crate::app::TurnStatus::Done { .. })
+            && app
+                .turn_done_at
+                .is_some_and(|done_at| done_at.elapsed() >= Duration::from_secs(3))
+        {
+            app.turn_status = crate::app::TurnStatus::Idle;
+            app.turn_done_at = None;
+            ui_dirty = true;
+        }
+
         while let Ok(event) = engine_event_rx.try_recv() {
             handle_engine_event(app, event, &engine, &engine_event_tx);
             ui_dirty = true;
@@ -40,14 +50,16 @@ pub(super) async fn run_app(
             ui_dirty = true;
         }
 
+        if force_redraw || ui_dirty {
+            resize_inline_viewport(terminal, app)?;
+        }
+
         let scrollback_dirty = flush_entries_to_scrollback(terminal, app)?;
         if force_redraw || ui_dirty || scrollback_dirty {
             crossterm::execute!(
                 terminal.backend_mut(),
                 crossterm::terminal::BeginSynchronizedUpdate
             )?;
-
-            resize_inline_viewport(terminal, app)?;
 
             terminal.draw(|frame| {
                 ui::render(frame, app);

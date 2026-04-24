@@ -164,8 +164,10 @@ pub(super) fn handle_done(
             runtime_state.as_ref(),
         ));
         app.turn_status = TurnStatus::Done { elapsed, tools };
+        app.turn_done_at = Some(Instant::now());
     } else {
         app.turn_status = TurnStatus::Idle;
+        app.turn_done_at = None;
     }
     app.thinking.stop();
     app.thinking_printed = false;
