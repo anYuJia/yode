@@ -8,12 +8,26 @@ pub struct MainLayoutPlan {
     pub show_completion: bool,
 }
 
+pub(crate) const STREAMING_PREVIEW_HEIGHT: u16 = 6;
+
+pub(crate) fn status_area_height(app: &App, completion_height: u16) -> u16 {
+    if completion_height > 0 {
+        0
+    } else if app.turn_status.is_visible() {
+        if app.streaming_markdown_preview.is_empty() {
+            3
+        } else {
+            STREAMING_PREVIEW_HEIGHT
+        }
+    } else {
+        0
+    }
+}
+
 pub fn build_main_layout(area: Rect, app: &App) -> MainLayoutPlan {
-    const STREAMING_PREVIEW_HEIGHT: u16 = 6;
     let term_width = area.width;
     let visual_lines = app.input.visual_line_count(term_width) as u16;
     let input_height = visual_lines.clamp(1, 5);
-    let status_height_raw: u16 = if app.turn_status.is_visible() { 1 } else { 0 };
     let pending_height = app.pending_inputs.len() as u16;
 
     let completion_height = if app.cmd_completion.is_active() {
@@ -28,17 +42,7 @@ pub fn build_main_layout(area: Rect, app: &App) -> MainLayoutPlan {
         0
     };
 
-    let status_area_height = if completion_height > 0 {
-        0
-    } else if status_height_raw > 0 {
-        if app.streaming_markdown_preview.is_empty() {
-            3
-        } else {
-            STREAMING_PREVIEW_HEIGHT
-        }
-    } else {
-        0
-    };
+    let status_area_height = status_area_height(app, completion_height);
 
     let constraints = if completion_height > 0 {
         vec![

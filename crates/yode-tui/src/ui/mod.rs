@@ -7,7 +7,7 @@ mod chat_markdown;
 mod highlighted_code;
 pub mod input;
 pub(crate) mod inspector;
-mod layout;
+pub(crate) mod layout;
 mod palette;
 pub(crate) mod panels;
 mod pending;

@@ -90,7 +90,7 @@ pub(super) fn manual_wrap(lines: Vec<Line<'static>>, width: u16) -> Vec<Line<'st
     result
 }
 
-pub(super) fn visible_text_width(text: &str) -> usize {
+pub(crate) fn visible_text_width(text: &str) -> usize {
     split_terminal_text_fragments(text)
         .iter()
         .map(|fragment| fragment.visible_width)

@@ -12,6 +12,7 @@ use yode_tools::registry::ToolRegistry;
 
 use crate::event::{self, AppEvent};
 use crate::ui;
+use crate::ui::layout::status_area_height;
 
 use super::super::engine_events::handle_engine_event;
 use super::super::key_dispatch::handle_key_event;
@@ -224,13 +225,7 @@ fn viewport_height(app: &App, terminal: &mut Terminal<CrosstermBackend<io::Stdou
     } else {
         0
     };
-    let thinking_line: u16 = if completion_lines > 0 {
-        0
-    } else if app.turn_status.is_visible() {
-        3
-    } else {
-        0
-    };
+    let thinking_line = status_area_height(app, completion_lines);
     let pending_line = app.pending_inputs.len() as u16;
     visual_lines.clamp(1, 5) + completion_lines + thinking_line + pending_line + 4
 }

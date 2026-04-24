@@ -14,7 +14,6 @@ use self::entry_formatting::{
     format_entry_as_strings, format_grouped_subagent_batch, format_grouped_system_batch,
     format_grouped_tool_batch,
 };
-use super::rendering::strip_ansi;
 use super::{App, ChatRole};
 use crate::tool_grouping::{
     detect_groupable_subagent_batch, detect_groupable_system_batch, detect_groupable_tool_batch,
@@ -23,7 +22,7 @@ use crate::ui::chat::{
     render_markdown_ansi_white_with_options, render_markdown_white_with_options,
     streaming_markdown_advance_stable_boundary,
 };
-use crate::ui::chat_layout::render_header;
+use crate::ui::chat_layout::{render_header, visible_text_width};
 
 /// Print lines to terminal scrollback.
 fn raw_print_lines(
@@ -37,18 +36,7 @@ fn raw_print_lines(
     let term_width = crossterm::terminal::size()?.0 as usize;
     let actual_rows: usize = lines
         .iter()
-        .map(|(text, _color, _)| {
-            let visible = if text.contains('\x1b') {
-                unicode_width::UnicodeWidthStr::width(strip_ansi(text).as_str())
-            } else {
-                unicode_width::UnicodeWidthStr::width(text.as_str())
-            };
-            if visible == 0 || term_width == 0 {
-                1
-            } else {
-                visible.div_ceil(term_width).max(1)
-            }
-        })
+        .map(|(text, _color, _)| scrollback_rows_for_line(text, term_width))
         .sum();
 
     terminal.insert_before(actual_rows as u16, |_buf| {})?;
@@ -83,6 +71,15 @@ fn raw_print_lines(
 
     backend.flush()?;
     Ok(())
+}
+
+fn scrollback_rows_for_line(text: &str, term_width: usize) -> usize {
+    let visible = visible_text_width(text);
+    if visible == 0 || term_width == 0 {
+        1
+    } else {
+        visible.div_ceil(term_width).max(1)
+    }
 }
 
 /// Convert ratatui Color to crossterm Color (handles Rgb, Indexed, and named colors).
@@ -389,7 +386,7 @@ mod tests {
     use ratatui::style::{Color, Style};
     use ratatui::text::{Line, Span};
 
-    use super::{merge_preview_lines, push_streaming_rendered_lines};
+    use super::{merge_preview_lines, push_streaming_rendered_lines, scrollback_rows_for_line};
 
     #[test]
     fn merge_preview_lines_reuses_unchanged_lines_and_replaces_changed_ones() {
@@ -422,5 +419,11 @@ mod tests {
         assert_eq!(output[1].0, "⏺ Heading");
         assert_eq!(output[2].0, String::new());
         assert_eq!(output[3].0, "  Body");
+    }
+
+    #[test]
+    fn scrollback_row_count_handles_ansi_and_cjk_without_width_inflation() {
+        let styled = "\x1b[97m⏺ Yode vs Claude Code 综合对比\x1b[0m";
+        assert_eq!(scrollback_rows_for_line(styled, 80), 1);
     }
 }
