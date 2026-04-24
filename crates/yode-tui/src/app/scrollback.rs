@@ -80,7 +80,7 @@ fn raw_print_lines(
 
 #[cfg(test)]
 fn scrollback_rows_for_line(text: &str, term_width: usize) -> usize {
-    let visible = visible_text_width(text);
+    let visible = crate::ui::chat_layout::visible_text_width(text);
     if visible == 0 || term_width == 0 {
         1
     } else {

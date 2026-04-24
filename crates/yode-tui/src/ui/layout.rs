@@ -8,17 +8,11 @@ pub struct MainLayoutPlan {
     pub show_completion: bool,
 }
 
-pub(crate) const STREAMING_PREVIEW_HEIGHT: u16 = 6;
-
 pub(crate) fn status_area_height(app: &App, completion_height: u16) -> u16 {
     if completion_height > 0 {
         0
     } else if app.turn_status.is_visible() {
-        if app.streaming_markdown_preview.is_empty() {
-            3
-        } else {
-            STREAMING_PREVIEW_HEIGHT
-        }
+        3
     } else {
         0
     }
@@ -103,7 +97,7 @@ mod tests {
     }
 
     #[test]
-    fn streaming_preview_uses_fixed_status_height() {
+    fn streaming_preview_does_not_expand_status_height() {
         let mut app = test_app();
         app.turn_status = crate::app::TurnStatus::Working { verb: "Thinking" };
         app.streaming_markdown_preview = vec![
@@ -111,7 +105,7 @@ mod tests {
             ratatui::text::Line::from("b"),
         ];
         let plan = build_main_layout(ratatui::layout::Rect::new(0, 0, 80, 20), &app);
-        assert_eq!(plan.areas[0].height, 6);
+        assert_eq!(plan.areas[0].height, 3);
         assert!(plan.show_turn_status);
     }
 

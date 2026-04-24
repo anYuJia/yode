@@ -135,34 +135,10 @@ pub fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &
         lines.push(Line::from(""));
     }
     lines.push(status_line);
-    if !app.streaming_markdown_preview.is_empty() {
-        let preview_capacity = area.height.saturating_sub(lines.len() as u16) as usize;
-        for preview_line in preview_lines_without_leading_blank(&app.streaming_markdown_preview)
-            .into_iter()
-            .take(preview_capacity)
-        {
-            let mut spans = vec![Span::styled("  ", Style::default().fg(Color::DarkGray))];
-            spans.extend(preview_line.spans);
-            lines.push(Line::from(spans));
-        }
-    } else if area.height >= 3 {
+    if area.height >= 3 {
         lines.push(Line::from(""));
     }
     frame.render_widget(Paragraph::new(lines), area);
-}
-
-fn preview_lines_without_leading_blank(preview: &[Line<'static>]) -> Vec<Line<'static>> {
-    preview
-        .iter()
-        .skip_while(|line| {
-            line.spans.is_empty()
-                || line
-                    .spans
-                    .iter()
-                    .all(|span| span.content.trim().is_empty())
-        })
-        .cloned()
-        .collect()
 }
 
 pub(crate) fn active_working_label(app: &App, fallback_verb: &str) -> String {
@@ -228,14 +204,13 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::Arc;
 
-    use ratatui::text::Line;
     use yode_llm::registry::ProviderRegistry;
     use yode_tools::builtin::EditFileTool;
     use yode_tools::registry::ToolRegistry;
 
     use crate::app::{App, ChatEntry, ChatRole};
 
-    use super::{active_working_label, preview_lines_without_leading_blank};
+    use super::active_working_label;
 
     fn test_app() -> App {
         App::new(
@@ -326,13 +301,5 @@ mod tests {
             active_working_label(&app, "Working"),
             "Editing file: /tmp/demo.rs…"
         );
-    }
-
-    #[test]
-    fn preview_trims_leading_blank_lines() {
-        let preview = vec![Line::from(""), Line::from(""), Line::from("基本面")];
-        let trimmed = preview_lines_without_leading_blank(&preview);
-        assert_eq!(trimmed.len(), 1);
-        assert_eq!(trimmed[0].to_string(), "基本面");
     }
 }
