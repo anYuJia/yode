@@ -43,6 +43,9 @@ pub(crate) fn streaming_markdown_advance_stable_boundary(
     current_stable_len: usize,
 ) -> usize {
     let stable_len = current_stable_len.min(text.len());
+    if has_risky_streaming_structure(&text[stable_len..]) {
+        return stable_len;
+    }
     let block_ranges = top_level_block_ranges(text, stable_len);
     if block_ranges.len() <= 1 {
         stable_len
@@ -103,6 +106,22 @@ fn top_level_block_ranges(text: &str, offset: usize) -> Vec<std::ops::Range<usiz
     }
 
     block_ranges
+}
+
+fn has_risky_streaming_structure(text: &str) -> bool {
+    text.lines().any(|line| {
+        let trimmed = line.trim();
+        normalize_unicode_table_separator(trimmed).is_some()
+            || normalize_unicode_table_row(trimmed).is_some()
+            || trimmed.starts_with('|')
+            || (!trimmed.is_empty()
+                && trimmed.ends_with('|')
+                && !trimmed.starts_with('|')
+                && !trimmed.contains("http://")
+                && !trimmed.contains("https://"))
+            || normalize_unicode_bullet_line(trimmed).is_some()
+            || looks_like_heading_candidate(trimmed)
+    })
 }
 
 #[derive(Debug, Clone)]
