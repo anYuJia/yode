@@ -110,6 +110,8 @@ pub(crate) fn wrap_terminal_text(text: &str, width: usize) -> Vec<String> {
     let mut current = String::new();
     let mut current_width = 0usize;
     let mut active_hyperlink: Option<String> = None;
+    let continuation_prefix = continuation_wrap_prefix(text);
+    let continuation_width = visible_text_width(&continuation_prefix);
 
     for fragment in split_terminal_text_fragments(text) {
         if fragment.visible_width == 0 {
@@ -131,6 +133,10 @@ pub(crate) fn wrap_terminal_text(text: &str, width: usize) -> Vec<String> {
             if let Some(start) = active_hyperlink.as_ref() {
                 current.push_str(start);
             }
+            if !continuation_prefix.is_empty() {
+                current.push_str(&continuation_prefix);
+                current_width = continuation_width.min(width.saturating_sub(1));
+            }
         }
 
         current.push_str(&fragment.raw);
@@ -147,6 +153,46 @@ pub(crate) fn wrap_terminal_text(text: &str, width: usize) -> Vec<String> {
     }
 
     result
+}
+
+fn continuation_wrap_prefix(text: &str) -> String {
+    if text.starts_with("⏺ ") || text.starts_with("  ") {
+        return "  ".to_string();
+    }
+
+    let leading_spaces = text.chars().take_while(|ch| *ch == ' ').count();
+    let trimmed = &text[leading_spaces..];
+
+    if let Some(prefix) = ordered_list_prefix(trimmed) {
+        return " ".repeat(leading_spaces + visible_text_width(prefix));
+    }
+
+    if let Some(prefix) = marker_prefix(trimmed) {
+        return " ".repeat(leading_spaces + visible_text_width(prefix));
+    }
+
+    String::new()
+}
+
+fn ordered_list_prefix(text: &str) -> Option<&str> {
+    let bytes = text.as_bytes();
+    let mut index = 0usize;
+    while index < bytes.len() && bytes[index].is_ascii_digit() {
+        index += 1;
+    }
+    if index == 0 || index + 1 >= bytes.len() || bytes[index] != b'.' || bytes[index + 1] != b' ' {
+        return None;
+    }
+    Some(&text[..index + 2])
+}
+
+fn marker_prefix(text: &str) -> Option<&str> {
+    for marker in ["• ", "◦ ", "▪ ", "- ", "* ", "▎ ", "│ "] {
+        if text.starts_with(marker) {
+            return Some(marker);
+        }
+    }
+    None
 }
 
 #[derive(Debug, Clone)]
@@ -374,4 +420,29 @@ pub(crate) fn render_header(app: &App, width: usize) -> Vec<Line<'static>> {
     ]));
 
     lines
+}
+
+#[cfg(test)]
+mod tests {
+    use super::wrap_terminal_text;
+
+    #[test]
+    fn wrap_terminal_text_preserves_hanging_indent_for_ordered_lists() {
+        let wrapped = wrap_terminal_text(
+            "11. Voice 语音 — CC 有 STT/TTS 与更完整的语音集成能力",
+            24,
+        );
+        assert!(wrapped.len() > 1);
+        assert!(wrapped[1].starts_with("    "));
+    }
+
+    #[test]
+    fn wrap_terminal_text_preserves_assistant_continuation_indent() {
+        let wrapped = wrap_terminal_text(
+            "⏺ 根据已有的深度分析记忆，我直接给你综合结论，不需要重新扫描。",
+            18,
+        );
+        assert!(wrapped.len() > 1);
+        assert!(wrapped[1].starts_with("  "));
+    }
 }
