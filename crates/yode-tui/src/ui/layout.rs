@@ -116,4 +116,16 @@ mod tests {
         let plan = build_main_layout(ratatui::layout::Rect::new(0, 0, 80, 20), &app);
         assert_eq!(plan.areas[0].height, 3);
     }
+
+    #[test]
+    fn done_status_keeps_status_area_visible() {
+        let mut app = test_app();
+        app.turn_status = crate::app::TurnStatus::Done {
+            elapsed: std::time::Duration::from_secs(2),
+            tools: 3,
+        };
+        let plan = build_main_layout(ratatui::layout::Rect::new(0, 0, 80, 20), &app);
+        assert_eq!(plan.areas[0].height, 3);
+        assert!(plan.show_turn_status);
+    }
 }

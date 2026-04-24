@@ -467,6 +467,11 @@ fn promote_heading_lines(lines: Vec<String>) -> Vec<String> {
             .find(|candidate| !candidate.trim().is_empty())
             .map(|candidate| candidate.trim().to_string());
 
+        if looks_like_numbered_section_heading(trimmed, next_nonempty.as_deref()) {
+            normalized.push(format!("## {}", trimmed));
+            continue;
+        }
+
         if !next_nonempty
             .as_deref()
             .is_some_and(looks_like_heading_followup)
@@ -519,8 +524,63 @@ fn looks_like_heading_followup(next: &str) -> bool {
         || next.starts_with('P')
         || next.starts_with("- ")
         || next.starts_with("* ")
+        || next.starts_with("• ")
+        || next.starts_with("◦ ")
+        || next.starts_with("▪ ")
         || next.starts_with("1. ")
         || looks_like_heading_candidate(next)
+}
+
+fn looks_like_numbered_section_heading(trimmed: &str, next: Option<&str>) -> bool {
+    let Some((prefix, rest)) = trimmed.split_once(". ") else {
+        return false;
+    };
+    if prefix.is_empty()
+        || prefix.len() > 2
+        || !prefix.chars().all(|ch| ch.is_ascii_digit())
+        || rest.is_empty()
+        || rest.chars().count() > 64
+    {
+        return false;
+    }
+
+    let has_cjk = rest
+        .chars()
+        .any(|ch| ('\u{4E00}'..='\u{9FFF}').contains(&ch));
+    let has_upper_ascii = rest.chars().any(|ch| ch.is_ascii_uppercase());
+    if !has_cjk && !has_upper_ascii {
+        return false;
+    }
+
+    let Some(next) = next else {
+        return false;
+    };
+    looks_like_numbered_section_followup(next)
+}
+
+fn looks_like_numbered_section_followup(next: &str) -> bool {
+    let next = next.trim();
+    if next.is_empty() {
+        return false;
+    }
+    if next.starts_with("- ")
+        || next.starts_with("* ")
+        || next.starts_with("• ")
+        || next.starts_with("◦ ")
+        || next.starts_with("▪ ")
+        || next.starts_with('|')
+        || next.contains('│')
+    {
+        return true;
+    }
+
+    if let Some((prefix, _)) = next.split_once(". ") {
+        if prefix.chars().all(|ch| ch.is_ascii_digit()) {
+            return false;
+        }
+    }
+
+    true
 }
 
 #[derive(Clone, Copy)]
@@ -1907,6 +1967,28 @@ mod tests {
             .unwrap();
         assert!(gap_index > 0);
         assert!(lines[gap_index - 1].to_string().is_empty());
+    }
+
+    #[test]
+    fn numbered_section_headings_get_consistent_blank_lines() {
+        let lines = render_markdown_impl(
+            "1. 命令系统 — 差 2.7 倍\n• 差距：Yode 只有同步 trait\n2. 上下文压缩 — 差 7 层\n• 差距：Yode 只有 eviction\n3. MCP 客户端 — 严重缺失\n• 差距：仅 stdio",
+            None,
+        );
+
+        let second = lines
+            .iter()
+            .position(|line| line.to_string().contains("2. 上下文压缩"))
+            .unwrap();
+        assert!(second > 0);
+        assert!(lines[second - 1].to_string().is_empty());
+
+        let third = lines
+            .iter()
+            .position(|line| line.to_string().contains("3. MCP 客户端"))
+            .unwrap();
+        assert!(third > 0);
+        assert!(lines[third - 1].to_string().is_empty());
     }
 
     #[test]

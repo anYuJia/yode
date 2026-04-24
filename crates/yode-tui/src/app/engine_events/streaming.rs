@@ -163,9 +163,10 @@ pub(super) fn handle_done(
             app.session.tool_call_count,
             runtime_state.as_ref(),
         ));
+        app.turn_status = TurnStatus::Done { elapsed, tools };
+    } else {
+        app.turn_status = TurnStatus::Idle;
     }
-
-    app.turn_status = TurnStatus::Idle;
     app.thinking.stop();
     app.thinking_printed = false;
     app.sync_thinking();
