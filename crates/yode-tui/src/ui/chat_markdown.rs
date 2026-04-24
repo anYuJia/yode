@@ -58,19 +58,24 @@ pub(crate) fn render_markdown_ansi_with_options(
 }
 
 fn stable_boundary_from_complete_lines(text: &str) -> usize {
-    let mut in_code_fence = false;
+    let mut lines = Vec::new();
     let mut offset = 0usize;
-    let mut last_safe = 0usize;
-    let mut pending_heading_start = None;
-
     for segment in text.split_inclusive('\n') {
         if !segment.ends_with('\n') {
             break;
         }
-
-        let line_start = offset;
         let line_end = offset + segment.len();
-        let trimmed = segment.trim_end_matches('\n').trim();
+        lines.push((offset, line_end, segment.trim_end_matches('\n').trim().to_string()));
+        offset = line_end;
+    }
+
+    let mut in_code_fence = false;
+    let mut last_safe = 0usize;
+    let mut index = 0usize;
+
+    while index < lines.len() {
+        let line_end = lines[index].1;
+        let trimmed = lines[index].2.as_str();
 
         if trimmed.starts_with("```") {
             if in_code_fence {
@@ -79,39 +84,106 @@ fn stable_boundary_from_complete_lines(text: &str) -> usize {
             } else {
                 in_code_fence = true;
             }
-            pending_heading_start = None;
-            offset = line_end;
+            index += 1;
             continue;
         }
 
         if in_code_fence {
-            offset = line_end;
-            continue;
-        }
-
-        if pending_heading_start.take().is_some() {
-            last_safe = line_end;
-            offset = line_end;
+            index += 1;
             continue;
         }
 
         if trimmed.is_empty() {
             last_safe = line_end;
-            offset = line_end;
+            index += 1;
             continue;
         }
 
         if looks_like_heading_candidate(trimmed) {
-            pending_heading_start = Some(line_start);
-            offset = line_end;
+            let next = lines.get(index + 1).map(|line| line.2.as_str());
+            if next.is_none() {
+                break;
+            }
+            if next.is_some_and(looks_like_heading_followup) {
+                last_safe = line_end;
+                index += 1;
+                continue;
+            }
+            break;
+        }
+
+        if is_streaming_table_line(trimmed) {
+            let mut table_end = index;
+            while table_end < lines.len() && is_streaming_table_line(lines[table_end].2.as_str()) {
+                table_end += 1;
+            }
+            if table_end == lines.len() {
+                break;
+            }
+            if lines[table_end].2.is_empty() {
+                last_safe = lines[table_end].1;
+                index = table_end + 1;
+            } else {
+                last_safe = lines[table_end - 1].1;
+                index = table_end;
+            }
+            continue;
+        }
+
+        if is_streaming_list_item_line(trimmed) {
+            let mut list_end = index;
+            let mut ended_with_blank = false;
+            while list_end < lines.len() {
+                let current = lines[list_end].2.as_str();
+                if current.is_empty() {
+                    ended_with_blank = true;
+                    list_end += 1;
+                    continue;
+                }
+                if is_streaming_list_item_line(current) {
+                    ended_with_blank = false;
+                    list_end += 1;
+                    continue;
+                }
+                break;
+            }
+            if list_end == lines.len() && !ended_with_blank {
+                break;
+            }
+            let stable_index = if list_end > index && lines[list_end.saturating_sub(1)].2.is_empty() {
+                list_end - 1
+            } else {
+                list_end.saturating_sub(1)
+            };
+            last_safe = lines[stable_index].1;
+            index = list_end;
             continue;
         }
 
         last_safe = line_end;
-        offset = line_end;
+        index += 1;
     }
 
-    pending_heading_start.unwrap_or(last_safe)
+    last_safe
+}
+
+fn is_streaming_table_line(trimmed: &str) -> bool {
+    is_markdown_table_row(trimmed)
+        || is_markdown_table_separator(trimmed)
+        || normalize_unicode_table_row(trimmed).is_some()
+        || normalize_unicode_table_separator(trimmed).is_some()
+        || normalize_ascii_pipe_table_row(trimmed).is_some()
+}
+
+fn is_streaming_list_item_line(trimmed: &str) -> bool {
+    trimmed.starts_with("- ")
+        || trimmed.starts_with("* ")
+        || trimmed.starts_with("• ")
+        || trimmed.starts_with("◦ ")
+        || trimmed.starts_with("▪ ")
+        || trimmed
+            .split_once(". ")
+            .is_some_and(|(prefix, _)| !prefix.is_empty() && prefix.chars().all(|ch| ch.is_ascii_digit()))
 }
 
 #[derive(Debug, Clone)]
@@ -177,7 +249,7 @@ fn parse_markdown_blocks(text: &str) -> Vec<MarkdownBlock> {
 static COMPOUND_TABLE_ROW_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\|\s+\|").unwrap());
 
 fn normalize_markdown_input(text: &str) -> String {
-    promote_heading_lines(normalize_structural_lines(text)).join("\n")
+    promote_heading_lines(collapse_list_blank_lines(normalize_structural_lines(text))).join("\n")
 }
 
 fn normalize_structural_lines(text: &str) -> Vec<String> {
@@ -391,6 +463,31 @@ fn insert_missing_table_separator_lines(lines: Vec<String>) -> Vec<String> {
         }
     }
 
+    normalized
+}
+
+fn collapse_list_blank_lines(lines: Vec<String>) -> Vec<String> {
+    let mut normalized = Vec::with_capacity(lines.len());
+    for (index, line) in lines.iter().enumerate() {
+        if !line.trim().is_empty() {
+            normalized.push(line.clone());
+            continue;
+        }
+
+        let previous = normalized.last().map(|line| line.trim()).unwrap_or("");
+        let next = lines
+            .iter()
+            .skip(index + 1)
+            .find(|candidate| !candidate.trim().is_empty())
+            .map(|candidate| candidate.trim())
+            .unwrap_or("");
+
+        if is_streaming_list_item_line(previous) && is_streaming_list_item_line(next) {
+            continue;
+        }
+
+        normalized.push(line.clone());
+    }
     normalized
 }
 
@@ -1902,10 +1999,13 @@ mod tests {
     }
 
     #[test]
-    fn streaming_boundary_advances_through_completed_heading_and_table_lines() {
+    fn streaming_boundary_keeps_unicode_table_block_unstable_until_next_section() {
         let text = "根据已有的深度分析记忆，我直接给你综合结论，不需要重新扫描。\nYode vs Claude Code 综合对比\n基本面\n维度 │ Yode │ Claude Code\n──────┼──────┼─────────────\n";
         let boundary = streaming_markdown_advance_stable_boundary(text, 0);
-        assert_eq!(boundary, text.len());
+        assert_eq!(
+            boundary,
+            "根据已有的深度分析记忆，我直接给你综合结论，不需要重新扫描。\nYode vs Claude Code 综合对比\n".len()
+        );
     }
 
     #[test]
@@ -1916,6 +2016,21 @@ mod tests {
             boundary,
             "根据已有的深度分析记忆，我直接给你综合结论，不需要重新扫描。\n".len()
         );
+    }
+
+    #[test]
+    fn streaming_boundary_keeps_pipe_table_header_unstable_until_table_ends() {
+        let first = "一、基本盘\n| 维度 | Yode | Claude Code |\n";
+        let first_boundary = streaming_markdown_advance_stable_boundary(first, 0);
+        assert_eq!(first_boundary, "一、基本盘\n".len());
+
+        let second = "一、基本盘\n| 维度 | Yode | Claude Code |\n| --- | --- | --- |\n";
+        let second_boundary = streaming_markdown_advance_stable_boundary(second, 0);
+        assert_eq!(second_boundary, "一、基本盘\n".len());
+
+        let third = "一、基本盘\n| 维度 | Yode | Claude Code |\n| --- | --- | --- |\n| 代码量 | 15万 | 52万 |\n二、命令系统\n";
+        let third_boundary = streaming_markdown_advance_stable_boundary(third, 0);
+        assert!(third_boundary > second_boundary);
     }
 
     #[test]
@@ -2189,6 +2304,19 @@ mod tests {
         assert_eq!(lines[1].to_string(), "second line");
         assert!(lines[2].to_string().is_empty());
         assert!(lines.iter().any(|line| line.to_string().contains("• item")));
+    }
+
+    #[test]
+    fn blank_lines_between_list_items_are_collapsed() {
+        let lines = render_markdown_impl("1. one\n\n2. two\n\n3. three", None)
+            .into_iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>();
+        assert!(lines.iter().any(|line| line.contains("1. one")));
+        assert!(lines.iter().any(|line| line.contains("2. two")));
+        assert!(lines.iter().any(|line| line.contains("3. three")));
+        assert!(!lines.windows(2).any(|window| window[0].contains("1. one") && window[1].is_empty()));
+        assert!(!lines.windows(2).any(|window| window[0].contains("2. two") && window[1].is_empty()));
     }
 
     #[test]
