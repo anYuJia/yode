@@ -97,6 +97,58 @@ pub(crate) fn visible_text_width(text: &str) -> usize {
         .sum()
 }
 
+pub(crate) fn wrap_terminal_text(text: &str, width: usize) -> Vec<String> {
+    let width = width.max(1);
+    if text.is_empty() {
+        return vec![String::new()];
+    }
+    if visible_text_width(text) <= width {
+        return vec![text.to_string()];
+    }
+
+    let mut result = Vec::new();
+    let mut current = String::new();
+    let mut current_width = 0usize;
+    let mut active_hyperlink: Option<String> = None;
+
+    for fragment in split_terminal_text_fragments(text) {
+        if fragment.visible_width == 0 {
+            if let Some(start) = osc8_start_sequence(&fragment.raw) {
+                active_hyperlink = Some(start);
+            } else if is_osc8_close_sequence(&fragment.raw) {
+                active_hyperlink = None;
+            }
+            current.push_str(&fragment.raw);
+            continue;
+        }
+
+        if current_width + fragment.visible_width > width && !current.is_empty() {
+            if active_hyperlink.is_some() {
+                current.push_str(osc8_close_sequence());
+            }
+            result.push(std::mem::take(&mut current));
+            current_width = 0;
+            if let Some(start) = active_hyperlink.as_ref() {
+                current.push_str(start);
+            }
+        }
+
+        current.push_str(&fragment.raw);
+        current_width += fragment.visible_width;
+    }
+
+    if current.is_empty() {
+        result.push(String::new());
+    } else {
+        if active_hyperlink.is_some() && !current.ends_with(osc8_close_sequence()) {
+            current.push_str(osc8_close_sequence());
+        }
+        result.push(current);
+    }
+
+    result
+}
+
 #[derive(Debug, Clone)]
 struct TerminalTextFragment {
     raw: String,

@@ -22,7 +22,7 @@ use crate::ui::chat::{
     render_markdown_ansi_white_with_options, render_markdown_white_with_options,
     streaming_markdown_advance_stable_boundary,
 };
-use crate::ui::chat_layout::{render_header, visible_text_width};
+use crate::ui::chat_layout::{render_header, wrap_terminal_text};
 
 /// Print lines to terminal scrollback.
 fn raw_print_lines(
@@ -34,33 +34,38 @@ fn raw_print_lines(
     }
 
     let term_width = crossterm::terminal::size()?.0 as usize;
-    let actual_rows: usize = lines
+    let wrapped_lines = lines
         .iter()
-        .map(|(text, _color, _)| scrollback_rows_for_line(text, term_width))
-        .sum();
+        .flat_map(|(text, color, bold)| {
+            wrap_terminal_text(text, term_width)
+                .into_iter()
+                .map(move |wrapped| (wrapped, *color, *bold))
+        })
+        .collect::<Vec<_>>();
+    let actual_rows = wrapped_lines.len();
 
     terminal.insert_before(actual_rows as u16, |_buf| {})?;
     let backend = terminal.backend_mut();
     crossterm::queue!(backend, crossterm::cursor::MoveUp(actual_rows as u16),)?;
 
-    for (text, color, bold) in lines {
+    for (text, color, bold) in wrapped_lines {
         crossterm::queue!(backend, crossterm::cursor::MoveToColumn(0))?;
         crossterm::queue!(
             backend,
             crossterm::terminal::Clear(crossterm::terminal::ClearType::CurrentLine)
         )?;
-        if *bold {
+        if bold {
             crossterm::queue!(
                 backend,
                 crossterm::style::SetAttribute(crossterm::style::Attribute::Bold)
             )?;
         }
         if let Some(c) = color {
-            crossterm::queue!(backend, crossterm::style::SetForegroundColor(*c))?;
+            crossterm::queue!(backend, crossterm::style::SetForegroundColor(c))?;
         }
         crossterm::queue!(backend, crossterm::style::Print(text))?;
         crossterm::queue!(backend, crossterm::style::ResetColor)?;
-        if *bold {
+        if bold {
             crossterm::queue!(
                 backend,
                 crossterm::style::SetAttribute(crossterm::style::Attribute::NoBold)
@@ -73,6 +78,7 @@ fn raw_print_lines(
     Ok(())
 }
 
+#[cfg(test)]
 fn scrollback_rows_for_line(text: &str, term_width: usize) -> usize {
     let visible = visible_text_width(text);
     if visible == 0 || term_width == 0 {

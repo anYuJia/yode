@@ -43,18 +43,7 @@ pub(crate) fn streaming_markdown_advance_stable_boundary(
     current_stable_len: usize,
 ) -> usize {
     let stable_len = current_stable_len.min(text.len());
-    if has_risky_streaming_structure(&text[stable_len..]) {
-        return stable_len;
-    }
-    let block_ranges = top_level_block_ranges(text, stable_len);
-    if block_ranges.len() <= 1 {
-        stable_len
-    } else {
-        block_ranges
-            .last()
-            .map(|range| range.start)
-            .unwrap_or(stable_len)
-    }
+    stable_len + stable_boundary_from_complete_lines(&text[stable_len..])
 }
 
 pub(crate) fn render_markdown_ansi_with_options(
@@ -68,60 +57,61 @@ pub(crate) fn render_markdown_ansi_with_options(
         .collect()
 }
 
-fn parser_options() -> Options {
-    let mut options = Options::empty();
-    options.insert(Options::ENABLE_TABLES);
-    options.insert(Options::ENABLE_TASKLISTS);
-    options
-}
+fn stable_boundary_from_complete_lines(text: &str) -> usize {
+    let mut in_code_fence = false;
+    let mut offset = 0usize;
+    let mut last_safe = 0usize;
+    let mut pending_heading_start = None;
 
-fn top_level_block_ranges(text: &str, offset: usize) -> Vec<std::ops::Range<usize>> {
-    let mut block_depth = 0usize;
-    let mut current_block_start = None;
-    let mut block_ranges = Vec::new();
-
-    for (event, range) in Parser::new_ext(&text[offset..], parser_options()).into_offset_iter() {
-        let absolute_start = offset + range.start;
-        let absolute_end = offset + range.end;
-        match event {
-            Event::Rule if block_depth == 0 => block_ranges.push(absolute_start..absolute_end),
-            Event::Start(tag) => {
-                if block_depth == 0 && is_top_level_block_tag(&tag) {
-                    current_block_start = Some(absolute_start);
-                }
-                block_depth += 1;
-            }
-            Event::End(_) => {
-                if block_depth > 0 {
-                    block_depth -= 1;
-                    if block_depth == 0 {
-                        if let Some(start) = current_block_start.take() {
-                            block_ranges.push(start..absolute_end);
-                        }
-                    }
-                }
-            }
-            _ => {}
+    for segment in text.split_inclusive('\n') {
+        if !segment.ends_with('\n') {
+            break;
         }
+
+        let line_start = offset;
+        let line_end = offset + segment.len();
+        let trimmed = segment.trim_end_matches('\n').trim();
+
+        if trimmed.starts_with("```") {
+            if in_code_fence {
+                in_code_fence = false;
+                last_safe = line_end;
+            } else {
+                in_code_fence = true;
+            }
+            pending_heading_start = None;
+            offset = line_end;
+            continue;
+        }
+
+        if in_code_fence {
+            offset = line_end;
+            continue;
+        }
+
+        if pending_heading_start.take().is_some() {
+            last_safe = line_end;
+            offset = line_end;
+            continue;
+        }
+
+        if trimmed.is_empty() {
+            last_safe = line_end;
+            offset = line_end;
+            continue;
+        }
+
+        if looks_like_heading_candidate(trimmed) {
+            pending_heading_start = Some(line_start);
+            offset = line_end;
+            continue;
+        }
+
+        last_safe = line_end;
+        offset = line_end;
     }
 
-    block_ranges
-}
-
-fn has_risky_streaming_structure(text: &str) -> bool {
-    text.lines().any(|line| {
-        let trimmed = line.trim();
-        normalize_unicode_table_separator(trimmed).is_some()
-            || normalize_unicode_table_row(trimmed).is_some()
-            || trimmed.starts_with('|')
-            || (!trimmed.is_empty()
-                && trimmed.ends_with('|')
-                && !trimmed.starts_with('|')
-                && !trimmed.contains("http://")
-                && !trimmed.contains("https://"))
-            || normalize_unicode_bullet_line(trimmed).is_some()
-            || looks_like_heading_candidate(trimmed)
-    })
+    pending_heading_start.unwrap_or(last_safe)
 }
 
 #[derive(Debug, Clone)]
@@ -1373,21 +1363,6 @@ fn is_inline_event(event: &Event<'_>) -> bool {
     )
 }
 
-fn is_top_level_block_tag(tag: &Tag<'_>) -> bool {
-    matches!(
-        tag,
-        Tag::Paragraph
-            | Tag::Heading { .. }
-            | Tag::BlockQuote(_)
-            | Tag::CodeBlock(_)
-            | Tag::List(_)
-            | Tag::Table(_)
-            | Tag::HtmlBlock
-            | Tag::FootnoteDefinition(_)
-            | Tag::DefinitionList
-    )
-}
-
 fn heading_level_to_usize(level: HeadingLevel) -> usize {
     match level {
         HeadingLevel::H1 => 1,
@@ -1767,6 +1742,23 @@ mod tests {
         let text = "intro\n\n```rust\nfn main()";
         let boundary = streaming_markdown_advance_stable_boundary(text, 0);
         assert_eq!(boundary, "intro\n\n".len());
+    }
+
+    #[test]
+    fn streaming_boundary_advances_through_completed_heading_and_table_lines() {
+        let text = "根据已有的深度分析记忆，我直接给你综合结论，不需要重新扫描。\nYode vs Claude Code 综合对比\n基本面\n维度 │ Yode │ Claude Code\n──────┼──────┼─────────────\n";
+        let boundary = streaming_markdown_advance_stable_boundary(text, 0);
+        assert_eq!(boundary, text.len());
+    }
+
+    #[test]
+    fn streaming_boundary_holds_trailing_heading_until_followup_arrives() {
+        let text = "根据已有的深度分析记忆，我直接给你综合结论，不需要重新扫描。\nYode vs Claude Code 综合对比\n";
+        let boundary = streaming_markdown_advance_stable_boundary(text, 0);
+        assert_eq!(
+            boundary,
+            "根据已有的深度分析记忆，我直接给你综合结论，不需要重新扫描。\n".len()
+        );
     }
 
     #[test]
