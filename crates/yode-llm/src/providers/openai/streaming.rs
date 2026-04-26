@@ -11,8 +11,7 @@ use crate::types::{ChatRequest, StreamEvent, Usage};
 use super::conversion::{message_to_openai, tool_to_openai};
 use super::streaming_support::{finalize_stream, handle_stream_chunk, OpenAiStreamState};
 use super::types::{
-    OpenAiErrorResponse, OpenAiMessage, OpenAiRequest, OpenAiStreamChunk, OpenAiTool,
-    StreamOptions,
+    OpenAiErrorResponse, OpenAiMessage, OpenAiRequest, OpenAiStreamChunk, OpenAiTool, StreamOptions,
 };
 use super::OpenAiProvider;
 
@@ -122,7 +121,8 @@ impl OpenAiProvider {
 }
 
 fn stream_usage(usage: &super::types::OpenAiUsage) -> Usage {
-    let prompt_tokens = if usage.prompt_tokens == 0 && usage.total_tokens > usage.completion_tokens {
+    let prompt_tokens = if usage.prompt_tokens == 0 && usage.total_tokens > usage.completion_tokens
+    {
         usage.total_tokens - usage.completion_tokens
     } else {
         usage.prompt_tokens
@@ -138,5 +138,6 @@ fn stream_usage(usage: &super::types::OpenAiUsage) -> Usage {
             .as_ref()
             .map(|details| details.cached_tokens)
             .unwrap_or(0),
+        cache_deleted_tokens: 0,
     }
 }

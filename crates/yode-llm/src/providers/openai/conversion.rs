@@ -117,5 +117,6 @@ pub(super) fn openai_usage_to_usage(usage: &OpenAiUsage) -> Usage {
             .as_ref()
             .map(|details| details.cached_tokens)
             .unwrap_or(0),
+        cache_deleted_tokens: 0,
     }
 }

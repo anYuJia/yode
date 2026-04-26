@@ -259,7 +259,14 @@ pub(super) async fn finalize_stream(
         state.content_blocks.into_values().collect();
     let final_message = Message::assistant_from_blocks(final_content_blocks, state.tool_calls);
 
-    emit_done_event(tx, final_message, state.final_usage, state.model, state.stop_reason).await;
+    emit_done_event(
+        tx,
+        final_message,
+        state.final_usage,
+        state.model,
+        state.stop_reason,
+    )
+    .await;
     debug!(
         "Sent StreamEvent::Done - stream complete (reason={}, saw_message_stop={}, events={})",
         state.finalize_reason, state.saw_message_stop, state.event_count

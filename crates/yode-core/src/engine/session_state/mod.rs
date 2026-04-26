@@ -19,10 +19,14 @@ impl AgentEngine {
         let system_msg = self.messages.first().cloned();
         self.messages.clear();
         self.failed_tool_call_ids.clear();
+        self.clear_cache_edit_tracking();
+        self.post_compact_restore_blocks.clear();
         if let Some(system_msg) = system_msg {
             self.messages.push(system_msg);
         }
         self.messages.extend(messages);
+        self.rehydrate_post_compact_restore_messages();
+        self.set_expected_prompt_cache_drop_reason("restore_messages");
         self.reset_autocompact_state();
         self.compaction_cause_histogram.clear();
         self.rebuild_runtime_artifact_state_from_disk();
@@ -49,6 +53,8 @@ impl AgentEngine {
             }
             info!("Cleared conversation, kept system prompt");
         }
+        self.clear_cache_edit_tracking();
+        self.post_compact_restore_blocks.clear();
         if let Err(err) = clear_live_session_memory(&self.context.working_dir_compat()) {
             warn!(
                 "Failed to clear live session memory during conversation reset: {}",
@@ -68,6 +74,7 @@ impl AgentEngine {
         self.set_shared_memory_status(None, None, false, 0);
         self.sync_persisted_messages_snapshot();
         self.rebuild_system_prompt();
+        self.set_expected_prompt_cache_drop_reason("clear_conversation");
         self.reset_autocompact_state();
     }
 }

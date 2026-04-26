@@ -18,8 +18,12 @@ impl AnthropicProvider {
         request: ChatRequest,
         tx: mpsc::Sender<StreamEvent>,
     ) -> Result<()> {
-        let (system, messages) = Self::convert_messages(&request.messages);
-        let tools = Self::convert_tools(&request.tools);
+        let (system, messages) = Self::convert_messages(
+            &request.messages,
+            request.provider_hints.anthropic.as_ref(),
+            &request.provider_hints.restore_system_blocks,
+        );
+        let tools = Self::convert_tools(&request.tools, request.provider_hints.anthropic.as_ref());
         let max_tokens = request.max_tokens.unwrap_or(4096);
 
         let thinking = Some(AnthropicThinkingConfig {

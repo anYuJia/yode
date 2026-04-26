@@ -17,6 +17,128 @@ use helpers::{
     tool_truncation_from_metadata,
 };
 
+fn hash_string(value: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    value.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+fn prompt_cache_change_summary(
+    previous_system: Option<&str>,
+    previous_restore: Option<&str>,
+    previous_tools: Option<&str>,
+    previous_messages: Option<&str>,
+    current_system: Option<&str>,
+    current_restore: Option<&str>,
+    current_tools: Option<&str>,
+    current_messages: Option<&str>,
+) -> String {
+    let mut changed = Vec::new();
+    if previous_system.is_some() && previous_system != current_system {
+        changed.push("system");
+    }
+    if previous_restore.is_some() && previous_restore != current_restore {
+        changed.push("restore");
+    }
+    if previous_tools.is_some() && previous_tools != current_tools {
+        changed.push("tools");
+    }
+    if previous_messages.is_some() && previous_messages != current_messages {
+        changed.push("messages");
+    }
+
+    if changed.is_empty() {
+        "stable".to_string()
+    } else {
+        changed.join(",")
+    }
+}
+
+fn prompt_cache_transition_kind_for_change_summary(change_summary: &str) -> &'static str {
+    match change_summary {
+        "system" => "system_prefix_changed",
+        "restore" => "restore_prefix_changed",
+        "tools" => "tool_prefix_changed",
+        "messages" => "message_prefix_changed",
+        _ => "prefix_changed",
+    }
+}
+
+fn truncate_cache_text(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        text.to_string()
+    } else {
+        let mut truncated = text.chars().take(max_chars).collect::<String>();
+        truncated.push_str("...");
+        truncated
+    }
+}
+
+fn write_prompt_cache_diff_artifact(
+    project_root: &std::path::Path,
+    session_id: &str,
+    transition_kind: &str,
+    transition_reason: Option<&str>,
+    previous_system_hash: Option<&str>,
+    previous_restore_hash: Option<&str>,
+    previous_tool_hash: Option<&str>,
+    previous_message_hash: Option<&str>,
+    current_system_hash: Option<&str>,
+    current_restore_hash: Option<&str>,
+    current_tool_hash: Option<&str>,
+    current_message_hash: Option<&str>,
+    previous_system_text: Option<&str>,
+    previous_restore_text: Option<&str>,
+    previous_tool_text: Option<&str>,
+    previous_message_text: Option<&str>,
+    current_system_text: Option<&str>,
+    current_restore_text: Option<&str>,
+    current_tool_text: Option<&str>,
+    current_message_text: Option<&str>,
+) -> Option<(String, String)> {
+    let dir = project_root.join(".yode").join("status");
+    std::fs::create_dir_all(&dir).ok()?;
+    let short_session = session_id.chars().take(8).collect::<String>();
+    let path = dir.join(format!("{}-prompt-cache-diff.md", short_session));
+
+    let body = format!(
+        "# Prompt Cache Diff\n\n- Session: {}\n- Transition: {}\n- Reason: {}\n- Timestamp: {}\n\n## Hashes\n\n- Previous system/restore/tool/message: {} / {} / {} / {}\n- Current system/restore/tool/message: {} / {} / {} / {}\n\n## Previous System\n\n```text\n{}\n```\n\n## Current System\n\n```text\n{}\n```\n\n## Previous Restore\n\n```text\n{}\n```\n\n## Current Restore\n\n```text\n{}\n```\n\n## Previous Tools\n\n```text\n{}\n```\n\n## Current Tools\n\n```text\n{}\n```\n\n## Previous Messages\n\n```text\n{}\n```\n\n## Current Messages\n\n```text\n{}\n```\n",
+        session_id,
+        transition_kind,
+        transition_reason.unwrap_or("none"),
+        chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+        previous_system_hash.unwrap_or("none"),
+        previous_restore_hash.unwrap_or("none"),
+        previous_tool_hash.unwrap_or("none"),
+        previous_message_hash.unwrap_or("none"),
+        current_system_hash.unwrap_or("none"),
+        current_restore_hash.unwrap_or("none"),
+        current_tool_hash.unwrap_or("none"),
+        current_message_hash.unwrap_or("none"),
+        truncate_cache_text(previous_system_text.unwrap_or("none"), 4_000),
+        truncate_cache_text(current_system_text.unwrap_or("none"), 4_000),
+        truncate_cache_text(previous_restore_text.unwrap_or("none"), 4_000),
+        truncate_cache_text(current_restore_text.unwrap_or("none"), 4_000),
+        truncate_cache_text(previous_tool_text.unwrap_or("none"), 4_000),
+        truncate_cache_text(current_tool_text.unwrap_or("none"), 4_000),
+        truncate_cache_text(previous_message_text.unwrap_or("none"), 4_000),
+        truncate_cache_text(current_message_text.unwrap_or("none"), 4_000),
+    );
+
+    std::fs::write(&path, body).ok()?;
+    Some((
+        path.display().to_string(),
+        format!(
+            "{} / {}->{} / {}",
+            transition_kind,
+            previous_system_hash.unwrap_or("none"),
+            current_system_hash.unwrap_or("none"),
+            transition_reason.unwrap_or("none")
+        ),
+    ))
+}
+
 impl AgentEngine {
     pub(super) fn reset_tool_turn_runtime(&mut self) {
         self.tool_turn_counter = self.tool_turn_counter.saturating_add(1);
@@ -38,6 +160,11 @@ impl AgentEngine {
         self.prompt_cache_runtime.last_turn_completion_tokens = None;
         self.prompt_cache_runtime.last_turn_cache_write_tokens = None;
         self.prompt_cache_runtime.last_turn_cache_read_tokens = None;
+        self.prompt_cache_runtime.last_turn_cache_edit_deletions = None;
+        self.prompt_cache_runtime.last_turn_cache_deleted_tokens = None;
+        let (pending, pinned) = self.active_cache_edit_refs();
+        self.prompt_cache_runtime.pending_cache_edit_refs = pending.len() as u32;
+        self.prompt_cache_runtime.pinned_cache_edit_refs = pinned.len() as u32;
     }
 
     pub(super) fn record_compaction_cause(&mut self, cause: &str) {
@@ -64,10 +191,15 @@ impl AgentEngine {
         }
 
         if usage.has_reported_tokens() {
+            let previous_cache_read = self.prompt_cache_runtime.last_turn_cache_read_tokens;
+            self.promote_pending_cache_edit_refs();
             self.prompt_cache_runtime.last_turn_prompt_tokens = Some(usage.prompt_tokens);
             self.prompt_cache_runtime.last_turn_completion_tokens = Some(usage.completion_tokens);
             self.prompt_cache_runtime.last_turn_cache_write_tokens = Some(usage.cache_write_tokens);
             self.prompt_cache_runtime.last_turn_cache_read_tokens = Some(usage.cache_read_tokens);
+            self.prompt_cache_runtime.last_turn_cache_deleted_tokens =
+                Some(usage.cache_deleted_tokens);
+            self.detect_prompt_cache_break(previous_cache_read, usage.cache_read_tokens);
             self.prompt_cache_runtime.reported_turns =
                 self.prompt_cache_runtime.reported_turns.saturating_add(1);
             if usage.cache_write_tokens > 0 {
@@ -88,6 +220,13 @@ impl AgentEngine {
                 .prompt_cache_runtime
                 .cache_read_tokens_total
                 .saturating_add(usage.cache_read_tokens as u64);
+            self.prompt_cache_runtime.cache_deleted_tokens_total = self
+                .prompt_cache_runtime
+                .cache_deleted_tokens_total
+                .saturating_add(usage.cache_deleted_tokens as u64);
+            let (pending, pinned) = self.active_cache_edit_refs();
+            self.prompt_cache_runtime.pending_cache_edit_refs = pending.len() as u32;
+            self.prompt_cache_runtime.pinned_cache_edit_refs = pinned.len() as u32;
         }
 
         let _ = event_tx.send(EngineEvent::CostUpdate {
@@ -104,6 +243,319 @@ impl AgentEngine {
                 limit: self.cost_tracker.remaining_budget().unwrap_or(0.0),
             });
         }
+    }
+
+    pub(super) fn promote_pending_cache_edit_refs(&mut self) {
+        if self.pending_cache_edit_refs.is_empty() {
+            return;
+        }
+
+        for cache_ref in self.pending_cache_edit_refs.drain(..) {
+            if !self.pinned_cache_edit_refs.contains(&cache_ref) {
+                self.pinned_cache_edit_refs.push(cache_ref);
+            }
+        }
+        self.pinned_cache_edit_refs.sort();
+        self.pinned_cache_edit_refs.dedup();
+    }
+
+    pub(super) fn set_expected_prompt_cache_drop_reason(&mut self, reason: impl Into<String>) {
+        let reason = reason.into();
+        self.forced_prompt_cache_expected_drop_reason = Some(reason.clone());
+        self.prompt_cache_runtime.last_prompt_cache_expected_drop_reason = Some(reason);
+    }
+
+    pub(super) fn clear_expected_prompt_cache_drop_reason(&mut self) {
+        self.forced_prompt_cache_expected_drop_reason = None;
+        self.prompt_cache_runtime.last_prompt_cache_expected_drop_reason = None;
+    }
+
+    pub(super) fn record_prompt_cache_request_state(
+        &mut self,
+        request: &yode_llm::types::ChatRequest,
+    ) {
+        let mut system_prefix = String::new();
+        let mut restore_prefix = String::new();
+        let mut tool_prefix = String::new();
+        let mut message_prefix = String::new();
+        message_prefix.push_str(&request.model);
+        message_prefix.push('\n');
+
+        for tool in &request.tools {
+            tool_prefix.push_str(&tool.name);
+            tool_prefix.push('|');
+            tool_prefix.push_str(&tool.description);
+            tool_prefix.push('|');
+            tool_prefix.push_str(&tool.parameters.to_string());
+            tool_prefix.push('\n');
+            if tool_prefix.len() > 16_000 {
+                break;
+            }
+        }
+
+        for message in &request.messages {
+            let target = if matches!(message.role, yode_llm::types::Role::System) {
+                &mut system_prefix
+            } else {
+                &mut message_prefix
+            };
+            target.push_str(match message.role {
+                yode_llm::types::Role::System => "system:",
+                yode_llm::types::Role::User => "user:",
+                yode_llm::types::Role::Assistant => "assistant:",
+                yode_llm::types::Role::Tool => "tool:",
+            });
+            if let Some(content) = message.content.as_deref() {
+                let excerpt = content.chars().take(512).collect::<String>();
+                target.push_str(&excerpt);
+            }
+            for tool_call in &message.tool_calls {
+                target.push_str(&tool_call.id);
+                target.push_str(&tool_call.name);
+            }
+            target.push('\n');
+            if target.len() > 16_000 {
+                break;
+            }
+        }
+
+        for block in &request.provider_hints.restore_system_blocks {
+            restore_prefix.push_str("system:");
+            let excerpt = format!("[Post-compact restore: {}]\n{}", block.kind, block.content)
+                .chars()
+                .take(512)
+                .collect::<String>();
+            restore_prefix.push_str(&excerpt);
+            restore_prefix.push('\n');
+            if restore_prefix.len() > 16_000 {
+                break;
+            }
+        }
+
+        if let Some(hints) = request.provider_hints.anthropic.as_ref() {
+            message_prefix.push_str(&format!(
+                "anthropic_cache={};pending={:?};pinned={:?}",
+                hints.enable_prompt_caching,
+                hints.pending_deleted_cache_references,
+                hints.pinned_deleted_cache_references
+            ));
+        }
+
+        self.pending_prompt_cache_system_hash = Some(hash_string(&system_prefix));
+        self.pending_prompt_cache_restore_hash = Some(hash_string(&restore_prefix));
+        self.pending_prompt_cache_tool_hash = Some(hash_string(&tool_prefix));
+        self.pending_prompt_cache_message_hash = Some(hash_string(&message_prefix));
+        self.pending_prompt_cache_system_text = Some(system_prefix.clone());
+        self.pending_prompt_cache_restore_text = Some(restore_prefix.clone());
+        self.pending_prompt_cache_tool_text = Some(tool_prefix.clone());
+        self.pending_prompt_cache_message_text = Some(message_prefix.clone());
+        self.pending_prompt_cache_prefix_hash = Some(hash_string(&format!(
+            "{}\n{}\n{}\n{}",
+            system_prefix, restore_prefix, tool_prefix, message_prefix
+        )));
+        self.pending_prompt_cache_expected_drop_reason = self
+            .forced_prompt_cache_expected_drop_reason
+            .clone()
+            .or_else(|| {
+                request
+                    .provider_hints
+                    .anthropic
+                    .as_ref()
+                    .and_then(|hints| {
+                        (!hints.pending_deleted_cache_references.is_empty())
+                            .then(|| "cache_edits".to_string())
+                    })
+            });
+        if let Some(hints) = request.provider_hints.anthropic.as_ref() {
+            self.prompt_cache_runtime.pending_cache_edit_refs =
+                hints.pending_deleted_cache_references.len() as u32;
+            self.prompt_cache_runtime.pinned_cache_edit_refs =
+                hints.pinned_deleted_cache_references.len() as u32;
+        } else {
+            self.prompt_cache_runtime.pending_cache_edit_refs = 0;
+            self.prompt_cache_runtime.pinned_cache_edit_refs = 0;
+        }
+        self.prompt_cache_runtime
+            .last_prompt_cache_expected_drop_reason =
+            self.pending_prompt_cache_expected_drop_reason.clone();
+    }
+
+    fn detect_prompt_cache_break(
+        &mut self,
+        previous_cache_read_tokens: Option<u32>,
+        current_cache_read_tokens: u32,
+    ) {
+        let previous_hash = self.last_prompt_cache_prefix_hash.clone();
+        let current_hash = self.pending_prompt_cache_prefix_hash.clone();
+        let previous_read = previous_cache_read_tokens.unwrap_or(0);
+        let expected_reason = self.pending_prompt_cache_expected_drop_reason.clone();
+        let change_summary = prompt_cache_change_summary(
+            self.last_prompt_cache_system_hash.as_deref(),
+            self.last_prompt_cache_restore_hash.as_deref(),
+            self.last_prompt_cache_tool_hash.as_deref(),
+            self.last_prompt_cache_message_hash.as_deref(),
+            self.pending_prompt_cache_system_hash.as_deref(),
+            self.pending_prompt_cache_restore_hash.as_deref(),
+            self.pending_prompt_cache_tool_hash.as_deref(),
+            self.pending_prompt_cache_message_hash.as_deref(),
+        );
+        self.prompt_cache_runtime.last_prompt_cache_change_summary = Some(change_summary);
+        if previous_hash.is_none() {
+            self.prompt_cache_runtime.last_prompt_cache_transition_kind =
+                Some("cold_start".to_string());
+            self.prompt_cache_runtime
+                .last_prompt_cache_transition_reason =
+                Some("no previous prompt cache snapshot".to_string());
+        } else {
+            self.prompt_cache_runtime.last_prompt_cache_transition_kind =
+                Some("stable".to_string());
+            self.prompt_cache_runtime
+                .last_prompt_cache_transition_reason = None;
+        }
+
+        if let Some(reason) = expected_reason.clone() {
+            self.prompt_cache_runtime.last_prompt_cache_transition_kind = Some(
+                if reason == "cache_edits" {
+                    "cache_edit_applied"
+                } else {
+                    "expected_drop"
+                }
+                .to_string(),
+            );
+            self.prompt_cache_runtime
+                .last_prompt_cache_transition_reason = Some(reason);
+        } else if previous_hash.is_some() && current_hash.is_some() && previous_hash != current_hash
+        {
+            let transition_kind = prompt_cache_transition_kind_for_change_summary(
+                self.prompt_cache_runtime
+                    .last_prompt_cache_change_summary
+                    .as_deref()
+                    .unwrap_or("prefix_changed"),
+            );
+            self.prompt_cache_runtime.last_prompt_cache_transition_kind =
+                Some(transition_kind.to_string());
+            self.prompt_cache_runtime
+                .last_prompt_cache_transition_reason = Some(
+                self.prompt_cache_runtime
+                    .last_prompt_cache_change_summary
+                    .clone()
+                    .unwrap_or_else(|| "prefix changed".to_string()),
+            );
+        }
+
+        if previous_read > 0
+            && expected_reason.is_none()
+            && previous_hash.is_some()
+            && current_hash.is_some()
+            && previous_hash == current_hash
+        {
+            let dropped = previous_read.saturating_sub(current_cache_read_tokens);
+            let threshold = (previous_read / 2).max(1_000);
+            if dropped >= threshold {
+                self.prompt_cache_runtime.prompt_cache_break_count = self
+                    .prompt_cache_runtime
+                    .prompt_cache_break_count
+                    .saturating_add(1);
+                self.prompt_cache_runtime.last_prompt_cache_break_reason = Some(format!(
+                    "cache read dropped from {} to {} while prefix hash stayed stable",
+                    previous_read, current_cache_read_tokens
+                ));
+                self.prompt_cache_runtime.last_prompt_cache_break_at = Some(Self::now_timestamp());
+                self.prompt_cache_runtime.last_prompt_cache_transition_kind =
+                    Some("break".to_string());
+                self.prompt_cache_runtime
+                    .last_prompt_cache_transition_reason = self
+                    .prompt_cache_runtime
+                    .last_prompt_cache_break_reason
+                    .clone();
+            }
+        }
+
+        let transition_kind = self
+            .prompt_cache_runtime
+            .last_prompt_cache_transition_kind
+            .clone()
+            .unwrap_or_else(|| "stable".to_string());
+        let transition_reason = self
+            .prompt_cache_runtime
+            .last_prompt_cache_transition_reason
+            .clone();
+        if transition_kind != "stable" {
+            if let Some((path, summary)) = write_prompt_cache_diff_artifact(
+                &self.context.working_dir_compat(),
+                &self.context.session_id,
+                &transition_kind,
+                transition_reason.as_deref(),
+                self.last_prompt_cache_system_hash.as_deref(),
+                self.last_prompt_cache_restore_hash.as_deref(),
+                self.last_prompt_cache_tool_hash.as_deref(),
+                self.last_prompt_cache_message_hash.as_deref(),
+                self.pending_prompt_cache_system_hash.as_deref(),
+                self.pending_prompt_cache_restore_hash.as_deref(),
+                self.pending_prompt_cache_tool_hash.as_deref(),
+                self.pending_prompt_cache_message_hash.as_deref(),
+                self.last_prompt_cache_system_text.as_deref(),
+                self.last_prompt_cache_restore_text.as_deref(),
+                self.last_prompt_cache_tool_text.as_deref(),
+                self.last_prompt_cache_message_text.as_deref(),
+                self.pending_prompt_cache_system_text.as_deref(),
+                self.pending_prompt_cache_restore_text.as_deref(),
+                self.pending_prompt_cache_tool_text.as_deref(),
+                self.pending_prompt_cache_message_text.as_deref(),
+            ) {
+                self.prompt_cache_runtime
+                    .last_prompt_cache_diff_artifact_path = Some(path);
+                self.prompt_cache_runtime.last_prompt_cache_diff_summary = Some(summary);
+            }
+        }
+
+        self.last_prompt_cache_prefix_hash = current_hash;
+        self.last_prompt_cache_system_hash = self.pending_prompt_cache_system_hash.take();
+        self.last_prompt_cache_restore_hash = self.pending_prompt_cache_restore_hash.take();
+        self.last_prompt_cache_tool_hash = self.pending_prompt_cache_tool_hash.take();
+        self.last_prompt_cache_message_hash = self.pending_prompt_cache_message_hash.take();
+        self.last_prompt_cache_system_text = self.pending_prompt_cache_system_text.take();
+        self.last_prompt_cache_restore_text = self.pending_prompt_cache_restore_text.take();
+        self.last_prompt_cache_tool_text = self.pending_prompt_cache_tool_text.take();
+        self.last_prompt_cache_message_text = self.pending_prompt_cache_message_text.take();
+        self.pending_prompt_cache_prefix_hash = None;
+        self.pending_prompt_cache_expected_drop_reason = None;
+        self.clear_expected_prompt_cache_drop_reason();
+    }
+
+    pub(super) fn clear_cache_edit_tracking(&mut self) {
+        self.cached_microcompact_deleted_refs.clear();
+        self.pending_cache_edit_refs.clear();
+        self.pinned_cache_edit_refs.clear();
+        self.pending_prompt_cache_prefix_hash = None;
+        self.last_prompt_cache_prefix_hash = None;
+        self.pending_prompt_cache_system_hash = None;
+        self.pending_prompt_cache_restore_hash = None;
+        self.pending_prompt_cache_tool_hash = None;
+        self.pending_prompt_cache_message_hash = None;
+        self.last_prompt_cache_system_hash = None;
+        self.last_prompt_cache_restore_hash = None;
+        self.last_prompt_cache_tool_hash = None;
+        self.last_prompt_cache_message_hash = None;
+        self.pending_prompt_cache_system_text = None;
+        self.pending_prompt_cache_restore_text = None;
+        self.pending_prompt_cache_tool_text = None;
+        self.pending_prompt_cache_message_text = None;
+        self.last_prompt_cache_system_text = None;
+        self.last_prompt_cache_restore_text = None;
+        self.last_prompt_cache_tool_text = None;
+        self.last_prompt_cache_message_text = None;
+        self.pending_prompt_cache_expected_drop_reason = None;
+        self.clear_expected_prompt_cache_drop_reason();
+        self.prompt_cache_runtime.pending_cache_edit_refs = 0;
+        self.prompt_cache_runtime.pinned_cache_edit_refs = 0;
+        self.prompt_cache_runtime.last_prompt_cache_change_summary = None;
+        self.prompt_cache_runtime.last_prompt_cache_transition_kind = None;
+        self.prompt_cache_runtime
+            .last_prompt_cache_transition_reason = None;
+        self.prompt_cache_runtime
+            .last_prompt_cache_diff_artifact_path = None;
+        self.prompt_cache_runtime.last_prompt_cache_diff_summary = None;
     }
 
     pub(super) fn record_tool_progress_summary(

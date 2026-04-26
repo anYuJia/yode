@@ -1,7 +1,7 @@
-use crate::providers::streaming_shared::{
-    emit_tool_call_end, emit_tool_call_start,
+use crate::providers::streaming_shared::{emit_tool_call_end, emit_tool_call_start};
+use crate::types::{
+    Message, RestoreSystemBlockHint, Role, StreamEvent, ToolCall, ToolDefinition, Usage,
 };
-use crate::types::{Message, Role, StreamEvent, ToolCall, ToolDefinition, Usage};
 
 use super::types::{
     GeminiContent, GeminiFunctionCall, GeminiFunctionDecl, GeminiFunctionResponse, GeminiPart,
@@ -10,18 +10,18 @@ use super::types::{
 
 pub(super) fn convert_messages(
     messages: &[Message],
+    restore_system_blocks: &[RestoreSystemBlockHint],
 ) -> (Option<GeminiContent>, Vec<GeminiContent>) {
-    let mut system = None;
+    let mut system_parts = Vec::new();
     let mut contents = Vec::new();
 
     for message in messages {
         match message.role {
             Role::System => {
                 if let Some(text) = &message.content {
-                    system = Some(GeminiContent {
-                        role: None,
-                        parts: vec![GeminiPart::Text { text: text.clone() }],
-                    });
+                    if !text.is_empty() {
+                        system_parts.push(GeminiPart::Text { text: text.clone() });
+                    }
                 }
             }
             Role::User => {
@@ -76,6 +76,20 @@ pub(super) fn convert_messages(
             }
         }
     }
+
+    for block in restore_system_blocks
+        .iter()
+        .filter(|block| !block.content.is_empty())
+    {
+        system_parts.push(GeminiPart::Text {
+            text: format!("[Post-compact restore: {}]\n{}", block.kind, block.content),
+        });
+    }
+
+    let system = (!system_parts.is_empty()).then_some(GeminiContent {
+        role: None,
+        parts: system_parts,
+    });
 
     (system, contents)
 }
@@ -140,6 +154,7 @@ pub(super) fn gemini_usage_to_usage(usage: &GeminiUsage) -> Usage {
         total_tokens: usage.total_token_count,
         cache_write_tokens: 0,
         cache_read_tokens: usage.cached_content_token_count,
+        cache_deleted_tokens: 0,
     }
 }
 
@@ -163,4 +178,68 @@ pub(super) fn assistant_message(text: String, tool_calls: Vec<ToolCall>) -> Mess
         None,
         tool_calls,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::types::{Message, RestoreSystemBlockHint};
+
+    use super::{convert_messages, GeminiPart};
+
+    #[test]
+    fn gemini_conversion_preserves_multiple_system_messages() {
+        let messages = vec![
+            Message::system("base system"),
+            Message::system("[Context summary] compacted"),
+            Message::system("[Post-compact restore: files]\n- src/main.rs"),
+            Message::user("resume"),
+        ];
+
+        let (system, contents) = convert_messages(&messages, &[]);
+        let system = system.expect("system instruction");
+
+        assert_eq!(contents.len(), 1);
+        assert_eq!(system.parts.len(), 3);
+        assert!(matches!(
+            &system.parts[0],
+            GeminiPart::Text { text } if text == "base system"
+        ));
+        assert!(matches!(
+            &system.parts[1],
+            GeminiPart::Text { text } if text == "[Context summary] compacted"
+        ));
+        assert!(matches!(
+            &system.parts[2],
+            GeminiPart::Text { text } if text.starts_with("[Post-compact restore: files]")
+        ));
+    }
+
+    #[test]
+    fn gemini_conversion_appends_restore_blocks_from_provider_hints() {
+        let messages = vec![Message::system("base system"), Message::user("resume")];
+        let (system, _contents) = convert_messages(
+            &messages,
+            &[
+                RestoreSystemBlockHint {
+                    kind: "runtime".to_string(),
+                    content: "- Runtime cwd: /tmp".to_string(),
+                },
+                RestoreSystemBlockHint {
+                    kind: "files".to_string(),
+                    content: "- Recent files read: src/main.rs".to_string(),
+                },
+            ],
+        );
+        let system = system.expect("system instruction");
+
+        assert_eq!(system.parts.len(), 3);
+        assert!(matches!(
+            &system.parts[1],
+            GeminiPart::Text { text } if text.starts_with("[Post-compact restore: runtime]")
+        ));
+        assert!(matches!(
+            &system.parts[2],
+            GeminiPart::Text { text } if text.starts_with("[Post-compact restore: files]")
+        ));
+    }
 }

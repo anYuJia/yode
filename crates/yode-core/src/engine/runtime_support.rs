@@ -49,6 +49,35 @@ impl AgentEngine {
                     .collect(),
             )
         };
+        let (active_pending_cache_edit_refs, active_pinned_cache_edit_refs) =
+            self.active_cache_edit_refs();
+        let mut prompt_cache = self.prompt_cache_runtime.clone();
+        prompt_cache.pending_cache_edit_ref_values = active_pending_cache_edit_refs.clone();
+        prompt_cache.pinned_cache_edit_ref_values = active_pinned_cache_edit_refs.clone();
+        prompt_cache.pending_cache_edit_refs = active_pending_cache_edit_refs.len() as u32;
+        prompt_cache.pinned_cache_edit_refs = active_pinned_cache_edit_refs.len() as u32;
+        prompt_cache.last_prompt_cache_prefix_hash = self.last_prompt_cache_prefix_hash.clone();
+        prompt_cache.last_prompt_cache_system_hash = self.last_prompt_cache_system_hash.clone();
+        prompt_cache.last_prompt_cache_restore_hash = self.last_prompt_cache_restore_hash.clone();
+        prompt_cache.last_prompt_cache_tool_hash = self.last_prompt_cache_tool_hash.clone();
+        prompt_cache.last_prompt_cache_message_hash = self.last_prompt_cache_message_hash.clone();
+        let mut system_prompt_estimated_tokens = self.system_prompt_estimated_tokens;
+        let mut system_prompt_segments = self.system_prompt_segments.clone();
+        let mut estimated_context_tokens =
+            self.context_manager.estimate_tokens_for_messages(&self.messages);
+        if let Some(hidden_restore) = self.hidden_post_compact_restore_prompt_text() {
+            let estimated_tokens = self
+                .context_manager
+                .estimate_tokens_for_messages(&[Message::system(hidden_restore.clone())]);
+            system_prompt_estimated_tokens =
+                system_prompt_estimated_tokens.saturating_add(estimated_tokens);
+            estimated_context_tokens = estimated_context_tokens.saturating_add(estimated_tokens);
+            system_prompt_segments.push(SystemPromptSegmentRuntimeState {
+                label: "Post-compact restore".to_string(),
+                chars: hidden_restore.chars().count(),
+                estimated_tokens,
+            });
+        }
         EngineRuntimeState {
             query_source: format!("{:?}", self.current_query_source),
             autocompact_disabled: self.autocompact_disabled,
@@ -59,9 +88,7 @@ impl AgentEngine {
             last_compaction_breaker_reason: self.last_compaction_breaker_reason.clone(),
             context_window_tokens: self.context_manager.context_window(),
             compaction_threshold_tokens: self.context_manager.compression_threshold_tokens(),
-            estimated_context_tokens: self
-                .context_manager
-                .estimate_tokens_for_messages(&self.messages),
+            estimated_context_tokens,
             message_count: self.messages.len(),
             live_session_memory_initialized: self.session_memory_initialized,
             live_session_memory_updating: self
@@ -97,9 +124,9 @@ impl AgentEngine {
                     as u32
             }),
             compaction_cause_histogram: self.compaction_cause_histogram.clone(),
-            system_prompt_estimated_tokens: self.system_prompt_estimated_tokens,
-            system_prompt_segments: self.system_prompt_segments.clone(),
-            prompt_cache: self.prompt_cache_runtime.clone(),
+            system_prompt_estimated_tokens,
+            system_prompt_segments,
+            prompt_cache,
             last_turn_duration_ms: self.last_turn_duration_ms,
             last_turn_stop_reason: self.last_turn_stop_reason.clone(),
             last_turn_artifact_path: self.last_turn_artifact_path.clone(),
@@ -214,20 +241,17 @@ impl AgentEngine {
         output_path: &str,
         transcript_path: Option<String>,
     ) -> Option<RuntimeTask> {
-        self.runtime_task_store
-            .try_lock()
-            .ok()
-            .map(|mut store| {
-                store
-                    .create_with_transcript(
-                        kind.to_string(),
-                        source_tool.to_string(),
-                        description.to_string(),
-                        output_path.to_string(),
-                        transcript_path,
-                    )
-                    .0
-            })
+        self.runtime_task_store.try_lock().ok().map(|mut store| {
+            store
+                .create_with_transcript(
+                    kind.to_string(),
+                    source_tool.to_string(),
+                    description.to_string(),
+                    output_path.to_string(),
+                    transcript_path,
+                )
+                .0
+        })
     }
 
     pub fn mark_runtime_task_running(&self, id: &str) {

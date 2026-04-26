@@ -37,7 +37,9 @@ impl AgentEngine {
                 return Ok(());
             }
 
+            self.apply_microcompact();
             let request = self.begin_stream_turn(&event_tx);
+            self.record_prompt_cache_request_state(&request);
             let provider = self.provider.clone();
             let (stream_tx, mut stream_rx) = mpsc::channel::<StreamEvent>(256);
             let stream_handle = tokio::spawn(async move {
@@ -69,7 +71,12 @@ impl AgentEngine {
                 .await;
 
             if self
-                .handle_interrupted_stream(stream_state.cancelled, stream_state.stalled, &buffers, &event_tx)
+                .handle_interrupted_stream(
+                    stream_state.cancelled,
+                    stream_state.stalled,
+                    &buffers,
+                    &event_tx,
+                )
                 .await
             {
                 return Ok(());

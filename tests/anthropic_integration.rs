@@ -1,7 +1,7 @@
 use tokio::sync::mpsc;
 use yode_llm::provider::LlmProvider;
 use yode_llm::providers::anthropic::AnthropicProvider;
-use yode_llm::types::{ChatRequest, Message, StreamEvent, ToolDefinition};
+use yode_llm::types::{ChatRequest, Message, ProviderRequestHints, StreamEvent, ToolDefinition};
 
 fn anthropic_test_config(default_model: &str) -> Option<(String, String, String)> {
     let api_key = match std::env::var("ANTHROPIC_AUTH_TOKEN")
@@ -38,6 +38,7 @@ async fn test_anthropic_chat() {
         tools: vec![],
         temperature: Some(0.0),
         max_tokens: Some(32),
+        provider_hints: ProviderRequestHints::default(),
     };
 
     let response = provider.chat(request).await.expect("chat should succeed");
@@ -69,6 +70,7 @@ async fn test_anthropic_stream() {
         tools: vec![],
         temperature: Some(0.0),
         max_tokens: Some(64),
+        provider_hints: ProviderRequestHints::default(),
     };
 
     let (tx, mut rx) = mpsc::channel::<StreamEvent>(256);
@@ -130,6 +132,7 @@ async fn test_dashscope_simple_input() {
         tools: vec![],
         temperature: Some(0.0),
         max_tokens: Some(2048), // Enable thinking with higher tokens
+        provider_hints: ProviderRequestHints::default(),
     };
 
     let (tx, mut rx) = mpsc::channel::<StreamEvent>(256);
@@ -195,6 +198,7 @@ async fn test_anthropic_tool_call() {
         tools,
         temperature: Some(0.0),
         max_tokens: Some(256),
+        provider_hints: ProviderRequestHints::default(),
     };
 
     let response = provider.chat(request).await.expect("chat should succeed");

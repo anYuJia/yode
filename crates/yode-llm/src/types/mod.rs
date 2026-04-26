@@ -3,6 +3,6 @@ mod protocol;
 
 pub use message::{ContentBlock, ImageData, Message, Role};
 pub use protocol::{
-    stream_done, ChatRequest, ChatResponse, ModelInfo, StopReason, StreamEvent, ToolCall,
-    ToolDefinition, Usage,
+    stream_done, AnthropicRequestHints, ChatRequest, ChatResponse, ModelInfo, ProviderRequestHints,
+    RestoreSystemBlockHint, StopReason, StreamEvent, ToolCall, ToolDefinition, Usage,
 };

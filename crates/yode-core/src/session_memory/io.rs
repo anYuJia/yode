@@ -8,6 +8,24 @@ pub fn live_session_memory_path(project_root: &Path) -> PathBuf {
     project_root.join(LIVE_SESSION_MEMORY_RELATIVE_PATH)
 }
 
+pub fn best_compaction_memory_excerpt(
+    project_root: &Path,
+    max_chars: usize,
+) -> Option<(PathBuf, String)> {
+    for path in [
+        live_session_memory_path(project_root),
+        session_memory_path(project_root),
+    ] {
+        if let Some(excerpt) = load_memory_excerpt(&path, max_chars) {
+            if !excerpt.trim().is_empty() {
+                return Some((path, excerpt));
+            }
+        }
+    }
+
+    None
+}
+
 pub fn persist_compaction_memory(
     project_root: &Path,
     session_id: &str,
@@ -286,4 +304,43 @@ fn write_string_with_retry(path: &Path, content: &str) -> Result<()> {
         }
     }
     Err(last_err.unwrap().into())
+}
+
+fn load_memory_excerpt(path: &Path, max_chars: usize) -> Option<String> {
+    let content = fs::read_to_string(path).ok()?;
+    let mut lines = Vec::new();
+
+    for raw_line in content.lines() {
+        let line = raw_line.trim();
+        if line.is_empty()
+            || line == "# Session Memory"
+            || line == "# Session Snapshot"
+            || line.starts_with("Yode writes this file automatically")
+            || line.starts_with("Yode refreshes this file during the session")
+        {
+            continue;
+        }
+
+        let normalized = if line.starts_with('#') || line.starts_with('-') {
+            line.to_string()
+        } else {
+            format!("- {}", line)
+        };
+        lines.push(normalized);
+        if lines.len() >= 10 {
+            break;
+        }
+    }
+
+    if lines.is_empty() {
+        return None;
+    }
+
+    let mut excerpt = lines.join("\n");
+    if excerpt.chars().count() > max_chars {
+        excerpt = excerpt.chars().take(max_chars).collect::<String>();
+        excerpt.push_str("...");
+    }
+
+    Some(excerpt)
 }

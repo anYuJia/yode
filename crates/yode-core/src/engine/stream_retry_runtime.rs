@@ -1,5 +1,5 @@
-use super::*;
 use super::retry::summarize_retry_error;
+use super::*;
 
 pub(super) enum StreamRetryAction {
     Continue,
@@ -71,6 +71,7 @@ impl AgentEngine {
             }
 
             let retry_request = self.build_chat_request();
+            self.record_prompt_cache_request_state(&retry_request);
             let (retry_tx, mut retry_rx) = mpsc::channel::<StreamEvent>(256);
             let retry_provider = self.provider.clone();
             let retry_handle = tokio::spawn(async move {
@@ -179,6 +180,20 @@ impl AgentEngine {
         }
 
         if !retry_succeeded {
+            if self.should_reactive_strip_media_message(&final_error_summary)
+                && self.reactive_strip_old_media()
+            {
+                return Ok(StreamRetryAction::Continue);
+            }
+
+            if self.should_reactive_compact_message(&final_error_summary)
+                && self
+                    .reactive_compact_context_for_text(&final_error_summary, event_tx)
+                    .await
+            {
+                return Ok(StreamRetryAction::Continue);
+            }
+
             let _ = event_tx.send(EngineEvent::Error(format!(
                 "Request failed after {} attempts: {}",
                 total_attempts, final_error_summary
@@ -187,7 +202,8 @@ impl AgentEngine {
             let _ = event_tx.send(EngineEvent::Done);
             return Err(anyhow::anyhow!(
                 "Request failed after {} attempts: {}",
-                total_attempts, final_error_summary
+                total_attempts,
+                final_error_summary
             ))
             .context("LLM chat request failed");
         }

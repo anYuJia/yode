@@ -111,6 +111,7 @@ impl AgentEngine {
                 tools: vec![],
                 temperature: Some(0.2),
                 max_tokens: Some(500),
+                provider_hints: yode_llm::types::ProviderRequestHints::default(),
             };
 
             let summary = provider

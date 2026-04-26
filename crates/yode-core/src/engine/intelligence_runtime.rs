@@ -212,6 +212,7 @@ Reply with ONLY the suggestion, no quotes or explanation."#;
             tools: vec![],
             temperature: Some(0.7),
             max_tokens: Some(50),
+            provider_hints: yode_llm::types::ProviderRequestHints::default(),
         };
 
         let provider = Arc::clone(&self.provider);

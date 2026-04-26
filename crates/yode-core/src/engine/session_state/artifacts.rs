@@ -1,5 +1,103 @@
 use super::*;
 
+#[derive(Debug, Default, serde::Deserialize)]
+struct PromptCacheArtifactState {
+    #[serde(default)]
+    last_turn_prompt_tokens: Option<u32>,
+    #[serde(default)]
+    last_turn_completion_tokens: Option<u32>,
+    #[serde(default)]
+    last_turn_cache_write_tokens: Option<u32>,
+    #[serde(default)]
+    last_turn_cache_read_tokens: Option<u32>,
+    #[serde(default)]
+    last_turn_cache_edit_deletions: Option<u32>,
+    #[serde(default)]
+    last_turn_cache_deleted_tokens: Option<u32>,
+    #[serde(default)]
+    pending_cache_edit_refs: u32,
+    #[serde(default)]
+    pinned_cache_edit_refs: u32,
+    #[serde(default)]
+    pending_cache_edit_ref_values: Vec<String>,
+    #[serde(default)]
+    pinned_cache_edit_ref_values: Vec<String>,
+    #[serde(default)]
+    prompt_cache_break_count: u32,
+    #[serde(default)]
+    last_prompt_cache_break_reason: Option<String>,
+    #[serde(default)]
+    last_prompt_cache_break_at: Option<String>,
+    #[serde(default)]
+    last_prompt_cache_expected_drop_reason: Option<String>,
+    #[serde(default)]
+    last_prompt_cache_change_summary: Option<String>,
+    #[serde(default)]
+    last_prompt_cache_transition_kind: Option<String>,
+    #[serde(default)]
+    last_prompt_cache_transition_reason: Option<String>,
+    #[serde(default)]
+    last_prompt_cache_prefix_hash: Option<String>,
+    #[serde(default)]
+    last_prompt_cache_system_hash: Option<String>,
+    #[serde(default)]
+    last_prompt_cache_restore_hash: Option<String>,
+    #[serde(default)]
+    last_prompt_cache_tool_hash: Option<String>,
+    #[serde(default)]
+    last_prompt_cache_message_hash: Option<String>,
+    #[serde(default)]
+    last_prompt_cache_diff_artifact_path: Option<String>,
+    #[serde(default)]
+    last_prompt_cache_diff_summary: Option<String>,
+    #[serde(default)]
+    reported_turns: u32,
+    #[serde(default)]
+    cache_write_turns: u32,
+    #[serde(default)]
+    cache_read_turns: u32,
+    #[serde(default)]
+    cache_edit_turns: u32,
+    #[serde(default)]
+    cache_write_tokens_total: u64,
+    #[serde(default)]
+    cache_read_tokens_total: u64,
+    #[serde(default)]
+    cache_edit_deletions_total: u64,
+    #[serde(default)]
+    cache_deleted_tokens_total: u64,
+}
+
+fn prompt_cache_state_artifact_path(
+    project_root: &std::path::Path,
+    session_id: &str,
+) -> std::path::PathBuf {
+    let short_session = session_id.chars().take(8).collect::<String>();
+    project_root
+        .join(".yode")
+        .join("status")
+        .join(format!("{}-prompt-cache-state.json", short_session))
+}
+
+fn prompt_cache_diff_artifact_path(
+    project_root: &std::path::Path,
+    session_id: &str,
+) -> std::path::PathBuf {
+    let short_session = session_id.chars().take(8).collect::<String>();
+    project_root
+        .join(".yode")
+        .join("status")
+        .join(format!("{}-prompt-cache-diff.md", short_session))
+}
+
+fn load_prompt_cache_state_artifact(
+    project_root: &std::path::Path,
+    session_id: &str,
+) -> Option<PromptCacheArtifactState> {
+    let path = prompt_cache_state_artifact_path(project_root, session_id);
+    serde_json::from_str::<PromptCacheArtifactState>(&std::fs::read_to_string(path).ok()?).ok()
+}
+
 impl AgentEngine {
     /// Save a message to the database if available.
     pub(in crate::engine) fn persist_message(
@@ -95,6 +193,82 @@ impl AgentEngine {
                 state.last_session_memory_generated_summary = false;
             }
         }
+
+        if let Some(cache) = load_prompt_cache_state_artifact(&project_root, &self.context.session_id)
+        {
+            self.pending_cache_edit_refs = cache.pending_cache_edit_ref_values;
+            self.pending_cache_edit_refs.sort();
+            self.pending_cache_edit_refs.dedup();
+
+            self.pinned_cache_edit_refs = cache.pinned_cache_edit_ref_values;
+            self.pinned_cache_edit_refs.sort();
+            self.pinned_cache_edit_refs.dedup();
+            self.pinned_cache_edit_refs
+                .retain(|cache_ref| !self.pending_cache_edit_refs.contains(cache_ref));
+
+            self.prompt_cache_runtime.last_turn_prompt_tokens = cache.last_turn_prompt_tokens;
+            self.prompt_cache_runtime.last_turn_completion_tokens =
+                cache.last_turn_completion_tokens;
+            self.prompt_cache_runtime.last_turn_cache_write_tokens =
+                cache.last_turn_cache_write_tokens;
+            self.prompt_cache_runtime.last_turn_cache_read_tokens = cache.last_turn_cache_read_tokens;
+            self.prompt_cache_runtime.last_turn_cache_edit_deletions =
+                cache.last_turn_cache_edit_deletions;
+            self.prompt_cache_runtime.last_turn_cache_deleted_tokens =
+                cache.last_turn_cache_deleted_tokens;
+            self.prompt_cache_runtime.pending_cache_edit_refs =
+                if self.pending_cache_edit_refs.is_empty() {
+                    cache.pending_cache_edit_refs
+                } else {
+                    self.pending_cache_edit_refs.len() as u32
+                };
+            self.prompt_cache_runtime.pinned_cache_edit_refs =
+                if self.pinned_cache_edit_refs.is_empty() {
+                    cache.pinned_cache_edit_refs
+                } else {
+                    self.pinned_cache_edit_refs.len() as u32
+                };
+            self.prompt_cache_runtime.prompt_cache_break_count = cache.prompt_cache_break_count;
+            self.prompt_cache_runtime.last_prompt_cache_break_reason =
+                cache.last_prompt_cache_break_reason;
+            self.prompt_cache_runtime.last_prompt_cache_break_at = cache.last_prompt_cache_break_at;
+            self.prompt_cache_runtime.last_prompt_cache_expected_drop_reason =
+                cache.last_prompt_cache_expected_drop_reason;
+            self.prompt_cache_runtime.last_prompt_cache_change_summary =
+                cache.last_prompt_cache_change_summary;
+            self.prompt_cache_runtime.last_prompt_cache_transition_kind =
+                cache.last_prompt_cache_transition_kind;
+            self.prompt_cache_runtime.last_prompt_cache_transition_reason =
+                cache.last_prompt_cache_transition_reason;
+            self.prompt_cache_runtime.last_prompt_cache_diff_artifact_path = cache
+                .last_prompt_cache_diff_artifact_path
+                .or_else(|| {
+                    let path =
+                        prompt_cache_diff_artifact_path(&project_root, &self.context.session_id);
+                    path.exists().then(|| path.display().to_string())
+                });
+            self.prompt_cache_runtime.last_prompt_cache_diff_summary =
+                cache.last_prompt_cache_diff_summary;
+            self.prompt_cache_runtime.reported_turns = cache.reported_turns;
+            self.prompt_cache_runtime.cache_write_turns = cache.cache_write_turns;
+            self.prompt_cache_runtime.cache_read_turns = cache.cache_read_turns;
+            self.prompt_cache_runtime.cache_edit_turns = cache.cache_edit_turns;
+            self.prompt_cache_runtime.cache_write_tokens_total = cache.cache_write_tokens_total;
+            self.prompt_cache_runtime.cache_read_tokens_total = cache.cache_read_tokens_total;
+            self.prompt_cache_runtime.cache_edit_deletions_total =
+                cache.cache_edit_deletions_total;
+            self.prompt_cache_runtime.cache_deleted_tokens_total = cache.cache_deleted_tokens_total;
+
+            self.last_prompt_cache_prefix_hash = cache.last_prompt_cache_prefix_hash;
+            self.last_prompt_cache_system_hash = cache.last_prompt_cache_system_hash;
+            self.last_prompt_cache_restore_hash = cache.last_prompt_cache_restore_hash;
+            self.last_prompt_cache_tool_hash = cache.last_prompt_cache_tool_hash;
+            self.last_prompt_cache_message_hash = cache.last_prompt_cache_message_hash;
+        }
+
+        if let Some(reason) = self.forced_prompt_cache_expected_drop_reason.clone() {
+            self.prompt_cache_runtime.last_prompt_cache_expected_drop_reason = Some(reason);
+        }
     }
 
     pub(in crate::engine) fn record_tool_result_status(
@@ -151,7 +325,8 @@ impl AgentEngine {
     }
 
     pub(in crate::engine) fn current_message_char_count(&self) -> usize {
-        self.messages
+        let base = self
+            .messages
             .iter()
             .map(|message| {
                 message
@@ -165,6 +340,12 @@ impl AgentEngine {
                         .map(|tool_call| tool_call.arguments.len() + tool_call.name.len())
                         .sum::<usize>()
             })
-            .sum()
+            .sum::<usize>();
+        let restore = self
+            .request_restore_system_blocks()
+            .iter()
+            .map(|block| block.kind.len().saturating_add(block.content.len()))
+            .sum::<usize>();
+        base.saturating_add(restore)
     }
 }

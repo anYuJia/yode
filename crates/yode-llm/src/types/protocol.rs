@@ -20,6 +20,26 @@ pub struct ToolDefinition {
     pub parameters: serde_json::Value,
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+pub struct AnthropicRequestHints {
+    pub enable_prompt_caching: bool,
+    pub pending_deleted_cache_references: Vec<String>,
+    pub pinned_deleted_cache_references: Vec<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct RestoreSystemBlockHint {
+    pub kind: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+pub struct ProviderRequestHints {
+    pub anthropic: Option<AnthropicRequestHints>,
+    #[serde(default)]
+    pub restore_system_blocks: Vec<RestoreSystemBlockHint>,
+}
+
 #[derive(Debug, Clone)]
 pub struct ChatRequest {
     pub model: String,
@@ -27,6 +47,7 @@ pub struct ChatRequest {
     pub tools: Vec<ToolDefinition>,
     pub temperature: Option<f32>,
     pub max_tokens: Option<u32>,
+    pub provider_hints: ProviderRequestHints,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
@@ -55,6 +76,7 @@ pub struct Usage {
     pub total_tokens: u32,
     pub cache_write_tokens: u32,
     pub cache_read_tokens: u32,
+    pub cache_deleted_tokens: u32,
 }
 
 impl Usage {
@@ -64,6 +86,7 @@ impl Usage {
             || self.total_tokens > 0
             || self.cache_write_tokens > 0
             || self.cache_read_tokens > 0
+            || self.cache_deleted_tokens > 0
     }
 
     pub fn uncached_prompt_tokens(&self) -> u32 {
@@ -127,6 +150,7 @@ mod tests {
             total_tokens: 1_080,
             cache_write_tokens: 250,
             cache_read_tokens: 150,
+            cache_deleted_tokens: 0,
         };
 
         assert!(usage.has_reported_tokens());

@@ -62,6 +62,8 @@ impl AgentEngine {
         self.reset_stream_watchdog_state();
         self.reset_tool_turn_runtime();
         self.reset_prompt_cache_turn_runtime();
+        self.reactive_compact_attempted = false;
+        self.reactive_media_strip_attempted = false;
         self.recent_tool_calls.clear();
         self.consecutive_failures = 0;
         self.violation_retries = 0;

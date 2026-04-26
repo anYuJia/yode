@@ -3,6 +3,7 @@ use super::*;
 use std::sync::Arc;
 
 use yode_llm::types::ToolCall;
+use yode_llm::types::RestoreSystemBlockHint;
 
 #[test]
 fn test_live_session_memory_refresh_writes_snapshot() {
@@ -44,6 +45,7 @@ fn test_record_response_usage_tracks_prompt_cache_telemetry() {
             total_tokens: 1_380,
             cache_write_tokens: 300,
             cache_read_tokens: 200,
+            cache_deleted_tokens: 0,
         },
         &tx,
     );
@@ -59,11 +61,422 @@ fn test_record_response_usage_tracks_prompt_cache_telemetry() {
     assert_eq!(runtime.prompt_cache.last_turn_completion_tokens, Some(180));
     assert_eq!(runtime.prompt_cache.last_turn_cache_write_tokens, Some(300));
     assert_eq!(runtime.prompt_cache.last_turn_cache_read_tokens, Some(200));
+    assert_eq!(runtime.prompt_cache.last_turn_cache_edit_deletions, None);
+    assert_eq!(runtime.prompt_cache.last_turn_cache_deleted_tokens, Some(0));
     assert_eq!(runtime.prompt_cache.reported_turns, 1);
     assert_eq!(runtime.prompt_cache.cache_write_turns, 1);
     assert_eq!(runtime.prompt_cache.cache_read_turns, 1);
+    assert_eq!(runtime.prompt_cache.cache_edit_turns, 0);
     assert_eq!(runtime.prompt_cache.cache_write_tokens_total, 300);
     assert_eq!(runtime.prompt_cache.cache_read_tokens_total, 200);
+    assert_eq!(runtime.prompt_cache.cache_edit_deletions_total, 0);
+    assert_eq!(runtime.prompt_cache.cache_deleted_tokens_total, 0);
+}
+
+#[test]
+fn test_cached_microcompact_updates_prompt_cache_runtime() {
+    let mut engine = make_engine(vec![], vec![]);
+    let big = "x".repeat(1_000);
+    engine.messages = vec![
+        Message::system("system"),
+        Message::user("u1"),
+        Message::assistant("a1"),
+        Message::tool_result("tc1", &big),
+        Message::user("u2"),
+        Message::assistant("a2"),
+        Message::tool_result("tc2", &big),
+        Message::user("recent1"),
+        Message::assistant("recent2"),
+        Message::user("recent3"),
+        Message::assistant("recent4"),
+        Message::user("recent5"),
+        Message::assistant("recent6"),
+        Message::user("recent7"),
+        Message::assistant("recent8"),
+    ];
+
+    engine.apply_microcompact();
+
+    let runtime = engine.runtime_state();
+    assert_eq!(runtime.prompt_cache.last_turn_cache_edit_deletions, Some(2));
+    assert_eq!(runtime.prompt_cache.cache_edit_turns, 1);
+    assert_eq!(runtime.prompt_cache.cache_edit_deletions_total, 2);
+    assert_eq!(
+        runtime.prompt_cache.pending_cache_edit_ref_values,
+        vec!["tc1".to_string(), "tc2".to_string()]
+    );
+}
+
+#[test]
+fn test_prompt_cache_pending_refs_promote_to_pinned_after_usage() {
+    let mut engine = make_engine(vec![], vec![]);
+    engine.messages = vec![
+        Message::system("system"),
+        Message::assistant("a1"),
+        Message::tool_result("tc1", "ok1"),
+        Message::assistant("a2"),
+        Message::tool_result("tc2", "ok2"),
+        Message::user("tail"),
+    ];
+    engine.pending_cache_edit_refs = vec!["tc1".to_string(), "tc2".to_string()];
+
+    let request = engine.build_chat_request();
+    engine.record_prompt_cache_request_state(&request);
+
+    let (tx, _rx) = mpsc::unbounded_channel();
+    engine.record_response_usage(
+        &yode_llm::types::Usage {
+            prompt_tokens: 1_000,
+            completion_tokens: 100,
+            total_tokens: 1_100,
+            cache_write_tokens: 0,
+            cache_read_tokens: 500,
+            cache_deleted_tokens: 0,
+        },
+        &tx,
+    );
+
+    let runtime = engine.runtime_state();
+    assert_eq!(runtime.prompt_cache.pending_cache_edit_refs, 0);
+    assert_eq!(runtime.prompt_cache.pinned_cache_edit_refs, 2);
+    assert_eq!(runtime.prompt_cache.pending_cache_edit_ref_values, Vec::<String>::new());
+    assert_eq!(
+        runtime.prompt_cache.pinned_cache_edit_ref_values,
+        vec!["tc1".to_string(), "tc2".to_string()]
+    );
+}
+
+#[test]
+fn test_build_chat_request_prunes_stale_cache_edit_refs() {
+    let mut engine = make_engine(vec![], vec![]);
+    engine.messages = vec![
+        Message::system("system"),
+        Message::assistant("a1"),
+        Message::tool_result("tc1", "ok"),
+        Message::user("tail"),
+    ];
+    engine.pending_cache_edit_refs = vec!["tc1".to_string(), "stale".to_string()];
+    engine.pinned_cache_edit_refs = vec!["tc2".to_string(), "stale2".to_string()];
+
+    let request = engine.build_chat_request();
+    let hints = request.provider_hints.anthropic.expect("anthropic hints");
+    assert_eq!(hints.pending_deleted_cache_references, vec!["tc1".to_string()]);
+    assert_eq!(hints.pinned_deleted_cache_references, Vec::<String>::new());
+
+    let runtime = engine.runtime_state();
+    assert_eq!(runtime.prompt_cache.pending_cache_edit_refs, 1);
+    assert_eq!(runtime.prompt_cache.pinned_cache_edit_refs, 0);
+    assert_eq!(
+        runtime.prompt_cache.pending_cache_edit_ref_values,
+        vec!["tc1".to_string()]
+    );
+    assert_eq!(runtime.prompt_cache.pinned_cache_edit_ref_values, Vec::<String>::new());
+}
+
+#[test]
+fn test_prompt_cache_break_detection_flags_unexpected_drop() {
+    let mut engine = make_engine(vec![], vec![]);
+    let request = engine.build_chat_request();
+    let (tx, _rx) = mpsc::unbounded_channel();
+
+    engine.record_prompt_cache_request_state(&request);
+    engine.record_response_usage(
+        &yode_llm::types::Usage {
+            prompt_tokens: 1_000,
+            completion_tokens: 100,
+            total_tokens: 1_100,
+            cache_write_tokens: 0,
+            cache_read_tokens: 5_000,
+            cache_deleted_tokens: 0,
+        },
+        &tx,
+    );
+
+    engine.record_prompt_cache_request_state(&request);
+    engine.record_response_usage(
+        &yode_llm::types::Usage {
+            prompt_tokens: 1_050,
+            completion_tokens: 110,
+            total_tokens: 1_160,
+            cache_write_tokens: 0,
+            cache_read_tokens: 1_000,
+            cache_deleted_tokens: 0,
+        },
+        &tx,
+    );
+
+    let runtime = engine.runtime_state();
+    assert_eq!(runtime.prompt_cache.prompt_cache_break_count, 1);
+    assert!(runtime
+        .prompt_cache
+        .last_prompt_cache_break_reason
+        .as_deref()
+        .unwrap_or_default()
+        .contains("cache read dropped"));
+    let diff_path = runtime
+        .prompt_cache
+        .last_prompt_cache_diff_artifact_path
+        .as_deref()
+        .expect("break diff artifact path");
+    assert!(std::path::Path::new(diff_path).exists());
+}
+
+#[test]
+fn test_system_prefix_changes_are_classified_separately() {
+    let mut engine = make_engine(vec![], vec![]);
+    let request = engine.build_chat_request();
+    let (tx, _rx) = mpsc::unbounded_channel();
+
+    engine.record_prompt_cache_request_state(&request);
+    engine.record_response_usage(
+        &yode_llm::types::Usage {
+            prompt_tokens: 1_000,
+            completion_tokens: 100,
+            total_tokens: 1_100,
+            cache_write_tokens: 0,
+            cache_read_tokens: 1_500,
+            cache_deleted_tokens: 0,
+        },
+        &tx,
+    );
+
+    engine.messages.push(Message::system("[Context summary] compacted"));
+    let request = engine.build_chat_request();
+    engine.record_prompt_cache_request_state(&request);
+    engine.record_response_usage(
+        &yode_llm::types::Usage {
+            prompt_tokens: 1_050,
+            completion_tokens: 110,
+            total_tokens: 1_160,
+            cache_write_tokens: 0,
+            cache_read_tokens: 1_000,
+            cache_deleted_tokens: 0,
+        },
+        &tx,
+    );
+
+    let runtime = engine.runtime_state();
+    assert_eq!(
+        runtime
+            .prompt_cache
+            .last_prompt_cache_transition_kind
+            .as_deref(),
+        Some("system_prefix_changed")
+    );
+    assert_eq!(
+        runtime
+            .prompt_cache
+            .last_prompt_cache_change_summary
+            .as_deref(),
+        Some("system")
+    );
+}
+
+#[test]
+fn test_restore_prefix_changes_are_classified_separately() {
+    let mut engine = make_engine(vec![], vec![]);
+    engine.post_compact_restore_blocks = vec![
+        "[Post-compact restore: files]\n- Recent files read: src/main.rs".to_string(),
+    ];
+    let request = engine.build_chat_request();
+    let (tx, _rx) = mpsc::unbounded_channel();
+
+    engine.record_prompt_cache_request_state(&request);
+    engine.record_response_usage(
+        &yode_llm::types::Usage {
+            prompt_tokens: 1_000,
+            completion_tokens: 100,
+            total_tokens: 1_100,
+            cache_write_tokens: 0,
+            cache_read_tokens: 1_500,
+            cache_deleted_tokens: 0,
+        },
+        &tx,
+    );
+
+    engine.post_compact_restore_blocks = vec![
+        "[Post-compact restore: files]\n- Recent files read: src/lib.rs".to_string(),
+    ];
+    let request = engine.build_chat_request();
+    engine.record_prompt_cache_request_state(&request);
+    engine.record_response_usage(
+        &yode_llm::types::Usage {
+            prompt_tokens: 1_050,
+            completion_tokens: 110,
+            total_tokens: 1_160,
+            cache_write_tokens: 0,
+            cache_read_tokens: 1_000,
+            cache_deleted_tokens: 0,
+        },
+        &tx,
+    );
+
+    let runtime = engine.runtime_state();
+    assert_eq!(
+        runtime
+            .prompt_cache
+            .last_prompt_cache_transition_kind
+            .as_deref(),
+        Some("restore_prefix_changed")
+    );
+    assert_eq!(
+        runtime
+            .prompt_cache
+            .last_prompt_cache_change_summary
+            .as_deref(),
+        Some("restore")
+    );
+}
+
+#[test]
+fn test_model_change_sets_expected_prompt_cache_drop_reason() {
+    let mut engine = make_engine(vec![], vec![]);
+    engine.set_model("gpt-4o".to_string());
+
+    let request = engine.build_chat_request();
+    engine.record_prompt_cache_request_state(&request);
+
+    let runtime = engine.runtime_state();
+    assert_eq!(
+        runtime
+            .prompt_cache
+            .last_prompt_cache_expected_drop_reason
+            .as_deref(),
+        Some("model_change")
+    );
+}
+
+#[test]
+fn test_expected_prompt_cache_drop_writes_diff_artifact() {
+    let mut engine = make_engine(vec![], vec![]);
+    engine.set_model("gpt-4o".to_string());
+
+    let request = engine.build_chat_request();
+    engine.record_prompt_cache_request_state(&request);
+
+    let (tx, _rx) = mpsc::unbounded_channel();
+    engine.record_response_usage(
+        &yode_llm::types::Usage {
+            prompt_tokens: 1_000,
+            completion_tokens: 100,
+            total_tokens: 1_100,
+            cache_write_tokens: 0,
+            cache_read_tokens: 0,
+            cache_deleted_tokens: 0,
+        },
+        &tx,
+    );
+
+    let runtime = engine.runtime_state();
+    assert_eq!(
+        runtime
+            .prompt_cache
+            .last_prompt_cache_transition_kind
+            .as_deref(),
+        Some("expected_drop")
+    );
+    let diff_path = runtime
+        .prompt_cache
+        .last_prompt_cache_diff_artifact_path
+        .as_deref()
+        .expect("expected diff artifact path");
+    assert!(std::path::Path::new(diff_path).exists());
+}
+
+#[test]
+fn test_first_prompt_cache_snapshot_is_marked_cold_start() {
+    let mut engine = make_engine(vec![], vec![]);
+    let request = engine.build_chat_request();
+    engine.record_prompt_cache_request_state(&request);
+
+    let (tx, _rx) = mpsc::unbounded_channel();
+    engine.record_response_usage(
+        &yode_llm::types::Usage {
+            prompt_tokens: 1_000,
+            completion_tokens: 100,
+            total_tokens: 1_100,
+            cache_write_tokens: 0,
+            cache_read_tokens: 0,
+            cache_deleted_tokens: 0,
+        },
+        &tx,
+    );
+
+    let runtime = engine.runtime_state();
+    assert_eq!(
+        runtime
+            .prompt_cache
+            .last_prompt_cache_transition_kind
+            .as_deref(),
+        Some("cold_start")
+    );
+}
+
+#[test]
+fn test_cache_edits_transition_is_classified_separately() {
+    let mut engine = make_engine(vec![], vec![]);
+    let big = "x".repeat(1_000);
+    engine.messages = vec![
+        Message::system("system"),
+        Message::user("u1"),
+        Message::assistant("a1"),
+        Message::tool_result("tc1", &big),
+        Message::user("u2"),
+        Message::assistant("a2"),
+        Message::tool_result("tc2", &big),
+        Message::user("recent1"),
+        Message::assistant("recent2"),
+        Message::user("recent3"),
+        Message::assistant("recent4"),
+        Message::user("recent5"),
+        Message::assistant("recent6"),
+        Message::user("recent7"),
+        Message::assistant("recent8"),
+    ];
+    engine.apply_microcompact();
+
+    let request = engine.build_chat_request();
+    engine.record_prompt_cache_request_state(&request);
+    let (tx, _rx) = mpsc::unbounded_channel();
+    engine.record_response_usage(
+        &yode_llm::types::Usage {
+            prompt_tokens: 1_000,
+            completion_tokens: 100,
+            total_tokens: 1_100,
+            cache_write_tokens: 0,
+            cache_read_tokens: 0,
+            cache_deleted_tokens: 200,
+        },
+        &tx,
+    );
+
+    let runtime = engine.runtime_state();
+    assert_eq!(
+        runtime
+            .prompt_cache
+            .last_prompt_cache_transition_kind
+            .as_deref(),
+        Some("cache_edit_applied")
+    );
+}
+
+#[test]
+fn test_clear_conversation_resets_cache_edit_tracking() {
+    let mut engine = make_engine(vec![], vec![]);
+    engine.messages.push(Message::user("hello"));
+    engine.pending_cache_edit_refs = vec!["tc1".to_string()];
+    engine.pinned_cache_edit_refs = vec!["tc2".to_string()];
+    engine.cached_microcompact_deleted_refs = vec!["tc1".to_string(), "tc2".to_string()];
+
+    engine.clear_conversation();
+
+    let runtime = engine.runtime_state();
+    assert_eq!(runtime.prompt_cache.pending_cache_edit_refs, 0);
+    assert_eq!(runtime.prompt_cache.pinned_cache_edit_refs, 0);
+    assert_eq!(
+        engine.forced_prompt_cache_expected_drop_reason.as_deref(),
+        Some("clear_conversation")
+    );
 }
 
 #[test]
@@ -81,6 +494,25 @@ fn test_system_prompt_runtime_state_tracks_segment_breakdown() {
         .system_prompt_segments
         .iter()
         .any(|segment| segment.label == "Environment"));
+}
+
+#[test]
+fn test_runtime_state_counts_hidden_restore_in_context_and_segments() {
+    let mut engine = make_engine(vec![], vec![]);
+    let before = engine.runtime_state();
+    engine.post_compact_restore_blocks = vec![
+        "[Post-compact restore: runtime]\n- Runtime cwd: /tmp/project".to_string(),
+        "[Post-compact restore: files]\n- Recent files read: src/main.rs".to_string(),
+    ];
+
+    let after = engine.runtime_state();
+
+    assert!(after.estimated_context_tokens > before.estimated_context_tokens);
+    assert!(after.system_prompt_estimated_tokens > before.system_prompt_estimated_tokens);
+    assert!(after
+        .system_prompt_segments
+        .iter()
+        .any(|segment| segment.label == "Post-compact restore"));
 }
 
 #[test]
@@ -130,6 +562,88 @@ fn test_build_chat_request_hides_denied_tools_from_model() {
 
     assert!(tool_names.iter().any(|name| name == "read_file"));
     assert!(!tool_names.iter().any(|name| name == "write_file"));
+}
+
+#[test]
+fn test_build_chat_request_injects_restore_blocks_as_virtual_system_messages() {
+    let mut engine = make_engine(vec![], vec![]);
+    engine.messages.push(Message::system("[Context summary] compacted"));
+    engine.post_compact_restore_blocks = vec![
+        "[Post-compact restore: runtime]\n- Runtime cwd: /tmp/project".to_string(),
+        "[Post-compact restore: files]\n- Recent files read: src/main.rs".to_string(),
+    ];
+    engine.messages.push(Message::user("resume"));
+
+    let request = engine.build_chat_request();
+    assert_eq!(request.provider_hints.restore_system_blocks.len(), 2);
+    assert_eq!(
+        request
+            .provider_hints
+            .restore_system_blocks
+            .first()
+            .map(|block| (block.kind.as_str(), block.content.as_str())),
+        Some(("runtime", "- Runtime cwd: /tmp/project"))
+    );
+
+    assert!(!engine.messages.iter().any(|message| {
+        message
+            .content
+            .as_deref()
+            .unwrap_or_default()
+            .starts_with("[Post-compact restore:")
+    }));
+    assert!(request.messages.iter().all(|message| {
+        !message
+            .content
+            .as_deref()
+            .unwrap_or_default()
+            .starts_with("[Post-compact restore:")
+    }));
+}
+
+#[test]
+fn test_build_chat_request_sanitizes_volatile_restore_blocks_for_cache_stability() {
+    let mut engine = make_engine(vec![], vec![]);
+    engine.post_compact_restore_blocks = vec![
+        "[Post-compact restore: tools]\n- Tool pool: 4 active visible, 1 active hidden, 2 deferred visible, search=enabled (reason: mcp)\n- Tool inventory: total=9 active=7 deferred=2 activations=3 last=mcp__demo__search".to_string(),
+        "[Post-compact restore: mcp]\n- MCP: visible_tools=2 deferred_tools=4 cache(list 10 hit/2 miss, read 8 hit/5 miss)".to_string(),
+        "[Post-compact restore: artifacts]\n- Session memory artifact: .yode/status/session.md\n- Latest turn artifact: /tmp/turn.md".to_string(),
+    ];
+
+    let request = engine.build_chat_request();
+    let system_texts = request
+        .provider_hints
+        .restore_system_blocks
+        .iter()
+        .map(|block| (block.kind.as_str(), block.content.as_str()))
+        .collect::<Vec<_>>();
+
+    assert!(system_texts.iter().any(|text| {
+        *text
+            == (
+                "tools",
+                "- Tool availability follows the current runtime tool pool and permission state.",
+            )
+    }));
+    assert!(system_texts.iter().any(|text| {
+        *text == ("mcp", "- MCP availability follows the current runtime inventory.")
+    }));
+    assert!(system_texts.iter().any(|text| {
+        *text
+            == (
+                "artifacts",
+                "- Compaction and runtime artifacts remain available via status inspectors.",
+            )
+    }));
+    assert!(!system_texts
+        .iter()
+        .any(|(_, content)| content.contains("/tmp/turn.md")));
+    assert!(!system_texts
+        .iter()
+        .any(|(_, content)| content.contains("cache(list")));
+    assert!(!system_texts
+        .iter()
+        .any(|(_, content)| content.contains("Tool inventory: total=")));
 }
 
 #[test]
@@ -303,7 +817,13 @@ fn test_restore_messages_rebuilds_artifact_runtime_state() {
     std::fs::create_dir_all(live_path.parent().unwrap()).unwrap();
     std::fs::write(&live_path, "# Session Snapshot\n\nplaceholder").unwrap();
 
-    engine.restore_messages(vec![Message::user("resume")]);
+    engine.restore_messages(vec![
+        Message::assistant("a1"),
+        Message::tool_result("tc1", "ok1"),
+        Message::assistant("a2"),
+        Message::tool_result("tc2", "ok2"),
+        Message::user("resume"),
+    ]);
     let runtime = engine.runtime_state();
     assert_eq!(runtime.last_compaction_mode.as_deref(), Some("manual"));
     assert_eq!(
@@ -324,6 +844,169 @@ fn test_restore_messages_rebuilds_artifact_runtime_state() {
         runtime.last_session_memory_update_path.as_deref(),
         Some(live_path_str.as_str())
     );
+    assert_eq!(
+        engine.forced_prompt_cache_expected_drop_reason.as_deref(),
+        Some("restore_messages")
+    );
+    assert_eq!(
+        runtime
+            .prompt_cache
+            .last_prompt_cache_expected_drop_reason
+            .as_deref(),
+        Some("restore_messages")
+    );
+}
+
+#[test]
+fn test_restore_messages_rehydrates_post_compact_restore_blocks_from_artifact() {
+    let mut engine = make_engine(vec![], vec![]);
+    let project_root = engine.context().working_dir_compat();
+    let status_dir = project_root.join(".yode").join("status");
+    std::fs::create_dir_all(&status_dir).unwrap();
+    let short_session = engine
+        .context()
+        .session_id
+        .chars()
+        .take(8)
+        .collect::<String>();
+    let state_path = status_dir.join(format!("{}-post-compact-restore-state.json", short_session));
+    std::fs::write(
+        &state_path,
+        r#"{
+          "blocks": [
+            { "kind": "runtime", "content": "[Post-compact restore: runtime]\n- Runtime cwd: /tmp", "fingerprint": "a" },
+            { "kind": "files", "content": "[Post-compact restore: files]\n- Recent files read: src/main.rs", "fingerprint": "b" }
+          ]
+        }"#,
+    )
+    .unwrap();
+
+    engine.restore_messages(vec![
+        Message::system("[Context summary] compacted"),
+        Message::user("resume"),
+    ]);
+
+    assert!(!engine.messages.iter().any(|message| {
+        message
+            .content
+            .as_deref()
+            .unwrap_or_default()
+            .starts_with("[Post-compact restore:")
+    }));
+
+    let request = engine.build_chat_request();
+    assert!(request
+        .provider_hints
+        .restore_system_blocks
+        .iter()
+        .any(|block| {
+            block
+                == &RestoreSystemBlockHint {
+                    kind: "runtime".to_string(),
+                    content: "- Runtime cwd: /tmp".to_string(),
+                }
+        }));
+    assert!(request
+        .provider_hints
+        .restore_system_blocks
+        .iter()
+        .any(|block| {
+            block
+                == &RestoreSystemBlockHint {
+                    kind: "files".to_string(),
+                    content: "- Recent files read: src/main.rs".to_string(),
+                }
+        }));
+}
+
+#[test]
+fn test_restore_messages_rehydrates_prompt_cache_state_from_artifact() {
+    let mut engine = make_engine(vec![], vec![]);
+    engine.set_model("claude-3-5-sonnet".to_string());
+    let project_root = engine.context().working_dir_compat();
+    let status_dir = project_root.join(".yode").join("status");
+    std::fs::create_dir_all(&status_dir).unwrap();
+    let short_session = engine
+        .context()
+        .session_id
+        .chars()
+        .take(8)
+        .collect::<String>();
+    let state_path = status_dir.join(format!("{}-prompt-cache-state.json", short_session));
+    std::fs::write(
+        &state_path,
+        r#"{
+          "reported_turns": 4,
+          "cache_write_turns": 2,
+          "cache_read_turns": 3,
+          "cache_edit_turns": 1,
+          "cache_write_tokens_total": 400,
+          "cache_read_tokens_total": 1200,
+          "cache_deleted_tokens_total": 150,
+          "cache_edit_deletions_total": 2,
+          "last_turn_cache_read_tokens": 500,
+          "pending_cache_edit_refs": 1,
+          "pinned_cache_edit_refs": 1,
+          "pending_cache_edit_ref_values": ["tc2"],
+          "pinned_cache_edit_ref_values": ["tc1"],
+          "last_prompt_cache_prefix_hash": "prefix-hash",
+          "last_prompt_cache_system_hash": "system-hash",
+          "last_prompt_cache_tool_hash": "tool-hash",
+          "last_prompt_cache_message_hash": "message-hash",
+          "last_prompt_cache_change_summary": "stable",
+          "last_prompt_cache_transition_kind": "cache_edit_applied",
+          "last_prompt_cache_transition_reason": "cache_edits",
+          "last_prompt_cache_diff_summary": "cache_edit_applied / old->new / cache_edits",
+          "last_prompt_cache_break_reason": "none",
+          "last_prompt_cache_break_at": "2026-01-02 03:04:05"
+        }"#,
+    )
+    .unwrap();
+
+    let diff_path = status_dir.join(format!("{}-prompt-cache-diff.md", short_session));
+    std::fs::write(&diff_path, "# Prompt Cache Diff").unwrap();
+
+    engine.restore_messages(vec![
+        Message::assistant("a1"),
+        Message::tool_result("tc1", "ok1"),
+        Message::assistant("a2"),
+        Message::tool_result("tc2", "ok2"),
+        Message::user("resume"),
+    ]);
+
+    let runtime = engine.runtime_state();
+    assert_eq!(runtime.prompt_cache.reported_turns, 4);
+    assert_eq!(runtime.prompt_cache.cache_deleted_tokens_total, 150);
+    assert_eq!(runtime.prompt_cache.pending_cache_edit_refs, 1);
+    assert_eq!(runtime.prompt_cache.pinned_cache_edit_refs, 1);
+    assert_eq!(
+        runtime.prompt_cache.pending_cache_edit_ref_values,
+        vec!["tc2".to_string()]
+    );
+    assert_eq!(
+        runtime.prompt_cache.pinned_cache_edit_ref_values,
+        vec!["tc1".to_string()]
+    );
+    assert_eq!(
+        runtime.prompt_cache.last_prompt_cache_prefix_hash.as_deref(),
+        Some("prefix-hash")
+    );
+    assert_eq!(
+        runtime.prompt_cache.last_prompt_cache_transition_kind.as_deref(),
+        Some("cache_edit_applied")
+    );
+    assert_eq!(
+        runtime
+            .prompt_cache
+            .last_prompt_cache_diff_artifact_path
+            .as_deref(),
+        Some(diff_path.display().to_string().as_str())
+    );
+
+    let request = engine.build_chat_request();
+    let hints = request.provider_hints.anthropic.expect("anthropic prompt cache hints");
+    assert_eq!(hints.pending_deleted_cache_references, vec!["tc2".to_string()]);
+    assert_eq!(hints.pinned_deleted_cache_references, vec!["tc1".to_string()]);
 }
 
 #[test]
@@ -333,5 +1016,8 @@ fn test_reset_turn_runtime_clears_stream_watchdog_stage() {
 
     engine.reset_turn_runtime_state();
 
-    assert_eq!(engine.runtime_state().last_stream_watchdog_stage.as_deref(), None);
+    assert_eq!(
+        engine.runtime_state().last_stream_watchdog_stage.as_deref(),
+        None
+    );
 }

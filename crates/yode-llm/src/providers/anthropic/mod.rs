@@ -9,13 +9,13 @@ use reqwest::Client;
 use tokio::sync::mpsc;
 use tracing::debug;
 
-use crate::providers::error_shared::format_api_error;
-use crate::providers::streaming_shared::map_stop_reason;
 use self::request_conversion::anthropic_usage_to_usage;
 use self::types::{
     AnthropicErrorResponse, AnthropicRequest, AnthropicResponse, AnthropicThinkingConfig,
     ContentBlock,
 };
+use crate::providers::error_shared::format_api_error;
+use crate::providers::streaming_shared::map_stop_reason;
 
 use crate::provider::LlmProvider;
 use crate::types::{ChatRequest, ChatResponse, Message, ModelInfo, StreamEvent, ToolCall};
@@ -51,8 +51,12 @@ impl AnthropicProvider {
     }
 
     fn build_request(&self, request: &ChatRequest, stream: bool) -> AnthropicRequest {
-        let (system, messages) = Self::convert_messages(&request.messages);
-        let tools = Self::convert_tools(&request.tools);
+        let (system, messages) = Self::convert_messages(
+            &request.messages,
+            request.provider_hints.anthropic.as_ref(),
+            &request.provider_hints.restore_system_blocks,
+        );
+        let tools = Self::convert_tools(&request.tools, request.provider_hints.anthropic.as_ref());
         let thinking = Some(AnthropicThinkingConfig {
             thinking_type: "enabled".to_string(),
             budget_tokens: 1024,
@@ -118,13 +122,14 @@ impl LlmProvider for AnthropicProvider {
 
         for block in &api_resp.content {
             match block {
-                ContentBlock::Text { text } => {
+                ContentBlock::Text { text, .. } => {
                     text_content.push_str(text);
                     content_blocks.push(crate::types::ContentBlock::Text { text: text.clone() });
                 }
                 ContentBlock::Thinking {
                     thinking,
                     signature,
+                    ..
                 } => {
                     reasoning_content.push_str(thinking);
                     content_blocks.push(crate::types::ContentBlock::Thinking {

@@ -8,7 +8,7 @@ pub(super) struct AnthropicRequest {
     pub(super) max_tokens: u32,
     pub(super) messages: Vec<AnthropicMessage>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) system: Option<String>,
+    pub(super) system: Option<Vec<SystemTextBlock>>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(super) tools: Vec<AnthropicTool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -31,6 +31,25 @@ pub(super) struct AnthropicMessage {
     pub(super) content: AnthropicContent,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub(super) struct CacheControl {
+    #[serde(rename = "type")]
+    pub(super) cache_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) scope: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) ttl: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub(super) struct SystemTextBlock {
+    #[serde(rename = "type")]
+    pub(super) block_type: String,
+    pub(super) text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) cache_control: Option<CacheControl>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 pub(super) enum AnthropicContent {
@@ -45,6 +64,8 @@ pub(super) enum ContentBlock {
     Text {
         #[serde(default)]
         text: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_control: Option<CacheControl>,
     },
     #[serde(rename = "thinking")]
     Thinking {
@@ -52,6 +73,8 @@ pub(super) enum ContentBlock {
         thinking: String,
         #[serde(default, rename = "signature")]
         signature: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_control: Option<CacheControl>,
     },
     #[serde(rename = "image")]
     Image { source: ImageSource },
@@ -65,9 +88,20 @@ pub(super) enum ContentBlock {
     ToolResult {
         tool_use_id: String,
         content: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_reference: Option<String>,
     },
+    #[serde(rename = "cache_edits")]
+    CacheEdits { edits: Vec<CacheEditDelete> },
     #[serde(other)]
     Unknown,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub(super) struct CacheEditDelete {
+    #[serde(rename = "type")]
+    pub(super) edit_type: String,
+    pub(super) cache_reference: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -83,6 +117,8 @@ pub(super) struct AnthropicTool {
     pub(super) name: String,
     pub(super) description: String,
     pub(super) input_schema: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) cache_control: Option<CacheControl>,
 }
 
 // ── Anthropic API response types ────────────────────────────────────────────
@@ -107,6 +143,8 @@ pub(super) struct AnthropicUsage {
     pub(super) cache_creation_input_tokens: u32,
     #[serde(default)]
     pub(super) cache_read_input_tokens: u32,
+    #[serde(default)]
+    pub(super) cache_deleted_input_tokens: u32,
     #[serde(default)]
     pub(super) output_tokens: u32,
 }

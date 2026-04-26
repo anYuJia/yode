@@ -68,6 +68,7 @@ pub(super) async fn handle_stream_chunk(
                 .as_ref()
                 .map(|details| details.cached_tokens)
                 .unwrap_or(0),
+            cache_deleted_tokens: 0,
         };
     }
 
@@ -90,7 +91,11 @@ pub(super) async fn handle_stream_chunk(
         if let Some(content) = &delta.content {
             if !content.is_empty() {
                 state.full_content.push_str(content);
-                if tx.send(StreamEvent::TextDelta(content.clone())).await.is_err() {
+                if tx
+                    .send(StreamEvent::TextDelta(content.clone()))
+                    .await
+                    .is_err()
+                {
                     return true;
                 }
             }
@@ -144,10 +149,7 @@ pub(super) async fn handle_stream_chunk(
     false
 }
 
-pub(super) async fn finalize_stream(
-    mut state: OpenAiStreamState,
-    tx: &mpsc::Sender<StreamEvent>,
-) {
+pub(super) async fn finalize_stream(mut state: OpenAiStreamState, tx: &mpsc::Sender<StreamEvent>) {
     if !state.saw_done_sentinel && !state.saw_finish_reason {
         warn!(
             "OpenAI stream ended without [DONE] or finish_reason; finalizing from partial state (reason={}, chunks={})",
@@ -165,7 +167,8 @@ pub(super) async fn finalize_stream(
     }
     state.active_tool_indices.clear();
 
-    let mut tool_calls_sorted: Vec<(u32, ToolCall)> = state.accumulated_tool_calls.into_iter().collect();
+    let mut tool_calls_sorted: Vec<(u32, ToolCall)> =
+        state.accumulated_tool_calls.into_iter().collect();
     tool_calls_sorted.sort_by_key(|(index, _)| *index);
     let tool_calls = tool_calls_sorted
         .into_iter()
@@ -176,5 +179,12 @@ pub(super) async fn finalize_stream(
         (!state.full_reasoning.is_empty()).then_some(state.full_reasoning),
         tool_calls,
     );
-    emit_done_event(tx, message, state.final_usage, state.model, state.stop_reason).await;
+    emit_done_event(
+        tx,
+        message,
+        state.final_usage,
+        state.model,
+        state.stop_reason,
+    )
+    .await;
 }

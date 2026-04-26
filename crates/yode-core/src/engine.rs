@@ -52,9 +52,9 @@ use crate::hooks::{HookContext, HookEvent, HookManager};
 use crate::instructions::{load_instruction_context, load_memory_context};
 use crate::permission::{CommandClassifier, CommandRiskLevel, PermissionAction, PermissionManager};
 use crate::session_memory::{
-    build_live_snapshot, clear_live_session_memory, live_session_memory_path,
-    persist_compaction_memory, persist_live_session_memory, persist_live_session_memory_summary,
-    render_live_session_memory_prompt,
+    best_compaction_memory_excerpt, build_live_snapshot, clear_live_session_memory,
+    live_session_memory_path, persist_compaction_memory, persist_live_session_memory,
+    persist_live_session_memory_summary, render_live_session_memory_prompt,
 };
 use crate::transcript::write_compaction_transcript;
 use retry::{
@@ -243,6 +243,41 @@ pub struct AgentEngine {
     autocompact_disabled: bool,
     /// Guard against nested compaction attempts.
     compaction_in_progress: bool,
+    /// Stop reactive compaction from spiraling within a single top-level turn.
+    reactive_compact_attempted: bool,
+    /// Stop media-strip retries from looping within a single top-level turn.
+    reactive_media_strip_attempted: bool,
+    /// Tool result cache references deleted via Anthropic cache editing.
+    cached_microcompact_deleted_refs: Vec<String>,
+    /// Cache edit refs discovered this turn but not yet pinned by a successful response.
+    pending_cache_edit_refs: Vec<String>,
+    /// Cache edit refs that should be re-sent on future requests.
+    pinned_cache_edit_refs: Vec<String>,
+    /// Virtual post-compact restore blocks that are re-injected at request build time.
+    post_compact_restore_blocks: Vec<String>,
+    /// Prefix hash for the request currently in flight.
+    pending_prompt_cache_prefix_hash: Option<String>,
+    /// Previous successful prompt-cache prefix hash.
+    last_prompt_cache_prefix_hash: Option<String>,
+    pending_prompt_cache_system_hash: Option<String>,
+    pending_prompt_cache_restore_hash: Option<String>,
+    pending_prompt_cache_tool_hash: Option<String>,
+    pending_prompt_cache_message_hash: Option<String>,
+    last_prompt_cache_system_hash: Option<String>,
+    last_prompt_cache_restore_hash: Option<String>,
+    last_prompt_cache_tool_hash: Option<String>,
+    last_prompt_cache_message_hash: Option<String>,
+    pending_prompt_cache_system_text: Option<String>,
+    pending_prompt_cache_restore_text: Option<String>,
+    pending_prompt_cache_tool_text: Option<String>,
+    pending_prompt_cache_message_text: Option<String>,
+    last_prompt_cache_system_text: Option<String>,
+    last_prompt_cache_restore_text: Option<String>,
+    last_prompt_cache_tool_text: Option<String>,
+    last_prompt_cache_message_text: Option<String>,
+    /// Whether the current request expects cache read to drop.
+    pending_prompt_cache_expected_drop_reason: Option<String>,
+    forced_prompt_cache_expected_drop_reason: Option<String>,
     /// Cumulative tool calls across the current session.
     session_tool_calls_total: u32,
     /// Whether live session memory has crossed its initial activation threshold.

@@ -20,8 +20,28 @@ impl AgentEngine {
         loop {
             let _ = event_tx.send(EngineEvent::Thinking);
 
+            self.apply_microcompact();
             let request = self.build_chat_request();
-            let response = self.call_llm_with_retry(request).await?;
+            self.record_prompt_cache_request_state(&request);
+            let response = match self.call_llm_with_retry(request).await {
+                Ok(response) => response,
+                Err(err) if self.should_reactive_strip_media_error(&err) => {
+                    if self.reactive_strip_old_media() {
+                        continue;
+                    }
+                    return Err(err);
+                }
+                Err(err) if self.should_reactive_compact_error(&err) => {
+                    if self
+                        .reactive_compact_context_for_text(&format!("{:#}", err), &event_tx)
+                        .await
+                    {
+                        continue;
+                    }
+                    return Err(err);
+                }
+                Err(err) => return Err(err),
+            };
 
             self.record_response_usage(&response.usage, &event_tx);
             self.maybe_compact_context(response.usage.prompt_tokens, &event_tx)

@@ -9,10 +9,10 @@ use serde::Deserialize;
 use tokio::sync::mpsc;
 use tracing::debug;
 
-use crate::providers::error_shared::format_api_error;
 use self::conversion::{convert_messages, convert_tools, parse_response};
 use self::streaming::stream_response;
 use self::types::{GeminiError, GeminiRequest, GeminiResponse, GenerationConfig};
+use crate::providers::error_shared::format_api_error;
 
 use crate::provider::LlmProvider;
 use crate::types::{ChatRequest, ChatResponse, ModelInfo, StreamEvent};
@@ -69,7 +69,8 @@ impl GeminiProvider {
     }
 
     fn build_request(&self, request: &ChatRequest) -> GeminiRequest {
-        let (system, contents) = convert_messages(&request.messages);
+        let (system, contents) =
+            convert_messages(&request.messages, &request.provider_hints.restore_system_blocks);
         let tools = convert_tools(&request.tools);
 
         GeminiRequest {

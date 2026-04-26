@@ -95,6 +95,32 @@ impl AgentEngine {
             last_compaction_breaker_reason: None,
             autocompact_disabled: false,
             compaction_in_progress: false,
+            reactive_compact_attempted: false,
+            reactive_media_strip_attempted: false,
+            cached_microcompact_deleted_refs: Vec::new(),
+            pending_cache_edit_refs: Vec::new(),
+            pinned_cache_edit_refs: Vec::new(),
+            post_compact_restore_blocks: Vec::new(),
+            pending_prompt_cache_prefix_hash: None,
+            last_prompt_cache_prefix_hash: None,
+            pending_prompt_cache_system_hash: None,
+            pending_prompt_cache_restore_hash: None,
+            pending_prompt_cache_tool_hash: None,
+            pending_prompt_cache_message_hash: None,
+            last_prompt_cache_system_hash: None,
+            last_prompt_cache_restore_hash: None,
+            last_prompt_cache_tool_hash: None,
+            last_prompt_cache_message_hash: None,
+            pending_prompt_cache_system_text: None,
+            pending_prompt_cache_restore_text: None,
+            pending_prompt_cache_tool_text: None,
+            pending_prompt_cache_message_text: None,
+            last_prompt_cache_system_text: None,
+            last_prompt_cache_restore_text: None,
+            last_prompt_cache_tool_text: None,
+            last_prompt_cache_message_text: None,
+            pending_prompt_cache_expected_drop_reason: None,
+            forced_prompt_cache_expected_drop_reason: None,
             session_tool_calls_total: 0,
             session_memory_initialized: false,
             last_session_memory_char_count: 0,
@@ -124,6 +150,7 @@ impl AgentEngine {
     pub fn set_model(&mut self, model: String) {
         self.context.model = model;
         self.context_manager = ContextManager::new(&self.context.model);
+        self.set_expected_prompt_cache_drop_reason("model_change");
         self.reset_autocompact_state();
         self.rebuild_system_prompt();
     }
@@ -131,6 +158,7 @@ impl AgentEngine {
     pub fn set_provider(&mut self, provider: Arc<dyn LlmProvider>, name: String) {
         self.provider = provider;
         self.context.provider = name;
+        self.set_expected_prompt_cache_drop_reason("provider_change");
         self.rebuild_system_prompt();
     }
 

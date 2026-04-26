@@ -9,8 +9,6 @@ use reqwest::Client;
 use tokio::sync::mpsc;
 use tracing::{debug, trace};
 
-use crate::providers::error_shared::format_api_error;
-use crate::providers::streaming_shared::map_stop_reason;
 use self::conversion::{
     message_to_openai, openai_message_to_internal, openai_usage_to_usage, tool_to_openai,
 };
@@ -18,6 +16,8 @@ use self::types::{
     OpenAiErrorResponse, OpenAiMessage, OpenAiModelsResponse, OpenAiRequest, OpenAiResponse,
     OpenAiTool, StreamOptions,
 };
+use crate::providers::error_shared::format_api_error;
+use crate::providers::streaming_shared::map_stop_reason;
 
 use crate::provider::LlmProvider;
 use crate::types::{ChatRequest, ChatResponse, ModelInfo, StreamEvent};
@@ -58,7 +58,44 @@ impl OpenAiProvider {
 
     fn build_request(&self, request: &ChatRequest, stream: bool) -> OpenAiRequest {
         let tools: Vec<OpenAiTool> = request.tools.iter().map(tool_to_openai).collect();
-        let messages: Vec<OpenAiMessage> = request.messages.iter().map(message_to_openai).collect();
+        let mut messages: Vec<OpenAiMessage> =
+            request.messages.iter().map(message_to_openai).collect();
+        if !request.provider_hints.restore_system_blocks.is_empty() {
+            let insert_at = messages
+                .iter()
+                .position(|message| {
+                    message.role == "system"
+                        && message
+                            .content
+                            .as_deref()
+                            .unwrap_or_default()
+                            .starts_with("[Context summary]")
+                })
+                .map(|index| index + 1)
+                .or_else(|| messages.iter().position(|message| message.role != "system"))
+                .unwrap_or(messages.len());
+            for (offset, block) in request
+                .provider_hints
+                .restore_system_blocks
+                .iter()
+                .cloned()
+                .enumerate()
+            {
+                messages.insert(
+                    insert_at + offset,
+                    OpenAiMessage {
+                        role: "system".to_string(),
+                        content: Some(format!(
+                            "[Post-compact restore: {}]\n{}",
+                            block.kind, block.content
+                        )),
+                        reasoning_content: None,
+                        tool_calls: None,
+                        tool_call_id: None,
+                    },
+                );
+            }
+        }
 
         OpenAiRequest {
             model: request.model.clone(),
@@ -187,5 +224,60 @@ impl LlmProvider for OpenAiProvider {
             .collect();
 
         Ok(models)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::OpenAiProvider;
+    use crate::types::{ChatRequest, Message, ProviderRequestHints};
+
+    #[test]
+    fn openai_build_request_injects_restore_blocks_from_provider_hints() {
+        let provider = OpenAiProvider::new("openai", "test-key", "https://example.com");
+        let request = ChatRequest {
+            model: "gpt-4o".to_string(),
+            messages: vec![
+                Message::system("base system"),
+                Message::system("[Context summary] compacted"),
+                Message::user("resume"),
+            ],
+            tools: vec![],
+            temperature: Some(0.2),
+            max_tokens: Some(512),
+            provider_hints: ProviderRequestHints {
+                anthropic: None,
+                restore_system_blocks: vec![
+                    crate::types::RestoreSystemBlockHint {
+                        kind: "runtime".to_string(),
+                        content: "- Runtime cwd: /tmp".to_string(),
+                    },
+                    crate::types::RestoreSystemBlockHint {
+                        kind: "files".to_string(),
+                        content: "- Recent files read: src/main.rs".to_string(),
+                    },
+                ],
+            },
+        };
+
+        let built = provider.build_request(&request, false);
+        let system_messages = built
+            .messages
+            .iter()
+            .filter(|message| message.role == "system")
+            .map(|message| message.content.as_deref().unwrap_or_default().to_string())
+            .collect::<Vec<_>>();
+
+        assert_eq!(system_messages.len(), 4);
+        assert_eq!(system_messages[0], "base system");
+        assert_eq!(system_messages[1], "[Context summary] compacted");
+        assert_eq!(
+            system_messages[2],
+            "[Post-compact restore: runtime]\n- Runtime cwd: /tmp"
+        );
+        assert_eq!(
+            system_messages[3],
+            "[Post-compact restore: files]\n- Recent files read: src/main.rs"
+        );
     }
 }
