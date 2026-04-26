@@ -21,7 +21,7 @@
 
 当前进度：
 
-- `39 / 100` 已完成
+- `41 / 100` 已完成
 
 ## 001-010 Markdown Core
 
@@ -71,7 +71,7 @@
 - `[x]` 035 timeout error specialization
 - `[x]` 036 error `ctrl+o` discoverability
 - `[x]` 037 error detail inspector
-- `[ ]` 038 error recovery action hints by class
+- `[x]` 038 error recovery action hints by class
 - `[ ]` 039 compact retry-state phrasing parity
 - `[ ]` 040 API error truncation / expansion parity
 
@@ -82,7 +82,7 @@
 - `[x]` 043 grouped system `ctrl+o` discoverability
 - `[x]` 044 single system `ctrl+o` discoverability
 - `[x]` 045 system detail inspector
-- `[ ]` 046 system message raw/detail split refinement
+- `[x]` 046 system message raw/detail split refinement
 - `[ ]` 047 stop-hook summary panel polish
 - `[ ]` 048 export message panel polish
 - `[ ]` 049 turn-complete system card polish
@@ -166,4 +166,4 @@
   - `775d61e`, `3970110`
 
 - 下一步优先实现：
-  - `038 error recovery action hints by class`
+  - `047 stop-hook summary panel polish`

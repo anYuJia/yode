@@ -9,7 +9,7 @@ use crate::system_message::{format_system_detail_line, parse_system_message, sys
 use crate::ui::chat::{
     render_markdown_ansi_dim_with_options, render_markdown_ansi_white_with_options,
 };
-use crate::ui::error_format::parse_error_view;
+use crate::ui::error_format::{parse_error_view, ErrorKind, ErrorView};
 use crate::ui::inspector::{
     InspectorAction, InspectorDocument, InspectorPanel, InspectorState, InspectorTab,
 };
@@ -223,6 +223,7 @@ fn build_assistant_entry_document(entry: &ChatEntry) -> InspectorDocument {
 fn build_system_entry_document(entry: &ChatEntry) -> InspectorDocument {
     let view = parse_system_message(&entry.content);
     let badges = system_entry_badges(&view);
+    let detail_lines = system_detail_panel_lines(&view);
     let mut panels = vec![PanelSpec {
         label: "Overview".to_string(),
         lines: vec![
@@ -234,19 +235,19 @@ fn build_system_entry_document(entry: &ChatEntry) -> InspectorDocument {
         actions: vec![status_action()],
     }];
 
-    if !view.detail_lines.is_empty() {
+    if !detail_lines.is_empty() {
         panels.push(PanelSpec {
             label: "Details".to_string(),
-            lines: view.detail_lines,
+            lines: detail_lines,
             badges: badges.clone(),
             actions: vec![timeline_action()],
         });
     }
 
-    if entry.content.lines().count() > 1 {
+    if let Some(raw_lines) = system_raw_panel_lines(entry, &view) {
         panels.push(PanelSpec {
             label: "Raw".to_string(),
-            lines: entry.content.lines().map(|line| line.to_string()).collect(),
+            lines: raw_lines,
             badges,
             actions: vec![],
         });
@@ -262,22 +263,24 @@ fn build_system_entry_document(entry: &ChatEntry) -> InspectorDocument {
 fn build_error_entry_document(entry: &ChatEntry) -> InspectorDocument {
     let view = parse_error_view(&entry.content);
     let badges = error_badges(&view);
+    let mut recovery_actions = error_recovery_actions(&view);
+    recovery_actions.push(InspectorAction {
+        label: "explain recovery".to_string(),
+        command: "Explain the latest error and suggest the safest recovery step.".to_string(),
+    });
     let mut panels = vec![PanelSpec {
         label: "Overview".to_string(),
         lines: std::iter::once(view.title.clone())
             .chain(view.detail_lines.iter().cloned())
             .collect(),
         badges: badges.clone(),
-        actions: vec![status_action()],
+        actions: recovery_actions.clone(),
     }];
     panels.push(PanelSpec {
         label: "Raw".to_string(),
         lines: entry.content.lines().map(|line| line.to_string()).collect(),
         badges,
-        actions: vec![InspectorAction {
-            label: "explain recovery".to_string(),
-            command: "Explain the latest error and suggest the safest recovery step.".to_string(),
-        }],
+        actions: recovery_actions,
     });
 
     build_document(
@@ -412,23 +415,20 @@ fn build_system_batch_document(entries: &[ChatEntry], batch: &SystemBatch) -> In
         };
         let view = parse_system_message(&entry.content);
         let badges = system_entry_badges(&view);
+        let detail_lines = system_detail_panel_lines(&view);
         let mut lines = vec![
             format!("Kind: {:?}", view.kind),
             format!("Summary: {}", system_message_summary(&view)),
         ];
-        if !view.detail_lines.is_empty() {
+        if !detail_lines.is_empty() {
             lines.push(String::new());
             lines.push("Details".to_string());
-            lines.extend(
-                view.detail_lines
-                    .iter()
-                    .map(|line| format_system_detail_line(line)),
-            );
+            lines.extend(detail_lines);
         }
-        if entry.content.lines().count() > 1 {
+        if let Some(raw_lines) = system_raw_panel_lines(entry, &view) {
             lines.push(String::new());
             lines.push("Raw".to_string());
-            lines.extend(entry.content.lines().map(|line| line.to_string()));
+            lines.extend(raw_lines);
         }
 
         panels.push(PanelSpec {
@@ -726,6 +726,27 @@ fn render_dim_markdown_panel_lines(content: &str) -> Vec<String> {
     render_markdown_ansi_dim_with_options(content, Some(INSPECTOR_MARKDOWN_WIDTH), true)
 }
 
+fn system_detail_panel_lines(view: &crate::system_message::SystemMessageView) -> Vec<String> {
+    view.detail_lines
+        .iter()
+        .map(|line| format_system_detail_line(line))
+        .collect()
+}
+
+fn system_raw_panel_lines(
+    entry: &ChatEntry,
+    view: &crate::system_message::SystemMessageView,
+) -> Option<Vec<String>> {
+    let raw_lines = entry
+        .content
+        .lines()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>();
+    let has_structured_split = !view.detail_lines.is_empty();
+    let has_multiline_raw = raw_lines.iter().filter(|line| !line.trim().is_empty()).count() > 1;
+    (has_structured_split || has_multiline_raw).then_some(raw_lines)
+}
+
 fn confirm_actions() -> Vec<InspectorAction> {
     vec![
         InspectorAction {
@@ -761,6 +782,52 @@ fn timeline_action() -> InspectorAction {
     InspectorAction {
         label: "open timeline".to_string(),
         command: "/inspect artifact history runtime".to_string(),
+    }
+}
+
+fn compact_action() -> InspectorAction {
+    InspectorAction {
+        label: "run /compact".to_string(),
+        command: "/compact".to_string(),
+    }
+}
+
+fn clear_action() -> InspectorAction {
+    InspectorAction {
+        label: "run /clear".to_string(),
+        command: "/clear".to_string(),
+    }
+}
+
+fn model_action() -> InspectorAction {
+    InspectorAction {
+        label: "open model".to_string(),
+        command: "/model".to_string(),
+    }
+}
+
+fn provider_action() -> InspectorAction {
+    InspectorAction {
+        label: "open provider".to_string(),
+        command: "/provider".to_string(),
+    }
+}
+
+fn doctor_action() -> InspectorAction {
+    InspectorAction {
+        label: "run /doctor".to_string(),
+        command: "/doctor".to_string(),
+    }
+}
+
+fn error_recovery_actions(view: &ErrorView) -> Vec<InspectorAction> {
+    match view.kind {
+        ErrorKind::ContextLimit => vec![compact_action(), clear_action(), status_action()],
+        ErrorKind::Authentication => vec![provider_action(), model_action(), doctor_action()],
+        ErrorKind::RateLimit => vec![model_action(), provider_action(), status_action()],
+        ErrorKind::ProviderRejected => vec![provider_action(), doctor_action(), status_action()],
+        ErrorKind::Timeout => vec![model_action(), compact_action(), status_action()],
+        ErrorKind::Generic => vec![status_action(), doctor_action()],
     }
 }
 
@@ -948,7 +1015,7 @@ fn system_batch_badges(entries: &[ChatEntry], batch: &SystemBatch) -> Vec<(Strin
     ]
 }
 
-fn error_badges(view: &crate::ui::error_format::ErrorView) -> Vec<(String, String)> {
+fn error_badges(view: &ErrorView) -> Vec<(String, String)> {
     vec![
         ("state".to_string(), "failed".to_string()),
         (
@@ -991,10 +1058,10 @@ fn system_severity_badge_value(view: &crate::system_message::SystemMessageView) 
     }
 }
 
-fn error_severity_badge_value(view: &crate::ui::error_format::ErrorView) -> &'static str {
-    match view.title.as_str() {
-        "Context limit reached" | "Rate limited" | "Request timed out" => "warning",
-        _ => "error",
+fn error_severity_badge_value(view: &ErrorView) -> &'static str {
+    match view.kind {
+        ErrorKind::ContextLimit | ErrorKind::RateLimit | ErrorKind::Timeout => "warning",
+        ErrorKind::Authentication | ErrorKind::ProviderRejected | ErrorKind::Generic => "error",
     }
 }
 
@@ -1540,16 +1607,36 @@ mod tests {
         let mut app = test_app();
         app.chat_entries = vec![ChatEntry::new(
             ChatRole::System,
-            "Session memory updated · summary · /tmp/live.md".to_string(),
+            "Session memory updated · summary · /Users/pyu/code/yode/.yode/memory/live.md"
+                .to_string(),
         )];
 
         let doc = build_latest_tool_document(&app).unwrap();
         assert_eq!(doc.state.title, "System details");
         assert_eq!(doc.panels[0].tab.label, "Overview");
         assert!(doc.panels.iter().any(|panel| panel.tab.label == "Details"));
+        assert!(doc.panels.iter().any(|panel| panel.tab.label == "Raw"));
         assert!(doc.panels[0]
             .badges
             .contains(&("kind".to_string(), "memory".to_string())));
+        let details = doc
+            .panels
+            .iter()
+            .find(|panel| panel.tab.label == "Details")
+            .expect("details");
+        assert!(details
+            .lines
+            .iter()
+            .any(|line| line.contains("summary · .../memory/live.md")));
+        let raw = doc
+            .panels
+            .iter()
+            .find(|panel| panel.tab.label == "Raw")
+            .expect("raw");
+        assert!(raw
+            .lines
+            .iter()
+            .any(|line| line.contains("/Users/pyu/code/yode/.yode/memory/live.md")));
     }
 
     #[test]
@@ -1570,10 +1657,41 @@ mod tests {
         assert!(doc.panels[0]
             .badges
             .contains(&("severity".to_string(), "warning".to_string())));
+        assert!(doc.panels[0]
+            .actions
+            .iter()
+            .any(|action| action.label == "run /compact"));
+        assert!(doc.panels[0]
+            .actions
+            .iter()
+            .any(|action| action.label == "run /clear"));
         assert!(doc
             .panels
             .iter()
             .any(|panel| panel.lines.iter().any(|line| line.contains("Context limit reached"))));
+    }
+
+    #[test]
+    fn latest_tool_document_specializes_auth_recovery_actions() {
+        let mut app = test_app();
+        app.chat_entries = vec![ChatEntry::new(
+            ChatRole::Error,
+            "Anthropic API error (401): invalid api key".to_string(),
+        )];
+
+        let doc = build_latest_tool_document(&app).unwrap();
+        assert!(doc.panels[0]
+            .actions
+            .iter()
+            .any(|action| action.label == "open provider"));
+        assert!(doc.panels[0]
+            .actions
+            .iter()
+            .any(|action| action.label == "open model"));
+        assert!(doc.panels[0]
+            .actions
+            .iter()
+            .any(|action| action.label == "run /doctor"));
     }
 
     #[test]
