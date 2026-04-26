@@ -34,11 +34,11 @@ pub(crate) fn format_context_compressed_message(
     };
     if let Some(path) = session_memory_path {
         content.push_str("\nmemory · ");
-        content.push_str(path);
+        content.push_str(&compact_runtime_path(path));
     }
     if let Some(path) = transcript_path {
         content.push_str("\ntranscript · ");
-        content.push_str(path);
+        content.push_str(&compact_runtime_path(path));
     }
 
     content
@@ -52,7 +52,7 @@ pub(crate) fn format_session_memory_update_message(path: &str, generated_summary
         } else {
             "snapshot"
         },
-        path,
+        compact_runtime_path(path),
     )
 }
 
@@ -153,7 +153,7 @@ pub(crate) fn format_turn_completed_message(
         }
         if let Some(path) = runtime.last_turn_artifact_path.as_deref() {
             content.push_str("\nartifact · ");
-            content.push_str(path);
+            content.push_str(&compact_runtime_path(path));
         }
     }
 
@@ -215,6 +215,18 @@ fn format_token_count(value: u64) -> String {
         format!("{:.1}k", value as f64 / 1_000.0)
     } else {
         value.to_string()
+    }
+}
+
+fn compact_runtime_path(path: &str) -> String {
+    if path.contains("://") {
+        return path.to_string();
+    }
+    let parts: Vec<&str> = path.rsplitn(3, '/').collect();
+    if parts.len() >= 3 {
+        format!(".../{}/{}", parts[1], parts[0])
+    } else {
+        path.to_string()
     }
 }
 
@@ -354,7 +366,7 @@ mod tests {
                 Some("/tmp/memory.md"),
                 Some("/tmp/transcript.md"),
             ),
-            "Context compressed · auto · -4 msgs · 2 tool results truncated\nsummary · trimmed older turns\nmemory · /tmp/memory.md\ntranscript · /tmp/transcript.md"
+            "Context compressed · auto · -4 msgs · 2 tool results truncated\nsummary · trimmed older turns\nmemory · .../tmp/memory.md\ntranscript · .../tmp/transcript.md"
         );
     }
 
@@ -375,10 +387,24 @@ mod tests {
     }
 
     #[test]
+    fn runtime_messages_compact_long_paths() {
+        let message = super::format_context_compressed_message(
+            "auto",
+            1,
+            0,
+            None,
+            Some("/Users/pyu/code/yode/.yode/memory/session.live.md"),
+            Some("/Users/pyu/code/yode/.yode/transcripts/session.md"),
+        );
+        assert!(message.contains("memory · .../memory/session.live.md"));
+        assert!(message.contains("transcript · .../transcripts/session.md"));
+    }
+
+    #[test]
     fn session_memory_update_message_is_compact() {
         assert_eq!(
             super::format_session_memory_update_message("/tmp/live.md", true),
-            "Session memory updated · summary · /tmp/live.md"
+            "Session memory updated · summary · .../tmp/live.md"
         );
     }
 
@@ -416,6 +442,6 @@ mod tests {
         assert!(message.contains("Turn completed · 1.4s · 3 tools · 1.2k↑ 180↓ tok"));
         assert!(message.contains("session · 15.4k total tok · 34 tools"));
         assert!(message.contains("cache · hit+write"));
-        assert!(message.contains("artifact · /tmp/turn.md"));
+        assert!(message.contains("artifact · .../tmp/turn.md"));
     }
 }
