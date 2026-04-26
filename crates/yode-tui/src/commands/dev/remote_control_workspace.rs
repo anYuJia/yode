@@ -638,7 +638,7 @@ pub(crate) fn write_remote_task_handoff_artifact(
         stamp, short_session
     ));
     let body = format!(
-        "# Remote Task Handoff\n\n- Task: {}\n- Kind: {}\n- Status: {}\n- Description: {}\n- Attempt: {}\n- Retry of: {}\n- Output: {}\n- Transcript: {}\n- Latest remote control: {}\n- Latest checkpoint: {}\n- Latest orchestration: {}\n\n## Summary\n\n- Carry this task through `/remote-control follow {}` or `/tasks follow {}`.\n- Re-check remote capability and execution state before retrying.\n",
+        "# Remote Task Handoff\n\n- Task: {}\n- Kind: {}\n- Status: {}\n- Description: {}\n- Attempt: {}\n- Retry of: {}\n- Output: {}\n- Transcript: {}\n- Latest remote control: {}\n- Latest checkpoint: {}\n- Latest orchestration: {}\n\n## Summary\n\n- Continue with `/remote-control follow {}` or `/tasks follow {}`.\n- Re-check remote capability before retry.\n",
         task.id,
         task.kind,
         task_status_label(&task.status),
@@ -1852,6 +1852,9 @@ mod tests {
         let handoff = write_remote_task_handoff_artifact(&dir, "session-1234", &task).unwrap();
         assert!(latest_remote_task_handoff_artifact(&dir).is_some());
         assert!(handoff.exists());
+        let content = std::fs::read_to_string(&handoff).unwrap();
+        assert!(content.contains("Continue with `/remote-control follow task-1`"));
+        assert!(content.contains("Re-check remote capability before retry."));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -26,7 +26,7 @@ pub(super) fn grouped_task_runtime_summary(tasks: &[RuntimeTask]) -> Vec<String>
         .into_iter()
         .map(|(kind, (total, pending, running, completed, issue))| {
             format!(
-                "{}: total={} pending={} running={} completed={} issue={}",
+                "{}: {} total · p{} r{} ok{} issue{}",
                 kind, total, pending, running, completed, issue
             )
         })
@@ -175,7 +175,7 @@ mod tests {
                 "2026-01-01 00:00:01",
             ),
         ]);
-        assert!(lines[0].contains("bash: total=2"));
+        assert!(lines[0].contains("bash: 2 total"));
     }
 
     #[test]
