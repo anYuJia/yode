@@ -21,7 +21,7 @@
 
 当前进度：
 
-- `73 / 100` 已完成
+- `75 / 100` 已完成
 
 ## 001-010 Markdown Core
 
@@ -148,8 +148,8 @@
 - `[x]` 094 path compaction helper unification
 - `[x]` 095 hyperlink coverage audit
 - `[x]` 096 system/error/tool inspector discoverability audit
-- `[ ]` 097 narrow terminal snapshot pass
-- `[ ]` 098 output regression screenshot/script pass
+- `[x]` 097 narrow terminal snapshot pass
+- `[x]` 098 output regression screenshot/script pass
 - `[ ]` 099 final parity gap review
 - `[ ]` 100 final closeout + release-note draft
 
@@ -166,4 +166,4 @@
   - `775d61e`, `3970110`
 
 - 下一步优先实现：
-  - `098 output regression screenshot/script pass`
+  - `099 final parity gap review`

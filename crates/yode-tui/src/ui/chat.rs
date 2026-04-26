@@ -283,6 +283,17 @@ fn streaming_reasoning_teaser(reasoning: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Instant;
+
+    use ratatui::text::Line;
+
+    use crate::app::{ChatEntry, ChatRole};
+    use crate::tool_grouping::SystemBatch;
+    use crate::tool_grouping::SystemBatchItem;
+    use crate::ui::chat_entries::{
+        render_assistant, render_grouped_system_entries, render_tool_call,
+    };
+
     use super::streaming_reasoning_teaser;
 
     #[test]
@@ -295,6 +306,97 @@ mod tests {
             streaming_reasoning_teaser("\n\n- inspect current diff").as_deref(),
             Some("inspect current diff")
         );
+    }
+
+    #[test]
+    fn print_output_regression_snapshot() {
+        let mut assistant_lines = Vec::new();
+        let assistant = ChatEntry::new_with_reasoning(
+            ChatRole::Assistant,
+            "Final answer with a compact transcript view.".to_string(),
+            Some("## Plan\n- inspect current diff\n- patch output framing".to_string()),
+        );
+        render_assistant(&mut assistant_lines, &assistant, 36, false, false);
+
+        let tool_call = ChatEntry::new(
+            ChatRole::ToolCall {
+                id: "a".to_string(),
+                name: "powershell".to_string(),
+            },
+            "{\"command\":\"Get-Content foo.txt\"}".to_string(),
+        );
+        let mut tool_result = ChatEntry::new(
+            ChatRole::ToolResult {
+                id: "a".to_string(),
+                name: "powershell".to_string(),
+                is_error: false,
+            },
+            "ok".to_string(),
+        );
+        tool_result.tool_metadata = Some(serde_json::json!({
+            "read_only_reason": "validated git status",
+            "destructive_warning": "may discard changes",
+            "rewrite_suggestion": "Prefer read_file"
+        }));
+        let mut tool_lines = Vec::new();
+        render_tool_call(
+            &mut tool_lines,
+            "powershell",
+            &tool_call.content,
+            Some(&tool_result),
+            None,
+            Instant::now(),
+        );
+
+        let system_entries = vec![
+            ChatEntry::new(ChatRole::System, "Session resumed.".to_string()),
+            ChatEntry::new(ChatRole::System, "Context compressed · auto · -4 msgs".to_string()),
+            ChatEntry::new(ChatRole::System, "Session memory updated · summary · /tmp/live.md".to_string()),
+            ChatEntry::new(ChatRole::System, "Diagnostics bundle exported to: /tmp/bundle".to_string()),
+        ];
+        let mut system_lines = Vec::new();
+        render_grouped_system_entries(
+            &mut system_lines,
+            &system_entries,
+            &SystemBatch {
+                start_index: 0,
+                next_index: 4,
+                items: vec![
+                    SystemBatchItem {
+                        entry_index: 0,
+                        kind: crate::system_message::SystemMessageKind::Update,
+                    },
+                    SystemBatchItem {
+                        entry_index: 1,
+                        kind: crate::system_message::SystemMessageKind::Context,
+                    },
+                    SystemBatchItem {
+                        entry_index: 2,
+                        kind: crate::system_message::SystemMessageKind::Memory,
+                    },
+                    SystemBatchItem {
+                        entry_index: 3,
+                        kind: crate::system_message::SystemMessageKind::Export,
+                    },
+                ],
+            },
+        );
+
+        println!("# Output Regression Snapshot\n");
+        println!("## Assistant Narrow\n");
+        println!("{}", lines_to_text(&assistant_lines));
+        println!("\n## Tool Metadata Dense\n");
+        println!("{}", lines_to_text(&tool_lines));
+        println!("\n## System Batch Narrow\n");
+        println!("{}", lines_to_text(&system_lines));
+    }
+
+    fn lines_to_text(lines: &[Line<'static>]) -> String {
+        lines
+            .iter()
+            .map(Line::to_string)
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 }
 
