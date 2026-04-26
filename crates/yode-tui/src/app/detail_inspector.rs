@@ -162,6 +162,7 @@ fn build_latest_tool_document(app: &App) -> Option<InspectorDocument> {
 }
 
 fn build_assistant_entry_document(entry: &ChatEntry) -> InspectorDocument {
+    let overview_badges = assistant_overview_badges(entry);
     let mut panels = vec![PanelSpec {
         label: "Overview".to_string(),
         lines: vec![
@@ -177,18 +178,18 @@ fn build_assistant_entry_document(entry: &ChatEntry) -> InspectorDocument {
                         } else {
                             format!("{} lines", reasoning.lines().count())
                         }
-                    })
+                })
                     .unwrap_or_else(|| "none".to_string())
             ),
         ],
-        badges: Vec::new(),
+        badges: overview_badges.clone(),
         actions: vec![status_action()],
     }];
 
     if let Some(panel) = markdown_panel(
         "Content",
         &entry.content,
-        Vec::new(),
+        assistant_content_badges(entry),
         vec![InspectorAction {
             label: "continue from this".to_string(),
             command: "Summarize the latest assistant response and suggest the next best action."
@@ -202,7 +203,7 @@ fn build_assistant_entry_document(entry: &ChatEntry) -> InspectorDocument {
         if let Some(panel) = dim_markdown_panel(
             "Reasoning",
             reasoning,
-            Vec::new(),
+            assistant_reasoning_badges(reasoning),
             vec![InspectorAction {
                 label: "distill reasoning".to_string(),
                 command:
@@ -732,6 +733,42 @@ fn system_detail_panel_lines(view: &crate::system_message::SystemMessageView) ->
         .iter()
         .map(|line| format_system_detail_line(line))
         .collect()
+}
+
+fn assistant_overview_badges(entry: &ChatEntry) -> Vec<(String, String)> {
+    let mut badges = vec![(
+        "content".to_string(),
+        format!("{} lines", entry.content.lines().count()),
+    )];
+    if let Some(reasoning) = entry.reasoning.as_deref().filter(|value| !value.trim().is_empty()) {
+        badges.push((
+            "reasoning".to_string(),
+            format!("{} lines", reasoning.lines().count()),
+        ));
+    } else {
+        badges.push(("reasoning".to_string(), "none".to_string()));
+    }
+    badges
+}
+
+fn assistant_content_badges(entry: &ChatEntry) -> Vec<(String, String)> {
+    vec![
+        ("kind".to_string(), "response".to_string()),
+        (
+            "content".to_string(),
+            format!("{} lines", entry.content.lines().count()),
+        ),
+    ]
+}
+
+fn assistant_reasoning_badges(reasoning: &str) -> Vec<(String, String)> {
+    vec![
+        ("kind".to_string(), "reasoning".to_string()),
+        (
+            "summary".to_string(),
+            format!("{} lines", reasoning.lines().count()),
+        ),
+    ]
 }
 
 fn system_raw_panel_lines(
@@ -1554,7 +1591,17 @@ mod tests {
         let doc = build_latest_tool_document(&app).unwrap();
         assert_eq!(doc.state.title, "Assistant details");
         assert_eq!(doc.panels[0].tab.label, "Overview");
+        assert!(doc.panels[0]
+            .badges
+            .contains(&("reasoning".to_string(), "3 lines".to_string())));
         assert!(doc.panels.iter().any(|panel| panel.tab.label == "Reasoning"));
+        assert!(doc
+            .panels
+            .iter()
+            .find(|panel| panel.tab.label == "Reasoning")
+            .is_some_and(|panel| panel
+                .badges
+                .contains(&("summary".to_string(), "3 lines".to_string()))));
         assert!(doc
             .panels
             .iter()
@@ -1576,7 +1623,17 @@ mod tests {
         let doc = build_latest_tool_document(&app).unwrap();
         assert_eq!(doc.state.title, "Assistant details");
         assert_eq!(doc.panels[0].tab.label, "Overview");
+        assert!(doc.panels[0]
+            .badges
+            .contains(&("reasoning".to_string(), "none".to_string())));
         assert!(doc.panels.iter().any(|panel| panel.tab.label == "Content"));
+        assert!(doc
+            .panels
+            .iter()
+            .find(|panel| panel.tab.label == "Content")
+            .is_some_and(|panel| panel
+                .badges
+                .contains(&("kind".to_string(), "response".to_string()))));
         assert!(doc
             .panels
             .iter()

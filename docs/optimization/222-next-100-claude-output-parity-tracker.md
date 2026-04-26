@@ -21,7 +21,7 @@
 
 当前进度：
 
-- `62 / 100` 已完成
+- `64 / 100` 已完成
 
 ## 001-010 Markdown Core
 
@@ -59,8 +59,8 @@
 - `[x]` 026 latest assistant detail fallback without reasoning
 - `[ ]` 027 transcript-mode thinking collapse policy
 - `[ ]` 028 streaming reasoning teaser line
-- `[ ]` 029 reasoning summary chip in inspector
-- `[ ]` 030 assistant detail badges
+- `[x]` 029 reasoning summary chip in inspector
+- `[x]` 030 assistant detail badges
 
 ## 031-040 Error Presentation
 
