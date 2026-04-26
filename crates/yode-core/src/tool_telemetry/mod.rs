@@ -262,12 +262,14 @@ impl AgentEngine {
     pub(super) fn set_expected_prompt_cache_drop_reason(&mut self, reason: impl Into<String>) {
         let reason = reason.into();
         self.forced_prompt_cache_expected_drop_reason = Some(reason.clone());
-        self.prompt_cache_runtime.last_prompt_cache_expected_drop_reason = Some(reason);
+        self.prompt_cache_runtime
+            .last_prompt_cache_expected_drop_reason = Some(reason);
     }
 
     pub(super) fn clear_expected_prompt_cache_drop_reason(&mut self) {
         self.forced_prompt_cache_expected_drop_reason = None;
-        self.prompt_cache_runtime.last_prompt_cache_expected_drop_reason = None;
+        self.prompt_cache_runtime
+            .last_prompt_cache_expected_drop_reason = None;
     }
 
     pub(super) fn record_prompt_cache_request_state(
@@ -357,14 +359,10 @@ impl AgentEngine {
             .forced_prompt_cache_expected_drop_reason
             .clone()
             .or_else(|| {
-                request
-                    .provider_hints
-                    .anthropic
-                    .as_ref()
-                    .and_then(|hints| {
-                        (!hints.pending_deleted_cache_references.is_empty())
-                            .then(|| "cache_edits".to_string())
-                    })
+                request.provider_hints.anthropic.as_ref().and_then(|hints| {
+                    (!hints.pending_deleted_cache_references.is_empty())
+                        .then(|| "cache_edits".to_string())
+                })
             });
         if let Some(hints) = request.provider_hints.anthropic.as_ref() {
             self.prompt_cache_runtime.pending_cache_edit_refs =

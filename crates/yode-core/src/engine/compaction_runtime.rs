@@ -600,11 +600,7 @@ fn render_hidden_post_compact_restore_prompt(
         HIDDEN_POST_COMPACT_RESTORE_PREFIX
     );
     for block in restore_blocks {
-        hidden_restore.push_str(&format!(
-            "\n## {}\n{}\n",
-            block.kind,
-            block.content.trim()
-        ));
+        hidden_restore.push_str(&format!("\n## {}\n{}\n", block.kind, block.content.trim()));
     }
 
     Some(hidden_restore.trim().to_string())
@@ -1527,10 +1523,15 @@ impl AgentEngine {
     }
 
     pub(super) fn estimated_prompt_tokens_for_current_messages(&self) -> u32 {
-        let base = self.context_manager.estimate_tokens_for_messages(&self.messages);
+        let base = self
+            .context_manager
+            .estimate_tokens_for_messages(&self.messages);
         let restore = self
             .hidden_post_compact_restore_prompt_text()
-            .map(|text| self.context_manager.estimate_tokens_for_messages(&[Message::system(text)]))
+            .map(|text| {
+                self.context_manager
+                    .estimate_tokens_for_messages(&[Message::system(text)])
+            })
             .unwrap_or(0);
         base.saturating_add(restore).max(1) as u32
     }

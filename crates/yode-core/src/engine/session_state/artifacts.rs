@@ -194,7 +194,8 @@ impl AgentEngine {
             }
         }
 
-        if let Some(cache) = load_prompt_cache_state_artifact(&project_root, &self.context.session_id)
+        if let Some(cache) =
+            load_prompt_cache_state_artifact(&project_root, &self.context.session_id)
         {
             self.pending_cache_edit_refs = cache.pending_cache_edit_ref_values;
             self.pending_cache_edit_refs.sort();
@@ -211,7 +212,8 @@ impl AgentEngine {
                 cache.last_turn_completion_tokens;
             self.prompt_cache_runtime.last_turn_cache_write_tokens =
                 cache.last_turn_cache_write_tokens;
-            self.prompt_cache_runtime.last_turn_cache_read_tokens = cache.last_turn_cache_read_tokens;
+            self.prompt_cache_runtime.last_turn_cache_read_tokens =
+                cache.last_turn_cache_read_tokens;
             self.prompt_cache_runtime.last_turn_cache_edit_deletions =
                 cache.last_turn_cache_edit_deletions;
             self.prompt_cache_runtime.last_turn_cache_deleted_tokens =
@@ -232,17 +234,18 @@ impl AgentEngine {
             self.prompt_cache_runtime.last_prompt_cache_break_reason =
                 cache.last_prompt_cache_break_reason;
             self.prompt_cache_runtime.last_prompt_cache_break_at = cache.last_prompt_cache_break_at;
-            self.prompt_cache_runtime.last_prompt_cache_expected_drop_reason =
+            self.prompt_cache_runtime
+                .last_prompt_cache_expected_drop_reason =
                 cache.last_prompt_cache_expected_drop_reason;
             self.prompt_cache_runtime.last_prompt_cache_change_summary =
                 cache.last_prompt_cache_change_summary;
             self.prompt_cache_runtime.last_prompt_cache_transition_kind =
                 cache.last_prompt_cache_transition_kind;
-            self.prompt_cache_runtime.last_prompt_cache_transition_reason =
-                cache.last_prompt_cache_transition_reason;
-            self.prompt_cache_runtime.last_prompt_cache_diff_artifact_path = cache
-                .last_prompt_cache_diff_artifact_path
-                .or_else(|| {
+            self.prompt_cache_runtime
+                .last_prompt_cache_transition_reason = cache.last_prompt_cache_transition_reason;
+            self.prompt_cache_runtime
+                .last_prompt_cache_diff_artifact_path =
+                cache.last_prompt_cache_diff_artifact_path.or_else(|| {
                     let path =
                         prompt_cache_diff_artifact_path(&project_root, &self.context.session_id);
                     path.exists().then(|| path.display().to_string())
@@ -255,8 +258,7 @@ impl AgentEngine {
             self.prompt_cache_runtime.cache_edit_turns = cache.cache_edit_turns;
             self.prompt_cache_runtime.cache_write_tokens_total = cache.cache_write_tokens_total;
             self.prompt_cache_runtime.cache_read_tokens_total = cache.cache_read_tokens_total;
-            self.prompt_cache_runtime.cache_edit_deletions_total =
-                cache.cache_edit_deletions_total;
+            self.prompt_cache_runtime.cache_edit_deletions_total = cache.cache_edit_deletions_total;
             self.prompt_cache_runtime.cache_deleted_tokens_total = cache.cache_deleted_tokens_total;
 
             self.last_prompt_cache_prefix_hash = cache.last_prompt_cache_prefix_hash;
@@ -267,7 +269,8 @@ impl AgentEngine {
         }
 
         if let Some(reason) = self.forced_prompt_cache_expected_drop_reason.clone() {
-            self.prompt_cache_runtime.last_prompt_cache_expected_drop_reason = Some(reason);
+            self.prompt_cache_runtime
+                .last_prompt_cache_expected_drop_reason = Some(reason);
         }
     }
 

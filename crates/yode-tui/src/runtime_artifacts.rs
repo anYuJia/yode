@@ -667,7 +667,8 @@ mod tests {
         state.prompt_cache.last_turn_cache_read_tokens = Some(1200);
         state.prompt_cache.prompt_cache_break_count = 1;
         state.prompt_cache.last_prompt_cache_break_reason = Some("cache read dropped".to_string());
-        state.prompt_cache.pinned_cache_edit_ref_values = vec!["tc1".to_string(), "tc2".to_string()];
+        state.prompt_cache.pinned_cache_edit_ref_values =
+            vec!["tc1".to_string(), "tc2".to_string()];
 
         let path = write_prompt_cache_artifact(&dir, "session-1234", &state).unwrap();
         let content = std::fs::read_to_string(&path).unwrap();

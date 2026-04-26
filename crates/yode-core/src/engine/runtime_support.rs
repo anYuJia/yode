@@ -63,8 +63,9 @@ impl AgentEngine {
         prompt_cache.last_prompt_cache_message_hash = self.last_prompt_cache_message_hash.clone();
         let mut system_prompt_estimated_tokens = self.system_prompt_estimated_tokens;
         let mut system_prompt_segments = self.system_prompt_segments.clone();
-        let mut estimated_context_tokens =
-            self.context_manager.estimate_tokens_for_messages(&self.messages);
+        let mut estimated_context_tokens = self
+            .context_manager
+            .estimate_tokens_for_messages(&self.messages);
         if let Some(hidden_restore) = self.hidden_post_compact_restore_prompt_text() {
             let estimated_tokens = self
                 .context_manager

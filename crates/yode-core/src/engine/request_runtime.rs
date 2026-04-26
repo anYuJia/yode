@@ -50,11 +50,13 @@ impl AgentEngine {
         let restore_system_blocks = self.request_restore_system_blocks();
 
         ProviderRequestHints {
-            anthropic: self.supports_anthropic_cache_editing().then_some(AnthropicRequestHints {
-                enable_prompt_caching: true,
-                pending_deleted_cache_references,
-                pinned_deleted_cache_references,
-            }),
+            anthropic: self
+                .supports_anthropic_cache_editing()
+                .then_some(AnthropicRequestHints {
+                    enable_prompt_caching: true,
+                    pending_deleted_cache_references,
+                    pinned_deleted_cache_references,
+                }),
             restore_system_blocks,
         }
     }

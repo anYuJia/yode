@@ -69,8 +69,10 @@ impl GeminiProvider {
     }
 
     fn build_request(&self, request: &ChatRequest) -> GeminiRequest {
-        let (system, contents) =
-            convert_messages(&request.messages, &request.provider_hints.restore_system_blocks);
+        let (system, contents) = convert_messages(
+            &request.messages,
+            &request.provider_hints.restore_system_blocks,
+        );
         let tools = convert_tools(&request.tools);
 
         GeminiRequest {

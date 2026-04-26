@@ -7,8 +7,7 @@ use crate::commands::artifact_nav::{
     latest_permission_governance_artifact, latest_post_compact_restore_artifact,
     latest_post_compact_restore_diff_artifact, latest_post_compact_restore_state_artifact,
     latest_prompt_cache_break_artifact, latest_prompt_cache_diff_artifact,
-    latest_prompt_cache_events_artifact,
-    latest_prompt_cache_state_artifact,
+    latest_prompt_cache_events_artifact, latest_prompt_cache_state_artifact,
     latest_remote_live_session_artifact, latest_runtime_orchestration_artifact,
     latest_workflow_execution_artifact,
 };
@@ -202,9 +201,10 @@ impl Command for StatusCommand {
                 &working_dir,
             )
             .map(|path| path.display().to_string()),
-            post_compact_restore_diff_artifact:
-                latest_post_compact_restore_diff_artifact(&working_dir)
-                    .map(|path| path.display().to_string()),
+            post_compact_restore_diff_artifact: latest_post_compact_restore_diff_artifact(
+                &working_dir,
+            )
+            .map(|path| path.display().to_string()),
             hook_artifact,
             hook_deferred_artifact: latest_hook_deferred_artifact(&working_dir)
                 .map(|path| path.display().to_string()),

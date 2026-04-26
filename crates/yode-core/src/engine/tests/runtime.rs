@@ -2,8 +2,8 @@ use super::*;
 
 use std::sync::Arc;
 
-use yode_llm::types::ToolCall;
 use yode_llm::types::RestoreSystemBlockHint;
+use yode_llm::types::ToolCall;
 
 #[test]
 fn test_live_session_memory_refresh_writes_snapshot() {
@@ -139,7 +139,10 @@ fn test_prompt_cache_pending_refs_promote_to_pinned_after_usage() {
     let runtime = engine.runtime_state();
     assert_eq!(runtime.prompt_cache.pending_cache_edit_refs, 0);
     assert_eq!(runtime.prompt_cache.pinned_cache_edit_refs, 2);
-    assert_eq!(runtime.prompt_cache.pending_cache_edit_ref_values, Vec::<String>::new());
+    assert_eq!(
+        runtime.prompt_cache.pending_cache_edit_ref_values,
+        Vec::<String>::new()
+    );
     assert_eq!(
         runtime.prompt_cache.pinned_cache_edit_ref_values,
         vec!["tc1".to_string(), "tc2".to_string()]
@@ -160,7 +163,10 @@ fn test_build_chat_request_prunes_stale_cache_edit_refs() {
 
     let request = engine.build_chat_request();
     let hints = request.provider_hints.anthropic.expect("anthropic hints");
-    assert_eq!(hints.pending_deleted_cache_references, vec!["tc1".to_string()]);
+    assert_eq!(
+        hints.pending_deleted_cache_references,
+        vec!["tc1".to_string()]
+    );
     assert_eq!(hints.pinned_deleted_cache_references, Vec::<String>::new());
 
     let runtime = engine.runtime_state();
@@ -170,7 +176,10 @@ fn test_build_chat_request_prunes_stale_cache_edit_refs() {
         runtime.prompt_cache.pending_cache_edit_ref_values,
         vec!["tc1".to_string()]
     );
-    assert_eq!(runtime.prompt_cache.pinned_cache_edit_ref_values, Vec::<String>::new());
+    assert_eq!(
+        runtime.prompt_cache.pinned_cache_edit_ref_values,
+        Vec::<String>::new()
+    );
 }
 
 #[test]
@@ -240,7 +249,9 @@ fn test_system_prefix_changes_are_classified_separately() {
         &tx,
     );
 
-    engine.messages.push(Message::system("[Context summary] compacted"));
+    engine
+        .messages
+        .push(Message::system("[Context summary] compacted"));
     let request = engine.build_chat_request();
     engine.record_prompt_cache_request_state(&request);
     engine.record_response_usage(
@@ -275,9 +286,8 @@ fn test_system_prefix_changes_are_classified_separately() {
 #[test]
 fn test_restore_prefix_changes_are_classified_separately() {
     let mut engine = make_engine(vec![], vec![]);
-    engine.post_compact_restore_blocks = vec![
-        "[Post-compact restore: files]\n- Recent files read: src/main.rs".to_string(),
-    ];
+    engine.post_compact_restore_blocks =
+        vec!["[Post-compact restore: files]\n- Recent files read: src/main.rs".to_string()];
     let request = engine.build_chat_request();
     let (tx, _rx) = mpsc::unbounded_channel();
 
@@ -294,9 +304,8 @@ fn test_restore_prefix_changes_are_classified_separately() {
         &tx,
     );
 
-    engine.post_compact_restore_blocks = vec![
-        "[Post-compact restore: files]\n- Recent files read: src/lib.rs".to_string(),
-    ];
+    engine.post_compact_restore_blocks =
+        vec!["[Post-compact restore: files]\n- Recent files read: src/lib.rs".to_string()];
     let request = engine.build_chat_request();
     engine.record_prompt_cache_request_state(&request);
     engine.record_response_usage(
@@ -567,7 +576,9 @@ fn test_build_chat_request_hides_denied_tools_from_model() {
 #[test]
 fn test_build_chat_request_injects_restore_blocks_as_virtual_system_messages() {
     let mut engine = make_engine(vec![], vec![]);
-    engine.messages.push(Message::system("[Context summary] compacted"));
+    engine
+        .messages
+        .push(Message::system("[Context summary] compacted"));
     engine.post_compact_restore_blocks = vec![
         "[Post-compact restore: runtime]\n- Runtime cwd: /tmp/project".to_string(),
         "[Post-compact restore: files]\n- Recent files read: src/main.rs".to_string(),
@@ -626,7 +637,11 @@ fn test_build_chat_request_sanitizes_volatile_restore_blocks_for_cache_stability
             )
     }));
     assert!(system_texts.iter().any(|text| {
-        *text == ("mcp", "- MCP availability follows the current runtime inventory.")
+        *text
+            == (
+                "mcp",
+                "- MCP availability follows the current runtime inventory.",
+            )
     }));
     assert!(system_texts.iter().any(|text| {
         *text
@@ -988,11 +1003,17 @@ fn test_restore_messages_rehydrates_prompt_cache_state_from_artifact() {
         vec!["tc1".to_string()]
     );
     assert_eq!(
-        runtime.prompt_cache.last_prompt_cache_prefix_hash.as_deref(),
+        runtime
+            .prompt_cache
+            .last_prompt_cache_prefix_hash
+            .as_deref(),
         Some("prefix-hash")
     );
     assert_eq!(
-        runtime.prompt_cache.last_prompt_cache_transition_kind.as_deref(),
+        runtime
+            .prompt_cache
+            .last_prompt_cache_transition_kind
+            .as_deref(),
         Some("cache_edit_applied")
     );
     assert_eq!(
@@ -1004,9 +1025,18 @@ fn test_restore_messages_rehydrates_prompt_cache_state_from_artifact() {
     );
 
     let request = engine.build_chat_request();
-    let hints = request.provider_hints.anthropic.expect("anthropic prompt cache hints");
-    assert_eq!(hints.pending_deleted_cache_references, vec!["tc2".to_string()]);
-    assert_eq!(hints.pinned_deleted_cache_references, vec!["tc1".to_string()]);
+    let hints = request
+        .provider_hints
+        .anthropic
+        .expect("anthropic prompt cache hints");
+    assert_eq!(
+        hints.pending_deleted_cache_references,
+        vec!["tc2".to_string()]
+    );
+    assert_eq!(
+        hints.pinned_deleted_cache_references,
+        vec!["tc1".to_string()]
+    );
 }
 
 #[test]

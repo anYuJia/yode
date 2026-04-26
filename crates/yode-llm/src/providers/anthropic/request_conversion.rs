@@ -169,11 +169,11 @@ fn apply_anthropic_prompt_cache_hints(
 impl AnthropicProvider {
     /// Convert internal messages to Anthropic format.
     /// Extracts system message separately, merges tool results into user messages.
-pub(super) fn convert_messages(
-    messages: &[Message],
-    hints: Option<&AnthropicRequestHints>,
-    restore_system_blocks: &[RestoreSystemBlockHint],
-) -> (Option<Vec<SystemTextBlock>>, Vec<AnthropicMessage>) {
+    pub(super) fn convert_messages(
+        messages: &[Message],
+        hints: Option<&AnthropicRequestHints>,
+        restore_system_blocks: &[RestoreSystemBlockHint],
+    ) -> (Option<Vec<SystemTextBlock>>, Vec<AnthropicMessage>) {
         let mut system_blocks = Vec::new();
         let mut anthropic_msgs: Vec<AnthropicMessage> = Vec::new();
 
@@ -363,8 +363,7 @@ mod tests {
             pinned_deleted_cache_references: vec![],
         };
 
-        let (system, converted) =
-            AnthropicProvider::convert_messages(&messages, Some(&hints), &[]);
+        let (system, converted) = AnthropicProvider::convert_messages(&messages, Some(&hints), &[]);
 
         assert!(system.is_some());
         let tool_result_user = &converted[2];
@@ -416,8 +415,7 @@ mod tests {
             pinned_deleted_cache_references: vec![],
         };
 
-        let (system, converted) =
-            AnthropicProvider::convert_messages(&messages, Some(&hints), &[]);
+        let (system, converted) = AnthropicProvider::convert_messages(&messages, Some(&hints), &[]);
         let system = system.expect("system blocks");
 
         assert_eq!(system.len(), 3);
