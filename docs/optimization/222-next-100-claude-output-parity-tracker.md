@@ -21,7 +21,7 @@
 
 当前进度：
 
-- `75 / 100` 已完成
+- `100 / 100` 已完成
 
 ## 001-010 Markdown Core
 
@@ -150,8 +150,8 @@
 - `[x]` 096 system/error/tool inspector discoverability audit
 - `[x]` 097 narrow terminal snapshot pass
 - `[x]` 098 output regression screenshot/script pass
-- `[ ]` 099 final parity gap review
-- `[ ]` 100 final closeout + release-note draft
+- `[x]` 099 final parity gap review
+- `[x]` 100 final closeout + release-note draft
 
 ## Notes
 
@@ -166,4 +166,4 @@
   - `775d61e`, `3970110`
 
 - 下一步优先实现：
-  - `099 final parity gap review`
+  - 第二个 100 轮 tracker
