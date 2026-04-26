@@ -740,7 +740,7 @@ fn remote_bundle_completion_message(bundle_dir: &std::path::Path) -> String {
     let preview = names.iter().take(4).cloned().collect::<Vec<_>>().join(", ");
     let extra = names.len().saturating_sub(4);
     format!(
-        "Remote control bundle exported to: {}\n  Files: {}{}\n  Inspect: /inspect artifact bundle",
+        "Remote control bundle exported to: {}\n  Files: {}{}\n  Inspect: /inspect artifact bundle · /remote-control latest",
         bundle_dir.display(),
         if preview.is_empty() {
             "none".to_string()
@@ -803,6 +803,7 @@ mod tests {
         assert!(summary.contains("Remote control bundle exported to:"));
         assert!(summary.contains("remote-control.md"));
         assert!(summary.contains("+1 more"));
+        assert!(summary.contains("/remote-control latest"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -18,7 +18,7 @@
 
 当前进度：
 
-- `46 / 100` 已完成
+- `47 / 100` 已完成
 
 ## 001-010 Snapshot Hardening
 
@@ -64,7 +64,7 @@
 - `[x]` 031 remote transport status wording pass
 - `[x]` 032 remote queue summary density pass
 - `[x]` 033 remote retry summary density pass
-- `[ ]` 034 remote bundle inspector affordance pass
+- `[x]` 034 remote bundle inspector affordance pass
 - `[ ]` 035 workflow preview output density pass
 - `[ ]` 036 workflow inspector action copy polish
 - `[ ]` 037 coordinator summary density pass
