@@ -985,7 +985,7 @@ pub(crate) fn write_remote_queue_execution_artifact(
     let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
     let path = dir.join(format!("{}-{}-remote-queue-execution.md", stamp, item.id));
     let body = format!(
-        "# Remote Queue Execution\n\n- Item: {}\n- Command: {}\n- Phase: {}\n- Status: {}\n- Attempts: {}\n- Last run: {}\n- Transport events: {}\n\n## Result Preview\n\n```text\n{}\n```\n",
+        "# Remote Queue Execution\n\n- Item: {}\n- Command: {}\n- Phase: {}\n- Status: {}\n- Attempts: {}\n- Last run: {}\n- Transport events: {}\n\n## Output Preview\n\n```text\n{}\n```\n",
         item.id,
         item.command,
         phase,
@@ -1796,7 +1796,7 @@ mod tests {
         mark_remote_transport_reconnecting, note_remote_transport_dispatch, queue_item_target,
         record_remote_transport_event, remote_queue_status_label, remote_transport_handshake_summary,
         render_remote_control_doctor, render_remote_retry_summary, render_remote_task_inventory,
-        RemoteTransportPayload,
+        write_remote_queue_execution_artifact, RemoteQueueItem, RemoteTransportPayload,
         sync_remote_live_session_transport, write_remote_control_artifacts,
         write_remote_live_session_artifacts, write_remote_task_handoff_artifact,
         write_remote_transport_artifacts,
@@ -1846,6 +1846,28 @@ mod tests {
         };
         assert!(render_remote_task_inventory(std::slice::from_ref(&task)).contains("task-1"));
         assert!(render_remote_retry_summary(std::slice::from_ref(&task)).contains("failed=1"));
+        let execution = write_remote_queue_execution_artifact(
+            &dir,
+            &RemoteQueueItem {
+                id: "item-1".to_string(),
+                command: "run".to_string(),
+                status: "completed".to_string(),
+                attempts: 1,
+                runtime_task_id: None,
+                transcript_path: None,
+                last_run_at: Some("2026-01-01 00:00:02".to_string()),
+                last_result_preview: None,
+                execution_artifact: None,
+                acknowledged_at: None,
+            },
+            "complete",
+            "done",
+            None,
+        )
+        .unwrap();
+        assert!(std::fs::read_to_string(&execution)
+            .unwrap()
+            .contains("## Output Preview"));
         let handoff = write_remote_task_handoff_artifact(&dir, "session-1234", &task).unwrap();
         assert!(latest_remote_task_handoff_artifact(&dir).is_some());
         assert!(handoff.exists());
