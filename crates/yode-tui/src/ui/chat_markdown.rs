@@ -2086,6 +2086,20 @@ mod tests {
     }
 
     #[test]
+    fn tables_render_full_box_borders_like_claude() {
+        let lines = render_markdown_impl("| A | B |\n| --- | --- |\n| 1 | 2 |", None)
+            .into_iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>();
+        assert!(lines.iter().any(|line| line.starts_with('┌')));
+        assert!(lines.iter().any(|line| line.starts_with('├')));
+        assert!(lines.iter().any(|line| line.starts_with('└')));
+        assert!(lines
+            .iter()
+            .any(|line| line.starts_with('│') && line.contains('1') && line.contains('2')));
+    }
+
+    #[test]
     fn links_render_as_osc8_hyperlinks_when_enabled() {
         let lines = render_markdown_with_options(
             "[Rust](https://www.rust-lang.org)",
@@ -2633,20 +2647,21 @@ fn render_table(
 
     let mut rendered_table = Vec::new();
 
+    rendered_table.push(render_table_border_line(&widths, '┌', '┬', '┐'));
+
     if let Some(header) = rows.first() {
         render_table_row(&mut rendered_table, header, &widths, true, options);
-
-        let sep: String = widths
-            .iter()
-            .map(|w| "─".repeat(w + 2))
-            .collect::<Vec<_>>()
-            .join("┼");
-        rendered_table.push(Line::from(Span::styled(sep, Style::default().fg(DIM))));
+        rendered_table.push(render_table_border_line(&widths, '├', '┼', '┤'));
     }
 
-    for row in rows.iter().skip(1) {
+    for (row_index, row) in rows.iter().skip(1).enumerate() {
         render_table_row(&mut rendered_table, row, &widths, false, options);
+        if row_index + 2 < rows.len() {
+            rendered_table.push(render_table_border_line(&widths, '├', '┼', '┤'));
+        }
     }
+
+    rendered_table.push(render_table_border_line(&widths, '└', '┴', '┘'));
 
     if rendered_table
         .iter()
@@ -2687,7 +2702,7 @@ fn render_table_row(
         .unwrap_or(1);
 
     for line_index in 0..row_height {
-        let mut spans = Vec::new();
+        let mut spans = vec![Span::styled("│", Style::default().fg(DIM))];
         for (col_index, cell_lines) in rendered_cells.iter().enumerate() {
             let width = widths.get(col_index).copied().unwrap_or(10);
             spans.push(Span::styled(" ", base_style));
@@ -2701,12 +2716,20 @@ fn render_table_row(
             }
 
             spans.push(Span::styled(" ", base_style));
-            if col_index < row.len() - 1 {
-                spans.push(Span::styled("│", Style::default().fg(DIM)));
-            }
+            spans.push(Span::styled("│", Style::default().fg(DIM)));
         }
         lines.push(Line::from(spans));
     }
+}
+
+fn render_table_border_line(widths: &[usize], left: char, middle: char, right: char) -> Line<'static> {
+    let mut content = String::new();
+    content.push(left);
+    for (index, width) in widths.iter().enumerate() {
+        content.push_str(&"─".repeat(*width + 2));
+        content.push(if index + 1 < widths.len() { middle } else { right });
+    }
+    Line::from(Span::styled(content, Style::default().fg(DIM)))
 }
 
 fn wrap_cell_lines(cell_lines: Vec<Line<'static>>, width: usize) -> Vec<Line<'static>> {
