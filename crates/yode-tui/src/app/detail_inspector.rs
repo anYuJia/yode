@@ -251,6 +251,7 @@ fn build_assistant_entry_document(entry: &ChatEntry) -> InspectorDocument {
 
 fn build_system_entry_document(entry: &ChatEntry) -> InspectorDocument {
     let view = parse_system_message(&entry.content);
+    let badges = system_entry_badges(&view);
     let mut panels = vec![PanelSpec {
         label: "Summary".to_string(),
         lines: vec![
@@ -258,7 +259,7 @@ fn build_system_entry_document(entry: &ChatEntry) -> InspectorDocument {
             format!("Kind: {:?}", view.kind),
             format!("Summary: {}", system_message_summary(&view)),
         ],
-        badges: Vec::new(),
+        badges: badges.clone(),
         actions: vec![InspectorAction {
             label: "status".to_string(),
             command: "/status".to_string(),
@@ -269,7 +270,7 @@ fn build_system_entry_document(entry: &ChatEntry) -> InspectorDocument {
         panels.push(PanelSpec {
             label: "Details".to_string(),
             lines: view.detail_lines,
-            badges: Vec::new(),
+            badges: badges.clone(),
             actions: vec![InspectorAction {
                 label: "timeline".to_string(),
                 command: "/inspect artifact history runtime".to_string(),
@@ -281,7 +282,7 @@ fn build_system_entry_document(entry: &ChatEntry) -> InspectorDocument {
         panels.push(PanelSpec {
             label: "Raw".to_string(),
             lines: entry.content.lines().map(|line| line.to_string()).collect(),
-            badges: Vec::new(),
+            badges,
             actions: vec![],
         });
     }
@@ -295,12 +296,13 @@ fn build_system_entry_document(entry: &ChatEntry) -> InspectorDocument {
 
 fn build_error_entry_document(entry: &ChatEntry) -> InspectorDocument {
     let view = parse_error_view(&entry.content);
+    let badges = error_badges(&view);
     let mut panels = vec![PanelSpec {
         label: "Summary".to_string(),
         lines: std::iter::once(view.title.clone())
             .chain(view.detail_lines.iter().cloned())
             .collect(),
-        badges: Vec::new(),
+        badges: badges.clone(),
         actions: vec![InspectorAction {
             label: "status".to_string(),
             command: "/status".to_string(),
@@ -309,7 +311,7 @@ fn build_error_entry_document(entry: &ChatEntry) -> InspectorDocument {
     panels.push(PanelSpec {
         label: "Raw".to_string(),
         lines: entry.content.lines().map(|line| line.to_string()).collect(),
-        badges: Vec::new(),
+        badges,
         actions: vec![InspectorAction {
             label: "follow-up".to_string(),
             command: "Explain the latest error and suggest the safest recovery step.".to_string(),
@@ -328,6 +330,7 @@ fn build_tool_batch_document(
     entries: &[ChatEntry],
     batch: &ToolBatch,
 ) -> InspectorDocument {
+    let overview_badges = tool_batch_badges(entries, batch);
     let mut overview = vec![
         format!("Summary: {}", tool_batch_summary_text(batch)),
         format!("Items: {}", batch.items.len()),
@@ -345,7 +348,7 @@ fn build_tool_batch_document(
     let mut panels = vec![PanelSpec {
         label: "Overview".to_string(),
         lines: overview,
-        badges: Vec::new(),
+        badges: overview_badges,
         actions: vec![
             InspectorAction {
                 label: "status".to_string(),
@@ -366,10 +369,13 @@ fn build_tool_batch_document(
         let call = &entries[item.call_index];
         let args = parse_json(&call.content);
         let result_entry = item.result_index.and_then(|idx| entries.get(idx));
-        let badges = result_entry
-            .and_then(|entry| entry.tool_metadata.as_ref())
-            .map(tool_metadata_badges)
-            .unwrap_or_default();
+        let badges = combine_badges(
+            tool_state_badges(result_entry),
+            result_entry
+                .and_then(|entry| entry.tool_metadata.as_ref())
+                .map(tool_metadata_badges)
+                .unwrap_or_default(),
+        );
         let summary = summarize_tool_result(
             &item.tool_name,
             &args,
@@ -426,6 +432,7 @@ fn build_tool_batch_document(
 }
 
 fn build_system_batch_document(entries: &[ChatEntry], batch: &SystemBatch) -> InspectorDocument {
+    let overview_badges = system_batch_badges(entries, batch);
     let latest_summary = batch
         .items
         .last()
@@ -439,7 +446,7 @@ fn build_system_batch_document(entries: &[ChatEntry], batch: &SystemBatch) -> In
             format!("Summary: {} recent system updates", batch.items.len()),
             format!("Latest: {}", latest_summary),
         ],
-        badges: Vec::new(),
+        badges: overview_badges,
         actions: vec![
             InspectorAction {
                 label: "status".to_string(),
@@ -457,6 +464,7 @@ fn build_system_batch_document(entries: &[ChatEntry], batch: &SystemBatch) -> In
             continue;
         };
         let view = parse_system_message(&entry.content);
+        let badges = system_entry_badges(&view);
         let mut lines = vec![
             format!("Kind: {:?}", view.kind),
             format!("Summary: {}", system_message_summary(&view)),
@@ -479,7 +487,7 @@ fn build_system_batch_document(entries: &[ChatEntry], batch: &SystemBatch) -> In
         panels.push(PanelSpec {
             label: format!("Item {}", item_index + 1),
             lines,
-            badges: Vec::new(),
+            badges,
             actions: vec![
                 InspectorAction {
                     label: "status".to_string(),
@@ -509,10 +517,13 @@ fn build_tool_entry_document(
     let args = parse_json(args_json);
     let is_active = result_entry.is_none();
     let title = tool_display_name(app, tool_name);
-    let metadata_badges = result_entry
-        .and_then(|entry| entry.tool_metadata.as_ref())
-        .map(tool_metadata_badges)
-        .unwrap_or_default();
+    let summary_badges = combine_badges(
+        tool_state_badges(result_entry),
+        result_entry
+            .and_then(|entry| entry.tool_metadata.as_ref())
+            .map(tool_metadata_badges)
+            .unwrap_or_default(),
+    );
     let activity = describe_tool_call(tool_name, &args, is_active)
         .or_else(|| {
             app.tools
@@ -552,7 +563,7 @@ fn build_tool_entry_document(
         PanelSpec {
             label: "Summary".to_string(),
             lines: summary,
-            badges: metadata_badges.clone(),
+            badges: summary_badges.clone(),
             actions: actions.clone(),
         },
         PanelSpec {
@@ -565,7 +576,7 @@ fn build_tool_entry_document(
                     lines
                 }
             },
-            badges: metadata_badges.clone(),
+            badges: summary_badges.clone(),
             actions: vec![InspectorAction {
                 label: "reuse".to_string(),
                 command: serde_json::to_string_pretty(&args).unwrap_or_else(|_| args.to_string()),
@@ -580,7 +591,7 @@ fn build_tool_entry_document(
                 panels.push(PanelSpec {
                     label: "Metadata".to_string(),
                     lines,
-                    badges: metadata_badges.clone(),
+                    badges: summary_badges.clone(),
                     actions: actions.clone(),
                 });
             }
@@ -589,7 +600,7 @@ fn build_tool_entry_document(
             "Output",
             &result_entry.content,
             tool_name,
-            metadata_badges.clone(),
+            summary_badges.clone(),
             actions.clone(),
         ) {
             panels.push(panel);
@@ -617,11 +628,14 @@ fn build_standalone_result_document(app: &App, entry: &ChatEntry) -> InspectorDo
         );
     };
     let title = tool_display_name(app, name);
-    let metadata_badges = entry
-        .tool_metadata
-        .as_ref()
-        .map(tool_metadata_badges)
-        .unwrap_or_default();
+    let summary_badges = combine_badges(
+        tool_state_badges(Some(entry)),
+        entry
+            .tool_metadata
+            .as_ref()
+            .map(tool_metadata_badges)
+            .unwrap_or_default(),
+    );
     let mut summary = vec![format!("Tool: {}", title)];
     if let Some(error_type) = entry.tool_error_type.as_deref() {
         summary.push(format!("Error type: {}", error_type));
@@ -653,7 +667,7 @@ fn build_standalone_result_document(app: &App, entry: &ChatEntry) -> InspectorDo
     let mut panels = vec![PanelSpec {
         label: "Summary".to_string(),
         lines: summary,
-        badges: metadata_badges.clone(),
+        badges: summary_badges.clone(),
         actions: actions.clone(),
     }];
     if let Some(metadata) = entry.tool_metadata.as_ref() {
@@ -662,7 +676,7 @@ fn build_standalone_result_document(app: &App, entry: &ChatEntry) -> InspectorDo
             panels.push(PanelSpec {
                 label: "Metadata".to_string(),
                 lines,
-                badges: metadata_badges.clone(),
+                badges: summary_badges.clone(),
                 actions: actions.clone(),
             });
         }
@@ -671,7 +685,7 @@ fn build_standalone_result_document(app: &App, entry: &ChatEntry) -> InspectorDo
         "Output",
         &entry.content,
         name,
-        metadata_badges,
+        summary_badges,
         actions.clone(),
     ) {
         panels.push(panel);
@@ -903,6 +917,126 @@ fn render_result_content_lines(content: &str, tool_name: &str) -> Vec<String> {
     }
 }
 
+fn combine_badges(
+    mut badges: Vec<(String, String)>,
+    extra: Vec<(String, String)>,
+) -> Vec<(String, String)> {
+    badges.extend(extra);
+    badges
+}
+
+fn tool_state_badges(result_entry: Option<&ChatEntry>) -> Vec<(String, String)> {
+    let state = if result_entry.is_none() {
+        "running"
+    } else if result_entry.is_some_and(tool_result_failed) {
+        "failed"
+    } else {
+        "completed"
+    };
+
+    let mut badges = vec![("state".to_string(), state.to_string())];
+    if result_entry.is_some_and(tool_result_failed) {
+        badges.push(("severity".to_string(), "error".to_string()));
+    }
+    badges
+}
+
+fn tool_batch_badges(entries: &[ChatEntry], batch: &ToolBatch) -> Vec<(String, String)> {
+    let mut badges = vec![(
+        "state".to_string(),
+        if batch.is_active {
+            "active".to_string()
+        } else {
+            "completed".to_string()
+        },
+    )];
+    if batch
+        .items
+        .iter()
+        .filter_map(|item| item.result_index.and_then(|index| entries.get(index)))
+        .any(tool_result_failed)
+    {
+        badges.push(("severity".to_string(), "error".to_string()));
+    }
+    badges
+}
+
+fn system_entry_badges(view: &crate::system_message::SystemMessageView) -> Vec<(String, String)> {
+    vec![
+        ("kind".to_string(), system_kind_badge_value(view.kind).to_string()),
+        (
+            "severity".to_string(),
+            system_severity_badge_value(view).to_string(),
+        ),
+    ]
+}
+
+fn system_batch_badges(entries: &[ChatEntry], batch: &SystemBatch) -> Vec<(String, String)> {
+    let has_warning = batch.items.iter().any(|item| {
+        entries
+            .get(item.entry_index)
+            .map(|entry| parse_system_message(&entry.content))
+            .is_some_and(|view| system_severity_badge_value(&view) == "warning")
+    });
+    vec![
+        ("state".to_string(), "batched".to_string()),
+        (
+            "severity".to_string(),
+            if has_warning { "warning" } else { "info" }.to_string(),
+        ),
+    ]
+}
+
+fn error_badges(view: &crate::ui::error_format::ErrorView) -> Vec<(String, String)> {
+    vec![
+        ("state".to_string(), "failed".to_string()),
+        (
+            "severity".to_string(),
+            error_severity_badge_value(view).to_string(),
+        ),
+    ]
+}
+
+fn tool_result_failed(entry: &ChatEntry) -> bool {
+    matches!(entry.role, ChatRole::ToolResult { is_error: true, .. })
+}
+
+fn system_kind_badge_value(kind: crate::system_message::SystemMessageKind) -> &'static str {
+    match kind {
+        crate::system_message::SystemMessageKind::Context => "context",
+        crate::system_message::SystemMessageKind::Memory => "memory",
+        crate::system_message::SystemMessageKind::Budget => "budget",
+        crate::system_message::SystemMessageKind::Export => "export",
+        crate::system_message::SystemMessageKind::Task => "task",
+        crate::system_message::SystemMessageKind::Turn => "turn",
+        crate::system_message::SystemMessageKind::Warning => "warning",
+        crate::system_message::SystemMessageKind::Lifecycle => "lifecycle",
+        crate::system_message::SystemMessageKind::Plan => "plan",
+        crate::system_message::SystemMessageKind::Update => "update",
+        crate::system_message::SystemMessageKind::Generic => "generic",
+    }
+}
+
+fn system_severity_badge_value(view: &crate::system_message::SystemMessageView) -> &'static str {
+    match view.kind {
+        crate::system_message::SystemMessageKind::Budget
+        | crate::system_message::SystemMessageKind::Warning => "warning",
+        crate::system_message::SystemMessageKind::Task
+            if view.title.to_ascii_lowercase().contains("warn") =>
+        {
+            "warning"
+        }
+        _ => "info",
+    }
+}
+
+fn error_severity_badge_value(view: &crate::ui::error_format::ErrorView) -> &'static str {
+    match view.title.as_str() {
+        "Context limit reached" | "Rate limited" | "Request timed out" => "warning",
+        _ => "error",
+    }
+}
+
 fn tool_metadata_badges(metadata: &serde_json::Value) -> Vec<(String, String)> {
     let mut badges = Vec::new();
 
@@ -1129,6 +1263,12 @@ mod tests {
             .iter()
             .any(|action| action.command == "/status"));
         assert!(doc.panels[0]
+            .badges
+            .contains(&("state".to_string(), "failed".to_string())));
+        assert!(doc.panels[0]
+            .badges
+            .contains(&("severity".to_string(), "error".to_string())));
+        assert!(doc.panels[0]
             .actions
             .iter()
             .any(|action| action.label == "follow-up"));
@@ -1173,6 +1313,9 @@ mod tests {
 
         let doc = build_latest_tool_document(&app).unwrap();
         let summary = &doc.panels[0];
+        assert!(summary
+            .badges
+            .contains(&("state".to_string(), "completed".to_string())));
         assert!(summary
             .badges
             .contains(&("access".to_string(), "read-only".to_string())));
@@ -1264,6 +1407,9 @@ mod tests {
 
         let doc = build_latest_tool_document(&app).unwrap();
         assert_eq!(doc.state.title, "Recent tool activity");
+        assert!(doc.panels[0]
+            .badges
+            .contains(&("state".to_string(), "active".to_string())));
         assert!(doc
             .panels
             .first()
@@ -1309,6 +1455,9 @@ mod tests {
         let doc = build_latest_tool_document(&app).unwrap();
         assert_eq!(doc.state.title, "Recent tool activity");
         assert_eq!(doc.panels[0].tab.label, "Overview");
+        assert!(doc.panels[0]
+            .badges
+            .contains(&("state".to_string(), "completed".to_string())));
         assert!(doc.panels.iter().any(|panel| panel.tab.label == "Item 1"));
         assert!(doc.panels.iter().any(|panel| panel.tab.label == "Item 2"));
         assert!(doc.panels[0].lines.iter().any(|line| line.contains("Items: 2")));
@@ -1331,6 +1480,9 @@ mod tests {
         let doc = build_latest_tool_document(&app).unwrap();
         assert_eq!(doc.state.title, "Recent system activity");
         assert_eq!(doc.panels[0].tab.label, "Overview");
+        assert!(doc.panels[0]
+            .badges
+            .contains(&("state".to_string(), "batched".to_string())));
         assert!(doc.panels.iter().any(|panel| panel.tab.label == "Item 1"));
         assert!(doc.panels.iter().any(|panel| panel.tab.label == "Item 2"));
         assert!(doc.panels[0]
@@ -1430,6 +1582,9 @@ mod tests {
         let doc = build_latest_tool_document(&app).unwrap();
         assert_eq!(doc.state.title, "System details");
         assert!(doc.panels.iter().any(|panel| panel.tab.label == "Details"));
+        assert!(doc.panels[0]
+            .badges
+            .contains(&("kind".to_string(), "memory".to_string())));
     }
 
     #[test]
@@ -1443,6 +1598,12 @@ mod tests {
 
         let doc = build_latest_tool_document(&app).unwrap();
         assert_eq!(doc.state.title, "Error details");
+        assert!(doc.panels[0]
+            .badges
+            .contains(&("state".to_string(), "failed".to_string())));
+        assert!(doc.panels[0]
+            .badges
+            .contains(&("severity".to_string(), "warning".to_string())));
         assert!(doc
             .panels
             .iter()
