@@ -18,7 +18,7 @@
 
 当前进度：
 
-- `50 / 100` 已完成
+- `51 / 100` 已完成
 
 ## 001-010 Snapshot Hardening
 
@@ -100,7 +100,7 @@
 
 ## 061-070 Artifact / Export Phase Two
 
-- `[ ]` 061 workspace index jump target ordering audit
+- `[x]` 061 workspace index jump target ordering audit
 - `[ ]` 062 conversation export role heading polish
 - `[ ]` 063 conversation export spacing polish
 - `[x]` 064 diagnostics bundle completion copy audit

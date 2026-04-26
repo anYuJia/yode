@@ -519,7 +519,7 @@ fn render_workspace_index(
         )
     };
     format!(
-        "# Workspace Index\n\n## Summary\n\n- Bundle: {}\n- Runtime: {}\n- Context: {}\n- Tools: {}\n- Tasks: total {} / running {}\n- Conversation: {}\n- Runtime summary: {}\n- Runtime timeline: {}\n- Prompt cache: {}\n- Doctor refs: {}\n\n## Jump\n\n- Work: /tasks latest · /memory latest · /reviews latest\n- Status: /status · /diagnostics · /doctor bundle\n\n## Orchestration\n\n- workflow: {}\n- coordinator: {}\n- timeline: {}\n\n## Inspect\n\n- Overview: /inspect artifact summary · bundle\n- Flow: /inspect artifact latest-workflow · latest-coordinate · latest-orchestration\n- Runtime: /inspect artifact latest-runtime-timeline · latest-prompt-cache · latest-prompt-cache-state\n- Cache: /inspect artifact latest-prompt-cache-events · latest-prompt-cache-break · latest-prompt-cache-diff\n- Restore: /inspect artifact latest-post-compact-restore · latest-post-compact-restore-state · latest-post-compact-restore-diff\n- Refs: /inspect artifact latest-provider-inventory · latest-review · latest-transcript\n",
+        "# Workspace Index\n\n## Summary\n\n- Bundle: {}\n- Runtime: {}\n- Context: {}\n- Tools: {}\n- Tasks: total {} / running {}\n- Conversation: {}\n- Runtime summary: {}\n- Runtime timeline: {}\n- Prompt cache: {}\n- Doctor refs: {}\n\n## Jump\n\n- Status: /status · /diagnostics · /doctor bundle\n- Work: /tasks latest · /memory latest · /reviews latest\n\n## Orchestration\n\n- workflow: {}\n- coordinator: {}\n- timeline: {}\n\n## Inspect\n\n- Overview: /inspect artifact summary · bundle\n- Flow: /inspect artifact latest-workflow · latest-coordinate · latest-orchestration\n- Runtime: /inspect artifact latest-runtime-timeline · latest-prompt-cache · latest-prompt-cache-state\n- Cache: /inspect artifact latest-prompt-cache-events · latest-prompt-cache-break · latest-prompt-cache-diff\n- Restore: /inspect artifact latest-post-compact-restore · latest-post-compact-restore-state · latest-post-compact-restore-diff\n- Refs: /inspect artifact latest-provider-inventory · latest-review · latest-transcript\n",
         bundle_dir.display(),
         runtime_line,
         context_line,
@@ -813,6 +813,7 @@ mod tests {
         assert!(rendered.contains("- Runtime:"));
         assert!(rendered.contains("## Jump"));
         assert!(rendered.contains("## Inspect"));
+        assert!(rendered.contains("- Status: /status · /diagnostics · /doctor bundle"));
         assert!(rendered.contains("Work: /tasks latest · /memory latest · /reviews latest"));
     }
 
