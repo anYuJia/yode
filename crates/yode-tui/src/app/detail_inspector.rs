@@ -225,6 +225,7 @@ fn build_assistant_entry_document(entry: &ChatEntry) -> InspectorDocument {
 fn build_system_entry_document(entry: &ChatEntry) -> InspectorDocument {
     let view = parse_system_message(&entry.content);
     let badges = system_entry_badges(&view);
+    let actions = system_actions(&view, &entry.content);
     let detail_lines = system_detail_panel_lines(&view);
     let mut panels = vec![PanelSpec {
         label: "Overview".to_string(),
@@ -234,7 +235,7 @@ fn build_system_entry_document(entry: &ChatEntry) -> InspectorDocument {
             format!("Summary: {}", system_message_summary(&view)),
         ],
         badges: badges.clone(),
-        actions: vec![status_action()],
+        actions: actions.clone(),
     }];
 
     if !detail_lines.is_empty() {
@@ -242,7 +243,7 @@ fn build_system_entry_document(entry: &ChatEntry) -> InspectorDocument {
             label: "Details".to_string(),
             lines: detail_lines,
             badges: badges.clone(),
-            actions: vec![timeline_action()],
+            actions: actions.clone(),
         });
     }
 
@@ -251,7 +252,7 @@ fn build_system_entry_document(entry: &ChatEntry) -> InspectorDocument {
             label: "Raw".to_string(),
             lines: render_markdown_panel_lines(&raw_lines.join("\n")),
             badges,
-            actions: vec![],
+            actions,
         });
     }
 
@@ -400,6 +401,15 @@ fn build_system_batch_document(entries: &[ChatEntry], batch: &SystemBatch) -> In
         .and_then(|item| entries.get(item.entry_index))
         .map(|entry| system_message_summary(&parse_system_message(&entry.content)))
         .unwrap_or_else(|| "No recent system updates".to_string());
+    let latest_actions = batch
+        .items
+        .last()
+        .and_then(|item| entries.get(item.entry_index))
+        .map(|entry| {
+            let view = parse_system_message(&entry.content);
+            system_actions(&view, &entry.content)
+        })
+        .unwrap_or_else(|| vec![status_action()]);
 
     let mut panels = vec![PanelSpec {
         label: "Overview".to_string(),
@@ -408,7 +418,7 @@ fn build_system_batch_document(entries: &[ChatEntry], batch: &SystemBatch) -> In
             format!("Latest: {}", latest_summary),
         ],
         badges: overview_badges,
-        actions: vec![status_action(), timeline_action()],
+        actions: latest_actions,
     }];
 
     for (item_index, item) in batch.items.iter().enumerate() {
@@ -437,7 +447,7 @@ fn build_system_batch_document(entries: &[ChatEntry], batch: &SystemBatch) -> In
             label: format!("Item {}", item_index + 1),
             lines,
             badges,
-            actions: vec![status_action(), timeline_action()],
+            actions: system_actions(&view, &entry.content),
         });
     }
 
@@ -823,6 +833,27 @@ fn timeline_action() -> InspectorAction {
     }
 }
 
+fn bundle_action() -> InspectorAction {
+    InspectorAction {
+        label: "open bundle".to_string(),
+        command: "/inspect artifact bundle".to_string(),
+    }
+}
+
+fn diagnostics_action() -> InspectorAction {
+    InspectorAction {
+        label: "show diagnostics".to_string(),
+        command: "/diagnostics".to_string(),
+    }
+}
+
+fn help_action() -> InspectorAction {
+    InspectorAction {
+        label: "open help".to_string(),
+        command: "/help".to_string(),
+    }
+}
+
 fn compact_action() -> InspectorAction {
     InspectorAction {
         label: "run /compact".to_string(),
@@ -855,6 +886,41 @@ fn doctor_action() -> InspectorAction {
     InspectorAction {
         label: "run /doctor".to_string(),
         command: "/doctor".to_string(),
+    }
+}
+
+fn system_actions(
+    view: &crate::system_message::SystemMessageView,
+    raw_content: &str,
+) -> Vec<InspectorAction> {
+    match view.kind {
+        crate::system_message::SystemMessageKind::Export
+            if view.title.to_ascii_lowercase().contains("bundle exported") =>
+        {
+            vec![bundle_action(), status_action()]
+        }
+        crate::system_message::SystemMessageKind::Export => vec![status_action()],
+        crate::system_message::SystemMessageKind::Turn => {
+            vec![status_action(), diagnostics_action(), timeline_action()]
+        }
+        crate::system_message::SystemMessageKind::Warning
+            if raw_content.starts_with("Unknown command:") =>
+        {
+            vec![help_action(), status_action()]
+        }
+        crate::system_message::SystemMessageKind::Task
+            if raw_content.to_ascii_lowercase().contains("hook") =>
+        {
+            vec![
+                InspectorAction {
+                    label: "open hooks".to_string(),
+                    command: "/hooks".to_string(),
+                },
+                status_action(),
+            ]
+        }
+        crate::system_message::SystemMessageKind::Lifecycle => vec![status_action()],
+        _ => vec![status_action(), timeline_action()],
     }
 }
 
@@ -1675,6 +1741,10 @@ mod tests {
             .lines
             .iter()
             .any(|line| line.contains("/Users/pyu/code/yode/.yode/memory/live.md")));
+        assert!(doc.panels[0]
+            .actions
+            .iter()
+            .any(|action| action.label == "show status"));
     }
 
     #[test]
@@ -1695,6 +1765,36 @@ mod tests {
             .lines
             .iter()
             .any(|line| line.contains("\u{1b}]8;;https://example.com/docs")));
+    }
+
+    #[test]
+    fn latest_tool_document_adds_bundle_action_for_export_system_entry() {
+        let mut app = test_app();
+        app.chat_entries = vec![ChatEntry::new(
+            ChatRole::System,
+            "Diagnostics bundle exported to: /tmp/bundle".to_string(),
+        )];
+
+        let doc = build_latest_tool_document(&app).unwrap();
+        assert!(doc.panels[0]
+            .actions
+            .iter()
+            .any(|action| action.label == "open bundle"));
+    }
+
+    #[test]
+    fn latest_tool_document_adds_diagnostics_action_for_turn_summary() {
+        let mut app = test_app();
+        app.chat_entries = vec![ChatEntry::new(
+            ChatRole::System,
+            "Turn completed · 1.4s · 3 tools · 1.2k↑ 180↓ tok".to_string(),
+        )];
+
+        let doc = build_latest_tool_document(&app).unwrap();
+        assert!(doc.panels[0]
+            .actions
+            .iter()
+            .any(|action| action.label == "show diagnostics"));
     }
 
     #[test]

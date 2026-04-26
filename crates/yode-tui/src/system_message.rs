@@ -75,7 +75,11 @@ pub(crate) fn parse_system_message(content: &str) -> SystemMessageView {
     } else if let Some((title, detail)) = split_warning_line(first_line) {
         (SystemMessageKind::Warning, title, detail)
     } else if is_lifecycle_message(first_line) {
-        (SystemMessageKind::Lifecycle, first_line.clone(), None)
+        (
+            SystemMessageKind::Lifecycle,
+            first_line.trim_end_matches('.').to_string(),
+            None,
+        )
     } else if is_plan_message(first_line) {
         (SystemMessageKind::Plan, first_line.clone(), None)
     } else if is_update_message(first_line) {
@@ -285,7 +289,7 @@ mod tests {
     fn leaves_generic_messages_as_title_only() {
         let view = parse_system_message("Generation cancelled.");
         assert_eq!(view.kind, SystemMessageKind::Lifecycle);
-        assert_eq!(view.title, "Generation cancelled.");
+        assert_eq!(view.title, "Generation cancelled");
         assert!(view.detail_lines.is_empty());
     }
 

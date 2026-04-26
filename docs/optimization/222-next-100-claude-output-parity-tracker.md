@@ -21,7 +21,7 @@
 
 当前进度：
 
-- `64 / 100` 已完成
+- `67 / 100` 已完成
 
 ## 001-010 Markdown Core
 
@@ -84,9 +84,9 @@
 - `[x]` 045 system detail inspector
 - `[x]` 046 system message raw/detail split refinement
 - `[ ]` 047 stop-hook summary panel polish
-- `[ ]` 048 export message panel polish
-- `[ ]` 049 turn-complete system card polish
-- `[ ]` 050 lifecycle message simplification pass
+- `[x]` 048 export message panel polish
+- `[x]` 049 turn-complete system card polish
+- `[x]` 050 lifecycle message simplification pass
 
 ## 051-060 Confirm / Approval UX
 
@@ -166,4 +166,4 @@
   - `775d61e`, `3970110`
 
 - 下一步优先实现：
-  - `048 export message panel polish`
+  - `047 stop-hook summary panel polish`
