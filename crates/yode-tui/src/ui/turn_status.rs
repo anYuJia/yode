@@ -1,4 +1,4 @@
-use ratatui::style::{Color, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
@@ -6,7 +6,8 @@ use ratatui::Frame;
 use crate::app::{App, ChatRole, TurnStatus};
 use crate::runtime_display::format_retry_delay_summary;
 use crate::tool_grouping::{
-    detect_groupable_tool_batch, summarize_groupable_tool_call, tool_batch_summary_text,
+    describe_tool_call, detect_groupable_tool_batch, summarize_groupable_tool_call,
+    tool_batch_hint_text, tool_batch_summary_text,
 };
 use crate::ui::responsive::density_from_width;
 use crate::ui::status_summary::{
@@ -129,13 +130,21 @@ pub fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &
             Line::from(spans)
         }
     };
+    let working_hint = matches!(app.turn_status, TurnStatus::Working { .. })
+        .then(|| active_working_hint(app))
+        .flatten();
 
     let mut lines = Vec::new();
     if area.height >= 3 {
         lines.push(Line::from(""));
     }
     lines.push(status_line);
-    if area.height >= 3 {
+    if let Some(hint) = working_hint {
+        lines.push(Line::from(vec![
+            Span::styled("  ⎿ ", Style::default().fg(Color::DarkGray)),
+            Span::styled(hint, Style::default().fg(Color::Gray).add_modifier(Modifier::ITALIC)),
+        ]));
+    } else if area.height >= 3 {
         lines.push(Line::from(""));
     }
     frame.render_widget(Paragraph::new(lines), area);
@@ -167,6 +176,31 @@ pub(crate) fn active_working_label(app: &App, fallback_verb: &str) -> String {
     }
 
     format!("{}…", fallback_verb)
+}
+
+pub(crate) fn active_working_hint(app: &App) -> Option<String> {
+    for index in (0..app.chat_entries.len()).rev() {
+        if let Some(batch) = detect_groupable_tool_batch(&app.chat_entries, index) {
+            if batch.is_active && batch.next_index == app.chat_entries.len() {
+                return tool_batch_hint_text(&app.chat_entries, &batch);
+            }
+        }
+    }
+
+    if let Some(entry) = app.chat_entries.last() {
+        if let ChatRole::ToolCall { id, name } = &entry.role {
+            let has_result = app.chat_entries.iter().rev().skip(1).any(|candidate| {
+                matches!(&candidate.role, ChatRole::ToolResult { id: result_id, .. } if result_id == id)
+            });
+            if !has_result {
+                let args: serde_json::Value =
+                    serde_json::from_str(&entry.content).unwrap_or(serde_json::Value::Null);
+                return describe_tool_call(name, &args, true);
+            }
+        }
+    }
+
+    None
 }
 
 fn tool_activity_label(app: &App, tool_name: &str, args_json: &str) -> Option<String> {
@@ -210,7 +244,7 @@ mod tests {
 
     use crate::app::{App, ChatEntry, ChatRole};
 
-    use super::active_working_label;
+    use super::{active_working_hint, active_working_label};
 
     fn test_app() -> App {
         App::new(
@@ -300,6 +334,40 @@ mod tests {
         assert_eq!(
             active_working_label(&app, "Working"),
             "Editing file: /tmp/demo.rs…"
+        );
+    }
+
+    #[test]
+    fn working_hint_prefers_latest_grouped_target() {
+        let mut app = test_app();
+        app.chat_entries = vec![
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "a".to_string(),
+                    name: "grep".to_string(),
+                },
+                "{\"pattern\":\"retry\"}".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolResult {
+                    id: "a".to_string(),
+                    name: "grep".to_string(),
+                    is_error: false,
+                },
+                "ok".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "b".to_string(),
+                    name: "read_file".to_string(),
+                },
+                "{\"file_path\":\"/tmp/src/main.rs\"}".to_string(),
+            ),
+        ];
+
+        assert_eq!(
+            active_working_hint(&app).as_deref(),
+            Some("Reading .../src/main.rs")
         );
     }
 }
