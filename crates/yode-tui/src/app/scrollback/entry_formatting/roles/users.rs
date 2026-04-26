@@ -1,6 +1,8 @@
 use crate::app::rendering::highlight_code_line;
 use crate::app::ChatEntry;
-use crate::ui::chat::{render_markdown_ansi_white_with_options, WHITE};
+use crate::ui::chat::{
+    render_markdown_ansi_dim_with_options, render_markdown_ansi_white_with_options, WHITE,
+};
 use crate::ui::chat_entries::user_plain_lines;
 
 pub(super) fn render_user(
@@ -38,11 +40,7 @@ pub(super) fn render_assistant(
             let render_width = crossterm::terminal::size()
                 .map(|(width, _)| width.saturating_sub(4) as usize)
                 .unwrap_or(76);
-            let lines = render_markdown_ansi_white_with_options(
-                reasoning.trim(),
-                Some(render_width),
-                true,
-            );
+            let lines = render_markdown_ansi_dim_with_options(reasoning.trim(), Some(render_width), true);
             for line in lines {
                 if line.trim().is_empty() {
                     result.push((String::new(), dim));

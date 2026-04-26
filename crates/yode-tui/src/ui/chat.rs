@@ -238,6 +238,21 @@ pub(crate) fn render_markdown_ansi_white_with_options(
     )
 }
 
+pub(crate) fn render_markdown_ansi_dim_with_options(
+    text: &str,
+    max_width: Option<usize>,
+    enable_hyperlinks: bool,
+) -> Vec<String> {
+    super::chat_markdown::render_markdown_ansi_with_options(
+        text,
+        Some(DIM),
+        super::chat_markdown::MarkdownRenderOptions {
+            max_width,
+            enable_hyperlinks,
+        },
+    )
+}
+
 pub(crate) fn streaming_markdown_advance_stable_boundary(
     text: &str,
     current_stable_len: usize,
