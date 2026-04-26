@@ -1,7 +1,9 @@
 use ratatui::style::{Color, Style};
 
 use crate::app::ChatEntry;
-use crate::system_message::{parse_system_message, system_message_summary, SystemMessageKind};
+use crate::system_message::{
+    format_system_detail_line, parse_system_message, system_message_summary, SystemMessageKind,
+};
 use crate::tool_grouping::SystemBatch;
 
 pub(super) fn render_system_entry(entry: &ChatEntry) -> Vec<(String, Style)> {
@@ -13,7 +15,7 @@ pub(super) fn render_system_entry(entry: &ChatEntry) -> Vec<(String, Style)> {
     let (prefix, title_style, detail_style) = system_styles(view.kind);
     let mut result = vec![(format!("{}{}", prefix, view.title), title_style)];
     for detail in view.detail_lines {
-        result.push((format!("    {}", detail), detail_style));
+        result.push((format!("    {}", format_system_detail_line(&detail)), detail_style));
     }
     result
 }

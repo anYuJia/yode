@@ -2,7 +2,9 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 
 use crate::app::ChatEntry;
-use crate::system_message::{parse_system_message, system_message_summary, SystemMessageKind};
+use crate::system_message::{
+    format_system_detail_line, parse_system_message, system_message_summary, SystemMessageKind,
+};
 use crate::tool_grouping::SystemBatch;
 use crate::ui::palette::{ERROR_COLOR, INFO_COLOR, LIGHT, MUTED, SUCCESS_COLOR, WARNING_COLOR};
 
@@ -21,7 +23,7 @@ pub(crate) fn render_system_entry(lines: &mut Vec<Line<'static>>, entry: &ChatEn
     for detail in view.detail_lines {
         lines.push(Line::from(vec![
             Span::styled("    ".to_string(), Style::default().fg(MUTED)),
-            Span::styled(detail, detail_style),
+            Span::styled(format_system_detail_line(&detail), detail_style),
         ]));
     }
 }

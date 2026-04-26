@@ -101,12 +101,20 @@ pub(crate) fn system_message_summary(view: &SystemMessageView) -> String {
     let mut summary = view.title.clone();
     if let Some(first_detail) = view.detail_lines.first() {
         summary.push_str(" · ");
-        summary.push_str(first_detail);
+        summary.push_str(&format_system_detail_line(first_detail));
     }
     if view.detail_lines.len() > 1 {
         summary.push_str(&format!(" · +{} more", view.detail_lines.len() - 1));
     }
     summary
+}
+
+pub(crate) fn format_system_detail_line(detail: &str) -> String {
+    detail
+        .split(' ')
+        .map(compact_path_token)
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 pub(crate) fn append_grouped_system_entry(
@@ -223,10 +231,33 @@ fn is_update_message(line: &str) -> bool {
         || line.contains("ready (restart to apply)")
 }
 
+fn compact_path_token(token: &str) -> String {
+    if token.contains("://") {
+        return token.to_string();
+    }
+
+    let (core, trailing) = token.trim_end_matches([')', ']', ',', '.', ';', ':', '!']).split_at(
+        token
+            .trim_end_matches([')', ']', ',', '.', ';', ':', '!'])
+            .len(),
+    );
+    if !(core.starts_with('/') || core.starts_with("./") || core.starts_with("../") || core.starts_with(".yode/")) {
+        return token.to_string();
+    }
+
+    let trimmed = core.trim_matches('/');
+    let parts = trimmed.split('/').filter(|part| !part.is_empty()).collect::<Vec<_>>();
+    if parts.len() < 3 {
+        return token.to_string();
+    }
+
+    format!(".../{}/{}{}", parts[parts.len() - 2], parts[parts.len() - 1], trailing)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        append_grouped_system_entry, parse_system_message, system_message_summary,
+        append_grouped_system_entry, format_system_detail_line, parse_system_message, system_message_summary,
         SystemMessageKind,
     };
     use crate::app::{ChatEntry, ChatRole};
@@ -321,6 +352,14 @@ mod tests {
             "Turn completed · 1.1s · 2 tools · 11↑ 21↓ tok".to_string(),
         );
         assert_eq!(entries.len(), 2);
+    }
+
+    #[test]
+    fn system_detail_line_compacts_long_paths() {
+        let detail = format_system_detail_line(
+            "summary · /Users/pyu/code/yode/.yode/exports/diagnostics-1/workspace-index.md",
+        );
+        assert!(detail.contains("summary · .../diagnostics-1/workspace-index.md"));
     }
 }
 use std::time::Duration;
