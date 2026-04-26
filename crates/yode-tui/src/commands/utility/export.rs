@@ -135,7 +135,10 @@ impl Command for ExportCommand {
     }
 }
 
-fn conversation_export_path(project_root: &std::path::Path, filename: &str) -> std::io::Result<PathBuf> {
+fn conversation_export_path(
+    project_root: &std::path::Path,
+    filename: &str,
+) -> std::io::Result<PathBuf> {
     let export_root = export_bundle_root(project_root);
     std::fs::create_dir_all(&export_root)?;
     Ok(export_root.join(filename))
@@ -828,8 +831,7 @@ mod tests {
 
     #[test]
     fn conversation_export_path_uses_workspace_export_root() {
-        let dir =
-            std::env::temp_dir().join(format!("yode-export-path-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("yode-export-path-{}", uuid::Uuid::new_v4()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
 

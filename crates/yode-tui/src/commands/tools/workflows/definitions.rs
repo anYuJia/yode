@@ -13,14 +13,7 @@ pub(super) fn latest_workflow_name(dir: &Path) -> Option<String> {
 pub(super) fn load_workflow_definition(
     dir: &Path,
     name: &str,
-) -> Result<
-    (
-        PathBuf,
-        serde_json::Value,
-        Vec<serde_json::Value>,
-    ),
-    String,
-> {
+) -> Result<(PathBuf, serde_json::Value, Vec<serde_json::Value>), String> {
     let path = workflow_definition_dirs(dir)
         .into_iter()
         .map(|dir| dir.join(format!("{}.json", name)))

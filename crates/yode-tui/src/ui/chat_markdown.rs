@@ -1,4 +1,6 @@
-use std::sync::LazyLock;
+use std::collections::{HashMap, VecDeque};
+use std::hash::{Hash, Hasher};
+use std::sync::{LazyLock, Mutex};
 
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -22,13 +24,32 @@ pub(super) struct MarkdownRenderOptions {
     pub enable_hyperlinks: bool,
 }
 
+const MARKDOWN_BLOCK_CACHE_MAX: usize = 500;
+
+#[derive(Default)]
+struct MarkdownBlockCache {
+    entries: HashMap<u64, Vec<MarkdownBlock>>,
+    order: VecDeque<u64>,
+}
+
+static MARKDOWN_BLOCK_CACHE: LazyLock<Mutex<MarkdownBlockCache>> =
+    LazyLock::new(|| Mutex::new(MarkdownBlockCache::default()));
+
+static MD_SYNTAX_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"[#*`|>\-_~\[\]]|\n\n|^\d+\. |\n\d+\. |^• |^◦ |^▪ |\n• |\n◦ |\n▪ |│|┼").unwrap()
+});
+
 pub(super) fn render_markdown_with_options(
     text: &str,
     default_fg: Option<Color>,
     options: MarkdownRenderOptions,
 ) -> Vec<Line<'static>> {
+    if !has_markdown_syntax(text) {
+        return render_plain_text_lines(text, default_fg, options);
+    }
+
     let mut lines = Vec::new();
-    let blocks = parse_markdown_blocks(text);
+    let blocks = cached_markdown_blocks(text);
     render_block_sequence(&mut lines, &blocks, default_fg, 0, true, &options);
 
     lines
@@ -55,6 +76,71 @@ pub(crate) fn render_markdown_ansi_with_options(
         .into_iter()
         .map(|line| line_to_ansi_string(&line))
         .collect()
+}
+
+fn has_markdown_syntax(text: &str) -> bool {
+    MD_SYNTAX_RE.is_match(text)
+}
+
+fn cached_markdown_blocks(text: &str) -> Vec<MarkdownBlock> {
+    let key = hash_markdown_text(text);
+    if let Ok(mut cache) = MARKDOWN_BLOCK_CACHE.lock() {
+        if let Some(blocks) = cache.entries.get(&key).cloned() {
+            cache.order.retain(|existing| *existing != key);
+            cache.order.push_back(key);
+            return blocks;
+        }
+    }
+
+    let blocks = parse_markdown_blocks(text);
+
+    if let Ok(mut cache) = MARKDOWN_BLOCK_CACHE.lock() {
+        if cache.entries.len() >= MARKDOWN_BLOCK_CACHE_MAX {
+            if let Some(oldest) = cache.order.pop_front() {
+                cache.entries.remove(&oldest);
+            }
+        }
+        cache.order.retain(|existing| *existing != key);
+        cache.order.push_back(key);
+        cache.entries.insert(key, blocks.clone());
+    }
+
+    blocks
+}
+
+fn hash_markdown_text(text: &str) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    text.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn render_plain_text_lines(
+    text: &str,
+    default_fg: Option<Color>,
+    options: MarkdownRenderOptions,
+) -> Vec<Line<'static>> {
+    let style = default_fg
+        .map(|fg| Style::default().fg(fg))
+        .unwrap_or_default();
+    let mut lines = if text.is_empty() {
+        vec![Line::from("")]
+    } else {
+        text.split('\n')
+            .map(|line| {
+                if line.is_empty() {
+                    Line::from("")
+                } else {
+                    Line::from(Span::styled(line.to_string(), style))
+                }
+            })
+            .collect::<Vec<_>>()
+    };
+    trim_trailing_blank_line(&mut lines);
+    if let Some(max_width) = options.max_width {
+        manual_wrap(lines, max_width as u16)
+    } else {
+        lines
+    }
 }
 
 fn stable_boundary_from_complete_lines(text: &str) -> usize {
@@ -1178,7 +1264,7 @@ fn render_markdown_block(
             let style = match level {
                 1 => Style::default()
                     .fg(Color::LightYellow)
-                    .add_modifier(Modifier::BOLD),
+                    .add_modifier(Modifier::BOLD | Modifier::ITALIC | Modifier::UNDERLINED),
                 2 => Style::default()
                     .fg(Color::Indexed(51))
                     .add_modifier(Modifier::BOLD),
@@ -1212,7 +1298,7 @@ fn render_markdown_block(
                     lines.push(line);
                 } else {
                     lines.push(prepend_prefix(
-                        line,
+                        add_modifier_to_line(line, Modifier::ITALIC),
                         "▎ ".to_string(),
                         Style::default().fg(Color::DarkGray),
                     ));
@@ -1444,6 +1530,13 @@ fn append_inline_nodes(
                     .extend(render_inline_code_spans(text));
             }
             InlineNode::Link { text, url } => {
+                if let Some(email) = url.strip_prefix("mailto:") {
+                    lines
+                        .last_mut()
+                        .unwrap()
+                        .push(Span::styled(email.to_string(), style));
+                    continue;
+                }
                 let link_style = style.fg(INFO_COLOR).add_modifier(Modifier::UNDERLINED);
                 if options.enable_hyperlinks {
                     lines
@@ -1500,6 +1593,15 @@ fn pad_line_to_width(
 fn prepend_prefix(line: Line<'static>, prefix: String, style: Style) -> Line<'static> {
     let mut spans = vec![Span::styled(prefix, style)];
     spans.extend(line.spans);
+    Line::from(spans)
+}
+
+fn add_modifier_to_line(line: Line<'static>, modifier: Modifier) -> Line<'static> {
+    let spans = line
+        .spans
+        .into_iter()
+        .map(|span| Span::styled(span.content, span.style.add_modifier(modifier)))
+        .collect::<Vec<_>>();
     Line::from(spans)
 }
 
@@ -1955,6 +2057,11 @@ mod tests {
         assert!(heading.spans.iter().any(|span| {
             span.content == "cargo" && span.style.bg == Some(crate::ui::chat::INLINE_CODE_BG)
         }));
+        assert!(heading.spans.iter().any(|span| {
+            span.content.contains("Build")
+                && span.style.add_modifier.contains(Modifier::ITALIC)
+                && span.style.add_modifier.contains(Modifier::UNDERLINED)
+        }));
     }
 
     #[test]
@@ -1993,6 +2100,26 @@ mod tests {
             .spans
             .iter()
             .any(|span| span.content == crate::ui::chat_layout::osc8_close_sequence()));
+    }
+
+    #[test]
+    fn mailto_links_render_as_plain_text() {
+        let lines = render_markdown_with_options(
+            "[support](mailto:support@example.com)",
+            None,
+            MarkdownRenderOptions {
+                max_width: Some(80),
+                enable_hyperlinks: true,
+            },
+        );
+        let rendered = lines
+            .iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(rendered.contains("support@example.com"));
+        assert!(!rendered.contains("mailto:"));
+        assert!(!rendered.contains("\x1b]8;;"));
     }
 
     #[test]
@@ -2351,12 +2478,42 @@ mod tests {
     }
 
     #[test]
+    fn blockquote_content_is_rendered_italic_like_claude() {
+        let lines = render_markdown_impl("> quoted text", None);
+        let quote = lines.first().unwrap();
+        assert!(quote
+            .spans
+            .iter()
+            .any(|span| span.content.contains("quoted text")
+                && span.style.add_modifier.contains(Modifier::ITALIC)));
+    }
+
+    #[test]
     fn paragraph_lines_collapse_into_single_markdown_block() {
         let lines = render_markdown_impl("first line\nsecond line\n\n- item", None);
         assert_eq!(lines[0].to_string(), "first line");
         assert_eq!(lines[1].to_string(), "second line");
         assert!(lines[2].to_string().is_empty());
         assert!(lines.iter().any(|line| line.to_string().contains("• item")));
+    }
+
+    #[test]
+    fn plain_text_fast_path_preserves_wrapping_without_markdown_parse() {
+        let lines = render_markdown_with_options(
+            "plain text line one\nplain text line two with width",
+            None,
+            MarkdownRenderOptions {
+                max_width: Some(20),
+                enable_hyperlinks: false,
+            },
+        );
+        assert!(lines.iter().all(|line| line_display_width(line) <= 20));
+        assert!(lines
+            .iter()
+            .any(|line| line.to_string().contains("plain text line one")));
+        assert!(lines
+            .iter()
+            .any(|line| line.to_string().contains("plain text line two")));
     }
 
     #[test]

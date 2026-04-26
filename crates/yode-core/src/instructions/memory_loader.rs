@@ -109,7 +109,11 @@ fn render_memory_body(content: String, path: &Path) -> String {
         .unwrap_or_else(|| (MemoryFrontmatter::default(), content));
     let mut rendered = String::new();
 
-    if let Some(name) = frontmatter.name.as_deref().filter(|value| !value.trim().is_empty()) {
+    if let Some(name) = frontmatter
+        .name
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
         rendered.push_str("Name: ");
         rendered.push_str(name.trim());
         rendered.push('\n');
@@ -150,10 +154,7 @@ fn render_memory_body(content: String, path: &Path) -> String {
     rendered
 }
 
-fn split_memory_frontmatter(
-    content: &str,
-    path: &Path,
-) -> Option<(MemoryFrontmatter, String)> {
+fn split_memory_frontmatter(content: &str, path: &Path) -> Option<(MemoryFrontmatter, String)> {
     let mut lines = content.lines();
     if lines.next()? != "---" {
         return None;

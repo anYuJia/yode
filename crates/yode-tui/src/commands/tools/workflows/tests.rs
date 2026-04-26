@@ -1,6 +1,6 @@
 use super::definitions::{
-    compact_json_preview, latest_workflow_name, load_workflow_definition, workflow_requires_write_mode,
-    workflow_template,
+    compact_json_preview, latest_workflow_name, load_workflow_definition,
+    workflow_requires_write_mode, workflow_template,
 };
 
 #[test]
