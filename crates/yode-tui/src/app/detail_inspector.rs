@@ -712,7 +712,7 @@ fn render_result_content_lines(content: &str, tool_name: &str) -> Vec<String> {
         }
         lines
     } else {
-        content.lines().map(|line| line.to_string()).collect()
+        render_markdown_ansi_white_with_options(content, Some(100), true)
     }
 }
 
@@ -784,6 +784,7 @@ mod tests {
     use yode_tools::builtin::{register_builtin_tools, register_skill_tool};
     use yode_tools::registry::ToolRegistry;
 
+    use crate::app::rendering::strip_ansi;
     use crate::app::{App, ChatEntry, ChatRole, PendingConfirmation};
 
     use super::{
@@ -871,6 +872,43 @@ mod tests {
             .actions
             .iter()
             .any(|action| action.label == "follow-up"));
+    }
+
+    #[test]
+    fn tool_output_panel_renders_markdown_aware_lines() {
+        let mut app = test_app();
+        app.chat_entries = vec![
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "a".to_string(),
+                    name: "read_file".to_string(),
+                },
+                r#"{"file_path":"/tmp/src/main.rs"}"#.to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolResult {
+                    id: "a".to_string(),
+                    name: "read_file".to_string(),
+                    is_error: false,
+                },
+                "# Heading\n\n| A | B |\n| --- | --- |\n| 1 | 2 |".to_string(),
+            ),
+        ];
+
+        let doc = build_latest_tool_document(&app).unwrap();
+        let output_panel = doc
+            .panels
+            .iter()
+            .find(|panel| panel.tab.label == "Output")
+            .expect("output panel");
+        let rendered = output_panel
+            .lines
+            .iter()
+            .map(|line| strip_ansi(line))
+            .collect::<Vec<_>>();
+        assert!(rendered.iter().any(|line| line.contains("Heading")));
+        assert!(rendered.iter().all(|line| line != "| A | B |"));
+        assert!(rendered.iter().all(|line| line != "| 1 | 2 |"));
     }
 
     #[test]
