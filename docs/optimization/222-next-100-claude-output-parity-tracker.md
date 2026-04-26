@@ -21,7 +21,7 @@
 
 当前进度：
 
-- `57 / 100` 已完成
+- `59 / 100` 已完成
 
 ## 001-010 Markdown Core
 
@@ -144,8 +144,8 @@
 
 - `[x]` 091 status-line wording parity audit
 - `[x]` 092 spinner verb audit against claude-code-rev
-- `[ ]` 093 tool label capitalization audit
-- `[ ]` 094 path compaction helper unification
+- `[x]` 093 tool label capitalization audit
+- `[x]` 094 path compaction helper unification
 - `[ ]` 095 hyperlink coverage audit
 - `[ ]` 096 system/error/tool inspector discoverability audit
 - `[ ]` 097 narrow terminal snapshot pass
@@ -166,4 +166,4 @@
   - `775d61e`, `3970110`
 
 - 下一步优先实现：
-  - `093 tool label capitalization audit`
+  - `080 scrollback narrow-width polish`

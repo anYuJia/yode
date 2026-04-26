@@ -7,6 +7,7 @@ use ratatui::Frame;
 use super::palette::{BORDER_MUTED, ERROR_COLOR, LIGHT, MUTED, PANEL_ACCENT, SELECT_BG};
 use super::panels::preview_empty_state;
 use crate::app::App;
+use crate::display_text::{compact_path_tail as compact_path, human_tool_display_name};
 use crate::tool_grouping::describe_groupable_tool_call;
 
 /// Render inline confirmation selector in a bottom-anchored panel.
@@ -282,15 +283,6 @@ fn tool_activity_summary(app: &App, tool_name: &str, args_json: &str) -> String 
     }
 }
 
-fn compact_path(path: &str) -> String {
-    let parts: Vec<&str> = path.rsplitn(3, '/').collect();
-    if parts.len() >= 3 {
-        format!(".../{}/{}", parts[1], parts[0])
-    } else {
-        path.to_string()
-    }
-}
-
 fn tool_display_name(app: &App, tool_name: &str) -> String {
     if let Some(tool) = app.tools.get(tool_name) {
         let label = tool.user_facing_name();
@@ -298,19 +290,7 @@ fn tool_display_name(app: &App, tool_name: &str) -> String {
             return label.to_string();
         }
     }
-
-    tool_name
-        .split('_')
-        .filter(|segment| !segment.is_empty())
-        .map(|segment| {
-            let mut chars = segment.chars();
-            match chars.next() {
-                Some(first) => first.to_uppercase().to_string() + chars.as_str(),
-                None => String::new(),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
+    human_tool_display_name(tool_name)
 }
 
 fn inline_confirm_height(density: ConfirmDensity) -> u16 {

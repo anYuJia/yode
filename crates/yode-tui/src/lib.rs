@@ -1,5 +1,6 @@
 pub mod app;
 pub mod commands;
+mod display_text;
 pub mod event;
 mod runtime_artifacts;
 mod runtime_display;

@@ -1,4 +1,5 @@
 use crate::app::{App, ChatEntry, ChatRole, InspectorView, PendingConfirmation};
+use crate::display_text::{compact_path_tail as compact_path, human_tool_display_name};
 use crate::tool_grouping::{
     describe_tool_call, detect_groupable_system_batch, detect_groupable_tool_batch,
     tool_batch_hint_text, tool_batch_progress_text, tool_batch_summary_text, SystemBatch,
@@ -1154,27 +1155,7 @@ fn tool_display_name(app: &App, tool_name: &str) -> String {
             return label.to_string();
         }
     }
-    tool_name
-        .split('_')
-        .filter(|segment| !segment.is_empty())
-        .map(|segment| {
-            let mut chars = segment.chars();
-            match chars.next() {
-                Some(first) => first.to_uppercase().to_string() + chars.as_str(),
-                None => String::new(),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-fn compact_path(path: &str) -> String {
-    let parts: Vec<&str> = path.rsplitn(3, '/').collect();
-    if parts.len() >= 3 {
-        format!(".../{}/{}", parts[1], parts[0])
-    } else {
-        path.to_string()
-    }
+    human_tool_display_name(tool_name)
 }
 
 fn tool_risk_hint(app: &App, tool_name: &str) -> Option<String> {

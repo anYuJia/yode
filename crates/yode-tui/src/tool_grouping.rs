@@ -1,6 +1,7 @@
 use serde_json::Value;
 
 use crate::app::{ChatEntry, ChatRole};
+use crate::display_text::compact_path_tail as compact_path;
 use crate::system_message::{parse_system_message, SystemMessageKind};
 
 pub(crate) fn should_hide_tool_from_transcript(name: &str) -> bool {
@@ -736,15 +737,6 @@ fn action_summary_part(
     };
     let noun = if count == 1 { singular } else { plural };
     format!("{} {} {}", verb, count, noun)
-}
-
-fn compact_path(path: &str) -> String {
-    let parts: Vec<&str> = path.rsplitn(3, '/').collect();
-    if parts.len() >= 3 {
-        format!(".../{}/{}", parts[1], parts[0])
-    } else {
-        path.to_string()
-    }
 }
 
 fn lsp_inspect_label(operation: &str) -> &'static str {

@@ -4,6 +4,7 @@ use ratatui::style::Color;
 
 use crate::app::rendering::truncate_line;
 use crate::app::{ChatEntry, ChatRole};
+use crate::display_text::human_tool_display_name;
 use crate::tool_grouping::{
     describe_tool_call, tool_batch_hint_text, tool_batch_progress_text, tool_batch_summary_text,
     ToolBatch,
@@ -456,30 +457,7 @@ fn tool_summary_str(name: &str, args: &serde_json::Value) -> String {
 }
 
 fn tool_display_name(name: &str) -> String {
-    match name {
-        "bash" => "Bash".to_string(),
-        "powershell" => "PowerShell".to_string(),
-        "lsp" => "LSP".to_string(),
-        "read_file" => "Read".to_string(),
-        "write_file" => "Write".to_string(),
-        "edit_file" => "Edit".to_string(),
-        "project_map" => "Project Map".to_string(),
-        "web_search" => "Web Search".to_string(),
-        "web_fetch" => "Web Fetch".to_string(),
-        "discover_skills" => "Discover Skills".to_string(),
-        other => other
-            .split('_')
-            .filter(|segment| !segment.is_empty())
-            .map(|segment| {
-                let mut chars = segment.chars();
-                match chars.next() {
-                    Some(first) => first.to_uppercase().to_string() + chars.as_str(),
-                    None => String::new(),
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(" "),
-    }
+    human_tool_display_name(name)
 }
 
 fn render_summary_lines(
