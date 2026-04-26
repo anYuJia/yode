@@ -34,7 +34,7 @@ pub(super) fn render_assistant(
     if let Some(reasoning) = &entry.reasoning {
         if !reasoning.trim().is_empty() {
             result.push((
-                "  ∴ Thinking…".to_string(),
+                "  ∴ Thinking… (ctrl+o to inspect)".to_string(),
                 dim.add_modifier(ratatui::style::Modifier::ITALIC),
             ));
             let render_width = crossterm::terminal::size()
@@ -165,7 +165,9 @@ mod tests {
             .iter()
             .map(|(line, _)| strip_ansi(line))
             .collect::<Vec<_>>();
-        assert!(rendered.iter().any(|line| line.contains("∴ Thinking")));
+        assert!(rendered
+            .iter()
+            .any(|line| line.contains("∴ Thinking… (ctrl+o to inspect)")));
         assert!(rendered.iter().any(|line| line.contains("Plan")));
         assert!(rendered.iter().any(|line| line.contains("• inspect")));
     }

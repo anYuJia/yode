@@ -16,7 +16,7 @@ pub(crate) fn render_assistant(
     if let Some(reasoning) = &entry.reasoning {
         if !reasoning.trim().is_empty() {
             lines.push(Line::from(vec![Span::styled(
-                "  ∴ Thinking…",
+                "  ∴ Thinking… (ctrl+o to inspect)",
                 Style::default()
                     .fg(PANEL_ACCENT)
                     .add_modifier(Modifier::ITALIC | Modifier::BOLD),
@@ -189,7 +189,9 @@ mod tests {
         );
         render_assistant(&mut lines, &entry, 120, false);
 
-        assert!(lines.iter().any(|line| line.to_string().contains("∴ Thinking")));
+        assert!(lines
+            .iter()
+            .any(|line| line.to_string().contains("∴ Thinking… (ctrl+o to inspect)")));
         assert!(lines.iter().any(|line| line.to_string().contains("Plan")));
         assert!(lines.iter().any(|line| line.to_string().contains("• inspect")));
         assert!(lines.iter().any(|line| {
