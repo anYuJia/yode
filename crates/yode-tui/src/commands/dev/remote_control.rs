@@ -719,10 +719,7 @@ impl Command for RemoteControlCommand {
             let bundle = export_remote_control_bundle(&project_root)
                 .map_err(|err| format!("Failed to export remote control bundle: {}", err))?;
             return Ok(CommandOutput::Message(match bundle {
-                Some(bundle) => format!(
-                    "Remote control bundle exported to: {}\nInspect: /inspect artifact bundle",
-                    bundle.display()
-                ),
+                Some(bundle) => remote_bundle_completion_message(&bundle),
                 None => "Remote control bundle unavailable: no remote control artifacts yet."
                     .to_string(),
             }));
@@ -730,6 +727,32 @@ impl Command for RemoteControlCommand {
 
         Err("Usage: /remote-control [plan [goal]|latest|session [status|sync]|transport [status|connect|disconnect|reconnect]|queue|dispatch <item>|run <item>|ingest <file>|complete <item> [summary]|fail <item> [reason]|retry <item>|ack <item>|tasks|monitor|follow <id>|retry-summary|handoff <id>|doctor|bundle]".to_string())
     }
+}
+
+fn remote_bundle_completion_message(bundle_dir: &std::path::Path) -> String {
+    let mut names = std::fs::read_dir(bundle_dir)
+        .ok()
+        .into_iter()
+        .flat_map(|entries| entries.filter_map(Result::ok))
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .collect::<Vec<_>>();
+    names.sort();
+    let preview = names.iter().take(4).cloned().collect::<Vec<_>>().join(", ");
+    let extra = names.len().saturating_sub(4);
+    format!(
+        "Remote control bundle exported to: {}\n  Files: {}{}\n  Inspect: /inspect artifact bundle",
+        bundle_dir.display(),
+        if preview.is_empty() {
+            "none".to_string()
+        } else {
+            preview
+        },
+        if extra == 0 {
+            String::new()
+        } else {
+            format!(" · +{} more", extra)
+        }
+    )
 }
 
 fn remote_control_footer(path: &std::path::Path) -> String {
@@ -756,6 +779,32 @@ fn remote_control_footer(path: &std::path::Path) -> String {
         lines.push(stale);
     }
     lines.join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::remote_bundle_completion_message;
+
+    #[test]
+    fn remote_bundle_completion_message_is_dense() {
+        let dir = std::env::temp_dir().join(format!("yode-remote-bundle-{}", uuid::Uuid::new_v4()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in [
+            "remote-control.md",
+            "remote-control-session.json",
+            "remote-command-queue.md",
+            "remote-task-handoff.md",
+            "remote-live-session.md",
+        ] {
+            std::fs::write(dir.join(name), "x").unwrap();
+        }
+        let summary = remote_bundle_completion_message(&dir);
+        assert!(summary.contains("Remote control bundle exported to:"));
+        assert!(summary.contains("remote-control.md"));
+        assert!(summary.contains("+1 more"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 fn open_remote_transport_inspector(project_root: &std::path::Path) -> CommandResult {

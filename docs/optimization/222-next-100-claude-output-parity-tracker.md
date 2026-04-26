@@ -21,7 +21,7 @@
 
 当前进度：
 
-- `53 / 100` 已完成
+- `55 / 100` 已完成
 
 ## 001-010 Markdown Core
 
@@ -136,8 +136,8 @@
 - `[x]` 085 bundle lookup resolves from nested cwd
 - `[x]` 086 export workspace index density pass
 - `[x]` 087 doctor bundle summary density pass
-- `[ ]` 088 remote bundle summary density pass
-- `[ ]` 089 artifact preview truncation parity
+- `[x]` 088 remote bundle summary density pass
+- `[x]` 089 artifact preview truncation parity
 - `[x]` 090 exported transcript readability pass
 
 ## 091-100 Final Polish
@@ -166,4 +166,4 @@
   - `775d61e`, `3970110`
 
 - 下一步优先实现：
-  - `089 artifact preview truncation parity`
+  - `080 scrollback narrow-width polish`

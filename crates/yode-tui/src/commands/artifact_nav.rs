@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
+
 use std::time::SystemTime;
 
 use chrono::{DateTime, Local};
@@ -736,18 +737,42 @@ fn preview_artifact(path: &Path) -> String {
     std::fs::read_to_string(path)
         .ok()
         .map(|content| {
-            content
+            let preview_lines = content
                 .lines()
                 .map(str::trim)
                 .filter(|line| {
                     !line.is_empty() && !line.starts_with('#') && !line.starts_with("```")
                 })
                 .take(2)
-                .collect::<Vec<_>>()
-                .join(" | ")
+                .map(|line| truncate_artifact_preview_line(line, 72))
+                .collect::<Vec<_>>();
+            let hidden_lines = content
+                .lines()
+                .map(str::trim)
+                .filter(|line| {
+                    !line.is_empty() && !line.starts_with('#') && !line.starts_with("```")
+                })
+                .count()
+                .saturating_sub(preview_lines.len());
+            let mut preview = preview_lines.join(" | ");
+            if hidden_lines > 0 {
+                preview.push_str(&format!(" | +{} more lines", hidden_lines));
+            }
+            preview
         })
         .filter(|preview| !preview.is_empty())
         .unwrap_or_else(|| "no preview".to_string())
+}
+
+fn truncate_artifact_preview_line(text: &str, max_chars: usize) -> String {
+    let squashed = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if squashed.chars().count() <= max_chars {
+        return squashed;
+    }
+    format!(
+        "{}...",
+        squashed.chars().take(max_chars).collect::<String>()
+    )
 }
 
 fn render_timeline_entries(
@@ -808,8 +833,8 @@ mod tests {
     use super::{
         artifact_display_line, artifact_freshness_badge,
         build_runtime_orchestration_timeline_lines, export_bundle_root, latest_artifact_by_suffix,
-        latest_bundle_workspace_index, open_artifact_inspector, recent_artifacts_by_suffix,
-        recent_bundle_workspace_indexes, resolve_artifact_basename,
+        latest_bundle_workspace_index, open_artifact_inspector, preview_artifact,
+        recent_artifacts_by_suffix, recent_bundle_workspace_indexes, resolve_artifact_basename,
         write_runtime_orchestration_timeline_artifact,
     };
 
@@ -897,6 +922,25 @@ mod tests {
             .badges
             .iter()
             .any(|(label, value)| label == "kind" && value == "demo"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn artifact_preview_truncates_and_reports_hidden_lines() {
+        let dir = std::env::temp_dir().join(format!("yode-artifact-preview-{}", uuid::Uuid::new_v4()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("preview.md");
+        std::fs::write(
+            &path,
+            "# Demo\n\nThis is a very long first line that should be truncated because it keeps going past the preview budget for artifact timeline summaries.\nSecond line stays visible.\nThird line should be counted as hidden.\n",
+        )
+        .unwrap();
+        let preview = preview_artifact(&path);
+        assert!(preview.contains("This is a very long first line"));
+        assert!(preview.contains("Second line stays visible."));
+        assert!(preview.contains("+1 more lines"));
+        assert!(preview.contains("..."));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
