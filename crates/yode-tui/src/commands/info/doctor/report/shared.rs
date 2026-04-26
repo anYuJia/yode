@@ -126,7 +126,7 @@ pub(super) fn support_handoff_template(
     report_names: &[&str],
 ) -> String {
     format!(
-        "# Support Handoff\n\n- Bundle: {}\n- Included reports:\n{}\n\n```text\nWhat to inspect first: local-doctor.txt, bundle-overview.txt, runtime-timeline.md, runtime-tasks.md, prompt-cache.md\nIf runtime stalls or hook failures are suspected, inspect hook-failures.md, runtime-timeline.md, runtime-tasks.md, prompt-cache-break.json, and prompt-cache-diff.md\nIf compaction behavior looks suspicious, inspect post-compact-restore.md, post-compact-restore-state.json, and post-compact-restore-diff.md\n```\n",
+        "# Support Handoff\n\n- Bundle: {}\n- Included reports:\n{}\n\n## Inspect First\n\n- local-doctor.txt\n- bundle-overview.txt\n- runtime-timeline.md\n- runtime-tasks.md\n- prompt-cache.md\n\n## If Runtime Stalls Or Hooks Fail\n\n- hook-failures.md\n- runtime-timeline.md\n- runtime-tasks.md\n- prompt-cache-break.json\n- prompt-cache-diff.md\n\n## If Compaction Looks Wrong\n\n- post-compact-restore.md\n- post-compact-restore-state.json\n- post-compact-restore-diff.md\n",
         bundle_dir.display(),
         doctor_checklist(report_names)
     )
@@ -186,6 +186,7 @@ mod tests {
         let handoff =
             support_handoff_template(std::path::Path::new("/tmp/bundle"), &["local-doctor.txt"]);
         assert!(handoff.contains("Support Handoff"));
+        assert!(handoff.contains("## Inspect First"));
         assert!(handoff.contains("runtime-tasks.md"));
     }
 

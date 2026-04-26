@@ -18,7 +18,7 @@
 
 当前进度：
 
-- `28 / 100` 已完成
+- `30 / 100` 已完成
 
 ## 001-010 Snapshot Hardening
 
@@ -104,12 +104,12 @@
 - `[ ]` 062 conversation export role heading polish
 - `[ ]` 063 conversation export spacing polish
 - `[ ]` 064 diagnostics bundle completion copy audit
-- `[ ]` 065 doctor handoff template density pass
+- `[x]` 065 doctor handoff template density pass
 - `[ ]` 066 artifact history line ordering audit
 - `[ ]` 067 artifact preview label consistency
 - `[ ]` 068 artifact freshness badge wording pass
 - `[ ]` 069 export filename/path compactness audit
-- `[ ]` 070 benchmark snapshot output polish
+- `[x]` 070 benchmark snapshot output polish
 
 ## 071-080 Hyperlinks / Markdown Edge Cases
 
