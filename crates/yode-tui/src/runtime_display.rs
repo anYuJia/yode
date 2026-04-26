@@ -67,8 +67,8 @@ pub(crate) fn format_tool_progress_summary(
 ) -> String {
     match (tool_name, message, at) {
         (None, None, None) => "none".to_string(),
-        (Some(tool), Some(message), Some(at)) => format!("{}: {} @ {}", tool, message, at),
-        (Some(tool), Some(message), None) => format!("{}: {}", tool, message),
+        (Some(tool), Some(message), Some(at)) => format!("{} · {} @ {}", tool, message, at),
+        (Some(tool), Some(message), None) => format!("{} · {}", tool, message),
         (Some(tool), None, Some(at)) => format!("{} @ {}", tool, at),
         (Some(tool), None, None) => tool.to_string(),
         (None, Some(message), Some(at)) => format!("{} @ {}", message, at),
@@ -374,7 +374,7 @@ mod tests {
     fn tool_progress_summary_includes_timestamp_when_available() {
         assert_eq!(
             format_tool_progress_summary(Some("bash"), Some("running tests"), Some("10:00")),
-            "bash: running tests @ 10:00"
+            "bash · running tests @ 10:00"
         );
     }
 
