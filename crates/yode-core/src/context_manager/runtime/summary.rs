@@ -139,7 +139,7 @@ pub(crate) fn context_summary_lines(
     lines
 }
 
-fn excerpt(text: &str, limit: usize) -> Option<String> {
+pub(super) fn excerpt(text: &str, limit: usize) -> Option<String> {
     let squashed = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if squashed.is_empty() {
         return None;

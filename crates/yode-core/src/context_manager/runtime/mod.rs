@@ -49,18 +49,35 @@ impl ContextManager {
     pub fn new(model: &str) -> Self {
         Self {
             limits: ModelLimits::for_model(model),
-            threshold: 0.75,
+            warning_threshold: 0.90,
+            auto_compact_threshold: 0.93,
+            blocking_threshold: 0.97,
             last_known_prompt_tokens: None,
             last_known_char_count: None,
         }
     }
 
-    /// Check if the current token usage suggests we should compress.
-    pub fn should_compress(&mut self, prompt_tokens: u32, messages: &[Message]) -> bool {
+    pub fn assess_prompt_pressure(
+        &mut self,
+        prompt_tokens: u32,
+        messages: &[Message],
+    ) -> ContextPressure {
         self.last_known_prompt_tokens = Some(prompt_tokens);
         let char_count = messages_char_count(messages);
         self.last_known_char_count = Some(char_count);
-        (prompt_tokens as f64) > (self.limits.context_window as f64 * self.threshold)
+        self.assess_tokens(prompt_tokens as usize)
+    }
+
+    pub fn assess_message_pressure(&self, messages: &[Message]) -> ContextPressure {
+        self.assess_tokens(self.estimate_tokens(messages))
+    }
+
+    /// Check if the current token usage suggests we should compress.
+    pub fn should_compress(&mut self, prompt_tokens: u32, messages: &[Message]) -> bool {
+        matches!(
+            self.assess_prompt_pressure(prompt_tokens, messages).level,
+            ContextPressureLevel::AutoCompact | ContextPressureLevel::Blocking
+        )
     }
 
     /// Estimate token count for the given messages.
@@ -76,8 +93,16 @@ impl ContextManager {
         self.limits.context_window
     }
 
+    pub fn warning_threshold_tokens(&self) -> usize {
+        (self.limits.context_window as f64 * self.warning_threshold) as usize
+    }
+
     pub fn compression_threshold_tokens(&self) -> usize {
-        (self.limits.context_window as f64 * self.threshold) as usize
+        (self.limits.context_window as f64 * self.auto_compact_threshold) as usize
+    }
+
+    pub fn blocking_threshold_tokens(&self) -> usize {
+        (self.limits.context_window as f64 * self.blocking_threshold) as usize
     }
 
     pub fn estimate_tokens_for_messages(&self, messages: &[Message]) -> usize {
@@ -85,7 +110,32 @@ impl ContextManager {
     }
 
     pub fn exceeds_threshold_estimate(&self, messages: &[Message]) -> bool {
-        (self.estimate_tokens(messages) as f64)
-            > (self.limits.context_window as f64 * self.threshold)
+        matches!(
+            self.assess_message_pressure(messages).level,
+            ContextPressureLevel::AutoCompact | ContextPressureLevel::Blocking
+        )
+    }
+
+    fn assess_tokens(&self, observed_tokens: usize) -> ContextPressure {
+        let warning_threshold_tokens = self.warning_threshold_tokens();
+        let auto_compact_threshold_tokens = self.compression_threshold_tokens();
+        let blocking_threshold_tokens = self.blocking_threshold_tokens();
+        let level = if observed_tokens >= blocking_threshold_tokens {
+            ContextPressureLevel::Blocking
+        } else if observed_tokens >= auto_compact_threshold_tokens {
+            ContextPressureLevel::AutoCompact
+        } else if observed_tokens >= warning_threshold_tokens {
+            ContextPressureLevel::Warning
+        } else {
+            ContextPressureLevel::Normal
+        };
+
+        ContextPressure {
+            observed_tokens,
+            warning_threshold_tokens,
+            auto_compact_threshold_tokens,
+            blocking_threshold_tokens,
+            level,
+        }
     }
 }

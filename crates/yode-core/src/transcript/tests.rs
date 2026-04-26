@@ -14,6 +14,7 @@ fn writes_compaction_transcript_file() {
         removed: 4,
         tool_results_truncated: 1,
         summary: Some("[Context summary] previous state".to_string()),
+        removed_messages: vec![],
     };
     let messages = vec![
         Message::user("hello"),

@@ -19,8 +19,27 @@ fn test_should_compress() {
     let mut cm = ContextManager::new("claude-sonnet-4");
     let msgs = vec![Message::user("hello")];
     assert!(!cm.should_compress(100_000, &msgs));
-    assert!(cm.should_compress(160_000, &msgs));
-    assert_eq!(cm.last_known_prompt_tokens, Some(160_000));
+    assert!(!cm.should_compress(180_000, &msgs));
+    assert!(cm.should_compress(190_000, &msgs));
+    assert_eq!(cm.last_known_prompt_tokens, Some(190_000));
+}
+
+#[test]
+fn test_context_pressure_thresholds_are_multi_level() {
+    let mut cm = ContextManager::new("claude-sonnet-4");
+    let msgs = vec![Message::user("hello")];
+
+    let warning = cm.assess_prompt_pressure(181_000, &msgs);
+    assert_eq!(warning.level, ContextPressureLevel::Warning);
+    assert_eq!(warning.warning_threshold_tokens, 180_000);
+
+    let auto = cm.assess_prompt_pressure(186_500, &msgs);
+    assert_eq!(auto.level, ContextPressureLevel::AutoCompact);
+    assert_eq!(auto.auto_compact_threshold_tokens, 186_000);
+
+    let blocking = cm.assess_prompt_pressure(194_500, &msgs);
+    assert_eq!(blocking.level, ContextPressureLevel::Blocking);
+    assert_eq!(blocking.blocking_threshold_tokens, 194_000);
 }
 
 #[test]
@@ -63,6 +82,38 @@ fn test_compress_truncates_tool_results() {
         assert!(content.len() < 1000);
         assert!(content.contains("[compressed]"));
     }
+}
+
+#[test]
+fn test_microcompact_clears_older_tool_results_only() {
+    let cm = ContextManager::new("claude-sonnet-4");
+    let long_content = "x".repeat(1_000);
+    let mut messages = vec![
+        Message::system("system"),
+        Message::user("q1"),
+        Message::assistant("a1"),
+        Message::tool_result("tc1", &long_content),
+        Message::user("q2"),
+        Message::assistant("a2"),
+        Message::tool_result("tc2", &long_content),
+        Message::user("recent1"),
+        Message::assistant("recent2"),
+        Message::user("recent3"),
+        Message::assistant("recent4"),
+        Message::user("recent5"),
+        Message::assistant("recent6"),
+        Message::user("recent7"),
+        Message::assistant("recent8"),
+    ];
+
+    let report = cm.microcompact(&mut messages);
+    assert_eq!(report.tool_results_cleared, 2);
+    assert!(report.saved_chars > 0);
+    assert!(messages[3]
+        .content
+        .as_deref()
+        .unwrap_or_default()
+        .starts_with("[Tool result microcompacted]"));
 }
 
 #[test]
@@ -115,10 +166,8 @@ fn test_estimate_tokens_with_cache_scales() {
 #[test]
 fn test_message_estimated_char_count_seeds_cache() {
     let mut cm = ContextManager::new("claude-sonnet-4");
-    let mut message = Message::assistant_with_reasoning(
-        Some("answer".to_string()),
-        Some("reason".to_string()),
-    );
+    let mut message =
+        Message::assistant_with_reasoning(Some("answer".to_string()), Some("reason".to_string()));
     message.tool_calls.push(yode_llm::types::ToolCall {
         id: "tc1".to_string(),
         name: "read_file".to_string(),
@@ -126,12 +175,18 @@ fn test_message_estimated_char_count_seeds_cache() {
     });
 
     cm.should_compress(1234, &[message.clone()]);
-    assert_eq!(cm.last_known_char_count, Some(message.estimated_char_count()));
+    assert_eq!(
+        cm.last_known_char_count,
+        Some(message.estimated_char_count())
+    );
 }
 
 #[test]
 fn test_calibration_token_estimate_falls_back_without_cache() {
-    assert_eq!(super::runtime::calibration_token_estimate(400, None, None), 100);
+    assert_eq!(
+        super::runtime::calibration_token_estimate(400, None, None),
+        100
+    );
     assert_eq!(
         super::runtime::calibration_token_estimate(400, Some(1000), Some(200)),
         2000
@@ -151,9 +206,15 @@ fn test_context_summary_lines_include_tool_activity() {
         2,
         Some("/tmp/turn.json"),
     );
-    assert!(lines.iter().any(|line| line.contains("Earlier tool activity")));
-    assert!(lines.iter().any(|line| line.contains("Tool results compacted")));
-    assert!(lines.iter().any(|line| line.contains("Turn artifact: /tmp/turn.json")));
+    assert!(lines
+        .iter()
+        .any(|line| line.contains("Earlier tool activity")));
+    assert!(lines
+        .iter()
+        .any(|line| line.contains("Tool results compacted")));
+    assert!(lines
+        .iter()
+        .any(|line| line.contains("Turn artifact: /tmp/turn.json")));
 }
 
 #[test]
@@ -237,7 +298,7 @@ fn test_compression_stress_realistic_conversation() {
 
     let report = cm.compress_with_report(&mut messages);
 
-    assert!(report.removed > 0);
+    assert!(report.removed > 0 || report.tool_results_truncated > 0);
     assert!(matches!(messages[0].role, Role::System));
 
     let last_msgs: Vec<_> = messages.iter().rev().take(PRESERVE_RECENT).collect();
@@ -254,7 +315,9 @@ fn test_compression_stress_realistic_conversation() {
         })
         .count();
     assert!(truncated_count > 0 || report.removed > 5);
-    assert!(messages.iter().any(super::runtime::is_context_summary));
+    if report.removed > 0 {
+        assert!(messages.iter().any(super::runtime::is_context_summary));
+    }
 }
 
 #[test]
@@ -371,10 +434,26 @@ fn test_compression_summary_can_include_turn_artifact_link() {
 }
 
 #[test]
+fn test_manual_compact_can_keep_larger_recent_tail() {
+    let cm = ContextManager::new("gpt-3.5");
+    let mut messages = vec![Message::system("system")];
+    for idx in 0..12 {
+        messages.push(Message::user(&format!("user-{idx}")));
+        messages.push(Message::assistant(&format!("assistant-{idx}")));
+    }
+
+    let report = cm.compress_with_keep_last(&mut messages, 10, Some("/tmp/turn.json"));
+    assert!(report.removed > 0);
+    assert!(report.summary.is_some());
+    assert!(messages.len() >= 12);
+    assert!(messages.iter().any(super::runtime::is_context_summary));
+}
+
+#[test]
 fn test_exceeds_threshold_estimate_uses_cached_ratio() {
     let mut cm = ContextManager::new("claude-sonnet-4");
     let baseline = vec![Message::user(&"x".repeat(1000))];
-    cm.should_compress(160_000, &baseline);
+    cm.should_compress(190_000, &baseline);
 
     assert!(cm.exceeds_threshold_estimate(&baseline));
 

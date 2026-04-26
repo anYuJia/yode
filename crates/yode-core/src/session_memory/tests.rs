@@ -16,11 +16,13 @@ fn prepends_newer_session_memory_entries() {
         removed: 3,
         tool_results_truncated: 1,
         summary: Some("first summary".to_string()),
+        removed_messages: vec![],
     };
     let second = CompressionReport {
         removed: 7,
         tool_results_truncated: 0,
         summary: Some("second summary".to_string()),
+        removed_messages: vec![],
     };
 
     persist_compaction_memory(project_root, "session-one", &first, &HashMap::new(), &[]).unwrap();
@@ -48,6 +50,7 @@ fn includes_relative_file_summaries() {
         removed: 5,
         tool_results_truncated: 2,
         summary: Some("summary".to_string()),
+        removed_messages: vec![],
     };
 
     let mut files_read = HashMap::new();
@@ -82,11 +85,17 @@ fn preserves_turn_artifact_cross_link_from_compaction_summary() {
         summary: Some(
             "[Context summary] Older conversation was compacted to stay within the model window.\n- Removed messages: 5\n- Turn artifact: /tmp/latest-turn.json".to_string(),
         ),
+        removed_messages: vec![],
     };
 
-    let path =
-        persist_compaction_memory(project_root, "session-artifact", &report, &HashMap::new(), &[])
-            .unwrap();
+    let path = persist_compaction_memory(
+        project_root,
+        "session-artifact",
+        &report,
+        &HashMap::new(),
+        &[],
+    )
+    .unwrap();
     let content = std::fs::read_to_string(path).unwrap();
 
     assert!(content.contains("Turn artifact: /tmp/latest-turn.json"));
