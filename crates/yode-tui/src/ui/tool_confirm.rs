@@ -303,10 +303,12 @@ fn tool_preview_line(tool_name: &str, args_json: &str) -> String {
         ),
         "read_file" | "write_file" | "edit_file" | "multi_edit" => format!(
             "path · {}",
-            parsed
-                .get("file_path")
-                .and_then(|value| value.as_str())
-                .unwrap_or("file")
+            compact_path(
+                parsed
+                    .get("file_path")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("file")
+            )
         ),
         "web_search" => format!(
             "query · {}",
@@ -328,10 +330,12 @@ fn tool_preview_line(tool_name: &str, args_json: &str) -> String {
                 .get("operation")
                 .and_then(|value| value.as_str())
                 .unwrap_or("query"),
-            parsed
-                .get("filePath")
-                .and_then(|value| value.as_str())
-                .unwrap_or("file")
+            compact_path(
+                parsed
+                    .get("filePath")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("file")
+            )
         ),
         "batch" => format!(
             "parallel calls · {}",
@@ -354,9 +358,16 @@ fn tool_preview_line(tool_name: &str, args_json: &str) -> String {
                     "name",
                 ]
                 .iter()
-                .find_map(|key| object.get(*key).and_then(|value| value.as_str()))
+                .find_map(|key| object.get(*key).and_then(|value| value.as_str()).map(|value| (*key, value)))
             })
-            .map(|value| format!("preview · {}", value))
+            .map(|(key, value)| {
+                let value = if matches!(key, "path" | "file_path") {
+                    compact_path(value)
+                } else {
+                    value.to_string()
+                };
+                format!("preview · {}", value)
+            })
             .unwrap_or_else(|| "preview unavailable".to_string()),
     }
 }
@@ -417,6 +428,12 @@ mod tests {
     fn confirmation_preview_line_uses_key_fields() {
         let preview = tool_preview_line("bash", r#"{"command":"cargo test -p yode-tui"}"#);
         assert!(preview.contains("command · cargo test -p yode-tui"));
+    }
+
+    #[test]
+    fn confirmation_preview_line_compacts_paths() {
+        let preview = tool_preview_line("read_file", r#"{"file_path":"/tmp/src/main.rs"}"#);
+        assert_eq!(preview, "path · .../src/main.rs");
     }
 
     #[test]

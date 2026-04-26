@@ -642,7 +642,8 @@ fn primary_followup_prompt(
     {
         return Some(format!(
             "Inspect {} and summarize the most relevant details from the last {} step.",
-            file_path, tool_name
+            compact_path(file_path),
+            tool_name
         ));
     }
 
@@ -745,6 +746,15 @@ fn tool_display_name(app: &App, tool_name: &str) -> String {
         .join(" ")
 }
 
+fn compact_path(path: &str) -> String {
+    let parts: Vec<&str> = path.rsplitn(3, '/').collect();
+    if parts.len() >= 3 {
+        format!(".../{}/{}", parts[1], parts[0])
+    } else {
+        path.to_string()
+    }
+}
+
 fn tool_risk_hint(app: &App, tool_name: &str) -> Option<String> {
     if let Some(tool) = app.tools.get(tool_name) {
         if tool.capabilities().read_only {
@@ -777,7 +787,8 @@ mod tests {
     use crate::app::{App, ChatEntry, ChatRole, PendingConfirmation};
 
     use super::{
-        build_latest_tool_document, build_pending_confirmation_document, INSPECTOR_CONFIRM_ALLOW,
+        build_latest_tool_document, build_pending_confirmation_document, primary_followup_prompt,
+        INSPECTOR_CONFIRM_ALLOW,
     };
 
     fn test_app() -> App {
@@ -961,5 +972,12 @@ mod tests {
             .panels
             .iter()
             .any(|panel| panel.lines.iter().any(|line| line.contains("Context limit reached"))));
+    }
+
+    #[test]
+    fn follow_up_prompt_compacts_file_paths() {
+        let args = serde_json::json!({"file_path": "/tmp/src/main.rs"});
+        let prompt = primary_followup_prompt("Read", "read_file", &args, None).unwrap();
+        assert!(prompt.contains(".../src/main.rs"));
     }
 }
