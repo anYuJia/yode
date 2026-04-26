@@ -206,7 +206,11 @@ mod tests {
     use super::NotebookEditTool;
 
     fn temp_path(name: &str) -> std::path::PathBuf {
-        std::env::temp_dir().join(format!("yode-notebook-edit-{}-{}", name, uuid::Uuid::new_v4()))
+        std::env::temp_dir().join(format!(
+            "yode-notebook-edit-{}-{}",
+            name,
+            uuid::Uuid::new_v4()
+        ))
     }
 
     fn sample_notebook() -> serde_json::Value {
@@ -236,9 +240,12 @@ mod tests {
     #[tokio::test]
     async fn notebook_edit_requires_preread() {
         let path = temp_path("preread.ipynb");
-        tokio::fs::write(&path, serde_json::to_string_pretty(&sample_notebook()).unwrap())
-            .await
-            .unwrap();
+        tokio::fs::write(
+            &path,
+            serde_json::to_string_pretty(&sample_notebook()).unwrap(),
+        )
+        .await
+        .unwrap();
 
         let history = Arc::new(Mutex::new(HashSet::new()));
         let mut ctx = ToolContext::empty();
@@ -266,9 +273,12 @@ mod tests {
     #[tokio::test]
     async fn notebook_edit_replace_resets_code_outputs() {
         let path = temp_path("replace.ipynb");
-        tokio::fs::write(&path, serde_json::to_string_pretty(&sample_notebook()).unwrap())
-            .await
-            .unwrap();
+        tokio::fs::write(
+            &path,
+            serde_json::to_string_pretty(&sample_notebook()).unwrap(),
+        )
+        .await
+        .unwrap();
 
         let mut seen = HashSet::new();
         seen.insert(path.clone());
@@ -302,9 +312,12 @@ mod tests {
     #[tokio::test]
     async fn notebook_edit_insert_and_delete_change_cell_count() {
         let path = temp_path("insert-delete.ipynb");
-        tokio::fs::write(&path, serde_json::to_string_pretty(&sample_notebook()).unwrap())
-            .await
-            .unwrap();
+        tokio::fs::write(
+            &path,
+            serde_json::to_string_pretty(&sample_notebook()).unwrap(),
+        )
+        .await
+        .unwrap();
 
         let mut seen = HashSet::new();
         seen.insert(path.clone());

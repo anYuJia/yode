@@ -91,10 +91,7 @@ pub(crate) fn extract_text_content(call_result: &rmcp::model::CallToolResult) ->
     output
 }
 
-pub(crate) fn build_call_request(
-    original_name: &str,
-    params: Value,
-) -> CallToolRequestParams {
+pub(crate) fn build_call_request(original_name: &str, params: Value) -> CallToolRequestParams {
     let mut request = CallToolRequestParams::new(original_name.to_string());
     if let Some(obj) = params.as_object() {
         request = request.with_arguments(obj.clone());
@@ -167,17 +164,18 @@ impl Tool for McpToolWrapper {
             tool = %self.original_name,
             "Calling MCP tool"
         );
-        Ok(
-            execute_with_caller(
-                &self.server_name,
-                &self.original_name,
-                params,
-                |request| async move {
-                    self.peer.call_tool(request).await.map_err(|e| e.to_string())
-                },
-            )
-            .await,
+        Ok(execute_with_caller(
+            &self.server_name,
+            &self.original_name,
+            params,
+            |request| async move {
+                self.peer
+                    .call_tool(request)
+                    .await
+                    .map_err(|e| e.to_string())
+            },
         )
+        .await)
     }
 }
 
@@ -223,10 +221,7 @@ mod tests {
 
     #[test]
     fn extract_text_content_joins_multiple_text_blocks() {
-        let result = CallToolResult::success(vec![
-            Content::text("first"),
-            Content::text("second"),
-        ]);
+        let result = CallToolResult::success(vec![Content::text("first"), Content::text("second")]);
         assert_eq!(extract_text_content(&result), "first\nsecond");
     }
 
@@ -253,7 +248,10 @@ mod tests {
             serde_json::json!({"state":"open"}),
             |request| async move {
                 assert_eq!(request.name.as_ref(), "list_prs");
-                assert_eq!(request.arguments.unwrap()["state"], serde_json::json!("open"));
+                assert_eq!(
+                    request.arguments.unwrap()["state"],
+                    serde_json::json!("open")
+                );
                 Ok(CallToolResult::success(vec![Content::text("done")]))
             },
         )

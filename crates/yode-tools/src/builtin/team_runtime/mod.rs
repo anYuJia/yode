@@ -120,8 +120,16 @@ pub fn persist_agent_team_runtime(
         latest_message_count: load_team_messages(working_dir, &team_id)
             .map(|messages| messages.len())
             .unwrap_or(0),
-        latest_message_artifact: Some(team_messages_path(working_dir, &team_id).display().to_string()),
-        latest_bundle_artifact: Some(team_bundle_path(working_dir, &team_id).display().to_string()),
+        latest_message_artifact: Some(
+            team_messages_path(working_dir, &team_id)
+                .display()
+                .to_string(),
+        ),
+        latest_bundle_artifact: Some(
+            team_bundle_path(working_dir, &team_id)
+                .display()
+                .to_string(),
+        ),
         members,
     };
     write_agent_team_state(working_dir, &state)
@@ -162,7 +170,11 @@ pub fn update_agent_team_member(
 ) -> Result<AgentTeamArtifactSet> {
     let mut state = load_agent_team_state(working_dir, team_id)?
         .ok_or_else(|| anyhow::anyhow!("Team '{}' not found.", team_id))?;
-    if let Some(member) = state.members.iter_mut().find(|member| member.member_id == member_id) {
+    if let Some(member) = state
+        .members
+        .iter_mut()
+        .find(|member| member.member_id == member_id)
+    {
         member.status = status.to_string();
         if runtime_task_id.is_some() {
             member.runtime_task_id = runtime_task_id;
@@ -271,7 +283,12 @@ pub fn render_agent_team_monitor(
             .into_iter()
             .rev()
             .take(6)
-            .map(|entry| format!("- {} [{}:{}] {}", entry.at, entry.target, entry.kind, entry.message))
+            .map(|entry| {
+                format!(
+                    "- {} [{}:{}] {}",
+                    entry.at, entry.target, entry.kind, entry.message
+                )
+            })
             .collect::<Vec<_>>()
     } else {
         Vec::new()
@@ -601,7 +618,10 @@ fn team_bundle_path(working_dir: &Path, team_id: &str) -> PathBuf {
     teams_dir(working_dir).join(format!("{}-agent-team-bundle.md", sanitize_id(team_id)))
 }
 
-fn write_agent_team_state(working_dir: &Path, state: &AgentTeamState) -> Result<AgentTeamArtifactSet> {
+fn write_agent_team_state(
+    working_dir: &Path,
+    state: &AgentTeamState,
+) -> Result<AgentTeamArtifactSet> {
     let dir = teams_dir(working_dir);
     std::fs::create_dir_all(&dir)?;
     let state_path = team_state_path(working_dir, &state.team_id);
@@ -616,7 +636,10 @@ fn write_agent_team_state(working_dir: &Path, state: &AgentTeamState) -> Result<
         &monitor_path,
         render_agent_team_monitor(working_dir, Some(&state.team_id), None, true)?,
     )?;
-    std::fs::write(&bundle_path, render_team_bundle(state, messages_path.as_path()))?;
+    std::fs::write(
+        &bundle_path,
+        render_team_bundle(state, messages_path.as_path()),
+    )?;
     if !messages_path.exists() {
         std::fs::write(&messages_path, "# Agent Team Messages\n\n- none\n")?;
     }
@@ -672,7 +695,8 @@ fn render_team_summary(state: &AgentTeamState) -> String {
 }
 
 fn render_team_bundle(state: &AgentTeamState, messages_path: &Path) -> String {
-    let messages = std::fs::read_to_string(messages_path).unwrap_or_else(|_| "# Agent Team Messages\n\n- none\n".to_string());
+    let messages = std::fs::read_to_string(messages_path)
+        .unwrap_or_else(|_| "# Agent Team Messages\n\n- none\n".to_string());
     format!(
         "# Agent Team Bundle\n\n- Team: {}\n- Goal: {}\n- State updated: {}\n- Message artifact: {}\n\n## Team Summary\n\n{}\n\n## Messages\n\n{}\n",
         state.team_id,
@@ -714,7 +738,10 @@ fn load_team_messages(working_dir: &Path, team_id: &str) -> Option<Vec<AgentTeam
         if !line.starts_with("- ") {
             continue;
         }
-        let parts = line.trim_start_matches("- ").split(" | ").collect::<Vec<_>>();
+        let parts = line
+            .trim_start_matches("- ")
+            .split(" | ")
+            .collect::<Vec<_>>();
         if parts.len() < 4 {
             continue;
         }
@@ -739,7 +766,13 @@ fn default_team_id(goal: &str) -> String {
 
 fn sanitize_id(raw: &str) -> String {
     raw.chars()
-        .map(|ch| if ch.is_ascii_alphanumeric() { ch.to_ascii_lowercase() } else { '-' })
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
         .collect::<String>()
         .trim_matches('-')
         .to_string()
@@ -761,8 +794,8 @@ fn now_string() -> String {
 mod tests {
     use super::{
         append_agent_team_message, latest_agent_team_file, persist_agent_team_runtime,
-        render_agent_team_monitor, update_agent_team_member, AgentTeamMemberState, TeamCreateTool,
-        TeamMonitorTool, SendMessageTool,
+        render_agent_team_monitor, update_agent_team_member, AgentTeamMemberState, SendMessageTool,
+        TeamCreateTool, TeamMonitorTool,
     };
     use crate::runtime_tasks::RuntimeTaskStore;
     use crate::tool::{Tool, ToolContext};
@@ -835,7 +868,8 @@ mod tests {
         .unwrap();
         append_agent_team_message(dir.path(), "team-demo", "review", "handoff", "check tests")
             .unwrap();
-        let rendered = render_agent_team_monitor(dir.path(), Some("team-demo"), None, true).unwrap();
+        let rendered =
+            render_agent_team_monitor(dir.path(), Some("team-demo"), None, true).unwrap();
         assert!(rendered.contains("task-1"));
         assert!(rendered.contains("check tests"));
     }
@@ -924,12 +958,10 @@ mod tests {
             .unwrap();
 
         assert!(!result.is_error);
-        assert!(
-            result.metadata.as_ref().unwrap()["message_artifact"]
-                .as_str()
-                .unwrap()
-                .contains("agent-team-messages")
-        );
+        assert!(result.metadata.as_ref().unwrap()["message_artifact"]
+            .as_str()
+            .unwrap()
+            .contains("agent-team-messages"));
     }
 
     #[tokio::test]

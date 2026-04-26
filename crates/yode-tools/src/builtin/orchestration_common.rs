@@ -25,7 +25,10 @@ pub fn persist_workflow_runtime_artifacts(
     let slug = slugify(workflow_name.unwrap_or("workflow"));
     let summary_path = dir.join(format!("{}-{}-workflow-execution.md", stamp, slug));
     let state_path = dir.join(format!("{}-{}-workflow-runtime-state.json", stamp, slug));
-    let timeline_path = dir.join(format!("{}-{}-runtime-orchestration-timeline.md", stamp, slug));
+    let timeline_path = dir.join(format!(
+        "{}-{}-runtime-orchestration-timeline.md",
+        stamp, slug
+    ));
 
     let state = json!({
         "kind": "workflow",
@@ -68,10 +71,7 @@ pub fn persist_workflow_runtime_artifacts(
         } else {
             "execution finished"
         },
-        &[
-            ("summary", &summary_path),
-            ("state", &state_path),
-        ],
+        &[("summary", &summary_path), ("state", &state_path)],
         steps,
     );
     std::fs::write(&timeline_path, timeline)?;
@@ -104,7 +104,10 @@ pub fn persist_coordinator_runtime_artifacts(
     };
     let summary_path = dir.join(format!("{}-{}-{}", stamp, slug, summary_suffix));
     let state_path = dir.join(format!("{}-{}-coordinate-runtime-state.json", stamp, slug));
-    let timeline_path = dir.join(format!("{}-{}-runtime-orchestration-timeline.md", stamp, slug));
+    let timeline_path = dir.join(format!(
+        "{}-{}-runtime-orchestration-timeline.md",
+        stamp, slug
+    ));
 
     let state = json!({
         "kind": "coordinator",
@@ -146,10 +149,7 @@ pub fn persist_coordinator_runtime_artifacts(
         } else {
             "execution finished"
         },
-        &[
-            ("summary", &summary_path),
-            ("state", &state_path),
-        ],
+        &[("summary", &summary_path), ("state", &state_path)],
         if dry_run { plan } else { results },
     );
     std::fs::write(&timeline_path, timeline_body)?;
@@ -174,7 +174,13 @@ fn timestamp_stamp() -> String {
 fn slugify(raw: &str) -> String {
     let slug = raw
         .chars()
-        .map(|ch| if ch.is_ascii_alphanumeric() { ch.to_ascii_lowercase() } else { '-' })
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
         .collect::<String>();
     let slug = slug.trim_matches('-');
     if slug.is_empty() {
@@ -207,7 +213,10 @@ fn render_workflow_summary(
         format!("- Step count: {}", steps.len()),
         format!("- State artifact: {}", state_path.display()),
         format!("- Timeline artifact: {}", timeline_path.display()),
-        format!("- Timestamp: {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S")),
+        format!(
+            "- Timestamp: {}",
+            chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
+        ),
         String::new(),
     ];
 
@@ -263,7 +272,10 @@ fn render_coordinator_summary(
         format!("- Workstream count: {}", workstream_count),
         format!("- State artifact: {}", state_path.display()),
         format!("- Timeline artifact: {}", timeline_path.display()),
-        format!("- Timestamp: {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S")),
+        format!(
+            "- Timestamp: {}",
+            chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
+        ),
         String::new(),
         "Timeline:".to_string(),
     ];
@@ -301,7 +313,10 @@ fn render_orchestration_timeline(
         format!("- Kind: {}", kind),
         format!("- Label: {}", label),
         format!("- Outcome: {}", outcome),
-        format!("- Timestamp: {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S")),
+        format!(
+            "- Timestamp: {}",
+            chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
+        ),
         String::new(),
         "Artifacts:".to_string(),
     ];
@@ -336,7 +351,11 @@ fn step_outline(value: &Value) -> String {
             .unwrap_or(false)
         {
             "error".to_string()
-        } else if value.get("write_capable").and_then(|value| value.as_bool()).is_some() {
+        } else if value
+            .get("write_capable")
+            .and_then(|value| value.as_bool())
+            .is_some()
+        {
             if value
                 .get("write_capable")
                 .and_then(|value| value.as_bool())
@@ -354,7 +373,13 @@ fn step_outline(value: &Value) -> String {
             .map(compact_json)
             .or_else(|| value.get("params").map(compact_json))
             .unwrap_or_else(|| "none".to_string());
-        return format!("step {} {} [{}] {}", index, tool, status, truncate_preview(&preview, 160));
+        return format!(
+            "step {} {} [{}] {}",
+            index,
+            tool,
+            status,
+            truncate_preview(&preview, 160)
+        );
     }
 
     let phase = value.get("phase").and_then(|value| value.as_u64());
@@ -443,9 +468,18 @@ mod tests {
             &[],
         )
         .unwrap();
-        assert!(artifact_display_name(artifacts.summary_path.as_ref().unwrap()).ends_with("workflow-execution.md"));
-        assert!(artifact_display_name(artifacts.state_path.as_ref().unwrap()).ends_with("workflow-runtime-state.json"));
-        assert!(artifact_display_name(artifacts.timeline_path.as_ref().unwrap()).ends_with("runtime-orchestration-timeline.md"));
+        assert!(
+            artifact_display_name(artifacts.summary_path.as_ref().unwrap())
+                .ends_with("workflow-execution.md")
+        );
+        assert!(
+            artifact_display_name(artifacts.state_path.as_ref().unwrap())
+                .ends_with("workflow-runtime-state.json")
+        );
+        assert!(
+            artifact_display_name(artifacts.timeline_path.as_ref().unwrap())
+                .ends_with("runtime-orchestration-timeline.md")
+        );
     }
 
     #[test]

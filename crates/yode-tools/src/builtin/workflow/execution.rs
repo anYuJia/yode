@@ -5,12 +5,10 @@ use anyhow::Result;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::builtin::orchestration_common::persist_workflow_runtime_artifacts;
-use super::WorkflowExecutionMode;
-use super::rendering::{
-    render_approval_checkpoint, render_workflow_dry_run, workflow_mode_label,
-};
+use super::rendering::{render_approval_checkpoint, render_workflow_dry_run, workflow_mode_label};
 use super::variables::{apply_variables, workflow_variables_from_params};
+use super::WorkflowExecutionMode;
+use crate::builtin::orchestration_common::persist_workflow_runtime_artifacts;
 use crate::tool::{ToolCapabilities, ToolContext, ToolResult};
 
 #[derive(Debug, Deserialize)]
@@ -115,23 +113,20 @@ pub(super) async fn execute_workflow(
                 })
             })
             .collect::<Vec<_>>();
-        let artifacts = ctx
-            .working_dir
-            .as_deref()
-            .and_then(|dir| {
-                persist_workflow_runtime_artifacts(
-                    dir,
-                    &workflow_path,
-                    workflow.name.as_deref(),
-                    workflow.description.as_deref(),
-                    workflow_mode_label(mode),
-                    true,
-                    &variables,
-                    &plan,
-                    &write_steps,
-                )
-                .ok()
-            });
+        let artifacts = ctx.working_dir.as_deref().and_then(|dir| {
+            persist_workflow_runtime_artifacts(
+                dir,
+                &workflow_path,
+                workflow.name.as_deref(),
+                workflow.description.as_deref(),
+                workflow_mode_label(mode),
+                true,
+                &variables,
+                &plan,
+                &write_steps,
+            )
+            .ok()
+        });
         return Ok(ToolResult::success_with_metadata(
             render_workflow_dry_run(
                 &workflow_path,
@@ -220,23 +215,20 @@ pub(super) async fn execute_workflow(
         }
     }
 
-    let artifacts = ctx
-        .working_dir
-        .as_deref()
-        .and_then(|dir| {
-            persist_workflow_runtime_artifacts(
-                dir,
-                &workflow_path,
-                workflow.name.as_deref(),
-                workflow.description.as_deref(),
-                workflow_mode_label(mode),
-                false,
-                &variables,
-                &step_outputs,
-                &workflow_write_checkpoints(&workflow.steps),
-            )
-            .ok()
-        });
+    let artifacts = ctx.working_dir.as_deref().and_then(|dir| {
+        persist_workflow_runtime_artifacts(
+            dir,
+            &workflow_path,
+            workflow.name.as_deref(),
+            workflow.description.as_deref(),
+            workflow_mode_label(mode),
+            false,
+            &variables,
+            &step_outputs,
+            &workflow_write_checkpoints(&workflow.steps),
+        )
+        .ok()
+    });
 
     Ok(ToolResult::success_with_metadata(
         serde_json::to_string_pretty(&step_outputs)?,

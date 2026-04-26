@@ -295,11 +295,14 @@ impl Tool for TaskUpdateTool {
             .get("description")
             .and_then(|v| v.as_str())
             .map(String::from);
-        let status = params.get("status").and_then(|v| v.as_str()).map(|value| match value {
-            "in_progress" => crate::state::TaskStatus::InProgress,
-            "completed" => crate::state::TaskStatus::Completed,
-            _ => crate::state::TaskStatus::Pending,
-        });
+        let status = params
+            .get("status")
+            .and_then(|v| v.as_str())
+            .map(|value| match value {
+                "in_progress" => crate::state::TaskStatus::InProgress,
+                "completed" => crate::state::TaskStatus::Completed,
+                _ => crate::state::TaskStatus::Pending,
+            });
 
         let mut store = tasks.lock().await;
         match store.update(id, subject, description, status) {

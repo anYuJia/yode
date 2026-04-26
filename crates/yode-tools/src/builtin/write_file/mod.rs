@@ -184,10 +184,7 @@ mod tests {
         assert!(path.exists());
         let written = tokio::fs::read_to_string(&path).await.unwrap();
         assert_eq!(written, "hello\nworld\n");
-        assert_eq!(
-            result.metadata.as_ref().unwrap()["line_count"],
-            json!(2)
-        );
+        assert_eq!(result.metadata.as_ref().unwrap()["line_count"], json!(2));
         assert_eq!(
             result.metadata.as_ref().unwrap()["diff_preview"]["added"][0],
             json!("hello")

@@ -191,7 +191,9 @@ mod tests {
     #[tokio::test]
     async fn finds_matching_files_and_reports_metadata() {
         let dir = tempfile::tempdir().unwrap();
-        tokio::fs::create_dir_all(dir.path().join("src")).await.unwrap();
+        tokio::fs::create_dir_all(dir.path().join("src"))
+            .await
+            .unwrap();
         tokio::fs::write(dir.path().join("src").join("main.rs"), "fn main() {}")
             .await
             .unwrap();

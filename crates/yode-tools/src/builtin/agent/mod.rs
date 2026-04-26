@@ -4,8 +4,10 @@ use async_trait::async_trait;
 use serde_json::json;
 use serde_json::Value;
 
+use crate::builtin::team_runtime::{
+    persist_agent_team_runtime, update_agent_team_member, AgentTeamMemberState,
+};
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
-use crate::builtin::team_runtime::{persist_agent_team_runtime, update_agent_team_member, AgentTeamMemberState};
 
 pub struct AgentTool;
 
@@ -166,12 +168,18 @@ impl Tool for AgentTool {
                 } else {
                     None
                 };
-                let team_artifacts = if let (Some(team_id), Some(working_dir)) = (team_id.as_deref(), ctx.working_dir.as_deref()) {
+                let team_artifacts = if let (Some(team_id), Some(working_dir)) =
+                    (team_id.as_deref(), ctx.working_dir.as_deref())
+                {
                     let _ = persist_agent_team_runtime(
                         working_dir,
                         &description,
                         Some(team_id),
-                        if run_in_background { "background" } else { "foreground" },
+                        if run_in_background {
+                            "background"
+                        } else {
+                            "foreground"
+                        },
                         vec![AgentTeamMemberState {
                             member_id: member_id.clone().unwrap_or_else(|| "member-1".to_string()),
                             description: description.clone(),
@@ -184,22 +192,33 @@ impl Tool for AgentTool {
                             } else {
                                 "explicit_allowlist".to_string()
                             },
-                            status: if run_in_background { "running".to_string() } else { "completed".to_string() },
+                            status: if run_in_background {
+                                "running".to_string()
+                            } else {
+                                "completed".to_string()
+                            },
                             runtime_task_id: parse_background_task_id(&result),
                             last_result_preview: Some(result.chars().take(240).collect()),
                             result_artifact_path: artifact_path.clone(),
-                            last_updated_at: Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()),
+                            last_updated_at: Some(
+                                chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                            ),
                         }],
                     );
                     update_agent_team_member(
                         working_dir,
                         team_id,
                         member_id.as_deref().unwrap_or("member-1"),
-                        if run_in_background { "running" } else { "completed" },
+                        if run_in_background {
+                            "running"
+                        } else {
+                            "completed"
+                        },
                         parse_background_task_id(&result),
                         Some(result.clone()),
                         artifact_path.clone(),
-                    ).ok()
+                    )
+                    .ok()
                 } else {
                     None
                 };

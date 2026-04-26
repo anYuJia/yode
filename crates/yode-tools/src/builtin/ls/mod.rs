@@ -180,9 +180,12 @@ mod tests {
         tokio::fs::create_dir_all(dir.path().join("src").join("nested"))
             .await
             .unwrap();
-        tokio::fs::write(dir.path().join("src").join("nested").join("main.rs"), "fn main() {}")
-            .await
-            .unwrap();
+        tokio::fs::write(
+            dir.path().join("src").join("nested").join("main.rs"),
+            "fn main() {}",
+        )
+        .await
+        .unwrap();
 
         let result = LsTool
             .execute(

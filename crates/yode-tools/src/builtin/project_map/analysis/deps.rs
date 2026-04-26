@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use super::ProjectType;
 use super::ecosystems::rust;
+use super::ProjectType;
 
 pub(in crate::builtin::project_map) fn analyze_dependencies(
     dir: &Path,

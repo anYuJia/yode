@@ -338,14 +338,15 @@ impl ToolRegistry {
         };
 
         let mut duplicates = self.duplicate_registrations.write().unwrap();
-        let record = duplicates
-            .entry(name.to_string())
-            .or_insert_with(|| DuplicateToolRegistration {
-                name: name.to_string(),
-                original_phase,
-                duplicate_phase: incoming_phase,
-                attempts: 0,
-            });
+        let record =
+            duplicates
+                .entry(name.to_string())
+                .or_insert_with(|| DuplicateToolRegistration {
+                    name: name.to_string(),
+                    original_phase,
+                    duplicate_phase: incoming_phase,
+                    attempts: 0,
+                });
         record.attempts = record.attempts.saturating_add(1);
         record.duplicate_phase = incoming_phase;
         tracing::warn!(
@@ -391,7 +392,11 @@ mod tests {
             json!({"type": "object", "properties": {}})
         }
 
-        async fn execute(&self, _params: Value, _ctx: &crate::tool::ToolContext) -> Result<crate::tool::ToolResult> {
+        async fn execute(
+            &self,
+            _params: Value,
+            _ctx: &crate::tool::ToolContext,
+        ) -> Result<crate::tool::ToolResult> {
             Ok(crate::tool::ToolResult::success("ok".to_string()))
         }
     }

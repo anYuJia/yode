@@ -36,7 +36,8 @@ static PS_READ_COMMANDS: &[&str] = &[
     "get-module",
     "get-alias",
 ];
-static PS_READONLY_NAVIGATION_COMMANDS: &[&str] = &["set-location", "push-location", "pop-location"];
+static PS_READONLY_NAVIGATION_COMMANDS: &[&str] =
+    &["set-location", "push-location", "pop-location"];
 static PS_GIT_READONLY_SUBCOMMANDS: &[&str] = &["status", "diff", "log", "show", "rev-parse"];
 
 static DESTRUCTIVE_PATTERNS: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {
@@ -186,28 +187,26 @@ This tool supports `run_in_background` and `timeout_ms` like the bash tool."#
             .spawn()
             .map_err(|e| anyhow::anyhow!("Failed to spawn PowerShell: {}", e))?;
 
-        let output = match tokio::time::timeout(
-            Duration::from_secs(timeout_secs),
-            child.wait_with_output(),
-        )
-        .await
-        {
-            Ok(Ok(output)) => output,
-            Ok(Err(e)) => {
-                return Ok(ToolResult::error(format!(
-                    "Failed to execute PowerShell command: {}",
-                    e
-                )))
-            }
-            Err(_) => {
-                return Ok(ToolResult::error_typed(
-                    format!("Command timed out after {} seconds", timeout_secs),
-                    ToolErrorType::Timeout,
-                    true,
-                    Some("Increase timeout or reduce scope.".to_string()),
-                ));
-            }
-        };
+        let output =
+            match tokio::time::timeout(Duration::from_secs(timeout_secs), child.wait_with_output())
+                .await
+            {
+                Ok(Ok(output)) => output,
+                Ok(Err(e)) => {
+                    return Ok(ToolResult::error(format!(
+                        "Failed to execute PowerShell command: {}",
+                        e
+                    )))
+                }
+                Err(_) => {
+                    return Ok(ToolResult::error_typed(
+                        format!("Command timed out after {} seconds", timeout_secs),
+                        ToolErrorType::Timeout,
+                        true,
+                        Some("Increase timeout or reduce scope.".to_string()),
+                    ));
+                }
+            };
 
         format_output(&executable, command, working_dir, output)
     }
@@ -243,14 +242,14 @@ fn format_output(
         return Ok(ToolResult::error(combined));
     }
 
-        let analysis = analyze_powershell_command(command);
-        let mut metadata = json!({
-            "command": command,
-            "cwd": working_dir.display().to_string(),
-            "shell": executable.display().to_string(),
-            "command_type": analysis.command_type,
-            "read_only": analysis.read_only,
-        });
+    let analysis = analyze_powershell_command(command);
+    let mut metadata = json!({
+        "command": command,
+        "cwd": working_dir.display().to_string(),
+        "shell": executable.display().to_string(),
+        "command_type": analysis.command_type,
+        "read_only": analysis.read_only,
+    });
     if let Some(reason) = &analysis.read_only_reason {
         metadata["read_only_reason"] = json!(reason);
     }
@@ -436,7 +435,10 @@ async fn execute_background(
     });
 
     Ok(ToolResult::success_with_metadata(
-        format!("Background PowerShell task started: {} ({})", task.id, launch_command),
+        format!(
+            "Background PowerShell task started: {} ({})",
+            task.id, launch_command
+        ),
         json!({
             "task_id": task.id,
             "task_kind": "powershell",
@@ -522,7 +524,11 @@ fn validate_read_only_powershell_command(command: &str) -> ReadOnlyValidation {
             };
         };
 
-        if tokens.iter().skip(1).any(|token| looks_like_redirection(token)) {
+        if tokens
+            .iter()
+            .skip(1)
+            .any(|token| looks_like_redirection(token))
+        {
             return ReadOnlyValidation {
                 is_safe: false,
                 reason: Some(format!("redirection detected in {}", cmd)),
@@ -560,12 +566,10 @@ fn validate_read_only_powershell_command(command: &str) -> ReadOnlyValidation {
 }
 
 fn get_destructive_command_warning(command: &str) -> Option<&'static str> {
-    DESTRUCTIVE_PATTERNS
-        .iter()
-        .find_map(|entry| {
-            let (pattern, warning) = entry;
-            pattern.is_match(command).then_some(*warning)
-        })
+    DESTRUCTIVE_PATTERNS.iter().find_map(|entry| {
+        let (pattern, warning) = entry;
+        pattern.is_match(command).then_some(*warning)
+    })
 }
 
 fn suggest_safe_rewrite(command: &str, command_type: &str) -> Option<String> {
@@ -666,11 +670,12 @@ fn read_only_config(command: &str) -> Option<ReadOnlyCommandConfig> {
             safe_flags: &[],
             allow_all_flags: true,
         }),
-        "get-process" | "get-service" | "get-location" | "format-hex" | "where.exe"
-        | "findstr" => Some(ReadOnlyCommandConfig {
-            safe_flags: &[],
-            allow_all_flags: true,
-        }),
+        "get-process" | "get-service" | "get-location" | "format-hex" | "where.exe" | "findstr" => {
+            Some(ReadOnlyCommandConfig {
+                safe_flags: &[],
+                allow_all_flags: true,
+            })
+        }
         "get-childitem" => Some(ReadOnlyCommandConfig {
             safe_flags: &[
                 "-Path",
@@ -822,9 +827,8 @@ mod tests {
     use crate::tool::{Tool, ToolContext};
 
     use super::{
-        analyze_powershell_command, classify_powershell_command,
-        get_destructive_command_warning, set_powershell_test_override, suggest_safe_rewrite,
-        PowerShellTool, POWERSHELL_TEST_LOCK,
+        analyze_powershell_command, classify_powershell_command, get_destructive_command_warning,
+        set_powershell_test_override, suggest_safe_rewrite, PowerShellTool, POWERSHELL_TEST_LOCK,
     };
 
     fn write_shim(dir: &tempfile::TempDir) -> std::path::PathBuf {
@@ -940,16 +944,21 @@ mod tests {
     #[test]
     fn powershell_classifies_read_search_and_destructive_commands() {
         assert_eq!(classify_powershell_command("Get-Content foo.txt"), "read");
-        assert_eq!(classify_powershell_command("Select-String foo bar.txt"), "search");
+        assert_eq!(
+            classify_powershell_command("Select-String foo bar.txt"),
+            "search"
+        );
         assert_eq!(classify_powershell_command("Write-Host hi"), "generic");
         assert_eq!(classify_powershell_command("Get-Help Get-Item"), "read");
         assert!(analyze_powershell_command("Get-Content foo.txt").read_only);
         assert!(analyze_powershell_command("Set-Location src").read_only);
         assert!(analyze_powershell_command("Get-Command cargo").read_only);
         assert!(!analyze_powershell_command("Remove-Item foo").read_only);
-        assert!(get_destructive_command_warning("Remove-Item -Recurse -Force tmp")
-            .unwrap()
-            .contains("remove"));
+        assert!(
+            get_destructive_command_warning("Remove-Item -Recurse -Force tmp")
+                .unwrap()
+                .contains("remove")
+        );
         assert!(get_destructive_command_warning("Get-Content foo.txt").is_none());
         assert!(suggest_safe_rewrite("Get-Content foo.txt", "read")
             .unwrap()
@@ -1008,9 +1017,11 @@ mod tests {
     fn powershell_dangerous_command_detection_is_broad() {
         assert!(get_destructive_command_warning("Remove-Item -Recurse -Force tmp").is_some());
         assert!(get_destructive_command_warning("git push --force").is_some());
-        assert!(analyze_powershell_command("Remove-Item -Recurse -Force tmp")
-            .destructive_warning
-            .is_some());
+        assert!(
+            analyze_powershell_command("Remove-Item -Recurse -Force tmp")
+                .destructive_warning
+                .is_some()
+        );
         assert!(analyze_powershell_command("git push --force")
             .destructive_warning
             .is_some());

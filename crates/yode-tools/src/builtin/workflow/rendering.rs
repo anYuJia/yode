@@ -37,8 +37,14 @@ pub(super) fn render_workflow_dry_run(
     lines.push(String::new());
     lines.push("Steps:".to_string());
     for step in plan {
-        let index = step.get("index").and_then(|value| value.as_u64()).unwrap_or(0);
-        let tool = step.get("tool").and_then(|value| value.as_str()).unwrap_or("unknown");
+        let index = step
+            .get("index")
+            .and_then(|value| value.as_u64())
+            .unwrap_or(0);
+        let tool = step
+            .get("tool")
+            .and_then(|value| value.as_str())
+            .unwrap_or("unknown");
         let continue_on_error = step
             .get("continue_on_error")
             .and_then(|value| value.as_bool())
@@ -47,7 +53,10 @@ pub(super) fn render_workflow_dry_run(
             .get("write_capable")
             .and_then(|value| value.as_bool())
             .unwrap_or(false);
-        let params = step.get("params").cloned().unwrap_or_else(|| Value::Object(Default::default()));
+        let params = step
+            .get("params")
+            .cloned()
+            .unwrap_or_else(|| Value::Object(Default::default()));
 
         lines.push(format!(
             "  {}. {} [{}]",
@@ -86,10 +95,7 @@ pub(super) fn render_workflow_dry_run(
 
 pub(super) fn render_approval_checkpoint(index: usize, tool_name: &str) -> Value {
     let requires = "workflow_run_with_writes confirmation";
-    let message = format!(
-        "Step {} ({}) runs under {}.",
-        index, tool_name, requires
-    );
+    let message = format!("Step {} ({}) runs under {}.", index, tool_name, requires);
     serde_json::json!({
         "index": index,
         "tool": tool_name,

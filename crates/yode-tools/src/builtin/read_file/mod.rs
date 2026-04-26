@@ -182,7 +182,9 @@ mod tests {
     #[tokio::test]
     async fn reads_offset_limit_and_records_history() {
         let path = temp_path("range.txt");
-        tokio::fs::write(&path, "one\ntwo\nthree\nfour\n").await.unwrap();
+        tokio::fs::write(&path, "one\ntwo\nthree\nfour\n")
+            .await
+            .unwrap();
 
         let history = Arc::new(Mutex::new(HashSet::new()));
         let mut ctx = ToolContext::empty();
@@ -204,10 +206,7 @@ mod tests {
         assert!(result.content.contains("     2\ttwo"));
         assert!(result.content.contains("     3\tthree"));
         assert!(!result.content.contains("     1\tone"));
-        assert_eq!(
-            result.metadata.as_ref().unwrap()["start_line"],
-            json!(2)
-        );
+        assert_eq!(result.metadata.as_ref().unwrap()["start_line"], json!(2));
         assert_eq!(result.metadata.as_ref().unwrap()["end_line"], json!(3));
         assert_eq!(
             result.metadata.as_ref().unwrap()["was_truncated"],
@@ -238,13 +237,11 @@ mod tests {
         assert!(result.is_error);
         assert_eq!(result.error_type, Some(ToolErrorType::Validation));
         assert!(result.content.contains("is a directory"));
-        assert!(
-            result
-                .suggestion
-                .as_deref()
-                .unwrap_or("")
-                .contains("Call ls")
-        );
+        assert!(result
+            .suggestion
+            .as_deref()
+            .unwrap_or("")
+            .contains("Call ls"));
 
         let _ = tokio::fs::remove_dir_all(&dir).await;
     }

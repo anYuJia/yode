@@ -261,10 +261,7 @@ mod tests {
         WEB_SEARCH_TEST_LOCK,
     };
 
-    async fn spawn_tavily_server(
-        status: &str,
-        body: &str,
-    ) -> (String, oneshot::Receiver<String>) {
+    async fn spawn_tavily_server(status: &str, body: &str) -> (String, oneshot::Receiver<String>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let status = status.to_string();
@@ -276,11 +273,7 @@ mod tests {
             let mut buf = vec![0u8; 4096];
             let n = socket.read(&mut buf).await.unwrap();
             let request = String::from_utf8_lossy(&buf[..n]).to_string();
-            let captured = request
-                .split("\r\n\r\n")
-                .nth(1)
-                .unwrap_or("")
-                .to_string();
+            let captured = request.split("\r\n\r\n").nth(1).unwrap_or("").to_string();
             let _ = tx.send(captured);
             let response = format!(
                 "HTTP/1.1 {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",

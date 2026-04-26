@@ -3,8 +3,7 @@ use std::path::{Path, PathBuf};
 use super::super::walk_files;
 
 pub(in crate::builtin::project_map) fn is_workspace(dir: &Path) -> bool {
-    dir.join("Cargo.toml")
-        .exists()
+    dir.join("Cargo.toml").exists()
         && std::fs::read_to_string(dir.join("Cargo.toml"))
             .map(|content| content.contains("[workspace]"))
             .unwrap_or(false)
@@ -38,11 +37,16 @@ pub(in crate::builtin::project_map) fn entry_points(dir: &Path) -> Vec<PathBuf> 
     entries
 }
 
-pub(in crate::builtin::project_map) fn analyze_dependencies(dir: &Path) -> Vec<(String, Vec<String>)> {
+pub(in crate::builtin::project_map) fn analyze_dependencies(
+    dir: &Path,
+) -> Vec<(String, Vec<String>)> {
     let mut result = Vec::new();
     let mut cargo_files = Vec::new();
     walk_files(dir, &mut |path| {
-        if path.file_name().map(|name| name == "Cargo.toml").unwrap_or(false)
+        if path
+            .file_name()
+            .map(|name| name == "Cargo.toml")
+            .unwrap_or(false)
             && !path.to_string_lossy().contains("/target/")
         {
             cargo_files.push(path.to_path_buf());
@@ -65,7 +69,9 @@ pub(in crate::builtin::project_map) fn analyze_dependencies(dir: &Path) -> Vec<(
             let mut in_deps = false;
             for line in content.lines() {
                 let trimmed = line.trim();
-                if trimmed.starts_with("[dependencies]") || trimmed.starts_with("[dev-dependencies]") {
+                if trimmed.starts_with("[dependencies]")
+                    || trimmed.starts_with("[dev-dependencies]")
+                {
                     in_deps = true;
                     continue;
                 }
@@ -101,18 +107,18 @@ mod tests {
     fn rust_workspace_and_dependency_analysis_are_detected() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("crates").join("app").join("src")).unwrap();
-        std::fs::write(
-            dir.path().join("Cargo.toml"),
-            "[workspace]\ncrates/app\n",
-        )
-        .unwrap();
+        std::fs::write(dir.path().join("Cargo.toml"), "[workspace]\ncrates/app\n").unwrap();
         std::fs::write(
             dir.path().join("crates").join("app").join("Cargo.toml"),
             "[package]\nname='app'\n[dependencies]\nserde = \"1\"\nanyhow = \"1\"\n",
         )
         .unwrap();
         std::fs::write(
-            dir.path().join("crates").join("app").join("src").join("main.rs"),
+            dir.path()
+                .join("crates")
+                .join("app")
+                .join("src")
+                .join("main.rs"),
             "fn main() {}\n",
         )
         .unwrap();

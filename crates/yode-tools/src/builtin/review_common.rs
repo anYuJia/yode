@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
-use serde_json::{json, Value};
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 pub fn persist_review_artifact(
@@ -301,11 +301,21 @@ mod tests {
 
     #[test]
     fn review_metadata_payload_wraps_shared_artifact_schema() {
-        let payload = review_metadata_payload("review", "changes", "1. Missing test", Some("artifact.md"));
+        let payload =
+            review_metadata_payload("review", "changes", "1. Missing test", Some("artifact.md"));
         let artifact = payload.get("review_artifact").unwrap();
-        assert_eq!(artifact.get("kind").and_then(|v| v.as_str()), Some("review"));
-        assert_eq!(artifact.get("status").and_then(|v| v.as_str()), Some("findings"));
-        assert_eq!(artifact.get("artifact_path").and_then(|v| v.as_str()), Some("artifact.md"));
+        assert_eq!(
+            artifact.get("kind").and_then(|v| v.as_str()),
+            Some("review")
+        );
+        assert_eq!(
+            artifact.get("status").and_then(|v| v.as_str()),
+            Some("findings")
+        );
+        assert_eq!(
+            artifact.get("artifact_path").and_then(|v| v.as_str()),
+            Some("artifact.md")
+        );
     }
 
     #[test]
@@ -317,7 +327,10 @@ mod tests {
             Some("artifact.md"),
             serde_json::json!({ "commit_skipped": true }),
         );
-        assert_eq!(payload.get("commit_skipped").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(
+            payload.get("commit_skipped").and_then(|v| v.as_bool()),
+            Some(true)
+        );
         assert_eq!(
             payload["review_artifact"]["findings_count"].as_u64(),
             Some(1)

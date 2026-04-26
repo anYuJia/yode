@@ -234,7 +234,9 @@ mod tests {
     #[tokio::test]
     async fn multi_edit_applies_multiple_unique_replacements() {
         let path = temp_path("apply.txt");
-        tokio::fs::write(&path, "alpha\nbeta\ngamma\n").await.unwrap();
+        tokio::fs::write(&path, "alpha\nbeta\ngamma\n")
+            .await
+            .unwrap();
 
         let mut seen = HashSet::new();
         seen.insert(path.clone());

@@ -265,10 +265,10 @@ mod tests {
     use rmcp::model::Tool;
     use serde_json::json;
 
+    use super::tool_wrapper::wrapper_tool_name;
     use super::{
         mcp_reconnect_diagnostics, record_mcp_connect_result, reset_mcp_reconnect_diagnostics,
     };
-    use super::tool_wrapper::wrapper_tool_name;
 
     #[test]
     fn reconnect_diagnostics_track_failures_and_backoff() {

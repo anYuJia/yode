@@ -245,7 +245,10 @@ while True:
 
         assert!(!result.is_error);
         assert!(result.content.contains("hover info"));
-        assert_eq!(result.metadata.as_ref().unwrap()["operation"], json!("hover"));
+        assert_eq!(
+            result.metadata.as_ref().unwrap()["operation"],
+            json!("hover")
+        );
 
         if let Some(path) = old_path {
             std::env::set_var("PATH", path);

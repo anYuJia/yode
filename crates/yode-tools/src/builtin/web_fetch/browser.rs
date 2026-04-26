@@ -118,7 +118,9 @@ mod tests {
             .await
             .unwrap();
         assert!(!navigate.is_error);
-        assert!(navigate.content.contains("Navigated to https://example.com"));
+        assert!(navigate
+            .content
+            .contains("Navigated to https://example.com"));
 
         let click = WebBrowserTool
             .execute(
@@ -149,6 +151,8 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(evaluate.content.contains("Performed browser action: evaluate"));
+        assert!(evaluate
+            .content
+            .contains("Performed browser action: evaluate"));
     }
 }

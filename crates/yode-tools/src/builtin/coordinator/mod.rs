@@ -147,7 +147,11 @@ impl Tool for CoordinateAgentsTool {
         let team_id = format!(
             "team-{}",
             goal.chars()
-                .map(|ch| if ch.is_ascii_alphanumeric() { ch.to_ascii_lowercase() } else { '-' })
+                .map(|ch| if ch.is_ascii_alphanumeric() {
+                    ch.to_ascii_lowercase()
+                } else {
+                    '-'
+                })
                 .collect::<String>()
                 .trim_matches('-')
         );
@@ -176,31 +180,34 @@ impl Tool for CoordinateAgentsTool {
                 last_updated_at: Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()),
             })
             .collect::<Vec<_>>();
-        let team_artifacts = ctx
-            .working_dir
-            .as_deref()
-            .and_then(|dir| persist_agent_team_runtime(dir, &goal, Some(&team_id), if dry_run { "dry_run" } else { "coordinate" }, team_members).ok());
+        let team_artifacts = ctx.working_dir.as_deref().and_then(|dir| {
+            persist_agent_team_runtime(
+                dir,
+                &goal,
+                Some(&team_id),
+                if dry_run { "dry_run" } else { "coordinate" },
+                team_members,
+            )
+            .ok()
+        });
 
         if dry_run {
             let plan = render_phase_plan(&phases, max_parallel);
             let timeline = render_phase_timeline(&phases, max_parallel);
-            let artifacts = ctx
-                .working_dir
-                .as_deref()
-                .and_then(|dir| {
-                    persist_coordinator_runtime_artifacts(
-                        dir,
-                        &goal,
-                        true,
-                        &max_parallel_label(max_parallel).to_string(),
-                        phases.len(),
-                        normalized.len(),
-                        &timeline,
-                        &plan,
-                        &[],
-                    )
-                    .ok()
-                });
+            let artifacts = ctx.working_dir.as_deref().and_then(|dir| {
+                persist_coordinator_runtime_artifacts(
+                    dir,
+                    &goal,
+                    true,
+                    &max_parallel_label(max_parallel).to_string(),
+                    phases.len(),
+                    normalized.len(),
+                    &timeline,
+                    &plan,
+                    &[],
+                )
+                .ok()
+            });
             return Ok(ToolResult::success_with_metadata(
                 format!(
                     "Coordinator phase timeline\n{}\n\nJSON plan\n{}\n",
@@ -353,23 +360,20 @@ impl Tool for CoordinateAgentsTool {
         let rendered_text = serde_json::to_string_pretty(&rendered)?;
         let timeline = render_phase_timeline(&phases, max_parallel);
         let plan = render_phase_plan(&phases, max_parallel);
-        let artifacts = ctx
-            .working_dir
-            .as_deref()
-            .and_then(|dir| {
-                persist_coordinator_runtime_artifacts(
-                    dir,
-                    &goal,
-                    false,
-                    &max_parallel_label(max_parallel).to_string(),
-                    phases.len(),
-                    normalized.len(),
-                    &timeline,
-                    &plan,
-                    &rendered,
-                )
-                .ok()
-            });
+        let artifacts = ctx.working_dir.as_deref().and_then(|dir| {
+            persist_coordinator_runtime_artifacts(
+                dir,
+                &goal,
+                false,
+                &max_parallel_label(max_parallel).to_string(),
+                phases.len(),
+                normalized.len(),
+                &timeline,
+                &plan,
+                &rendered,
+            )
+            .ok()
+        });
 
         Ok(ToolResult::success_with_metadata(
             rendered_text,

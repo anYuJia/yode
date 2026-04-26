@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use super::{walk_files, ProjectStats, ProjectType};
 use super::ecosystems::{go, java, node, python, rust};
+use super::{walk_files, ProjectStats, ProjectType};
 
 pub(in crate::builtin::project_map) fn detect_project_type(dir: &Path) -> ProjectType {
     if dir.join("Cargo.toml").exists() {
@@ -122,9 +122,7 @@ pub(in crate::builtin::project_map) fn find_config_files(dir: &Path) -> Vec<Path
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        detect_project_type, find_config_files, find_entry_points, scan_project_stats,
-    };
+    use super::{detect_project_type, find_config_files, find_entry_points, scan_project_stats};
     use crate::builtin::project_map::analysis::ProjectType;
 
     #[test]
@@ -138,9 +136,18 @@ mod tests {
         let stats = scan_project_stats(dir.path());
         assert_eq!(stats.file_count, 3);
         assert_eq!(stats.total_lines, 3);
-        assert!(stats.lines_by_language.iter().any(|(name, _)| name == "TypeScript"));
-        assert!(stats.lines_by_language.iter().any(|(name, _)| name == "Markdown"));
-        assert!(stats.lines_by_language.iter().any(|(name, _)| name == "Config"));
+        assert!(stats
+            .lines_by_language
+            .iter()
+            .any(|(name, _)| name == "TypeScript"));
+        assert!(stats
+            .lines_by_language
+            .iter()
+            .any(|(name, _)| name == "Markdown"));
+        assert!(stats
+            .lines_by_language
+            .iter()
+            .any(|(name, _)| name == "Config"));
     }
 
     #[test]

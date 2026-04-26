@@ -87,7 +87,9 @@ async fn follows_running_task_until_completion() {
         .unwrap();
     assert!(!result.is_error);
     assert!(result.content.contains("line2"));
-    assert!(result.content.contains("Follow mode: final status Completed"));
+    assert!(result
+        .content
+        .contains("Follow mode: final status Completed"));
     assert_eq!(result.metadata.unwrap()["follow_timed_out"], false);
 }
 

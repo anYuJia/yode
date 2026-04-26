@@ -70,8 +70,14 @@ fn parse_pytest_counts(output: &str) -> (u32, u32) {
 }
 
 fn parse_go_counts(output: &str) -> (u32, u32) {
-    let passed = output.lines().filter(|line| line.starts_with("--- PASS:")).count() as u32;
-    let failed = output.lines().filter(|line| line.starts_with("--- FAIL:")).count() as u32;
+    let passed = output
+        .lines()
+        .filter(|line| line.starts_with("--- PASS:"))
+        .count() as u32;
+    let failed = output
+        .lines()
+        .filter(|line| line.starts_with("--- FAIL:"))
+        .count() as u32;
     (passed, failed)
 }
 
@@ -81,9 +87,18 @@ mod tests {
 
     #[test]
     fn parses_framework_outputs() {
-        assert_eq!(parse_test_counts("test a ... ok\ntest b ... FAILED", "cargo"), (1, 1));
-        assert_eq!(parse_test_counts("Tests: 3 passed, 1 failed", "jest"), (3, 1));
-        assert_eq!(parse_test_counts("=== 2 passed, 1 failed in 0.12s ===", "pytest"), (2, 1));
+        assert_eq!(
+            parse_test_counts("test a ... ok\ntest b ... FAILED", "cargo"),
+            (1, 1)
+        );
+        assert_eq!(
+            parse_test_counts("Tests: 3 passed, 1 failed", "jest"),
+            (3, 1)
+        );
+        assert_eq!(
+            parse_test_counts("=== 2 passed, 1 failed in 0.12s ===", "pytest"),
+            (2, 1)
+        );
         assert_eq!(parse_test_counts("--- PASS: A\n--- FAIL: B", "go"), (1, 1));
     }
 }

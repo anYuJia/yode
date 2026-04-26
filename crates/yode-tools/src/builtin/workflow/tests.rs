@@ -73,7 +73,7 @@ async fn workflow_dry_run_returns_plan_without_execution() {
                 "variables": { "focus": "regressions" }
             }),
             &ctx,
-    )
+        )
         .await
         .unwrap();
     assert!(!result.is_error);

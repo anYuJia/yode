@@ -213,7 +213,10 @@ mod tests {
         }
 
         let result = SkillTool { store }
-            .execute(json!({"action":"list","name":"ignored"}), &crate::tool::ToolContext::empty())
+            .execute(
+                json!({"action":"list","name":"ignored"}),
+                &crate::tool::ToolContext::empty(),
+            )
             .await
             .unwrap();
 

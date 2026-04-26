@@ -152,7 +152,9 @@ mod tests {
         tokio::fs::write(dir.path().join(".env"), "RUST_LOG=debug\n")
             .await
             .unwrap();
-        tokio::fs::create_dir_all(dir.path().join("src")).await.unwrap();
+        tokio::fs::create_dir_all(dir.path().join("src"))
+            .await
+            .unwrap();
         tokio::fs::write(dir.path().join("src").join("main.rs"), "fn main() {}\n")
             .await
             .unwrap();

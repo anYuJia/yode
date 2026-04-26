@@ -185,7 +185,11 @@ mod tests {
 
         async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<ToolResult> {
             Ok(ToolResult::success(
-                params.get("value").and_then(|v| v.as_str()).unwrap_or("ok").to_string(),
+                params
+                    .get("value")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("ok")
+                    .to_string(),
             ))
         }
     }
@@ -233,7 +237,9 @@ mod tests {
             .unwrap();
 
         assert!(!result.is_error);
-        let results = result.metadata.as_ref().unwrap()["results"].as_array().unwrap();
+        let results = result.metadata.as_ref().unwrap()["results"]
+            .as_array()
+            .unwrap();
         assert_eq!(results[0]["content"], json!("first"));
         assert_eq!(results[1]["content"], json!("second"));
     }

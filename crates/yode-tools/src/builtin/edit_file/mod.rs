@@ -246,13 +246,11 @@ mod tests {
         assert!(result.is_error);
         assert_eq!(result.error_type, Some(ToolErrorType::Validation));
         assert!(result.content.contains("has not been read yet"));
-        assert!(
-            result
-                .suggestion
-                .as_deref()
-                .unwrap_or("")
-                .contains("read_file")
-        );
+        assert!(result
+            .suggestion
+            .as_deref()
+            .unwrap_or("")
+            .contains("read_file"));
 
         let _ = tokio::fs::remove_file(&path).await;
     }
@@ -282,10 +280,7 @@ mod tests {
             .unwrap();
 
         assert!(!result.is_error);
-        assert_eq!(
-            result.metadata.as_ref().unwrap()["replacements"],
-            json!(2)
-        );
+        assert_eq!(result.metadata.as_ref().unwrap()["replacements"], json!(2));
         let updated = tokio::fs::read_to_string(&path).await.unwrap();
         assert_eq!(updated, "bar = 1\nbar = 2\n");
         assert_eq!(
