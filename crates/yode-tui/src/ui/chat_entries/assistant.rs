@@ -88,6 +88,12 @@ pub(crate) fn render_assistant(
             spans.push(Span::raw("  "));
         }
         spans.extend(line.spans);
+        if index == 0 {
+            spans.push(Span::styled(
+                " (ctrl+o to inspect)",
+                Style::default().fg(DIM).add_modifier(Modifier::ITALIC),
+            ));
+        }
         lines.push(Line::from(spans));
     }
 }
@@ -201,5 +207,11 @@ mod tests {
                     && span.style.add_modifier.contains(Modifier::ITALIC)
             })
         }));
+    }
+
+    #[test]
+    fn assistant_content_advertises_detail_inspection() {
+        let lines = render_lines("Final answer");
+        assert!(lines[0].to_string().contains("ctrl+o to inspect"));
     }
 }

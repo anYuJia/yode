@@ -23,9 +23,9 @@ pub fn render_inline_confirm(frame: &mut Frame, area: Rect, app: &App) {
     let risk_hint = tool_risk_hint(app, &confirm.name);
     let preview = tool_preview_line(&confirm.name, &confirm.arguments);
     let options = vec![
-        "Yes".to_string(),
+        "Allow once".to_string(),
         tool_allow_option_label(&confirm.name, &confirm.arguments, &tool_label),
-        "No".to_string(),
+        "Deny".to_string(),
     ];
     let panel_area = if area.height >= INLINE_CONFIRM_HEIGHT {
         area
@@ -175,6 +175,19 @@ fn confirmation_primary_value(tool_name: &str, args_json: &str) -> String {
                 .and_then(|value| value.as_str())
                 .unwrap_or("file"),
         ),
+        "lsp" => format!(
+            "{} @ {}",
+            parsed
+                .get("operation")
+                .and_then(|value| value.as_str())
+                .unwrap_or("operation"),
+            compact_path(
+                parsed
+                    .get("filePath")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("file")
+            )
+        ),
         "web_search" => parsed
             .get("query")
             .and_then(|value| value.as_str())
@@ -194,16 +207,16 @@ fn tool_allow_option_label(tool_name: &str, args_json: &str, tool_label: &str) -
         let parsed: serde_json::Value = match serde_json::from_str(args_json) {
             Ok(v) => v,
             Err(_) => {
-                return format!("Yes, and don't ask again for: {}", tool_label);
+                return format!("Always allow: {}", tool_label);
             }
         };
         if let Some(command) = parsed.get("command").and_then(|value| value.as_str()) {
             if let Some(first) = command.split_whitespace().next() {
-                return format!("Yes, and don't ask again for: {} *", first);
+                return format!("Always allow: {} *", first);
             }
         }
     }
-    format!("Yes, and don't ask again for: {}", tool_label)
+    format!("Always allow: {}", tool_label)
 }
 
 fn tool_activity_summary(app: &App, tool_name: &str, args_json: &str) -> String {
@@ -318,11 +331,13 @@ fn tool_preview_line(tool_name: &str, args_json: &str) -> String {
                 .unwrap_or("query")
         ),
         "web_fetch" => format!(
-            "url · {}",
-            parsed
-                .get("url")
-                .and_then(|value| value.as_str())
-                .unwrap_or("url")
+            "host · {}",
+            compact_url_host(
+                parsed
+                    .get("url")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("url")
+            )
         ),
         "lsp" => format!(
             "operation · {} @ {}",
@@ -370,6 +385,18 @@ fn tool_preview_line(tool_name: &str, args_json: &str) -> String {
             })
             .unwrap_or_else(|| "preview unavailable".to_string()),
     }
+}
+
+fn compact_url_host(url: &str) -> String {
+    let trimmed = url
+        .trim_start_matches("https://")
+        .trim_start_matches("http://");
+    trimmed
+        .split(['/', '?', '#'])
+        .next()
+        .filter(|value| !value.is_empty())
+        .unwrap_or(url)
+        .to_string()
 }
 
 #[cfg(test)]
@@ -443,25 +470,41 @@ mod tests {
     }
 
     #[test]
+    fn confirmation_primary_value_compacts_lsp_paths() {
+        let value = confirmation_primary_value(
+            "lsp",
+            r#"{"operation":"hover","filePath":"/tmp/src/main.rs"}"#,
+        );
+        assert_eq!(value, "hover @ .../src/main.rs");
+    }
+
+    #[test]
+    fn confirmation_preview_line_emphasizes_url_host() {
+        let preview = tool_preview_line(
+            "web_fetch",
+            r#"{"url":"https://docs.rs/ratatui/latest/ratatui/widgets/struct.Paragraph.html"}"#,
+        );
+        assert_eq!(preview, "host · docs.rs");
+    }
+
+    #[test]
     fn confirmation_options_render_as_vertical_selection() {
         let lines = option_list_lines(
             &[
-                "Yes".to_string(),
-                "Yes, and don't ask again for: python *".to_string(),
-                "No".to_string(),
+                "Allow once".to_string(),
+                "Always allow: python *".to_string(),
+                "Deny".to_string(),
             ],
             1,
         );
-        assert!(lines[1]
-            .to_string()
-            .contains("❯ 2. Yes, and don't ask again for: python *"));
-        assert!(lines[0].to_string().contains("1. Yes"));
+        assert!(lines[1].to_string().contains("❯ 2. Always allow: python *"));
+        assert!(lines[0].to_string().contains("1. Allow once"));
     }
 
     #[test]
     fn bash_allow_option_uses_command_prefix_pattern() {
         let label = tool_allow_option_label("bash", r#"{"command":"python main.py"}"#, "Bash");
-        assert_eq!(label, "Yes, and don't ask again for: python *");
+        assert_eq!(label, "Always allow: python *");
     }
 }
 

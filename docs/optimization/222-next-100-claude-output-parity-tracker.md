@@ -21,7 +21,7 @@
 
 当前进度：
 
-- `41 / 100` 已完成
+- `45 / 100` 已完成
 
 ## 001-010 Markdown Core
 
@@ -94,10 +94,10 @@
 - `[x]` 052 compact confirm preview file paths
 - `[x]` 053 compact inspector follow-up file paths
 - `[x]` 054 pending confirmation inspector
-- `[ ]` 055 confirm preview for LSP path compaction
-- `[ ]` 056 confirm preview for URL emphasis
+- `[x]` 055 confirm preview for LSP path compaction
+- `[x]` 056 confirm preview for URL emphasis
 - `[ ]` 057 confirm risk hierarchy polish
-- `[ ]` 058 confirm action wording parity
+- `[x]` 058 confirm action wording parity
 - `[ ]` 059 confirm panel dense/narrow layout pass
 - `[ ]` 060 confirm shell command folding parity
 
@@ -121,7 +121,7 @@
 - `[x]` 073 scrollback tool grouped progress parity
 - `[x]` 074 scrollback system path compaction parity
 - `[x]` 075 scrollback error inspect affordance
-- `[ ]` 076 scrollback assistant detail affordance parity
+- `[x]` 076 scrollback assistant detail affordance parity
 - `[ ]` 077 scrollback tool metadata density pass
 - `[ ]` 078 scrollback system batch density pass
 - `[ ]` 079 scrollback error framing parity
@@ -166,4 +166,4 @@
   - `775d61e`, `3970110`
 
 - 下一步优先实现：
-  - `047 stop-hook summary panel polish`
+  - `059 confirm panel dense/narrow layout pass`
