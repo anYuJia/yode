@@ -102,9 +102,13 @@ impl Command for ExportCommand {
             }
         };
 
-        // Get current working directory
-        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-        let filepath = cwd.join(&filename);
+        let project_root = PathBuf::from(&ctx.session.working_dir);
+        let filepath = conversation_export_path(&project_root, &filename).map_err(|err| {
+            format!(
+                "Failed to prepare conversation export path for {}: {}",
+                filename, err
+            )
+        })?;
 
         // Render conversation to text
         let content = render_conversation(ctx);
@@ -129,6 +133,12 @@ impl Command for ExportCommand {
             ))),
         }
     }
+}
+
+fn conversation_export_path(project_root: &std::path::Path, filename: &str) -> std::io::Result<PathBuf> {
+    let export_root = export_bundle_root(project_root);
+    std::fs::create_dir_all(&export_root)?;
+    Ok(export_root.join(filename))
 }
 
 /// Render conversation to plain text format
@@ -660,7 +670,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::{
-        render_bundle_completion_message, render_conversation_body,
+        conversation_export_path, render_bundle_completion_message, render_conversation_body,
         render_conversation_summary_block, render_runtime_bundle_summary, render_workspace_index,
     };
     use crate::app::{ChatEntry, ChatRole};
@@ -814,6 +824,19 @@ mod tests {
         assert!(rendered.contains("Diagnostics bundle exported to:"));
         assert!(rendered.contains("Core files:"));
         assert!(rendered.contains("Copied files:  2"));
+    }
+
+    #[test]
+    fn conversation_export_path_uses_workspace_export_root() {
+        let dir =
+            std::env::temp_dir().join(format!("yode-export-path-{}", uuid::Uuid::new_v4()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let path = conversation_export_path(&dir, "demo.txt").unwrap();
+        assert!(path.ends_with(".yode/exports/demo.txt"));
+        assert!(path.parent().is_some_and(|parent| parent.exists()));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
