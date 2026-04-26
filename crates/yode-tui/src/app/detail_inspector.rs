@@ -1,10 +1,11 @@
 use crate::app::{App, ChatEntry, ChatRole, InspectorView, PendingConfirmation};
 use crate::tool_grouping::{
-    describe_tool_call, detect_groupable_tool_batch, tool_batch_hint_text,
-    tool_batch_progress_text, tool_batch_summary_text, ToolBatch,
+    describe_tool_call, detect_groupable_system_batch, detect_groupable_tool_batch,
+    tool_batch_hint_text, tool_batch_progress_text, tool_batch_summary_text, SystemBatch,
+    ToolBatch,
 };
 use crate::tool_output_summary::{parse_shell_output_sections, summarize_tool_result};
-use crate::system_message::{parse_system_message, system_message_summary};
+use crate::system_message::{format_system_detail_line, parse_system_message, system_message_summary};
 use crate::ui::chat::{
     render_markdown_ansi_dim_with_options, render_markdown_ansi_white_with_options,
 };
@@ -16,6 +17,8 @@ use crate::ui::inspector::{
 pub(crate) const INSPECTOR_CONFIRM_ALLOW: &str = "__yode_confirm_allow__";
 pub(crate) const INSPECTOR_CONFIRM_ALWAYS: &str = "__yode_confirm_always__";
 pub(crate) const INSPECTOR_CONFIRM_DENY: &str = "__yode_confirm_deny__";
+
+const INSPECTOR_MARKDOWN_WIDTH: usize = 100;
 
 pub(crate) fn open_pending_confirmation_inspector(app: &mut App) -> bool {
     let Some(confirm) = app.pending_confirmation.as_ref() else {
@@ -118,27 +121,42 @@ fn build_pending_confirmation_document(
 
 fn build_latest_tool_document(app: &App) -> Option<InspectorDocument> {
     let entries = &app.chat_entries;
-    for index in (0..entries.len()).rev() {
+    let mut latest = None;
+    let mut index = 0;
+
+    while index < entries.len() {
         if let Some(batch) = detect_groupable_tool_batch(entries, index) {
-            if batch.next_index > index {
-                return Some(build_tool_batch_document(app, entries, &batch));
-            }
+            latest = Some(build_tool_batch_document(app, entries, &batch));
+            index = batch.next_index;
+            continue;
+        }
+
+        if let Some(batch) = detect_groupable_system_batch(entries, index) {
+            latest = Some(build_system_batch_document(entries, &batch));
+            index = batch.next_index;
+            continue;
         }
 
         match &entries[index].role {
             ChatRole::Assistant => {
-                return Some(build_assistant_entry_document(&entries[index]));
+                latest = Some(build_assistant_entry_document(&entries[index]));
+                index += 1;
             }
             ChatRole::ToolCall { id, name } => {
-                let result = entries[index + 1..]
+                let result_index = entries[index + 1..]
                     .iter()
-                    .find(|entry| matches!(&entry.role, ChatRole::ToolResult { id: rid, .. } if rid == id));
-                return Some(build_tool_entry_document(
+                    .position(
+                        |entry| matches!(&entry.role, ChatRole::ToolResult { id: rid, .. } if rid == id),
+                    )
+                    .map(|offset| index + offset + 1);
+                let result = result_index.and_then(|entry_index| entries.get(entry_index));
+                latest = Some(build_tool_entry_document(
                     app,
                     name,
                     &entries[index].content,
                     result,
                 ));
+                index = result_index.map(|entry_index| entry_index + 1).unwrap_or(index + 1);
             }
             ChatRole::ToolResult { id, .. } => {
                 let has_preceding = index > 0
@@ -147,15 +165,25 @@ fn build_latest_tool_document(app: &App) -> Option<InspectorDocument> {
                         .rev()
                         .any(|entry| matches!(&entry.role, ChatRole::ToolCall { id: tid, .. } if tid == id));
                 if !has_preceding {
-                    return Some(build_standalone_result_document(app, &entries[index]));
+                    latest = Some(build_standalone_result_document(app, &entries[index]));
                 }
+                index += 1;
             }
-            ChatRole::System => return Some(build_system_entry_document(&entries[index])),
-            ChatRole::Error => return Some(build_error_entry_document(&entries[index])),
-            _ => {}
+            ChatRole::System => {
+                latest = Some(build_system_entry_document(&entries[index]));
+                index += 1;
+            }
+            ChatRole::Error => {
+                latest = Some(build_error_entry_document(&entries[index]));
+                index += 1;
+            }
+            _ => {
+                index += 1;
+            }
         }
     }
-    None
+
+    latest
 }
 
 fn build_assistant_entry_document(entry: &ChatEntry) -> InspectorDocument {
@@ -185,37 +213,33 @@ fn build_assistant_entry_document(entry: &ChatEntry) -> InspectorDocument {
         }],
     }];
 
-    let content_lines = if entry.content.trim().is_empty() {
-        Vec::new()
-    } else {
-        render_markdown_ansi_white_with_options(&entry.content, Some(100), true)
-    };
-    if !content_lines.is_empty() {
-        panels.push(PanelSpec {
-            label: "Content".to_string(),
-            lines: content_lines,
-            badges: Vec::new(),
-            actions: vec![InspectorAction {
-                label: "follow-up".to_string(),
-                command:
-                    "Summarize the latest assistant response and suggest the next best action."
-                        .to_string(),
-            }],
-        });
+    if let Some(panel) = markdown_panel(
+        "Content",
+        &entry.content,
+        Vec::new(),
+        vec![InspectorAction {
+            label: "follow-up".to_string(),
+            command: "Summarize the latest assistant response and suggest the next best action."
+                .to_string(),
+        }],
+    ) {
+        panels.push(panel);
     }
 
     if let Some(reasoning) = entry.reasoning.as_deref().filter(|value| !value.trim().is_empty()) {
-        panels.push(PanelSpec {
-            label: "Reasoning".to_string(),
-            lines: render_markdown_ansi_dim_with_options(reasoning, Some(100), true),
-            badges: Vec::new(),
-            actions: vec![InspectorAction {
+        if let Some(panel) = dim_markdown_panel(
+            "Reasoning",
+            reasoning,
+            Vec::new(),
+            vec![InspectorAction {
                 label: "distill".to_string(),
                 command:
                     "Distill the latest assistant reasoning into the key decisions and next step."
                         .to_string(),
             }],
-        });
+        ) {
+            panels.push(panel);
+        }
     }
 
     build_document(
@@ -401,6 +425,81 @@ fn build_tool_batch_document(
     )
 }
 
+fn build_system_batch_document(entries: &[ChatEntry], batch: &SystemBatch) -> InspectorDocument {
+    let latest_summary = batch
+        .items
+        .last()
+        .and_then(|item| entries.get(item.entry_index))
+        .map(|entry| system_message_summary(&parse_system_message(&entry.content)))
+        .unwrap_or_else(|| "No recent system updates".to_string());
+
+    let mut panels = vec![PanelSpec {
+        label: "Overview".to_string(),
+        lines: vec![
+            format!("Summary: {} recent system updates", batch.items.len()),
+            format!("Latest: {}", latest_summary),
+        ],
+        badges: Vec::new(),
+        actions: vec![
+            InspectorAction {
+                label: "status".to_string(),
+                command: "/status".to_string(),
+            },
+            InspectorAction {
+                label: "timeline".to_string(),
+                command: "/inspect artifact history runtime".to_string(),
+            },
+        ],
+    }];
+
+    for (item_index, item) in batch.items.iter().enumerate() {
+        let Some(entry) = entries.get(item.entry_index) else {
+            continue;
+        };
+        let view = parse_system_message(&entry.content);
+        let mut lines = vec![
+            format!("Kind: {:?}", view.kind),
+            format!("Summary: {}", system_message_summary(&view)),
+        ];
+        if !view.detail_lines.is_empty() {
+            lines.push(String::new());
+            lines.push("Details".to_string());
+            lines.extend(
+                view.detail_lines
+                    .iter()
+                    .map(|line| format_system_detail_line(line)),
+            );
+        }
+        if entry.content.lines().count() > 1 {
+            lines.push(String::new());
+            lines.push("Raw".to_string());
+            lines.extend(entry.content.lines().map(|line| line.to_string()));
+        }
+
+        panels.push(PanelSpec {
+            label: format!("Item {}", item_index + 1),
+            lines,
+            badges: Vec::new(),
+            actions: vec![
+                InspectorAction {
+                    label: "status".to_string(),
+                    command: "/status".to_string(),
+                },
+                InspectorAction {
+                    label: "timeline".to_string(),
+                    command: "/inspect artifact history runtime".to_string(),
+                },
+            ],
+        });
+    }
+
+    build_document(
+        "Recent system activity".to_string(),
+        panels,
+        Some("Esc close inspector".to_string()),
+    )
+}
+
 fn build_tool_entry_document(
     app: &App,
     tool_name: &str,
@@ -486,14 +585,14 @@ fn build_tool_entry_document(
                 });
             }
         }
-        let output_lines = render_result_content_lines(&result_entry.content, tool_name);
-        if !output_lines.is_empty() {
-            panels.push(PanelSpec {
-                label: "Output".to_string(),
-                lines: output_lines,
-                badges: metadata_badges.clone(),
-                actions: actions.clone(),
-            });
+        if let Some(panel) = tool_output_panel(
+            "Output",
+            &result_entry.content,
+            tool_name,
+            metadata_badges.clone(),
+            actions.clone(),
+        ) {
+            panels.push(panel);
         }
     }
 
@@ -568,14 +667,14 @@ fn build_standalone_result_document(app: &App, entry: &ChatEntry) -> InspectorDo
             });
         }
     }
-    let output_lines = render_result_content_lines(&entry.content, name);
-    if !output_lines.is_empty() {
-        panels.push(PanelSpec {
-            label: "Output".to_string(),
-            lines: output_lines,
-            badges: metadata_badges,
-            actions: actions.clone(),
-        });
+    if let Some(panel) = tool_output_panel(
+        "Output",
+        &entry.content,
+        name,
+        metadata_badges,
+        actions.clone(),
+    ) {
+        panels.push(panel);
     }
 
     build_document(
@@ -625,6 +724,60 @@ fn build_document(
         panels: inspector_panels,
         footer,
     }
+}
+
+fn markdown_panel(
+    label: &str,
+    content: &str,
+    badges: Vec<(String, String)>,
+    actions: Vec<InspectorAction>,
+) -> Option<PanelSpec> {
+    let lines = render_markdown_panel_lines(content);
+    (!lines.is_empty()).then(|| PanelSpec {
+        label: label.to_string(),
+        lines,
+        badges,
+        actions,
+    })
+}
+
+fn dim_markdown_panel(
+    label: &str,
+    content: &str,
+    badges: Vec<(String, String)>,
+    actions: Vec<InspectorAction>,
+) -> Option<PanelSpec> {
+    let lines = render_dim_markdown_panel_lines(content);
+    (!lines.is_empty()).then(|| PanelSpec {
+        label: label.to_string(),
+        lines,
+        badges,
+        actions,
+    })
+}
+
+fn tool_output_panel(
+    label: &str,
+    content: &str,
+    tool_name: &str,
+    badges: Vec<(String, String)>,
+    actions: Vec<InspectorAction>,
+) -> Option<PanelSpec> {
+    let lines = render_result_content_lines(content, tool_name);
+    (!lines.is_empty()).then(|| PanelSpec {
+        label: label.to_string(),
+        lines,
+        badges,
+        actions,
+    })
+}
+
+fn render_markdown_panel_lines(content: &str) -> Vec<String> {
+    render_markdown_ansi_white_with_options(content, Some(INSPECTOR_MARKDOWN_WIDTH), true)
+}
+
+fn render_dim_markdown_panel_lines(content: &str) -> Vec<String> {
+    render_markdown_ansi_dim_with_options(content, Some(INSPECTOR_MARKDOWN_WIDTH), true)
 }
 
 fn tool_followup_actions(
@@ -746,7 +899,7 @@ fn render_result_content_lines(content: &str, tool_name: &str) -> Vec<String> {
         }
         lines
     } else {
-        render_markdown_ansi_white_with_options(content, Some(100), true)
+        render_markdown_panel_lines(content)
     }
 }
 
@@ -1110,10 +1263,121 @@ mod tests {
         ];
 
         let doc = build_latest_tool_document(&app).unwrap();
+        assert_eq!(doc.state.title, "Recent tool activity");
         assert!(doc
             .panels
             .first()
             .is_some_and(|panel| panel.lines.iter().any(|line| line.contains("Progress: chunk 2/4 50%"))));
+    }
+
+    #[test]
+    fn latest_tool_document_prefers_grouped_tool_batch_for_completed_recent_batch() {
+        let mut app = test_app();
+        app.chat_entries = vec![
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "a".to_string(),
+                    name: "read_file".to_string(),
+                },
+                r#"{"file_path":"/tmp/src/a.rs"}"#.to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolResult {
+                    id: "a".to_string(),
+                    name: "read_file".to_string(),
+                    is_error: false,
+                },
+                "alpha".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "b".to_string(),
+                    name: "read_file".to_string(),
+                },
+                r#"{"file_path":"/tmp/src/b.rs"}"#.to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolResult {
+                    id: "b".to_string(),
+                    name: "read_file".to_string(),
+                    is_error: false,
+                },
+                "beta".to_string(),
+            ),
+        ];
+
+        let doc = build_latest_tool_document(&app).unwrap();
+        assert_eq!(doc.state.title, "Recent tool activity");
+        assert_eq!(doc.panels[0].tab.label, "Overview");
+        assert!(doc.panels.iter().any(|panel| panel.tab.label == "Item 1"));
+        assert!(doc.panels.iter().any(|panel| panel.tab.label == "Item 2"));
+        assert!(doc.panels[0].lines.iter().any(|line| line.contains("Items: 2")));
+    }
+
+    #[test]
+    fn latest_tool_document_prefers_grouped_system_batch_for_recent_updates() {
+        let mut app = test_app();
+        app.chat_entries = vec![
+            ChatEntry::new(
+                ChatRole::System,
+                "Session memory updated · summary · /tmp/project/live.md".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::System,
+                "Diagnostics bundle exported to: /tmp/project/.yode/exports/diag.zip".to_string(),
+            ),
+        ];
+
+        let doc = build_latest_tool_document(&app).unwrap();
+        assert_eq!(doc.state.title, "Recent system activity");
+        assert_eq!(doc.panels[0].tab.label, "Overview");
+        assert!(doc.panels.iter().any(|panel| panel.tab.label == "Item 1"));
+        assert!(doc.panels.iter().any(|panel| panel.tab.label == "Item 2"));
+        assert!(doc.panels[0]
+            .lines
+            .iter()
+            .any(|line| line.contains("Latest: Diagnostics bundle exported")));
+    }
+
+    #[test]
+    fn latest_tool_document_prefers_latest_logical_message_after_batches() {
+        let mut app = test_app();
+        app.chat_entries = vec![
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "a".to_string(),
+                    name: "read_file".to_string(),
+                },
+                r#"{"file_path":"/tmp/src/a.rs"}"#.to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolResult {
+                    id: "a".to_string(),
+                    name: "read_file".to_string(),
+                    is_error: false,
+                },
+                "alpha".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "b".to_string(),
+                    name: "read_file".to_string(),
+                },
+                r#"{"file_path":"/tmp/src/b.rs"}"#.to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolResult {
+                    id: "b".to_string(),
+                    name: "read_file".to_string(),
+                    is_error: false,
+                },
+                "beta".to_string(),
+            ),
+            ChatEntry::new(ChatRole::Assistant, "Final answer".to_string()),
+        ];
+
+        let doc = build_latest_tool_document(&app).unwrap();
+        assert_eq!(doc.state.title, "Assistant details");
     }
 
     #[test]

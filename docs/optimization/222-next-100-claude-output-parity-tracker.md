@@ -21,7 +21,7 @@
 
 当前进度：
 
-- `33 / 100` 已完成
+- `35 / 100` 已完成
 
 ## 001-010 Markdown Core
 
@@ -107,8 +107,8 @@
 - `[x]` 062 latest system details inspector
 - `[x]` 063 latest error details inspector
 - `[x]` 064 latest tool activity inspector enriches active progress
-- `[ ]` 065 latest-message inspector entrypoint semantics
-- `[ ]` 066 inspector panel markdown rendering helper
+- `[x]` 065 latest-message inspector entrypoint semantics
+- `[x]` 066 inspector panel markdown rendering helper
 - `[ ]` 067 inspector badges for state / severity
 - `[ ]` 068 inspector footer command density pass
 - `[ ]` 069 inspector action copy parity pass
@@ -166,4 +166,4 @@
   - `775d61e`, `3970110`
 
 - 下一步优先实现：
-  - `065 latest-message inspector entrypoint semantics`
+  - `067 inspector badges for state / severity`
