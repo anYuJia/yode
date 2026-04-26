@@ -17,3 +17,21 @@ pub(super) fn role_style_palette() -> RoleStylePalette {
         red: Style::default().fg(Color::LightRed),
     }
 }
+
+pub(super) fn scrollback_render_width(subtract: u16, fallback: usize) -> usize {
+    crossterm::terminal::size()
+        .map(|(width, _)| width.saturating_sub(subtract) as usize)
+        .unwrap_or(fallback)
+        .max(24)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::scrollback_render_width;
+
+    #[test]
+    fn scrollback_render_width_keeps_narrow_width_floor() {
+        assert!(scrollback_render_width(u16::MAX, 0) >= 24);
+        assert!(scrollback_render_width(4, 18) >= 24);
+    }
+}

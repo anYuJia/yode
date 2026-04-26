@@ -13,6 +13,8 @@ use crate::tool_output_summary::{
     parse_shell_output_sections, summarize_tool_result, ToolSummaryTone,
 };
 
+use super::style::scrollback_render_width;
+
 pub(super) fn render_tool_call(
     entry: &ChatEntry,
     all_entries: &[ChatEntry],
@@ -78,9 +80,7 @@ pub(super) fn render_tool_call(
             if matches!(name, "bash" | "powershell") {
                 render_shell_output_lines(result, &res.content, dim, red);
             } else {
-                let max_line_chars = crossterm::terminal::size()
-                    .map(|(width, _)| (width as usize).saturating_sub(10))
-                    .unwrap_or(120);
+                let max_line_chars = scrollback_render_width(10, 120);
                 let preview_lines = res
                     .content
                     .lines()
@@ -223,9 +223,7 @@ pub(super) fn render_standalone_result(
         if matches!(name.as_str(), "bash" | "powershell") {
             render_shell_output_lines(result, &entry.content, dim, red);
         } else {
-            let max_line_chars = crossterm::terminal::size()
-                .map(|(width, _)| (width as usize).saturating_sub(10))
-                .unwrap_or(120);
+            let max_line_chars = scrollback_render_width(10, 120);
             let preview_lines = entry
                 .content
                 .lines()
@@ -258,9 +256,7 @@ fn render_shell_output_lines(
     stderr_style: ratatui::style::Style,
 ) {
     let sections = parse_shell_output_sections(content);
-    let max_line_chars = crossterm::terminal::size()
-        .map(|(width, _)| (width as usize).saturating_sub(10))
-        .unwrap_or(120);
+    let max_line_chars = scrollback_render_width(10, 120);
     let stdout_line = sections
         .stdout_lines
         .iter()

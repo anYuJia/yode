@@ -5,6 +5,8 @@ use crate::ui::chat::{
 };
 use crate::ui::chat_entries::user_plain_lines;
 
+use super::style::scrollback_render_width;
+
 pub(super) fn render_user(
     entry: &ChatEntry,
     result: &mut Vec<(String, ratatui::style::Style)>,
@@ -37,9 +39,7 @@ pub(super) fn render_assistant(
                 "  ∴ Thinking… (ctrl+o to inspect)".to_string(),
                 dim.add_modifier(ratatui::style::Modifier::ITALIC),
             ));
-            let render_width = crossterm::terminal::size()
-                .map(|(width, _)| width.saturating_sub(4) as usize)
-                .unwrap_or(76);
+            let render_width = scrollback_render_width(4, 76);
             let lines = render_markdown_ansi_dim_with_options(reasoning.trim(), Some(render_width), true);
             for line in lines {
                 if line.trim().is_empty() {
@@ -56,9 +56,7 @@ pub(super) fn render_assistant(
     }
 
     result.push((String::new(), dim));
-    let render_width = crossterm::terminal::size()
-        .map(|(width, _)| width.saturating_sub(2) as usize)
-        .unwrap_or(78);
+    let render_width = scrollback_render_width(2, 78);
     let lines = render_markdown_ansi_white_with_options(&entry.content, Some(render_width), true);
     let mut first_content = true;
     for line in lines {

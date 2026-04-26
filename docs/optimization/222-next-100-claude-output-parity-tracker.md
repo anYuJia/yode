@@ -21,7 +21,7 @@
 
 当前进度：
 
-- `59 / 100` 已完成
+- `60 / 100` 已完成
 
 ## 001-010 Markdown Core
 
@@ -125,7 +125,7 @@
 - `[x]` 077 scrollback tool metadata density pass
 - `[x]` 078 scrollback system batch density pass
 - `[x]` 079 scrollback error framing parity
-- `[ ]` 080 scrollback narrow-width polish
+- `[x]` 080 scrollback narrow-width polish
 
 ## 081-090 Artifact / Export Output
 
@@ -166,4 +166,4 @@
   - `775d61e`, `3970110`
 
 - 下一步优先实现：
-  - `080 scrollback narrow-width polish`
+  - `095 hyperlink coverage audit`
