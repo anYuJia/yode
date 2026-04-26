@@ -44,7 +44,7 @@ pub fn render_inline_confirm(frame: &mut Frame, area: Rect, app: &App) {
     let preview = tool_preview_line(&confirm.name, &confirm.arguments);
     let density = confirm_density(panel_area_width(area, frame));
     let options = vec![
-        "Allow once".to_string(),
+        "Allow once (default)".to_string(),
         tool_allow_option_label(&confirm.name, &confirm.arguments, &tool_label),
         "Deny".to_string(),
     ];
@@ -129,8 +129,8 @@ pub fn render_inline_confirm(frame: &mut Frame, area: Rect, app: &App) {
     lines.extend(option_list_lines(&options, app.confirm_selected));
     lines.push(Line::from(vec![Span::styled(
         match density {
-            ConfirmDensity::Default => " Esc cancel · Tab amend · Ctrl+E explain",
-            ConfirmDensity::Narrow => " Esc cancel · Tab amend · ^E explain",
+            ConfirmDensity::Default => " Esc cancel · Ctrl+O inspect · Tab amend · Ctrl+E explain",
+            ConfirmDensity::Narrow => " Esc cancel · ^O inspect · Tab amend · ^E explain",
         },
         Style::default().fg(MUTED),
     )]));
@@ -557,14 +557,14 @@ mod tests {
     fn confirmation_options_render_as_vertical_selection() {
         let lines = option_list_lines(
             &[
-                "Allow once".to_string(),
+                "Allow once (default)".to_string(),
                 "Always allow: python *".to_string(),
                 "Deny".to_string(),
             ],
             1,
         );
         assert!(lines[1].to_string().contains("❯ 2. Always allow: python *"));
-        assert!(lines[0].to_string().contains("1. Allow once"));
+        assert!(lines[0].to_string().contains("1. Allow once (default)"));
     }
 
     #[test]
