@@ -7,14 +7,14 @@ use crate::commands::{
 
 use super::checkpoint_workspace::{
     build_current_checkpoint_payload, checkpoint_completion_targets, checkpoint_operator_guide,
-    checkpoint_restore_chat_entries, checkpoint_restore_messages, render_branch_list,
-    render_branch_merge_preview, render_checkpoint_diff, render_checkpoint_list,
-    render_restore_dry_run, render_rewind_anchor_list, render_rewind_safety_summary,
-    render_rollback_anchor_list, render_rollback_preview, merge_checkpoint_payloads,
+    checkpoint_restore_chat_entries, checkpoint_restore_messages, merge_checkpoint_payloads,
+    render_branch_list, render_branch_merge_preview, render_checkpoint_diff,
+    render_checkpoint_list, render_restore_dry_run, render_rewind_anchor_list,
+    render_rewind_safety_summary, render_rollback_anchor_list, render_rollback_preview,
     resolve_branch_target, resolve_checkpoint_target, resolve_rewind_anchor_target,
     resolve_rollback_anchor_target, write_branch_merge_execution_artifact,
-    write_branch_merge_preview, write_branch_snapshot, write_rewind_anchor,
-    write_merge_rollback_anchor, write_restore_rollback_anchor, write_session_checkpoint,
+    write_branch_merge_preview, write_branch_snapshot, write_merge_rollback_anchor,
+    write_restore_rollback_anchor, write_rewind_anchor, write_session_checkpoint,
 };
 
 pub struct CheckpointCommand {
@@ -75,13 +75,21 @@ impl Command for CheckpointCommand {
                     Some(footer),
                     vec![("kind".into(), "branch".into())],
                 )
-                .ok_or_else(|| format!("Failed to open branch {}.", entry.summary_path.display()))?;
+                .ok_or_else(|| {
+                    format!("Failed to open branch {}.", entry.summary_path.display())
+                })?;
                 let mut doc = doc;
                 attach_inspector_actions(
                     &mut doc,
                     vec![
-                        ("diff".to_string(), "/checkpoint branch diff latest latest-1".to_string()),
-                        ("rewind".to_string(), "/checkpoint rewind latest".to_string()),
+                        (
+                            "diff".to_string(),
+                            "/checkpoint branch diff latest latest-1".to_string(),
+                        ),
+                        (
+                            "rewind".to_string(),
+                            "/checkpoint rewind latest".to_string(),
+                        ),
                     ],
                 );
                 return Ok(CommandOutput::OpenInspector(doc));
@@ -129,16 +137,14 @@ impl Command for CheckpointCommand {
             );
             let branch = resolve_branch_target(&project_root, target)
                 .ok_or_else(|| format!("Unknown branch target '{}'.", target))?;
-            let artifacts = write_branch_merge_preview(
-                &project_root,
-                &current,
-                &branch.payload,
-                target,
-            )
-            .map_err(|err| format!("Failed to write branch merge preview: {}", err))?;
+            let artifacts =
+                write_branch_merge_preview(&project_root, &current, &branch.payload, target)
+                    .map_err(|err| format!("Failed to write branch merge preview: {}", err))?;
             let preview =
-                crate::commands::session::checkpoint_workspace::load_branch_merge_preview(&artifacts.state_path)
-                    .map_err(|err| format!("Failed to load branch merge preview: {}", err))?;
+                crate::commands::session::checkpoint_workspace::load_branch_merge_preview(
+                    &artifacts.state_path,
+                )
+                .map_err(|err| format!("Failed to load branch merge preview: {}", err))?;
             return Ok(CommandOutput::Message(render_branch_merge_preview(
                 &preview,
                 &artifacts.state_path,
@@ -186,7 +192,9 @@ impl Command for CheckpointCommand {
             )));
         }
         if let ["rollback", "list"] = parts.as_slice() {
-            return Ok(CommandOutput::Message(render_rollback_anchor_list(&project_root)));
+            return Ok(CommandOutput::Message(render_rollback_anchor_list(
+                &project_root,
+            )));
         }
         if matches!(parts.as_slice(), ["rollback", "latest"] | ["rollback", _]) {
             let target = parts.get(1).copied().unwrap_or("latest");
@@ -200,7 +208,10 @@ impl Command for CheckpointCommand {
                         vec![("kind".into(), "rollback".into())],
                     )
                     .ok_or_else(|| {
-                        format!("Failed to open rollback anchor {}.", entry.summary_path.display())
+                        format!(
+                            "Failed to open rollback anchor {}.",
+                            entry.summary_path.display()
+                        )
                     })?;
                     return Ok(CommandOutput::OpenInspector(doc));
                 }
@@ -225,7 +236,9 @@ impl Command for CheckpointCommand {
             )));
         }
         if let ["rewind-anchor"] | ["rewind-anchor", "list"] = parts.as_slice() {
-            return Ok(CommandOutput::Message(render_rewind_anchor_list(&project_root)));
+            return Ok(CommandOutput::Message(render_rewind_anchor_list(
+                &project_root,
+            )));
         }
         if let ["rewind-anchor", "latest"] | ["rewind-anchor", _] = parts.as_slice() {
             let target = parts.get(1).copied().unwrap_or("latest");
@@ -239,13 +252,19 @@ impl Command for CheckpointCommand {
                         vec![("kind".into(), "rewind".into())],
                     )
                     .ok_or_else(|| {
-                        format!("Failed to open rewind anchor {}.", entry.summary_path.display())
+                        format!(
+                            "Failed to open rewind anchor {}.",
+                            entry.summary_path.display()
+                        )
                     })?;
                     let mut doc = doc;
                     attach_inspector_actions(
                         &mut doc,
                         vec![
-                            ("rewind".to_string(), "/checkpoint rewind latest".to_string()),
+                            (
+                                "rewind".to_string(),
+                                "/checkpoint rewind latest".to_string(),
+                            ),
                             ("checkpoint".to_string(), "/checkpoint latest".to_string()),
                         ],
                     );
@@ -320,7 +339,9 @@ impl Command for CheckpointCommand {
         }
 
         if trimmed == "list" {
-            return Ok(CommandOutput::Message(render_checkpoint_list(&project_root)));
+            return Ok(CommandOutput::Message(render_checkpoint_list(
+                &project_root,
+            )));
         }
 
         if matches!(parts.first(), Some(&"latest")) || parts.len() == 1 {
@@ -333,14 +354,28 @@ impl Command for CheckpointCommand {
                 Some(footer),
                 vec![("kind".into(), "checkpoint".into())],
             )
-            .ok_or_else(|| format!("Failed to open checkpoint {}.", entry.summary_path.display()))?;
+            .ok_or_else(|| {
+                format!(
+                    "Failed to open checkpoint {}.",
+                    entry.summary_path.display()
+                )
+            })?;
             let mut doc = doc;
             attach_inspector_actions(
                 &mut doc,
                 vec![
-                    ("diff".to_string(), "/checkpoint diff latest latest-1".to_string()),
-                    ("branch".to_string(), "/checkpoint branch save workstream-a".to_string()),
-                    ("restore".to_string(), "/checkpoint restore-dry-run latest".to_string()),
+                    (
+                        "diff".to_string(),
+                        "/checkpoint diff latest latest-1".to_string(),
+                    ),
+                    (
+                        "branch".to_string(),
+                        "/checkpoint branch save workstream-a".to_string(),
+                    ),
+                    (
+                        "restore".to_string(),
+                        "/checkpoint restore-dry-run latest".to_string(),
+                    ),
                 ],
             );
             return Ok(CommandOutput::OpenInspector(doc));

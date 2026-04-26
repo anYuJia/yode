@@ -125,7 +125,10 @@ pub(crate) fn write_session_checkpoint(
         engine_messages,
     );
     std::fs::write(&state_path, serde_json::to_string_pretty(&payload)?)?;
-    std::fs::write(&summary_path, render_checkpoint_summary(&payload, &state_path, None))?;
+    std::fs::write(
+        &summary_path,
+        render_checkpoint_summary(&payload, &state_path, None),
+    )?;
 
     Ok(SessionCheckpointArtifactSet {
         summary_path,
@@ -133,7 +136,10 @@ pub(crate) fn write_session_checkpoint(
     })
 }
 
-pub(crate) fn checkpoint_inventory(project_root: &Path, limit: usize) -> Vec<CheckpointInventoryEntry> {
+pub(crate) fn checkpoint_inventory(
+    project_root: &Path,
+    limit: usize,
+) -> Vec<CheckpointInventoryEntry> {
     recent_snapshot_summary_paths(project_root, &["checkpoint.md"], limit)
         .into_iter()
         .filter_map(|summary_path| {
@@ -185,18 +191,22 @@ pub(crate) fn rollback_anchor_inventory(
     project_root: &Path,
     limit: usize,
 ) -> Vec<CheckpointInventoryEntry> {
-    recent_snapshot_summary_paths(project_root, &["restore-rollback.md", "merge-rollback.md"], limit)
-        .into_iter()
-        .filter_map(|summary_path| {
-            let state_path = summary_path_to_state_path(&summary_path)?;
-            let payload = load_checkpoint_payload(&state_path).ok()?;
-            Some(CheckpointInventoryEntry {
-                summary_path,
-                state_path,
-                payload,
-            })
+    recent_snapshot_summary_paths(
+        project_root,
+        &["restore-rollback.md", "merge-rollback.md"],
+        limit,
+    )
+    .into_iter()
+    .filter_map(|summary_path| {
+        let state_path = summary_path_to_state_path(&summary_path)?;
+        let payload = load_checkpoint_payload(&state_path).ok()?;
+        Some(CheckpointInventoryEntry {
+            summary_path,
+            state_path,
+            payload,
         })
-        .collect()
+    })
+    .collect()
 }
 
 pub(crate) fn resolve_checkpoint_target(
@@ -219,7 +229,9 @@ pub(crate) fn resolve_checkpoint_target(
         return entries.into_iter().nth(offset);
     }
     if let Ok(index) = trimmed.parse::<usize>() {
-        return index.checked_sub(1).and_then(|idx| entries.into_iter().nth(idx));
+        return index
+            .checked_sub(1)
+            .and_then(|idx| entries.into_iter().nth(idx));
     }
 
     entries.into_iter().find(|entry| {
@@ -281,7 +293,9 @@ fn resolve_snapshot_target(
         return entries.into_iter().nth(offset);
     }
     if let Ok(index) = trimmed.parse::<usize>() {
-        return index.checked_sub(1).and_then(|idx| entries.into_iter().nth(idx));
+        return index
+            .checked_sub(1)
+            .and_then(|idx| entries.into_iter().nth(idx));
     }
 
     entries.into_iter().find(|entry| {
@@ -328,17 +342,29 @@ pub(crate) fn checkpoint_completion_targets(working_dir: &str) -> Vec<String> {
         "restore-dry-run latest".to_string(),
     ];
     for entry in checkpoint_inventory(&root, 6) {
-        if let Some(name) = entry.summary_path.file_name().and_then(|name| name.to_str()) {
+        if let Some(name) = entry
+            .summary_path
+            .file_name()
+            .and_then(|name| name.to_str())
+        {
             values.push(name.to_string());
         }
     }
     for entry in branch_inventory(&root, 6) {
-        if let Some(name) = entry.summary_path.file_name().and_then(|name| name.to_str()) {
+        if let Some(name) = entry
+            .summary_path
+            .file_name()
+            .and_then(|name| name.to_str())
+        {
             values.push(format!("branch {}", name));
         }
     }
     for entry in rewind_anchor_inventory(&root, 4) {
-        if let Some(name) = entry.summary_path.file_name().and_then(|name| name.to_str()) {
+        if let Some(name) = entry
+            .summary_path
+            .file_name()
+            .and_then(|name| name.to_str())
+        {
             values.push(format!("rewind-anchor {}", name));
         }
     }
@@ -381,18 +407,23 @@ pub(crate) fn render_branch_list(project_root: &Path) -> String {
         );
     }
 
-    let mut out = format!("Session branches in {}:\n", checkpoint_dir(project_root).display());
+    let mut out = format!(
+        "Session branches in {}:\n",
+        checkpoint_dir(project_root).display()
+    );
     for (index, entry) in entries.iter().enumerate() {
         out.push_str(&format!(
             "  {:>2}. [{}] {} · source={} · {}\n",
             index + 1,
             artifact_freshness_badge(&entry.summary_path),
-            entry.payload
+            entry
+                .payload
                 .lineage
                 .branch_name
                 .as_deref()
                 .unwrap_or(entry.payload.label.as_str()),
-            entry.payload
+            entry
+                .payload
                 .lineage
                 .source_label
                 .as_deref()
@@ -412,14 +443,18 @@ pub(crate) fn render_rewind_anchor_list(project_root: &Path) -> String {
             checkpoint_dir(project_root).display()
         );
     }
-    let mut out = format!("Rewind anchors in {}:\n", checkpoint_dir(project_root).display());
+    let mut out = format!(
+        "Rewind anchors in {}:\n",
+        checkpoint_dir(project_root).display()
+    );
     for (index, entry) in entries.iter().enumerate() {
         out.push_str(&format!(
             "  {:>2}. [{}] {} · target={} · {}\n",
             index + 1,
             artifact_freshness_badge(&entry.summary_path),
             entry.payload.label,
-            entry.payload
+            entry
+                .payload
                 .lineage
                 .rewind_target_label
                 .as_deref()
@@ -439,7 +474,10 @@ pub(crate) fn render_rollback_anchor_list(project_root: &Path) -> String {
             checkpoint_dir(project_root).display()
         );
     }
-    let mut out = format!("Rollback anchors in {}:\n", checkpoint_dir(project_root).display());
+    let mut out = format!(
+        "Rollback anchors in {}:\n",
+        checkpoint_dir(project_root).display()
+    );
     for (index, entry) in entries.iter().enumerate() {
         out.push_str(&format!(
             "  {:>2}. [{}] {} · source={} · {}\n",
@@ -486,7 +524,10 @@ pub(crate) fn render_checkpoint_diff(
         )
         .field(
             "Provider/model",
-            format!("{}:{} -> {}:{}", left.provider, left.model, right.provider, right.model),
+            format!(
+                "{}:{} -> {}:{}",
+                left.provider, left.model, right.provider, right.model
+            ),
         )
         .field(
             "Working dir",
@@ -512,20 +553,24 @@ pub(crate) fn render_restore_dry_run(
     WorkspaceText::new("Checkpoint restore dry run")
         .subtitle(target_label.to_string())
         .field("Mutation", "none (preview only)")
-        .field(
-            "Current messages",
-            current.message_count.to_string(),
-        )
-        .field(
-            "Checkpoint messages",
-            target.message_count.to_string(),
-        )
+        .field("Current messages", current.message_count.to_string())
+        .field("Checkpoint messages", target.message_count.to_string())
         .section(
             "What would change",
             workspace_bullets([
-                format!("provider/model: {}:{} -> {}:{}", current.provider, current.model, target.provider, target.model),
-                format!("working dir: {} -> {}", current.working_dir, target.working_dir),
-                format!("tail preview: {} -> {}", checkpoint_tail_preview(current), checkpoint_tail_preview(target)),
+                format!(
+                    "provider/model: {}:{} -> {}:{}",
+                    current.provider, current.model, target.provider, target.model
+                ),
+                format!(
+                    "working dir: {} -> {}",
+                    current.working_dir, target.working_dir
+                ),
+                format!(
+                    "tail preview: {} -> {}",
+                    checkpoint_tail_preview(current),
+                    checkpoint_tail_preview(target)
+                ),
             ]),
         )
         .footer(checkpoint_operator_guide())
@@ -587,7 +632,8 @@ pub(crate) fn render_rewind_safety_summary(
                     checkpoint_tail_preview(current),
                     checkpoint_tail_preview(target)
                 ),
-                "restore would replace current visible conversation state if enabled later".to_string(),
+                "restore would replace current visible conversation state if enabled later"
+                    .to_string(),
             ]),
         )
         .footer(checkpoint_operator_guide())
@@ -620,7 +666,9 @@ pub(crate) fn render_restore_doctor(project_root: &Path) -> String {
     let latest_branch = branch_inventory(project_root, 1).into_iter().next();
     let latest_rewind = rewind_anchor_inventory(project_root, 1).into_iter().next();
     let latest_merge = latest_artifact_by_suffix(&checkpoint_dir(project_root), "branch-merge.md");
-    let latest_rollback = rollback_anchor_inventory(project_root, 1).into_iter().next();
+    let latest_rollback = rollback_anchor_inventory(project_root, 1)
+        .into_iter()
+        .next();
     WorkspaceText::new("Restore control doctor")
         .subtitle(project_root.display().to_string())
         .field(
@@ -739,10 +787,12 @@ pub(crate) fn write_branch_snapshot(
     payload.lineage.branch_name = Some(branch_name.to_string());
     payload.lineage.source_kind = Some(source.kind.clone());
     payload.lineage.source_label = Some(source.label.clone());
-    payload.lineage.source_summary_artifact =
-        source_summary.map(|path| path.display().to_string());
+    payload.lineage.source_summary_artifact = source_summary.map(|path| path.display().to_string());
     std::fs::write(&state_path, serde_json::to_string_pretty(&payload)?)?;
-    std::fs::write(&summary_path, render_checkpoint_summary(&payload, &state_path, Some(branch_name)))?;
+    std::fs::write(
+        &summary_path,
+        render_checkpoint_summary(&payload, &state_path, Some(branch_name)),
+    )?;
     Ok(SessionCheckpointArtifactSet {
         summary_path,
         state_path,
@@ -771,7 +821,10 @@ pub(crate) fn write_rewind_anchor(
     payload.lineage.source_label = Some(target.label.clone());
     payload.lineage.transcript_anchor = current.artifacts.latest_transcript.clone();
     std::fs::write(&state_path, serde_json::to_string_pretty(&payload)?)?;
-    std::fs::write(&summary_path, render_checkpoint_summary(&payload, &state_path, None))?;
+    std::fs::write(
+        &summary_path,
+        render_checkpoint_summary(&payload, &state_path, None),
+    )?;
     Ok(SessionCheckpointArtifactSet {
         summary_path,
         state_path,
@@ -793,7 +846,10 @@ pub(crate) fn write_branch_merge_preview(
     let summary_path = dir.join(format!("{}-branch-merge.md", base));
     let preview = build_branch_merge_preview(current, branch, branch_label);
     std::fs::write(&state_path, serde_json::to_string_pretty(&preview)?)?;
-    std::fs::write(&summary_path, render_branch_merge_preview(&preview, &state_path))?;
+    std::fs::write(
+        &summary_path,
+        render_branch_merge_preview(&preview, &state_path),
+    )?;
     Ok(SessionCheckpointArtifactSet {
         summary_path,
         state_path,
@@ -848,7 +904,11 @@ pub(crate) fn write_merge_rollback_anchor(
     write_rollback_anchor(project_root, current, "merge", target_label)
 }
 
-fn recent_snapshot_summary_paths(project_root: &Path, suffixes: &[&str], limit: usize) -> Vec<PathBuf> {
+fn recent_snapshot_summary_paths(
+    project_root: &Path,
+    suffixes: &[&str],
+    limit: usize,
+) -> Vec<PathBuf> {
     let mut entries = std::fs::read_dir(checkpoint_dir(project_root))
         .ok()
         .into_iter()
@@ -910,8 +970,10 @@ fn build_checkpoint_payload(
         artifacts: CheckpointArtifacts {
             latest_review: latest_markdown_file(&project_root.join(".yode").join("reviews"))
                 .map(|path| path.display().to_string()),
-            latest_transcript: latest_markdown_file(&project_root.join(".yode").join("transcripts"))
-                .map(|path| path.display().to_string()),
+            latest_transcript: latest_markdown_file(
+                &project_root.join(".yode").join("transcripts"),
+            )
+            .map(|path| path.display().to_string()),
             latest_workflow: latest_workflow_execution_artifact(project_root)
                 .map(|path| path.display().to_string()),
             latest_coordinate: latest_coordinator_artifact(project_root)
@@ -937,8 +999,12 @@ fn build_branch_merge_preview(
         .take_while(|(left, right)| left.role == right.role && left.content == right.content)
         .count();
     let branch_only_messages = branch.messages.len().saturating_sub(common_prefix_messages);
-    let current_only_messages = current.messages.len().saturating_sub(common_prefix_messages);
-    let merged_message_count = common_prefix_messages + branch_only_messages + current_only_messages;
+    let current_only_messages = current
+        .messages
+        .len()
+        .saturating_sub(common_prefix_messages);
+    let merged_message_count =
+        common_prefix_messages + branch_only_messages + current_only_messages;
     let conflicts = render_restore_conflict_summary(current, branch);
     BranchMergePreview {
         kind: "branch_merge_preview".to_string(),
@@ -962,7 +1028,10 @@ fn restore_conflict_severity(
         "high"
     } else if conflicts.iter().any(|line| line.contains("working dir")) {
         "warn"
-    } else if conflicts.iter().any(|line| line.contains("tail divergence")) {
+    } else if conflicts
+        .iter()
+        .any(|line| line.contains("tail divergence"))
+    {
         "medium"
     } else {
         "low"
@@ -981,7 +1050,10 @@ fn build_branch_merge_execution_payload(
         .take_while(|(left, right)| left.role == right.role && left.content == right.content)
         .count();
     let branch_tail_count = branch.messages.len().saturating_sub(common_prefix_messages);
-    let current_tail_count = current.messages.len().saturating_sub(common_prefix_messages);
+    let current_tail_count = current
+        .messages
+        .len()
+        .saturating_sub(common_prefix_messages);
     BranchMergeExecutionPayload {
         kind: "branch_merge_execution".to_string(),
         branch_label: branch_label.to_string(),
@@ -1045,7 +1117,10 @@ fn write_rollback_anchor(
     payload.lineage.source_kind = Some(current.kind.clone());
     payload.lineage.source_label = Some(current.label.clone());
     std::fs::write(&state_path, serde_json::to_string_pretty(&payload)?)?;
-    std::fs::write(&summary_path, render_checkpoint_summary(&payload, &state_path, None))?;
+    std::fs::write(
+        &summary_path,
+        render_checkpoint_summary(&payload, &state_path, None),
+    )?;
     Ok(SessionCheckpointArtifactSet {
         summary_path,
         state_path,
@@ -1064,7 +1139,9 @@ pub(crate) fn checkpoint_restore_messages(payload: &SessionCheckpointPayload) ->
         .collect()
 }
 
-pub(crate) fn checkpoint_restore_chat_entries(payload: &SessionCheckpointPayload) -> Vec<ChatEntry> {
+pub(crate) fn checkpoint_restore_chat_entries(
+    payload: &SessionCheckpointPayload,
+) -> Vec<ChatEntry> {
     payload
         .messages
         .iter()
@@ -1182,7 +1259,10 @@ fn render_checkpoint_summary(
         ("transcript", payload.artifacts.latest_transcript.as_deref()),
         ("workflow", payload.artifacts.latest_workflow.as_deref()),
         ("coordinate", payload.artifacts.latest_coordinate.as_deref()),
-        ("orchestration", payload.artifacts.latest_orchestration.as_deref()),
+        (
+            "orchestration",
+            payload.artifacts.latest_orchestration.as_deref(),
+        ),
     ] {
         lines.push(format!("- {}: {}", label, value.unwrap_or("none")));
     }
@@ -1261,7 +1341,9 @@ fn checkpoint_role_label(role: &ChatRole) -> String {
         }
         ChatRole::Error => "error".to_string(),
         ChatRole::System => "system".to_string(),
-        ChatRole::SubAgentCall { description } => format!("subagent_call:{}", checkpoint_slug(description)),
+        ChatRole::SubAgentCall { description } => {
+            format!("subagent_call:{}", checkpoint_slug(description))
+        }
         ChatRole::SubAgentToolCall { name } => format!("subagent_tool:{}", name),
         ChatRole::SubAgentResult => "subagent_result".to_string(),
         ChatRole::AskUser { id } => format!("ask_user:{}", id),
@@ -1300,9 +1382,7 @@ fn checkpoint_role_to_chat_role(role: &str) -> ChatRole {
         };
     }
     if let Some(id) = role.strip_prefix("ask_user:") {
-        return ChatRole::AskUser {
-            id: id.to_string(),
-        };
+        return ChatRole::AskUser { id: id.to_string() };
     }
     match role {
         "assistant" => ChatRole::Assistant,
@@ -1315,16 +1395,18 @@ fn checkpoint_role_to_chat_role(role: &str) -> ChatRole {
 
 fn checkpoint_message_to_engine_message(message: &CheckpointMessage) -> Option<Message> {
     if message.role.starts_with("tool_call:") {
-        return Some(Message {
-            role: Role::Assistant,
-            content: Some(message.content.clone()),
-            content_blocks: Vec::new(),
-            reasoning: message.reasoning.clone(),
-            tool_calls: Vec::new(),
-            tool_call_id: None,
-            images: Vec::new(),
-        }
-        .normalized());
+        return Some(
+            Message {
+                role: Role::Assistant,
+                content: Some(message.content.clone()),
+                content_blocks: Vec::new(),
+                reasoning: message.reasoning.clone(),
+                tool_calls: Vec::new(),
+                tool_call_id: None,
+                images: Vec::new(),
+            }
+            .normalized(),
+        );
     }
 
     if message.role.starts_with("tool_result") {
@@ -1364,7 +1446,13 @@ fn checkpoint_tail_preview(payload: &SessionCheckpointPayload) -> String {
     payload
         .messages
         .last()
-        .map(|message| format!("{}: {}", message.role, truncate_preview(&message.content, 100)))
+        .map(|message| {
+            format!(
+                "{}: {}",
+                message.role,
+                truncate_preview(&message.content, 100)
+            )
+        })
         .unwrap_or_else(|| "none".to_string())
 }
 
@@ -1373,7 +1461,10 @@ fn truncate_preview(text: &str, max_chars: usize) -> String {
     if squashed.chars().count() <= max_chars {
         squashed
     } else {
-        format!("{}...", squashed.chars().take(max_chars).collect::<String>())
+        format!(
+            "{}...",
+            squashed.chars().take(max_chars).collect::<String>()
+        )
     }
 }
 
@@ -1420,7 +1511,8 @@ mod tests {
 
     #[test]
     fn diff_and_restore_dry_run_render_workspace_text() {
-        let dir = std::env::temp_dir().join(format!("yode-checkpoint-diff-{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("yode-checkpoint-diff-{}", uuid::Uuid::new_v4()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let left = build_current_checkpoint_payload(
@@ -1454,7 +1546,8 @@ mod tests {
 
     #[test]
     fn completion_targets_and_index_resolution_work() {
-        let dir = std::env::temp_dir().join(format!("yode-checkpoint-complete-{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("yode-checkpoint-complete-{}", uuid::Uuid::new_v4()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let chat = vec![ChatEntry::new(ChatRole::User, "hello".to_string())];
@@ -1495,14 +1588,16 @@ mod tests {
         assert_eq!(branch_inventory(&dir, 8).len(), 1);
         assert_eq!(rewind_anchor_inventory(&dir, 8).len(), 1);
         assert!(resolve_branch_target(&dir, "latest").is_some());
-        let summary = render_rewind_safety_summary(&base, &base, "latest", Some(&rewind.summary_path));
+        let summary =
+            render_rewind_safety_summary(&base, &base, "latest", Some(&rewind.summary_path));
         assert!(summary.contains("Rewind safety summary"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn restore_helpers_rebuild_engine_messages_and_chat_entries() {
-        let dir = std::env::temp_dir().join(format!("yode-checkpoint-restore-{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("yode-checkpoint-restore-{}", uuid::Uuid::new_v4()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let chat = vec![
