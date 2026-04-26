@@ -60,7 +60,12 @@ fn short_session_id(session_id: &str) -> String {
     session_id.chars().take(8).collect::<String>()
 }
 
-fn write_startup_artifact(project_root: &Path, session_id: &str, kind: StartupArtifactKind, body: &str) -> Option<String> {
+fn write_startup_artifact(
+    project_root: &Path,
+    session_id: &str,
+    kind: StartupArtifactKind,
+    body: &str,
+) -> Option<String> {
     let dir = startup_artifact_dir(project_root);
     fs::create_dir_all(&dir).ok()?;
     let path = dir.join(format!(
@@ -97,7 +102,12 @@ pub(crate) fn write_startup_profile_artifact(
     session_id: &str,
     summary: &str,
 ) -> Option<String> {
-    write_startup_artifact(project_root, session_id, StartupArtifactKind::StartupProfile, summary)
+    write_startup_artifact(
+        project_root,
+        session_id,
+        StartupArtifactKind::StartupProfile,
+        summary,
+    )
 }
 
 pub(crate) fn write_tooling_inventory_artifact(
@@ -271,7 +281,12 @@ pub(crate) fn write_managed_mcp_inventory_artifact(
         .unwrap_or_else(|| serde_json::json!({}));
     let effective_servers = scopes
         .iter()
-        .filter_map(|scope| scope.get("mcp_servers").and_then(|value| value.as_array()).cloned())
+        .filter_map(|scope| {
+            scope
+                .get("mcp_servers")
+                .and_then(|value| value.as_array())
+                .cloned()
+        })
         .flatten()
         .collect::<Vec<_>>();
     let payload = serde_json::json!({
@@ -510,11 +525,8 @@ mod tests {
             &HashMap::new(),
         );
         let manifest = write_startup_bundle_manifest_artifact(&dir, "session-1234");
-        let permissions = write_permission_policy_artifact(
-            &dir,
-            "session-1234",
-            &PermissionManager::strict(),
-        );
+        let permissions =
+            write_permission_policy_artifact(&dir, "session-1234", &PermissionManager::strict());
         let settings = write_settings_scope_artifact(&dir, "session-1234", &dir);
         let managed_mcp = write_managed_mcp_inventory_artifact(
             &dir,
@@ -523,16 +535,30 @@ mod tests {
             &ToolingSetupMetrics::default(),
         );
 
-        assert!(startup.as_deref().is_some_and(|path| Path::new(path).exists()));
+        assert!(startup
+            .as_deref()
+            .is_some_and(|path| Path::new(path).exists()));
         assert!(startup
             .as_deref()
             .is_some_and(|path| path.ends_with("startup-profile.txt")));
-        assert!(tooling.as_deref().is_some_and(|path| Path::new(path).exists()));
-        assert!(provider.as_deref().is_some_and(|path| Path::new(path).exists()));
-        assert!(manifest.as_deref().is_some_and(|path| Path::new(path).exists()));
-        assert!(permissions.as_deref().is_some_and(|path| Path::new(path).exists()));
-        assert!(settings.as_deref().is_some_and(|path| Path::new(path).exists()));
-        assert!(managed_mcp.as_deref().is_some_and(|path| Path::new(path).exists()));
+        assert!(tooling
+            .as_deref()
+            .is_some_and(|path| Path::new(path).exists()));
+        assert!(provider
+            .as_deref()
+            .is_some_and(|path| Path::new(path).exists()));
+        assert!(manifest
+            .as_deref()
+            .is_some_and(|path| Path::new(path).exists()));
+        assert!(permissions
+            .as_deref()
+            .is_some_and(|path| Path::new(path).exists()));
+        assert!(settings
+            .as_deref()
+            .is_some_and(|path| Path::new(path).exists()));
+        assert!(managed_mcp
+            .as_deref()
+            .is_some_and(|path| Path::new(path).exists()));
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -565,7 +591,8 @@ mod tests {
         )
         .unwrap();
 
-        let payload: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let payload: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(payload["failure_count"].as_u64(), Some(2));
         assert_eq!(payload["configured_server_count"].as_u64(), Some(3));
         assert_eq!(
@@ -615,7 +642,10 @@ mod tests {
 
         let payload: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-        assert_eq!(payload["source_breakdown"]["configured_env_override"].as_u64(), Some(1));
+        assert_eq!(
+            payload["source_breakdown"]["configured_env_override"].as_u64(),
+            Some(1)
+        );
         assert_eq!(
             payload["provider_details"][0]["api_key_source"].as_str(),
             Some("env_override:OPENAI_API_KEY")

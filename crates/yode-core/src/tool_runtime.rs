@@ -235,10 +235,7 @@ pub fn render_tool_turn_artifact(artifact: &ToolTurnArtifact) -> String {
             tool_pool.confirm_count
         ));
         output.push_str(&format!("- Denied: {}\n", tool_pool.deny_count));
-        output.push_str(&format!(
-            "- Activations: {}\n",
-            tool_pool.activation_count
-        ));
+        output.push_str(&format!("- Activations: {}\n", tool_pool.activation_count));
         output.push_str(&format!(
             "- Last activated tool: {}\n",
             tool_pool.last_activated_tool.as_deref().unwrap_or("none")

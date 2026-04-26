@@ -162,7 +162,13 @@ pub(crate) fn bootstrap_provider_registry(
         };
         let (base_url, base_url_source) = resolve_base_url(name, p_config, known);
 
-        register_provider(&provider_registry, name, &p_config.format, &api_key, &base_url);
+        register_provider(
+            &provider_registry,
+            name,
+            &p_config.format,
+            &api_key,
+            &base_url,
+        );
         configured_registered += 1;
         api_key_source.apply(&mut source_breakdown);
         base_url_source.apply(&mut source_breakdown);
@@ -181,11 +187,11 @@ pub(crate) fn bootstrap_provider_registry(
         if provider_registry.contains(info.name) {
             continue;
         }
-        let Some((api_key, env_key)) = info
-            .env_keys
-            .iter()
-            .find_map(|key| std::env::var(key).ok().map(|value| (value, (*key).to_string())))
-        else {
+        let Some((api_key, env_key)) = info.env_keys.iter().find_map(|key| {
+            std::env::var(key)
+                .ok()
+                .map(|value| (value, (*key).to_string()))
+        }) else {
             continue;
         };
         register_provider(
@@ -271,12 +277,14 @@ pub(crate) fn bootstrap_provider_registry(
 }
 
 fn default_base_url(format: &str, known: Option<&'static ProviderInfo>) -> &'static str {
-    known.map(|provider| provider.default_base_url).unwrap_or(match format {
-        "openai" => "https://api.openai.com/v1",
-        "anthropic" => "https://api.anthropic.com",
-        "gemini" => "https://generativelanguage.googleapis.com/v1beta",
-        _ => "https://api.openai.com/v1",
-    })
+    known
+        .map(|provider| provider.default_base_url)
+        .unwrap_or(match format {
+            "openai" => "https://api.openai.com/v1",
+            "anthropic" => "https://api.anthropic.com",
+            "gemini" => "https://generativelanguage.googleapis.com/v1beta",
+            _ => "https://api.openai.com/v1",
+        })
 }
 
 fn resolve_configured_api_key(
@@ -330,9 +338,11 @@ fn resolve_base_url(
 }
 
 fn provider_env_key_from_info(info: &'static ProviderInfo) -> Option<(String, String)> {
-    info.env_keys
-        .iter()
-        .find_map(|key| std::env::var(key).ok().map(|value| (value, (*key).to_string())))
+    info.env_keys.iter().find_map(|key| {
+        std::env::var(key)
+            .ok()
+            .map(|value| (value, (*key).to_string()))
+    })
 }
 
 fn provider_env_key_from_format(format: &str) -> Option<(String, String)> {

@@ -1,5 +1,5 @@
-use super::*;
 use super::retry::summarize_retry_error;
+use super::*;
 
 impl AgentEngine {
     /// Process a single stream event.

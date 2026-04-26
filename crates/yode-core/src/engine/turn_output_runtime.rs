@@ -63,7 +63,11 @@ impl AgentEngine {
         self.last_turn_duration_ms = duration_ms;
         self.last_turn_stop_reason = stop_reason.map(|reason| format!("{:?}", reason));
 
-        let dir = self.context.working_dir_compat().join(".yode").join("turns");
+        let dir = self
+            .context
+            .working_dir_compat()
+            .join(".yode")
+            .join("turns");
         if std::fs::create_dir_all(&dir).is_err() {
             return;
         }

@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::io::Write;
+use std::sync::Arc;
 
 use crate::app_bootstrap::shutdown_mcp_clients;
 use anyhow::Result;

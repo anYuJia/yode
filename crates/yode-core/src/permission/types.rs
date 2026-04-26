@@ -112,10 +112,11 @@ pub struct PermissionRule {
 impl PermissionRule {
     /// Check if this rule matches a given tool name and optional command content.
     pub(crate) fn matches(&self, tool_name: &str, content: Option<&str>) -> bool {
-        let category_match = self
-            .category
-            .as_deref()
-            .is_some_and(|category| tool_categories(tool_name).iter().any(|item| *item == category));
+        let category_match = self.category.as_deref().is_some_and(|category| {
+            tool_categories(tool_name)
+                .iter()
+                .any(|item| *item == category)
+        });
         let tool_match = if self.tool_name == "*" {
             self.category.is_none()
         } else {
@@ -188,7 +189,10 @@ pub fn tool_categories(tool_name: &str) -> Vec<&'static str> {
         name if name.starts_with("workflow") => categories.push("workflow"),
         _ => {}
     }
-    if matches!(tool_name, "task_output" | "cron_create" | "cron_list" | "cron_delete") {
+    if matches!(
+        tool_name,
+        "task_output" | "cron_create" | "cron_list" | "cron_delete"
+    ) {
         categories.push("background");
     }
     if matches!(

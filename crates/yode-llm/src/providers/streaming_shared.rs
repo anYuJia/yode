@@ -21,11 +21,7 @@ pub(crate) async fn emit_usage_update(tx: &mpsc::Sender<StreamEvent>, usage: &Us
     let _ = tx.send(StreamEvent::UsageUpdate(usage.clone())).await;
 }
 
-pub(crate) async fn emit_tool_call_start(
-    tx: &mpsc::Sender<StreamEvent>,
-    id: String,
-    name: String,
-) {
+pub(crate) async fn emit_tool_call_start(tx: &mpsc::Sender<StreamEvent>, id: String, name: String) {
     let _ = tx.send(StreamEvent::ToolCallStart { id, name }).await;
 }
 

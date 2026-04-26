@@ -3,10 +3,10 @@ use std::path::Path;
 
 use yode_llm::types::{Message, Role};
 
-use crate::context_manager::CompressionReport;
 use super::summary::{
     render_summary_anchor, summarize_failed_tools, summarize_modified_files, summarize_read_files,
 };
+use crate::context_manager::CompressionReport;
 
 pub(super) fn render_compaction_transcript(
     project_root: &Path,

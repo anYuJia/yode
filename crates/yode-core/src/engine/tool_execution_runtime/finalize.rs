@@ -151,7 +151,8 @@ impl AgentEngine {
                 user_prompt: None,
                 metadata: Some(metadata),
             };
-            self.execute_advisory_hooks(HookEvent::WorktreeCreate, ctx).await;
+            self.execute_advisory_hooks(HookEvent::WorktreeCreate, ctx)
+                .await;
         }
     }
 

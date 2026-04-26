@@ -3,8 +3,8 @@ mod explain;
 use std::collections::HashMap;
 
 use super::{
-    CommandRiskLevel, DenialClusterView, DenialRecordView, DenialTracker, PermissionAction, PermissionMode,
-    PermissionRule, RuleBehavior, RuleSource,
+    CommandRiskLevel, DenialClusterView, DenialRecordView, DenialTracker, PermissionAction,
+    PermissionMode, PermissionRule, RuleBehavior, RuleSource,
 };
 
 #[derive(Debug, Clone)]

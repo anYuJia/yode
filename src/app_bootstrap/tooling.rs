@@ -152,7 +152,8 @@ pub(crate) async fn setup_tooling(config: &Config, workdir: &Path) -> Result<Too
         }
     }
     let tool_search_enabled = mcp_tool_count > 0
-        && tool_registry.should_enable_tool_search_with_additional(mcp_tool_count + SKILL_TOOL_COUNT);
+        && tool_registry
+            .should_enable_tool_search_with_additional(mcp_tool_count + SKILL_TOOL_COUNT);
     let tool_search_reason = if mcp_tool_count == 0 {
         "disabled:no_mcp_tools".to_string()
     } else if tool_search_enabled {

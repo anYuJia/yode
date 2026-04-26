@@ -19,7 +19,10 @@ pub(crate) struct SessionRestoreReport {
     pub skipped_messages: usize,
 }
 
-pub(crate) fn configure_permissions(config: &Config, workdir: &std::path::Path) -> PermissionManager {
+pub(crate) fn configure_permissions(
+    config: &Config,
+    workdir: &std::path::Path,
+) -> PermissionManager {
     let mut permissions =
         PermissionManager::from_confirmation_list(config.tools.require_confirmation.clone());
 
@@ -50,13 +53,16 @@ pub(crate) fn configure_permissions(config: &Config, workdir: &std::path::Path) 
 fn permission_layers(
     root_config: &Config,
     workdir: &std::path::Path,
-) -> Vec<(yode_core::permission::RuleSource, Option<String>, PermissionConfig)> {
+) -> Vec<(
+    yode_core::permission::RuleSource,
+    Option<String>,
+    PermissionConfig,
+)> {
     use yode_core::permission::RuleSource;
 
     let mut layers = vec![(
         RuleSource::UserConfig,
-        dirs::home_dir()
-            .map(|home| home.join(".yode").join("config.toml").display().to_string()),
+        dirs::home_dir().map(|home| home.join(".yode").join("config.toml").display().to_string()),
         permission_config_from_runtime_config(root_config),
     )];
 
@@ -247,10 +253,7 @@ mod tests {
     }
 
     fn test_db() -> Database {
-        let dir = std::env::temp_dir().join(format!(
-            "yode-session-restore-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("yode-session-restore-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         Database::open(&dir.join("sessions.db")).unwrap()
     }
@@ -363,10 +366,8 @@ theme = "dark"
 
     #[test]
     fn configure_permissions_merges_project_and_local_layers() {
-        let workdir = std::env::temp_dir().join(format!(
-            "yode-permission-layer-{}",
-            std::process::id()
-        ));
+        let workdir =
+            std::env::temp_dir().join(format!("yode-permission-layer-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&workdir);
         let yode_dir = workdir.join(".yode");
         std::fs::create_dir_all(&yode_dir).unwrap();
@@ -428,10 +429,17 @@ description = "local override"
         let permissions = configure_permissions(&test_config(), &workdir);
         assert_eq!(permissions.mode(), yode_core::PermissionMode::AcceptEdits);
         let views = permissions.source_views_snapshot();
-        assert!(views.iter().any(|view| view.source == RuleSource::ProjectConfig));
-        assert!(views.iter().any(|view| view.source == RuleSource::LocalConfig));
+        assert!(views
+            .iter()
+            .any(|view| view.source == RuleSource::ProjectConfig));
+        assert!(views
+            .iter()
+            .any(|view| view.source == RuleSource::LocalConfig));
         let explanation = permissions.explain_with_content("write_file", None);
-        assert_eq!(explanation.action, yode_core::permission::PermissionAction::Allow);
+        assert_eq!(
+            explanation.action,
+            yode_core::permission::PermissionAction::Allow
+        );
         let _ = std::fs::remove_dir_all(&workdir);
     }
 }

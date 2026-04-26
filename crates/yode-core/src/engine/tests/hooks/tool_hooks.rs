@@ -103,7 +103,9 @@ async fn test_pre_tool_use_hook_can_defer_call_with_artifact() {
     std::fs::create_dir_all(&hook_dir).unwrap();
     let mut hook_mgr = crate::hooks::HookManager::new(hook_dir);
     hook_mgr.register(crate::hooks::HookDefinition {
-        command: "printf '%s' '{\"decision\":\"defer\",\"deferReason\":\"await external approval\"}'".into(),
+        command:
+            "printf '%s' '{\"decision\":\"defer\",\"deferReason\":\"await external approval\"}'"
+                .into(),
         events: vec!["pre_tool_use".into()],
         tool_filter: Some(vec!["mock_path".into()]),
         timeout_secs: 5,
@@ -144,7 +146,9 @@ async fn test_pre_tool_use_hook_can_defer_tool_call() {
     std::fs::create_dir_all(&hook_dir).unwrap();
     let mut hook_mgr = crate::hooks::HookManager::new(hook_dir);
     hook_mgr.register(crate::hooks::HookDefinition {
-        command: "printf '%s' '{\"decision\":\"defer\",\"deferReason\":\"wait for remote approval\"}'".into(),
+        command:
+            "printf '%s' '{\"decision\":\"defer\",\"deferReason\":\"wait for remote approval\"}'"
+                .into(),
         events: vec!["pre_tool_use".into()],
         tool_filter: Some(vec!["mock_path".into()]),
         timeout_secs: 5,

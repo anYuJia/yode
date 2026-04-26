@@ -6,9 +6,9 @@ mod tooling;
 
 pub(crate) use artifacts::{
     write_managed_mcp_inventory_artifact, write_mcp_startup_failure_artifact,
-    write_permission_policy_artifact, write_settings_scope_artifact,
-    write_provider_inventory_artifact, write_startup_profile_artifact,
-    write_startup_bundle_manifest_artifact, write_tool_search_activation_artifact,
+    write_permission_policy_artifact, write_provider_inventory_artifact,
+    write_settings_scope_artifact, write_startup_bundle_manifest_artifact,
+    write_startup_profile_artifact, write_tool_search_activation_artifact,
     write_tooling_inventory_artifact,
 };
 pub(crate) use session_restore::{

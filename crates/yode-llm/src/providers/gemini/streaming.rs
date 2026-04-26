@@ -21,7 +21,9 @@ pub(super) async fn stream_response(
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();
         let message = match serde_json::from_str::<GeminiError>(&text) {
-            Ok(err) => format_api_error("Gemini", status, Some(err.error.message), &text).to_string(),
+            Ok(err) => {
+                format_api_error("Gemini", status, Some(err.error.message), &text).to_string()
+            }
             Err(_) => format_api_error("Gemini", status, None, &text).to_string(),
         };
         emit_stream_error(&tx, message.clone()).await;

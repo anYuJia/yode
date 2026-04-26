@@ -20,7 +20,10 @@ async fn test_handle_interrupted_stream_persists_partial_message() {
         .messages
         .iter()
         .any(|message| message.content.as_deref() == Some("partial text")));
-    assert!(matches!(rx.recv().await, Some(EngineEvent::TextComplete(_))));
+    assert!(matches!(
+        rx.recv().await,
+        Some(EngineEvent::TextComplete(_))
+    ));
 }
 
 #[tokio::test]

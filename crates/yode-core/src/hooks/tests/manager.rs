@@ -168,7 +168,10 @@ async fn test_hook_manager_parses_defer_output() {
     assert_eq!(results[0].source_hook_command.as_deref(), Some("printf '%s' '{\"decision\":\"defer\",\"deferReason\":\"wait for browser auth\",\"systemMessage\":\"deferred\"}'"));
     let stats = mgr.stats_snapshot();
     assert_eq!(stats.defer_count, 1);
-    assert_eq!(stats.last_defer_reason.as_deref(), Some("wait for browser auth"));
+    assert_eq!(
+        stats.last_defer_reason.as_deref(),
+        Some("wait for browser auth")
+    );
 }
 
 #[tokio::test]

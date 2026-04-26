@@ -18,14 +18,12 @@ use yode_core::setup::{has_api_keys_configured, run_setup_interactive};
 
 use crate::app_bootstrap::{
     append_startup_segments, build_startup_resume_segment, configure_permissions,
-    ensure_session_exists, init_logging, parse_startup_summary_segment,
-    restore_or_create_context, setup_tooling, shutdown_mcp_clients,
-    write_managed_mcp_inventory_artifact, write_mcp_startup_failure_artifact,
-    write_permission_policy_artifact, write_provider_inventory_artifact,
-    write_settings_scope_artifact,
+    ensure_session_exists, init_logging, parse_startup_summary_segment, restore_or_create_context,
+    setup_tooling, shutdown_mcp_clients, write_managed_mcp_inventory_artifact,
+    write_mcp_startup_failure_artifact, write_permission_policy_artifact,
+    write_provider_inventory_artifact, write_settings_scope_artifact,
     write_startup_bundle_manifest_artifact, write_startup_profile_artifact,
-    write_tool_search_activation_artifact,
-    write_tooling_inventory_artifact, StartupProfiler,
+    write_tool_search_activation_artifact, write_tooling_inventory_artifact, StartupProfiler,
 };
 
 #[derive(Parser)]
@@ -264,7 +262,10 @@ async fn main() -> Result<()> {
     let resume_segment = build_startup_resume_segment(
         db_open_elapsed_ms,
         session_bootstrap_elapsed_ms,
-        restored_messages.as_ref().map(|messages| messages.len()).unwrap_or(0),
+        restored_messages
+            .as_ref()
+            .map(|messages| messages.len())
+            .unwrap_or(0),
         restore_report.mode,
         restore_report.decoded_messages,
         restore_report.skipped_messages,
@@ -321,10 +322,8 @@ async fn main() -> Result<()> {
         &context.session_id,
         &tooling.metrics,
     );
-    let _ = write_startup_bundle_manifest_artifact(
-        &context.working_dir_compat(),
-        &context.session_id,
-    );
+    let _ =
+        write_startup_bundle_manifest_artifact(&context.working_dir_compat(), &context.session_id);
     startup_profiler.log_summary("tui", &tooling.metrics);
 
     let skill_cmds: Vec<(String, String)> = tooling

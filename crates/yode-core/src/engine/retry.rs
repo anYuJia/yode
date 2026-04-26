@@ -169,7 +169,8 @@ mod tests {
 
     #[test]
     fn retry_error_summary_includes_root_cause_from_chain() {
-        let err = anyhow!("dns lookup failed").context("Failed to send Anthropic streaming request");
+        let err =
+            anyhow!("dns lookup failed").context("Failed to send Anthropic streaming request");
         let summary = summarize_retry_error(&err);
         assert_eq!(
             summary,
@@ -179,9 +180,7 @@ mod tests {
 
     #[test]
     fn provider_403_errors_are_retryable() {
-        let err = anyhow!(
-            "Anthropic API error (403 Forbidden): 用户额度不足, 剩余额度: ＄-1.97"
-        );
+        let err = anyhow!("Anthropic API error (403 Forbidden): 用户额度不足, 剩余额度: ＄-1.97");
         assert_eq!(classify_error(&err), ErrorKind::Transient);
     }
 

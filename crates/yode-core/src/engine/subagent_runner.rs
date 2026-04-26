@@ -6,9 +6,9 @@ use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
 
 use yode_llm::provider::LlmProvider;
+use yode_tools::builtin::team_runtime::update_agent_team_member;
 use yode_tools::registry::ToolRegistry;
 use yode_tools::runtime_tasks::{latest_transcript_artifact_path, RuntimeTaskStore};
-use yode_tools::builtin::team_runtime::update_agent_team_member;
 use yode_tools::tool::{SubAgentOptions, SubAgentRunner};
 
 use crate::context::{AgentContext, QuerySource};
@@ -206,7 +206,9 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                     if cancelled {
                         let _ = tokio::fs::write(&output_path, "Sub-agent task cancelled.\n").await;
                         runtime_tasks.lock().await.mark_cancelled(&task_id);
-                        if let (Some(team_id), Some(member_id)) = (team_id.as_deref(), member_id.as_deref()) {
+                        if let (Some(team_id), Some(member_id)) =
+                            (team_id.as_deref(), member_id.as_deref())
+                        {
                             let _ = update_agent_team_member(
                                 &hook_context.working_dir_compat(),
                                 team_id,
