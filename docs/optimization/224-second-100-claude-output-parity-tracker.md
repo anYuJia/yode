@@ -18,7 +18,7 @@
 
 当前进度：
 
-- `19 / 100` 已完成
+- `21 / 100` 已完成
 
 ## 001-010 Snapshot Hardening
 
@@ -48,9 +48,9 @@
 
 ## 021-030 Hook / Task Output
 
-- `[ ]` 021 hook failure system wording pass
+- `[x]` 021 hook failure system wording pass
 - `[ ]` 022 hook deferred system wording pass
-- `[ ]` 023 hook inspector action density pass
+- `[x]` 023 hook inspector action density pass
 - `[ ]` 024 background-task brief cadence polish
 - `[ ]` 025 task runtime summary compactness pass
 - `[x]` 026 task retry wording compactness pass

@@ -29,29 +29,48 @@ pub(crate) fn suggestion_severity(suggestion: &str) -> &'static str {
 }
 
 pub(crate) fn hook_timeline_narrative(state: &EngineRuntimeState) -> Vec<String> {
-    let mut lines = vec![format!("total runs: {}", state.hook_total_executions)];
+    let mut lines = vec![format!("runs: {}", state.hook_total_executions)];
     if state.hook_timeout_count > 0 {
         lines.push(format!(
-            "timeouts: {} ({})",
+            "timeout: {} ({})",
             state.hook_timeout_count,
             state.last_hook_timeout_command.as_deref().unwrap_or("none")
         ));
     }
     if state.hook_nonzero_exit_count > 0 || state.hook_execution_error_count > 0 {
         lines.push(format!(
-            "last failure: {} [{}] {}",
+            "failure: {} [{}] {}",
             state.last_hook_failure_command.as_deref().unwrap_or("none"),
             state.last_hook_failure_event.as_deref().unwrap_or("none"),
             state.last_hook_failure_reason.as_deref().unwrap_or("none")
         ));
     }
     if state.hook_wake_notification_count > 0 {
-        lines.push(format!(
-            "wake notifications: {}",
-            state.hook_wake_notification_count
-        ));
+        lines.push(format!("wake: {}", state.hook_wake_notification_count));
     }
     lines
+}
+
+fn hook_jump_inventory(hook_artifact: Option<&str>) -> String {
+    workspace_jump_inventory(
+        [
+            Some("/hooks".to_string()),
+            Some("/brief".to_string()),
+            Some("/status".to_string()),
+            Some("/tasks monitor".to_string()),
+            Some("/inspect artifact latest-hook-deferred".to_string()),
+            Some("/inspect artifact latest-hook-deferred-state".to_string()),
+            hook_artifact.map(|path| {
+                format!(
+                    "/memory {}",
+                    crate::commands::workspace_nav::compact_path_badge(path)
+                )
+            }),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>(),
+    )
 }
 
 pub(crate) fn permission_recovery_jump_inventory(
@@ -219,9 +238,7 @@ pub(crate) fn render_hook_workspace(
             "Artifacts",
             workspace_artifact_lines([("hook", hook_artifact.unwrap_or("none"))]),
         )
-        .footer(workspace_jump_inventory(runtime_operator_jump_targets(
-            hook_artifact,
-        )))
+        .footer(hook_jump_inventory(hook_artifact))
         .render()
 }
 
@@ -269,8 +286,8 @@ mod tests {
     use yode_tools::registry::ToolPoolSnapshot;
 
     use super::{
-        hook_timeline_narrative, permission_recovery_operator_guide, render_hook_workspace,
-        render_permission_workspace, render_recovery_workspace, rule_source_badge,
+        hook_jump_inventory, hook_timeline_narrative, permission_recovery_operator_guide,
+        render_hook_workspace, render_permission_workspace, render_recovery_workspace, rule_source_badge,
         suggestion_severity,
     };
 
@@ -381,7 +398,7 @@ mod tests {
         let state = runtime_state();
         assert!(hook_timeline_narrative(&state)
             .iter()
-            .any(|line| line.contains("timeouts")));
+            .any(|line| line.contains("timeout:")));
         let permission = render_permission_workspace(
             yode_core::PermissionMode::Default,
             &["bash"],
@@ -404,6 +421,7 @@ mod tests {
         assert!(permission.contains("Permission and recovery workspace"));
         let hook = render_hook_workspace(&state, Some("/tmp/hook.md"));
         assert!(hook.contains("Hook failure workspace"));
+        assert!(hook.contains("/hooks | /brief | /status"));
         let recovery = render_recovery_workspace(&state);
         assert!(recovery.contains("Recovery workspace"));
     }
@@ -413,5 +431,12 @@ mod tests {
         let state = runtime_state();
         println!("# Hook Regression Snapshot\n");
         println!("{}", render_hook_workspace(&state, Some("/tmp/hook.md")));
+    }
+
+    #[test]
+    fn hook_jump_inventory_is_dense_and_hook_specific() {
+        let inventory = hook_jump_inventory(Some("/tmp/hook.md"));
+        assert!(inventory.contains("/hooks | /brief | /status"));
+        assert!(!inventory.contains("/permissions mode"));
     }
 }
