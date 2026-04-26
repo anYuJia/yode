@@ -21,7 +21,7 @@
 
 当前进度：
 
-- `37 / 100` 已完成
+- `39 / 100` 已完成
 
 ## 001-010 Markdown Core
 
@@ -111,8 +111,8 @@
 - `[x]` 066 inspector panel markdown rendering helper
 - `[x]` 067 inspector badges for state / severity
 - `[x]` 068 inspector footer command density pass
-- `[ ]` 069 inspector action copy parity pass
-- `[ ]` 070 inspector tab naming consistency pass
+- `[x]` 069 inspector action copy parity pass
+- `[x]` 070 inspector tab naming consistency pass
 
 ## 071-080 Scrollback Parity
 
@@ -166,4 +166,4 @@
   - `775d61e`, `3970110`
 
 - 下一步优先实现：
-  - `069 inspector action copy parity pass`
+  - `038 error recovery action hints by class`

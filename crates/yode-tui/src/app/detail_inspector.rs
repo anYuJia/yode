@@ -73,20 +73,7 @@ fn build_pending_confirmation_document(
             label: "Overview".to_string(),
             lines: overview,
             badges: Vec::new(),
-            actions: vec![
-                InspectorAction {
-                    label: "allow".to_string(),
-                    command: INSPECTOR_CONFIRM_ALLOW.to_string(),
-                },
-                InspectorAction {
-                    label: "always allow".to_string(),
-                    command: INSPECTOR_CONFIRM_ALWAYS.to_string(),
-                },
-                InspectorAction {
-                    label: "deny".to_string(),
-                    command: INSPECTOR_CONFIRM_DENY.to_string(),
-                },
-            ],
+            actions: confirm_actions(),
         },
         PanelSpec {
             label: "Arguments".to_string(),
@@ -96,20 +83,7 @@ fn build_pending_confirmation_document(
                 arguments
             },
             badges: Vec::new(),
-            actions: vec![
-                InspectorAction {
-                    label: "allow".to_string(),
-                    command: INSPECTOR_CONFIRM_ALLOW.to_string(),
-                },
-                InspectorAction {
-                    label: "always allow".to_string(),
-                    command: INSPECTOR_CONFIRM_ALWAYS.to_string(),
-                },
-                InspectorAction {
-                    label: "deny".to_string(),
-                    command: INSPECTOR_CONFIRM_DENY.to_string(),
-                },
-            ],
+            actions: confirm_actions(),
         },
     ];
     build_document(
@@ -188,7 +162,7 @@ fn build_latest_tool_document(app: &App) -> Option<InspectorDocument> {
 
 fn build_assistant_entry_document(entry: &ChatEntry) -> InspectorDocument {
     let mut panels = vec![PanelSpec {
-        label: "Summary".to_string(),
+        label: "Overview".to_string(),
         lines: vec![
             "Role: Assistant".to_string(),
             format!("Content lines: {}", entry.content.lines().count()),
@@ -207,10 +181,7 @@ fn build_assistant_entry_document(entry: &ChatEntry) -> InspectorDocument {
             ),
         ],
         badges: Vec::new(),
-        actions: vec![InspectorAction {
-            label: "status".to_string(),
-            command: "/status".to_string(),
-        }],
+        actions: vec![status_action()],
     }];
 
     if let Some(panel) = markdown_panel(
@@ -218,7 +189,7 @@ fn build_assistant_entry_document(entry: &ChatEntry) -> InspectorDocument {
         &entry.content,
         Vec::new(),
         vec![InspectorAction {
-            label: "follow-up".to_string(),
+            label: "continue from this".to_string(),
             command: "Summarize the latest assistant response and suggest the next best action."
                 .to_string(),
         }],
@@ -232,7 +203,7 @@ fn build_assistant_entry_document(entry: &ChatEntry) -> InspectorDocument {
             reasoning,
             Vec::new(),
             vec![InspectorAction {
-                label: "distill".to_string(),
+                label: "distill reasoning".to_string(),
                 command:
                     "Distill the latest assistant reasoning into the key decisions and next step."
                         .to_string(),
@@ -253,17 +224,14 @@ fn build_system_entry_document(entry: &ChatEntry) -> InspectorDocument {
     let view = parse_system_message(&entry.content);
     let badges = system_entry_badges(&view);
     let mut panels = vec![PanelSpec {
-        label: "Summary".to_string(),
+        label: "Overview".to_string(),
         lines: vec![
             "Role: System".to_string(),
             format!("Kind: {:?}", view.kind),
             format!("Summary: {}", system_message_summary(&view)),
         ],
         badges: badges.clone(),
-        actions: vec![InspectorAction {
-            label: "status".to_string(),
-            command: "/status".to_string(),
-        }],
+        actions: vec![status_action()],
     }];
 
     if !view.detail_lines.is_empty() {
@@ -271,10 +239,7 @@ fn build_system_entry_document(entry: &ChatEntry) -> InspectorDocument {
             label: "Details".to_string(),
             lines: view.detail_lines,
             badges: badges.clone(),
-            actions: vec![InspectorAction {
-                label: "timeline".to_string(),
-                command: "/inspect artifact history runtime".to_string(),
-            }],
+            actions: vec![timeline_action()],
         });
     }
 
@@ -298,22 +263,19 @@ fn build_error_entry_document(entry: &ChatEntry) -> InspectorDocument {
     let view = parse_error_view(&entry.content);
     let badges = error_badges(&view);
     let mut panels = vec![PanelSpec {
-        label: "Summary".to_string(),
+        label: "Overview".to_string(),
         lines: std::iter::once(view.title.clone())
             .chain(view.detail_lines.iter().cloned())
             .collect(),
         badges: badges.clone(),
-        actions: vec![InspectorAction {
-            label: "status".to_string(),
-            command: "/status".to_string(),
-        }],
+        actions: vec![status_action()],
     }];
     panels.push(PanelSpec {
         label: "Raw".to_string(),
         lines: entry.content.lines().map(|line| line.to_string()).collect(),
         badges,
         actions: vec![InspectorAction {
-            label: "follow-up".to_string(),
+            label: "explain recovery".to_string(),
             command: "Explain the latest error and suggest the safest recovery step.".to_string(),
         }],
     });
@@ -350,16 +312,10 @@ fn build_tool_batch_document(
         lines: overview,
         badges: overview_badges,
         actions: vec![
+            status_action(),
+            tools_action(),
             InspectorAction {
-                label: "status".to_string(),
-                command: "/status".to_string(),
-            },
-            InspectorAction {
-                label: "tools".to_string(),
-                command: "/tools".to_string(),
-            },
-            InspectorAction {
-                label: "summarize".to_string(),
+                label: "summarize outcome".to_string(),
                 command: "Summarize the most important outcome from the recent tool activity and suggest the next best step.".to_string(),
             },
         ],
@@ -447,16 +403,7 @@ fn build_system_batch_document(entries: &[ChatEntry], batch: &SystemBatch) -> In
             format!("Latest: {}", latest_summary),
         ],
         badges: overview_badges,
-        actions: vec![
-            InspectorAction {
-                label: "status".to_string(),
-                command: "/status".to_string(),
-            },
-            InspectorAction {
-                label: "timeline".to_string(),
-                command: "/inspect artifact history runtime".to_string(),
-            },
-        ],
+        actions: vec![status_action(), timeline_action()],
     }];
 
     for (item_index, item) in batch.items.iter().enumerate() {
@@ -488,16 +435,7 @@ fn build_system_batch_document(entries: &[ChatEntry], batch: &SystemBatch) -> In
             label: format!("Item {}", item_index + 1),
             lines,
             badges,
-            actions: vec![
-                InspectorAction {
-                    label: "status".to_string(),
-                    command: "/status".to_string(),
-                },
-                InspectorAction {
-                    label: "timeline".to_string(),
-                    command: "/inspect artifact history runtime".to_string(),
-                },
-            ],
+            actions: vec![status_action(), timeline_action()],
         });
     }
 
@@ -561,7 +499,7 @@ fn build_tool_entry_document(
     let actions = tool_followup_actions(&title, tool_name, &args, result_entry);
     let mut panels = vec![
         PanelSpec {
-            label: "Summary".to_string(),
+            label: "Overview".to_string(),
             lines: summary,
             badges: summary_badges.clone(),
             actions: actions.clone(),
@@ -578,7 +516,7 @@ fn build_tool_entry_document(
             },
             badges: summary_badges.clone(),
             actions: vec![InspectorAction {
-                label: "reuse".to_string(),
+                label: "reuse args".to_string(),
                 command: serde_json::to_string_pretty(&args).unwrap_or_else(|_| args.to_string()),
             }],
         },
@@ -648,16 +586,10 @@ fn build_standalone_result_document(app: &App, entry: &ChatEntry) -> InspectorDo
     }
 
     let actions = vec![
+        status_action(),
+        tools_action(),
         InspectorAction {
-            label: "status".to_string(),
-            command: "/status".to_string(),
-        },
-        InspectorAction {
-            label: "tools".to_string(),
-            command: "/tools".to_string(),
-        },
-        InspectorAction {
-            label: "analyze".to_string(),
+            label: "analyze result".to_string(),
             command: format!(
                 "Explain the most important details from the last {} result and suggest the next step.",
                 title
@@ -665,7 +597,7 @@ fn build_standalone_result_document(app: &App, entry: &ChatEntry) -> InspectorDo
         },
     ];
     let mut panels = vec![PanelSpec {
-        label: "Summary".to_string(),
+        label: "Overview".to_string(),
         lines: summary,
         badges: summary_badges.clone(),
         actions: actions.clone(),
@@ -794,26 +726,55 @@ fn render_dim_markdown_panel_lines(content: &str) -> Vec<String> {
     render_markdown_ansi_dim_with_options(content, Some(INSPECTOR_MARKDOWN_WIDTH), true)
 }
 
+fn confirm_actions() -> Vec<InspectorAction> {
+    vec![
+        InspectorAction {
+            label: "allow once".to_string(),
+            command: INSPECTOR_CONFIRM_ALLOW.to_string(),
+        },
+        InspectorAction {
+            label: "always allow".to_string(),
+            command: INSPECTOR_CONFIRM_ALWAYS.to_string(),
+        },
+        InspectorAction {
+            label: "deny".to_string(),
+            command: INSPECTOR_CONFIRM_DENY.to_string(),
+        },
+    ]
+}
+
+fn status_action() -> InspectorAction {
+    InspectorAction {
+        label: "show status".to_string(),
+        command: "/status".to_string(),
+    }
+}
+
+fn tools_action() -> InspectorAction {
+    InspectorAction {
+        label: "show tools".to_string(),
+        command: "/tools".to_string(),
+    }
+}
+
+fn timeline_action() -> InspectorAction {
+    InspectorAction {
+        label: "open timeline".to_string(),
+        command: "/inspect artifact history runtime".to_string(),
+    }
+}
+
 fn tool_followup_actions(
     title: &str,
     tool_name: &str,
     args: &serde_json::Value,
     result_entry: Option<&ChatEntry>,
 ) -> Vec<InspectorAction> {
-    let mut actions = vec![
-        InspectorAction {
-            label: "status".to_string(),
-            command: "/status".to_string(),
-        },
-        InspectorAction {
-            label: "tools".to_string(),
-            command: "/tools".to_string(),
-        },
-    ];
+    let mut actions = vec![status_action(), tools_action()];
 
     if let Some(prompt) = primary_followup_prompt(title, tool_name, args, result_entry) {
         actions.push(InspectorAction {
-            label: "follow-up".to_string(),
+            label: "plan next step".to_string(),
             command: prompt,
         });
     }
@@ -1253,6 +1214,7 @@ mod tests {
 
         let doc = build_latest_tool_document(&app).unwrap();
         assert!(doc.state.title.contains("Bash"));
+        assert_eq!(doc.panels[0].tab.label, "Overview");
         assert!(doc
             .panels
             .iter()
@@ -1271,7 +1233,7 @@ mod tests {
         assert!(doc.panels[0]
             .actions
             .iter()
-            .any(|action| action.label == "follow-up"));
+            .any(|action| action.label == "plan next step"));
     }
 
     #[test]
@@ -1543,6 +1505,7 @@ mod tests {
 
         let doc = build_latest_tool_document(&app).unwrap();
         assert_eq!(doc.state.title, "Assistant details");
+        assert_eq!(doc.panels[0].tab.label, "Overview");
         assert!(doc.panels.iter().any(|panel| panel.tab.label == "Reasoning"));
         assert!(doc
             .panels
@@ -1564,6 +1527,7 @@ mod tests {
 
         let doc = build_latest_tool_document(&app).unwrap();
         assert_eq!(doc.state.title, "Assistant details");
+        assert_eq!(doc.panels[0].tab.label, "Overview");
         assert!(doc.panels.iter().any(|panel| panel.tab.label == "Content"));
         assert!(doc
             .panels
@@ -1581,6 +1545,7 @@ mod tests {
 
         let doc = build_latest_tool_document(&app).unwrap();
         assert_eq!(doc.state.title, "System details");
+        assert_eq!(doc.panels[0].tab.label, "Overview");
         assert!(doc.panels.iter().any(|panel| panel.tab.label == "Details"));
         assert!(doc.panels[0]
             .badges
@@ -1598,6 +1563,7 @@ mod tests {
 
         let doc = build_latest_tool_document(&app).unwrap();
         assert_eq!(doc.state.title, "Error details");
+        assert_eq!(doc.panels[0].tab.label, "Overview");
         assert!(doc.panels[0]
             .badges
             .contains(&("state".to_string(), "failed".to_string())));
