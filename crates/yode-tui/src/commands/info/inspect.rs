@@ -147,7 +147,6 @@ fn inspect_artifact_target(args: &str, ctx: &mut CommandContext) -> CommandResul
     let startup_dir = project_root.join(".yode").join("startup");
     let review_dir = project_root.join(".yode").join("reviews");
     let transcript_dir = project_root.join(".yode").join("transcripts");
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let runtime = ctx
         .engine
         .try_lock()
@@ -155,14 +154,14 @@ fn inspect_artifact_target(args: &str, ctx: &mut CommandContext) -> CommandResul
         .map(|engine| engine.runtime_state());
 
     if args == "list" {
-        let lines = artifact_inventory_lines(&project_root, &cwd);
+        let lines = artifact_inventory_lines(&project_root, &project_root);
         return Ok(CommandOutput::OpenInspector(document_from_command_output(
             "Artifact inventory",
             lines,
         )));
     }
     if args == "summary" {
-        let lines = artifact_summary_lines(&project_root, &cwd, runtime.as_ref());
+        let lines = artifact_summary_lines(&project_root, &project_root, runtime.as_ref());
         return Ok(CommandOutput::OpenInspector(document_from_command_output(
             "Artifact summary",
             lines,
@@ -171,7 +170,8 @@ fn inspect_artifact_target(args: &str, ctx: &mut CommandContext) -> CommandResul
     if args == "history" || args.starts_with("history ") {
         let family = args.strip_prefix("history").unwrap_or("").trim();
         let family = if family.is_empty() { "status" } else { family };
-        let lines = artifact_history_family_lines(family, &project_root, &cwd, runtime.as_ref())?;
+        let lines =
+            artifact_history_family_lines(family, &project_root, &project_root, runtime.as_ref())?;
         return Ok(CommandOutput::OpenInspector(document_from_command_output(
             &format!("Artifact history [{}]", family),
             lines,
@@ -435,7 +435,7 @@ fn inspect_artifact_target(args: &str, ctx: &mut CommandContext) -> CommandResul
             vec!["/doctor remote-artifacts".to_string()],
         ),
         "bundle" | "latest-bundle" => (
-            latest_bundle_workspace_index(&cwd)
+            latest_bundle_workspace_index(&project_root)
                 .ok_or_else(|| "No diagnostics workspace index found.".to_string())?,
             "Diagnostics bundle workspace index".to_string(),
             "bundle".to_string(),
