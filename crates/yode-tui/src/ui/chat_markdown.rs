@@ -41,6 +41,8 @@ static MD_SYNTAX_RE: LazyLock<Regex> = LazyLock::new(|| {
 static ISSUE_REF_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(^|[^\w./-])([A-Za-z0-9][\w-]*/[A-Za-z0-9][\w.-]*)#(\d+)\b").unwrap()
 });
+static URL_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"https?://[^\s<>"']+"#).unwrap());
 
 const TABLE_SAFETY_MARGIN: usize = 4;
 const TABLE_MAX_ROW_LINES: usize = 4;
@@ -136,7 +138,13 @@ fn render_plain_text_lines(
                 if line.is_empty() {
                     Line::from("")
                 } else {
-                    Line::from(Span::styled(line.to_string(), style))
+                    let mut spans = Vec::new();
+                    if options.enable_hyperlinks {
+                        append_text_with_links(&mut spans, line, style);
+                    } else {
+                        spans.push(Span::styled(line.to_string(), style));
+                    }
+                    Line::from(spans)
                 }
             })
             .collect::<Vec<_>>()
@@ -1515,7 +1523,7 @@ fn append_inline_nodes(
             InlineNode::Text(text) => {
                 if !text.is_empty() {
                     if options.enable_hyperlinks {
-                        append_text_with_issue_links(lines.last_mut().unwrap(), text, style);
+                        append_text_with_links(lines.last_mut().unwrap(), text, style);
                     } else {
                         lines
                             .last_mut()
@@ -1615,37 +1623,95 @@ fn add_modifier_to_line(line: Line<'static>, modifier: Modifier) -> Line<'static
     Line::from(spans)
 }
 
-fn append_text_with_issue_links(spans: &mut Vec<Span<'static>>, text: &str, style: Style) {
+fn append_text_with_links(spans: &mut Vec<Span<'static>>, text: &str, style: Style) {
     let mut last = 0usize;
-    for captures in ISSUE_REF_RE.captures_iter(text) {
-        let Some(whole) = captures.get(0) else {
-            continue;
+    while last < text.len() {
+        let issue_match = ISSUE_REF_RE.captures(&text[last..]).and_then(|captures| {
+            let whole = captures.get(0)?;
+            Some((captures, last + whole.start(), last + whole.end()))
+        });
+        let url_match = URL_RE.find(&text[last..]).map(|m| (last + m.start(), last + m.end()));
+
+        let next_kind = match (issue_match, url_match) {
+            (Some((captures, start, end)), Some((url_start, url_end))) => {
+                if start <= url_start {
+                    Some(LinkMatch::Issue(captures, start, end))
+                } else {
+                    Some(LinkMatch::Url(url_start, url_end))
+                }
+            }
+            (Some((captures, start, end)), None) => Some(LinkMatch::Issue(captures, start, end)),
+            (None, Some((start, end))) => Some(LinkMatch::Url(start, end)),
+            (None, None) => None,
         };
-        let prefix = captures.get(1).map(|value| value.as_str()).unwrap_or("");
-        let repo = captures.get(2).map(|value| value.as_str()).unwrap_or("");
-        let number = captures.get(3).map(|value| value.as_str()).unwrap_or("");
-        let prefix_start = whole.start();
-        let link_start = prefix_start + prefix.len();
 
-        if last < prefix_start {
-            spans.push(Span::styled(text[last..prefix_start].to_string(), style));
-        }
-        if !prefix.is_empty() {
-            spans.push(Span::styled(prefix.to_string(), style));
-        }
-        let link_text = format!("{}#{}", repo, number);
-        let url = format!("https://github.com/{}/issues/{}", repo, number);
-        let link_style = style.fg(INFO_COLOR).add_modifier(Modifier::UNDERLINED);
-        spans.push(Span::raw(osc8_start_sequence(&url)));
-        spans.push(Span::styled(link_text, link_style));
-        spans.push(Span::raw(osc8_close_sequence()));
-        last = whole.end();
-        debug_assert!(last >= link_start);
-    }
+        let Some(link_match) = next_kind else {
+            spans.push(Span::styled(text[last..].to_string(), style));
+            break;
+        };
 
-    if last < text.len() {
-        spans.push(Span::styled(text[last..].to_string(), style));
+        match link_match {
+            LinkMatch::Issue(captures, start, end) => {
+                let prefix = captures.get(1).map(|value| value.as_str()).unwrap_or("");
+                let repo = captures.get(2).map(|value| value.as_str()).unwrap_or("");
+                let number = captures.get(3).map(|value| value.as_str()).unwrap_or("");
+                let prefix_start = start;
+                let link_start = prefix_start + prefix.len();
+
+                if last < prefix_start {
+                    spans.push(Span::styled(text[last..prefix_start].to_string(), style));
+                }
+                if !prefix.is_empty() {
+                    spans.push(Span::styled(prefix.to_string(), style));
+                }
+                let link_text = format!("{}#{}", repo, number);
+                let url = format!("https://github.com/{}/issues/{}", repo, number);
+                push_hyperlink_spans(spans, &link_text, &url, style);
+                last = end;
+                debug_assert!(last >= link_start);
+            }
+            LinkMatch::Url(start, mut end) => {
+                if last < start {
+                    spans.push(Span::styled(text[last..start].to_string(), style));
+                }
+
+                let mut url = &text[start..end];
+                let mut trailing = String::new();
+                while let Some(ch) = url.chars().last() {
+                    if matches!(ch, '.' | ',' | ';' | ':' | '!' | '?') {
+                        let trim_at = url.len() - ch.len_utf8();
+                        trailing.insert(0, ch);
+                        url = &url[..trim_at];
+                        end -= ch.len_utf8();
+                    } else {
+                        break;
+                    }
+                }
+                if !url.is_empty() {
+                    push_hyperlink_spans(spans, url, url, style);
+                }
+                let trailing_len = trailing.len();
+                if trailing_len > 0 {
+                    spans.push(Span::styled(trailing, style));
+                    last = end + trailing_len;
+                } else {
+                    last = end;
+                }
+            }
+        }
     }
+}
+
+enum LinkMatch<'a> {
+    Issue(regex::Captures<'a>, usize, usize),
+    Url(usize, usize),
+}
+
+fn push_hyperlink_spans(spans: &mut Vec<Span<'static>>, text: &str, url: &str, style: Style) {
+    let link_style = style.fg(INFO_COLOR).add_modifier(Modifier::UNDERLINED);
+    spans.push(Span::raw(osc8_start_sequence(url)));
+    spans.push(Span::styled(text.to_string(), link_style));
+    spans.push(Span::raw(osc8_close_sequence()));
 }
 
 fn osc8_start_sequence(url: &str) -> String {
@@ -2196,6 +2262,44 @@ mod tests {
             .join("\n");
         assert!(rendered.contains("anthropics/claude-code#24180"));
         assert!(rendered.contains("\x1b]8;;https://github.com/anthropics/claude-code/issues/24180"));
+    }
+
+    #[test]
+    fn bare_urls_are_hyperlinked_in_plain_text() {
+        let lines = render_markdown_with_options(
+            "Open https://example.com/docs for details.",
+            None,
+            MarkdownRenderOptions {
+                max_width: Some(80),
+                enable_hyperlinks: true,
+            },
+        );
+        let rendered = lines
+            .iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(rendered.contains("https://example.com/docs"));
+        assert!(rendered.contains("\x1b]8;;https://example.com/docs"));
+    }
+
+    #[test]
+    fn bare_urls_do_not_absorb_trailing_punctuation() {
+        let lines = render_markdown_with_options(
+            "Visit https://example.com/docs, then continue.",
+            None,
+            MarkdownRenderOptions {
+                max_width: Some(80),
+                enable_hyperlinks: true,
+            },
+        );
+        let rendered = lines
+            .iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(rendered.contains("\x1b]8;;https://example.com/docs"));
+        assert!(!rendered.contains("\x1b]8;;https://example.com/docs,"));
     }
 
     #[test]
