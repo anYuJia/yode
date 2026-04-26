@@ -8,7 +8,7 @@ pub(crate) fn format_retry_delay_summary(
     attempt: u32,
     max_attempts: u32,
 ) -> String {
-    format!("Retrying in {}s ({}/{})", delay_secs, attempt, max_attempts)
+    format!("retry in {}s ({}/{})", delay_secs, attempt, max_attempts)
 }
 
 pub(crate) fn format_context_compressed_message(
@@ -352,7 +352,7 @@ mod tests {
 
     #[test]
     fn retry_delay_summary_formats_attempts() {
-        assert_eq!(format_retry_delay_summary(5, 2, 5), "Retrying in 5s (2/5)");
+        assert_eq!(format_retry_delay_summary(5, 2, 5), "retry in 5s (2/5)");
     }
 
     #[test]
