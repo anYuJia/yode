@@ -105,11 +105,26 @@ pub(super) fn truncate_line(line: &str, max_chars: usize) -> String {
 pub(super) fn strip_ansi(text: &str) -> String {
     let mut output = String::with_capacity(text.len());
     let bytes = text.as_bytes();
-    let mut index = 0;
+    let mut index = 0usize;
+    let mut last_plain = 0usize;
+
     while index < bytes.len() {
-        if bytes[index] == 0x1b {
+        if bytes[index] != 0x1b {
             index += 1;
-            if index < bytes.len() && bytes[index] == b'[' {
+            continue;
+        }
+
+        if last_plain < index {
+            output.push_str(&text[last_plain..index]);
+        }
+
+        index += 1;
+        if index >= bytes.len() {
+            break;
+        }
+
+        match bytes[index] {
+            b'[' => {
                 index += 1;
                 while index < bytes.len() {
                     let byte = bytes[index];
@@ -119,11 +134,40 @@ pub(super) fn strip_ansi(text: &str) -> String {
                     }
                 }
             }
-        } else {
-            output.push(bytes[index] as char);
-            index += 1;
+            b']' => {
+                index += 1;
+                while index < bytes.len() {
+                    if bytes[index] == 0x07 {
+                        index += 1;
+                        break;
+                    }
+                    if bytes[index] == 0x1b
+                        && index + 1 < bytes.len()
+                        && bytes[index + 1] == b'\\'
+                    {
+                        index += 2;
+                        break;
+                    }
+                    index += 1;
+                }
+            }
+            _ => {
+                while index < bytes.len() && (0x20..=0x2f).contains(&bytes[index]) {
+                    index += 1;
+                }
+                if index < bytes.len() {
+                    index += 1;
+                }
+            }
         }
+
+        last_plain = index;
     }
+
+    if last_plain < text.len() {
+        output.push_str(&text[last_plain..]);
+    }
+
     output
 }
 
@@ -2085,8 +2129,8 @@ fn is_shell_keyword(word: &str) -> bool {
 mod tests {
     use super::{
         code_block_header_language, detect_code_language_from_path, parse_code_language,
-        tokenize_code_line_with_language, tokenize_shell_session_line, CodeLanguage, CodeTokenKind,
-        ShellLineKind, ShellSessionState,
+        strip_ansi, tokenize_code_line_with_language, tokenize_shell_session_line, CodeLanguage,
+        CodeTokenKind, ShellLineKind, ShellSessionState,
     };
 
     #[test]
@@ -2112,6 +2156,18 @@ mod tests {
         assert_eq!(parse_code_language("pwsh"), CodeLanguage::Shell);
         assert_eq!(parse_code_language("rs"), CodeLanguage::Rust);
         assert_eq!(parse_code_language("python3"), CodeLanguage::Python);
+    }
+
+    #[test]
+    fn strip_ansi_preserves_unicode_text() {
+        let text = "\x1b[31m∴ Thinking…\x1b[0m";
+        assert_eq!(strip_ansi(text), "∴ Thinking…");
+    }
+
+    #[test]
+    fn strip_ansi_removes_osc8_hyperlinks() {
+        let text = "\x1b]8;;https://example.com\x07example\x1b]8;;\x07";
+        assert_eq!(strip_ansi(text), "example");
     }
 
     #[test]

@@ -2,7 +2,8 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 
 use crate::app::ChatEntry;
-use crate::ui::chat::{render_markdown_white_with_options, ACCENT, DIM};
+use crate::ui::chat::{ACCENT, DIM, WHITE};
+use crate::ui::chat_markdown::{render_markdown_with_options, MarkdownRenderOptions};
 use crate::ui::palette::{INFO_COLOR, PANEL_ACCENT};
 
 // Claude Code style: ⏺ prefix on first line, indented continuation
@@ -15,30 +16,59 @@ pub(crate) fn render_assistant(
     if let Some(reasoning) = &entry.reasoning {
         if !reasoning.trim().is_empty() {
             lines.push(Line::from(vec![Span::styled(
-                "  · Thinking",
+                "  ∴ Thinking…",
                 Style::default()
                     .fg(PANEL_ACCENT)
                     .add_modifier(Modifier::ITALIC | Modifier::BOLD),
             )]));
 
-            for line in reasoning.trim().lines() {
-                lines.push(Line::from(vec![
-                    Span::styled(
-                        "  │ ",
-                        Style::default().fg(INFO_COLOR).add_modifier(Modifier::DIM),
-                    ),
-                    Span::styled(
-                        line.to_string(),
-                        Style::default().fg(DIM).add_modifier(Modifier::ITALIC),
-                    ),
-                ]));
+            let reasoning_lines = render_markdown_with_options(
+                reasoning.trim(),
+                Some(DIM),
+                MarkdownRenderOptions {
+                    max_width: Some(max_width.saturating_sub(2)),
+                    enable_hyperlinks,
+                },
+            );
+            for line in reasoning_lines {
+                if line.spans.is_empty()
+                    || (line.spans.len() == 1
+                        && line
+                            .spans
+                            .first()
+                            .is_some_and(|span| span.content.is_empty()))
+                {
+                    lines.push(Line::from(""));
+                    continue;
+                }
+                let mut spans = vec![Span::styled(
+                    "  ",
+                    Style::default().fg(INFO_COLOR).add_modifier(Modifier::DIM),
+                )];
+                spans.extend(
+                    line.spans
+                        .into_iter()
+                        .map(|span| {
+                            Span::styled(
+                                span.content,
+                                span.style.fg(DIM).add_modifier(Modifier::ITALIC),
+                            )
+                        }),
+                );
+                lines.push(Line::from(spans));
             }
             lines.push(Line::from(""));
         }
     }
 
-    let markdown =
-        render_markdown_white_with_options(&entry.content, Some(max_width), enable_hyperlinks);
+    let markdown = render_markdown_with_options(
+        &entry.content,
+        Some(WHITE),
+        MarkdownRenderOptions {
+            max_width: Some(max_width),
+            enable_hyperlinks,
+        },
+    );
     for (index, line) in markdown.into_iter().enumerate() {
         if line.spans.is_empty()
             || (line.spans.len() == 1
@@ -64,7 +94,7 @@ pub(crate) fn render_assistant(
 
 #[cfg(test)]
 mod tests {
-    use ratatui::text::Line;
+    use ratatui::{style::Modifier, text::Line};
 
     use crate::app::{ChatEntry, ChatRole};
 
@@ -147,5 +177,27 @@ mod tests {
             .unwrap();
         assert!(strengths > 0);
         assert!(lines[strengths - 1].is_empty());
+    }
+
+    #[test]
+    fn assistant_reasoning_renders_as_markdown_block() {
+        let mut lines = Vec::new();
+        let entry = ChatEntry::new_with_reasoning(
+            ChatRole::Assistant,
+            "final answer".to_string(),
+            Some("## Plan\n- inspect\n- patch".to_string()),
+        );
+        render_assistant(&mut lines, &entry, 120, false);
+
+        assert!(lines.iter().any(|line| line.to_string().contains("∴ Thinking")));
+        assert!(lines.iter().any(|line| line.to_string().contains("Plan")));
+        assert!(lines.iter().any(|line| line.to_string().contains("• inspect")));
+        assert!(lines.iter().any(|line| {
+            line.spans.iter().any(|span| {
+                span.content.contains("Plan")
+                    && span.style.add_modifier.contains(Modifier::BOLD)
+                    && span.style.add_modifier.contains(Modifier::ITALIC)
+            })
+        }));
     }
 }
