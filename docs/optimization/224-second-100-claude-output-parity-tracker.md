@@ -18,7 +18,7 @@
 
 当前进度：
 
-- `51 / 100` 已完成
+- `53 / 100` 已完成
 
 ## 001-010 Snapshot Hardening
 
@@ -129,11 +129,11 @@
 - `[ ]` 081 status/help copy casing audit
 - `[ ]` 082 system title casing audit
 - `[ ]` 083 error title casing audit
-- `[ ]` 084 assistant teaser copy audit
+- `[x]` 084 assistant teaser copy audit
 - `[x]` 085 tool progress wording audit
 - `[ ]` 086 export/bundle noun audit
 - `[x]` 087 retry wording audit across task/remote/runtime
-- `[ ]` 088 hook wording audit across system/inspector/workspace
+- `[x]` 088 hook wording audit across system/inspector/workspace
 - `[ ]` 089 compact token wording audit
 - `[ ]` 090 punctuation / ellipsis consistency audit
 
