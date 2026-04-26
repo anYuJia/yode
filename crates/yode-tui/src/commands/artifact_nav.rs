@@ -835,7 +835,7 @@ mod tests {
         build_runtime_orchestration_timeline_lines, export_bundle_root, latest_artifact_by_suffix,
         latest_bundle_workspace_index, open_artifact_inspector, preview_artifact,
         recent_artifacts_by_suffix, recent_bundle_workspace_indexes, resolve_artifact_basename,
-        write_runtime_orchestration_timeline_artifact,
+        render_timeline_entries, write_runtime_orchestration_timeline_artifact, ArtifactTimelineEntry,
     };
 
     #[test]
@@ -942,6 +942,31 @@ mod tests {
         assert!(preview.contains("+1 more lines"));
         assert!(preview.contains("..."));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn artifact_timeline_entries_sort_newest_first_and_fold_hidden_items() {
+        let now = std::time::SystemTime::now();
+        let lines = render_timeline_entries(
+            vec![
+                ArtifactTimelineEntry {
+                    at: Some(now - std::time::Duration::from_secs(120)),
+                    detail: "older".to_string(),
+                },
+                ArtifactTimelineEntry {
+                    at: Some(now),
+                    detail: "newest".to_string(),
+                },
+                ArtifactTimelineEntry {
+                    at: Some(now - std::time::Duration::from_secs(60)),
+                    detail: "middle".to_string(),
+                },
+            ],
+            2,
+        );
+        assert!(lines[0].contains("newest"));
+        assert!(lines[1].contains("middle"));
+        assert_eq!(lines[2], "+1 earlier timeline events");
     }
 
     #[test]
