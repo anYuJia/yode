@@ -173,7 +173,7 @@ pub(super) fn render_grouped_tool_call(
 ) {
     result.push((
         format!("⏺ {} (ctrl+o to expand)", tool_batch_summary_text(batch)),
-        accent,
+        if batch.is_active { dim } else { accent },
     ));
     if let Some(hint) = tool_batch_hint_text(all_entries, batch) {
         result.push((format!("  ⎿  {}", hint), dim));
@@ -381,15 +381,13 @@ fn format_timing(duration: Duration) -> String {
     }
 }
 
-fn display_file_path(file_path: &str) -> &str {
-    file_path
-        .strip_prefix(&format!(
-            "{}/",
-            std::env::current_dir()
-                .map(|path| path.display().to_string())
-                .unwrap_or_default()
-        ))
-        .unwrap_or(file_path)
+fn display_file_path(file_path: &str) -> String {
+    let parts: Vec<&str> = file_path.rsplitn(3, '/').collect();
+    if parts.len() >= 3 {
+        format!(".../{}/{}", parts[1], parts[0])
+    } else {
+        file_path.to_string()
+    }
 }
 
 fn tool_summary_str(name: &str, args: &serde_json::Value) -> String {

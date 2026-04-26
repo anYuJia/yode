@@ -166,11 +166,14 @@ pub(crate) fn render_grouped_tool_call(
     all_entries: &[ChatEntry],
     batch: &ToolBatch,
 ) {
+    let title_color = if batch.is_active { INFO_COLOR } else { ACCENT };
     lines.push(Line::from(vec![
-        Span::styled("⏺ ", Style::default().fg(ACCENT)),
+        Span::styled("⏺ ", Style::default().fg(title_color)),
         Span::styled(
             tool_batch_summary_text(batch),
-            Style::default().fg(WHITE).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(if batch.is_active { INFO_COLOR } else { WHITE })
+                .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             " (ctrl+o to expand)",
