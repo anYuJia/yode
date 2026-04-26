@@ -69,6 +69,7 @@ fn build_pending_confirmation_document(
         PanelSpec {
             label: "Overview".to_string(),
             lines: overview,
+            badges: Vec::new(),
             actions: vec![
                 InspectorAction {
                     label: "allow".to_string(),
@@ -91,6 +92,7 @@ fn build_pending_confirmation_document(
             } else {
                 arguments
             },
+            badges: Vec::new(),
             actions: vec![
                 InspectorAction {
                     label: "allow".to_string(),
@@ -176,6 +178,7 @@ fn build_assistant_entry_document(entry: &ChatEntry) -> InspectorDocument {
                     .unwrap_or_else(|| "none".to_string())
             ),
         ],
+        badges: Vec::new(),
         actions: vec![InspectorAction {
             label: "status".to_string(),
             command: "/status".to_string(),
@@ -191,6 +194,7 @@ fn build_assistant_entry_document(entry: &ChatEntry) -> InspectorDocument {
         panels.push(PanelSpec {
             label: "Content".to_string(),
             lines: content_lines,
+            badges: Vec::new(),
             actions: vec![InspectorAction {
                 label: "follow-up".to_string(),
                 command:
@@ -204,6 +208,7 @@ fn build_assistant_entry_document(entry: &ChatEntry) -> InspectorDocument {
         panels.push(PanelSpec {
             label: "Reasoning".to_string(),
             lines: render_markdown_ansi_dim_with_options(reasoning, Some(100), true),
+            badges: Vec::new(),
             actions: vec![InspectorAction {
                 label: "distill".to_string(),
                 command:
@@ -229,6 +234,7 @@ fn build_system_entry_document(entry: &ChatEntry) -> InspectorDocument {
             format!("Kind: {:?}", view.kind),
             format!("Summary: {}", system_message_summary(&view)),
         ],
+        badges: Vec::new(),
         actions: vec![InspectorAction {
             label: "status".to_string(),
             command: "/status".to_string(),
@@ -239,6 +245,7 @@ fn build_system_entry_document(entry: &ChatEntry) -> InspectorDocument {
         panels.push(PanelSpec {
             label: "Details".to_string(),
             lines: view.detail_lines,
+            badges: Vec::new(),
             actions: vec![InspectorAction {
                 label: "timeline".to_string(),
                 command: "/inspect artifact history runtime".to_string(),
@@ -250,6 +257,7 @@ fn build_system_entry_document(entry: &ChatEntry) -> InspectorDocument {
         panels.push(PanelSpec {
             label: "Raw".to_string(),
             lines: entry.content.lines().map(|line| line.to_string()).collect(),
+            badges: Vec::new(),
             actions: vec![],
         });
     }
@@ -268,6 +276,7 @@ fn build_error_entry_document(entry: &ChatEntry) -> InspectorDocument {
         lines: std::iter::once(view.title.clone())
             .chain(view.detail_lines.iter().cloned())
             .collect(),
+        badges: Vec::new(),
         actions: vec![InspectorAction {
             label: "status".to_string(),
             command: "/status".to_string(),
@@ -276,6 +285,7 @@ fn build_error_entry_document(entry: &ChatEntry) -> InspectorDocument {
     panels.push(PanelSpec {
         label: "Raw".to_string(),
         lines: entry.content.lines().map(|line| line.to_string()).collect(),
+        badges: Vec::new(),
         actions: vec![InspectorAction {
             label: "follow-up".to_string(),
             command: "Explain the latest error and suggest the safest recovery step.".to_string(),
@@ -311,6 +321,7 @@ fn build_tool_batch_document(
     let mut panels = vec![PanelSpec {
         label: "Overview".to_string(),
         lines: overview,
+        badges: Vec::new(),
         actions: vec![
             InspectorAction {
                 label: "status".to_string(),
@@ -331,6 +342,10 @@ fn build_tool_batch_document(
         let call = &entries[item.call_index];
         let args = parse_json(&call.content);
         let result_entry = item.result_index.and_then(|idx| entries.get(idx));
+        let badges = result_entry
+            .and_then(|entry| entry.tool_metadata.as_ref())
+            .map(tool_metadata_badges)
+            .unwrap_or_default();
         let summary = summarize_tool_result(
             &item.tool_name,
             &args,
@@ -369,6 +384,7 @@ fn build_tool_batch_document(
             } else {
                 lines
             },
+            badges,
             actions: tool_followup_actions(
                 &format!("Item {}", item_index + 1),
                 &item.tool_name,
@@ -394,6 +410,10 @@ fn build_tool_entry_document(
     let args = parse_json(args_json);
     let is_active = result_entry.is_none();
     let title = tool_display_name(app, tool_name);
+    let metadata_badges = result_entry
+        .and_then(|entry| entry.tool_metadata.as_ref())
+        .map(tool_metadata_badges)
+        .unwrap_or_default();
     let activity = describe_tool_call(tool_name, &args, is_active)
         .or_else(|| {
             app.tools
@@ -433,6 +453,7 @@ fn build_tool_entry_document(
         PanelSpec {
             label: "Summary".to_string(),
             lines: summary,
+            badges: metadata_badges.clone(),
             actions: actions.clone(),
         },
         PanelSpec {
@@ -445,6 +466,7 @@ fn build_tool_entry_document(
                     lines
                 }
             },
+            badges: metadata_badges.clone(),
             actions: vec![InspectorAction {
                 label: "reuse".to_string(),
                 command: serde_json::to_string_pretty(&args).unwrap_or_else(|_| args.to_string()),
@@ -459,6 +481,7 @@ fn build_tool_entry_document(
                 panels.push(PanelSpec {
                     label: "Metadata".to_string(),
                     lines,
+                    badges: metadata_badges.clone(),
                     actions: actions.clone(),
                 });
             }
@@ -468,6 +491,7 @@ fn build_tool_entry_document(
             panels.push(PanelSpec {
                 label: "Output".to_string(),
                 lines: output_lines,
+                badges: metadata_badges.clone(),
                 actions: actions.clone(),
             });
         }
@@ -487,12 +511,18 @@ fn build_standalone_result_document(app: &App, entry: &ChatEntry) -> InspectorDo
             vec![PanelSpec {
                 label: "Output".to_string(),
                 lines: vec![entry.content.clone()],
+                badges: Vec::new(),
                 actions: Vec::new(),
             }],
             None,
         );
     };
     let title = tool_display_name(app, name);
+    let metadata_badges = entry
+        .tool_metadata
+        .as_ref()
+        .map(tool_metadata_badges)
+        .unwrap_or_default();
     let mut summary = vec![format!("Tool: {}", title)];
     if let Some(error_type) = entry.tool_error_type.as_deref() {
         summary.push(format!("Error type: {}", error_type));
@@ -524,6 +554,7 @@ fn build_standalone_result_document(app: &App, entry: &ChatEntry) -> InspectorDo
     let mut panels = vec![PanelSpec {
         label: "Summary".to_string(),
         lines: summary,
+        badges: metadata_badges.clone(),
         actions: actions.clone(),
     }];
     if let Some(metadata) = entry.tool_metadata.as_ref() {
@@ -532,6 +563,7 @@ fn build_standalone_result_document(app: &App, entry: &ChatEntry) -> InspectorDo
             panels.push(PanelSpec {
                 label: "Metadata".to_string(),
                 lines,
+                badges: metadata_badges.clone(),
                 actions: actions.clone(),
             });
         }
@@ -541,6 +573,7 @@ fn build_standalone_result_document(app: &App, entry: &ChatEntry) -> InspectorDo
         panels.push(PanelSpec {
             label: "Output".to_string(),
             lines: output_lines,
+            badges: metadata_badges,
             actions: actions.clone(),
         });
     }
@@ -555,6 +588,7 @@ fn build_standalone_result_document(app: &App, entry: &ChatEntry) -> InspectorDo
 struct PanelSpec {
     label: String,
     lines: Vec<String>,
+    badges: Vec<(String, String)>,
     actions: Vec<InspectorAction>,
 }
 
@@ -581,7 +615,7 @@ fn build_document(
                 ..tab
             },
             lines: panel.lines,
-            badges: Vec::new(),
+            badges: panel.badges,
             actions: panel.actions,
         })
         .collect::<Vec<_>>();
@@ -713,6 +747,79 @@ fn render_result_content_lines(content: &str, tool_name: &str) -> Vec<String> {
         lines
     } else {
         render_markdown_ansi_white_with_options(content, Some(100), true)
+    }
+}
+
+fn tool_metadata_badges(metadata: &serde_json::Value) -> Vec<(String, String)> {
+    let mut badges = Vec::new();
+
+    if metadata.get("read_only_reason").and_then(|value| value.as_str()).is_some()
+        || metadata
+            .get("read_only")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+    {
+        badges.push(("access".to_string(), "read-only".to_string()));
+    }
+
+    if let Some(command_type) = metadata
+        .get("command_type")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.trim().is_empty() && *value != "generic")
+    {
+        badges.push(("mode".to_string(), command_type.to_string()));
+    }
+
+    if metadata
+        .get("destructive_warning")
+        .and_then(|value| value.as_str())
+        .is_some()
+    {
+        badges.push(("warning".to_string(), "destructive".to_string()));
+    }
+
+    if metadata
+        .get("rewrite_suggestion")
+        .and_then(|value| value.as_str())
+        .is_some()
+    {
+        badges.push(("hint".to_string(), "rewrite".to_string()));
+    }
+
+    if let Some(diff) = diff_preview_badge(metadata) {
+        badges.push(("diff".to_string(), diff));
+    }
+
+    if metadata
+        .get("tool_runtime")
+        .and_then(|value| value.get("truncation"))
+        .and_then(|value| value.get("reason"))
+        .and_then(|value| value.as_str())
+        .is_some()
+    {
+        badges.push(("output".to_string(), "truncated".to_string()));
+    }
+
+    badges
+}
+
+fn diff_preview_badge(metadata: &serde_json::Value) -> Option<String> {
+    let diff = metadata.get("diff_preview")?.as_object()?;
+    let removed = diff
+        .get("removed")
+        .and_then(|value| value.as_array())
+        .map(|items| items.len())
+        .unwrap_or(0);
+    let added = diff
+        .get("added")
+        .and_then(|value| value.as_array())
+        .map(|items| items.len())
+        .unwrap_or(0);
+
+    if added == 0 && removed == 0 {
+        None
+    } else {
+        Some(format!("+{}/-{}", added, removed))
     }
 }
 
@@ -872,6 +979,72 @@ mod tests {
             .actions
             .iter()
             .any(|action| action.label == "follow-up"));
+    }
+
+    #[test]
+    fn latest_tool_document_surfaces_metadata_badges_across_panels() {
+        let mut app = test_app();
+        let mut result = ChatEntry::new(
+            ChatRole::ToolResult {
+                id: "a".to_string(),
+                name: "bash".to_string(),
+                is_error: false,
+            },
+            "ok".to_string(),
+        );
+        result.tool_metadata = Some(serde_json::json!({
+            "read_only_reason": "validated git status",
+            "command_type": "read",
+            "destructive_warning": "may discard changes",
+            "rewrite_suggestion": "Prefer read_file",
+            "diff_preview": {
+                "removed": ["old-a", "old-b"],
+                "added": ["new-a"]
+            },
+            "tool_runtime": {
+                "truncation": {
+                    "reason": "line budget"
+                }
+            }
+        }));
+        app.chat_entries = vec![
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "a".to_string(),
+                    name: "bash".to_string(),
+                },
+                r#"{"command":"cat Cargo.toml"}"#.to_string(),
+            ),
+            result,
+        ];
+
+        let doc = build_latest_tool_document(&app).unwrap();
+        let summary = &doc.panels[0];
+        assert!(summary
+            .badges
+            .contains(&("access".to_string(), "read-only".to_string())));
+        assert!(summary
+            .badges
+            .contains(&("mode".to_string(), "read".to_string())));
+        assert!(summary
+            .badges
+            .contains(&("warning".to_string(), "destructive".to_string())));
+        assert!(summary
+            .badges
+            .contains(&("hint".to_string(), "rewrite".to_string())));
+        assert!(summary
+            .badges
+            .contains(&("diff".to_string(), "+1/-2".to_string())));
+        assert!(summary
+            .badges
+            .contains(&("output".to_string(), "truncated".to_string())));
+
+        let output = doc
+            .panels
+            .iter()
+            .find(|panel| panel.tab.label == "Output")
+            .expect("output panel");
+        assert_eq!(output.badges, summary.badges);
     }
 
     #[test]

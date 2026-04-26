@@ -21,7 +21,7 @@
 
 当前进度：
 
-- `32 / 100` 已完成
+- `33 / 100` 已完成
 
 ## 001-010 Markdown Core
 
@@ -47,7 +47,7 @@
 - `[x]` 017 turn-status prefers live tool progress
 - `[x]` 018 turn-status compact tool labels
 - `[x]` 019 inspector tool output markdown rendering
-- `[ ]` 020 inspector tool metadata badges
+- `[x]` 020 inspector tool metadata badges
 
 ## 021-030 Thinking / Assistant
 
@@ -166,4 +166,4 @@
   - `775d61e`, `3970110`
 
 - 下一步优先实现：
-  - `020 inspector tool metadata badges`
+  - `065 latest-message inspector entrypoint semantics`
