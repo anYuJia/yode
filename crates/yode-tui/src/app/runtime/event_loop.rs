@@ -124,26 +124,14 @@ fn maybe_surface_runtime_task_notifications(
             changed = true;
         }
 
-        if app.last_task_brief_time.elapsed() >= Duration::from_secs(45) {
+        if app.last_task_brief_time.elapsed() >= Duration::from_secs(60) {
             let running = engine_guard
                 .runtime_tasks_snapshot()
                 .into_iter()
                 .filter(|task| matches!(task.status, yode_tools::RuntimeTaskStatus::Running))
                 .collect::<Vec<_>>();
             if !running.is_empty() {
-                let mut lines = vec!["Background tasks still running:".to_string()];
-                for task in running.into_iter().take(3) {
-                    lines.push(format!(
-                        "  - {} [{}] {}{}",
-                        task.id,
-                        task.kind,
-                        task.description,
-                        task.last_progress
-                            .as_ref()
-                            .map(|progress| format!(" — {}", progress))
-                            .unwrap_or_default()
-                    ));
-                }
+                let lines = background_task_brief_lines(&running);
                 push_system_entry(app, lines.join("\n"));
                 app.last_task_brief_time = Instant::now();
                 changed = true;
@@ -151,6 +139,60 @@ fn maybe_surface_runtime_task_notifications(
         }
     }
     changed
+}
+
+fn background_task_brief_lines(tasks: &[yode_tools::RuntimeTask]) -> Vec<String> {
+    let mut lines = vec![format!("Background tasks still running · {} active", tasks.len())];
+    for task in tasks.iter().take(2) {
+        lines.push(format!(
+            "  - {} [{}] {}{}",
+            task.id,
+            task.kind,
+            task.description,
+            task.last_progress
+                .as_ref()
+                .map(|progress| format!(" — {}", progress))
+                .unwrap_or_default()
+        ));
+    }
+    if tasks.len() > 2 {
+        lines.push(format!("  - … +{} more tasks", tasks.len() - 2));
+    }
+    lines
+}
+
+#[cfg(test)]
+mod tests {
+    use super::background_task_brief_lines;
+
+    #[test]
+    fn background_task_brief_lines_are_compact() {
+        let tasks = (0..3)
+            .map(|index| yode_tools::RuntimeTask {
+                id: format!("task-{}", index),
+                kind: "agent".to_string(),
+                source_tool: "agent".to_string(),
+                description: format!("desc {}", index),
+                status: yode_tools::RuntimeTaskStatus::Running,
+                attempt: 1,
+                retry_of: None,
+                output_path: format!("/tmp/task-{}.log", index),
+                transcript_path: None,
+                created_at: "2026-01-01 00:00:00".to_string(),
+                started_at: None,
+                completed_at: None,
+                last_progress: Some("building".to_string()),
+                last_progress_at: None,
+                progress_history: Vec::new(),
+                error: None,
+            })
+            .collect::<Vec<_>>();
+
+        let lines = background_task_brief_lines(&tasks);
+        assert!(lines[0].contains("3 active"));
+        assert!(lines[1].contains("task-0 [agent] desc 0"));
+        assert!(lines[3].contains("+1 more tasks"));
+    }
 }
 
 fn resize_inline_viewport(
