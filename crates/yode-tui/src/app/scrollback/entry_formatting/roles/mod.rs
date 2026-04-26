@@ -135,7 +135,8 @@ pub(crate) fn format_grouped_subagent_batch(
 mod tests {
     use crate::app::{ChatEntry, ChatRole};
 
-    use super::format_entry_as_strings;
+    use super::{format_entry_as_strings, format_grouped_system_batch};
+    use crate::tool_grouping::{SystemBatch, SystemBatchItem};
 
     #[test]
     fn error_entries_include_inspector_hint() {
@@ -152,5 +153,72 @@ mod tests {
             .iter()
             .any(|(line, _)| line.contains("ctrl+o to inspect")));
         assert!(rendered.iter().all(|(line, _)| !line.contains("╭─ Error")));
+    }
+
+    #[test]
+    fn scrollback_formats_keep_inspector_discoverability_for_core_roles() {
+        let tool_entries = vec![
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "a".to_string(),
+                    name: "read_file".to_string(),
+                },
+                "{\"file_path\":\"/tmp/src/main.rs\"}".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolResult {
+                    id: "a".to_string(),
+                    name: "read_file".to_string(),
+                    is_error: false,
+                },
+                "fn main() {}".to_string(),
+            ),
+        ];
+        let tool_rendered = format_entry_as_strings(&tool_entries[0], &tool_entries, 0);
+        assert!(tool_rendered
+            .iter()
+            .any(|(line, _)| line.contains("ctrl+o to inspect")));
+
+        let system_entries = vec![
+            ChatEntry::new(
+                ChatRole::System,
+                "Context compressed · auto · -4 msgs".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::System,
+                "Session memory updated · summary · /tmp/live.md".to_string(),
+            ),
+        ];
+        let system_rendered = format_grouped_system_batch(
+            &system_entries,
+            &SystemBatch {
+                start_index: 0,
+                next_index: 2,
+                items: vec![
+                    SystemBatchItem {
+                        entry_index: 0,
+                        kind: crate::system_message::SystemMessageKind::Context,
+                    },
+                    SystemBatchItem {
+                        entry_index: 1,
+                        kind: crate::system_message::SystemMessageKind::Memory,
+                    },
+                ],
+            },
+        );
+        assert!(system_rendered
+            .iter()
+            .any(|(line, _)| line.contains("ctrl+o to inspect")));
+
+        let error_entry = ChatEntry::new(
+            ChatRole::Error,
+            "OpenAI API error (400): This model's maximum context length is 128000 tokens."
+                .to_string(),
+        );
+        let error_rendered =
+            format_entry_as_strings(&error_entry, std::slice::from_ref(&error_entry), 0);
+        assert!(error_rendered
+            .iter()
+            .any(|(line, _)| line.contains("ctrl+o to inspect")));
     }
 }

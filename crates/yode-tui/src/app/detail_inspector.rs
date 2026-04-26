@@ -248,7 +248,7 @@ fn build_system_entry_document(entry: &ChatEntry) -> InspectorDocument {
     if let Some(raw_lines) = system_raw_panel_lines(entry, &view) {
         panels.push(PanelSpec {
             label: "Raw".to_string(),
-            lines: raw_lines,
+            lines: render_markdown_panel_lines(&raw_lines.join("\n")),
             badges,
             actions: vec![],
         });
@@ -279,7 +279,7 @@ fn build_error_entry_document(entry: &ChatEntry) -> InspectorDocument {
     }];
     panels.push(PanelSpec {
         label: "Raw".to_string(),
-        lines: entry.content.lines().map(|line| line.to_string()).collect(),
+        lines: render_markdown_panel_lines(&entry.content),
         badges,
         actions: recovery_actions,
     });
@@ -429,7 +429,7 @@ fn build_system_batch_document(entries: &[ChatEntry], batch: &SystemBatch) -> In
         if let Some(raw_lines) = system_raw_panel_lines(entry, &view) {
             lines.push(String::new());
             lines.push("Raw".to_string());
-            lines.extend(raw_lines);
+            lines.extend(render_markdown_panel_lines(&raw_lines.join("\n")));
         }
 
         panels.push(PanelSpec {
@@ -1621,6 +1621,26 @@ mod tests {
     }
 
     #[test]
+    fn latest_tool_document_hyperlinks_system_raw_urls() {
+        let mut app = test_app();
+        app.chat_entries = vec![ChatEntry::new(
+            ChatRole::System,
+            "Session memory updated · ref · https://example.com/docs".to_string(),
+        )];
+
+        let doc = build_latest_tool_document(&app).unwrap();
+        let raw = doc
+            .panels
+            .iter()
+            .find(|panel| panel.tab.label == "Raw")
+            .expect("raw");
+        assert!(raw
+            .lines
+            .iter()
+            .any(|line| line.contains("\u{1b}]8;;https://example.com/docs")));
+    }
+
+    #[test]
     fn latest_tool_document_supports_recent_error_entry() {
         let mut app = test_app();
         app.chat_entries = vec![ChatEntry::new(
@@ -1650,6 +1670,26 @@ mod tests {
             .panels
             .iter()
             .any(|panel| panel.lines.iter().any(|line| line.contains("Context limit reached"))));
+    }
+
+    #[test]
+    fn latest_tool_document_hyperlinks_error_raw_urls() {
+        let mut app = test_app();
+        app.chat_entries = vec![ChatEntry::new(
+            ChatRole::Error,
+            "something odd happened\nsee https://example.com/help".to_string(),
+        )];
+
+        let doc = build_latest_tool_document(&app).unwrap();
+        let raw = doc
+            .panels
+            .iter()
+            .find(|panel| panel.tab.label == "Raw")
+            .expect("raw");
+        assert!(raw
+            .lines
+            .iter()
+            .any(|line| line.contains("\u{1b}]8;;https://example.com/help")));
     }
 
     #[test]

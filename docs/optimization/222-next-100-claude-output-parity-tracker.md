@@ -21,7 +21,7 @@
 
 当前进度：
 
-- `60 / 100` 已完成
+- `62 / 100` 已完成
 
 ## 001-010 Markdown Core
 
@@ -146,8 +146,8 @@
 - `[x]` 092 spinner verb audit against claude-code-rev
 - `[x]` 093 tool label capitalization audit
 - `[x]` 094 path compaction helper unification
-- `[ ]` 095 hyperlink coverage audit
-- `[ ]` 096 system/error/tool inspector discoverability audit
+- `[x]` 095 hyperlink coverage audit
+- `[x]` 096 system/error/tool inspector discoverability audit
 - `[ ]` 097 narrow terminal snapshot pass
 - `[ ]` 098 output regression screenshot/script pass
 - `[ ]` 099 final parity gap review
@@ -166,4 +166,4 @@
   - `775d61e`, `3970110`
 
 - 下一步优先实现：
-  - `095 hyperlink coverage audit`
+  - `048 export message panel polish`
