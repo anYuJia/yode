@@ -1,6 +1,7 @@
 use crate::app::{App, ChatEntry, ChatRole, InspectorView, PendingConfirmation};
 use crate::tool_grouping::{
-    describe_tool_call, detect_groupable_tool_batch, tool_batch_summary_text, ToolBatch,
+    describe_tool_call, detect_groupable_tool_batch, tool_batch_hint_text,
+    tool_batch_progress_text, tool_batch_summary_text, ToolBatch,
 };
 use crate::tool_output_summary::{parse_shell_output_sections, summarize_tool_result};
 use crate::system_message::{parse_system_message, system_message_summary};
@@ -293,16 +294,23 @@ fn build_tool_batch_document(
     entries: &[ChatEntry],
     batch: &ToolBatch,
 ) -> InspectorDocument {
+    let mut overview = vec![
+        format!("Summary: {}", tool_batch_summary_text(batch)),
+        format!("Items: {}", batch.items.len()),
+        format!(
+            "State: {}",
+            if batch.is_active { "active" } else { "completed" }
+        ),
+    ];
+    if let Some(progress) = tool_batch_progress_text(entries, batch) {
+        overview.push(format!("Progress: {}", progress));
+    } else if let Some(hint) = tool_batch_hint_text(entries, batch) {
+        overview.push(format!("Hint: {}", hint));
+    }
+
     let mut panels = vec![PanelSpec {
         label: "Overview".to_string(),
-        lines: vec![
-            format!("Summary: {}", tool_batch_summary_text(batch)),
-            format!("Items: {}", batch.items.len()),
-            format!(
-                "State: {}",
-                if batch.is_active { "active" } else { "completed" }
-            ),
-        ],
+        lines: overview,
         actions: vec![
             InspectorAction {
                 label: "status".to_string(),
@@ -399,6 +407,15 @@ fn build_tool_entry_document(
         format!("Activity: {}", activity),
         format!("State: {}", if is_active { "running" } else { "completed" }),
     ];
+    if is_active {
+        if let Some(progress) = parse_progress_summary(
+            app.chat_entries.iter().rev().find(|entry| {
+                matches!(&entry.role, ChatRole::ToolCall { name, .. } if name == tool_name)
+            }),
+        ) {
+            summary.push(format!("Progress: {}", progress));
+        }
+    }
     if let Some(result_entry) = result_entry {
         if let Some(duration) = result_entry.duration {
             summary.push(format!(
@@ -698,6 +715,15 @@ fn render_result_content_lines(content: &str, tool_name: &str) -> Vec<String> {
     }
 }
 
+fn parse_progress_summary(entry: Option<&ChatEntry>) -> Option<String> {
+    let progress = entry?.progress.as_ref()?;
+    let mut text = progress.message.clone();
+    if let Some(percent) = progress.percent {
+        text.push_str(&format!(" {}%", percent));
+    }
+    Some(text)
+}
+
 fn tool_display_name(app: &App, tool_name: &str) -> String {
     if let Some(tool) = app.tools.get(tool_name) {
         let label = tool.user_facing_name();
@@ -834,6 +860,38 @@ mod tests {
             .actions
             .iter()
             .any(|action| action.label == "follow-up"));
+    }
+
+    #[test]
+    fn latest_tool_document_surfaces_active_batch_progress() {
+        let mut app = test_app();
+        let mut active = ChatEntry::new(
+            ChatRole::ToolCall {
+                id: "a".to_string(),
+                name: "read_file".to_string(),
+            },
+            r#"{"file_path":"/tmp/src/main.rs"}"#.to_string(),
+        );
+        active.progress = Some(yode_tools::tool::ToolProgress {
+            message: "chunk 2/4".to_string(),
+            percent: Some(50),
+        });
+        app.chat_entries = vec![
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "z".to_string(),
+                    name: "grep".to_string(),
+                },
+                r#"{"pattern":"retry"}"#.to_string(),
+            ),
+            active,
+        ];
+
+        let doc = build_latest_tool_document(&app).unwrap();
+        assert!(doc
+            .panels
+            .first()
+            .is_some_and(|panel| panel.lines.iter().any(|line| line.contains("Progress: chunk 2/4 50%"))));
     }
 
     #[test]
