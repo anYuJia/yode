@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::commands::artifact_nav::{
-    latest_artifact_by_suffix, latest_checkpoint_artifact, latest_runtime_orchestration_artifact,
+    export_bundle_root, latest_artifact_by_suffix, latest_checkpoint_artifact,
+    latest_runtime_orchestration_artifact,
 };
 use yode_tools::runtime_tasks::latest_transcript_artifact_path;
 use yode_tools::{RuntimeTask, RuntimeTaskStatus};
@@ -337,8 +338,9 @@ pub(crate) fn export_remote_control_bundle(project_root: &Path) -> anyhow::Resul
     let Some(summary) = latest_remote_control_artifact(project_root) else {
         return Ok(None);
     };
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let bundle_dir = cwd.join(format!(
+    let bundle_root = export_bundle_root(project_root);
+    std::fs::create_dir_all(&bundle_root)?;
+    let bundle_dir = bundle_root.join(format!(
         "remote-control-bundle-{}",
         chrono::Local::now().format("%Y%m%d-%H%M%S")
     ));
@@ -1824,6 +1826,9 @@ mod tests {
         assert!(render_remote_control_doctor(&dir).contains("Remote control doctor"));
         let bundle = export_remote_control_bundle(&dir).unwrap();
         assert!(bundle.is_some());
+        assert!(bundle
+            .as_ref()
+            .is_some_and(|path| path.starts_with(dir.join(".yode").join("exports"))));
         let task = yode_tools::RuntimeTask {
             id: "task-1".to_string(),
             kind: "agent".to_string(),

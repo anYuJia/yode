@@ -10,3 +10,4 @@ Cargo.lock
 claude/
 claude-code-rev/
 claude-code-docs/
+crates/yode-tui/remote-control-bundle-*/

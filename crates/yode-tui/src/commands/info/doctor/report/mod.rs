@@ -8,6 +8,7 @@ use self::remote_workspace::{
     write_remote_execution_state_artifact, write_remote_execution_stub_inventory,
     write_remote_workflow_capability_artifact,
 };
+use crate::commands::artifact_nav::export_bundle_root;
 use crate::commands::context::CommandContext;
 use crate::commands::tools::mcp_workspace::write_browser_access_state_artifact;
 use crate::runtime_artifacts::{
@@ -43,8 +44,11 @@ pub(super) fn render_remote_artifact_index(ctx: &mut CommandContext) -> String {
 }
 
 pub(super) fn export_doctor_bundle(ctx: &mut CommandContext) -> Result<String, String> {
-    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    let bundle_dir = cwd.join(format!(
+    let working_dir = std::path::PathBuf::from(&ctx.session.working_dir);
+    let bundle_root = export_bundle_root(&working_dir);
+    std::fs::create_dir_all(&bundle_root)
+        .map_err(|err| format!("Failed to create doctor export dir: {}", err))?;
+    let bundle_dir = bundle_root.join(format!(
         "doctor-bundle-{}",
         chrono::Local::now().format("%Y%m%d-%H%M%S")
     ));
@@ -79,7 +83,6 @@ pub(super) fn export_doctor_bundle(ctx: &mut CommandContext) -> Result<String, S
         copied_files.push(path);
     }
 
-    let working_dir = std::path::PathBuf::from(&ctx.session.working_dir);
     let runtime_bundle = ctx
         .engine
         .try_lock()

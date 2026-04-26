@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use crate::commands::artifact_nav::{
-    latest_artifact_by_suffix, latest_post_compact_restore_artifact,
+    export_bundle_root, latest_artifact_by_suffix, latest_post_compact_restore_artifact,
     latest_post_compact_restore_state_artifact, latest_prompt_cache_artifact,
     latest_prompt_cache_break_artifact, latest_prompt_cache_diff_artifact,
     latest_prompt_cache_events_artifact, latest_prompt_cache_state_artifact,
@@ -104,21 +104,29 @@ pub(crate) fn startup_artifact_candidates(project_root: &std::path::Path) -> Vec
     .collect()
 }
 
-pub(crate) fn doctor_bundle_references(cwd: &std::path::Path) -> Vec<PathBuf> {
-    std::fs::read_dir(cwd)
-        .ok()
+pub(crate) fn doctor_bundle_references(project_root: &std::path::Path) -> Vec<PathBuf> {
+    let mut paths = [export_bundle_root(project_root), project_root.to_path_buf()]
         .into_iter()
-        .flat_map(|entries| entries.filter_map(Result::ok))
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.is_dir()
-                && path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .map(|name| name.starts_with("doctor-bundle-"))
-                    .unwrap_or(false)
+        .flat_map(|dir| {
+            std::fs::read_dir(dir)
+                .ok()
+                .into_iter()
+                .flat_map(|entries| entries.filter_map(Result::ok))
+                .map(|entry| entry.path())
+                .filter(|path| {
+                    path.is_dir()
+                        && path
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .map(|name| name.starts_with("doctor-bundle-"))
+                            .unwrap_or(false)
+                })
+                .collect::<Vec<_>>()
         })
-        .collect()
+        .collect::<Vec<_>>();
+    paths.sort();
+    paths.dedup();
+    paths
 }
 
 pub(crate) fn truncate_preview_line(text: &str, max_chars: usize) -> String {

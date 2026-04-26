@@ -8,12 +8,12 @@ use crate::app::{
     format_scrollback_grouped_system_batch, format_scrollback_grouped_tool_batch, ChatRole,
 };
 use crate::commands::artifact_nav::{
-    artifact_freshness_badge, latest_coordinator_artifact, latest_post_compact_restore_artifact,
-    latest_post_compact_restore_diff_artifact, latest_post_compact_restore_state_artifact,
-    latest_prompt_cache_artifact, latest_prompt_cache_break_artifact,
-    latest_prompt_cache_diff_artifact, latest_prompt_cache_events_artifact,
-    latest_prompt_cache_state_artifact, latest_runtime_orchestration_artifact,
-    latest_workflow_execution_artifact,
+    artifact_freshness_badge, export_bundle_root, latest_coordinator_artifact,
+    latest_post_compact_restore_artifact, latest_post_compact_restore_diff_artifact,
+    latest_post_compact_restore_state_artifact, latest_prompt_cache_artifact,
+    latest_prompt_cache_break_artifact, latest_prompt_cache_diff_artifact,
+    latest_prompt_cache_events_artifact, latest_prompt_cache_state_artifact,
+    latest_runtime_orchestration_artifact, latest_workflow_execution_artifact,
 };
 use crate::commands::context::CommandContext;
 use crate::commands::{
@@ -201,12 +201,15 @@ fn render_conversation_body(entries: &[crate::app::ChatEntry]) -> String {
 }
 
 fn export_diagnostics_bundle(custom_name: Option<&str>, ctx: &mut CommandContext) -> CommandResult {
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let project_root = PathBuf::from(&ctx.session.working_dir);
+    let bundle_root = export_bundle_root(&project_root);
+    std::fs::create_dir_all(&bundle_root)
+        .map_err(|err| format!("Failed to create diagnostics export dir: {}", err))?;
     let bundle_name = custom_name
         .map(sanitize_filename)
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| format!("diagnostics-{}", timestamp_filename()));
-    let bundle_dir = cwd.join(bundle_name);
+    let bundle_dir = bundle_root.join(bundle_name);
     std::fs::create_dir_all(&bundle_dir)
         .map_err(|err| format!("Failed to create diagnostics bundle dir: {}", err))?;
 
@@ -226,7 +229,6 @@ fn export_diagnostics_bundle(custom_name: Option<&str>, ctx: &mut CommandContext
             )
         })
         .unwrap_or((None, Vec::new()));
-    let project_root = PathBuf::from(&ctx.session.working_dir);
     let runtime_summary = render_runtime_bundle_summary(&project_root, runtime.as_ref(), &tasks);
     std::fs::write(&diagnostics_path, runtime_summary)
         .map_err(|err| format!("Failed to write {}: {}", diagnostics_path.display(), err))?;
@@ -276,7 +278,7 @@ fn export_diagnostics_bundle(custom_name: Option<&str>, ctx: &mut CommandContext
         }
     }
 
-    let doctor_refs = doctor_bundle_references(&cwd);
+    let doctor_refs = doctor_bundle_references(&project_root);
     let doctor_ref_path = bundle_dir.join("doctor-bundles.txt");
     if !doctor_refs.is_empty() {
         let content = doctor_refs

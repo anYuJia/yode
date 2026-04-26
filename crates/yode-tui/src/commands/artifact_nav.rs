@@ -339,17 +339,39 @@ pub(crate) fn latest_bundle_workspace_index(cwd: &Path) -> Option<PathBuf> {
     recent_bundle_workspace_indexes(cwd, 1).into_iter().next()
 }
 
+pub(crate) fn export_bundle_root(project_root: &Path) -> PathBuf {
+    project_root.join(".yode").join("exports")
+}
+
 pub(crate) fn recent_bundle_workspace_indexes(cwd: &Path, limit: usize) -> Vec<PathBuf> {
-    let mut entries = std::fs::read_dir(cwd)
+    let mut entries = bundle_search_roots(cwd)
+        .into_iter()
+        .flat_map(|dir| bundle_workspace_indexes_in_dir(&dir))
+        .collect::<Vec<_>>();
+    entries.sort_by(compare_paths_by_modified_desc);
+    entries.dedup();
+    entries.into_iter().take(limit).collect()
+}
+
+fn bundle_search_roots(cwd: &Path) -> Vec<PathBuf> {
+    let mut roots = cwd
+        .ancestors()
+        .flat_map(|dir| [export_bundle_root(dir), dir.to_path_buf()])
+        .collect::<Vec<_>>();
+    roots.sort();
+    roots.dedup();
+    roots
+}
+
+fn bundle_workspace_indexes_in_dir(dir: &Path) -> Vec<PathBuf> {
+    std::fs::read_dir(dir)
         .ok()
         .into_iter()
         .flat_map(|entries| entries.filter_map(Result::ok))
         .map(|entry| entry.path())
         .filter(|path| path.is_dir() && path.join("workspace-index.md").exists())
         .map(|path| path.join("workspace-index.md"))
-        .collect::<Vec<_>>();
-    entries.sort_by(compare_paths_by_modified_desc);
-    entries.into_iter().take(limit).collect()
+        .collect()
 }
 
 pub(crate) fn resolve_artifact_basename(project_root: &Path, target: &str) -> Option<PathBuf> {
@@ -785,7 +807,7 @@ fn compare_paths_by_modified_desc(left: &PathBuf, right: &PathBuf) -> Ordering {
 mod tests {
     use super::{
         artifact_display_line, artifact_freshness_badge,
-        build_runtime_orchestration_timeline_lines, latest_artifact_by_suffix,
+        build_runtime_orchestration_timeline_lines, export_bundle_root, latest_artifact_by_suffix,
         latest_bundle_workspace_index, open_artifact_inspector, recent_artifacts_by_suffix,
         recent_bundle_workspace_indexes, resolve_artifact_basename,
         write_runtime_orchestration_timeline_artifact,
@@ -813,15 +835,30 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("yode-bundle-index-{}", uuid::Uuid::new_v4()));
         let _ = std::fs::remove_dir_all(&dir);
         let older = dir.join("diagnostics-a");
-        let newer = dir.join("diagnostics-b");
+        let newer = export_bundle_root(&dir).join("diagnostics-b");
         std::fs::create_dir_all(&older).unwrap();
         std::fs::create_dir_all(&newer).unwrap();
         std::fs::write(older.join("workspace-index.md"), "old").unwrap();
         std::thread::sleep(std::time::Duration::from_millis(10));
         std::fs::write(newer.join("workspace-index.md"), "new").unwrap();
         let latest = latest_bundle_workspace_index(&dir).unwrap();
-        assert!(latest.ends_with("diagnostics-b/workspace-index.md"));
+        assert!(latest.ends_with(".yode/exports/diagnostics-b/workspace-index.md"));
         assert_eq!(recent_bundle_workspace_indexes(&dir, 2).len(), 2);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn bundle_workspace_index_searches_export_root_from_nested_cwd() {
+        let dir = std::env::temp_dir().join(format!("yode-bundle-nested-{}", uuid::Uuid::new_v4()));
+        let nested = dir.join("crates").join("demo");
+        let bundle = export_bundle_root(&dir).join("diagnostics-nested");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::create_dir_all(&bundle).unwrap();
+        std::fs::write(bundle.join("workspace-index.md"), "nested").unwrap();
+
+        let latest = latest_bundle_workspace_index(&nested).unwrap();
+        assert!(latest.ends_with(".yode/exports/diagnostics-nested/workspace-index.md"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
