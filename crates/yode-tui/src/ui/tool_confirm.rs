@@ -169,11 +169,12 @@ fn confirmation_primary_value(tool_name: &str, args_json: &str) -> String {
             .next()
             .unwrap_or("command")
             .to_string(),
-        "read_file" | "write_file" | "edit_file" | "multi_edit" => parsed
-            .get("file_path")
-            .and_then(|value| value.as_str())
-            .unwrap_or("file")
-            .to_string(),
+        "read_file" | "write_file" | "edit_file" | "multi_edit" => compact_path(
+            parsed
+                .get("file_path")
+                .and_then(|value| value.as_str())
+                .unwrap_or("file"),
+        ),
         "web_search" => parsed
             .get("query")
             .and_then(|value| value.as_str())
@@ -228,9 +229,21 @@ fn tool_activity_summary(app: &App, tool_name: &str, args_json: &str) -> String 
             format!("Run {}", truncate_str(cmd, 60))
         }
         "edit_file" | "write_file" => {
-            format!("Update {}", parsed["file_path"].as_str().unwrap_or("file"))
+            format!(
+                "Update {}",
+                compact_path(parsed["file_path"].as_str().unwrap_or("file"))
+            )
         }
         _ => "Pending tool execution".to_string(),
+    }
+}
+
+fn compact_path(path: &str) -> String {
+    let parts: Vec<&str> = path.rsplitn(3, '/').collect();
+    if parts.len() >= 3 {
+        format!(".../{}/{}", parts[1], parts[0])
+    } else {
+        path.to_string()
     }
 }
 
@@ -362,8 +375,8 @@ mod tests {
     use crate::app::App;
 
     use super::{
-        option_list_lines, tool_activity_summary, tool_allow_option_label, tool_display_name,
-        tool_preview_line, tool_risk_hint,
+        confirmation_primary_value, option_list_lines, tool_activity_summary,
+        tool_allow_option_label, tool_display_name, tool_preview_line, tool_risk_hint,
     };
 
     fn test_app() -> App {
@@ -404,6 +417,12 @@ mod tests {
     fn confirmation_preview_line_uses_key_fields() {
         let preview = tool_preview_line("bash", r#"{"command":"cargo test -p yode-tui"}"#);
         assert!(preview.contains("command · cargo test -p yode-tui"));
+    }
+
+    #[test]
+    fn confirmation_primary_value_compacts_file_paths() {
+        let value = confirmation_primary_value("read_file", r#"{"file_path":"/tmp/src/main.rs"}"#);
+        assert_eq!(value, ".../src/main.rs");
     }
 
     #[test]
