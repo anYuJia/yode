@@ -1,13 +1,12 @@
-use crate::commands::context::CommandContext;
-use crate::commands::workspace_text::{workspace_bullets, WorkspaceText};
 use super::remote_workspace::{
     browser_capability_checklist, build_remote_execution_state, build_remote_workflow_state,
-    remote_command_surface_inventory, remote_missing_prereq_summary,
-    remote_prereq_severity_banner, render_remote_capability_workspace,
-    render_remote_execution_workspace, write_remote_execution_state_artifact,
-    write_remote_workflow_capability_artifact,
+    remote_command_surface_inventory, remote_missing_prereq_summary, remote_prereq_severity_banner,
+    render_remote_capability_workspace, render_remote_execution_workspace,
+    write_remote_execution_state_artifact, write_remote_workflow_capability_artifact,
 };
 use super::shared::format_artifact_entry;
+use crate::commands::context::CommandContext;
+use crate::commands::workspace_text::{workspace_bullets, WorkspaceText};
 
 pub(super) fn render_remote_env_check(ctx: &mut CommandContext) -> String {
     let project_root = std::path::PathBuf::from(&ctx.session.working_dir);
@@ -109,7 +108,10 @@ pub(super) fn render_remote_env_check(ctx: &mut CommandContext) -> String {
     WorkspaceText::new("Remote environment workspace")
         .subtitle(project_root.display().to_string())
         .field("Command surface", command_inventory)
-        .field("Missing prereqs", remote_missing_prereq_summary(&workflow_state))
+        .field(
+            "Missing prereqs",
+            remote_missing_prereq_summary(&workflow_state),
+        )
         .field("Severity", remote_prereq_severity_banner(&workflow_state))
         .section("Transport", workspace_bullets(transport_checks))
         .section("Repository", workspace_bullets(repo_checks))
@@ -227,7 +229,10 @@ pub(super) fn render_remote_review_prereqs(ctx: &mut CommandContext) -> String {
 
     WorkspaceText::new("Remote review workspace")
         .subtitle(project_root.display().to_string())
-        .field("Missing prereqs", remote_missing_prereq_summary(&workflow_state))
+        .field(
+            "Missing prereqs",
+            remote_missing_prereq_summary(&workflow_state),
+        )
         .field("Severity", remote_prereq_severity_banner(&workflow_state))
         .section("Provider", workspace_bullets(provider_checks))
         .section("Repository", workspace_bullets(repo_checks))

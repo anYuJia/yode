@@ -234,10 +234,7 @@ impl Tool for RemoteQueueDispatchTool {
             .working_dir
             .as_deref()
             .ok_or_else(|| anyhow!("working_dir not available"))?;
-        let session_id = ctx
-            .session_id
-            .as_deref()
-            .unwrap_or("remote-tool-session");
+        let session_id = ctx.session_id.as_deref().unwrap_or("remote-tool-session");
         let provider = ctx.provider.as_deref().unwrap_or("unknown");
         let model = ctx.model.as_deref().unwrap_or("unknown");
 
@@ -251,15 +248,20 @@ impl Tool for RemoteQueueDispatchTool {
         let mut transport = load_or_create_remote_transport_payload(project_root, session_id)?;
         if transport.connection_status != "connected" {
             transport.last_command = Some("remote_queue_dispatch".to_string());
-            transport.queue_gate = Some(format!(
-                "blocked: {}",
-                transport_block_reason(&transport)
-            ));
+            transport.queue_gate = Some(format!("blocked: {}", transport_block_reason(&transport)));
             transport.last_transition_at = Some(now_string());
-            let transport_artifacts = write_remote_transport_payload(project_root, session_id, &mut transport)?;
-            let mut live_session = load_or_create_remote_live_session_payload(project_root, session_id)?;
-            sync_live_session_with_transport(project_root, session_id, &transport, &mut live_session);
-            let live_artifacts = write_remote_live_session_payload(project_root, session_id, &mut live_session)?;
+            let transport_artifacts =
+                write_remote_transport_payload(project_root, session_id, &mut transport)?;
+            let mut live_session =
+                load_or_create_remote_live_session_payload(project_root, session_id)?;
+            sync_live_session_with_transport(
+                project_root,
+                session_id,
+                &transport,
+                &mut live_session,
+            );
+            let live_artifacts =
+                write_remote_live_session_payload(project_root, session_id, &mut live_session)?;
             return Ok(ToolResult::error_typed(
                 format!(
                     "Remote transport is not connected. Use `remote_transport_control` with action=\"connect\" or action=\"reconnect\" first.\nTransport: {}\nLive session: {}",
@@ -272,7 +274,11 @@ impl Tool for RemoteQueueDispatchTool {
             ));
         }
 
-        if let Some(command) = params.command.as_deref().filter(|value| !value.trim().is_empty()) {
+        if let Some(command) = params
+            .command
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
             insert_queue_item(&mut payload, command.trim());
         }
 
@@ -294,10 +300,12 @@ impl Tool for RemoteQueueDispatchTool {
         .await;
 
         let task_id = task.as_ref().map(|task| task.id.clone());
-        let preview = params
-            .summary
-            .clone()
-            .unwrap_or_else(|| format!("transport dispatched {}", payload.command_queue[index].command));
+        let preview = params.summary.clone().unwrap_or_else(|| {
+            format!(
+                "transport dispatched {}",
+                payload.command_queue[index].command
+            )
+        });
         let item_id = {
             let item = &mut payload.command_queue[index];
             if !matches!(item.status.as_str(), "running" | "dispatched") {
@@ -322,7 +330,10 @@ impl Tool for RemoteQueueDispatchTool {
             "dispatch",
             Some(item_id.as_str()),
             task_id.as_deref(),
-            &format!("queued {} for remote execution", payload.command_queue[index].command),
+            &format!(
+                "queued {} for remote execution",
+                payload.command_queue[index].command
+            ),
         )?;
         let execution_path = write_remote_queue_execution_artifact(
             project_root,
@@ -331,20 +342,24 @@ impl Tool for RemoteQueueDispatchTool {
             &preview,
             Some(event_path.as_path()),
         )?;
-        payload.command_queue[index].execution_artifact = Some(execution_path.display().to_string());
+        payload.command_queue[index].execution_artifact =
+            Some(execution_path.display().to_string());
 
         transport.last_command = Some("remote_queue_dispatch".to_string());
         transport.queue_gate = Some(format!("ready: dispatch {}", item_id));
         transport.last_transition_at = Some(now_string());
         transport.latest_transport_task_id = task_id.clone();
-        let transport_artifacts = write_remote_transport_payload(project_root, session_id, &mut transport)?;
+        let transport_artifacts =
+            write_remote_transport_payload(project_root, session_id, &mut transport)?;
         let control_artifacts = write_remote_control_payload(project_root, &mut payload)?;
 
-        let mut live_session = load_or_create_remote_live_session_payload(project_root, session_id)?;
+        let mut live_session =
+            load_or_create_remote_live_session_payload(project_root, session_id)?;
         live_session.latest_queue_item_id = Some(item_id.clone());
         live_session.updated_at = now_string();
         sync_live_session_with_transport(project_root, session_id, &transport, &mut live_session);
-        let live_artifacts = write_remote_live_session_payload(project_root, session_id, &mut live_session)?;
+        let live_artifacts =
+            write_remote_live_session_payload(project_root, session_id, &mut live_session)?;
 
         Ok(ToolResult::success_with_metadata(
             format!(
@@ -456,10 +471,7 @@ impl Tool for RemoteQueueResultTool {
             .working_dir
             .as_deref()
             .ok_or_else(|| anyhow!("working_dir not available"))?;
-        let session_id = ctx
-            .session_id
-            .as_deref()
-            .unwrap_or("remote-tool-session");
+        let session_id = ctx.session_id.as_deref().unwrap_or("remote-tool-session");
         let provider = ctx.provider.as_deref().unwrap_or("unknown");
         let model = ctx.model.as_deref().unwrap_or("unknown");
         let mut payload = load_or_create_remote_control_payload(
@@ -470,7 +482,8 @@ impl Tool for RemoteQueueResultTool {
             "tool-driven remote control queue",
         )?;
         let mut transport = load_or_create_remote_transport_payload(project_root, session_id)?;
-        let mut live_session = load_or_create_remote_live_session_payload(project_root, session_id)?;
+        let mut live_session =
+            load_or_create_remote_live_session_payload(project_root, session_id)?;
 
         let target = params.target.as_deref().unwrap_or("latest");
         let index = resolve_queue_index(&payload, target)
@@ -496,7 +509,10 @@ impl Tool for RemoteQueueResultTool {
             item.clone()
         };
 
-        if let (Some(store), Some(task_id)) = (ctx.runtime_tasks.as_ref(), item_snapshot.runtime_task_id.as_deref()) {
+        if let (Some(store), Some(task_id)) = (
+            ctx.runtime_tasks.as_ref(),
+            item_snapshot.runtime_task_id.as_deref(),
+        ) {
             let mut store = store.lock().await;
             store.update_progress(task_id, params.summary.clone());
             match normalized_status {
@@ -527,13 +543,15 @@ impl Tool for RemoteQueueResultTool {
             &params.summary,
             Some(event_path.as_path()),
         )?;
-        payload.command_queue[index].execution_artifact = Some(execution_path.display().to_string());
+        payload.command_queue[index].execution_artifact =
+            Some(execution_path.display().to_string());
         payload.status = summarize_queue_status(&payload.command_queue);
 
         transport.last_command = Some("remote_queue_result".to_string());
         transport.queue_gate = Some(format!("ready: {} {}", normalized_status, item_snapshot.id));
         transport.last_transition_at = Some(now.clone());
-        let transport_artifacts = write_remote_transport_payload(project_root, session_id, &mut transport)?;
+        let transport_artifacts =
+            write_remote_transport_payload(project_root, session_id, &mut transport)?;
         let control_artifacts = write_remote_control_payload(project_root, &mut payload)?;
 
         live_session.latest_queue_item_id = Some(item_snapshot.id.clone());
@@ -575,7 +593,8 @@ impl Tool for RemoteQueueResultTool {
             live_session.transcript_sync_artifact = Some(path.display().to_string());
         }
         sync_live_session_with_transport(project_root, session_id, &transport, &mut live_session);
-        let live_artifacts = write_remote_live_session_payload(project_root, session_id, &mut live_session)?;
+        let live_artifacts =
+            write_remote_live_session_payload(project_root, session_id, &mut live_session)?;
 
         Ok(ToolResult::success_with_metadata(
             format!(
@@ -661,12 +680,10 @@ impl Tool for RemoteTransportControlTool {
             .working_dir
             .as_deref()
             .ok_or_else(|| anyhow!("working_dir not available"))?;
-        let session_id = ctx
-            .session_id
-            .as_deref()
-            .unwrap_or("remote-tool-session");
+        let session_id = ctx.session_id.as_deref().unwrap_or("remote-tool-session");
         let mut transport = load_or_create_remote_transport_payload(project_root, session_id)?;
-        let mut live_session = load_or_create_remote_live_session_payload(project_root, session_id)?;
+        let mut live_session =
+            load_or_create_remote_live_session_payload(project_root, session_id)?;
 
         let task = if matches!(params.action.as_str(), "connect" | "reconnect") {
             start_runtime_task(
@@ -739,9 +756,11 @@ impl Tool for RemoteTransportControlTool {
             store.mark_completed(task_id);
         }
 
-        let transport_artifacts = write_remote_transport_payload(project_root, session_id, &mut transport)?;
+        let transport_artifacts =
+            write_remote_transport_payload(project_root, session_id, &mut transport)?;
         sync_live_session_with_transport(project_root, session_id, &transport, &mut live_session);
-        let live_artifacts = write_remote_live_session_payload(project_root, session_id, &mut live_session)?;
+        let live_artifacts =
+            write_remote_live_session_payload(project_root, session_id, &mut live_session)?;
 
         Ok(ToolResult::success_with_metadata(
             format!(
@@ -871,19 +890,30 @@ fn write_remote_control_payload(
     let dir = remote_dir(project_root);
     std::fs::create_dir_all(&dir)?;
     payload.remote_dir = dir.display().to_string();
-    payload.latest_remote_capability = latest_artifact_by_suffix(&dir, "remote-workflow-capability.json")
-        .map(|path| path.display().to_string());
+    payload.latest_remote_capability =
+        latest_artifact_by_suffix(&dir, "remote-workflow-capability.json")
+            .map(|path| path.display().to_string());
     payload.latest_remote_execution = latest_artifact_by_suffix(&dir, "remote-queue-execution.md")
         .map(|path| path.display().to_string());
-    payload.latest_checkpoint = latest_artifact_by_suffix(&project_root.join(".yode").join("checkpoints"), ".md")
-        .map(|path| path.display().to_string());
-    payload.latest_orchestration = latest_artifact_by_suffix(&project_root.join(".yode").join("status"), "runtime-orchestration.md")
-        .map(|path| path.display().to_string());
+    payload.latest_checkpoint =
+        latest_artifact_by_suffix(&project_root.join(".yode").join("checkpoints"), ".md")
+            .map(|path| path.display().to_string());
+    payload.latest_orchestration = latest_artifact_by_suffix(
+        &project_root.join(".yode").join("status"),
+        "runtime-orchestration.md",
+    )
+    .map(|path| path.display().to_string());
     let stamp = timestamp_slug();
     let short_session = short_session(&payload.session_id);
     let summary_path = dir.join(format!("{}-{}-remote-control.md", stamp, short_session));
-    let state_path = dir.join(format!("{}-{}-remote-control-session.json", stamp, short_session));
-    let queue_path = dir.join(format!("{}-{}-remote-command-queue.md", stamp, short_session));
+    let state_path = dir.join(format!(
+        "{}-{}-remote-control-session.json",
+        stamp, short_session
+    ));
+    let queue_path = dir.join(format!(
+        "{}-{}-remote-command-queue.md",
+        stamp, short_session
+    ));
     std::fs::write(&state_path, serde_json::to_string_pretty(payload)?)?;
     std::fs::write(
         &summary_path,
@@ -913,14 +943,17 @@ fn write_remote_transport_payload(
         _ => "ready".to_string(),
     };
     payload.handshake_summary = remote_transport_handshake_summary(payload);
-    payload.latest_remote_control = latest_artifact_by_suffix(&dir, "remote-control.md")
-        .map(|path| path.display().to_string());
+    payload.latest_remote_control =
+        latest_artifact_by_suffix(&dir, "remote-control.md").map(|path| path.display().to_string());
     payload.latest_remote_execution = latest_artifact_by_suffix(&dir, "remote-queue-execution.md")
         .map(|path| path.display().to_string());
     let stamp = timestamp_slug();
     let short_session = short_session(session_id);
     let summary_path = dir.join(format!("{}-{}-remote-transport.md", stamp, short_session));
-    let state_path = dir.join(format!("{}-{}-remote-transport-state.json", stamp, short_session));
+    let state_path = dir.join(format!(
+        "{}-{}-remote-transport-state.json",
+        stamp, short_session
+    ));
     std::fs::write(&state_path, serde_json::to_string_pretty(payload)?)?;
     std::fs::write(
         &summary_path,
@@ -941,8 +974,8 @@ fn write_remote_live_session_payload(
     std::fs::create_dir_all(&dir)?;
     payload.session_id = session_id.to_string();
     payload.updated_at = now_string();
-    payload.latest_remote_control = latest_artifact_by_suffix(&dir, "remote-control.md")
-        .map(|path| path.display().to_string());
+    payload.latest_remote_control =
+        latest_artifact_by_suffix(&dir, "remote-control.md").map(|path| path.display().to_string());
     payload.latest_transport_state = latest_artifact_by_suffix(&dir, "remote-transport-state.json")
         .map(|path| path.display().to_string());
     payload.latest_transport_events = latest_artifact_by_suffix(&dir, "remote-transport-events.md")
@@ -959,8 +992,14 @@ fn write_remote_live_session_payload(
     }
     let stamp = timestamp_slug();
     let short_session = short_session(session_id);
-    let summary_path = dir.join(format!("{}-{}-remote-live-session.md", stamp, short_session));
-    let state_path = dir.join(format!("{}-{}-remote-live-session-state.json", stamp, short_session));
+    let summary_path = dir.join(format!(
+        "{}-{}-remote-live-session.md",
+        stamp, short_session
+    ));
+    let state_path = dir.join(format!(
+        "{}-{}-remote-live-session-state.json",
+        stamp, short_session
+    ));
     std::fs::write(&state_path, serde_json::to_string_pretty(payload)?)?;
     std::fs::write(
         &summary_path,
@@ -978,12 +1017,15 @@ fn start_runtime_task(
     source_tool: String,
     description: String,
     transcript_path: Option<String>,
-) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<crate::runtime_tasks::RuntimeTask>> + Send + '_>> {
+) -> std::pin::Pin<
+    Box<dyn std::future::Future<Output = Option<crate::runtime_tasks::RuntimeTask>> + Send + '_>,
+> {
     Box::pin(async move {
         let Some(store) = runtime_tasks else {
             return None;
         };
-        let output_path = std::env::temp_dir().join(format!("yode-remote-{}.log", uuid::Uuid::new_v4()));
+        let output_path =
+            std::env::temp_dir().join(format!("yode-remote-{}.log", uuid::Uuid::new_v4()));
         let mut store = store.lock().await;
         let (task, _) = store.create_with_transcript(
             kind,
@@ -1015,13 +1057,20 @@ fn sync_live_session_with_transport(
             _ => "idle".to_string(),
         }
     };
-    payload.latest_transport_state = latest_remote_transport_state_artifact(project_root)
-        .map(|path| path.display().to_string());
+    payload.latest_transport_state =
+        latest_remote_transport_state_artifact(project_root).map(|path| path.display().to_string());
     payload.latest_transport_events = latest_remote_transport_events_artifact(project_root)
         .map(|path| path.display().to_string());
-    payload.latest_remote_control = latest_artifact_by_suffix(&remote_dir(project_root), "remote-control.md")
-        .map(|path| path.display().to_string());
-    let endpoint = local_remote_endpoint(transport, None, None, None, payload.latest_result_id.as_deref());
+    payload.latest_remote_control =
+        latest_artifact_by_suffix(&remote_dir(project_root), "remote-control.md")
+            .map(|path| path.display().to_string());
+    let endpoint = local_remote_endpoint(
+        transport,
+        None,
+        None,
+        None,
+        payload.latest_result_id.as_deref(),
+    );
     upsert_remote_session_endpoint(payload, endpoint.clone());
     if payload.active_endpoint_id.is_none() {
         payload.active_endpoint_id = Some(endpoint.endpoint_id);
@@ -1059,7 +1108,9 @@ fn resolve_queue_index(payload: &RemoteControlPayload, target: &str) -> Option<u
         return (!payload.command_queue.is_empty()).then_some(0);
     }
     if let Ok(index) = trimmed.parse::<usize>() {
-        return index.checked_sub(1).filter(|index| *index < payload.command_queue.len());
+        return index
+            .checked_sub(1)
+            .filter(|index| *index < payload.command_queue.len());
     }
     payload
         .command_queue
@@ -1502,13 +1553,22 @@ fn truncate_preview(text: &str, max_chars: usize) -> String {
     if squashed.chars().count() <= max_chars {
         squashed
     } else {
-        format!("{}...", squashed.chars().take(max_chars).collect::<String>())
+        format!(
+            "{}...",
+            squashed.chars().take(max_chars).collect::<String>()
+        )
     }
 }
 
 fn sanitize_label(raw: &str) -> String {
     raw.chars()
-        .map(|ch| if ch.is_ascii_alphanumeric() { ch.to_ascii_lowercase() } else { '-' })
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
         .collect::<String>()
         .trim_matches('-')
         .to_string()
@@ -1632,10 +1692,9 @@ mod tests {
             .await
             .unwrap();
         assert!(!result.is_error);
-        let live_state = std::fs::read_to_string(
-            latest_remote_live_session_state_artifact(dir.path()).unwrap(),
-        )
-        .unwrap();
+        let live_state =
+            std::fs::read_to_string(latest_remote_live_session_state_artifact(dir.path()).unwrap())
+                .unwrap();
         assert!(live_state.contains("\"latest_result_status\": \"completed\""));
     }
 
@@ -1649,13 +1708,11 @@ mod tests {
             .unwrap();
         assert!(result.is_error);
         assert!(result.recoverable);
-        assert!(
-            result
-                .suggestion
-                .as_deref()
-                .unwrap_or("")
-                .contains("connect remote transport")
-        );
+        assert!(result
+            .suggestion
+            .as_deref()
+            .unwrap_or("")
+            .contains("connect remote transport"));
         assert!(latest_remote_transport_state_artifact(dir.path()).is_some());
         assert!(latest_remote_live_session_state_artifact(dir.path()).is_some());
     }
@@ -1673,10 +1730,9 @@ mod tests {
             .await
             .unwrap();
         assert!(!result.is_error);
-        let state = std::fs::read_to_string(
-            latest_remote_transport_state_artifact(dir.path()).unwrap(),
-        )
-        .unwrap();
+        let state =
+            std::fs::read_to_string(latest_remote_transport_state_artifact(dir.path()).unwrap())
+                .unwrap();
         assert!(state.contains("\"reconnect_attempts\": 1"));
     }
 

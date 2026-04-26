@@ -269,7 +269,9 @@ pub(crate) fn latest_remote_live_session_state_artifact(project_root: &Path) -> 
     )
 }
 
-pub(crate) fn latest_remote_session_transcript_sync_artifact(project_root: &Path) -> Option<PathBuf> {
+pub(crate) fn latest_remote_session_transcript_sync_artifact(
+    project_root: &Path,
+) -> Option<PathBuf> {
     latest_artifact_by_suffix(
         &project_root.join(".yode").join("remote"),
         "remote-session-transcript-sync.md",
@@ -578,7 +580,10 @@ pub(crate) fn render_remote_task_inventory(tasks: &[RuntimeTask]) -> String {
             task.output_path
         ));
     }
-    lines.push("  Follow: /remote-control follow latest | /tasks monitor | /tasks follow latest".to_string());
+    lines.push(
+        "  Follow: /remote-control follow latest | /tasks monitor | /tasks follow latest"
+            .to_string(),
+    );
     lines.join("\n")
 }
 
@@ -664,11 +669,15 @@ pub(crate) fn load_remote_transport_payload(path: &Path) -> anyhow::Result<Remot
     Ok(serde_json::from_str(&std::fs::read_to_string(path)?)?)
 }
 
-pub(crate) fn load_remote_live_session_payload(path: &Path) -> anyhow::Result<RemoteLiveSessionPayload> {
+pub(crate) fn load_remote_live_session_payload(
+    path: &Path,
+) -> anyhow::Result<RemoteLiveSessionPayload> {
     Ok(serde_json::from_str(&std::fs::read_to_string(path)?)?)
 }
 
-pub(crate) fn load_remote_queue_result_ingest(path: &Path) -> anyhow::Result<RemoteQueueResultIngest> {
+pub(crate) fn load_remote_queue_result_ingest(
+    path: &Path,
+) -> anyhow::Result<RemoteQueueResultIngest> {
     Ok(serde_json::from_str(&std::fs::read_to_string(path)?)?)
 }
 
@@ -769,10 +778,7 @@ pub(crate) fn ingest_remote_queue_result(
         .clone()
         .or_else(|| item.transcript_path.clone())
         .or_else(|| latest_transcript_artifact_path(project_root));
-    let source = ingest
-        .source
-        .as_deref()
-        .unwrap_or("remote_result_ingest");
+    let source = ingest.source.as_deref().unwrap_or("remote_result_ingest");
     let result_id = ingest
         .result_id
         .clone()
@@ -818,44 +824,45 @@ pub(crate) fn ingest_remote_queue_result(
         &result_id,
         ingest.endpoint_id.as_deref(),
     )?;
-    let (_, session_state_path) = update_remote_live_session_payload(project_root, session_id, |live| {
-        let transport = build_remote_transport_payload(project_root, session_id);
-        live.transport_status = transport.connection_status.clone();
-        live.session_status = match status {
-            "completed" => "live".to_string(),
-            "failed" => "attention".to_string(),
-            other => other.to_string(),
-        };
-        live.active_endpoint_id = Some(
-            ingest
-                .endpoint_id
-                .clone()
-                .unwrap_or_else(default_remote_endpoint_id),
-        );
-        live.latest_queue_item_id = Some(item.id.clone());
-        live.latest_result_id = Some(result_id.clone());
-        live.latest_result_status = Some(status.to_string());
-        live.latest_result_summary = Some(summary.clone());
-        live.result_cursor = live.result_cursor.saturating_add(1);
-        live.resume_cursor = live.result_cursor;
-        live.updated_at = now_string();
-        if let Some(path) = transcript_path.clone() {
-            live.latest_transcript_path = Some(path);
-            live.transcript_sync_status = "synced".to_string();
-            live.last_transcript_sync_at = Some(now_string());
-        }
-        if let Some(path) = transcript_sync_path.as_ref() {
-            live.transcript_sync_artifact = Some(path.display().to_string());
-        }
-        let endpoint = local_remote_endpoint(
-            &transport,
-            ingest.endpoint_id.as_deref(),
-            ingest.device_kind.as_deref(),
-            ingest.device_label.as_deref(),
-            Some(result_id.as_str()),
-        );
-        upsert_remote_session_endpoint(live, endpoint);
-    })?;
+    let (_, session_state_path) =
+        update_remote_live_session_payload(project_root, session_id, |live| {
+            let transport = build_remote_transport_payload(project_root, session_id);
+            live.transport_status = transport.connection_status.clone();
+            live.session_status = match status {
+                "completed" => "live".to_string(),
+                "failed" => "attention".to_string(),
+                other => other.to_string(),
+            };
+            live.active_endpoint_id = Some(
+                ingest
+                    .endpoint_id
+                    .clone()
+                    .unwrap_or_else(default_remote_endpoint_id),
+            );
+            live.latest_queue_item_id = Some(item.id.clone());
+            live.latest_result_id = Some(result_id.clone());
+            live.latest_result_status = Some(status.to_string());
+            live.latest_result_summary = Some(summary.clone());
+            live.result_cursor = live.result_cursor.saturating_add(1);
+            live.resume_cursor = live.result_cursor;
+            live.updated_at = now_string();
+            if let Some(path) = transcript_path.clone() {
+                live.latest_transcript_path = Some(path);
+                live.transcript_sync_status = "synced".to_string();
+                live.last_transcript_sync_at = Some(now_string());
+            }
+            if let Some(path) = transcript_sync_path.as_ref() {
+                live.transcript_sync_artifact = Some(path.display().to_string());
+            }
+            let endpoint = local_remote_endpoint(
+                &transport,
+                ingest.endpoint_id.as_deref(),
+                ingest.device_kind.as_deref(),
+                ingest.device_label.as_deref(),
+                Some(result_id.as_str()),
+            );
+            upsert_remote_session_endpoint(live, endpoint);
+        })?;
     Ok(RemoteQueueResultOutcome {
         item_id: item.id,
         status: status.to_string(),
@@ -1144,7 +1151,11 @@ fn empty_remote_transport_payload(project_root: &Path, session_id: &str) -> Remo
     RemoteTransportPayload {
         kind: "remote_transport_state".to_string(),
         session_id: session_id.to_string(),
-        remote_dir: project_root.join(".yode").join("remote").display().to_string(),
+        remote_dir: project_root
+            .join(".yode")
+            .join("remote")
+            .display()
+            .to_string(),
         created_at: now_string(),
         handshake_status: "missing".to_string(),
         handshake_summary: "remote transport unavailable".to_string(),
@@ -1363,7 +1374,10 @@ fn write_remote_live_session_payload(
     std::fs::create_dir_all(&dir)?;
     let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
     let short_session = session_id.chars().take(8).collect::<String>();
-    let summary_path = dir.join(format!("{}-{}-remote-live-session.md", stamp, short_session));
+    let summary_path = dir.join(format!(
+        "{}-{}-remote-live-session.md",
+        stamp, short_session
+    ));
     let state_path = dir.join(format!(
         "{}-{}-remote-live-session-state.json",
         stamp, short_session
@@ -1773,21 +1787,20 @@ fn task_status_label(status: &RuntimeTaskStatus) -> &'static str {
 mod tests {
     use super::{
         bind_remote_queue_item_runtime, current_remote_live_session_payload,
-        current_remote_transport_payload, export_remote_control_bundle,
-        ingest_remote_queue_result,
+        current_remote_transport_payload, export_remote_control_bundle, ingest_remote_queue_result,
         latest_remote_command_queue_artifact, latest_remote_control_artifact,
         latest_remote_control_state_artifact, latest_remote_live_session_state_artifact,
         latest_remote_session_transcript_sync_artifact, latest_remote_task_handoff_artifact,
         latest_remote_transport_events_artifact, latest_remote_transport_state_artifact,
-        load_remote_live_session_payload, load_remote_transport_payload, load_remote_control_payload,
-        mark_remote_queue_item, queue_item_target, record_remote_transport_event,
-        remote_queue_status_label,
-        mark_remote_transport_connected, mark_remote_transport_disconnected,
-        mark_remote_transport_failed, mark_remote_transport_reconnecting,
-        note_remote_transport_dispatch, render_remote_control_doctor, render_remote_retry_summary,
-        render_remote_task_inventory, sync_remote_live_session_transport,
-        write_remote_control_artifacts, write_remote_live_session_artifacts,
-        write_remote_task_handoff_artifact, write_remote_transport_artifacts,
+        load_remote_control_payload, load_remote_live_session_payload,
+        load_remote_transport_payload, mark_remote_queue_item, mark_remote_transport_connected,
+        mark_remote_transport_disconnected, mark_remote_transport_failed,
+        mark_remote_transport_reconnecting, note_remote_transport_dispatch, queue_item_target,
+        record_remote_transport_event, remote_queue_status_label, render_remote_control_doctor,
+        render_remote_retry_summary, render_remote_task_inventory,
+        sync_remote_live_session_transport, write_remote_control_artifacts,
+        write_remote_live_session_artifacts, write_remote_task_handoff_artifact,
+        write_remote_transport_artifacts,
     };
 
     #[test]
@@ -1929,19 +1942,15 @@ mod tests {
 
     #[test]
     fn queue_attempts_increment_only_on_dispatch_like_states() {
-        let dir =
-            std::env::temp_dir().join(format!("yode-remote-queue-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("yode-remote-queue-{}", uuid::Uuid::new_v4()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join(".yode").join("remote")).unwrap();
         write_remote_control_artifacts(&dir, "session-1234", "anthropic", "claude", "goal")
             .unwrap();
 
-        mark_remote_queue_item(&dir, "latest", "dispatched", Some("sent".to_string()))
-            .unwrap();
-        mark_remote_queue_item(&dir, "latest", "completed", Some("done".to_string()))
-            .unwrap();
-        mark_remote_queue_item(&dir, "latest", "acked", Some("ok".to_string()))
-            .unwrap();
+        mark_remote_queue_item(&dir, "latest", "dispatched", Some("sent".to_string())).unwrap();
+        mark_remote_queue_item(&dir, "latest", "completed", Some("done".to_string())).unwrap();
+        mark_remote_queue_item(&dir, "latest", "acked", Some("ok".to_string())).unwrap();
 
         let (payload, _, index) = queue_item_target(&dir, "latest").unwrap().unwrap();
         let item = &payload.command_queue[index];
@@ -1949,8 +1958,9 @@ mod tests {
         assert_eq!(item.status, "acked");
         assert_eq!(item.last_result_preview.as_deref(), Some("ok"));
 
-        let state = load_remote_control_payload(&latest_remote_control_state_artifact(&dir).unwrap())
-            .unwrap();
+        let state =
+            load_remote_control_payload(&latest_remote_control_state_artifact(&dir).unwrap())
+                .unwrap();
         assert_eq!(state.command_queue[0].attempts, 1);
 
         let _ = std::fs::remove_dir_all(&dir);
@@ -1996,8 +2006,7 @@ mod tests {
 
     #[test]
     fn ingest_remote_queue_result_updates_live_session_and_transcript_sync() {
-        let dir =
-            std::env::temp_dir().join(format!("yode-live-ingest-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("yode-live-ingest-{}", uuid::Uuid::new_v4()));
         let transcripts = dir.join(".yode").join("transcripts");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join(".yode").join("remote")).unwrap();
@@ -2016,16 +2025,9 @@ mod tests {
         )
         .unwrap();
         sync_remote_live_session_transport(&dir, "session-1234").unwrap();
-        mark_remote_queue_item(&dir, "latest", "dispatched", Some("sent".to_string()))
+        mark_remote_queue_item(&dir, "latest", "dispatched", Some("sent".to_string())).unwrap();
+        bind_remote_queue_item_runtime(&dir, "latest", Some("task-1".to_string()), None, None)
             .unwrap();
-        bind_remote_queue_item_runtime(
-            &dir,
-            "latest",
-            Some("task-1".to_string()),
-            None,
-            None,
-        )
-        .unwrap();
 
         let outcome = ingest_remote_queue_result(
             &dir,
@@ -2047,22 +2049,30 @@ mod tests {
         assert_eq!(outcome.status, "completed");
         assert!(outcome.execution_path.exists());
         assert!(outcome.session_state_path.exists());
-        assert!(outcome.transcript_sync_path.as_ref().is_some_and(|path| path.exists()));
+        assert!(outcome
+            .transcript_sync_path
+            .as_ref()
+            .is_some_and(|path| path.exists()));
         assert!(latest_remote_session_transcript_sync_artifact(&dir).is_some());
 
-        let session =
-            load_remote_live_session_payload(&latest_remote_live_session_state_artifact(&dir).unwrap())
-                .unwrap();
+        let session = load_remote_live_session_payload(
+            &latest_remote_live_session_state_artifact(&dir).unwrap(),
+        )
+        .unwrap();
         assert_eq!(session.latest_result_status.as_deref(), Some("completed"));
         assert_eq!(session.latest_result_id.as_deref(), Some("result-1"));
         assert_eq!(session.result_cursor, 1);
         assert_eq!(session.active_endpoint_id.as_deref(), Some("browser-1"));
         assert_eq!(session.transcript_sync_status, "synced");
 
-        let queue = load_remote_control_payload(&latest_remote_control_state_artifact(&dir).unwrap())
-            .unwrap();
+        let queue =
+            load_remote_control_payload(&latest_remote_control_state_artifact(&dir).unwrap())
+                .unwrap();
         assert_eq!(queue.command_queue[0].status, "completed");
-        assert_eq!(queue.command_queue[0].runtime_task_id.as_deref(), Some("task-1"));
+        assert_eq!(
+            queue.command_queue[0].runtime_task_id.as_deref(),
+            Some("task-1")
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

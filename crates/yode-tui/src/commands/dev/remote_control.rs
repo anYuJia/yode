@@ -11,14 +11,13 @@ use super::remote_control_workspace::{
     bind_remote_queue_item_runtime, current_remote_transport_payload, export_remote_control_bundle,
     ingest_remote_queue_result, latest_remote_command_queue_artifact,
     latest_remote_control_artifact, latest_remote_live_session_artifact,
-    load_remote_queue_result_ingest, mark_remote_live_session_dispatch,
-    latest_remote_transport_artifact, mark_remote_queue_item, mark_remote_transport_connected,
+    latest_remote_transport_artifact, load_remote_queue_result_ingest,
+    mark_remote_live_session_dispatch, mark_remote_queue_item, mark_remote_transport_connected,
     mark_remote_transport_disconnected, mark_remote_transport_failed,
     mark_remote_transport_reconnecting, note_remote_transport_dispatch, queue_item_target,
     record_remote_transport_event, render_remote_control_doctor, render_remote_retry_summary,
-    sync_remote_live_session_transport,
-    render_remote_task_inventory, write_remote_control_artifacts,
-    write_remote_live_session_artifacts,
+    render_remote_task_inventory, sync_remote_live_session_transport,
+    write_remote_control_artifacts, write_remote_live_session_artifacts,
     write_remote_queue_execution_artifact, write_remote_task_handoff_artifact,
     write_remote_transport_artifacts,
 };
@@ -128,7 +127,10 @@ impl Command for RemoteControlCommand {
                     ("queue".to_string(), "/remote-control queue".to_string()),
                     ("tasks".to_string(), "/remote-control tasks".to_string()),
                     ("monitor".to_string(), "/remote-control monitor".to_string()),
-                    ("follow".to_string(), "/remote-control follow latest".to_string()),
+                    (
+                        "follow".to_string(),
+                        "/remote-control follow latest".to_string(),
+                    ),
                     ("doctor".to_string(), "/remote-control doctor".to_string()),
                 ],
             );
@@ -146,11 +148,9 @@ impl Command for RemoteControlCommand {
         }
 
         if let ["session", "sync"] = parts.as_slice() {
-            let (_, state_path) = sync_remote_live_session_transport(
-                &project_root,
-                &ctx.session.session_id,
-            )
-            .map_err(|err| format!("Failed to sync remote live session: {}", err))?;
+            let (_, state_path) =
+                sync_remote_live_session_transport(&project_root, &ctx.session.session_id)
+                    .map_err(|err| format!("Failed to sync remote live session: {}", err))?;
             return Ok(CommandOutput::Message(format!(
                 "Remote live session synced.\nState: {}",
                 state_path.display()
@@ -192,7 +192,8 @@ impl Command for RemoteControlCommand {
                         Some(task_id.as_str()),
                         &summary,
                     );
-                    let _ = sync_remote_live_session_transport(&project_root, &ctx.session.session_id);
+                    let _ =
+                        sync_remote_live_session_transport(&project_root, &ctx.session.session_id);
                     finish_remote_transport_task(ctx, &task_id, None, &summary);
                     return Ok(CommandOutput::Message(format!(
                         "Remote transport connected.\nTask: {}\nState: {}",
@@ -219,7 +220,8 @@ impl Command for RemoteControlCommand {
                         Some(task_id.as_str()),
                         &err,
                     );
-                    let _ = sync_remote_live_session_transport(&project_root, &ctx.session.session_id);
+                    let _ =
+                        sync_remote_live_session_transport(&project_root, &ctx.session.session_id);
                     finish_remote_transport_task(ctx, &task_id, Some(&err), &err);
                     return Ok(CommandOutput::Message(format!(
                         "Remote transport connect failed: {}",
@@ -279,7 +281,8 @@ impl Command for RemoteControlCommand {
                         Some(task_id.as_str()),
                         &summary,
                     );
-                    let _ = sync_remote_live_session_transport(&project_root, &ctx.session.session_id);
+                    let _ =
+                        sync_remote_live_session_transport(&project_root, &ctx.session.session_id);
                     finish_remote_transport_task(ctx, &task_id, None, &summary);
                     return Ok(CommandOutput::Message(format!(
                         "Remote transport reconnected.\nTask: {}\nState: {}",
@@ -306,7 +309,8 @@ impl Command for RemoteControlCommand {
                         Some(task_id.as_str()),
                         &err,
                     );
-                    let _ = sync_remote_live_session_transport(&project_root, &ctx.session.session_id);
+                    let _ =
+                        sync_remote_live_session_transport(&project_root, &ctx.session.session_id);
                     finish_remote_transport_task(ctx, &task_id, Some(&err), &err);
                     return Ok(CommandOutput::Message(format!(
                         "Remote transport reconnect failed: {}",
@@ -417,10 +421,13 @@ impl Command for RemoteControlCommand {
         }
 
         if let ["ingest", file] = parts.as_slice() {
-            let ingest = load_remote_queue_result_ingest(std::path::Path::new(file))
-                .map_err(|err| format!("Failed to load remote queue result ingest file: {}", err))?;
-            let outcome = ingest_remote_queue_result(&project_root, &ctx.session.session_id, &ingest)
-                .map_err(|err| format!("Failed to ingest remote queue result: {}", err))?;
+            let ingest =
+                load_remote_queue_result_ingest(std::path::Path::new(file)).map_err(|err| {
+                    format!("Failed to load remote queue result ingest file: {}", err)
+                })?;
+            let outcome =
+                ingest_remote_queue_result(&project_root, &ctx.session.session_id, &ingest)
+                    .map_err(|err| format!("Failed to ingest remote queue result: {}", err))?;
             return Ok(CommandOutput::Message(format!(
                 "Remote queue result ingested.\nItem: {}\nStatus: {}\nExecution: {}\nSession: {}{}",
                 outcome.item_id,
@@ -456,8 +463,9 @@ impl Command for RemoteControlCommand {
                 result_id: None,
                 source: Some("operator_complete".to_string()),
             };
-            let outcome = ingest_remote_queue_result(&project_root, &ctx.session.session_id, &ingest)
-                .map_err(|err| format!("Failed to ingest completed remote result: {}", err))?;
+            let outcome =
+                ingest_remote_queue_result(&project_root, &ctx.session.session_id, &ingest)
+                    .map_err(|err| format!("Failed to ingest completed remote result: {}", err))?;
             if let Some(task_id) = item.runtime_task_id.as_deref() {
                 if let Ok(engine) = ctx.engine.try_lock() {
                     engine.update_runtime_task_progress(task_id, summary.clone());
@@ -492,8 +500,9 @@ impl Command for RemoteControlCommand {
                 result_id: None,
                 source: Some("operator_fail".to_string()),
             };
-            let outcome = ingest_remote_queue_result(&project_root, &ctx.session.session_id, &ingest)
-                .map_err(|err| format!("Failed to ingest failed remote result: {}", err))?;
+            let outcome =
+                ingest_remote_queue_result(&project_root, &ctx.session.session_id, &ingest)
+                    .map_err(|err| format!("Failed to ingest failed remote result: {}", err))?;
             if let Some(task_id) = item.runtime_task_id.as_deref() {
                 if let Ok(engine) = ctx.engine.try_lock() {
                     engine.update_runtime_task_progress(task_id, reason.clone());
@@ -610,7 +619,10 @@ impl Command for RemoteControlCommand {
                     ("ack".to_string(), "/remote-control ack latest".to_string()),
                     ("tasks".to_string(), "/remote-control tasks".to_string()),
                     ("monitor".to_string(), "/remote-control monitor".to_string()),
-                    ("follow".to_string(), "/remote-control follow latest".to_string()),
+                    (
+                        "follow".to_string(),
+                        "/remote-control follow latest".to_string(),
+                    ),
                     ("bundle".to_string(), "/remote-control bundle".to_string()),
                 ],
             );
@@ -804,11 +816,20 @@ fn open_remote_live_session_inspector(project_root: &std::path::Path) -> Command
     attach_inspector_actions(
         &mut doc,
         vec![
-            ("sync".to_string(), "/remote-control session sync".to_string()),
-            ("transport".to_string(), "/remote-control transport".to_string()),
+            (
+                "sync".to_string(),
+                "/remote-control session sync".to_string(),
+            ),
+            (
+                "transport".to_string(),
+                "/remote-control transport".to_string(),
+            ),
             ("queue".to_string(), "/remote-control queue".to_string()),
             ("monitor".to_string(), "/remote-control monitor".to_string()),
-            ("follow".to_string(), "/remote-control follow latest".to_string()),
+            (
+                "follow".to_string(),
+                "/remote-control follow latest".to_string(),
+            ),
             (
                 "state".to_string(),
                 "/inspect artifact latest-remote-live-session-state".to_string(),

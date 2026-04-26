@@ -128,7 +128,11 @@ pub(super) fn write_remote_workflow_capability_artifact(
         "command_inventory": command_inventory,
         "missing_prereqs": remote_missing_prereq_summary(state),
     });
-    std::fs::write(&path, serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string())).ok()?;
+    std::fs::write(
+        &path,
+        serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()),
+    )
+    .ok()?;
     Some(path.display().to_string())
 }
 
@@ -168,7 +172,12 @@ pub(super) fn build_remote_execution_state(
         state
             .tool_traces
             .iter()
-            .find(|trace| matches!(trace.tool_name.as_str(), "web_search" | "web_fetch" | "web_browser"))
+            .find(|trace| {
+                matches!(
+                    trace.tool_name.as_str(),
+                    "web_search" | "web_fetch" | "web_browser"
+                )
+            })
             .cloned()
     });
 
@@ -176,7 +185,10 @@ pub(super) fn build_remote_execution_state(
         remote_dir: remote_dir.display().to_string(),
         capability_artifact: latest_remote_artifact(&remote_dir, "remote-workflow-capability.json"),
         browser_state_artifact: latest_remote_artifact(&remote_dir, "browser-access-state.json"),
-        execution_inventory_artifact: latest_remote_artifact(&remote_dir, "remote-execution-inventory.md"),
+        execution_inventory_artifact: latest_remote_artifact(
+            &remote_dir,
+            "remote-execution-inventory.md",
+        ),
         runtime_timeline_artifact: std::fs::read_dir(project_root.join(".yode").join("status"))
             .ok()
             .into_iter()
@@ -211,7 +223,11 @@ pub(super) fn write_remote_execution_state_artifact(
         "latest_browser_tool": state.latest_browser_tool,
         "latest_browser_outcome": state.latest_browser_outcome,
     });
-    std::fs::write(&path, serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string())).ok()?;
+    std::fs::write(
+        &path,
+        serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()),
+    )
+    .ok()?;
     Some(path.display().to_string())
 }
 
@@ -233,7 +249,10 @@ pub(super) fn render_remote_capability_workspace(path: &Path) -> Option<String> 
                 workspace_bullets([
                     format!(
                         "ssh={}",
-                        payload.get("ssh").and_then(|value| value.as_bool()).unwrap_or(false)
+                        payload
+                            .get("ssh")
+                            .and_then(|value| value.as_bool())
+                            .unwrap_or(false)
                     ),
                     format!(
                         "provider_ready={}",
@@ -326,9 +345,9 @@ pub(super) fn remote_prereq_severity_banner(state: &RemoteWorkflowState) -> Stri
 mod tests {
     use super::{
         remote_command_surface_inventory, remote_missing_prereq_summary,
-        render_remote_execution_workspace,
-        write_remote_execution_state_artifact, write_remote_execution_stub_inventory,
-        write_remote_workflow_capability_artifact, RemoteExecutionState, RemoteWorkflowState,
+        render_remote_execution_workspace, write_remote_execution_state_artifact,
+        write_remote_execution_stub_inventory, write_remote_workflow_capability_artifact,
+        RemoteExecutionState, RemoteWorkflowState,
     };
 
     #[test]
@@ -352,7 +371,7 @@ mod tests {
     }
 
     #[test]
-fn writes_remote_capability_artifact() {
+    fn writes_remote_capability_artifact() {
         let dir = std::env::temp_dir().join(format!("yode-remote-cap-{}", uuid::Uuid::new_v4()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -425,5 +444,8 @@ fn latest_remote_artifact(dir: &Path, suffix: &str) -> Option<String> {
         })
         .collect::<Vec<_>>();
     entries.sort_by(|left, right| right.file_name().cmp(&left.file_name()));
-    entries.into_iter().next().map(|path| path.display().to_string())
+    entries
+        .into_iter()
+        .next()
+        .map(|path| path.display().to_string())
 }
