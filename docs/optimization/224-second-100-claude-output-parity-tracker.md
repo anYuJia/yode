@@ -18,20 +18,20 @@
 
 当前进度：
 
-- `2 / 100` 已完成
+- `10 / 100` 已完成
 
 ## 001-010 Snapshot Hardening
 
 - `[x]` 001 output regression snapshot harness filtering
 - `[x]` 002 turn-status snapshot section in regression script
-- `[ ]` 003 inspector snapshot coverage for assistant/tool/system/error
-- `[ ]` 004 confirm panel snapshot coverage for shell/network/write cases
-- `[ ]` 005 grouped tool snapshot coverage at narrow widths
-- `[ ]` 006 grouped system snapshot coverage at narrow widths
-- `[ ]` 007 export summary snapshot coverage
-- `[ ]` 008 remote bundle snapshot coverage
-- `[ ]` 009 hook summary snapshot coverage
-- `[ ]` 010 transcript collapse snapshot coverage
+- `[x]` 003 inspector snapshot coverage for assistant/tool/system/error
+- `[x]` 004 confirm panel snapshot coverage for shell/network/write cases
+- `[x]` 005 grouped tool snapshot coverage at narrow widths
+- `[x]` 006 grouped system snapshot coverage at narrow widths
+- `[x]` 007 export summary snapshot coverage
+- `[x]` 008 remote bundle snapshot coverage
+- `[x]` 009 hook summary snapshot coverage
+- `[x]` 010 transcript collapse snapshot coverage
 
 ## 011-020 Transcript Semantics
 

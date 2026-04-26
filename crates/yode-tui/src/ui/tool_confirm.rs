@@ -468,9 +468,9 @@ mod tests {
     use crate::app::App;
 
     use super::{
-        confirmation_primary_value, confirm_density, inline_confirm_height, option_list_lines,
-        tool_activity_summary, tool_allow_option_label, tool_display_name, tool_preview_line,
-        tool_risk_hint, ConfirmDensity, ConfirmRiskLevel,
+        confirmation_primary_value, confirmation_title, confirm_density, inline_confirm_height,
+        option_list_lines, tool_activity_summary, tool_allow_option_label, tool_display_name,
+        tool_preview_line, tool_risk_hint, ConfirmDensity, ConfirmRiskLevel,
     };
 
     fn test_app() -> App {
@@ -578,6 +578,31 @@ mod tests {
         assert_eq!(confirm_density(80), ConfirmDensity::Default);
         assert_eq!(confirm_density(60), ConfirmDensity::Narrow);
         assert_eq!(inline_confirm_height(ConfirmDensity::Narrow), 12);
+    }
+
+    #[test]
+    fn print_confirm_regression_snapshot() {
+        let app = test_app();
+        println!("# Confirm Regression Snapshot\n");
+
+        for (label, tool_name, args) in [
+            ("Shell", "bash", r#"{"command":"python main.py\npytest -q\ncargo test"}"#),
+            ("Network", "web_fetch", r#"{"url":"https://docs.rs/ratatui/latest/ratatui/widgets/struct.Paragraph.html"}"#),
+            ("Write", "edit_file", r#"{"file_path":"/tmp/src/main.rs"}"#),
+        ] {
+            println!("## {}\n", label);
+            let tool_label = tool_display_name(&app, tool_name);
+            println!("title: {}", confirmation_title(&app, tool_name, args));
+            println!("activity: {}", tool_activity_summary(&app, tool_name, args));
+            if let Some(risk) = tool_risk_hint(&app, tool_name) {
+                println!("risk: {}", risk.label);
+            }
+            println!("preview: {}", tool_preview_line(tool_name, args));
+            println!(
+                "options: Allow once | {} | Deny\n",
+                tool_allow_option_label(tool_name, args, &tool_label)
+            );
+        }
     }
 }
 

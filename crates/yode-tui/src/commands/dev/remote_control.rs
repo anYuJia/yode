@@ -805,6 +805,25 @@ mod tests {
         assert!(summary.contains("+1 more"));
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn print_remote_bundle_regression_snapshot() {
+        let dir = std::env::temp_dir().join(format!("yode-remote-bundle-{}", uuid::Uuid::new_v4()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in [
+            "remote-control.md",
+            "remote-control-session.json",
+            "remote-command-queue.md",
+            "remote-task-handoff.md",
+            "remote-live-session.md",
+        ] {
+            std::fs::write(dir.join(name), "x").unwrap();
+        }
+        println!("# Remote Bundle Regression Snapshot\n");
+        println!("{}", remote_bundle_completion_message(&dir));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 fn open_remote_transport_inspector(project_root: &std::path::Path) -> CommandResult {

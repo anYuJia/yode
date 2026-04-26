@@ -407,4 +407,11 @@ mod tests {
         let recovery = render_recovery_workspace(&state);
         assert!(recovery.contains("Recovery workspace"));
     }
+
+    #[test]
+    fn print_hook_regression_snapshot() {
+        let state = runtime_state();
+        println!("# Hook Regression Snapshot\n");
+        println!("{}", render_hook_workspace(&state, Some("/tmp/hook.md")));
+    }
 }

@@ -1893,4 +1893,95 @@ mod tests {
         let prompt = primary_followup_prompt("Read", "read_file", &args, None).unwrap();
         assert!(prompt.contains(".../src/main.rs"));
     }
+
+    #[test]
+    fn print_inspector_regression_snapshot() {
+        let mut assistant_app = test_app();
+        assistant_app.chat_entries = vec![ChatEntry::new_with_reasoning(
+            ChatRole::Assistant,
+            "Final answer".to_string(),
+            Some("## Plan\n- inspect\n- patch".to_string()),
+        )];
+        let assistant = build_latest_tool_document(&assistant_app).unwrap();
+
+        let mut tool_app = test_app();
+        let mut tool_result = ChatEntry::new(
+            ChatRole::ToolResult {
+                id: "a".to_string(),
+                name: "bash".to_string(),
+                is_error: false,
+            },
+            "ok".to_string(),
+        );
+        tool_result.tool_metadata = Some(serde_json::json!({
+            "read_only_reason": "validated git status",
+            "rewrite_suggestion": "Prefer read_file"
+        }));
+        tool_app.chat_entries = vec![
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "a".to_string(),
+                    name: "bash".to_string(),
+                },
+                r#"{"command":"cat Cargo.toml"}"#.to_string(),
+            ),
+            tool_result,
+        ];
+        let tool = build_latest_tool_document(&tool_app).unwrap();
+
+        let mut system_app = test_app();
+        system_app.chat_entries = vec![ChatEntry::new(
+            ChatRole::System,
+            "Diagnostics bundle exported to: /tmp/bundle".to_string(),
+        )];
+        let system = build_latest_tool_document(&system_app).unwrap();
+
+        let mut error_app = test_app();
+        error_app.chat_entries = vec![ChatEntry::new(
+            ChatRole::Error,
+            "OpenAI API error (400): This model's maximum context length is 128000 tokens."
+                .to_string(),
+        )];
+        let error = build_latest_tool_document(&error_app).unwrap();
+
+        println!("# Inspector Regression Snapshot\n");
+        print_doc("Assistant", &assistant);
+        print_doc("Tool", &tool);
+        print_doc("System", &system);
+        print_doc("Error", &error);
+    }
+
+    fn print_doc(label: &str, doc: &crate::ui::inspector::InspectorDocument) {
+        println!("## {}\n", label);
+        println!("title: {}", doc.state.title);
+        for panel in &doc.panels {
+            println!("panel: {}", panel.tab.label);
+            if !panel.badges.is_empty() {
+                println!(
+                    "badges: {}",
+                    panel
+                        .badges
+                        .iter()
+                        .map(|(k, v)| format!("{}={}", k, v))
+                        .collect::<Vec<_>>()
+                        .join(" | ")
+                );
+            }
+            if !panel.actions.is_empty() {
+                println!(
+                    "actions: {}",
+                    panel
+                        .actions
+                        .iter()
+                        .map(|action| action.label.clone())
+                        .collect::<Vec<_>>()
+                        .join(" | ")
+                );
+            }
+            if let Some(first) = panel.lines.first() {
+                println!("first: {}", crate::app::rendering::strip_ansi(first));
+            }
+            println!();
+        }
+    }
 }

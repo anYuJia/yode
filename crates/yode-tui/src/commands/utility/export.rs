@@ -918,4 +918,45 @@ mod tests {
         assert!(!body.contains("--- [Tool: grep]"));
         assert!(!body.contains("--- [Tool: read_file]"));
     }
+
+    #[test]
+    fn print_export_regression_snapshot() {
+        let workspace_index = render_workspace_index(
+            std::path::Path::new("/tmp/bundle"),
+            std::path::Path::new("/tmp"),
+            Some(&state()),
+            &Vec::<RuntimeTask>::new(),
+            std::path::Path::new("/tmp/bundle/conversation.txt"),
+            std::path::Path::new("/tmp/bundle/runtime-summary.txt"),
+            std::path::Path::new("/tmp/bundle/runtime-timeline.txt"),
+            std::path::Path::new("/tmp/bundle/prompt-cache.txt"),
+            None,
+            "workflow",
+            "coordinate",
+            "timeline",
+        );
+        let completion = render_bundle_completion_message(
+            std::path::Path::new("/tmp/bundle"),
+            "runtime",
+            "context",
+            "tools",
+            std::path::Path::new("/tmp/bundle/conversation.txt"),
+            std::path::Path::new("/tmp/bundle/runtime-summary.txt"),
+            std::path::Path::new("/tmp/bundle/workspace-index.md"),
+            std::path::Path::new("/tmp/bundle/prompt-cache.txt"),
+            &["a".to_string(), "b".to_string()],
+            None,
+        );
+        let transcript_summary = render_conversation_summary_block(
+            "runtime", "context", "tools", 3, 10, 20, 30, 2, 4, 1,
+        );
+
+        println!("# Export Regression Snapshot\n");
+        println!("## Workspace Index\n");
+        println!("{}", workspace_index);
+        println!("\n## Bundle Completion\n");
+        println!("{}", completion);
+        println!("\n## Transcript Summary\n");
+        println!("{}", transcript_summary);
+    }
 }

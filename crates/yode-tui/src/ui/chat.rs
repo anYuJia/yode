@@ -292,10 +292,10 @@ mod tests {
     use yode_tools::registry::ToolRegistry;
 
     use crate::app::{App, ChatEntry, ChatRole, TurnStatus};
-    use crate::tool_grouping::SystemBatch;
+    use crate::tool_grouping::{detect_groupable_tool_batch, SystemBatch};
     use crate::tool_grouping::SystemBatchItem;
     use crate::ui::chat_entries::{
-        render_assistant, render_grouped_system_entries, render_tool_call,
+        render_assistant, render_grouped_system_entries, render_grouped_tool_call, render_tool_call,
     };
     use crate::ui::turn_status::{active_working_hint, active_working_label};
 
@@ -404,6 +404,46 @@ mod tests {
             format!("⠋ {}", active_working_label(&app, "Analyzing")),
             active_working_hint(&app).unwrap_or_else(|| "no hint".to_string()),
         ];
+        let grouped_tool_entries = vec![
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "b".to_string(),
+                    name: "web_search".to_string(),
+                },
+                "{\"query\":\"ratatui\"}".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolResult {
+                    id: "b".to_string(),
+                    name: "web_search".to_string(),
+                    is_error: false,
+                },
+                "ok".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "c".to_string(),
+                    name: "read_file".to_string(),
+                },
+                "{\"file_path\":\"/tmp/src/main.rs\"}".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolResult {
+                    id: "c".to_string(),
+                    name: "read_file".to_string(),
+                    is_error: false,
+                },
+                "fn main() {}".to_string(),
+            ),
+        ];
+        let mut grouped_tool_lines = Vec::new();
+        let grouped_tool_batch =
+            detect_groupable_tool_batch(&grouped_tool_entries, 0).expect("grouped tool batch");
+        render_grouped_tool_call(
+            &mut grouped_tool_lines,
+            &grouped_tool_entries,
+            &grouped_tool_batch,
+        );
 
         println!("# Output Regression Snapshot\n");
         println!("## Turn Status\n");
@@ -413,6 +453,8 @@ mod tests {
         println!("{}", lines_to_text(&assistant_lines));
         println!("\n## Tool Metadata Dense\n");
         println!("{}", lines_to_text(&tool_lines));
+        println!("\n## Grouped Tool Narrow\n");
+        println!("{}", lines_to_text(&grouped_tool_lines));
         println!("\n## System Batch Narrow\n");
         println!("{}", lines_to_text(&system_lines));
     }
