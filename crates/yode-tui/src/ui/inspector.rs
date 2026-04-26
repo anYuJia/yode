@@ -425,11 +425,11 @@ pub(crate) fn inspector_action_safety_summary(actions: &[InspectorAction]) -> Op
 
 pub(crate) fn inspector_empty_state_actions(actions: &[&str]) -> Vec<String> {
     if actions.is_empty() {
-        return vec!["no actions available".to_string()];
+        return vec!["no visible lines".to_string()];
     }
     actions
         .iter()
-        .map(|action| format!("try {}", action))
+        .map(|action| action.to_string())
         .collect()
 }
 
@@ -446,6 +446,8 @@ fn inspector_footer_text(selected: usize, total: usize, note: Option<&str>) -> S
     if let Some(note) = note.and_then(compact_inspector_footer_note) {
         parts.push(note);
     }
+    parts.push("Tab tabs".to_string());
+    parts.push("S-Tab focus".to_string());
     parts.push("/ search".to_string());
     parts.push("Enter load".to_string());
     parts.push("Ctrl+Enter run".to_string());
@@ -489,7 +491,7 @@ pub(crate) fn render_inspector(frame: &mut Frame, area: Rect, document: &Inspect
     )])];
     lines.push(Line::from(vec![Span::styled(
         format!(
-            "  focus={} · {}{}",
+            "  {} · {}{}",
             match document.state.focus {
                 InspectorFocus::Tabs => "tabs",
                 InspectorFocus::Body => "body",
@@ -497,10 +499,10 @@ pub(crate) fn render_inspector(frame: &mut Frame, area: Rect, document: &Inspect
             },
             document.tab_cycle_summary(),
             if document.state.search_active || !document.state.search_query.is_empty() {
-                format!(" · search={}", document.state.search_query)
+                format!(" · / {}", document.state.search_query)
             } else if let Some(last_action) = &document.state.last_action_label {
                 format!(
-                    " · last-action={} @ {}",
+                    " · last={} @ {}",
                     last_action,
                     document
                         .state
@@ -672,9 +674,10 @@ mod tests {
     fn empty_actions_and_pagination_render_fallbacks() {
         assert_eq!(
             inspector_empty_state_actions(&[]),
-            vec!["no actions available".to_string()]
+            vec!["no visible lines".to_string()]
         );
         assert!(inspector_pagination_footer(0, 0).contains("0/0"));
+        assert!(inspector_pagination_footer(0, 0).contains("Tab tabs"));
         assert!(inspector_pagination_footer(0, 0).contains("/ search"));
         assert!(inspector_pagination_footer(1, 5).contains("2/5"));
         assert!(inspector_pagination_footer(1, 5).contains("PgUp/PgDn"));
@@ -684,7 +687,7 @@ mod tests {
                 0,
                 Some("Esc close inspector · return to confirmation with y / a / n"),
             ),
-            "0/0 · y allow · a always · n deny · / search · Enter load · Ctrl+Enter run · Esc close"
+            "0/0 · y allow · a always · n deny · Tab tabs · S-Tab focus · / search · Enter load · Ctrl+Enter run · Esc close"
         );
     }
 

@@ -18,7 +18,7 @@
 
 当前进度：
 
-- `30 / 100` 已完成
+- `34 / 100` 已完成
 
 ## 001-010 Snapshot Hardening
 
@@ -74,15 +74,15 @@
 
 ## 041-050 Inspector Phase Two
 
-- `[ ]` 041 inspector focus line wording audit
-- `[ ]` 042 inspector search status density pass
-- `[ ]` 043 inspector action keyboard hint parity
+- `[x]` 041 inspector focus line wording audit
+- `[x]` 042 inspector search status density pass
+- `[x]` 043 inspector action keyboard hint parity
 - `[ ]` 044 inspector selected-line framing polish
 - `[ ]` 045 inspector badge ordering audit
 - `[ ]` 046 inspector footer stale-action warning
 - `[ ]` 047 inspector raw panel title consistency
 - `[ ]` 048 inspector panel count density pass
-- `[ ]` 049 inspector empty-state copy polish
+- `[x]` 049 inspector empty-state copy polish
 - `[ ]` 050 inspector latest-open stack wording pass
 
 ## 051-060 Confirm Phase Two
