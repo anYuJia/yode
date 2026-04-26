@@ -4,7 +4,9 @@ use ratatui::style::Color;
 
 use crate::app::rendering::truncate_line;
 use crate::app::{ChatEntry, ChatRole};
-use crate::tool_grouping::{describe_tool_call, tool_batch_summary_text, ToolBatch};
+use crate::tool_grouping::{
+    describe_tool_call, tool_batch_hint_text, tool_batch_summary_text, ToolBatch,
+};
 use crate::tool_output_summary::{
     parse_shell_output_sections, summarize_tool_result, ToolSummaryTone,
 };
@@ -166,14 +168,16 @@ pub(super) fn render_grouped_tool_call(
     all_entries: &[ChatEntry],
     batch: &ToolBatch,
     result: &mut Vec<(String, ratatui::style::Style)>,
-    _dim: ratatui::style::Style,
+    dim: ratatui::style::Style,
     accent: ratatui::style::Style,
 ) {
-    let _ = all_entries;
     result.push((
         format!("⏺ {} (ctrl+o to expand)", tool_batch_summary_text(batch)),
         accent,
     ));
+    if let Some(hint) = tool_batch_hint_text(all_entries, batch) {
+        result.push((format!("  ⎿  {}", hint), dim));
+    }
 }
 
 pub(super) fn render_standalone_result(
@@ -547,6 +551,7 @@ mod tests {
         );
 
         assert!(result[0].0.contains("Searched for 1 pattern, read 1 file"));
+        assert!(result[1].0.contains("Read"));
     }
 
     #[test]
@@ -609,7 +614,7 @@ mod tests {
             .0
             .contains("Searched the web for 1 query, inspected 1 symbol"));
         assert!(result[0].0.contains("ctrl+o to expand"));
-        assert_eq!(result.len(), 1);
+        assert!(result[1].0.contains("Inspected"));
     }
 
     #[test]

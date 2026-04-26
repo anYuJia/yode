@@ -8,7 +8,9 @@ use super::folding::{
 use super::metadata::render_metadata_lines;
 use super::tool_helpers::{tool_summary_value, truncate_ellipsis};
 use crate::app::{ChatEntry, ChatRole};
-use crate::tool_grouping::{describe_tool_call, tool_batch_summary_text, ToolBatch};
+use crate::tool_grouping::{
+    describe_tool_call, tool_batch_hint_text, tool_batch_summary_text, ToolBatch,
+};
 use crate::tool_output_summary::{summarize_tool_result, ToolSummaryLine, ToolSummaryTone};
 use crate::ui::chat::{ACCENT, DIM, GREEN, RED, WHITE};
 use crate::ui::palette::{INFO_COLOR, WARNING_COLOR};
@@ -164,7 +166,6 @@ pub(crate) fn render_grouped_tool_call(
     all_entries: &[ChatEntry],
     batch: &ToolBatch,
 ) {
-    let _ = all_entries;
     lines.push(Line::from(vec![
         Span::styled("⏺ ", Style::default().fg(ACCENT)),
         Span::styled(
@@ -176,6 +177,15 @@ pub(crate) fn render_grouped_tool_call(
             Style::default().fg(DIM).add_modifier(Modifier::ITALIC),
         ),
     ]));
+    if let Some(hint) = tool_batch_hint_text(all_entries, batch) {
+        lines.push(Line::from(vec![
+            Span::styled("  ⎿ ", Style::default().fg(INFO_COLOR)),
+            Span::styled(
+                truncate_ellipsis(&hint, 84),
+                Style::default().fg(INFO_COLOR).add_modifier(Modifier::ITALIC),
+            ),
+        ]));
+    }
 }
 
 pub(crate) fn render_standalone_result(lines: &mut Vec<Line<'static>>, entry: &ChatEntry) {
@@ -374,7 +384,7 @@ mod tests {
             .to_string()
             .contains("Searched for 1 pattern, read 1 file, listed 1 directory"));
         assert!(lines[0].to_string().contains("ctrl+o to expand"));
-        assert_eq!(lines.len(), 1);
+        assert!(lines[1].to_string().contains("Listed"));
     }
 
     #[test]
@@ -431,7 +441,7 @@ mod tests {
             .to_string()
             .contains("Searched the web for 1 query, inspected 1 symbol"));
         assert!(lines[0].to_string().contains("ctrl+o to expand"));
-        assert_eq!(lines.len(), 1);
+        assert!(lines[1].to_string().contains("Inspected"));
     }
 
     #[test]

@@ -174,6 +174,16 @@ pub(crate) fn summarize_groupable_tool_call(
     })
 }
 
+pub(crate) fn tool_batch_hint_text(entries: &[ChatEntry], batch: &ToolBatch) -> Option<String> {
+    let item = batch.items.last()?;
+    let entry = entries.get(item.call_index)?;
+    let ChatRole::ToolCall { name, .. } = &entry.role else {
+        return None;
+    };
+    let args: Value = serde_json::from_str(&entry.content).unwrap_or(Value::Null);
+    describe_tool_call(name, &args, batch.is_active)
+}
+
 pub(crate) fn summarize_batch_invocations(
     args: &Value,
     is_active: bool,
@@ -798,7 +808,7 @@ mod tests {
     use super::{
         describe_groupable_tool_call, describe_tool_call, detect_groupable_subagent_batch,
         detect_groupable_system_batch, detect_groupable_tool_batch, summarize_batch_invocations,
-        tool_batch_summary_text, ToolBatchItemKind, ToolBatchKind,
+        tool_batch_hint_text, tool_batch_summary_text, ToolBatchItemKind, ToolBatchKind,
     };
 
     #[test]
@@ -1041,5 +1051,38 @@ mod tests {
         .unwrap();
         assert_eq!(summary, "Searching for 1 pattern, reading 2 files...");
         assert_eq!(target.as_deref(), Some("\"showDialog\""));
+    }
+
+    #[test]
+    fn tool_batch_hint_uses_latest_grouped_target() {
+        let entries = vec![
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "a".to_string(),
+                    name: "grep".to_string(),
+                },
+                "{\"pattern\":\"retry\"}".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolResult {
+                    id: "a".to_string(),
+                    name: "grep".to_string(),
+                    is_error: false,
+                },
+                "ok".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "b".to_string(),
+                    name: "read_file".to_string(),
+                },
+                "{\"file_path\":\"/tmp/src/main.rs\"}".to_string(),
+            ),
+        ];
+        let batch = detect_groupable_tool_batch(&entries, 0).unwrap();
+        assert_eq!(
+            tool_batch_hint_text(&entries, &batch).as_deref(),
+            Some("Reading .../src/main.rs")
+        );
     }
 }
