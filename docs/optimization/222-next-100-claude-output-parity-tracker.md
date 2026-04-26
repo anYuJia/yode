@@ -21,7 +21,7 @@
 
 当前进度：
 
-- `71 / 100` 已完成
+- `72 / 100` 已完成
 
 ## 001-010 Markdown Core
 
@@ -73,7 +73,7 @@
 - `[x]` 037 error detail inspector
 - `[x]` 038 error recovery action hints by class
 - `[x]` 039 compact retry-state phrasing parity
-- `[ ]` 040 API error truncation / expansion parity
+- `[x]` 040 API error truncation / expansion parity
 
 ## 041-050 System Messages
 
@@ -166,4 +166,4 @@
   - `775d61e`, `3970110`
 
 - 下一步优先实现：
-  - `040 API error truncation / expansion parity`
+  - `060 confirm shell command folding parity`

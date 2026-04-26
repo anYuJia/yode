@@ -92,7 +92,7 @@ pub(crate) fn parse_error_view(content: &str) -> ErrorView {
         };
     }
 
-    let mut details = vec![summary.to_string()];
+    let mut details = vec![truncate_error_summary(summary, 140)];
     let extra_lines = content.lines().filter(|line| !line.trim().is_empty()).count();
     if extra_lines > 1 {
         details.push(format!("{} more lines in full error output.", extra_lines - 1));
@@ -106,6 +106,14 @@ pub(crate) fn parse_error_view(content: &str) -> ErrorView {
 
 fn first_nonempty_line(content: &str) -> Option<&str> {
     content.lines().map(str::trim).find(|line| !line.is_empty())
+}
+
+fn truncate_error_summary(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        text.to_string()
+    } else {
+        format!("{}...", text.chars().take(max_chars).collect::<String>())
+    }
 }
 
 #[cfg(test)]
@@ -135,5 +143,17 @@ mod tests {
         assert_eq!(view.kind, super::ErrorKind::Generic);
         assert_eq!(view.title, "Error");
         assert_eq!(view.detail_lines[0], "something odd happened");
+    }
+
+    #[test]
+    fn generic_error_summary_truncates_long_api_lines() {
+        let content = format!(
+            "provider returned: {}",
+            "x".repeat(200)
+        );
+        let view = parse_error_view(&content);
+        assert_eq!(view.kind, super::ErrorKind::Generic);
+        assert!(view.detail_lines[0].ends_with("..."));
+        assert!(view.detail_lines[0].chars().count() < content.chars().count());
     }
 }
