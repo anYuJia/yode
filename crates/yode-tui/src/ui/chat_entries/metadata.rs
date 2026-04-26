@@ -5,59 +5,93 @@ use ratatui::text::{Line, Span};
 pub(super) fn render_metadata_lines(lines: &mut Vec<Line<'static>>, metadata: &serde_json::Value) {
     render_tool_hint_lines(lines, metadata);
     render_diff_preview_lines(lines, metadata);
-    if let Some(truncation) = metadata
-        .get("tool_runtime")
-        .and_then(|value| value.get("truncation"))
-        .and_then(|value| value.as_object())
-    {
-        if let Some(reason) = truncation.get("reason").and_then(|value| value.as_str()) {
-            lines.push(Line::from(Span::styled(
-                format!("  │ truncated: {}", reason),
-                Style::default().fg(WARNING_COLOR),
-            )));
-        }
-    }
 }
 
 pub(super) fn render_tool_hint_lines(lines: &mut Vec<Line<'static>>, metadata: &serde_json::Value) {
+    if let Some(line) = metadata_hint_line(metadata) {
+        lines.push(line);
+    }
+}
+
+fn metadata_hint_line(metadata: &serde_json::Value) -> Option<Line<'static>> {
+    let mut spans = vec![Span::styled("  │ ", Style::default().fg(INFO_COLOR))];
+    let mut has_segment = false;
+
     if let Some(reason) = metadata
         .get("read_only_reason")
         .and_then(|value| value.as_str())
     {
-        lines.push(Line::from(Span::styled(
-            format!("  │ read-only: {}", reason),
-            Style::default().fg(INFO_COLOR),
-        )));
+        append_hint_segment(
+            &mut spans,
+            &mut has_segment,
+            format!("read-only: {}", reason),
+            INFO_COLOR,
+        );
     } else if metadata
         .get("read_only")
         .and_then(|value| value.as_bool())
         .unwrap_or(false)
     {
-        lines.push(Line::from(Span::styled(
-            "  │ read-only command",
-            Style::default().fg(INFO_COLOR),
-        )));
+        append_hint_segment(
+            &mut spans,
+            &mut has_segment,
+            "read-only command".to_string(),
+            INFO_COLOR,
+        );
     }
 
     if let Some(warning) = metadata
         .get("destructive_warning")
         .and_then(|value| value.as_str())
     {
-        lines.push(Line::from(Span::styled(
-            format!("  │ warning: {}", warning),
-            Style::default().fg(WARNING_COLOR),
-        )));
+        append_hint_segment(
+            &mut spans,
+            &mut has_segment,
+            format!("warning: {}", warning),
+            WARNING_COLOR,
+        );
     }
 
     if let Some(suggestion) = metadata
         .get("rewrite_suggestion")
         .and_then(|value| value.as_str())
     {
-        lines.push(Line::from(Span::styled(
-            format!("  │ hint: {}", suggestion),
-            Style::default().fg(INFO_COLOR),
-        )));
+        append_hint_segment(
+            &mut spans,
+            &mut has_segment,
+            format!("hint: {}", suggestion),
+            INFO_COLOR,
+        );
     }
+
+    if let Some(reason) = metadata
+        .get("tool_runtime")
+        .and_then(|value| value.get("truncation"))
+        .and_then(|value| value.get("reason"))
+        .and_then(|value| value.as_str())
+    {
+        append_hint_segment(
+            &mut spans,
+            &mut has_segment,
+            format!("truncated: {}", reason),
+            WARNING_COLOR,
+        );
+    }
+
+    has_segment.then_some(Line::from(spans))
+}
+
+fn append_hint_segment(
+    spans: &mut Vec<Span<'static>>,
+    has_segment: &mut bool,
+    text: String,
+    color: ratatui::style::Color,
+) {
+    if *has_segment {
+        spans.push(Span::styled(" · ", Style::default().fg(INFO_COLOR)));
+    }
+    spans.push(Span::styled(text, Style::default().fg(color)));
+    *has_segment = true;
 }
 
 pub(super) fn render_diff_preview_lines(
@@ -117,13 +151,12 @@ mod tests {
                 "rewrite_suggestion": "Prefer read_file"
             }),
         );
+        assert_eq!(lines.len(), 1);
         assert!(lines[0]
             .to_string()
             .contains("read-only: validated git status"));
-        assert!(lines[1]
-            .to_string()
-            .contains("warning: may discard changes"));
-        assert!(lines[2].to_string().contains("hint: Prefer read_file"));
+        assert!(lines[0].to_string().contains("warning: may discard changes"));
+        assert!(lines[0].to_string().contains("hint: Prefer read_file"));
     }
 
     #[test]

@@ -116,43 +116,44 @@ fn render_metadata_hints(
     metadata: &serde_json::Value,
     dim: ratatui::style::Style,
 ) {
+    if let Some((line, style)) = compact_metadata_hint_line(metadata, dim) {
+        result.push((line, style));
+    }
+}
+
+fn compact_metadata_hint_line(
+    metadata: &serde_json::Value,
+    dim: ratatui::style::Style,
+) -> Option<(String, ratatui::style::Style)> {
+    let mut segments = Vec::new();
+    let mut style = ratatui::style::Style::default().fg(Color::Cyan);
+
     if let Some(reason) = metadata
         .get("read_only_reason")
         .and_then(|value| value.as_str())
     {
-        result.push((
-            format!("  │ read-only: {}", reason),
-            ratatui::style::Style::default().fg(Color::Cyan),
-        ));
+        segments.push(format!("read-only: {}", reason));
     } else if metadata
         .get("read_only")
         .and_then(|value| value.as_bool())
         .unwrap_or(false)
     {
-        result.push((
-            "  │ read-only command".to_string(),
-            ratatui::style::Style::default().fg(Color::Cyan),
-        ));
+        segments.push("read-only command".to_string());
     }
 
     if let Some(warning) = metadata
         .get("destructive_warning")
         .and_then(|value| value.as_str())
     {
-        result.push((
-            format!("  │ warning: {}", warning),
-            ratatui::style::Style::default().fg(Color::Yellow),
-        ));
+        style = ratatui::style::Style::default().fg(Color::Yellow);
+        segments.push(format!("warning: {}", warning));
     }
 
     if let Some(suggestion) = metadata
         .get("rewrite_suggestion")
         .and_then(|value| value.as_str())
     {
-        result.push((
-            format!("  │ hint: {}", suggestion),
-            ratatui::style::Style::default().fg(Color::Cyan),
-        ));
+        segments.push(format!("hint: {}", suggestion));
     }
 
     if let Some(reason) = metadata
@@ -161,8 +162,11 @@ fn render_metadata_hints(
         .and_then(|value| value.get("reason"))
         .and_then(|value| value.as_str())
     {
-        result.push((format!("  │ truncated: {}", reason), dim));
+        style = dim;
+        segments.push(format!("truncated: {}", reason));
     }
+
+    (!segments.is_empty()).then_some((format!("  │ {}", segments.join(" · ")), style))
 }
 
 pub(super) fn render_grouped_tool_call(
@@ -725,13 +729,9 @@ mod tests {
         );
         assert!(result
             .iter()
-            .any(|line| line.0.contains("read-only: validated git status")));
-        assert!(result
-            .iter()
-            .any(|line| line.0.contains("warning: may discard changes")));
-        assert!(result
-            .iter()
-            .any(|line| line.0.contains("hint: Prefer read_file")));
+            .any(|line| line.0.contains("read-only: validated git status")
+                && line.0.contains("warning: may discard changes")
+                && line.0.contains("hint: Prefer read_file")));
     }
 
     #[test]

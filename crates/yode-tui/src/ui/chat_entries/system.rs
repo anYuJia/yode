@@ -55,8 +55,17 @@ pub(crate) fn render_grouped_system_entries(
         ),
     ]));
 
-    let max_items = 4;
-    for (index, item) in batch.items.iter().take(max_items).enumerate() {
+    let max_items = 3;
+    let visible_items = batch
+        .items
+        .iter()
+        .rev()
+        .take(max_items)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<Vec<_>>();
+    for (index, item) in visible_items.into_iter().enumerate() {
         let entry = &all_entries[item.entry_index];
         let view = parse_system_message(&entry.content);
         let (_, item_style, _) = system_styles(view.kind);
@@ -69,7 +78,7 @@ pub(crate) fn render_grouped_system_entries(
 
     if batch.items.len() > max_items {
         lines.push(Line::from(Span::styled(
-            format!("     … +{} more updates", batch.items.len() - max_items),
+            format!("     … +{} earlier updates", batch.items.len() - max_items),
             Style::default().fg(MUTED),
         )));
     }
@@ -232,6 +241,54 @@ mod tests {
         render_grouped_system_entries(&mut lines, &entries, &batch);
         assert!(lines[0].to_string().contains("Task updates(2)"));
         assert!(lines[0].to_string().contains("ctrl+o to inspect"));
+    }
+
+    #[test]
+    fn render_grouped_system_entries_prefers_latest_items_when_trimming() {
+        let entries = vec![
+            ChatEntry::new(ChatRole::System, "Session resumed.".to_string()),
+            ChatEntry::new(ChatRole::System, "Context compressed · auto · -4 msgs".to_string()),
+            ChatEntry::new(ChatRole::System, "Session memory updated · summary · /tmp/live.md".to_string()),
+            ChatEntry::new(ChatRole::System, "Diagnostics bundle exported to: /tmp/bundle".to_string()),
+        ];
+        let batch = SystemBatch {
+            start_index: 0,
+            next_index: 4,
+            items: vec![
+                SystemBatchItem {
+                    entry_index: 0,
+                    kind: crate::system_message::SystemMessageKind::Update,
+                },
+                SystemBatchItem {
+                    entry_index: 1,
+                    kind: crate::system_message::SystemMessageKind::Context,
+                },
+                SystemBatchItem {
+                    entry_index: 2,
+                    kind: crate::system_message::SystemMessageKind::Memory,
+                },
+                SystemBatchItem {
+                    entry_index: 3,
+                    kind: crate::system_message::SystemMessageKind::Export,
+                },
+            ],
+        };
+        let mut lines = Vec::new();
+        render_grouped_system_entries(&mut lines, &entries, &batch);
+        let rendered = lines.iter().map(|line| line.to_string()).collect::<Vec<_>>();
+        assert!(rendered.iter().any(|line| line.contains("Context compressed")));
+        assert!(rendered
+            .iter()
+            .any(|line| line.contains("Session memory updated")));
+        assert!(rendered
+            .iter()
+            .any(|line| line.contains("Diagnostics bundle exported")));
+        assert!(rendered
+            .iter()
+            .all(|line| !line.contains("Session resumed.")));
+        assert!(rendered
+            .iter()
+            .any(|line| line.contains("+1 earlier updates")));
     }
 
     #[test]

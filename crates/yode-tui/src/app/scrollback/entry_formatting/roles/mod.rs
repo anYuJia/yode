@@ -65,24 +65,24 @@ pub(crate) fn format_entry_as_strings(
         }
         ChatRole::Error => {
             let view = parse_error_view(&entry.content);
-            let err_style = ratatui::style::Style::default()
-                .fg(Color::LightRed)
-                .add_modifier(Modifier::BOLD);
-            result.push(("╭─ Error ──────────────────────────".to_string(), err_style));
-            result.push((format!("│ {}", view.title), palette.red));
+            result.push((
+                format!("  ! {}", view.title),
+                ratatui::style::Style::default()
+                    .fg(Color::LightRed)
+                    .add_modifier(Modifier::BOLD),
+            ));
             for line in view.detail_lines {
                 result.push((
-                    format!("│ {}", line),
+                    format!("    {}", line),
                     ratatui::style::Style::default().fg(Color::Yellow),
                 ));
             }
             result.push((
-                "│ ctrl+o to inspect".to_string(),
+                "    ctrl+o to inspect".to_string(),
                 ratatui::style::Style::default()
                     .fg(Color::Gray)
                     .add_modifier(Modifier::ITALIC),
             ));
-            result.push(("╰──────────────────────────────────".to_string(), err_style));
         }
         ChatRole::System => {
             result.extend(render_system_entry(entry));
@@ -147,6 +147,10 @@ mod tests {
         let rendered = format_entry_as_strings(&entry, std::slice::from_ref(&entry), 0);
         assert!(rendered
             .iter()
+            .any(|(line, _)| line.contains("! Context limit reached")));
+        assert!(rendered
+            .iter()
             .any(|(line, _)| line.contains("ctrl+o to inspect")));
+        assert!(rendered.iter().all(|(line, _)| !line.contains("╭─ Error")));
     }
 }
