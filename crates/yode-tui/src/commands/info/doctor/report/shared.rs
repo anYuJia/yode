@@ -134,7 +134,7 @@ pub(super) fn support_handoff_template(
 
 pub(super) fn doctor_bundle_navigation_summary(bundle_dir: &std::path::Path) -> String {
     format!(
-        "bundle={} | local-doctor.txt | bundle-overview.txt | runtime-timeline.md | runtime-tasks.md | prompt-cache.md | prompt-cache-diff.md | support-handoff.md",
+        "bundle={} | overview | handoff | runtime-timeline | runtime-tasks | prompt-cache | prompt-cache-diff",
         bundle_dir.display()
     )
 }
@@ -143,22 +143,34 @@ pub(super) fn doctor_copy_paste_summary(
     bundle_dir: &std::path::Path,
     copied_files: &[std::path::PathBuf],
 ) -> String {
+    let file_names = copied_files
+        .iter()
+        .filter_map(|path| path.file_name().and_then(|name| name.to_str()))
+        .collect::<Vec<_>>();
+    let preview = file_names.iter().take(4).copied().collect::<Vec<_>>().join(", ");
+    let extra = file_names.len().saturating_sub(4);
     format!(
-        "Doctor bundle exported to: {}\n  Files: {}",
+        "Doctor bundle exported to: {}\n  Files: {}{}",
         bundle_dir.display(),
-        copied_files
-            .iter()
-            .filter_map(|path| path.file_name().and_then(|name| name.to_str()))
-            .collect::<Vec<_>>()
-            .join(", ")
+        if preview.is_empty() {
+            "none".to_string()
+        } else {
+            preview
+        },
+        if extra == 0 {
+            String::new()
+        } else {
+            format!(" · +{} more", extra)
+        }
     )
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        artifact_freshness_summary, doctor_checklist, doctor_copy_paste_summary,
-        doctor_severity_summary, render_support_bundle_overview, support_handoff_template,
+        artifact_freshness_summary, doctor_bundle_navigation_summary, doctor_checklist,
+        doctor_copy_paste_summary, doctor_severity_summary, render_support_bundle_overview,
+        support_handoff_template,
     };
 
     #[test]
@@ -183,7 +195,15 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("local-doctor.txt");
+        let file2 = dir.join("remote-env.txt");
+        let file3 = dir.join("runtime-timeline.md");
+        let file4 = dir.join("runtime-tasks.md");
+        let file5 = dir.join("prompt-cache.md");
         std::fs::write(&file, "x").unwrap();
+        std::fs::write(&file2, "x").unwrap();
+        std::fs::write(&file3, "x").unwrap();
+        std::fs::write(&file4, "x").unwrap();
+        std::fs::write(&file5, "x").unwrap();
         let freshness = artifact_freshness_summary(std::slice::from_ref(&file));
         assert!(freshness.contains("local-doctor.txt"));
         let overview = render_support_bundle_overview(
@@ -195,8 +215,15 @@ mod tests {
             &[],
         );
         assert!(overview.contains("Support bundle overview"));
-        let summary = doctor_copy_paste_summary(&dir, std::slice::from_ref(&file));
+        let summary = doctor_copy_paste_summary(
+            &dir,
+            &[file.clone(), file2, file3, file4, file5],
+        );
         assert!(summary.contains("local-doctor.txt"));
+        assert!(summary.contains("+1 more"));
+        let navigation = doctor_bundle_navigation_summary(&dir);
+        assert!(navigation.contains("overview"));
+        assert!(!navigation.contains("local-doctor.txt"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

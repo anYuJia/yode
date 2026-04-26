@@ -148,19 +148,17 @@ fn conversation_export_path(
 fn render_conversation(ctx: &CommandContext) -> String {
     let mut output = String::new();
 
-    output.push_str("Conversation exported from Yode\n");
-    output.push_str(&format!("Session: {}\n", ctx.session.session_id));
+    output.push_str("# Conversation Export\n\n");
+    output.push_str(&format!("- Session: {}\n", ctx.session.session_id));
     output.push_str(&format!(
-        "Date: {}\n",
+        "- Date: {}\n",
         chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
     ));
-    output.push_str(&format!("Model: {}\n\n", ctx.session.model));
-    output.push_str(&"=".repeat(60));
-    output.push_str("\n\n");
+    output.push_str(&format!("- Model: {}\n\n", ctx.session.model));
+    output.push_str("## Transcript\n\n");
     output.push_str(&render_conversation_body(ctx.chat_entries));
-
-    output.push_str(&"=".repeat(60));
-    output.push_str("\n\n");
+    output.push('\n');
+    output.push_str("## Session Summary\n\n");
     output.push_str(&render_conversation_summary(ctx));
 
     output
@@ -521,7 +519,7 @@ fn render_workspace_index(
         )
     };
     format!(
-        "# Workspace Index\n\n## Summary\n\n- Bundle: {}\n- Runtime: {}\n- Context: {}\n- Tools: {}\n- Tasks: total {} / running {}\n- Conversation: {}\n- Runtime summary: {}\n- Runtime timeline: {}\n- Prompt cache: {}\n- Doctor refs: {}\n\n## Jump Targets\n\n- /tasks latest\n- /memory latest\n- /reviews latest\n- /status\n- /diagnostics\n- /doctor bundle\n\n## Orchestration Artifacts\n\n- workflow: {}\n- coordinator: {}\n- timeline: {}\n\n## Inspect Aliases\n\n- /inspect artifact summary\n- /inspect artifact latest-workflow\n- /inspect artifact latest-coordinate\n- /inspect artifact latest-orchestration\n- /inspect artifact latest-runtime-timeline\n- /inspect artifact latest-prompt-cache\n- /inspect artifact latest-prompt-cache-state\n- /inspect artifact latest-prompt-cache-events\n- /inspect artifact latest-prompt-cache-break\n- /inspect artifact latest-prompt-cache-diff\n- /inspect artifact latest-post-compact-restore\n- /inspect artifact latest-post-compact-restore-state\n- /inspect artifact latest-post-compact-restore-diff\n- /inspect artifact latest-provider-inventory\n- /inspect artifact latest-review\n- /inspect artifact latest-transcript\n- /inspect artifact bundle\n",
+        "# Workspace Index\n\n## Summary\n\n- Bundle: {}\n- Runtime: {}\n- Context: {}\n- Tools: {}\n- Tasks: total {} / running {}\n- Conversation: {}\n- Runtime summary: {}\n- Runtime timeline: {}\n- Prompt cache: {}\n- Doctor refs: {}\n\n## Jump\n\n- Work: /tasks latest · /memory latest · /reviews latest\n- Status: /status · /diagnostics · /doctor bundle\n\n## Orchestration\n\n- workflow: {}\n- coordinator: {}\n- timeline: {}\n\n## Inspect\n\n- Overview: /inspect artifact summary · bundle\n- Flow: /inspect artifact latest-workflow · latest-coordinate · latest-orchestration\n- Runtime: /inspect artifact latest-runtime-timeline · latest-prompt-cache · latest-prompt-cache-state\n- Cache: /inspect artifact latest-prompt-cache-events · latest-prompt-cache-break · latest-prompt-cache-diff\n- Restore: /inspect artifact latest-post-compact-restore · latest-post-compact-restore-state · latest-post-compact-restore-diff\n- Refs: /inspect artifact latest-provider-inventory · latest-review · latest-transcript\n",
         bundle_dir.display(),
         runtime_line,
         context_line,
@@ -602,7 +600,7 @@ fn render_conversation_summary_block(
     running_tasks: usize,
 ) -> String {
     format!(
-        "Summary:\n  Runtime:      {}\n  Context:      {}\n  Tools:        {}\n  Entries:       {}\n  Tokens:        in {} / out {} / total {}\n  Tool calls:    {}\n  Tasks:         total {} / running {}\n",
+        "- Runtime: {}\n- Context: {}\n- Tools: {}\n- Entries: {}\n- Tokens: in {} / out {} / total {}\n- Tool calls: {}\n- Tasks: total {} / running {}\n",
         runtime_line,
         context_line,
         tool_line,
@@ -628,24 +626,31 @@ fn render_bundle_completion_message(
     copied: &[String],
     doctor_ref_path: Option<&std::path::Path>,
 ) -> String {
+    let core = [
+        conversation_path,
+        diagnostics_path,
+        workspace_index,
+        prompt_cache_path,
+    ]
+    .iter()
+    .filter_map(|path| path.file_name().and_then(|name| name.to_str()))
+    .collect::<Vec<_>>()
+    .join(", ");
     format!(
-        "Diagnostics bundle exported to: {}\n  Runtime:      {}\n  Context:      {}\n  Tools:        {}\n  Core files:    {}, {}, {}, {}\n  Copied files:  {}\n  Doctor refs:   {}\n  Inspect:       /inspect artifact bundle",
+        "Diagnostics bundle exported to: {}\n  Runtime: {}\n  Context: {}\n  Tools: {}\n  Core: {}\n  Extras: {} copied · doctor {}\n  Inspect: /inspect artifact bundle",
         bundle_dir.display(),
         runtime_line,
         context_line,
         tool_line,
-        conversation_path.display(),
-        diagnostics_path.display(),
-        workspace_index.display(),
-        prompt_cache_path.display(),
+        core,
         if copied.is_empty() {
             "none".to_string()
         } else {
-            format!("{}", copied.len())
+            copied.len().to_string()
         },
         doctor_ref_path
-            .map(|path| path.display().to_string())
-            .unwrap_or_else(|| "none".to_string()),
+            .and_then(|path| path.file_name().and_then(|name| name.to_str()))
+            .unwrap_or("none")
     )
 }
 
@@ -806,8 +811,9 @@ mod tests {
         );
         assert!(rendered.contains("## Summary"));
         assert!(rendered.contains("- Runtime:"));
-        assert!(rendered.contains("## Jump Targets"));
-        assert!(rendered.contains("## Inspect Aliases"));
+        assert!(rendered.contains("## Jump"));
+        assert!(rendered.contains("## Inspect"));
+        assert!(rendered.contains("Work: /tasks latest · /memory latest · /reviews latest"));
     }
 
     #[test]
@@ -825,8 +831,8 @@ mod tests {
             None,
         );
         assert!(rendered.contains("Diagnostics bundle exported to:"));
-        assert!(rendered.contains("Core files:"));
-        assert!(rendered.contains("Copied files:  2"));
+        assert!(rendered.contains("Core: conversation.txt, runtime-summary.txt, workspace-index.md, prompt-cache.txt"));
+        assert!(rendered.contains("Extras: 2 copied · doctor none"));
     }
 
     #[test]
@@ -846,12 +852,11 @@ mod tests {
         let summary = render_conversation_summary_block(
             "runtime", "context", "tools", 3, 10, 20, 30, 2, 4, 1,
         );
-        assert!(summary.contains("Summary:"));
-        assert!(summary.contains("Runtime:      runtime"));
-        assert!(summary.contains("Context:      context"));
-        assert!(summary.contains("Tools:        tools"));
-        assert!(summary.contains("Entries:       3"));
-        assert!(summary.contains("Tool calls:    2"));
+        assert!(summary.contains("- Runtime: runtime"));
+        assert!(summary.contains("- Context: context"));
+        assert!(summary.contains("- Tools: tools"));
+        assert!(summary.contains("- Entries: 3"));
+        assert!(summary.contains("- Tool calls: 2"));
     }
 
     #[test]

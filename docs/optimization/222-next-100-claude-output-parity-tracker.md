@@ -21,7 +21,7 @@
 
 当前进度：
 
-- `50 / 100` 已完成
+- `53 / 100` 已完成
 
 ## 001-010 Markdown Core
 
@@ -134,11 +134,11 @@
 - `[x]` 083 doctor bundle exports live under `.yode/exports`
 - `[x]` 084 bundle lookup resolves from session root
 - `[x]` 085 bundle lookup resolves from nested cwd
-- `[ ]` 086 export workspace index density pass
-- `[ ]` 087 doctor bundle summary density pass
+- `[x]` 086 export workspace index density pass
+- `[x]` 087 doctor bundle summary density pass
 - `[ ]` 088 remote bundle summary density pass
 - `[ ]` 089 artifact preview truncation parity
-- `[ ]` 090 exported transcript readability pass
+- `[x]` 090 exported transcript readability pass
 
 ## 091-100 Final Polish
 
@@ -166,4 +166,4 @@
   - `775d61e`, `3970110`
 
 - 下一步优先实现：
-  - `080 scrollback narrow-width polish`
+  - `089 artifact preview truncation parity`
