@@ -86,9 +86,7 @@ impl WorkspaceText {
     }
 }
 
-pub(crate) fn workspace_bullets(
-    lines: impl IntoIterator<Item = impl Into<String>>,
-) -> Vec<String> {
+pub(crate) fn workspace_bullets(lines: impl IntoIterator<Item = impl Into<String>>) -> Vec<String> {
     lines.into_iter().map(Into::into).collect()
 }
 
@@ -136,7 +134,8 @@ mod tests {
 
     #[test]
     fn artifact_lines_render_label_value_pairs() {
-        let lines = workspace_artifact_lines([("output", "/tmp/a.log"), ("transcript", "/tmp/a.md")]);
+        let lines =
+            workspace_artifact_lines([("output", "/tmp/a.log"), ("transcript", "/tmp/a.md")]);
         assert_eq!(lines[0], "output: /tmp/a.log");
         assert_eq!(lines[1], "transcript: /tmp/a.md");
     }

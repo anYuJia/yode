@@ -38,10 +38,17 @@ pub(in crate::commands::info::memory) fn transcript_target_resolution_error(
     let suggestions = entries
         .iter()
         .take(5)
-        .filter_map(|path| path.file_name().and_then(|name| name.to_str()).map(str::to_string))
+        .filter_map(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .map(str::to_string)
+        })
         .collect::<Vec<_>>();
     if suggestions.is_empty() {
-        format!("Unknown memory target: {}. No transcript artifacts are available.", target)
+        format!(
+            "Unknown memory target: {}. No transcript artifacts are available.",
+            target
+        )
     } else {
         format!(
             "Unknown memory target: {}. Try an index, `latest`, or one of: {}",

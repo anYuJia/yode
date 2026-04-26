@@ -25,7 +25,10 @@ pub(super) fn build_section_summary(left: &str, right: &str) -> String {
     for role in roles {
         let left_count = left_stats.role_counts.get(&role).copied().unwrap_or(0);
         let right_count = right_stats.role_counts.get(&role).copied().unwrap_or(0);
-        lines.push(format!("  {} blocks: {} -> {}", role, left_count, right_count));
+        lines.push(format!(
+            "  {} blocks: {} -> {}",
+            role, left_count, right_count
+        ));
     }
 
     format!("{}\n", lines.join("\n"))
@@ -63,7 +66,10 @@ fn transcript_section_stats(content: &str) -> TranscriptSectionStats {
             Some("Messages") if !line.trim().is_empty() => {
                 stats.message_lines += 1;
                 if let Some(role) = line.strip_prefix("### ") {
-                    *stats.role_counts.entry(role.trim().to_string()).or_insert(0) += 1;
+                    *stats
+                        .role_counts
+                        .entry(role.trim().to_string())
+                        .or_insert(0) += 1;
                 }
             }
             _ => {}

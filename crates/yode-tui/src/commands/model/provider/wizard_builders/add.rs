@@ -139,13 +139,7 @@ pub(crate) fn build_add_provider_wizard() -> Wizard {
                 *step = build_add_model_picker_step(&preset.default_models);
             }
             if let Some(WizardStep::Input { default, .. }) = steps.get_mut(5) {
-                *default = Some(
-                    preset
-                        .default_models
-                        .first()
-                        .cloned()
-                        .unwrap_or_default(),
-                );
+                *default = Some(preset.default_models.first().cloned().unwrap_or_default());
             }
             return;
         }
@@ -186,16 +180,12 @@ fn provider_type_defaults(value: &str) -> Option<ProviderTypePreset> {
             "qwen",
             "qwen-max",
         ),
-        v if v.contains("Zhipu") || v.contains("智谱") => (
-            "https://open.bigmodel.cn/api/paas/v4",
-            "zhipu",
-            "glm-5",
-        ),
-        v if v.contains("Kimi") || v.contains("月之暗面") => (
-            "https://api.moonshot.cn/v1",
-            "moonshot",
-            "kimi-k2.5",
-        ),
+        v if v.contains("Zhipu") || v.contains("智谱") => {
+            ("https://open.bigmodel.cn/api/paas/v4", "zhipu", "glm-5")
+        }
+        v if v.contains("Kimi") || v.contains("月之暗面") => {
+            ("https://api.moonshot.cn/v1", "moonshot", "kimi-k2.5")
+        }
         v if v.contains("Doubao") || v.contains("豆包") => (
             "https://ark.cn-beijing.volces.com/api/v3",
             "doubao",
@@ -206,36 +196,24 @@ fn provider_type_defaults(value: &str) -> Option<ProviderTypePreset> {
             "siliconflow",
             "deepseek-v3",
         ),
-        v if v.contains("Yi") || v.contains("零一") => (
-            "https://api.lingyiwanwu.com/v1",
-            "yi",
-            "yi-lightning",
-        ),
-        v if v.contains("Baichuan") || v.contains("百川") => (
-            "https://api.baichuan-ai.com/v1",
-            "baichuan",
-            "Baichuan4",
-        ),
+        v if v.contains("Yi") || v.contains("零一") => {
+            ("https://api.lingyiwanwu.com/v1", "yi", "yi-lightning")
+        }
+        v if v.contains("Baichuan") || v.contains("百川") => {
+            ("https://api.baichuan-ai.com/v1", "baichuan", "Baichuan4")
+        }
         v if v.contains("Spark") || v.contains("星火") => (
             "https://spark-api-open.xf-yun.com/v1",
             "spark",
             "generalv3.5",
         ),
-        v if v.contains("MiniMax") => (
-            "https://api.minimax.chat/v1",
-            "minimax",
-            "MiniMax-M2.7",
-        ),
-        v if v.contains("StepFun") || v.contains("阶跃") => (
-            "https://api.stepfun.com/v1",
-            "stepfun",
-            "step-3.5-flash",
-        ),
-        v if v.contains("ERNIE") || v.contains("文心") => (
-            "https://qianfan.baidubce.com/v2",
-            "ernie",
-            "ernie-4.0-8k",
-        ),
+        v if v.contains("MiniMax") => ("https://api.minimax.chat/v1", "minimax", "MiniMax-M2.7"),
+        v if v.contains("StepFun") || v.contains("阶跃") => {
+            ("https://api.stepfun.com/v1", "stepfun", "step-3.5-flash")
+        }
+        v if v.contains("ERNIE") || v.contains("文心") => {
+            ("https://qianfan.baidubce.com/v2", "ernie", "ernie-4.0-8k")
+        }
         v if v.contains("Hunyuan") || v.contains("混元") => (
             "https://api.hunyuan.cloud.tencent.com/v1",
             "hunyuan",
@@ -279,7 +257,12 @@ fn provider_type_defaults(value: &str) -> Option<ProviderTypePreset> {
     };
 
     let default_models = yode_llm::find_provider_info(name_hint)
-        .map(|info| info.default_models.iter().map(|item| item.to_string()).collect::<Vec<_>>())
+        .map(|info| {
+            info.default_models
+                .iter()
+                .map(|item| item.to_string())
+                .collect::<Vec<_>>()
+        })
         .filter(|items| !items.is_empty())
         .unwrap_or_else(|| {
             if fallback_model_hint.is_empty() {
@@ -333,7 +316,10 @@ mod tests {
     fn provider_type_defaults_surface_known_models() {
         let preset = provider_type_defaults("Anthropic (Claude)").unwrap();
         assert_eq!(preset.name_hint, "anthropic");
-        assert!(preset.default_models.iter().any(|item| item.contains("claude-sonnet")));
+        assert!(preset
+            .default_models
+            .iter()
+            .any(|item| item.contains("claude-sonnet")));
     }
 
     #[test]

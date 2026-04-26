@@ -89,7 +89,8 @@ mod tests {
 
     #[test]
     fn writes_coordinator_summary_artifact() {
-        let dir = std::env::temp_dir().join(format!("yode-coordinate-summary-{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("yode-coordinate-summary-{}", uuid::Uuid::new_v4()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = write_coordinator_summary_artifact(

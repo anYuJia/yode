@@ -6,9 +6,7 @@ use crate::commands::{
     ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
     CommandResult,
 };
-use crate::runtime_display::{
-    format_repeated_tool_failure_summary, format_tool_progress_summary,
-};
+use crate::runtime_display::{format_repeated_tool_failure_summary, format_tool_progress_summary};
 
 pub struct ToolsCommand {
     meta: CommandMeta,
@@ -326,7 +324,10 @@ fn tool_search_operator_affordance(
     }
 
     workspace_jump_inventory([
-        format!("search={}", if search_enabled { "active" } else { "inactive" }),
+        format!(
+            "search={}",
+            if search_enabled { "active" } else { "inactive" }
+        ),
         format!("hidden={}", hidden_active),
         format!("deferred={}", deferred_visible),
         "/tools list".to_string(),
@@ -383,7 +384,10 @@ mod tests {
             &["memory".into(), "m".into(), "read_file".into()],
         );
 
-        assert_eq!(overlaps, vec!["m [alias]".to_string(), "memory".to_string()]);
+        assert_eq!(
+            overlaps,
+            vec!["m [alias]".to_string(), "memory".to_string()]
+        );
     }
 
     #[test]

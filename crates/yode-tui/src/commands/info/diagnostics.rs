@@ -1,6 +1,6 @@
+use super::diagnostics_render::render_diagnostics_overview;
 use crate::commands::context::CommandContext;
 use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
-use super::diagnostics_render::render_diagnostics_overview;
 
 pub struct DiagnosticsCommand {
     meta: CommandMeta,

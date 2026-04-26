@@ -1,17 +1,17 @@
 pub mod context;
 pub mod registry;
 
+pub(crate) mod artifact_nav;
 pub mod dev;
 pub mod info;
+pub(crate) mod inspector_bridge;
 pub mod model;
 pub mod session;
 pub mod tools;
-pub mod utility;
-pub(crate) mod artifact_nav;
-pub(crate) mod inspector_bridge;
 pub(crate) mod transcript_review_nav;
-pub(crate) mod workspace_text;
+pub mod utility;
 pub(crate) mod workspace_nav;
+pub(crate) mod workspace_text;
 
 use context::{CommandContext, CompletionContext};
 

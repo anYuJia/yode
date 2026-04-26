@@ -162,9 +162,18 @@ pub(crate) fn format_turn_completed_message(
 
 fn format_turn_cache_summary(runtime: &EngineRuntimeState) -> Option<String> {
     let prompt = runtime.prompt_cache.last_turn_prompt_tokens.unwrap_or(0);
-    let completion = runtime.prompt_cache.last_turn_completion_tokens.unwrap_or(0);
-    let write = runtime.prompt_cache.last_turn_cache_write_tokens.unwrap_or(0);
-    let read = runtime.prompt_cache.last_turn_cache_read_tokens.unwrap_or(0);
+    let completion = runtime
+        .prompt_cache
+        .last_turn_completion_tokens
+        .unwrap_or(0);
+    let write = runtime
+        .prompt_cache
+        .last_turn_cache_write_tokens
+        .unwrap_or(0);
+    let read = runtime
+        .prompt_cache
+        .last_turn_cache_read_tokens
+        .unwrap_or(0);
 
     if prompt == 0 && completion == 0 && write == 0 && read == 0 {
         return None;

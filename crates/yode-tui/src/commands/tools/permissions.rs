@@ -1,12 +1,12 @@
 use crate::commands::context::CommandContext;
+use crate::commands::info::permission_recovery_workspace::{
+    render_permission_workspace, render_recovery_workspace,
+};
 use crate::commands::workspace_nav::{runtime_operator_jump_targets, workspace_jump_inventory};
 use crate::commands::workspace_text::{workspace_bullets, WorkspaceText};
 use crate::commands::{
     ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
     CommandResult,
-};
-use crate::commands::info::permission_recovery_workspace::{
-    render_permission_workspace, render_recovery_workspace,
 };
 use yode_core::permission::{tool_categories, PermissionMode, PermissionRule};
 
@@ -358,10 +358,7 @@ fn render_permission_mode_guide(current: PermissionMode) -> String {
             "Keyboard cycle",
             "TUI badge cycle covers default -> auto -> plan".to_string(),
         )
-        .field(
-            "Slash-only modes",
-            "accept-edits / bypass".to_string(),
-        )
+        .field("Slash-only modes", "accept-edits / bypass".to_string())
         .section(
             "Modes",
             workspace_bullets([
@@ -392,7 +389,9 @@ fn render_permission_mode_guide(current: PermissionMode) -> String {
                 "/permissions mode bypass",
             ]),
         )
-        .footer(workspace_jump_inventory(runtime_operator_jump_targets(None)))
+        .footer(workspace_jump_inventory(runtime_operator_jump_targets(
+            None,
+        )))
         .render()
 }
 

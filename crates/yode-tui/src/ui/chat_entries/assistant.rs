@@ -92,7 +92,10 @@ mod tests {
         assert!(title > 0);
         assert!(lines[title - 1].is_empty());
 
-        let basic = lines.iter().position(|line| line.contains("基本面")).unwrap();
+        let basic = lines
+            .iter()
+            .position(|line| line.contains("基本面"))
+            .unwrap();
         assert!(basic > 0);
         assert!(lines[basic - 1].is_empty());
 

@@ -1,5 +1,5 @@
-use chrono::{Local, NaiveDateTime};
 use super::preview::truncate_preview_text;
+use chrono::{Local, NaiveDateTime};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct MemoryDocumentView {

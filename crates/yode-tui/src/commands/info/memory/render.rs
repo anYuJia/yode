@@ -1,7 +1,6 @@
 use std::fs;
 use std::path::Path;
 
-use crate::commands::{CommandOutput, CommandResult};
 use crate::commands::transcript_review_nav::{
     compare_target_choices, fold_workspace_diff_output, summary_anchor_jump_summary,
     transcript_review_cross_reference, transcript_review_operator_guide,
@@ -11,6 +10,7 @@ use crate::commands::workspace_nav::{
     workspace_selection_summary, workspace_stale_artifact_banner,
 };
 use crate::commands::workspace_text::{workspace_bullets, WorkspaceText};
+use crate::commands::{CommandOutput, CommandResult};
 
 use super::compare::{build_transcript_compare_output, CompareArgs};
 use super::document::{format_section_items_preview, memory_entry_age, parse_memory_document};
@@ -146,11 +146,17 @@ pub(super) fn render_transcript_file(
             .subtitle(path.display().to_string())
             .field(
                 "Breadcrumb",
-                workspace_breadcrumb("Memory", Some(&compact_path_badge(&path.display().to_string()))),
+                workspace_breadcrumb(
+                    "Memory",
+                    Some(&compact_path_badge(&path.display().to_string())),
+                ),
             )
             .field("Selection", workspace_selection_summary(1, 1))
             .field("Summary anchor", summary_anchor_jump_summary(&content))
-            .section("Metadata", workspace_bullets([transcript_metadata_panel(path, &meta, &preview)]))
+            .section(
+                "Metadata",
+                workspace_bullets([transcript_metadata_panel(path, &meta, &preview)]),
+            )
             .section(
                 "Timeline anchors",
                 workspace_bullets([transcript_timeline_anchor_panel(path, &meta, runtime)]),
@@ -200,10 +206,10 @@ pub(super) fn render_memory_file(label: &str, path: &Path) -> CommandResult {
             output.push_str("\nStructured view:\n");
             for section in &entry.sections {
                 output.push_str(&format!(
-                        "  {} ({}): {}\n",
-                        section.title,
-                        section.items.len(),
-                        format_section_items_preview(&section.items, 180)
+                    "  {} ({}): {}\n",
+                    section.title,
+                    section.items.len(),
+                    format_section_items_preview(&section.items, 180)
                 ));
             }
         }
@@ -233,12 +239,12 @@ pub(super) fn render_latest_transcript(
     Ok(CommandOutput::Message(
         WorkspaceText::new("Latest transcript workspace")
             .subtitle(path.display().to_string())
-            .field(
-                "Breadcrumb",
-                workspace_breadcrumb("Memory", Some("latest")),
-            )
+            .field("Breadcrumb", workspace_breadcrumb("Memory", Some("latest")))
             .field("Summary anchor", summary_anchor_jump_summary(&content))
-            .section("Metadata", workspace_bullets([transcript_metadata_panel(path, &meta, &preview)]))
+            .section(
+                "Metadata",
+                workspace_bullets([transcript_metadata_panel(path, &meta, &preview)]),
+            )
             .section(
                 "Timeline anchors",
                 workspace_bullets([transcript_timeline_anchor_panel(path, &meta, runtime)]),
@@ -291,7 +297,11 @@ pub(super) fn render_transcript_compare(dir: &Path, compare: &CompareArgs) -> Co
     );
     Ok(CommandOutput::Message(
         WorkspaceText::new("Transcript compare workspace")
-            .subtitle(format!("{} <> {}", left_path.display(), right_path.display()))
+            .subtitle(format!(
+                "{} <> {}",
+                left_path.display(),
+                right_path.display()
+            ))
             .field("Selection", workspace_selection_summary(2, 2))
             .field("Target choices", compare_target_choices(dir).join(", "))
             .section(
@@ -308,7 +318,10 @@ pub(super) fn render_transcript_compare(dir: &Path, compare: &CompareArgs) -> Co
                     compare.options.max_lines,
                 )]),
             )
-            .section("Diff", workspace_bullets([fold_workspace_diff_output(&body, 120)]))
+            .section(
+                "Diff",
+                workspace_bullets([fold_workspace_diff_output(&body, 120)]),
+            )
             .footer(transcript_review_operator_guide("transcript"))
             .render(),
     ))

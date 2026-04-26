@@ -30,9 +30,9 @@ impl ProviderCommand {
                         name: "provider".into(),
                         required: false,
                         hint: "<provider-name|add|remove|edit>".into(),
-                        completions: ArgCompletionSource::Dynamic(|ctx| provider_completions(
-                            ctx.all_provider_models,
-                        )),
+                        completions: ArgCompletionSource::Dynamic(|ctx| {
+                            provider_completions(ctx.all_provider_models)
+                        }),
                     },
                     ArgDef {
                         name: "name".into(),
@@ -187,18 +187,15 @@ impl Command for ProviderCommand {
 }
 
 fn switch_provider_in_context(name: &str, ctx: &mut CommandContext) -> CommandResult {
-    let provider = ctx
-        .provider_registry
-        .get(name)
-        .ok_or_else(|| {
-            let mut available: Vec<String> = ctx.all_provider_models.keys().cloned().collect();
-            available.sort();
-            format!(
-                "Provider '{}' not found. Available: {}",
-                name,
-                available.join(", ")
-            )
-        })?;
+    let provider = ctx.provider_registry.get(name).ok_or_else(|| {
+        let mut available: Vec<String> = ctx.all_provider_models.keys().cloned().collect();
+        available.sort();
+        format!(
+            "Provider '{}' not found. Available: {}",
+            name,
+            available.join(", ")
+        )
+    })?;
 
     let new_models = ctx
         .all_provider_models
@@ -259,7 +256,12 @@ fn build_provider_picker_wizard(
         .unwrap_or(0);
     let choice_map = choices
         .iter()
-        .map(|choice| (choice.display.clone(), (choice.name.clone(), choice.model.clone())))
+        .map(|choice| {
+            (
+                choice.display.clone(),
+                (choice.name.clone(), choice.model.clone()),
+            )
+        })
         .collect::<std::collections::HashMap<_, _>>();
 
     Wizard::new(
@@ -310,13 +312,16 @@ fn build_provider_choices(
     let mut names = all_provider_models.keys().cloned().collect::<Vec<_>>();
     names.sort();
 
-    let mut choices = names.into_iter()
+    let mut choices = names
+        .into_iter()
         .map(|name| {
             let models = all_provider_models.get(&name).cloned().unwrap_or_default();
             let chosen_model = if name == current_provider {
                 current_model.to_string()
             } else if models.is_empty() {
-                default_model.clone().unwrap_or_else(|| "(unrestricted)".to_string())
+                default_model
+                    .clone()
+                    .unwrap_or_else(|| "(unrestricted)".to_string())
             } else {
                 models
                     .first()

@@ -1,4 +1,3 @@
-use crate::commands::{CommandOutput, CommandResult};
 use crate::commands::workspace_nav::{
     runtime_operator_jump_targets, task_jump_targets, workspace_breadcrumb,
     workspace_jump_inventory, workspace_selection_summary,
@@ -6,6 +5,7 @@ use crate::commands::workspace_nav::{
 use crate::commands::workspace_text::{
     workspace_artifact_lines, workspace_bullets, workspace_preview_line, WorkspaceText,
 };
+use crate::commands::{CommandOutput, CommandResult};
 
 use super::task_runtime_workspace::{
     grouped_task_runtime_summary, runtime_freshness_banner, task_follow_prompt,
@@ -28,7 +28,11 @@ pub(super) fn render_task_list(tasks: Vec<yode_tools::RuntimeTask>) -> CommandRe
     sort_tasks_by_latest_activity(&mut tasks);
     let mut lines = vec![format!("Runtime tasks ({})", tasks.len())];
     for (source_tool, grouped_tasks) in group_tasks_by_source_tool(tasks) {
-        lines.push(format!("Source tool: {} ({})", source_tool, grouped_tasks.len()));
+        lines.push(format!(
+            "Source tool: {} ({})",
+            source_tool,
+            grouped_tasks.len()
+        ));
         for task in grouped_tasks {
             lines.push(format!(
                 "{} [{}:{}] {} @ {} / {} / {}",
@@ -62,8 +66,7 @@ pub(super) fn render_task_detail(
             .collect::<Vec<_>>()
             .join("\n")
     };
-    let transcript_preview = task_transcript_preview(&task)
-        .unwrap_or_else(|| "none".to_string());
+    let transcript_preview = task_transcript_preview(&task).unwrap_or_else(|| "none".to_string());
     Ok(CommandOutput::Message(
         WorkspaceText::new(format!("Task workspace {}", task.id))
             .subtitle(task.description.clone())
@@ -80,7 +83,10 @@ pub(super) fn render_task_detail(
             .field("Failure", task_failure_cause_summary(&task))
             .field("Artifacts", task_artifact_backlink_summary(&task))
             .field("Output", task.output_path.clone())
-            .field("Transcript", task.transcript_path.as_deref().unwrap_or("none"))
+            .field(
+                "Transcript",
+                task.transcript_path.as_deref().unwrap_or("none"),
+            )
             .section("Timeline", workspace_bullets(task_timeline_lines(&task)))
             .section(
                 "Transcript preview",
@@ -114,8 +120,7 @@ pub(super) fn render_task_detail(
 
 pub(super) fn render_task_output(task: &yode_tools::RuntimeTask) -> CommandResult {
     let (output_preview, preview_start, total_lines) = task_output_preview(task, 40);
-    let transcript_preview = task_transcript_preview(task)
-        .unwrap_or_else(|| "none".to_string());
+    let transcript_preview = task_transcript_preview(task).unwrap_or_else(|| "none".to_string());
     Ok(CommandOutput::Message(
         WorkspaceText::new(format!("Task output {}", task.id))
             .subtitle(task.description.clone())
@@ -136,7 +141,10 @@ pub(super) fn render_task_output(task: &yode_tools::RuntimeTask) -> CommandResul
             .field("Freshest", task_latest_activity_at(task))
             .field("Failure", task_failure_cause_summary(task))
             .field("Output path", task.output_path.clone())
-            .field("Transcript", task.transcript_path.as_deref().unwrap_or("none"))
+            .field(
+                "Transcript",
+                task.transcript_path.as_deref().unwrap_or("none"),
+            )
             .section(
                 "Artifacts",
                 workspace_artifact_lines([
@@ -173,7 +181,10 @@ pub(super) fn render_task_output(task: &yode_tools::RuntimeTask) -> CommandResul
 pub(super) fn render_task_notifications(tasks: Vec<yode_tools::RuntimeTask>) -> CommandResult {
     Ok(CommandOutput::Message(
         WorkspaceText::new("Task notifications")
-            .section("Recent outcomes", workspace_bullets(task_notification_summary(&tasks)))
+            .section(
+                "Recent outcomes",
+                workspace_bullets(task_notification_summary(&tasks)),
+            )
             .render(),
     ))
 }
@@ -197,9 +208,11 @@ pub(super) fn render_task_summary(
         .iter()
         .filter(|task| matches!(task.status, yode_tools::RuntimeTaskStatus::Failed))
         .count();
-    let latest_artifact = tasks
-        .iter()
-        .find_map(|task| task.transcript_path.as_deref().or(Some(task.output_path.as_str())));
+    let latest_artifact = tasks.iter().find_map(|task| {
+        task.transcript_path
+            .as_deref()
+            .or(Some(task.output_path.as_str()))
+    });
 
     Ok(CommandOutput::Message(
         WorkspaceText::new("Task runtime workspace")
@@ -207,8 +220,14 @@ pub(super) fn render_task_summary(
             .field("Running", running.to_string())
             .field("Failed", failed.to_string())
             .field("Freshness", runtime_freshness_banner(&tasks, runtime))
-            .section("By kind", workspace_bullets(grouped_task_runtime_summary(&tasks)))
-            .section("Notifications", workspace_bullets(task_notification_summary(&tasks)))
+            .section(
+                "By kind",
+                workspace_bullets(grouped_task_runtime_summary(&tasks)),
+            )
+            .section(
+                "Notifications",
+                workspace_bullets(task_notification_summary(&tasks)),
+            )
             .footer(workspace_jump_inventory(runtime_operator_jump_targets(
                 latest_artifact,
             )))
@@ -299,7 +318,9 @@ mod tests {
         .unwrap();
         match output {
             crate::commands::CommandOutput::Messages(lines) => {
-                assert!(lines.iter().any(|line| line.contains("Source tool: spawn_agent")));
+                assert!(lines
+                    .iter()
+                    .any(|line| line.contains("Source tool: spawn_agent")));
                 assert!(lines.iter().any(|line| line.contains("Source tool: bash")));
             }
             _ => panic!("expected message list"),

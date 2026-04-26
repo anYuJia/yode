@@ -25,7 +25,10 @@ pub(crate) fn workspace_selection_summary(selected: usize, total: usize) -> Stri
     }
 }
 
-pub(crate) fn workspace_stale_artifact_banner(path: &Path, stale_after_minutes: i64) -> Option<String> {
+pub(crate) fn workspace_stale_artifact_banner(
+    path: &Path,
+    stale_after_minutes: i64,
+) -> Option<String> {
     let modified = std::fs::metadata(path).ok()?.modified().ok()?;
     let modified: chrono::DateTime<chrono::Local> = modified.into();
     let age = chrono::Local::now() - modified;
@@ -77,7 +80,10 @@ pub(crate) fn task_jump_targets(task_id: &str, transcript_path: Option<&str>) ->
 pub(crate) fn review_jump_targets(path: &Path) -> Vec<String> {
     vec![
         "/reviews latest".to_string(),
-        format!("/reviews {}", compact_path_badge(&path.display().to_string())),
+        format!(
+            "/reviews {}",
+            compact_path_badge(&path.display().to_string())
+        ),
         "/memory latest".to_string(),
     ]
 }
@@ -85,7 +91,10 @@ pub(crate) fn review_jump_targets(path: &Path) -> Vec<String> {
 pub(crate) fn transcript_jump_targets(path: &Path) -> Vec<String> {
     vec![
         "/memory latest".to_string(),
-        format!("/memory {}", compact_path_badge(&path.display().to_string())),
+        format!(
+            "/memory {}",
+            compact_path_badge(&path.display().to_string())
+        ),
         "/memory compare latest latest-1".to_string(),
     ]
 }
@@ -122,7 +131,11 @@ pub(crate) fn transcript_completion_targets(working_dir: &str) -> Vec<String> {
 }
 
 pub(crate) fn review_completion_targets(working_dir: &str) -> Vec<String> {
-    let mut values = vec!["latest".to_string(), "list".to_string(), "summary".to_string()];
+    let mut values = vec![
+        "latest".to_string(),
+        "list".to_string(),
+        "summary".to_string(),
+    ];
     values.extend(latest_markdown_targets(
         Path::new(working_dir).join(".yode").join("reviews"),
     ));
@@ -141,7 +154,11 @@ fn latest_markdown_targets(dir: PathBuf) -> Vec<String> {
     entries
         .into_iter()
         .take(5)
-        .filter_map(|path| path.file_name().and_then(|name| name.to_str()).map(str::to_string))
+        .filter_map(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .map(str::to_string)
+        })
         .collect()
 }
 

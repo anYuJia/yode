@@ -30,7 +30,9 @@ pub(super) fn sort_tasks_by_latest_activity(tasks: &mut [RuntimeTask]) {
     });
 }
 
-pub(super) fn group_tasks_by_source_tool(tasks: Vec<RuntimeTask>) -> Vec<(String, Vec<RuntimeTask>)> {
+pub(super) fn group_tasks_by_source_tool(
+    tasks: Vec<RuntimeTask>,
+) -> Vec<(String, Vec<RuntimeTask>)> {
     let mut groups: Vec<(String, Vec<RuntimeTask>)> = Vec::new();
     for task in tasks {
         if let Some((_, grouped)) = groups
@@ -101,25 +103,22 @@ pub(super) fn task_timeline_lines(task: &RuntimeTask) -> Vec<String> {
         ));
     }
     if let Some(at) = task.completed_at.as_deref() {
-        lines.push(format!(
-            "{} | {}",
-            at,
-            task_failure_cause_summary(task)
-        ));
+        lines.push(format!("{} | {}", at, task_failure_cause_summary(task)));
     }
     lines
 }
 
-pub(super) fn task_output_preview(
-    task: &RuntimeTask,
-    max_lines: usize,
-) -> (String, usize, usize) {
+pub(super) fn task_output_preview(task: &RuntimeTask, max_lines: usize) -> (String, usize, usize) {
     let content = std::fs::read_to_string(&task.output_path).ok();
     match content {
         Some(content) => {
             let lines = content.lines().collect::<Vec<_>>();
             let preview_start = lines.len().saturating_sub(max_lines);
-            (lines[preview_start..].join("\n"), preview_start + 1, lines.len())
+            (
+                lines[preview_start..].join("\n"),
+                preview_start + 1,
+                lines.len(),
+            )
         }
         None => ("(unavailable)".to_string(), 0, 0),
     }
@@ -257,7 +256,10 @@ mod tests {
         );
         task.attempt = 3;
         task.retry_of = Some("task-0".to_string());
-        assert_eq!(task_retry_chain_summary(&task), "attempt 3 (retry of task-0)");
+        assert_eq!(
+            task_retry_chain_summary(&task),
+            "attempt 3 (retry of task-0)"
+        );
     }
 
     #[test]
@@ -269,7 +271,10 @@ mod tests {
             "2026-01-01 00:00:00",
             None,
         );
-        assert_eq!(task_artifact_backlink_summary(&task), "output=task-1.log | transcript=task-1.md");
+        assert_eq!(
+            task_artifact_backlink_summary(&task),
+            "output=task-1.log | transcript=task-1.md"
+        );
     }
 
     #[test]
@@ -292,10 +297,7 @@ mod tests {
 
     #[test]
     fn transcript_preview_reads_summary_anchor() {
-        let dir = std::env::temp_dir().join(format!(
-            "yode-task-preview-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let dir = std::env::temp_dir().join(format!("yode-task-preview-{}", uuid::Uuid::new_v4()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let transcript = dir.join("task.md");
@@ -312,7 +314,10 @@ mod tests {
             None,
         );
         task.transcript_path = Some(transcript.display().to_string());
-        assert_eq!(task_transcript_preview(&task).as_deref(), Some("preview line"));
+        assert_eq!(
+            task_transcript_preview(&task).as_deref(),
+            Some("preview line")
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

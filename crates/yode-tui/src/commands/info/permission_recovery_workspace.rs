@@ -206,12 +206,15 @@ pub(crate) fn render_hook_workspace(
     hook_artifact: Option<&str>,
 ) -> String {
     WorkspaceText::new("Hook failure workspace")
-        .field("Failed at", state.last_hook_failure_at.as_deref().unwrap_or("none"))
         .field(
-            "Inspector",
-            hook_artifact.unwrap_or("none").to_string(),
+            "Failed at",
+            state.last_hook_failure_at.as_deref().unwrap_or("none"),
         )
-        .section("Timeline", workspace_bullets(hook_timeline_narrative(state)))
+        .field("Inspector", hook_artifact.unwrap_or("none").to_string())
+        .section(
+            "Timeline",
+            workspace_bullets(hook_timeline_narrative(state)),
+        )
         .section(
             "Artifacts",
             workspace_artifact_lines([("hook", hook_artifact.unwrap_or("none"))]),
@@ -227,7 +230,11 @@ pub(crate) fn render_recovery_workspace(state: &EngineRuntimeState) -> String {
         .field("State", state.recovery_state.clone())
         .field(
             "Last signature",
-            state.last_failed_signature.as_deref().unwrap_or("none").to_string(),
+            state
+                .last_failed_signature
+                .as_deref()
+                .unwrap_or("none")
+                .to_string(),
         )
         .section(
             "Breadcrumbs",
@@ -262,9 +269,9 @@ mod tests {
     use yode_tools::registry::ToolPoolSnapshot;
 
     use super::{
-        hook_timeline_narrative, permission_recovery_operator_guide,
-        render_hook_workspace, render_permission_workspace, render_recovery_workspace,
-        rule_source_badge, suggestion_severity,
+        hook_timeline_narrative, permission_recovery_operator_guide, render_hook_workspace,
+        render_permission_workspace, render_recovery_workspace, rule_source_badge,
+        suggestion_severity,
     };
 
     fn runtime_state() -> EngineRuntimeState {

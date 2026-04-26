@@ -1,7 +1,7 @@
 use crate::commands::workspace_text::{workspace_bullets, WorkspaceText};
 use crate::ui::status_summary::{
-    context_window_summary_text, runtime_status_snapshot_from_parts,
-    session_runtime_summary_text, tool_runtime_summary_text,
+    context_window_summary_text, runtime_status_snapshot_from_parts, session_runtime_summary_text,
+    tool_runtime_summary_text,
 };
 use yode_core::engine::EngineRuntimeState;
 use yode_tools::RuntimeTask;
@@ -24,7 +24,12 @@ pub(super) fn format_artifact_entry(path: &std::path::Path) -> String {
         .and_then(|stamp| stamp.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|stamp| stamp.as_secs().to_string())
         .unwrap_or_else(|| "unknown".to_string());
-    format!("  - {} ({} bytes, mtime={})", path.display(), size, modified)
+    format!(
+        "  - {} ({} bytes, mtime={})",
+        path.display(),
+        size,
+        modified
+    )
 }
 
 pub(super) fn doctor_severity_summary(report: &str) -> String {
@@ -65,7 +70,9 @@ pub(super) fn artifact_freshness_summary(paths: &[std::path::PathBuf]) -> String
             .unwrap_or_else(|| "unknown".to_string());
         labels.push(format!(
             "{}@{}",
-            path.file_name().and_then(|name| name.to_str()).unwrap_or("artifact"),
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("artifact"),
             modified
         ));
     }
@@ -89,11 +96,8 @@ pub(super) fn render_support_bundle_overview(
             .iter()
             .filter(|task| matches!(task.status, yode_tools::RuntimeTaskStatus::Running))
             .count();
-        let snapshot = runtime_status_snapshot_from_parts(
-            project_root,
-            Some(state.clone()),
-            running_tasks,
-        );
+        let snapshot =
+            runtime_status_snapshot_from_parts(project_root, Some(state.clone()), running_tasks);
         workspace = workspace
             .field(
                 "Runtime",
@@ -110,7 +114,10 @@ pub(super) fn render_support_bundle_overview(
             );
     }
     workspace
-        .section("Report severities", workspace_bullets(report_summaries.to_vec()))
+        .section(
+            "Report severities",
+            workspace_bullets(report_summaries.to_vec()),
+        )
         .render()
 }
 
@@ -119,7 +126,7 @@ pub(super) fn support_handoff_template(
     report_names: &[&str],
 ) -> String {
     format!(
-        "# Support Handoff\n\n- Bundle: {}\n- Included reports:\n{}\n\n```text\nWhat to inspect first: local-doctor.txt, bundle-overview.txt, runtime-timeline.md, runtime-tasks.md\nIf runtime stalls or hook failures are suspected, inspect hook-failures.md, runtime-timeline.md, and runtime-tasks.md\n```\n",
+        "# Support Handoff\n\n- Bundle: {}\n- Included reports:\n{}\n\n```text\nWhat to inspect first: local-doctor.txt, bundle-overview.txt, runtime-timeline.md, runtime-tasks.md, prompt-cache.md\nIf runtime stalls or hook failures are suspected, inspect hook-failures.md, runtime-timeline.md, runtime-tasks.md, prompt-cache-break.json, and prompt-cache-diff.md\nIf compaction behavior looks suspicious, inspect post-compact-restore.md, post-compact-restore-state.json, and post-compact-restore-diff.md\n```\n",
         bundle_dir.display(),
         doctor_checklist(report_names)
     )
@@ -127,7 +134,7 @@ pub(super) fn support_handoff_template(
 
 pub(super) fn doctor_bundle_navigation_summary(bundle_dir: &std::path::Path) -> String {
     format!(
-        "bundle={} | local-doctor.txt | bundle-overview.txt | runtime-timeline.md | runtime-tasks.md | support-handoff.md",
+        "bundle={} | local-doctor.txt | bundle-overview.txt | runtime-timeline.md | runtime-tasks.md | prompt-cache.md | prompt-cache-diff.md | support-handoff.md",
         bundle_dir.display()
     )
 }
@@ -164,7 +171,8 @@ mod tests {
     fn checklist_and_handoff_render_report_names() {
         let checklist = doctor_checklist(&["local-doctor.txt", "remote-env.txt"]);
         assert!(checklist.contains("local-doctor.txt"));
-        let handoff = support_handoff_template(std::path::Path::new("/tmp/bundle"), &["local-doctor.txt"]);
+        let handoff =
+            support_handoff_template(std::path::Path::new("/tmp/bundle"), &["local-doctor.txt"]);
         assert!(handoff.contains("Support Handoff"));
         assert!(handoff.contains("runtime-tasks.md"));
     }

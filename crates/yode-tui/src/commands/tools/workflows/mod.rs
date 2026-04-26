@@ -24,7 +24,8 @@ impl WorkflowsCommand {
                     ArgDef {
                         name: "action".into(),
                         required: false,
-                        hint: "[run|run-write|show|preview|latest|history|timeline|init <name>]".into(),
+                        hint: "[run|run-write|show|preview|latest|history|timeline|init <name>]"
+                            .into(),
                         completions: ArgCompletionSource::Static(vec![
                             "run".to_string(),
                             "run-write".to_string(),

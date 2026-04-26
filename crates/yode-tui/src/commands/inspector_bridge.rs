@@ -15,10 +15,7 @@ pub(crate) fn document_from_command_output(title: &str, lines: Vec<String>) -> I
         .into_iter()
         .zip(tabs.iter().cloned())
         .map(|((label, lines), tab)| InspectorPanel {
-            tab: InspectorTab {
-                label,
-                ..tab
-            },
+            tab: InspectorTab { label, ..tab },
             lines,
             badges: Vec::new(),
             actions: Vec::new(),

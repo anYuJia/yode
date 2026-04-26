@@ -13,7 +13,10 @@ pub(crate) fn auth_session_summary(config: &McpServerConfig) -> String {
         .values()
         .filter(|value| value.starts_with('$'))
         .count();
-    format!("env={} refs={} cmd={}", env_count, referenced, config.command)
+    format!(
+        "env={} refs={} cmd={}",
+        env_count, referenced, config.command
+    )
 }
 
 pub(crate) fn latency_sparkline(stats: &[McpToolLatencyEntry], server: &str) -> String {
@@ -121,7 +124,11 @@ pub(crate) fn write_browser_access_state_artifact(
     let short_session = session_id.chars().take(8).collect::<String>();
     let path = dir.join(format!("{}-browser-access-state.json", short_session));
     let payload = compact_browser_state_payload(browser_tools_present, configured_servers);
-    std::fs::write(&path, serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string())).ok()?;
+    std::fs::write(
+        &path,
+        serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()),
+    )
+    .ok()?;
     Some(path.display().to_string())
 }
 
@@ -179,9 +186,9 @@ mod tests {
     use yode_mcp::{McpReconnectDiagnostic, McpToolLatencyEntry};
 
     use super::{
-        auth_session_summary, browser_execution_outcome_summary,
-        browser_mcp_capability_summary, compact_browser_state_payload, latency_sparkline,
-        reconnect_backoff_timeline, remote_tool_source_badge, write_browser_access_state_artifact,
+        auth_session_summary, browser_execution_outcome_summary, browser_mcp_capability_summary,
+        compact_browser_state_payload, latency_sparkline, reconnect_backoff_timeline,
+        remote_tool_source_badge, write_browser_access_state_artifact,
     };
 
     #[test]

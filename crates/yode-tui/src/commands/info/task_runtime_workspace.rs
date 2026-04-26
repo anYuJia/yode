@@ -8,9 +8,7 @@ use crate::commands::info::shared::parse_runtime_timestamp;
 pub(super) fn grouped_task_runtime_summary(tasks: &[RuntimeTask]) -> Vec<String> {
     let mut by_kind = BTreeMap::<String, (usize, usize, usize, usize, usize)>::new();
     for task in tasks {
-        let entry = by_kind
-            .entry(task.kind.clone())
-            .or_insert((0, 0, 0, 0, 0));
+        let entry = by_kind.entry(task.kind.clone()).or_insert((0, 0, 0, 0, 0));
         entry.0 += 1;
         match task.status {
             RuntimeTaskStatus::Pending => entry.1 += 1,
@@ -61,9 +59,7 @@ pub(super) fn task_notification_summary(tasks: &[RuntimeTask]) -> Vec<String> {
                 "[{}] {} {}",
                 badge,
                 task.id,
-                task.error
-                    .as_deref()
-                    .unwrap_or(task.description.as_str())
+                task.error.as_deref().unwrap_or(task.description.as_str())
             )
         })
         .collect::<Vec<_>>();
@@ -166,8 +162,18 @@ mod tests {
     #[test]
     fn grouped_summary_counts_by_kind() {
         let lines = grouped_task_runtime_summary(&[
-            make_task("1", "bash", RuntimeTaskStatus::Completed, "2026-01-01 00:00:00"),
-            make_task("2", "bash", RuntimeTaskStatus::Failed, "2026-01-01 00:00:01"),
+            make_task(
+                "1",
+                "bash",
+                RuntimeTaskStatus::Completed,
+                "2026-01-01 00:00:00",
+            ),
+            make_task(
+                "2",
+                "bash",
+                RuntimeTaskStatus::Failed,
+                "2026-01-01 00:00:01",
+            ),
         ]);
         assert!(lines[0].contains("bash: total=2"));
     }
@@ -175,15 +181,30 @@ mod tests {
     #[test]
     fn notification_summary_prefers_recent_finished_tasks() {
         let lines = task_notification_summary(&[
-            make_task("1", "bash", RuntimeTaskStatus::Completed, "2026-01-01 00:00:00"),
-            make_task("2", "bash", RuntimeTaskStatus::Failed, "2026-01-01 00:00:01"),
+            make_task(
+                "1",
+                "bash",
+                RuntimeTaskStatus::Completed,
+                "2026-01-01 00:00:00",
+            ),
+            make_task(
+                "2",
+                "bash",
+                RuntimeTaskStatus::Failed,
+                "2026-01-01 00:00:01",
+            ),
         ]);
         assert!(lines[0].contains("[error]"));
     }
 
     #[test]
     fn follow_prompt_and_issue_template_include_task_context() {
-        let task = make_task("1", "bash", RuntimeTaskStatus::Failed, "2026-01-01 00:00:00");
+        let task = make_task(
+            "1",
+            "bash",
+            RuntimeTaskStatus::Failed,
+            "2026-01-01 00:00:00",
+        );
         assert!(task_follow_prompt("task-1").contains("task_output"));
         assert!(task_issue_template(&task).contains("# Task Runtime Issue"));
     }

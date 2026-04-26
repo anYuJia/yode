@@ -1,16 +1,16 @@
-use crate::commands::context::CommandContext;
-use crate::commands::artifact_nav::{
-    artifact_freshness_badge, attach_inspector_actions, latest_coordinator_artifact,
-    open_artifact_inspector,
-    recent_artifacts_by_suffix, stale_artifact_actions, write_runtime_orchestration_timeline_artifact,
-};
-use crate::commands::{
-    ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
-    CommandResult,
-};
 use super::coordinate_workspace::{
     coordinator_dry_run_prompt, coordinator_jump_targets, write_coordinator_stub_artifact,
     write_coordinator_summary_artifact,
+};
+use crate::commands::artifact_nav::{
+    artifact_freshness_badge, attach_inspector_actions, latest_coordinator_artifact,
+    open_artifact_inspector, recent_artifacts_by_suffix, stale_artifact_actions,
+    write_runtime_orchestration_timeline_artifact,
+};
+use crate::commands::context::CommandContext;
+use crate::commands::{
+    ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
+    CommandResult,
 };
 
 pub struct CoordinateCommand {
@@ -110,7 +110,10 @@ impl Command for CoordinateCommand {
                 &mut doc,
                 vec![
                     ("coordinate".to_string(), "/coordinate latest".to_string()),
-                    ("workflow".to_string(), "/inspect workflows latest".to_string()),
+                    (
+                        "workflow".to_string(),
+                        "/inspect workflows latest".to_string(),
+                    ),
                 ],
             );
             return Ok(CommandOutput::OpenInspector(doc));
@@ -122,11 +125,8 @@ impl Command for CoordinateCommand {
             trimmed.to_string()
         };
         ctx.input.set_text(&coordinator_dry_run_prompt(&goal));
-        let artifact = write_coordinator_stub_artifact(
-            &project_root,
-            &ctx.session.session_id,
-            &goal,
-        );
+        let artifact =
+            write_coordinator_stub_artifact(&project_root, &ctx.session.session_id, &goal);
         let timeline =
             write_runtime_orchestration_timeline_artifact(&project_root, &ctx.session.session_id);
         let summary = write_coordinator_summary_artifact(

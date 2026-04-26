@@ -30,11 +30,18 @@ pub(crate) fn open_latest_tool_inspector(app: &mut App) -> bool {
     true
 }
 
-fn build_pending_confirmation_document(app: &App, confirm: &PendingConfirmation) -> InspectorDocument {
+fn build_pending_confirmation_document(
+    app: &App,
+    confirm: &PendingConfirmation,
+) -> InspectorDocument {
     let args = parse_json(&confirm.arguments);
     let tool_label = tool_display_name(app, &confirm.name);
     let activity = describe_tool_call(&confirm.name, &args, true)
-        .or_else(|| app.tools.get(&confirm.name).map(|tool| tool.activity_description(&args)))
+        .or_else(|| {
+            app.tools
+                .get(&confirm.name)
+                .map(|tool| tool.activity_description(&args))
+        })
         .unwrap_or_else(|| "Pending tool execution".to_string());
     let risk = tool_risk_hint(app, &confirm.name);
 
@@ -115,7 +122,12 @@ fn build_latest_tool_document(app: &App) -> Option<InspectorDocument> {
                 let result = entries[index + 1..]
                     .iter()
                     .find(|entry| matches!(&entry.role, ChatRole::ToolResult { id: rid, .. } if rid == id));
-                return Some(build_tool_entry_document(app, name, &entries[index].content, result));
+                return Some(build_tool_entry_document(
+                    app,
+                    name,
+                    &entries[index].content,
+                    result,
+                ));
             }
             ChatRole::ToolResult { id, .. } => {
                 let has_preceding = index > 0
@@ -133,7 +145,11 @@ fn build_latest_tool_document(app: &App) -> Option<InspectorDocument> {
     None
 }
 
-fn build_tool_batch_document(_app: &App, entries: &[ChatEntry], batch: &ToolBatch) -> InspectorDocument {
+fn build_tool_batch_document(
+    _app: &App,
+    entries: &[ChatEntry],
+    batch: &ToolBatch,
+) -> InspectorDocument {
     let mut panels = vec![PanelSpec {
         label: "Overview".to_string(),
         lines: vec![
@@ -168,8 +184,12 @@ fn build_tool_batch_document(_app: &App, entries: &[ChatEntry], batch: &ToolBatc
             &item.tool_name,
             &args,
             result_entry.and_then(|entry| entry.tool_metadata.as_ref()),
-            result_entry.map(|entry| entry.content.as_str()).unwrap_or(""),
-            result_entry.is_some_and(|entry| matches!(entry.role, ChatRole::ToolResult { is_error: true, .. })),
+            result_entry
+                .map(|entry| entry.content.as_str())
+                .unwrap_or(""),
+            result_entry.is_some_and(|entry| {
+                matches!(entry.role, ChatRole::ToolResult { is_error: true, .. })
+            }),
         );
         let mut lines = vec![format!(
             "Activity: {}",
@@ -224,7 +244,11 @@ fn build_tool_entry_document(
     let is_active = result_entry.is_none();
     let title = tool_display_name(app, tool_name);
     let activity = describe_tool_call(tool_name, &args, is_active)
-        .or_else(|| app.tools.get(tool_name).map(|tool| tool.activity_description(&args)))
+        .or_else(|| {
+            app.tools
+                .get(tool_name)
+                .map(|tool| tool.activity_description(&args))
+        })
         .unwrap_or_else(|| tool_name.to_string());
 
     let mut summary = vec![
@@ -234,7 +258,10 @@ fn build_tool_entry_document(
     ];
     if let Some(result_entry) = result_entry {
         if let Some(duration) = result_entry.duration {
-            summary.push(format!("Duration: {}", crate::app::format_duration(duration)));
+            summary.push(format!(
+                "Duration: {}",
+                crate::app::format_duration(duration)
+            ));
         }
         if let Some(error_type) = result_entry.tool_error_type.as_deref() {
             summary.push(format!("Error type: {}", error_type));
@@ -311,7 +338,10 @@ fn build_standalone_result_document(app: &App, entry: &ChatEntry) -> InspectorDo
         summary.push(format!("Error type: {}", error_type));
     }
     if let Some(duration) = entry.duration {
-        summary.push(format!("Duration: {}", crate::app::format_duration(duration)));
+        summary.push(format!(
+            "Duration: {}",
+            crate::app::format_duration(duration)
+        ));
     }
 
     let actions = vec![
@@ -436,7 +466,9 @@ fn primary_followup_prompt(
     args: &serde_json::Value,
     result_entry: Option<&ChatEntry>,
 ) -> Option<String> {
-    if result_entry.is_some_and(|entry| matches!(entry.role, ChatRole::ToolResult { is_error: true, .. })) {
+    if result_entry
+        .is_some_and(|entry| matches!(entry.role, ChatRole::ToolResult { is_error: true, .. }))
+    {
         return Some(format!(
             "Explain why the last {} step failed and suggest the safest next action.",
             title
@@ -569,15 +601,14 @@ mod tests {
 
     use tokio::sync::Mutex;
     use yode_llm::registry::ProviderRegistry;
-    use yode_tools::builtin::{register_builtin_tools, register_skill_tool};
     use yode_tools::builtin::skill::SkillStore;
+    use yode_tools::builtin::{register_builtin_tools, register_skill_tool};
     use yode_tools::registry::ToolRegistry;
 
     use crate::app::{App, ChatEntry, ChatRole, PendingConfirmation};
 
     use super::{
-        build_latest_tool_document, build_pending_confirmation_document,
-        INSPECTOR_CONFIRM_ALLOW,
+        build_latest_tool_document, build_pending_confirmation_document, INSPECTOR_CONFIRM_ALLOW,
     };
 
     fn test_app() -> App {
@@ -606,9 +637,18 @@ mod tests {
         };
         let doc = build_pending_confirmation_document(&app, &confirm);
         assert_eq!(doc.panels[0].tab.label, "Overview");
-        assert!(doc.panels[0].lines.iter().any(|line| line.contains("Reading .../src/main.rs")));
-        assert!(doc.panels[1].lines.iter().any(|line| line.contains("/tmp/src/main.rs")));
-        assert!(doc.panels[0].actions.iter().any(|action| action.command == INSPECTOR_CONFIRM_ALLOW));
+        assert!(doc.panels[0]
+            .lines
+            .iter()
+            .any(|line| line.contains("Reading .../src/main.rs")));
+        assert!(doc.panels[1]
+            .lines
+            .iter()
+            .any(|line| line.contains("/tmp/src/main.rs")));
+        assert!(doc.panels[0]
+            .actions
+            .iter()
+            .any(|action| action.command == INSPECTOR_CONFIRM_ALLOW));
     }
 
     #[test]
@@ -638,9 +678,18 @@ mod tests {
 
         let doc = build_latest_tool_document(&app).unwrap();
         assert!(doc.state.title.contains("Bash"));
-        assert!(doc.panels.iter().any(|panel| panel.tab.label == "Arguments"));
+        assert!(doc
+            .panels
+            .iter()
+            .any(|panel| panel.tab.label == "Arguments"));
         assert!(doc.panels.iter().any(|panel| panel.tab.label == "Output"));
-        assert!(doc.panels[0].actions.iter().any(|action| action.command == "/status"));
-        assert!(doc.panels[0].actions.iter().any(|action| action.label == "follow-up"));
+        assert!(doc.panels[0]
+            .actions
+            .iter()
+            .any(|action| action.command == "/status"));
+        assert!(doc.panels[0]
+            .actions
+            .iter()
+            .any(|action| action.label == "follow-up"));
     }
 }

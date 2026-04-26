@@ -20,16 +20,16 @@ use std::sync::LazyLock;
 
 use crate::system_message::append_grouped_system_entry;
 
-pub use self::runtime::run;
-pub(crate) use self::time::format_duration;
-pub(crate) use self::state::SPINNER_VERBS;
 pub(crate) use self::detail_inspector::{
     open_latest_tool_inspector, open_pending_confirmation_inspector,
 };
+pub use self::runtime::run;
+pub(crate) use self::state::SPINNER_VERBS;
 pub use self::state::{
     App, ChatEntry, ChatRole, InspectorView, PendingConfirmation, PermissionMode, SessionState,
     ThinkingState, TurnStatus,
 };
+pub(crate) use self::time::format_duration;
 
 // ── Content Filtering ───────────────────────────────────────────────
 

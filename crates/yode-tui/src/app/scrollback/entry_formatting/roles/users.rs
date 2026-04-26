@@ -117,7 +117,9 @@ mod tests {
             .iter()
             .map(|(line, _)| strip_ansi(line))
             .collect::<Vec<_>>();
-        assert!(rendered.iter().all(|line| !line.contains("维度 | Yode | Claude Code |")));
+        assert!(rendered
+            .iter()
+            .all(|line| !line.contains("维度 | Yode | Claude Code |")));
         assert!(rendered
             .iter()
             .all(|line| !line.contains("命令注册 | 全量静态编译时 | 懒加载 + 运行时动态 |")));

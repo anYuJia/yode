@@ -267,7 +267,9 @@ pub(crate) fn latest_settings_scopes(project_root: &Path) -> Option<SettingsScop
     })
 }
 
-pub(crate) fn latest_managed_mcp_inventory(project_root: &Path) -> Option<ManagedMcpInventorySummary> {
+pub(crate) fn latest_managed_mcp_inventory(
+    project_root: &Path,
+) -> Option<ManagedMcpInventorySummary> {
     let path = latest_startup_artifact(project_root, "managed-mcp-inventory.json")?;
     let payload: RawManagedMcpInventorySummary =
         serde_json::from_str(&std::fs::read_to_string(&path).ok()?).ok()?;
@@ -281,7 +283,9 @@ pub(crate) fn latest_managed_mcp_inventory(project_root: &Path) -> Option<Manage
     })
 }
 
-pub(crate) fn latest_tool_search_activation(project_root: &Path) -> Option<ToolSearchActivationSummary> {
+pub(crate) fn latest_tool_search_activation(
+    project_root: &Path,
+) -> Option<ToolSearchActivationSummary> {
     let path = latest_startup_artifact(project_root, "tool-search-activation.json")?;
     let payload: RawToolSearchActivationSummary =
         serde_json::from_str(&std::fs::read_to_string(&path).ok()?).ok()?;
@@ -319,7 +323,9 @@ mod tests {
     fn parses_provider_inventory_and_manifest() {
         let dir = temp_project_dir("provider");
         std::fs::write(
-            dir.join(".yode").join("startup").join("session12-provider-inventory.json"),
+            dir.join(".yode")
+                .join("startup")
+                .join("session12-provider-inventory.json"),
             r#"{
   "provider_name": "openai",
   "model": "gpt-4o",
@@ -352,7 +358,9 @@ mod tests {
         )
         .unwrap();
         std::fs::write(
-            dir.join(".yode").join("startup").join("session12-startup-bundle-manifest.json"),
+            dir.join(".yode")
+                .join("startup")
+                .join("session12-startup-bundle-manifest.json"),
             r#"{"artifact_count": 4}"#,
         )
         .unwrap();
@@ -360,7 +368,10 @@ mod tests {
         let provider = latest_provider_inventory(&dir).unwrap();
         assert_eq!(provider.provider_name, "openai");
         assert_eq!(provider.source_breakdown.configured_env_override, 1);
-        assert_eq!(provider.provider_details[0].api_key_source, "env_override:OPENAI_API_KEY");
+        assert_eq!(
+            provider.provider_details[0].api_key_source,
+            "env_override:OPENAI_API_KEY"
+        );
 
         let manifest = latest_startup_manifest(&dir).unwrap();
         assert_eq!(manifest.artifact_count, 4);
@@ -372,7 +383,9 @@ mod tests {
     fn parses_mcp_startup_failures() {
         let dir = temp_project_dir("mcp");
         std::fs::write(
-            dir.join(".yode").join("startup").join("session12-mcp-startup-failures.json"),
+            dir.join(".yode")
+                .join("startup")
+                .join("session12-mcp-startup-failures.json"),
             r#"{
   "configured_server_count": 3,
   "connected_server_count": 1,
@@ -396,7 +409,9 @@ mod tests {
     fn parses_settings_scopes_and_managed_mcp_inventory() {
         let dir = temp_project_dir("settings");
         std::fs::write(
-            dir.join(".yode").join("startup").join("session12-settings-scopes.json"),
+            dir.join(".yode")
+                .join("startup")
+                .join("session12-settings-scopes.json"),
             r#"{
   "scopes": [
     {
@@ -420,7 +435,9 @@ mod tests {
         )
         .unwrap();
         std::fs::write(
-            dir.join(".yode").join("startup").join("session12-managed-mcp-inventory.json"),
+            dir.join(".yode")
+                .join("startup")
+                .join("session12-managed-mcp-inventory.json"),
             r#"{
   "effective_server_count": 2,
   "configured_server_count": 2,
@@ -438,7 +455,9 @@ mod tests {
         assert_eq!(inventory.effective_server_count, 2);
         assert_eq!(inventory.mcp_tool_count, 4);
         std::fs::write(
-            dir.join(".yode").join("startup").join("session12-tool-search-activation.json"),
+            dir.join(".yode")
+                .join("startup")
+                .join("session12-tool-search-activation.json"),
             r#"{
   "tool_search_enabled": true,
   "tool_search_reason": "enabled:test",

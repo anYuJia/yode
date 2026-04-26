@@ -1,10 +1,8 @@
-use crate::runtime_display::{
-    format_permission_decision_summary, format_tool_progress_summary,
-};
+use crate::runtime_display::{format_permission_decision_summary, format_tool_progress_summary};
 use crate::runtime_timeline::build_runtime_timeline_lines_with_project_root;
 use crate::ui::status_summary::{
-    context_window_summary_text, runtime_status_snapshot_from_parts,
-    session_runtime_summary_text, tool_runtime_summary_text,
+    context_window_summary_text, runtime_status_snapshot_from_parts, session_runtime_summary_text,
+    tool_runtime_summary_text,
 };
 
 pub(crate) fn render_diagnostics_overview(
@@ -20,8 +18,7 @@ pub(crate) fn render_diagnostics_overview(
         runtime_status_snapshot_from_parts(project_root, Some(state.clone()), running_tasks);
     let runtime_summary =
         session_runtime_summary_text(&runtime_snapshot, state.estimated_context_tokens);
-    let context_summary =
-        context_window_summary_text(Some(state), state.estimated_context_tokens);
+    let context_summary = context_window_summary_text(Some(state), state.estimated_context_tokens);
     let tool_summary = tool_runtime_summary_text(state);
     let recent_denials = if state.recent_permission_denials.is_empty() {
         "none".to_string()
@@ -48,42 +45,57 @@ pub(crate) fn render_diagnostics_overview(
         state.last_tool_progress_message.as_deref(),
         state.last_tool_progress_at.as_deref(),
     );
-    let timeline = build_runtime_timeline_lines_with_project_root(Some(project_root), state, tasks, 6)
-        .into_iter()
-        .map(|line| format!("  - {}", line))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let startup_settings = crate::commands::info::startup_artifacts::latest_settings_scopes(project_root)
-        .map(|summary| {
-            summary
-                .scopes
-                .into_iter()
-                .map(|scope| format!("{}:{} mcp={} rules={}", scope.scope, scope.permission_default_mode.unwrap_or_else(|| "inherit".to_string()), scope.mcp_server_count, scope.permission_rule_count))
-                .collect::<Vec<_>>()
-                .join(" | ")
-        })
-        .unwrap_or_else(|| "none".to_string());
-    let managed_mcp = crate::commands::info::startup_artifacts::latest_managed_mcp_inventory(project_root)
-        .map(|summary| {
-            format!(
-                "effective={} configured={} connected={} tools={} failures={}",
-                summary.effective_server_count,
-                summary.configured_server_count,
-                summary.connected_server_count,
-                summary.mcp_tool_count,
-                summary.failure_count
-            )
-        })
-        .unwrap_or_else(|| "none".to_string());
+    let timeline =
+        build_runtime_timeline_lines_with_project_root(Some(project_root), state, tasks, 6)
+            .into_iter()
+            .map(|line| format!("  - {}", line))
+            .collect::<Vec<_>>()
+            .join("\n");
+    let startup_settings =
+        crate::commands::info::startup_artifacts::latest_settings_scopes(project_root)
+            .map(|summary| {
+                summary
+                    .scopes
+                    .into_iter()
+                    .map(|scope| {
+                        format!(
+                            "{}:{} mcp={} rules={}",
+                            scope.scope,
+                            scope
+                                .permission_default_mode
+                                .unwrap_or_else(|| "inherit".to_string()),
+                            scope.mcp_server_count,
+                            scope.permission_rule_count
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" | ")
+            })
+            .unwrap_or_else(|| "none".to_string());
+    let managed_mcp =
+        crate::commands::info::startup_artifacts::latest_managed_mcp_inventory(project_root)
+            .map(|summary| {
+                format!(
+                    "effective={} configured={} connected={} tools={} failures={}",
+                    summary.effective_server_count,
+                    summary.configured_server_count,
+                    summary.connected_server_count,
+                    summary.mcp_tool_count,
+                    summary.failure_count
+                )
+            })
+            .unwrap_or_else(|| "none".to_string());
     let team_state = crate::commands::artifact_nav::latest_agent_team_state_artifact(project_root)
         .map(|path| path.display().to_string())
         .unwrap_or_else(|| "none".to_string());
-    let remote_live = crate::commands::artifact_nav::latest_remote_live_session_state_artifact(project_root)
-        .map(|path| path.display().to_string())
-        .unwrap_or_else(|| "none".to_string());
-    let hook_defer = crate::commands::artifact_nav::latest_hook_deferred_state_artifact(project_root)
-        .map(|path| path.display().to_string())
-        .unwrap_or_else(|| "none".to_string());
+    let remote_live =
+        crate::commands::artifact_nav::latest_remote_live_session_state_artifact(project_root)
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "none".to_string());
+    let hook_defer =
+        crate::commands::artifact_nav::latest_hook_deferred_state_artifact(project_root)
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "none".to_string());
 
     format!(
         "Diagnostics overview:\n  Runtime summary: {}\n  Context summary: {}\n  Tool summary:    {}\n\nContext:\n  Query source:   {}\n  Compact count:  {} (auto {}, manual {})\n  Breaker reason: {}\n  Compact tokens: {}\n\nMemory:\n  Live memory:    {}{}\n  Memory updates: {}\n  Last memory:    {}\n\nRecovery:\n  State:          {}\n  Last signature: {}\n  Permission:     {}\n  Denials:        {}\n\nTools:\n  Session calls:  {}\n  Progress:       {}\n  Parallel:       {} batches / {} calls\n  Truncations:    {}\n  Errors:         {}\n  Last artifact:  {}\n\nObservability:\n  Hook defer:     {}\n  Agent team:     {}\n  Remote live:    {}\n  Settings:       {}\n  Managed MCP:    {}\n\nTasks:\n  Total:          {}\n  Running:        {}\n\nHooks:\n  Total runs:     {}\n  Timeouts:       {}\n  Wake notices:   {}\n\nTimeline:\n{}",
@@ -263,10 +275,34 @@ mod tests {
         std::fs::create_dir_all(dir.join(".yode").join("teams")).unwrap();
         std::fs::create_dir_all(dir.join(".yode").join("remote")).unwrap();
         std::fs::create_dir_all(dir.join(".yode").join("startup")).unwrap();
-        std::fs::write(dir.join(".yode").join("hooks").join("a-hook-deferred-state.json"), "{}").unwrap();
-        std::fs::write(dir.join(".yode").join("teams").join("a-agent-team-state.json"), "{}").unwrap();
-        std::fs::write(dir.join(".yode").join("remote").join("a-remote-live-session-state.json"), "{}").unwrap();
-        std::fs::write(dir.join(".yode").join("startup").join("a-settings-scopes.json"), r#"{"scopes":[]}"#).unwrap();
+        std::fs::write(
+            dir.join(".yode")
+                .join("hooks")
+                .join("a-hook-deferred-state.json"),
+            "{}",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join(".yode")
+                .join("teams")
+                .join("a-agent-team-state.json"),
+            "{}",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join(".yode")
+                .join("remote")
+                .join("a-remote-live-session-state.json"),
+            "{}",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join(".yode")
+                .join("startup")
+                .join("a-settings-scopes.json"),
+            r#"{"scopes":[]}"#,
+        )
+        .unwrap();
         std::fs::write(dir.join(".yode").join("startup").join("a-managed-mcp-inventory.json"), r#"{"effective_server_count":1,"configured_server_count":1,"connected_server_count":1,"mcp_tool_count":2,"failure_count":0}"#).unwrap();
         let rendered = render_diagnostics_overview(&dir, &state(), &[]);
         assert!(rendered.contains("Hook defer:"));

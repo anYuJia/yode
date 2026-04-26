@@ -65,7 +65,11 @@ fn stable_boundary_from_complete_lines(text: &str) -> usize {
             break;
         }
         let line_end = offset + segment.len();
-        lines.push((offset, line_end, segment.trim_end_matches('\n').trim().to_string()));
+        lines.push((
+            offset,
+            line_end,
+            segment.trim_end_matches('\n').trim().to_string(),
+        ));
         offset = line_end;
     }
 
@@ -150,7 +154,8 @@ fn stable_boundary_from_complete_lines(text: &str) -> usize {
             if list_end == lines.len() && !ended_with_blank {
                 break;
             }
-            let stable_index = if list_end > index && lines[list_end.saturating_sub(1)].2.is_empty() {
+            let stable_index = if list_end > index && lines[list_end.saturating_sub(1)].2.is_empty()
+            {
                 list_end - 1
             } else {
                 list_end.saturating_sub(1)
@@ -181,9 +186,9 @@ fn is_streaming_list_item_line(trimmed: &str) -> bool {
         || trimmed.starts_with("• ")
         || trimmed.starts_with("◦ ")
         || trimmed.starts_with("▪ ")
-        || trimmed
-            .split_once(". ")
-            .is_some_and(|(prefix, _)| !prefix.is_empty() && prefix.chars().all(|ch| ch.is_ascii_digit()))
+        || trimmed.split_once(". ").is_some_and(|(prefix, _)| {
+            !prefix.is_empty() && prefix.chars().all(|ch| ch.is_ascii_digit())
+        })
 }
 
 #[derive(Debug, Clone)]
@@ -499,10 +504,9 @@ fn is_markdown_table_row(line: &str) -> bool {
 fn is_markdown_table_separator(line: &str) -> bool {
     let trimmed = line.trim().trim_matches('|');
     !trimmed.is_empty()
-        && trimmed
-            .split('|')
-            .map(str::trim)
-            .all(|cell| !cell.is_empty() && cell.chars().all(|ch| ch == '-' || ch == ':' || ch == ' '))
+        && trimmed.split('|').map(str::trim).all(|cell| {
+            !cell.is_empty() && cell.chars().all(|ch| ch == '-' || ch == ':' || ch == ' ')
+        })
 }
 
 fn markdown_table_separator_for_row(line: &str) -> String {
@@ -640,9 +644,12 @@ fn is_chinese_section_heading(trimmed: &str) -> bool {
         return false;
     };
     !rest.trim().is_empty()
-        && prefix
-            .chars()
-            .all(|ch| matches!(ch, '一' | '二' | '三' | '四' | '五' | '六' | '七' | '八' | '九' | '十'))
+        && prefix.chars().all(|ch| {
+            matches!(
+                ch,
+                '一' | '二' | '三' | '四' | '五' | '六' | '七' | '八' | '九' | '十'
+            )
+        })
 }
 
 fn is_priority_heading(trimmed: &str) -> bool {
@@ -2361,8 +2368,12 @@ mod tests {
         assert!(lines.iter().any(|line| line.contains("1. one")));
         assert!(lines.iter().any(|line| line.contains("2. two")));
         assert!(lines.iter().any(|line| line.contains("3. three")));
-        assert!(!lines.windows(2).any(|window| window[0].contains("1. one") && window[1].is_empty()));
-        assert!(!lines.windows(2).any(|window| window[0].contains("2. two") && window[1].is_empty()));
+        assert!(!lines
+            .windows(2)
+            .any(|window| window[0].contains("1. one") && window[1].is_empty()));
+        assert!(!lines
+            .windows(2)
+            .any(|window| window[0].contains("2. two") && window[1].is_empty()));
     }
 
     #[test]

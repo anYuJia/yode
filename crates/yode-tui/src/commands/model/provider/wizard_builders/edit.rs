@@ -203,8 +203,6 @@ mod tests {
             "claude-sonnet-4-20250514",
         );
         assert!(options.iter().any(|item| item == "(keep current list)"));
-        assert!(options
-            .iter()
-            .any(|item| item.contains("claude-opus")));
+        assert!(options.iter().any(|item| item.contains("claude-opus")));
     }
 }

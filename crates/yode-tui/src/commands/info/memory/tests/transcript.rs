@@ -70,10 +70,8 @@ fn warm_resume_transcript_caches_reports_warmed_entries() {
 
 #[test]
 fn transcript_cache_stats_track_hits_and_invalidations() {
-    let project_root = std::env::temp_dir().join(format!(
-        "yode-memory-cache-stats-{}",
-        uuid::Uuid::new_v4()
-    ));
+    let project_root =
+        std::env::temp_dir().join(format!("yode-memory-cache-stats-{}", uuid::Uuid::new_v4()));
     let transcript_dir = project_root.join(".yode").join("transcripts");
     std::fs::create_dir_all(&transcript_dir).unwrap();
     let path = transcript_dir.join("aaa-compact-20260101.md");

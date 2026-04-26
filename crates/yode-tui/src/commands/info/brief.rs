@@ -1,5 +1,4 @@
-use crate::commands::context::CommandContext;
-use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
+use super::artifact_preview::{latest_markdown_file, preview_markdown};
 use crate::commands::artifact_nav::{
     artifact_freshness_badge, latest_action_history_artifact, latest_agent_team_monitor_artifact,
     latest_coordinator_artifact, latest_hook_deferred_artifact,
@@ -7,14 +6,15 @@ use crate::commands::artifact_nav::{
     latest_remote_live_session_artifact, latest_remote_task_handoff_artifact,
     latest_runtime_orchestration_artifact, latest_workflow_execution_artifact,
 };
+use crate::commands::context::CommandContext;
 use crate::commands::info::runtime_inspectors::preview_runtime_artifact;
+use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
 use crate::runtime_display::format_turn_artifact_status;
 use crate::runtime_timeline::build_runtime_timeline_lines_with_project_root;
 use crate::ui::status_summary::{
-    context_window_summary_text, runtime_status_snapshot_from_parts,
-    session_runtime_summary_text, tool_runtime_summary_text,
+    context_window_summary_text, runtime_status_snapshot_from_parts, session_runtime_summary_text,
+    tool_runtime_summary_text,
 };
-use super::artifact_preview::{latest_markdown_file, preview_markdown};
 
 pub struct BriefCommand {
     meta: CommandMeta,
@@ -79,16 +79,21 @@ impl Command for BriefCommand {
         let latest_tool_preview = latest_tool_artifact
             .as_ref()
             .and_then(|path| preview_markdown(path, "## Calls"));
-        let recovery_preview =
-            preview_runtime_artifact(state.last_recovery_artifact_path.as_deref(), "## Breadcrumbs");
+        let recovery_preview = preview_runtime_artifact(
+            state.last_recovery_artifact_path.as_deref(),
+            "## Breadcrumbs",
+        );
         let timeline_lines =
             build_runtime_timeline_lines_with_project_root(Some(&working_dir), &state, &tasks, 6);
         let running_tasks = tasks
             .iter()
             .filter(|task| matches!(task.status, yode_tools::RuntimeTaskStatus::Running))
             .collect::<Vec<_>>();
-        let runtime_snapshot =
-            runtime_status_snapshot_from_parts(&working_dir, Some(state.clone()), running_tasks.len());
+        let runtime_snapshot = runtime_status_snapshot_from_parts(
+            &working_dir,
+            Some(state.clone()),
+            running_tasks.len(),
+        );
 
         let mut output = String::from("Brief:\n");
         output.push_str(&format!(
@@ -185,13 +190,14 @@ impl Command for BriefCommand {
                 .map(|preview| format!("\n    {}", preview))
                 .unwrap_or_default()
         ));
-        output.push_str(&format!(
-            "  Recovery preview: {}\n",
-            recovery_preview
-        ));
+        output.push_str(&format!("  Recovery preview: {}\n", recovery_preview));
         output.push_str("  Orchestration:\n");
         for (label, path, alias) in [
-            ("workflow", latest_workflow.as_ref(), "/inspect artifact latest-workflow"),
+            (
+                "workflow",
+                latest_workflow.as_ref(),
+                "/inspect artifact latest-workflow",
+            ),
             (
                 "coordinate",
                 latest_coordinate.as_ref(),
@@ -229,7 +235,10 @@ impl Command for BriefCommand {
                 .unwrap_or_else(|| "none".to_string()),
             latest_remote_control
                 .as_ref()
-                .map(|path| format!(" [{} | /remote-control latest]", artifact_freshness_badge(path)))
+                .map(|path| format!(
+                    " [{} | /remote-control latest]",
+                    artifact_freshness_badge(path)
+                ))
                 .unwrap_or_default()
         ));
         output.push_str(&format!(
@@ -240,7 +249,10 @@ impl Command for BriefCommand {
                 .unwrap_or_else(|| "none".to_string()),
             latest_remote_live
                 .as_ref()
-                .map(|path| format!(" [{} | /remote-control session]", artifact_freshness_badge(path)))
+                .map(|path| format!(
+                    " [{} | /remote-control session]",
+                    artifact_freshness_badge(path)
+                ))
                 .unwrap_or_default()
         ));
         output.push_str(&format!(

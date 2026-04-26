@@ -24,8 +24,8 @@ use self::target::{parse_memory_target, MemoryTarget};
 use self::transcripts::{
     extract_summary_preview, filtered_transcript_entries, fold_transcript_preview,
     parse_date_range_filter, parse_latest_compare_target, parse_list_filter,
-    read_transcript_metadata, resolve_compare_target,
-    truncate_for_display, TranscriptListFilter, TranscriptMode,
+    read_transcript_metadata, resolve_compare_target, truncate_for_display, TranscriptListFilter,
+    TranscriptMode,
 };
 use self::transcripts::{
     latest_transcript, resolve_transcript_target, transcript_target_resolution_error,
@@ -35,11 +35,11 @@ pub(crate) use self::transcripts::{
     ResumeTranscriptCacheWarmupStats,
 };
 use crate::commands::context::CommandContext;
+use crate::commands::workspace_nav::transcript_completion_targets;
 use crate::commands::{
     ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
     CommandResult,
 };
-use crate::commands::workspace_nav::transcript_completion_targets;
 
 const MAX_DISPLAY_CHARS: usize = 12_000;
 const MAX_COMPARE_CONTENT_CHARS: usize = 200_000;

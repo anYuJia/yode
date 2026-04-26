@@ -2,13 +2,12 @@ use std::path::Path;
 
 use crate::commands::artifact_nav::{
     artifact_freshness_badge, attach_inspector_actions, latest_workflow_execution_artifact,
-    open_artifact_inspector,
-    recent_artifacts_by_suffix, stale_artifact_actions,
+    open_artifact_inspector, recent_artifacts_by_suffix, stale_artifact_actions,
     write_runtime_orchestration_timeline_artifact,
 };
 use crate::commands::context::CommandContext;
-use crate::commands::{CommandOutput, CommandResult};
 use crate::commands::workspace_nav::workspace_jump_inventory;
+use crate::commands::{CommandOutput, CommandResult};
 
 use super::definitions::{
     compact_json_preview, is_safe_workflow_step, latest_workflow_name, load_workflow_definition,
@@ -44,19 +43,23 @@ pub(super) fn execute_workflows_command(
             &mut doc,
             vec![
                 ("history".to_string(), "/workflows history".to_string()),
-                ("preview".to_string(), "/workflows preview latest".to_string()),
+                (
+                    "preview".to_string(),
+                    "/workflows preview latest".to_string(),
+                ),
                 ("rerun".to_string(), "/workflows run latest".to_string()),
-                ("rerun-write".to_string(), "/workflows run-write latest".to_string()),
+                (
+                    "rerun-write".to_string(),
+                    "/workflows run-write latest".to_string(),
+                ),
             ],
         );
         return Ok(CommandOutput::OpenInspector(doc));
     }
     if let ["timeline"] = parts.as_slice() {
-        let path = write_runtime_orchestration_timeline_artifact(
-            &project_root,
-            &ctx.session.session_id,
-        )
-        .ok_or_else(|| "Failed to write runtime orchestration timeline.".to_string())?;
+        let path =
+            write_runtime_orchestration_timeline_artifact(&project_root, &ctx.session.session_id)
+                .ok_or_else(|| "Failed to write runtime orchestration timeline.".to_string())?;
         let doc = open_artifact_inspector(
             "Runtime orchestration timeline",
             std::path::Path::new(&path),
@@ -68,7 +71,10 @@ pub(super) fn execute_workflows_command(
         attach_inspector_actions(
             &mut doc,
             vec![
-                ("workflow".to_string(), "/inspect workflows latest".to_string()),
+                (
+                    "workflow".to_string(),
+                    "/inspect workflows latest".to_string(),
+                ),
                 ("coordinate".to_string(), "/coordinate latest".to_string()),
             ],
         );
@@ -377,7 +383,8 @@ fn render_workflow_list(dir: &Path) -> String {
 }
 
 fn workflow_step_summaries(steps: &[serde_json::Value]) -> Vec<String> {
-    steps.iter()
+    steps
+        .iter()
         .enumerate()
         .map(|(index, step)| {
             let tool_name = step

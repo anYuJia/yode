@@ -106,16 +106,17 @@ pub(crate) fn repeated_denial_recovery_hint(
             .join(" | ")
     };
 
-    format!("prefixes: {} / suggestions: {}", prefix_summary, suggestion_summary)
+    format!(
+        "prefixes: {} / suggestions: {}",
+        prefix_summary, suggestion_summary
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use yode_core::permission::{PermissionRule, RuleBehavior, RuleSource};
 
-    use super::{
-        permission_rule_diff_summary, repeated_denial_recovery_hint,
-    };
+    use super::{permission_rule_diff_summary, repeated_denial_recovery_hint};
 
     #[test]
     fn permission_rule_diff_summary_counts_behavior_and_sources() {

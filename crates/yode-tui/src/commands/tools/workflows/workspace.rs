@@ -39,7 +39,8 @@ pub(super) fn workflow_jump_targets(name: &str) -> Vec<String> {
 
 pub(super) fn workflow_remote_bridge_follow_up(project_root: &Path) -> Vec<String> {
     let remote_dir = project_root.join(".yode").join("remote");
-    let Some(path) = latest_artifact_by_suffix(&remote_dir, "remote-workflow-capability.json") else {
+    let Some(path) = latest_artifact_by_suffix(&remote_dir, "remote-workflow-capability.json")
+    else {
         return vec![
             "status: unknown".to_string(),
             "artifact: none".to_string(),
@@ -83,10 +84,7 @@ pub(super) fn write_workflow_execution_artifact(
     std::fs::create_dir_all(&dir).ok()?;
     let short_session = session_id.chars().take(8).collect::<String>();
     let slug = workflow_artifact_slug(name);
-    let path = dir.join(format!(
-        "{}-{}-workflow-execution.md",
-        short_session, slug
-    ));
+    let path = dir.join(format!("{}-{}-workflow-execution.md", short_session, slug));
     let remote_bridge = workflow_remote_bridge_follow_up(project_root)
         .into_iter()
         .map(|line| format!("- {}", line))
@@ -133,8 +131,8 @@ fn workflow_artifact_slug(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        nested_workflow_guard_narrative, workflow_checkpoint_workspace,
-        workflow_jump_targets, workflow_remote_bridge_follow_up, workflow_remote_bridge_hint,
+        nested_workflow_guard_narrative, workflow_checkpoint_workspace, workflow_jump_targets,
+        workflow_remote_bridge_follow_up, workflow_remote_bridge_hint,
         write_workflow_execution_artifact,
     };
 
@@ -160,7 +158,8 @@ mod tests {
 
     #[test]
     fn remote_bridge_follow_up_reads_capability_artifact() {
-        let dir = std::env::temp_dir().join(format!("yode-workflow-bridge-{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("yode-workflow-bridge-{}", uuid::Uuid::new_v4()));
         let remote = dir.join(".yode").join("remote");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&remote).unwrap();
@@ -176,7 +175,8 @@ mod tests {
 
     #[test]
     fn writes_workflow_execution_artifact() {
-        let dir = std::env::temp_dir().join(format!("yode-workflow-artifact-{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("yode-workflow-artifact-{}", uuid::Uuid::new_v4()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let definition = dir.join("demo.json");

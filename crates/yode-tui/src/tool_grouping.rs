@@ -143,7 +143,12 @@ pub(crate) fn tool_batch_summary_text(batch: &ToolBatch) -> String {
         if count == 0 {
             continue;
         }
-        parts.push(summary_part_for_kind(*kind, count, batch.is_active, parts.is_empty()));
+        parts.push(summary_part_for_kind(
+            *kind,
+            count,
+            batch.is_active,
+            parts.is_empty(),
+        ));
     }
 
     let text = parts.join(", ");
@@ -162,7 +167,11 @@ pub(crate) fn summarize_groupable_tool_call(
     let args: Value = serde_json::from_str(args_json).unwrap_or(Value::Null);
     let kind = classify_groupable_tool(tool_name, &args)?;
     let text = summary_part_for_kind(kind, 1, is_active, true);
-    Some(if is_active { format!("{}...", text) } else { text })
+    Some(if is_active {
+        format!("{}...", text)
+    } else {
+        text
+    })
 }
 
 pub(crate) fn summarize_batch_invocations(
@@ -193,21 +202,26 @@ pub(crate) fn summarize_batch_invocations(
         if count == 0 {
             continue;
         }
-        parts.push(summary_part_for_kind(*kind, count, is_active, parts.is_empty()));
+        parts.push(summary_part_for_kind(
+            *kind,
+            count,
+            is_active,
+            parts.is_empty(),
+        ));
     }
 
     let text = parts.join(", ");
     Some((
-        if is_active { format!("{}...", text) } else { text },
+        if is_active {
+            format!("{}...", text)
+        } else {
+            text
+        },
         first_target,
     ))
 }
 
-pub(crate) fn describe_tool_call(
-    tool_name: &str,
-    args: &Value,
-    is_active: bool,
-) -> Option<String> {
+pub(crate) fn describe_tool_call(tool_name: &str, args: &Value, is_active: bool) -> Option<String> {
     if let Some(description) = describe_groupable_tool_call(tool_name, args, is_active) {
         return Some(description);
     }
@@ -216,12 +230,20 @@ pub(crate) fn describe_tool_call(
         "edit_file" | "multi_edit" => Some(format!(
             "{} {}",
             if is_active { "Editing" } else { "Edited" },
-            compact_path(args.get("file_path").and_then(Value::as_str).unwrap_or("file"))
+            compact_path(
+                args.get("file_path")
+                    .and_then(Value::as_str)
+                    .unwrap_or("file")
+            )
         )),
         "write_file" => Some(format!(
             "{} {}",
             if is_active { "Writing" } else { "Wrote" },
-            compact_path(args.get("file_path").and_then(Value::as_str).unwrap_or("file"))
+            compact_path(
+                args.get("file_path")
+                    .and_then(Value::as_str)
+                    .unwrap_or("file")
+            )
         )),
         "bash" | "powershell" => Some(format!(
             "{} {}",
@@ -261,10 +283,15 @@ pub(crate) fn describe_tool_call(
         "web_browser" => Some(format!(
             "{} browser {}",
             if is_active { "Using" } else { "Used" },
-            args.get("action").and_then(Value::as_str).unwrap_or("action")
+            args.get("action")
+                .and_then(Value::as_str)
+                .unwrap_or("action")
         )),
         "memory" => {
-            let action = args.get("action").and_then(Value::as_str).unwrap_or("manage");
+            let action = args
+                .get("action")
+                .and_then(Value::as_str)
+                .unwrap_or("manage");
             let name = args.get("name").and_then(Value::as_str).unwrap_or("memory");
             Some(format!(
                 "{} memory {}",
@@ -286,12 +313,22 @@ pub(crate) fn describe_groupable_tool_call(
         ToolBatchItemKind::ReadFile => format!(
             "{} {}",
             if is_active { "Reading" } else { "Read" },
-            compact_path(args.get("file_path").and_then(Value::as_str).unwrap_or("file"))
+            compact_path(
+                args.get("file_path")
+                    .and_then(Value::as_str)
+                    .unwrap_or("file")
+            )
         ),
         ToolBatchItemKind::SearchPattern => format!(
             "{} {}",
-            if is_active { "Searching for" } else { "Searched for" },
-            args.get("pattern").and_then(Value::as_str).unwrap_or("pattern")
+            if is_active {
+                "Searching for"
+            } else {
+                "Searched for"
+            },
+            args.get("pattern")
+                .and_then(Value::as_str)
+                .unwrap_or("pattern")
         ),
         ToolBatchItemKind::SearchWeb => format!(
             "{} {}",
@@ -309,7 +346,11 @@ pub(crate) fn describe_groupable_tool_call(
             } else {
                 "Searched references in"
             },
-            compact_path(args.get("filePath").and_then(Value::as_str).unwrap_or("file"))
+            compact_path(
+                args.get("filePath")
+                    .and_then(Value::as_str)
+                    .unwrap_or("file")
+            )
         ),
         ToolBatchItemKind::ReadMemory => format!(
             "{} {}",
@@ -329,7 +370,9 @@ pub(crate) fn describe_groupable_tool_call(
         ToolBatchItemKind::ListMemory => format!(
             "{} {} memories",
             if is_active { "Listing" } else { "Listed" },
-            args.get("scope").and_then(Value::as_str).unwrap_or("project")
+            args.get("scope")
+                .and_then(Value::as_str)
+                .unwrap_or("project")
         ),
         ToolBatchItemKind::ListSkill => {
             if is_active {
@@ -346,8 +389,16 @@ pub(crate) fn describe_groupable_tool_call(
         ToolBatchItemKind::InspectSymbol => format!(
             "{} {} in {}",
             if is_active { "Inspecting" } else { "Inspected" },
-            lsp_inspect_label(args.get("operation").and_then(Value::as_str).unwrap_or("symbol")),
-            compact_path(args.get("filePath").and_then(Value::as_str).unwrap_or("file"))
+            lsp_inspect_label(
+                args.get("operation")
+                    .and_then(Value::as_str)
+                    .unwrap_or("symbol")
+            ),
+            compact_path(
+                args.get("filePath")
+                    .and_then(Value::as_str)
+                    .unwrap_or("file")
+            )
         ),
         ToolBatchItemKind::AnalyzeProject => {
             if is_active {
@@ -485,11 +536,15 @@ fn classify_groupable_tool(name: &str, args: &Value) -> Option<ToolBatchItemKind
 fn batch_invocation_target(tool_name: &str, args: &Value) -> Option<String> {
     match tool_name {
         "read_file" => Some(compact_path(
-            args.get("file_path").and_then(Value::as_str).unwrap_or("file"),
+            args.get("file_path")
+                .and_then(Value::as_str)
+                .unwrap_or("file"),
         )),
         "grep" | "glob" => Some(format!(
             "\"{}\"",
-            args.get("pattern").and_then(Value::as_str).unwrap_or("pattern")
+            args.get("pattern")
+                .and_then(Value::as_str)
+                .unwrap_or("pattern")
         )),
         "ls" => Some(compact_path(
             args.get("path").and_then(Value::as_str).unwrap_or("."),
@@ -568,15 +623,7 @@ fn summary_part_for_kind(
             "searched the web for",
         ),
         ToolBatchItemKind::ReadFile => action_summary_part(
-            count,
-            "file",
-            "files",
-            is_active,
-            is_first,
-            "Reading",
-            "reading",
-            "Read",
-            "read",
+            count, "file", "files", is_active, is_first, "Reading", "reading", "Read", "read",
         ),
         ToolBatchItemKind::ReadMemory => action_summary_part(
             count,
@@ -590,15 +637,7 @@ fn summary_part_for_kind(
             "recalled",
         ),
         ToolBatchItemKind::ReadSkill => action_summary_part(
-            count,
-            "skill",
-            "skills",
-            is_active,
-            is_first,
-            "Reading",
-            "reading",
-            "Read",
-            "read",
+            count, "skill", "skills", is_active, is_first, "Reading", "reading", "Read", "read",
         ),
         ToolBatchItemKind::ListDirectory => action_summary_part(
             count,
@@ -612,36 +651,14 @@ fn summary_part_for_kind(
             "listed",
         ),
         ToolBatchItemKind::ListMemory => action_summary_part(
-            count,
-            "memory",
-            "memories",
-            is_active,
-            is_first,
-            "Listing",
-            "listing",
-            "Listed",
+            count, "memory", "memories", is_active, is_first, "Listing", "listing", "Listed",
             "listed",
         ),
         ToolBatchItemKind::ListSkill => action_summary_part(
-            count,
-            "skill",
-            "skills",
-            is_active,
-            is_first,
-            "Listing",
-            "listing",
-            "Listed",
-            "listed",
+            count, "skill", "skills", is_active, is_first, "Listing", "listing", "Listed", "listed",
         ),
         ToolBatchItemKind::FetchPage => action_summary_part(
-            count,
-            "page",
-            "pages",
-            is_active,
-            is_first,
-            "Fetching",
-            "fetching",
-            "Fetched",
+            count, "page", "pages", is_active, is_first, "Fetching", "fetching", "Fetched",
             "fetched",
         ),
         ToolBatchItemKind::InspectSymbol => action_summary_part(
@@ -681,7 +698,11 @@ fn action_summary_part(
     done_rest: &str,
 ) -> String {
     let verb = if is_active {
-        if is_first { active_first } else { active_rest }
+        if is_first {
+            active_first
+        } else {
+            active_rest
+        }
     } else if is_first {
         done_first
     } else {
@@ -776,8 +797,8 @@ mod tests {
 
     use super::{
         describe_groupable_tool_call, describe_tool_call, detect_groupable_subagent_batch,
-        detect_groupable_system_batch, detect_groupable_tool_batch, tool_batch_summary_text,
-        summarize_batch_invocations, ToolBatchKind, ToolBatchItemKind,
+        detect_groupable_system_batch, detect_groupable_tool_batch, summarize_batch_invocations,
+        tool_batch_summary_text, ToolBatchItemKind, ToolBatchKind,
     };
 
     #[test]

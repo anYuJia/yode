@@ -10,15 +10,15 @@ use tokio::sync::{mpsc, Mutex};
 use yode_core::engine::{AgentEngine, ConfirmResponse, EngineEvent};
 use yode_tools::registry::ToolRegistry;
 
-use crate::event;
 use crate::commands::artifact_nav::record_inspector_action_history;
+use crate::event;
 
-use super::engine_events::provider::{reload_provider_from_config, switch_provider_from_config};
-use super::key_handlers::{handle_char, handle_down, handle_tab, handle_up};
-use super::turn_flow::handle_enter;
 use super::detail_inspector::{
     INSPECTOR_CONFIRM_ALLOW, INSPECTOR_CONFIRM_ALWAYS, INSPECTOR_CONFIRM_DENY,
 };
+use super::engine_events::provider::{reload_provider_from_config, switch_provider_from_config};
+use super::key_handlers::{handle_char, handle_down, handle_tab, handle_up};
+use super::turn_flow::handle_enter;
 use super::{
     input, open_latest_tool_inspector, open_pending_confirmation_inspector, push_system_entry, App,
     ChatEntry, ChatRole,
@@ -82,8 +82,7 @@ pub(super) fn handle_key_event(
                             app.wizard.as_ref().and_then(|w| w.apply_provider.clone());
                         let reload_name =
                             app.wizard.as_ref().and_then(|w| w.reload_provider.clone());
-                        let apply_model =
-                            app.wizard.as_ref().and_then(|w| w.apply_model.clone());
+                        let apply_model = app.wizard.as_ref().and_then(|w| w.apply_model.clone());
                         for msg in messages {
                             push_system_entry(app, msg);
                         }
@@ -124,10 +123,20 @@ pub(super) fn handle_key_event(
             KeyCode::Down => inspector.document.move_down(),
             KeyCode::PageUp => inspector.document.page_up(10),
             KeyCode::PageDown => inspector.document.page_down(10),
-            KeyCode::Left if matches!(inspector.document.state.focus, crate::ui::inspector::InspectorFocus::Actions) => {
+            KeyCode::Left
+                if matches!(
+                    inspector.document.state.focus,
+                    crate::ui::inspector::InspectorFocus::Actions
+                ) =>
+            {
                 inspector.document.cycle_action_prev();
             }
-            KeyCode::Right if matches!(inspector.document.state.focus, crate::ui::inspector::InspectorFocus::Actions) => {
+            KeyCode::Right
+                if matches!(
+                    inspector.document.state.focus,
+                    crate::ui::inspector::InspectorFocus::Actions
+                ) =>
+            {
                 inspector.document.cycle_action_next();
             }
             KeyCode::Tab => {
@@ -147,8 +156,10 @@ pub(super) fn handle_key_event(
             KeyCode::Enter => {
                 let execute_now = key.modifiers.contains(KeyModifiers::CONTROL);
                 let action_label = if let Some(panel) = inspector.document.active_panel() {
-                    if matches!(inspector.document.state.focus, crate::ui::inspector::InspectorFocus::Actions)
-                        && !panel.actions.is_empty()
+                    if matches!(
+                        inspector.document.state.focus,
+                        crate::ui::inspector::InspectorFocus::Actions
+                    ) && !panel.actions.is_empty()
                     {
                         let index = inspector
                             .document
@@ -533,7 +544,10 @@ mod tests {
 
     use crate::app::{App, PendingConfirmation};
 
-    use super::{execute_inspector_internal_action, INSPECTOR_CONFIRM_ALLOW, INSPECTOR_CONFIRM_ALWAYS, INSPECTOR_CONFIRM_DENY};
+    use super::{
+        execute_inspector_internal_action, INSPECTOR_CONFIRM_ALLOW, INSPECTOR_CONFIRM_ALWAYS,
+        INSPECTOR_CONFIRM_DENY,
+    };
 
     fn test_app() -> App {
         App::new(
@@ -559,7 +573,10 @@ mod tests {
             arguments: "{\"command\":\"echo hi\"}".to_string(),
         });
 
-        assert!(execute_inspector_internal_action(&mut app, INSPECTOR_CONFIRM_ALLOW));
+        assert!(execute_inspector_internal_action(
+            &mut app,
+            INSPECTOR_CONFIRM_ALLOW
+        ));
         assert!(matches!(rx.recv().await, Some(ConfirmResponse::Allow)));
         assert!(app.pending_confirmation.is_none());
     }
@@ -575,7 +592,10 @@ mod tests {
             arguments: "{\"command\":\"echo hi\"}".to_string(),
         });
 
-        assert!(execute_inspector_internal_action(&mut app, INSPECTOR_CONFIRM_ALWAYS));
+        assert!(execute_inspector_internal_action(
+            &mut app,
+            INSPECTOR_CONFIRM_ALWAYS
+        ));
         assert!(matches!(rx.recv().await, Some(ConfirmResponse::Allow)));
         assert!(app.session.always_allow_tools.contains(&"bash".to_string()));
     }
@@ -591,7 +611,10 @@ mod tests {
             arguments: "{\"command\":\"echo hi\"}".to_string(),
         });
 
-        assert!(execute_inspector_internal_action(&mut app, INSPECTOR_CONFIRM_DENY));
+        assert!(execute_inspector_internal_action(
+            &mut app,
+            INSPECTOR_CONFIRM_DENY
+        ));
         assert!(matches!(rx.recv().await, Some(ConfirmResponse::Deny)));
         assert!(app.pending_confirmation.is_none());
     }

@@ -1,8 +1,7 @@
-use crate::commands::context::CommandContext;
-use crate::commands::{
-    ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
-    CommandResult,
+use super::review_workspace::{
+    compact_review_status_badge, fold_review_preview_for_workspace, review_summary_pane,
 };
+use crate::commands::context::CommandContext;
 use crate::commands::transcript_review_nav::{
     transcript_review_cross_reference, transcript_review_operator_guide,
 };
@@ -10,8 +9,9 @@ use crate::commands::workspace_nav::{
     review_completion_targets, review_jump_targets, workspace_breadcrumb, workspace_jump_inventory,
 };
 use crate::commands::workspace_text::{workspace_artifact_lines, workspace_bullets, WorkspaceText};
-use super::review_workspace::{
-    compact_review_status_badge, fold_review_preview_for_workspace, review_summary_pane,
+use crate::commands::{
+    ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
+    CommandResult,
 };
 
 pub struct ReviewsCommand {
@@ -141,13 +141,23 @@ impl Command for ReviewsCommand {
                 .subtitle(path.display().to_string())
                 .field(
                     "Breadcrumb",
-                    workspace_breadcrumb("Reviews", Some(path.file_name().and_then(|n| n.to_str()).unwrap_or("latest"))),
+                    workspace_breadcrumb(
+                        "Reviews",
+                        Some(
+                            path.file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or("latest"),
+                        ),
+                    ),
                 )
                 .section(
                     "Artifacts",
                     workspace_artifact_lines([("review", path.display().to_string())]),
                 )
-                .section("Summary", workspace_bullets([review_summary_pane(path, &content)]))
+                .section(
+                    "Summary",
+                    workspace_bullets([review_summary_pane(path, &content)]),
+                )
                 .section(
                     "Preview",
                     workspace_bullets([fold_review_preview_for_workspace(&content)]),
@@ -178,13 +188,23 @@ impl Command for ReviewsCommand {
                 .subtitle(path.display().to_string())
                 .field(
                     "Breadcrumb",
-                    workspace_breadcrumb("Reviews", Some(path.file_name().and_then(|n| n.to_str()).unwrap_or("artifact"))),
+                    workspace_breadcrumb(
+                        "Reviews",
+                        Some(
+                            path.file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or("artifact"),
+                        ),
+                    ),
                 )
                 .section(
                     "Artifacts",
                     workspace_artifact_lines([("review", path.display().to_string())]),
                 )
-                .section("Summary", workspace_bullets([review_summary_pane(path, &content)]))
+                .section(
+                    "Summary",
+                    workspace_bullets([review_summary_pane(path, &content)]),
+                )
                 .section(
                     "Preview",
                     workspace_bullets([fold_review_preview_for_workspace(&content)]),
@@ -253,10 +273,7 @@ fn summarize_review_artifacts(entries: &[std::path::PathBuf]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        review_artifact_badge,
-        summarize_review_artifacts,
-    };
+    use super::{review_artifact_badge, summarize_review_artifacts};
     use crate::commands::dev::review_workspace::{
         extract_review_result_body, fold_review_preview_for_workspace,
     };

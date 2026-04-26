@@ -94,7 +94,11 @@ pub(super) async fn prepare_runtime(
                 " resume_warmup[transcripts={} metadata={} latest={} duration={}ms]",
                 stats.transcript_count,
                 stats.metadata_entries_warmed,
-                if stats.latest_lookup_cached { "yes" } else { "no" },
+                if stats.latest_lookup_cached {
+                    "yes"
+                } else {
+                    "no"
+                },
                 stats.duration_ms
             ));
         }

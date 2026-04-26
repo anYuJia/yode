@@ -428,10 +428,8 @@ mod tests {
 
     #[test]
     fn wrap_terminal_text_preserves_hanging_indent_for_ordered_lists() {
-        let wrapped = wrap_terminal_text(
-            "11. Voice 语音 — CC 有 STT/TTS 与更完整的语音集成能力",
-            24,
-        );
+        let wrapped =
+            wrap_terminal_text("11. Voice 语音 — CC 有 STT/TTS 与更完整的语音集成能力", 24);
         assert!(wrapped.len() > 1);
         assert!(wrapped[1].starts_with("    "));
     }

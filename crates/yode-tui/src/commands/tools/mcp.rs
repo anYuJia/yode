@@ -1,14 +1,14 @@
-use crate::commands::context::CommandContext;
-use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
-use crate::commands::info::startup_artifacts::{
-    latest_managed_mcp_inventory, latest_settings_scopes,
-};
-use std::collections::{BTreeMap, BTreeSet};
 use super::mcp_workspace::{
     auth_session_summary, browser_mcp_capability_summary, latency_sparkline,
     reconnect_backoff_timeline, remote_tool_source_badge, render_browser_access_workspace,
     resource_cache_activity_summary, write_browser_access_state_artifact,
 };
+use crate::commands::context::CommandContext;
+use crate::commands::info::startup_artifacts::{
+    latest_managed_mcp_inventory, latest_settings_scopes,
+};
+use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
+use std::collections::{BTreeMap, BTreeSet};
 
 pub struct McpCommand {
     meta: CommandMeta,
@@ -102,11 +102,12 @@ impl Command for McpCommand {
             "  Cache stats: {}",
             resource_cache_activity_summary()
         ));
-        let browser_tools_present = ctx
-            .tools
-            .definitions()
-            .into_iter()
-            .any(|definition| matches!(definition.name.as_str(), "web_search" | "web_fetch" | "web_browser"));
+        let browser_tools_present = ctx.tools.definitions().into_iter().any(|definition| {
+            matches!(
+                definition.name.as_str(),
+                "web_search" | "web_fetch" | "web_browser"
+            )
+        });
         lines.push(format!(
             "  Capability merge: {}",
             browser_mcp_capability_summary(browser_tools_present, configured_servers.len())
@@ -121,7 +122,10 @@ impl Command for McpCommand {
                         "{}(exists={} mode={} rules={} mcp={} path={})",
                         scope.scope,
                         scope.exists,
-                        scope.permission_default_mode.as_deref().unwrap_or("inherit"),
+                        scope
+                            .permission_default_mode
+                            .as_deref()
+                            .unwrap_or("inherit"),
                         scope.permission_rule_count,
                         scope.mcp_server_count,
                         scope.path
@@ -186,7 +190,10 @@ impl Command for McpCommand {
         ) {
             lines.push(format!("  Browser state artifact: {}", path));
             if let Some(preview) = render_browser_access_workspace(std::path::Path::new(&path)) {
-                lines.push(format!("  Browser state preview: {}", preview.replace('\n', " | ")));
+                lines.push(format!(
+                    "  Browser state preview: {}",
+                    preview.replace('\n', " | ")
+                ));
             }
         }
         Ok(CommandOutput::Messages(lines))

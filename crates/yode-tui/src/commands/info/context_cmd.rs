@@ -44,7 +44,7 @@ impl Command for ContextCommand {
         let threshold = runtime
             .as_ref()
             .map(|state| state.compaction_threshold_tokens)
-            .unwrap_or((context_window as f64 * 0.75) as usize);
+            .unwrap_or((context_window as f64 * 0.93) as usize);
         let pct = (est_tokens as f64 / context_window as f64 * 100.0).min(100.0);
         let runtime_lines = if let Some(state) = runtime {
             format!(

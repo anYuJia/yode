@@ -1,8 +1,8 @@
 use std::fs;
 use std::time::Instant;
 
-use super::*;
 use super::super::preview::truncate_preview_text;
+use super::*;
 
 pub(in crate::commands::info::memory) fn read_transcript_metadata(
     path: &Path,

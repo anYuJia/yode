@@ -26,7 +26,10 @@ pub(crate) fn preview_markdown(path: &std::path::Path, section_hint: &str) -> Op
     if squashed.is_empty() {
         None
     } else if squashed.chars().count() > 180 {
-        Some(format!("{}...", squashed.chars().take(180).collect::<String>()))
+        Some(format!(
+            "{}...",
+            squashed.chars().take(180).collect::<String>()
+        ))
     } else {
         Some(squashed)
     }

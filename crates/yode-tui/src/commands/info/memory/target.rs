@@ -1,5 +1,5 @@
 use super::compare::{parse_compare_args, CompareArgs};
-use super::transcripts::{parse_list_filter, parse_latest_compare_target, TranscriptListFilter};
+use super::transcripts::{parse_latest_compare_target, parse_list_filter, TranscriptListFilter};
 
 pub(super) enum MemoryTarget {
     Overview,

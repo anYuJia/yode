@@ -28,7 +28,8 @@ impl DoctorCommand {
                 args: vec![ArgDef {
                     name: "target".to_string(),
                     required: false,
-                    hint: "[remote|remote-control|remote-review|remote-artifacts|restore|bundle]".to_string(),
+                    hint: "[remote|remote-control|remote-review|remote-artifacts|restore|bundle]"
+                        .to_string(),
                     completions: ArgCompletionSource::Static(vec![
                         "bundle".to_string(),
                         "remote".to_string(),

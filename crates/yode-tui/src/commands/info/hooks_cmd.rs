@@ -1,6 +1,6 @@
 use crate::commands::context::CommandContext;
-use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
 use crate::commands::info::permission_recovery_workspace::render_hook_workspace;
+use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
 use crate::runtime_artifacts::write_hook_failure_artifact;
 
 pub struct HooksCommand {

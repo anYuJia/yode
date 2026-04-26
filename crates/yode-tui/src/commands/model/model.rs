@@ -20,10 +20,9 @@ impl ModelCommand {
                     name: "model".into(),
                     required: false,
                     hint: "list | default | model name".into(),
-                    completions: ArgCompletionSource::Dynamic(|ctx| model_completions(
-                        ctx.provider_name,
-                        ctx.provider_models,
-                    )),
+                    completions: ArgCompletionSource::Dynamic(|ctx| {
+                        model_completions(ctx.provider_name, ctx.provider_models)
+                    }),
                 }],
                 category: CommandCategory::Model,
                 hidden: false,
@@ -85,7 +84,11 @@ impl Command for ModelCommand {
     }
 }
 
-fn render_model_inventory(provider_name: &str, current_model: &str, provider_models: &[String]) -> String {
+fn render_model_inventory(
+    provider_name: &str,
+    current_model: &str,
+    provider_models: &[String],
+) -> String {
     let models_list = if provider_models.is_empty() {
         "  (unrestricted; use `/model <name>` to set any model)".to_string()
     } else {
@@ -246,7 +249,12 @@ fn resolve_anthropic_alias(
     let normalized = raw.trim().to_ascii_lowercase();
     let source_models = if provider_models.is_empty() {
         yode_llm::find_provider_info("anthropic")
-            .map(|info| info.default_models.iter().map(|item| item.to_string()).collect::<Vec<_>>())
+            .map(|info| {
+                info.default_models
+                    .iter()
+                    .map(|item| item.to_string())
+                    .collect::<Vec<_>>()
+            })
             .unwrap_or_else(|| vec![current_model.to_string()])
     } else {
         provider_models.to_vec()
@@ -326,13 +334,20 @@ fn build_add_model_wizard(provider_name: &str, current_model: &str) -> Wizard {
                     provider.models.push(model.clone());
                 }
             }
-            let first_model = models.first().cloned().unwrap_or_else(|| current_model.clone());
+            let first_model = models
+                .first()
+                .cloned()
+                .unwrap_or_else(|| current_model.clone());
             config.llm.default_model = first_model.clone();
             config.save().map_err(|e| e.to_string())?;
 
             Ok(WizardCompletion::apply_model(
                 vec![
-                    format!("Added models to provider '{}': {}", provider_name, models.join(", ")),
+                    format!(
+                        "Added models to provider '{}': {}",
+                        provider_name,
+                        models.join(", ")
+                    ),
                     format!("Default/current model: {}", first_model),
                 ],
                 first_model,
@@ -365,7 +380,9 @@ mod tests {
                 "claude-opus-4-20250514".to_string(),
             ],
         );
-        assert!(choices.iter().any(|choice| choice.display.contains("[current]")));
+        assert!(choices
+            .iter()
+            .any(|choice| choice.display.contains("[current]")));
         assert!(choices.iter().any(|choice| choice.display == "Add model…"));
     }
 

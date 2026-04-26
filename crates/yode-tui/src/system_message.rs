@@ -36,52 +36,53 @@ pub(crate) fn parse_system_message(content: &str) -> SystemMessageView {
         };
     };
 
-    let (kind, title, first_detail) =
-        if let Some(detail) = strip_title_suffix(first_line, "Context compressed") {
-            (
-                SystemMessageKind::Context,
-                "Context compressed".to_string(),
-                detail,
-            )
-        } else if let Some(detail) = strip_title_suffix(first_line, "Session memory updated") {
-            (
-                SystemMessageKind::Memory,
-                "Session memory updated".to_string(),
-                detail,
-            )
-        } else if let Some(detail) = strip_title_suffix(first_line, "Budget exceeded") {
-            (
-                SystemMessageKind::Budget,
-                "Budget exceeded".to_string(),
-                detail,
-            )
-        } else if let Some(detail) = strip_title_suffix(first_line, "Turn completed") {
-            (
-                SystemMessageKind::Turn,
-                "Turn completed".to_string(),
-                detail,
-            )
-        } else if let Some((title, detail)) = split_task_line(first_line) {
-            (SystemMessageKind::Task, title, detail)
-        } else if let Some(detail) = strip_title_suffix(first_line, "Background tasks still running") {
-            (
-                SystemMessageKind::Task,
-                "Background tasks still running".to_string(),
-                detail,
-            )
-        } else if let Some((title, detail)) = split_export_line(first_line) {
-            (SystemMessageKind::Export, title, detail)
-        } else if let Some((title, detail)) = split_warning_line(first_line) {
-            (SystemMessageKind::Warning, title, detail)
-        } else if is_lifecycle_message(first_line) {
-            (SystemMessageKind::Lifecycle, first_line.clone(), None)
-        } else if is_plan_message(first_line) {
-            (SystemMessageKind::Plan, first_line.clone(), None)
-        } else if is_update_message(first_line) {
-            (SystemMessageKind::Update, first_line.clone(), None)
-        } else {
-            (SystemMessageKind::Generic, first_line.clone(), None)
-        };
+    let (kind, title, first_detail) = if let Some(detail) =
+        strip_title_suffix(first_line, "Context compressed")
+    {
+        (
+            SystemMessageKind::Context,
+            "Context compressed".to_string(),
+            detail,
+        )
+    } else if let Some(detail) = strip_title_suffix(first_line, "Session memory updated") {
+        (
+            SystemMessageKind::Memory,
+            "Session memory updated".to_string(),
+            detail,
+        )
+    } else if let Some(detail) = strip_title_suffix(first_line, "Budget exceeded") {
+        (
+            SystemMessageKind::Budget,
+            "Budget exceeded".to_string(),
+            detail,
+        )
+    } else if let Some(detail) = strip_title_suffix(first_line, "Turn completed") {
+        (
+            SystemMessageKind::Turn,
+            "Turn completed".to_string(),
+            detail,
+        )
+    } else if let Some((title, detail)) = split_task_line(first_line) {
+        (SystemMessageKind::Task, title, detail)
+    } else if let Some(detail) = strip_title_suffix(first_line, "Background tasks still running") {
+        (
+            SystemMessageKind::Task,
+            "Background tasks still running".to_string(),
+            detail,
+        )
+    } else if let Some((title, detail)) = split_export_line(first_line) {
+        (SystemMessageKind::Export, title, detail)
+    } else if let Some((title, detail)) = split_warning_line(first_line) {
+        (SystemMessageKind::Warning, title, detail)
+    } else if is_lifecycle_message(first_line) {
+        (SystemMessageKind::Lifecycle, first_line.clone(), None)
+    } else if is_plan_message(first_line) {
+        (SystemMessageKind::Plan, first_line.clone(), None)
+    } else if is_update_message(first_line) {
+        (SystemMessageKind::Update, first_line.clone(), None)
+    } else {
+        (SystemMessageKind::Generic, first_line.clone(), None)
+    };
 
     let mut detail_lines = Vec::new();
     if let Some(detail) = first_detail.filter(|detail| !detail.is_empty()) {
@@ -114,7 +115,8 @@ pub(crate) fn append_grouped_system_entry(
 ) {
     let content = content.into();
     if let Some(last) = entries.last_mut() {
-        if matches!(last.role, ChatRole::System) && last.timestamp.elapsed() <= Duration::from_secs(5)
+        if matches!(last.role, ChatRole::System)
+            && last.timestamp.elapsed() <= Duration::from_secs(5)
         {
             let last_view = parse_system_message(&last.content);
             let next_view = parse_system_message(&content);
@@ -124,7 +126,8 @@ pub(crate) fn append_grouped_system_entry(
                 && next_view.kind != SystemMessageKind::Generic
                 && last_view.kind == next_view.kind
                 && last_view.title == next_view.title;
-            let same_first_line = allow_merge && last.content.lines().next() == content.lines().next();
+            let same_first_line =
+                allow_merge && last.content.lines().next() == content.lines().next();
             if same_semantic_group || same_first_line {
                 if !last.content.contains(&content) {
                     last.content.push('\n');
@@ -279,7 +282,10 @@ mod tests {
         let view = parse_system_message("Turn completed · 1.4s · 3 tools · 1.2k↑ 180↓ tok");
         assert_eq!(view.kind, SystemMessageKind::Turn);
         assert_eq!(view.title, "Turn completed");
-        assert_eq!(view.detail_lines, vec!["1.4s · 3 tools · 1.2k↑ 180↓ tok".to_string()]);
+        assert_eq!(
+            view.detail_lines,
+            vec!["1.4s · 3 tools · 1.2k↑ 180↓ tok".to_string()]
+        );
     }
 
     #[test]

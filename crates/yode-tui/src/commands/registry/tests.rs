@@ -180,7 +180,9 @@ fn test_visible_command_names_include_aliases_but_skip_hidden() {
     reg.register(Box::new(DummyCommand::hidden("debug")));
 
     let names = reg.visible_command_names();
-    assert!(names.iter().any(|item| item.name == "model" && !item.is_alias));
+    assert!(names
+        .iter()
+        .any(|item| item.name == "model" && !item.is_alias));
     assert!(names.iter().any(|item| item.name == "m" && item.is_alias));
     assert!(!names.iter().any(|item| item.name == "debug"));
 }

@@ -1,7 +1,5 @@
+use crate::commands::transcript_review_nav::{residual_risk_banner, review_metadata_section};
 use yode_tools::builtin::review_common::review_output_has_findings;
-use crate::commands::transcript_review_nav::{
-    residual_risk_banner, review_metadata_section,
-};
 
 pub(crate) fn compact_review_status_badge(content: &str) -> &'static str {
     let body = extract_review_result_body(content).unwrap_or(content);
@@ -70,14 +68,21 @@ mod tests {
 
     #[test]
     fn compact_badge_prefers_short_labels() {
-        assert_eq!(compact_review_status_badge("```text\nNo issues found.\n```"), "clean");
-        assert_eq!(compact_review_status_badge("```text\n1. Missing test\n```"), "find");
+        assert_eq!(
+            compact_review_status_badge("```text\nNo issues found.\n```"),
+            "clean"
+        );
+        assert_eq!(
+            compact_review_status_badge("```text\n1. Missing test\n```"),
+            "find"
+        );
     }
 
     #[test]
     fn summary_pane_includes_path_and_preview() {
         let path = std::path::Path::new("/tmp/review.md");
-        let pane = review_summary_pane(path, "```text\nNo issues found.\nResidual risk: none.\n```");
+        let pane =
+            review_summary_pane(path, "```text\nNo issues found.\nResidual risk: none.\n```");
         assert!(pane.contains("/tmp/review.md"));
         assert!(pane.contains("Preview"));
     }

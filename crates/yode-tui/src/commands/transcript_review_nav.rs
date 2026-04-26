@@ -10,12 +10,11 @@ pub(crate) fn compare_target_choices(dir: &Path) -> Vec<String> {
         .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("md"))
         .collect::<Vec<_>>();
     entries.sort_by(|left, right| right.file_name().cmp(&left.file_name()));
-    choices.extend(
-        entries
-            .into_iter()
-            .take(4)
-            .filter_map(|path| path.file_name().and_then(|name| name.to_str()).map(str::to_string)),
-    );
+    choices.extend(entries.into_iter().take(4).filter_map(|path| {
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .map(str::to_string)
+    }));
     choices
 }
 
@@ -29,7 +28,10 @@ pub(crate) fn summary_anchor_jump_summary(content: &str) -> String {
 }
 
 pub(crate) fn review_kind_badge(path: &Path) -> &'static str {
-    let file_name = path.file_name().and_then(|name| name.to_str()).unwrap_or("");
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("");
     if file_name.starts_with("review-") {
         "review"
     } else if file_name.starts_with("verification-") {
@@ -61,13 +63,17 @@ pub(crate) fn transcript_review_cross_reference(
     if let Some(path) = transcript_path {
         targets.push(format!(
             "/memory {}",
-            path.file_name().and_then(|name| name.to_str()).unwrap_or("latest")
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("latest")
         ));
     }
     if let Some(path) = review_path {
         targets.push(format!(
             "/reviews {}",
-            path.file_name().and_then(|name| name.to_str()).unwrap_or("latest")
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("latest")
         ));
     }
     targets
@@ -116,7 +122,8 @@ mod tests {
 
     #[test]
     fn compare_choices_include_aliases_and_recent_files() {
-        let dir = std::env::temp_dir().join(format!("yode-compare-choices-{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("yode-compare-choices-{}", uuid::Uuid::new_v4()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("a.md"), "x").unwrap();
@@ -129,8 +136,14 @@ mod tests {
     #[test]
     fn summary_anchor_and_review_metadata_render() {
         assert!(summary_anchor_jump_summary("## Summary Anchor\n").contains("present"));
-        assert_eq!(review_kind_badge(Path::new("/tmp/review-demo.md")), "review");
-        assert!(review_metadata_section(Path::new("/tmp/review-demo.md"), "a\nb").contains("Kind: review"));
+        assert_eq!(
+            review_kind_badge(Path::new("/tmp/review-demo.md")),
+            "review"
+        );
+        assert!(
+            review_metadata_section(Path::new("/tmp/review-demo.md"), "a\nb")
+                .contains("Kind: review")
+        );
     }
 
     #[test]
@@ -140,7 +153,13 @@ mod tests {
             Some(Path::new("/tmp/review.md")),
         );
         assert!(refs.iter().any(|value| value.contains("/memory a.md")));
-        let folded = fold_workspace_diff_output(&(0..50).map(|i| format!("line {}", i)).collect::<Vec<_>>().join("\n"), 10);
+        let folded = fold_workspace_diff_output(
+            &(0..50)
+                .map(|i| format!("line {}", i))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            10,
+        );
         assert!(folded.contains("workspace diff folded"));
         assert_eq!(
             residual_risk_banner("Residual risk: medium").as_deref(),
