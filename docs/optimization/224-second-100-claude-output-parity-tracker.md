@@ -18,7 +18,7 @@
 
 当前进度：
 
-- `34 / 100` 已完成
+- `38 / 100` 已完成
 
 ## 001-010 Snapshot Hardening
 
@@ -87,15 +87,15 @@
 
 ## 051-060 Confirm Phase Two
 
-- `[ ]` 051 confirm shell risk copy refinement
-- `[ ]` 052 confirm network risk copy refinement
-- `[ ]` 053 confirm file-write risk copy refinement
+- `[x]` 051 confirm shell risk copy refinement
+- `[x]` 052 confirm network risk copy refinement
+- `[x]` 053 confirm file-write risk copy refinement
 - `[ ]` 054 confirm option emphasis hierarchy polish
 - `[ ]` 055 confirm inline command wrapping parity
 - `[ ]` 056 confirm inspector reopen affordance
 - `[ ]` 057 confirm host/path mixed preview density pass
 - `[ ]` 058 confirm background-task approval copy pass
-- `[ ]` 059 confirm multiline preview continuation style
+- `[x]` 059 confirm multiline preview continuation style
 - `[ ]` 060 confirm final safety copy audit
 
 ## 061-070 Artifact / Export Phase Two

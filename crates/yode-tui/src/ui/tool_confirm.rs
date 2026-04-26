@@ -321,24 +321,24 @@ fn tool_risk_hint(app: &App, tool_name: &str) -> Option<ConfirmRisk> {
         if tool.capabilities().read_only {
             return Some(ConfirmRisk {
                 level: ConfirmRiskLevel::Low,
-                label: "low · read-only".to_string(),
+                label: "low · read-only access".to_string(),
             });
         }
     }
 
     let (level, label) = match tool_name {
         "edit_file" | "write_file" | "multi_edit" | "notebook_edit" => {
-            (ConfirmRiskLevel::High, "high · writes files")
+            (ConfirmRiskLevel::High, "high · file edits")
         }
-        "bash" | "powershell" => (ConfirmRiskLevel::High, "high · shell access"),
+        "bash" | "powershell" => (ConfirmRiskLevel::High, "high · shell execution"),
         "git_commit" => (ConfirmRiskLevel::High, "high · git write"),
         "web_search" | "web_fetch" | "web_browser" => {
-            (ConfirmRiskLevel::Medium, "medium · network access")
+            (ConfirmRiskLevel::Medium, "medium · external access")
         }
         "agent" | "send_message" | "team_create" => {
-            (ConfirmRiskLevel::Medium, "medium · agent action")
+            (ConfirmRiskLevel::Medium, "medium · delegated action")
         }
-        _ => (ConfirmRiskLevel::Medium, "medium · needs approval"),
+        _ => (ConfirmRiskLevel::Medium, "medium · approval required"),
     };
     Some(ConfirmRisk {
         level,
@@ -448,7 +448,7 @@ fn shell_command_preview(command: &str) -> String {
     let lines = command.lines().collect::<Vec<_>>();
     let head = lines.first().copied().unwrap_or("command");
     if lines.len() > 1 {
-        format!("command · {} · +{} more lines", head, lines.len() - 1)
+        format!("command · {} ↳ +{} more lines", head, lines.len() - 1)
     } else {
         format!("command · {}", head)
     }
@@ -504,7 +504,7 @@ mod tests {
         assert_eq!(
             tool_risk_hint(&app, "edit_file")
                 .map(|risk| (risk.level, risk.label)),
-            Some((ConfirmRiskLevel::High, "high · writes files".to_string()))
+            Some((ConfirmRiskLevel::High, "high · file edits".to_string()))
         );
     }
 
@@ -550,7 +550,7 @@ mod tests {
             "bash",
             r#"{"command":"python main.py\npytest -q\ncargo test"}"#,
         );
-        assert_eq!(preview, "command · python main.py · +2 more lines");
+        assert_eq!(preview, "command · python main.py ↳ +2 more lines");
     }
 
     #[test]
