@@ -17,6 +17,12 @@ pub(super) fn render_system_entry(entry: &ChatEntry) -> Vec<(String, Style)> {
     for detail in view.detail_lines {
         result.push((format!("    {}", format_system_detail_line(&detail)), detail_style));
     }
+    result.push((
+        "    ctrl+o to inspect".to_string(),
+        Style::default()
+            .fg(Color::Gray)
+            .add_modifier(ratatui::style::Modifier::ITALIC),
+    ));
     result
 }
 
@@ -142,6 +148,7 @@ mod tests {
         let lines = render_system_entry(&entry);
         assert!(lines[0].0.contains("Session memory updated"));
         assert!(lines[1].0.contains("/tmp/live.md"));
+        assert!(lines[2].0.contains("ctrl+o to inspect"));
     }
 
     #[test]

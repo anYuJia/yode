@@ -26,6 +26,13 @@ pub(crate) fn render_system_entry(lines: &mut Vec<Line<'static>>, entry: &ChatEn
             Span::styled(format_system_detail_line(&detail), detail_style),
         ]));
     }
+    lines.push(Line::from(vec![
+        Span::styled("    ".to_string(), Style::default().fg(MUTED)),
+        Span::styled(
+            "ctrl+o to inspect",
+            Style::default().fg(MUTED).add_modifier(Modifier::ITALIC),
+        ),
+    ]));
 }
 
 pub(crate) fn render_grouped_system_entries(
@@ -157,10 +164,11 @@ mod tests {
         );
         let mut lines = Vec::new();
         render_system_entry(&mut lines, &entry);
-        assert_eq!(lines.len(), 3);
+        assert_eq!(lines.len(), 4);
         assert!(lines[0].to_string().contains("Context compressed"));
         assert!(lines[1].to_string().contains("auto · -4 msgs"));
         assert!(lines[2].to_string().contains("summary · older turns"));
+        assert!(lines[3].to_string().contains("ctrl+o to inspect"));
     }
 
     #[test]
