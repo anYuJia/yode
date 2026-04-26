@@ -186,19 +186,37 @@ fn split_export_line(line: &str) -> Option<(String, Option<String>)> {
 fn split_task_line(line: &str) -> Option<(String, Option<String>)> {
     let severity = line.strip_prefix("[Task:")?.split_once(']')?;
     let detail = severity.1.trim().to_string();
-    let title = if detail.to_ascii_lowercase().contains("hook") {
-        format!("Hook {}", severity.0.trim())
+    let lowered = detail.to_ascii_lowercase();
+    let (title, detail) = if lowered.starts_with("hook deferred") {
+        (
+            "Hook deferred".to_string(),
+            detail
+                .split_once(':')
+                .map(|(_, rest)| rest.trim().to_string())
+                .filter(|rest| !rest.is_empty())
+                .or_else(|| Some(detail.clone())),
+        )
+    } else if lowered.starts_with("hook timeout") {
+        (
+            "Hook timeout".to_string(),
+            detail
+                .split_once(':')
+                .map(|(_, rest)| rest.trim().to_string())
+                .filter(|rest| !rest.is_empty())
+                .or_else(|| Some(detail.clone())),
+        )
+    } else if lowered.contains("hook") {
+        (
+            format!("Hook {}", severity.0.trim()),
+            Some(detail.clone()),
+        )
     } else {
-        format!("Task {}", severity.0.trim())
+        (
+            format!("Task {}", severity.0.trim()),
+            Some(detail.clone()),
+        )
     };
-    Some((
-        title,
-        if detail.is_empty() {
-            None
-        } else {
-            Some(detail)
-        },
-    ))
+    Some((title, detail.filter(|detail| !detail.is_empty())))
 }
 
 fn split_warning_line(line: &str) -> Option<(String, Option<String>)> {
@@ -320,8 +338,16 @@ mod tests {
     fn parses_hook_task_notifications_with_hook_title() {
         let view = parse_system_message("[Task:warn] hook timeout: scripts/pre-tool");
         assert_eq!(view.kind, SystemMessageKind::Task);
-        assert_eq!(view.title, "Hook warn");
-        assert_eq!(view.detail_lines, vec!["hook timeout: scripts/pre-tool".to_string()]);
+        assert_eq!(view.title, "Hook timeout");
+        assert_eq!(view.detail_lines, vec!["scripts/pre-tool".to_string()]);
+    }
+
+    #[test]
+    fn parses_hook_deferred_notifications_with_specific_title() {
+        let view = parse_system_message("[Task:info] hook deferred: preview");
+        assert_eq!(view.kind, SystemMessageKind::Task);
+        assert_eq!(view.title, "Hook deferred");
+        assert_eq!(view.detail_lines, vec!["preview".to_string()]);
     }
 
     #[test]
