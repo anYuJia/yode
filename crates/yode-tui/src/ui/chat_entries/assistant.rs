@@ -12,6 +12,7 @@ pub(crate) fn render_assistant(
     entry: &ChatEntry,
     max_width: usize,
     enable_hyperlinks: bool,
+    show_reasoning_detail: bool,
 ) {
     if let Some(reasoning) = &entry.reasoning {
         if !reasoning.trim().is_empty() {
@@ -22,42 +23,44 @@ pub(crate) fn render_assistant(
                     .add_modifier(Modifier::ITALIC | Modifier::BOLD),
             )]));
 
-            let reasoning_lines = render_markdown_with_options(
-                reasoning.trim(),
-                Some(DIM),
-                MarkdownRenderOptions {
-                    max_width: Some(max_width.saturating_sub(2)),
-                    enable_hyperlinks,
-                },
-            );
-            for line in reasoning_lines {
-                if line.spans.is_empty()
-                    || (line.spans.len() == 1
-                        && line
-                            .spans
-                            .first()
-                            .is_some_and(|span| span.content.is_empty()))
-                {
-                    lines.push(Line::from(""));
-                    continue;
-                }
-                let mut spans = vec![Span::styled(
-                    "  ",
-                    Style::default().fg(INFO_COLOR).add_modifier(Modifier::DIM),
-                )];
-                spans.extend(
-                    line.spans
-                        .into_iter()
-                        .map(|span| {
-                            Span::styled(
-                                span.content,
-                                span.style.fg(DIM).add_modifier(Modifier::ITALIC),
-                            )
-                        }),
+            if show_reasoning_detail {
+                let reasoning_lines = render_markdown_with_options(
+                    reasoning.trim(),
+                    Some(DIM),
+                    MarkdownRenderOptions {
+                        max_width: Some(max_width.saturating_sub(2)),
+                        enable_hyperlinks,
+                    },
                 );
-                lines.push(Line::from(spans));
+                for line in reasoning_lines {
+                    if line.spans.is_empty()
+                        || (line.spans.len() == 1
+                            && line
+                                .spans
+                                .first()
+                                .is_some_and(|span| span.content.is_empty()))
+                    {
+                        lines.push(Line::from(""));
+                        continue;
+                    }
+                    let mut spans = vec![Span::styled(
+                        "  ",
+                        Style::default().fg(INFO_COLOR).add_modifier(Modifier::DIM),
+                    )];
+                    spans.extend(
+                        line.spans
+                            .into_iter()
+                            .map(|span| {
+                                Span::styled(
+                                    span.content,
+                                    span.style.fg(DIM).add_modifier(Modifier::ITALIC),
+                                )
+                            }),
+                    );
+                    lines.push(Line::from(spans));
+                }
+                lines.push(Line::from(""));
             }
-            lines.push(Line::from(""));
         }
     }
 
@@ -109,7 +112,7 @@ mod tests {
     fn render_lines(content: &str) -> Vec<Line<'static>> {
         let mut lines = Vec::new();
         let entry = ChatEntry::new(ChatRole::Assistant, content.to_string());
-        render_assistant(&mut lines, &entry, 120, false);
+        render_assistant(&mut lines, &entry, 120, false, true);
         lines
     }
 
@@ -193,7 +196,7 @@ mod tests {
             "final answer".to_string(),
             Some("## Plan\n- inspect\n- patch".to_string()),
         );
-        render_assistant(&mut lines, &entry, 120, false);
+        render_assistant(&mut lines, &entry, 120, false, true);
 
         assert!(lines
             .iter()
@@ -213,5 +216,22 @@ mod tests {
     fn assistant_content_advertises_detail_inspection() {
         let lines = render_lines("Final answer");
         assert!(lines[0].to_string().contains("ctrl+o to inspect"));
+    }
+
+    #[test]
+    fn older_assistant_reasoning_can_collapse_to_teaser_only() {
+        let mut lines = Vec::new();
+        let entry = ChatEntry::new_with_reasoning(
+            ChatRole::Assistant,
+            "final answer".to_string(),
+            Some("## Plan\n- inspect\n- patch".to_string()),
+        );
+        render_assistant(&mut lines, &entry, 120, false, false);
+
+        let rendered = lines.iter().map(|line| line.to_string()).collect::<Vec<_>>();
+        assert!(rendered
+            .iter()
+            .any(|line| line.contains("Thinking… (ctrl+o to inspect)")));
+        assert!(rendered.iter().all(|line| !line.contains("• inspect")));
     }
 }

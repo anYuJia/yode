@@ -32,6 +32,7 @@ pub(super) fn render_assistant(
     result: &mut Vec<(String, ratatui::style::Style)>,
     dim: ratatui::style::Style,
     _white: ratatui::style::Style,
+    show_reasoning_detail: bool,
 ) {
     if let Some(reasoning) = &entry.reasoning {
         if !reasoning.trim().is_empty() {
@@ -39,19 +40,25 @@ pub(super) fn render_assistant(
                 "  ∴ Thinking… (ctrl+o to inspect)".to_string(),
                 dim.add_modifier(ratatui::style::Modifier::ITALIC),
             ));
-            let render_width = scrollback_render_width(4, 76);
-            let lines = render_markdown_ansi_dim_with_options(reasoning.trim(), Some(render_width), true);
-            for line in lines {
-                if line.trim().is_empty() {
-                    result.push((String::new(), dim));
-                } else {
-                    result.push((
-                        format!("  {}", line),
-                        dim.add_modifier(ratatui::style::Modifier::ITALIC),
-                    ));
+            if show_reasoning_detail {
+                let render_width = scrollback_render_width(4, 76);
+                let lines = render_markdown_ansi_dim_with_options(
+                    reasoning.trim(),
+                    Some(render_width),
+                    true,
+                );
+                for line in lines {
+                    if line.trim().is_empty() {
+                        result.push((String::new(), dim));
+                    } else {
+                        result.push((
+                            format!("  {}", line),
+                            dim.add_modifier(ratatui::style::Modifier::ITALIC),
+                        ));
+                    }
                 }
+                result.push((String::new(), dim));
             }
-            result.push((String::new(), dim));
         }
     }
 
@@ -94,7 +101,7 @@ mod tests {
                 .to_string(),
         );
         let mut result = Vec::new();
-        render_assistant(&entry, &mut result, Style::default(), Style::default());
+        render_assistant(&entry, &mut result, Style::default(), Style::default(), true);
 
         let basic_index = result
             .iter()
@@ -119,7 +126,7 @@ mod tests {
                 .to_string(),
         );
         let mut result = Vec::new();
-        render_assistant(&entry, &mut result, Style::default(), Style::default());
+        render_assistant(&entry, &mut result, Style::default(), Style::default(), true);
 
         let rendered = result
             .iter()
@@ -139,7 +146,7 @@ mod tests {
                 .to_string(),
         );
         let mut result = Vec::new();
-        render_assistant(&entry, &mut result, Style::default(), Style::default());
+        render_assistant(&entry, &mut result, Style::default(), Style::default(), true);
 
         let rendered = result
             .iter()
@@ -161,7 +168,7 @@ mod tests {
             Some("## Plan\n- inspect\n- patch".to_string()),
         );
         let mut result = Vec::new();
-        render_assistant(&entry, &mut result, Style::default(), Style::default());
+        render_assistant(&entry, &mut result, Style::default(), Style::default(), true);
 
         let rendered = result
             .iter()
@@ -181,7 +188,7 @@ mod tests {
     fn scrollback_assistant_content_advertises_detail_inspection() {
         let entry = ChatEntry::new(ChatRole::Assistant, "Final answer".to_string());
         let mut result = Vec::new();
-        render_assistant(&entry, &mut result, Style::default(), Style::default());
+        render_assistant(&entry, &mut result, Style::default(), Style::default(), false);
 
         let rendered = result
             .iter()
@@ -190,5 +197,25 @@ mod tests {
         assert!(rendered
             .iter()
             .any(|line| line.contains("Final answer (ctrl+o to inspect)")));
+    }
+
+    #[test]
+    fn scrollback_older_assistant_reasoning_can_collapse_to_teaser_only() {
+        let entry = ChatEntry::new_with_reasoning(
+            ChatRole::Assistant,
+            "final answer".to_string(),
+            Some("## Plan\n- inspect\n- patch".to_string()),
+        );
+        let mut result = Vec::new();
+        render_assistant(&entry, &mut result, Style::default(), Style::default(), false);
+
+        let rendered = result
+            .iter()
+            .map(|(line, _)| strip_ansi(line))
+            .collect::<Vec<_>>();
+        assert!(rendered
+            .iter()
+            .any(|line| line.contains("Thinking… (ctrl+o to inspect)")));
+        assert!(rendered.iter().all(|line| !line.contains("• inspect")));
     }
 }

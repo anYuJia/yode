@@ -7,8 +7,8 @@ use super::error_format::parse_error_view;
 use super::chat_layout::{manual_wrap, render_header};
 use super::chat_markdown::render_markdown_impl;
 use super::palette::{
-    ERROR_COLOR, INFO_COLOR, LIGHT, MUTED, SUCCESS_COLOR, SURFACE_BG_ALT, TOOL_ACCENT, USER_COLOR,
-    WARNING_COLOR,
+    ERROR_COLOR, INFO_COLOR, LIGHT, MUTED, PANEL_ACCENT, SUCCESS_COLOR, SURFACE_BG_ALT,
+    TOOL_ACCENT, USER_COLOR, WARNING_COLOR,
 };
 use super::turn_status::active_working_label;
 use crate::app::{App, ChatRole};
@@ -53,6 +53,18 @@ pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
     }
 
     let entries = &app.chat_entries;
+    let latest_reasoning_index = entries
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(_, entry)| {
+            matches!(entry.role, ChatRole::Assistant)
+                && entry
+                    .reasoning
+                    .as_deref()
+                    .is_some_and(|reasoning| !reasoning.trim().is_empty())
+        })
+        .map(|(index, _)| index);
     let mut i = 0;
     let mut rendered_any_entry = false;
     while i < entries.len() {
@@ -75,6 +87,7 @@ pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
                 entry,
                 area.width.saturating_sub(2) as usize,
                 app.terminal_caps.supports_hyperlinks(),
+                latest_reasoning_index == Some(i),
             ),
             ChatRole::ToolCall { id, name } => {
                 if should_hide_tool_from_transcript(name) {
@@ -200,6 +213,17 @@ pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
             ),
             Span::styled(format!(" ({})", elapsed_str), Style::default().fg(DIM)),
         ]));
+        if let Some(teaser) = streaming_reasoning_teaser(&app.streaming_reasoning) {
+            lines.push(Line::from(vec![
+                Span::styled("  ∴ ", Style::default().fg(PANEL_ACCENT)),
+                Span::styled(
+                    teaser,
+                    Style::default()
+                        .fg(DIM)
+                        .add_modifier(Modifier::ITALIC | Modifier::BOLD),
+                ),
+            ]));
+        }
         lines.push(Line::from(""));
     }
 
@@ -236,6 +260,42 @@ pub fn render_markdown_white_with_options(
             enable_hyperlinks,
         },
     )
+}
+
+fn streaming_reasoning_teaser(reasoning: &str) -> Option<String> {
+    let first = reasoning
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())?;
+    let first = first
+        .trim_start_matches('#')
+        .trim_start_matches('-')
+        .trim_start_matches('•')
+        .trim();
+    if first.is_empty() {
+        None
+    } else if first.chars().count() > 72 {
+        Some(format!("{}...", first.chars().take(72).collect::<String>()))
+    } else {
+        Some(first.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::streaming_reasoning_teaser;
+
+    #[test]
+    fn streaming_reasoning_teaser_uses_first_nonempty_line() {
+        assert_eq!(
+            streaming_reasoning_teaser("## Plan\n- inspect\n- patch").as_deref(),
+            Some("Plan")
+        );
+        assert_eq!(
+            streaming_reasoning_teaser("\n\n- inspect current diff").as_deref(),
+            Some("inspect current diff")
+        );
+    }
 }
 
 pub(crate) fn render_markdown_ansi_white_with_options(

@@ -21,7 +21,7 @@
 
 当前进度：
 
-- `68 / 100` 已完成
+- `70 / 100` 已完成
 
 ## 001-010 Markdown Core
 
@@ -57,8 +57,8 @@
 - `[x]` 024 assistant reasoning inspector panel
 - `[x]` 025 assistant content inspector panel
 - `[x]` 026 latest assistant detail fallback without reasoning
-- `[ ]` 027 transcript-mode thinking collapse policy
-- `[ ]` 028 streaming reasoning teaser line
+- `[x]` 027 transcript-mode thinking collapse policy
+- `[x]` 028 streaming reasoning teaser line
 - `[x]` 029 reasoning summary chip in inspector
 - `[x]` 030 assistant detail badges
 
@@ -166,4 +166,4 @@
   - `775d61e`, `3970110`
 
 - 下一步优先实现：
-  - `027 transcript-mode thinking collapse policy`
+  - `039 compact retry-state phrasing parity`

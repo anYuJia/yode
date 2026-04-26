@@ -23,10 +23,28 @@ pub(crate) fn format_entry_as_strings(
 ) -> Vec<(String, ratatui::style::Style)> {
     let mut result: Vec<(String, ratatui::style::Style)> = Vec::new();
     let palette = role_style_palette();
+    let latest_reasoning_index = all_entries
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(_, item)| {
+            matches!(item.role, ChatRole::Assistant)
+                && item
+                    .reasoning
+                    .as_deref()
+                    .is_some_and(|reasoning| !reasoning.trim().is_empty())
+        })
+        .map(|(idx, _)| idx);
 
     match &entry.role {
         ChatRole::User => render_user(entry, &mut result, palette.cyan),
-        ChatRole::Assistant => render_assistant(entry, &mut result, palette.dim, palette.white),
+        ChatRole::Assistant => render_assistant(
+            entry,
+            &mut result,
+            palette.dim,
+            palette.white,
+            latest_reasoning_index == Some(index),
+        ),
         ChatRole::ToolCall { id: tid, name } => {
             if should_hide_tool_from_transcript(name) {
                 return result;
