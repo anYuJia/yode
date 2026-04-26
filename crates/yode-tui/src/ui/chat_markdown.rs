@@ -39,6 +39,9 @@ static MD_SYNTAX_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"[#*`|>\-_~\[\]]|\n\n|^\d+\. |\n\d+\. |^• |^◦ |^▪ |\n• |\n◦ |\n▪ |│|┼").unwrap()
 });
 
+const TABLE_SAFETY_MARGIN: usize = 4;
+const TABLE_MAX_ROW_LINES: usize = 4;
+
 pub(super) fn render_markdown_with_options(
     text: &str,
     default_fg: Option<Color>,
@@ -2132,8 +2135,29 @@ mod tests {
                 enable_hyperlinks: false,
             },
         );
-        assert!(lines.iter().any(|line| line.to_string().contains("inline")));
+        assert!(lines.iter().any(|line| {
+            let text = line.to_string();
+            text.contains("Column:") || text.contains("this is a")
+        }));
         assert!(lines.iter().all(|line| line_display_width(line) <= 24));
+    }
+
+    #[test]
+    fn narrow_tables_fall_back_to_vertical_key_value_layout() {
+        let lines = render_markdown_with_options(
+            "| Metric | Value |\n| --- | --- |\n| Runtime | This is a very long wrapped explanation |\n| Status | Healthy |",
+            None,
+            MarkdownRenderOptions {
+                max_width: Some(18),
+                enable_hyperlinks: false,
+            },
+        )
+        .into_iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>();
+        assert!(lines.iter().any(|line| line.contains("Metric:")));
+        assert!(lines.iter().any(|line| line.contains("Value:")));
+        assert!(!lines.iter().any(|line| line.contains("┼")));
     }
 
     #[test]
@@ -2602,20 +2626,37 @@ fn render_table(
         *width = (*width).max(3);
     }
 
+    if rows.len() > 1 && should_render_table_vertically(rows, &widths, options) {
+        render_vertical_table(lines, rows, options.max_width.unwrap_or(80).max(12));
+        return;
+    }
+
+    let mut rendered_table = Vec::new();
+
     if let Some(header) = rows.first() {
-        render_table_row(lines, header, &widths, true, options);
+        render_table_row(&mut rendered_table, header, &widths, true, options);
 
         let sep: String = widths
             .iter()
             .map(|w| "─".repeat(w + 2))
             .collect::<Vec<_>>()
             .join("┼");
-        lines.push(Line::from(Span::styled(sep, Style::default().fg(DIM))));
+        rendered_table.push(Line::from(Span::styled(sep, Style::default().fg(DIM))));
     }
 
     for row in rows.iter().skip(1) {
-        render_table_row(lines, row, &widths, false, options);
+        render_table_row(&mut rendered_table, row, &widths, false, options);
     }
+
+    if rendered_table
+        .iter()
+        .any(|line| line_display_width(line) > available_width.saturating_sub(TABLE_SAFETY_MARGIN))
+    {
+        render_vertical_table(lines, rows, available_width);
+        return;
+    }
+
+    lines.extend(rendered_table);
 }
 
 fn render_table_row(
@@ -2670,6 +2711,100 @@ fn render_table_row(
 
 fn wrap_cell_lines(cell_lines: Vec<Line<'static>>, width: usize) -> Vec<Line<'static>> {
     manual_wrap(cell_lines, width as u16)
+}
+
+fn should_render_table_vertically(
+    rows: &[Vec<TableCell>],
+    widths: &[usize],
+    options: &MarkdownRenderOptions,
+) -> bool {
+    rows.iter()
+        .flat_map(|row| row.iter().enumerate())
+        .map(|(index, cell)| {
+            let base_style = Style::default().fg(WHITE);
+            let rendered = render_inline_nodes_as_lines_with_style(&cell.content, base_style, options);
+            wrap_cell_lines(rendered, widths.get(index).copied().unwrap_or(10)).len()
+        })
+        .max()
+        .unwrap_or(1)
+        > TABLE_MAX_ROW_LINES
+}
+
+fn render_vertical_table(lines: &mut Vec<Line<'static>>, rows: &[Vec<TableCell>], max_width: usize) {
+    if rows.is_empty() {
+        return;
+    }
+
+    let headers = rows
+        .first()
+        .unwrap()
+        .iter()
+        .enumerate()
+        .map(|(index, cell)| {
+            let label = inline_nodes_to_plain_text(&cell.content).trim().to_string();
+            if label.is_empty() {
+                format!("Column {}", index + 1)
+            } else {
+                label
+            }
+        })
+        .collect::<Vec<_>>();
+    let separator_width = max_width.saturating_sub(1).min(40).max(3);
+    let separator = Line::from(Span::styled(
+        "─".repeat(separator_width),
+        Style::default().fg(DIM),
+    ));
+    let continuation_prefix = "  ";
+    let continuation_width = max_width
+        .saturating_sub(continuation_prefix.len())
+        .max(10);
+
+    for (row_index, row) in rows.iter().enumerate().skip(1) {
+        if row_index > 1 {
+            lines.push(separator.clone());
+        }
+
+        for (col_index, cell) in row.iter().enumerate() {
+            let label = headers
+                .get(col_index)
+                .cloned()
+                .unwrap_or_else(|| format!("Column {}", col_index + 1));
+            let label_width = UnicodeWidthStr::width(label.as_str());
+            let first_line_width = max_width.saturating_sub(label_width + 2).max(10);
+            let value_lines = wrap_cell_lines(
+                render_inline_nodes_as_lines_with_style(
+                    &cell.content,
+                    Style::default().fg(WHITE),
+                    &MarkdownRenderOptions {
+                        max_width: Some(first_line_width),
+                        enable_hyperlinks: false,
+                    },
+                ),
+                first_line_width,
+            );
+
+            let mut first_spans = vec![Span::styled(
+                format!("{}:", label),
+                Style::default().fg(WHITE).add_modifier(Modifier::BOLD),
+            )];
+            if let Some(first_value) = value_lines.first() {
+                first_spans.push(Span::raw(" "));
+                first_spans.extend(first_value.spans.clone());
+            }
+            lines.push(Line::from(first_spans));
+
+            for continuation in value_lines.iter().skip(1) {
+                let wrapped = wrap_cell_lines(vec![continuation.clone()], continuation_width);
+                for line in wrapped {
+                    lines.push(prepend_prefix(
+                        line,
+                        continuation_prefix.to_string(),
+                        Style::default(),
+                    ));
+                }
+            }
+        }
+    }
 }
 
 fn min_cell_width(nodes: &[InlineNode]) -> usize {
