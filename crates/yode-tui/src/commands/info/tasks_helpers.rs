@@ -50,12 +50,12 @@ pub(super) fn group_tasks_by_source_tool(
 pub(super) fn task_retry_chain_summary(task: &RuntimeTask) -> String {
     if task.attempt > 1 {
         format!(
-            "attempt {} (retry of {})",
+            "try {} ← {}",
             task.attempt,
             task.retry_of.as_deref().unwrap_or("unknown")
         )
     } else {
-        format!("attempt {}", task.attempt)
+        format!("try {}", task.attempt)
     }
 }
 
@@ -78,16 +78,18 @@ pub(super) fn task_failure_cause_summary(task: &RuntimeTask) -> String {
 }
 
 pub(super) fn task_artifact_backlink_summary(task: &RuntimeTask) -> String {
-    let mut parts = vec![format!("output={}", compact_path(&task.output_path))];
+    let mut parts = vec![format!("out={}", compact_path(&task.output_path))];
     if let Some(path) = task.transcript_path.as_deref() {
-        parts.push(format!("transcript={}", compact_path(path)));
+        parts.push(format!("tx={}", compact_path(path)));
     }
-    parts.join(" | ")
+    parts.join(" · ")
 }
 
 pub(super) fn task_transcript_preview(task: &RuntimeTask) -> Option<String> {
     let path = Path::new(task.transcript_path.as_deref()?);
-    preview_markdown(path, "## Summary Anchor").or_else(|| preview_markdown(path, "## Messages"))
+    preview_markdown(path, "## Summary Anchor")
+        .or_else(|| preview_markdown(path, "## Messages"))
+        .map(|preview| compact_text(&preview, 140))
 }
 
 pub(super) fn task_timeline_lines(task: &RuntimeTask) -> Vec<String> {
@@ -115,7 +117,11 @@ pub(super) fn task_output_preview(task: &RuntimeTask, max_lines: usize) -> (Stri
             let lines = content.lines().collect::<Vec<_>>();
             let preview_start = lines.len().saturating_sub(max_lines);
             (
-                lines[preview_start..].join("\n"),
+                lines[preview_start..]
+                    .iter()
+                    .map(|line| compact_text(line, 140))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
                 preview_start + 1,
                 lines.len(),
             )
@@ -258,7 +264,7 @@ mod tests {
         task.retry_of = Some("task-0".to_string());
         assert_eq!(
             task_retry_chain_summary(&task),
-            "attempt 3 (retry of task-0)"
+            "try 3 ← task-0"
         );
     }
 
@@ -273,7 +279,7 @@ mod tests {
         );
         assert_eq!(
             task_artifact_backlink_summary(&task),
-            "output=task-1.log | transcript=task-1.md"
+            "out=task-1.log · tx=task-1.md"
         );
     }
 
@@ -318,6 +324,28 @@ mod tests {
             task_transcript_preview(&task).as_deref(),
             Some("preview line")
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn output_preview_truncates_long_lines() {
+        let dir = std::env::temp_dir().join(format!("yode-task-output-{}", uuid::Uuid::new_v4()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let output = dir.join("task.log");
+        std::fs::write(&output, format!("{}\nsecond line", "x".repeat(200))).unwrap();
+        let mut task = make_task(
+            "task-1",
+            "bash",
+            RuntimeTaskStatus::Running,
+            "2026-01-01 00:00:00",
+            None,
+        );
+        task.output_path = output.display().to_string();
+        let (preview, start, end) = super::task_output_preview(&task, 2);
+        assert_eq!(start, 1);
+        assert_eq!(end, 2);
+        assert!(preview.lines().next().is_some_and(|line| line.ends_with("...")));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

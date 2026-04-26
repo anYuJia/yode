@@ -18,7 +18,7 @@
 
 当前进度：
 
-- `15 / 100` 已完成
+- `19 / 100` 已完成
 
 ## 001-010 Snapshot Hardening
 
@@ -53,10 +53,10 @@
 - `[ ]` 023 hook inspector action density pass
 - `[ ]` 024 background-task brief cadence polish
 - `[ ]` 025 task runtime summary compactness pass
-- `[ ]` 026 task retry wording compactness pass
-- `[ ]` 027 task artifact backlink density pass
-- `[ ]` 028 task output preview truncation parity
-- `[ ]` 029 task transcript preview truncation parity
+- `[x]` 026 task retry wording compactness pass
+- `[x]` 027 task artifact backlink density pass
+- `[x]` 028 task output preview truncation parity
+- `[x]` 029 task transcript preview truncation parity
 - `[ ]` 030 remote handoff summary wording parity
 
 ## 031-040 Remote / Workflow Output

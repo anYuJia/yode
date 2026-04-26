@@ -365,7 +365,7 @@ mod tests {
                 assert!(body.contains("Timeline:"));
                 assert!(body.contains("Transcript preview:"));
                 assert!(body.contains("Output tail:"));
-                assert!(body.contains("attempt 2 (retry of task-0)"));
+                assert!(body.contains("try 2 ← task-0"));
             }
             _ => panic!("expected message"),
         }
