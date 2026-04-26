@@ -76,6 +76,12 @@ pub(crate) fn format_entry_as_strings(
                     ratatui::style::Style::default().fg(Color::Yellow),
                 ));
             }
+            result.push((
+                "│ ctrl+o to inspect".to_string(),
+                ratatui::style::Style::default()
+                    .fg(Color::Gray)
+                    .add_modifier(Modifier::ITALIC),
+            ));
             result.push(("╰──────────────────────────────────".to_string(), err_style));
         }
         ChatRole::System => {
@@ -123,4 +129,24 @@ pub(crate) fn format_grouped_subagent_batch(
     let palette = role_style_palette();
     render_grouped_subagent_batch(all_entries, batch, &mut result, palette.dim, palette.accent);
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::app::{ChatEntry, ChatRole};
+
+    use super::format_entry_as_strings;
+
+    #[test]
+    fn error_entries_include_inspector_hint() {
+        let entry = ChatEntry::new(
+            ChatRole::Error,
+            "OpenAI API error (400): This model's maximum context length is 128000 tokens."
+                .to_string(),
+        );
+        let rendered = format_entry_as_strings(&entry, std::slice::from_ref(&entry), 0);
+        assert!(rendered
+            .iter()
+            .any(|(line, _)| line.contains("ctrl+o to inspect")));
+    }
 }

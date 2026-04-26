@@ -135,6 +135,13 @@ pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
                         Span::styled(detail, Style::default().fg(YELLOW)),
                     ]));
                 }
+                lines.push(Line::from(vec![
+                    Span::styled("    ".to_string(), Style::default().fg(DIM)),
+                    Span::styled(
+                        "ctrl+o to inspect",
+                        Style::default().fg(DIM).add_modifier(Modifier::ITALIC),
+                    ),
+                ]));
             }
             ChatRole::System => {
                 if let Some(batch) = detect_groupable_system_batch(entries, i) {
