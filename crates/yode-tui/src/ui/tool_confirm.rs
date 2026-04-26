@@ -353,12 +353,11 @@ fn tool_preview_line(tool_name: &str, args_json: &str) -> String {
     };
 
     match tool_name {
-        "bash" | "powershell" => format!(
-            "command · {}",
+        "bash" | "powershell" => shell_command_preview(
             parsed
                 .get("command")
                 .and_then(|value| value.as_str())
-                .unwrap_or("command")
+                .unwrap_or("command"),
         ),
         "read_file" | "write_file" | "edit_file" | "multi_edit" => format!(
             "path · {}",
@@ -443,6 +442,16 @@ fn compact_url_host(url: &str) -> String {
         .filter(|value| !value.is_empty())
         .unwrap_or(url)
         .to_string()
+}
+
+fn shell_command_preview(command: &str) -> String {
+    let lines = command.lines().collect::<Vec<_>>();
+    let head = lines.first().copied().unwrap_or("command");
+    if lines.len() > 1 {
+        format!("command · {} · +{} more lines", head, lines.len() - 1)
+    } else {
+        format!("command · {}", head)
+    }
 }
 
 #[cfg(test)]
@@ -533,6 +542,15 @@ mod tests {
             r#"{"url":"https://docs.rs/ratatui/latest/ratatui/widgets/struct.Paragraph.html"}"#,
         );
         assert_eq!(preview, "host · docs.rs");
+    }
+
+    #[test]
+    fn confirmation_preview_line_folds_multiline_shell_commands() {
+        let preview = tool_preview_line(
+            "bash",
+            r#"{"command":"python main.py\npytest -q\ncargo test"}"#,
+        );
+        assert_eq!(preview, "command · python main.py · +2 more lines");
     }
 
     #[test]

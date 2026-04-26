@@ -21,7 +21,7 @@
 
 当前进度：
 
-- `72 / 100` 已完成
+- `73 / 100` 已完成
 
 ## 001-010 Markdown Core
 
@@ -99,7 +99,7 @@
 - `[x]` 057 confirm risk hierarchy polish
 - `[x]` 058 confirm action wording parity
 - `[x]` 059 confirm panel dense/narrow layout pass
-- `[ ]` 060 confirm shell command folding parity
+- `[x]` 060 confirm shell command folding parity
 
 ## 061-070 Inspector Runtime
 
@@ -166,4 +166,4 @@
   - `775d61e`, `3970110`
 
 - 下一步优先实现：
-  - `060 confirm shell command folding parity`
+  - `098 output regression screenshot/script pass`
