@@ -4,7 +4,7 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::app::{App, ChatRole, TurnStatus};
-use crate::runtime_display::format_retry_delay_summary;
+use crate::runtime_display::{format_retry_delay_summary, format_tool_progress_summary};
 use crate::tool_grouping::{
     describe_tool_call, detect_groupable_tool_batch, summarize_groupable_tool_call,
     tool_batch_hint_text, tool_batch_summary_text,
@@ -179,6 +179,22 @@ pub(crate) fn active_working_label(app: &App, fallback_verb: &str) -> String {
 }
 
 pub(crate) fn active_working_hint(app: &App) -> Option<String> {
+    if let Some(state) = app
+        .engine
+        .as_ref()
+        .and_then(|engine| engine.try_lock().ok())
+        .map(|engine| engine.runtime_state())
+    {
+        let progress = format_tool_progress_summary(
+            state.last_tool_progress_tool.as_deref(),
+            state.last_tool_progress_message.as_deref(),
+            state.last_tool_progress_at.as_deref(),
+        );
+        if progress != "none" {
+            return Some(progress);
+        }
+    }
+
     for index in (0..app.chat_entries.len()).rev() {
         if let Some(batch) = detect_groupable_tool_batch(&app.chat_entries, index) {
             if batch.is_active && batch.next_index == app.chat_entries.len() {
@@ -370,4 +386,5 @@ mod tests {
             Some("Reading .../src/main.rs")
         );
     }
+
 }
