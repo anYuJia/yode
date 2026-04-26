@@ -31,7 +31,11 @@ pub(super) fn render_grouped_system_entries(
     batch: &SystemBatch,
 ) -> Vec<(String, Style)> {
     let mut result = vec![(
-        format!("  ≡ {}({})", grouped_batch_title(batch), batch.items.len()),
+        format!(
+            "  ≡ {}({}) (ctrl+o to inspect)",
+            grouped_batch_title(batch),
+            batch.items.len()
+        ),
         Style::default().fg(Color::Cyan),
     )];
     let max_items = 4;
@@ -179,6 +183,7 @@ mod tests {
         };
         let lines = render_grouped_system_entries(&entries, &batch);
         assert!(lines[0].0.contains("Status updates(2)"));
+        assert!(lines[0].0.contains("ctrl+o to inspect"));
         assert!(lines[1].0.contains("Context compressed"));
     }
 
@@ -204,6 +209,7 @@ mod tests {
         };
         let lines = render_grouped_system_entries(&entries, &batch);
         assert!(lines[0].0.contains("Task updates(2)"));
+        assert!(lines[0].0.contains("ctrl+o to inspect"));
     }
 
     #[test]

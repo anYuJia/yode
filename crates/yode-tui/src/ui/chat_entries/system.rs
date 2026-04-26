@@ -49,6 +49,10 @@ pub(crate) fn render_grouped_system_entries(
             format!("{}({})", grouped_batch_title(batch), batch.items.len()),
             Style::default().fg(LIGHT).add_modifier(Modifier::BOLD),
         ),
+        Span::styled(
+            " (ctrl+o to inspect)".to_string(),
+            Style::default().fg(MUTED).add_modifier(Modifier::ITALIC),
+        ),
     ]));
 
     let max_items = 4;
@@ -200,6 +204,7 @@ mod tests {
         let mut lines = Vec::new();
         render_grouped_system_entries(&mut lines, &entries, &batch);
         assert!(lines[0].to_string().contains("Status updates(2)"));
+        assert!(lines[0].to_string().contains("ctrl+o to inspect"));
         assert!(lines[1].to_string().contains("Context compressed"));
     }
 
@@ -226,6 +231,7 @@ mod tests {
         let mut lines = Vec::new();
         render_grouped_system_entries(&mut lines, &entries, &batch);
         assert!(lines[0].to_string().contains("Task updates(2)"));
+        assert!(lines[0].to_string().contains("ctrl+o to inspect"));
     }
 
     #[test]
