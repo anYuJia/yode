@@ -44,7 +44,7 @@ impl Tool for WorkflowRunTool {
     }
 
     fn description(&self) -> &str {
-        "Execute a predefined workflow script from .yode/workflows or an explicit JSON file path. This safe mode only allows read-only tools plus review/verification/coordinator helpers."
+        "Execute a predefined workflow script from .yode/workflows, .claude/workflows, or an explicit JSON file path. This safe mode only allows read-only tools plus review/verification/coordinator helpers."
     }
 
     fn parameters_schema(&self) -> Value {

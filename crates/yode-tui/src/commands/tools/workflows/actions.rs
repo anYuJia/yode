@@ -11,7 +11,8 @@ use crate::commands::{CommandOutput, CommandResult};
 
 use super::definitions::{
     compact_json_preview, is_safe_workflow_step, latest_workflow_name, load_workflow_definition,
-    workflow_requires_write_mode, workflow_template, workflow_template_names,
+    workflow_definition_paths, workflow_requires_write_mode, workflow_template,
+    workflow_template_names,
 };
 use super::workspace::{
     nested_workflow_guard_narrative, workflow_checkpoint_workspace, workflow_jump_targets,
@@ -330,19 +331,23 @@ fn render_preview_workflow(dir: &Path, name: String) -> Result<String, String> {
 }
 
 fn render_workflow_list(dir: &Path) -> String {
-    let entries = std::fs::read_dir(dir)
-        .ok()
-        .into_iter()
-        .flat_map(|entries| entries.filter_map(Result::ok))
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("json"))
-        .collect::<Vec<_>>();
+    let entries = workflow_definition_paths(dir);
 
     if entries.is_empty() {
-        return format!("No workflow scripts found in {}.", dir.display());
+        return format!(
+            "No workflow scripts found in {} or {}.",
+            dir.display(),
+            workflow_project_root(dir)
+                .join(".claude")
+                .join("workflows")
+                .display()
+        );
     }
 
-    let mut output = format!("Workflow scripts in {}:\n", dir.display());
+    let mut output = format!(
+        "Workflow scripts in {} and compatible workflow dirs:\n",
+        dir.display()
+    );
     for path in entries {
         let label = std::fs::read_to_string(&path)
             .ok()

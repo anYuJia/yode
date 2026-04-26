@@ -33,7 +33,7 @@ pub(super) fn workflow_parameters_schema() -> Value {
         "properties": {
             "name": {
                 "type": "string",
-                "description": "Workflow name. Resolved to .yode/workflows/<name>.json in the current working directory."
+                "description": "Workflow name. Resolved to .yode/workflows/<name>.json, then .claude/workflows/<name>.json, in the current working directory."
             },
             "workflow_path": {
                 "type": "string",
@@ -279,10 +279,24 @@ fn resolve_workflow_path(params: &Value, working_dir: &Path) -> Option<PathBuf> 
                 .get("name")
                 .and_then(|value| value.as_str())
                 .map(|name| {
-                    working_dir
-                        .join(".yode")
-                        .join("workflows")
-                        .join(format!("{}.json", name))
+                    [
+                        working_dir
+                            .join(".yode")
+                            .join("workflows")
+                            .join(format!("{}.json", name)),
+                        working_dir
+                            .join(".claude")
+                            .join("workflows")
+                            .join(format!("{}.json", name)),
+                    ]
+                    .into_iter()
+                    .find(|path| path.exists())
+                    .unwrap_or_else(|| {
+                        working_dir
+                            .join(".yode")
+                            .join("workflows")
+                            .join(format!("{}.json", name))
+                    })
                 })
         })
 }

@@ -1,10 +1,7 @@
-pub(super) fn latest_workflow_name(dir: &std::path::Path) -> Option<String> {
-    let mut entries = std::fs::read_dir(dir)
-        .ok()?
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("json"))
-        .collect::<Vec<_>>();
+use std::path::{Path, PathBuf};
+
+pub(super) fn latest_workflow_name(dir: &Path) -> Option<String> {
+    let mut entries = workflow_definition_paths(dir);
     entries.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
     entries.into_iter().next().and_then(|path| {
         path.file_stem()
@@ -14,17 +11,21 @@ pub(super) fn latest_workflow_name(dir: &std::path::Path) -> Option<String> {
 }
 
 pub(super) fn load_workflow_definition(
-    dir: &std::path::Path,
+    dir: &Path,
     name: &str,
 ) -> Result<
     (
-        std::path::PathBuf,
+        PathBuf,
         serde_json::Value,
         Vec<serde_json::Value>,
     ),
     String,
 > {
-    let path = dir.join(format!("{}.json", name));
+    let path = workflow_definition_dirs(dir)
+        .into_iter()
+        .map(|dir| dir.join(format!("{}.json", name)))
+        .find(|path| path.exists())
+        .unwrap_or_else(|| dir.join(format!("{}.json", name)));
     let content = std::fs::read_to_string(&path)
         .map_err(|err| format!("Failed to read {}: {}", path.display(), err))?;
     let json: serde_json::Value = serde_json::from_str(&content)
@@ -35,6 +36,43 @@ pub(super) fn load_workflow_definition(
         .cloned()
         .ok_or_else(|| format!("Workflow {} has no steps array.", path.display()))?;
     Ok((path, json, steps))
+}
+
+pub(super) fn workflow_definition_paths(dir: &Path) -> Vec<PathBuf> {
+    workflow_definition_dirs(dir)
+        .into_iter()
+        .flat_map(|dir| {
+            std::fs::read_dir(dir)
+                .ok()
+                .into_iter()
+                .flat_map(|entries| entries.filter_map(Result::ok))
+                .map(|entry| entry.path())
+                .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("json"))
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+fn workflow_definition_dirs(dir: &Path) -> Vec<PathBuf> {
+    let mut dirs = vec![dir.to_path_buf()];
+
+    if dir.file_name().and_then(|name| name.to_str()) == Some("workflows") {
+        if let Some(parent) = dir.parent() {
+            if parent.file_name().and_then(|name| name.to_str()) == Some(".yode") {
+                if let Some(project_root) = parent.parent() {
+                    dirs.push(project_root.join(".claude").join("workflows"));
+                }
+            } else if parent.file_name().and_then(|name| name.to_str()) == Some(".claude") {
+                if let Some(project_root) = parent.parent() {
+                    dirs.push(project_root.join(".yode").join("workflows"));
+                }
+            }
+        }
+    }
+
+    dirs.sort();
+    dirs.dedup();
+    dirs
 }
 
 pub(super) fn compact_json_preview(value: &serde_json::Value) -> String {
