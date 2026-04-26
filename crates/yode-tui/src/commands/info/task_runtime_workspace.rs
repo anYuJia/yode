@@ -104,7 +104,7 @@ pub(super) fn task_follow_prompt(task_id: &str) -> String {
 
 pub(super) fn task_issue_template(task: &RuntimeTask) -> String {
     format!(
-        "# Task Runtime Issue\n\n- Task: {}\n- Kind: {}\n- Source tool: {}\n- Status: {:?}\n- Retry chain: attempt {}{}\n- Output: {}\n- Transcript: {}\n- Last progress: {}\n- Error: {}\n\n## Reproduction / Context\n\n- Describe what triggered this task.\n- Include relevant runtime timeline or diagnostics snippets.\n\n## Expected\n\n- Describe the expected task outcome.\n\n## Actual\n\n- Summarize the observed outcome and attach the output/transcript artifacts above.\n",
+        "# Task Runtime Issue\n\n- Task: {}\n- Kind: {}\n- Source tool: {}\n- Status: {:?}\n- Retry: try {}{}\n- Output: {}\n- Transcript: {}\n- Last progress: {}\n- Error: {}\n\n## Reproduction / Context\n\n- Describe what triggered this task.\n- Include relevant runtime timeline or diagnostics snippets.\n\n## Expected\n\n- Describe the expected task outcome.\n\n## Actual\n\n- Summarize the observed outcome and attach the output/transcript artifacts above.\n",
         task.id,
         task.kind,
         task.source_tool,
@@ -112,7 +112,7 @@ pub(super) fn task_issue_template(task: &RuntimeTask) -> String {
         task.attempt,
         task.retry_of
             .as_ref()
-            .map(|retry| format!(" (retry of {})", retry))
+            .map(|retry| format!(" ← {}", retry))
             .unwrap_or_default(),
         task.output_path,
         task.transcript_path.as_deref().unwrap_or("none"),

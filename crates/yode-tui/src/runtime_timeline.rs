@@ -359,7 +359,7 @@ fn task_timeline_entry(task: &RuntimeTask) -> Option<RuntimeTimelineEntry> {
             },
             task.retry_of
                 .as_ref()
-                .map(|retry_of| format!(" / retry of {}", retry_of))
+                .map(|retry_of| format!(" / retry←{}", retry_of))
                 .unwrap_or_default(),
             task.last_progress
                 .as_ref()
@@ -731,7 +731,7 @@ mod tests {
         assert!(entry.detail.contains("task failed: task-2"));
         assert!(entry.detail.contains("[agent:failed/spawn_agent]"));
         assert!(entry.detail.contains("attempt 2"));
-        assert!(entry.detail.contains("retry of task-1"));
+        assert!(entry.detail.contains("retry←task-1"));
         assert!(entry.detail.contains("transcript=/tmp/task-2.md"));
         assert!(entry.detail.contains("output=/tmp/task-2.log"));
         assert!(entry.detail.contains("error timeout"));
