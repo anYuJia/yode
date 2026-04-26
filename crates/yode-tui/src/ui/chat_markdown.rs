@@ -38,6 +38,9 @@ static MARKDOWN_BLOCK_CACHE: LazyLock<Mutex<MarkdownBlockCache>> =
 static MD_SYNTAX_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"[#*`|>\-_~\[\]]|\n\n|^\d+\. |\n\d+\. |^• |^◦ |^▪ |\n• |\n◦ |\n▪ |│|┼").unwrap()
 });
+static ISSUE_REF_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(^|[^\w./-])([A-Za-z0-9][\w-]*/[A-Za-z0-9][\w.-]*)#(\d+)\b").unwrap()
+});
 
 const TABLE_SAFETY_MARGIN: usize = 4;
 const TABLE_MAX_ROW_LINES: usize = 4;
@@ -1511,10 +1514,14 @@ fn append_inline_nodes(
         match node {
             InlineNode::Text(text) => {
                 if !text.is_empty() {
-                    lines
-                        .last_mut()
-                        .unwrap()
-                        .push(Span::styled(text.clone(), style));
+                    if options.enable_hyperlinks {
+                        append_text_with_issue_links(lines.last_mut().unwrap(), text, style);
+                    } else {
+                        lines
+                            .last_mut()
+                            .unwrap()
+                            .push(Span::styled(text.clone(), style));
+                    }
                 }
             }
             InlineNode::Strong(children) => {
@@ -1606,6 +1613,39 @@ fn add_modifier_to_line(line: Line<'static>, modifier: Modifier) -> Line<'static
         .map(|span| Span::styled(span.content, span.style.add_modifier(modifier)))
         .collect::<Vec<_>>();
     Line::from(spans)
+}
+
+fn append_text_with_issue_links(spans: &mut Vec<Span<'static>>, text: &str, style: Style) {
+    let mut last = 0usize;
+    for captures in ISSUE_REF_RE.captures_iter(text) {
+        let Some(whole) = captures.get(0) else {
+            continue;
+        };
+        let prefix = captures.get(1).map(|value| value.as_str()).unwrap_or("");
+        let repo = captures.get(2).map(|value| value.as_str()).unwrap_or("");
+        let number = captures.get(3).map(|value| value.as_str()).unwrap_or("");
+        let prefix_start = whole.start();
+        let link_start = prefix_start + prefix.len();
+
+        if last < prefix_start {
+            spans.push(Span::styled(text[last..prefix_start].to_string(), style));
+        }
+        if !prefix.is_empty() {
+            spans.push(Span::styled(prefix.to_string(), style));
+        }
+        let link_text = format!("{}#{}", repo, number);
+        let url = format!("https://github.com/{}/issues/{}", repo, number);
+        let link_style = style.fg(INFO_COLOR).add_modifier(Modifier::UNDERLINED);
+        spans.push(Span::raw(osc8_start_sequence(&url)));
+        spans.push(Span::styled(link_text, link_style));
+        spans.push(Span::raw(osc8_close_sequence()));
+        last = whole.end();
+        debug_assert!(last >= link_start);
+    }
+
+    if last < text.len() {
+        spans.push(Span::styled(text[last..].to_string(), style));
+    }
 }
 
 fn osc8_start_sequence(url: &str) -> String {
@@ -2137,6 +2177,25 @@ mod tests {
         assert!(rendered.contains("support@example.com"));
         assert!(!rendered.contains("mailto:"));
         assert!(!rendered.contains("\x1b]8;;"));
+    }
+
+    #[test]
+    fn github_issue_references_are_hyperlinked_in_plain_text() {
+        let lines = render_markdown_with_options(
+            "See anthropics/claude-code#24180 for context.",
+            None,
+            MarkdownRenderOptions {
+                max_width: Some(80),
+                enable_hyperlinks: true,
+            },
+        );
+        let rendered = lines
+            .iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(rendered.contains("anthropics/claude-code#24180"));
+        assert!(rendered.contains("\x1b]8;;https://github.com/anthropics/claude-code/issues/24180"));
     }
 
     #[test]
