@@ -3,16 +3,17 @@ mod remote;
 mod remote_workspace;
 mod shared;
 
-use crate::commands::context::CommandContext;
-use crate::runtime_artifacts::{
-    write_hook_failure_artifact, write_runtime_task_inventory_artifact,
-    write_runtime_timeline_artifact,
-};
-use crate::commands::tools::mcp_workspace::write_browser_access_state_artifact;
 use self::remote_workspace::{
     build_remote_execution_state, build_remote_workflow_state, remote_command_surface_inventory,
     write_remote_execution_state_artifact, write_remote_execution_stub_inventory,
     write_remote_workflow_capability_artifact,
+};
+use crate::commands::context::CommandContext;
+use crate::commands::tools::mcp_workspace::write_browser_access_state_artifact;
+use crate::runtime_artifacts::{
+    write_hook_failure_artifact, write_prompt_cache_artifact, write_prompt_cache_break_artifact,
+    write_prompt_cache_event_artifact, write_prompt_cache_state_artifact,
+    write_runtime_task_inventory_artifact, write_runtime_timeline_artifact,
 };
 
 pub(super) fn render_doctor_report(ctx: &mut CommandContext) -> String {
@@ -53,13 +54,16 @@ pub(super) fn export_doctor_bundle(ctx: &mut CommandContext) -> Result<String, S
     let reports = [
         ("local-doctor.txt", local::render_doctor_report(ctx)),
         ("remote-env.txt", remote::render_remote_env_check(ctx)),
-        ("remote-review.txt", remote::render_remote_review_prereqs(ctx)),
-        ("remote-artifacts.txt", remote::render_remote_artifact_index(ctx)),
+        (
+            "remote-review.txt",
+            remote::render_remote_review_prereqs(ctx),
+        ),
+        (
+            "remote-artifacts.txt",
+            remote::render_remote_artifact_index(ctx),
+        ),
     ];
-    let report_names = reports
-        .iter()
-        .map(|(name, _)| *name)
-        .collect::<Vec<_>>();
+    let report_names = reports.iter().map(|(name, _)| *name).collect::<Vec<_>>();
     let mut copied_files = Vec::new();
     let mut severity_summaries = Vec::new();
 
@@ -82,12 +86,9 @@ pub(super) fn export_doctor_bundle(ctx: &mut CommandContext) -> Result<String, S
         .ok()
         .map(|engine| (engine.runtime_state(), engine.runtime_tasks_snapshot()));
     if let Some((state, tasks)) = runtime_bundle.as_ref() {
-        if let Some(path) = write_runtime_timeline_artifact(
-            &working_dir,
-            &ctx.session.session_id,
-            state,
-            tasks,
-        ) {
+        if let Some(path) =
+            write_runtime_timeline_artifact(&working_dir, &ctx.session.session_id, state, tasks)
+        {
             let dest = bundle_dir.join("runtime-timeline.md");
             std::fs::copy(&path, &dest)
                 .map_err(|err| format!("Failed to copy {}: {}", path, err))?;
@@ -104,15 +105,77 @@ pub(super) fn export_doctor_bundle(ctx: &mut CommandContext) -> Result<String, S
                 .map_err(|err| format!("Failed to copy {}: {}", path, err))?;
             copied_files.push(dest);
         }
-        if let Some(path) = write_hook_failure_artifact(
-            &working_dir,
-            &ctx.session.session_id,
-            &state,
-        ) {
+        if let Some(path) =
+            write_hook_failure_artifact(&working_dir, &ctx.session.session_id, &state)
+        {
             let dest = bundle_dir.join("hook-failures.md");
             std::fs::copy(&path, &dest)
                 .map_err(|err| format!("Failed to copy {}: {}", path, err))?;
             copied_files.push(dest);
+        }
+        if let Some(path) =
+            write_prompt_cache_artifact(&working_dir, &ctx.session.session_id, &state)
+        {
+            let dest = bundle_dir.join("prompt-cache.md");
+            std::fs::copy(&path, &dest)
+                .map_err(|err| format!("Failed to copy {}: {}", path, err))?;
+            copied_files.push(dest);
+        }
+        if let Some(path) =
+            write_prompt_cache_state_artifact(&working_dir, &ctx.session.session_id, &state)
+        {
+            let dest = bundle_dir.join("prompt-cache-state.json");
+            std::fs::copy(&path, &dest)
+                .map_err(|err| format!("Failed to copy {}: {}", path, err))?;
+            copied_files.push(dest);
+        }
+        if let Some(path) =
+            write_prompt_cache_event_artifact(&working_dir, &ctx.session.session_id, &state)
+        {
+            let dest = bundle_dir.join("prompt-cache-events.md");
+            std::fs::copy(&path, &dest)
+                .map_err(|err| format!("Failed to copy {}: {}", path, err))?;
+            copied_files.push(dest);
+        }
+        if let Some(path) =
+            write_prompt_cache_break_artifact(&working_dir, &ctx.session.session_id, &state)
+        {
+            let dest = bundle_dir.join("prompt-cache-break.json");
+            std::fs::copy(&path, &dest)
+                .map_err(|err| format!("Failed to copy {}: {}", path, err))?;
+            copied_files.push(dest);
+        }
+        if let Some(path) = state
+            .prompt_cache
+            .last_prompt_cache_diff_artifact_path
+            .as_deref()
+        {
+            let src = std::path::PathBuf::from(path);
+            if src.exists() {
+                let dest = bundle_dir.join("prompt-cache-diff.md");
+                std::fs::copy(&src, &dest)
+                    .map_err(|err| format!("Failed to copy {}: {}", src.display(), err))?;
+                copied_files.push(dest);
+            }
+        }
+        for suffix in [
+            "post-compact-restore.md",
+            "post-compact-restore-state.json",
+            "post-compact-restore-diff.md",
+        ] {
+            if let Some(path) = crate::commands::artifact_nav::latest_artifact_by_suffix(
+                &working_dir.join(".yode").join("status"),
+                suffix,
+            ) {
+                let dest = bundle_dir.join(
+                    path.file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("restore-artifact"),
+                );
+                std::fs::copy(&path, &dest)
+                    .map_err(|err| format!("Failed to copy {}: {}", path.display(), err))?;
+                copied_files.push(dest);
+            }
         }
     }
     let remote_state = build_remote_workflow_state(ctx);
@@ -129,8 +192,7 @@ pub(super) fn export_doctor_bundle(ctx: &mut CommandContext) -> Result<String, S
         &remote_command_surface_inventory(),
     ) {
         let dest = bundle_dir.join("remote-workflow-capability.json");
-        std::fs::copy(&path, &dest)
-            .map_err(|err| format!("Failed to copy {}: {}", path, err))?;
+        std::fs::copy(&path, &dest).map_err(|err| format!("Failed to copy {}: {}", path, err))?;
         copied_files.push(dest);
     }
     if let Some(path) = write_remote_execution_state_artifact(
@@ -139,15 +201,15 @@ pub(super) fn export_doctor_bundle(ctx: &mut CommandContext) -> Result<String, S
         &remote_execution_state,
     ) {
         let dest = bundle_dir.join("remote-execution-state.json");
-        std::fs::copy(&path, &dest)
-            .map_err(|err| format!("Failed to copy {}: {}", path, err))?;
+        std::fs::copy(&path, &dest).map_err(|err| format!("Failed to copy {}: {}", path, err))?;
         copied_files.push(dest);
     }
-    let browser_tools_present = ctx
-        .tools
-        .definitions()
-        .into_iter()
-        .any(|definition| matches!(definition.name.as_str(), "web_search" | "web_fetch" | "web_browser"));
+    let browser_tools_present = ctx.tools.definitions().into_iter().any(|definition| {
+        matches!(
+            definition.name.as_str(),
+            "web_search" | "web_fetch" | "web_browser"
+        )
+    });
     if let Some(path) = write_browser_access_state_artifact(
         &working_dir,
         &ctx.session.session_id,
@@ -158,15 +220,13 @@ pub(super) fn export_doctor_bundle(ctx: &mut CommandContext) -> Result<String, S
             .unwrap_or(0),
     ) {
         let dest = bundle_dir.join("browser-access-state.json");
-        std::fs::copy(&path, &dest)
-            .map_err(|err| format!("Failed to copy {}: {}", path, err))?;
+        std::fs::copy(&path, &dest).map_err(|err| format!("Failed to copy {}: {}", path, err))?;
         copied_files.push(dest);
     }
     if let Some(path) = write_remote_execution_stub_inventory(&working_dir, &ctx.session.session_id)
     {
         let dest = bundle_dir.join("remote-execution-inventory.md");
-        std::fs::copy(&path, &dest)
-            .map_err(|err| format!("Failed to copy {}: {}", path, err))?;
+        std::fs::copy(&path, &dest).map_err(|err| format!("Failed to copy {}: {}", path, err))?;
         copied_files.push(dest);
     }
     if let Some(bundle) =
@@ -193,8 +253,11 @@ pub(super) fn export_doctor_bundle(ctx: &mut CommandContext) -> Result<String, S
             })
             .collect::<Vec<_>>(),
     });
-    std::fs::write(&manifest_path, serde_json::to_string_pretty(&manifest).unwrap_or_else(|_| "{}".to_string()))
-        .map_err(|err| format!("Failed to write {}: {}", manifest_path.display(), err))?;
+    std::fs::write(
+        &manifest_path,
+        serde_json::to_string_pretty(&manifest).unwrap_or_else(|_| "{}".to_string()),
+    )
+    .map_err(|err| format!("Failed to write {}: {}", manifest_path.display(), err))?;
     copied_files.push(manifest_path.clone());
 
     let overview_path = bundle_dir.join("bundle-overview.txt");

@@ -1,15 +1,19 @@
+use super::shared::render_section;
 use crate::commands::context::CommandContext;
-use crate::commands::registry::VisibleCommandName;
 use crate::commands::info::startup_artifacts::{
     latest_mcp_startup_failures, latest_provider_inventory, latest_startup_manifest,
 };
+use crate::commands::registry::VisibleCommandName;
 use crate::runtime_artifacts::write_runtime_timeline_artifact;
+use crate::runtime_artifacts::{
+    write_prompt_cache_artifact, write_prompt_cache_break_artifact,
+    write_prompt_cache_event_artifact, write_prompt_cache_state_artifact,
+};
 use crate::ui::status_summary::{
-    context_window_summary_text, runtime_status_snapshot_from_parts,
-    session_runtime_summary_text, tool_runtime_summary_text,
+    context_window_summary_text, runtime_status_snapshot_from_parts, session_runtime_summary_text,
+    tool_runtime_summary_text,
 };
 use yode_core::updater::{latest_local_release_tag, release_version_matches_tag, CURRENT_VERSION};
-use super::shared::render_section;
 
 pub(super) fn render_doctor_report(ctx: &mut CommandContext) -> String {
     let mut env_checks = Vec::new();
@@ -29,7 +33,10 @@ pub(super) fn render_doctor_report(ctx: &mut CommandContext) -> String {
                 .map(|tool| tool.to_string())
                 .collect::<Vec<_>>(),
             engine.permissions().recent_denial_prefixes(5),
-            engine.permissions().safe_readonly_shell_prefixes().join(", "),
+            engine
+                .permissions()
+                .safe_readonly_shell_prefixes()
+                .join(", "),
             engine.permissions().confirmation_rule_suggestions(3),
         )
     });
@@ -105,7 +112,10 @@ pub(super) fn render_doctor_report(ctx: &mut CommandContext) -> String {
     tooling_checks.push(format!(
         "  [ok] tool search: {} ({})",
         inventory.tool_search_enabled,
-        inventory.tool_search_reason.as_deref().unwrap_or("no reason recorded")
+        inventory
+            .tool_search_reason
+            .as_deref()
+            .unwrap_or("no reason recorded")
     ));
     if inventory.duplicate_registration_count > 0 {
         tooling_checks.push(format!(
@@ -122,12 +132,7 @@ pub(super) fn render_doctor_report(ctx: &mut CommandContext) -> String {
             .list()
             .into_iter()
             .map(|tool| tool.name().to_string())
-            .chain(
-                ctx.tools
-                    .list_deferred()
-                    .into_iter()
-                    .map(|(name, _)| name),
-            )
+            .chain(ctx.tools.list_deferred().into_iter().map(|(name, _)| name))
             .collect::<Vec<_>>(),
     );
     if command_tool_overlaps.is_empty() {
@@ -217,7 +222,17 @@ pub(super) fn render_doctor_report(ctx: &mut CommandContext) -> String {
         tooling_checks.push("  [ok] MCP startup failures: none recorded".to_string());
     }
 
-    if let Some((state, tasks, permission_mode, source_views, confirmable_tools, denial_prefixes, safe_prefixes, confirmation_suggestions)) = runtime {
+    if let Some((
+        state,
+        tasks,
+        permission_mode,
+        source_views,
+        confirmable_tools,
+        denial_prefixes,
+        safe_prefixes,
+        confirmation_suggestions,
+    )) = runtime
+    {
         runtime_checks.extend(runtime_health_checks(
             &project_root,
             &ctx.session.session_id,
@@ -239,7 +254,8 @@ pub(super) fn render_doctor_report(ctx: &mut CommandContext) -> String {
             &confirmation_suggestions,
         ));
     } else {
-        runtime_checks.push("  [--] Engine runtime busy; skipped context/memory checks".to_string());
+        runtime_checks
+            .push("  [--] Engine runtime busy; skipped context/memory checks".to_string());
     }
 
     version_checks.push(match latest_local_release_tag() {
@@ -441,7 +457,10 @@ fn runtime_health_checks(
             .join(" | ");
         checks.push(format!("  [ok] Permission scopes: {}", scope_summary));
     }
-    checks.push(format!("  [ok] Safe bash readonly prefixes: {}", safe_prefixes));
+    checks.push(format!(
+        "  [ok] Safe bash readonly prefixes: {}",
+        safe_prefixes
+    ));
     if denial_prefixes.is_empty() {
         checks.push("  [ok] No bash denial prefixes recorded".to_string());
     } else {
@@ -470,6 +489,94 @@ fn runtime_health_checks(
         checks.push(format!("  [ok] Runtime timeline artifact: {}", path));
     } else {
         checks.push("  [--] Runtime timeline artifact unavailable".to_string());
+    }
+    if let Some(path) = write_prompt_cache_artifact(project_root, session_id, state) {
+        checks.push(format!("  [ok] Prompt cache artifact: {}", path));
+    } else {
+        checks.push("  [--] Prompt cache artifact unavailable".to_string());
+    }
+    if let Some(path) = write_prompt_cache_event_artifact(project_root, session_id, state) {
+        checks.push(format!("  [ok] Prompt cache events artifact: {}", path));
+    } else {
+        checks.push("  [--] Prompt cache events artifact unavailable".to_string());
+    }
+    if let Some(path) = write_prompt_cache_state_artifact(project_root, session_id, state) {
+        checks.push(format!("  [ok] Prompt cache state artifact: {}", path));
+    } else {
+        checks.push("  [--] Prompt cache state artifact unavailable".to_string());
+    }
+    if let Some(path) = write_prompt_cache_break_artifact(project_root, session_id, state) {
+        checks.push(format!("  [ok] Prompt cache break artifact: {}", path));
+    } else {
+        checks.push("  [--] Prompt cache break artifact unavailable".to_string());
+    }
+    if let Some(path) = state
+        .prompt_cache
+        .last_prompt_cache_diff_artifact_path
+        .as_deref()
+    {
+        checks.push(format!("  [ok] Prompt cache diff artifact: {}", path));
+    } else {
+        checks.push("  [--] Prompt cache diff artifact unavailable".to_string());
+    }
+    for suffix in [
+        "post-compact-restore.md",
+        "post-compact-restore-state.json",
+        "post-compact-restore-diff.md",
+    ] {
+        if let Some(path) = crate::commands::artifact_nav::latest_artifact_by_suffix(
+            &project_root.join(".yode").join("status"),
+            suffix,
+        ) {
+            checks.push(format!(
+                "  [ok] Compact restore artifact: {}",
+                path.display()
+            ));
+        }
+    }
+    checks.push(format!(
+        "  [ok] Prompt cache change summary: {}",
+        state
+            .prompt_cache
+            .last_prompt_cache_change_summary
+            .as_deref()
+            .unwrap_or("none")
+    ));
+    checks.push(format!(
+        "  [ok] Prompt cache hashes: prefix={} system={} tools={} messages={}",
+        state
+            .prompt_cache
+            .last_prompt_cache_prefix_hash
+            .as_deref()
+            .unwrap_or("none"),
+        state
+            .prompt_cache
+            .last_prompt_cache_system_hash
+            .as_deref()
+            .unwrap_or("none"),
+        state
+            .prompt_cache
+            .last_prompt_cache_tool_hash
+            .as_deref()
+            .unwrap_or("none"),
+        state
+            .prompt_cache
+            .last_prompt_cache_message_hash
+            .as_deref()
+            .unwrap_or("none")
+    ));
+    if state.prompt_cache.prompt_cache_break_count > 0 {
+        checks.push(format!(
+            "  [!!] Prompt cache breaks detected: {} (last: {})",
+            state.prompt_cache.prompt_cache_break_count,
+            state
+                .prompt_cache
+                .last_prompt_cache_break_reason
+                .as_deref()
+                .unwrap_or("unknown")
+        ));
+    } else {
+        checks.push("  [ok] No prompt cache breaks detected".to_string());
     }
 
     if state.tool_truncation_count > 0 {
@@ -650,7 +757,8 @@ mod tests {
 
     #[test]
     fn runtime_health_checks_include_shared_runtime_summaries() {
-        let dir = std::env::temp_dir().join(format!("yode-doctor-runtime-{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("yode-doctor-runtime-{}", uuid::Uuid::new_v4()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join(".yode").join("transcripts")).unwrap();
         let rendered = runtime_health_checks(
@@ -665,8 +773,12 @@ mod tests {
             "",
             &[],
         );
-        assert!(rendered.iter().any(|line| line.contains("Runtime summary:")));
-        assert!(rendered.iter().any(|line| line.contains("Context summary:")));
+        assert!(rendered
+            .iter()
+            .any(|line| line.contains("Runtime summary:")));
+        assert!(rendered
+            .iter()
+            .any(|line| line.contains("Context summary:")));
         assert!(rendered.iter().any(|line| line.contains("Tool summary:")));
         let _ = std::fs::remove_dir_all(&dir);
     }

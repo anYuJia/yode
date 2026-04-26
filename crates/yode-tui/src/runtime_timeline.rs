@@ -9,8 +9,11 @@ use yode_tools::{RuntimeTask, RuntimeTaskStatus};
 use crate::commands::artifact_nav::{
     latest_agent_team_artifact, latest_agent_team_monitor_artifact, latest_hook_deferred_artifact,
     latest_hook_deferred_state_artifact, latest_permission_governance_artifact,
-    latest_remote_live_session_artifact, latest_remote_live_session_state_artifact,
-    latest_remote_session_transcript_sync_artifact,
+    latest_post_compact_restore_artifact, latest_post_compact_restore_diff_artifact,
+    latest_post_compact_restore_state_artifact, latest_prompt_cache_artifact,
+    latest_prompt_cache_diff_artifact, latest_prompt_cache_events_artifact,
+    latest_prompt_cache_state_artifact, latest_remote_live_session_artifact,
+    latest_remote_live_session_state_artifact, latest_remote_session_transcript_sync_artifact,
 };
 use crate::runtime_display::{
     fold_recovery_breadcrumbs, format_permission_decision_summary, format_tool_progress_summary,
@@ -103,6 +106,48 @@ pub(crate) fn build_runtime_timeline_lines_with_project_root(
         });
     }
 
+    if let Some(at) = state.prompt_cache.last_prompt_cache_break_at.as_deref() {
+        entries.push(RuntimeTimelineEntry {
+            at: Some(at.to_string()),
+            detail: format!(
+                "prompt cache break: {} / change={}",
+                compact_detail(
+                    state
+                        .prompt_cache
+                        .last_prompt_cache_break_reason
+                        .as_deref()
+                        .unwrap_or("unknown")
+                ),
+                state
+                    .prompt_cache
+                    .last_prompt_cache_change_summary
+                    .as_deref()
+                    .unwrap_or("none")
+            ),
+        });
+    }
+
+    if state.prompt_cache.pending_cache_edit_refs > 0
+        || state.prompt_cache.pinned_cache_edit_refs > 0
+    {
+        entries.push(RuntimeTimelineEntry {
+            at: state
+                .last_compaction_at
+                .clone()
+                .or_else(|| state.last_session_memory_update_at.clone()),
+            detail: format!(
+                "prompt cache refs: pending={} / pinned={} / expected_drop={}",
+                state.prompt_cache.pending_cache_edit_refs,
+                state.prompt_cache.pinned_cache_edit_refs,
+                state
+                    .prompt_cache
+                    .last_prompt_cache_expected_drop_reason
+                    .as_deref()
+                    .unwrap_or("none")
+            ),
+        });
+    }
+
     let tool_progress_summary = format_tool_progress_summary(
         state.last_tool_progress_tool.as_deref(),
         state.last_tool_progress_message.as_deref(),
@@ -122,9 +167,20 @@ pub(crate) fn build_runtime_timeline_lines_with_project_root(
             at: Some(at.to_string()),
             detail: format!(
                 "hook failure: {} [{}] {}",
-                state.last_hook_failure_command.as_deref().unwrap_or("unknown"),
-                state.last_hook_failure_event.as_deref().unwrap_or("unknown"),
-                compact_detail(state.last_hook_failure_reason.as_deref().unwrap_or("unknown"))
+                state
+                    .last_hook_failure_command
+                    .as_deref()
+                    .unwrap_or("unknown"),
+                state
+                    .last_hook_failure_event
+                    .as_deref()
+                    .unwrap_or("unknown"),
+                compact_detail(
+                    state
+                        .last_hook_failure_reason
+                        .as_deref()
+                        .unwrap_or("unknown")
+                )
             ),
         });
     }
@@ -133,7 +189,10 @@ pub(crate) fn build_runtime_timeline_lines_with_project_root(
             at: state.last_hook_failure_at.clone(),
             detail: format!(
                 "hook timeout: {} (count={})",
-                state.last_hook_timeout_command.as_deref().unwrap_or("unknown"),
+                state
+                    .last_hook_timeout_command
+                    .as_deref()
+                    .unwrap_or("unknown"),
                 state.hook_timeout_count
             ),
         });
@@ -225,11 +284,12 @@ pub(crate) fn render_runtime_timeline_markdown_with_project_root(
     tasks: &[RuntimeTask],
     max_items: usize,
 ) -> String {
-    let lines = build_runtime_timeline_lines_with_project_root(Some(project_root), state, tasks, max_items)
-        .into_iter()
-        .map(|line| format!("- {}", line))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let lines =
+        build_runtime_timeline_lines_with_project_root(Some(project_root), state, tasks, max_items)
+            .into_iter()
+            .map(|line| format!("- {}", line))
+            .collect::<Vec<_>>()
+            .join("\n");
     format!(
         "# Runtime Timeline\n\n{}## Timeline\n\n{}\n",
         timeline_summary_markdown(Some(project_root), state, tasks),
@@ -359,7 +419,10 @@ fn artifact_timestamp(path: &str) -> Option<String> {
     Some(format_system_time(modified))
 }
 
-fn extend_with_runtime_family_entries(entries: &mut Vec<RuntimeTimelineEntry>, project_root: &Path) {
+fn extend_with_runtime_family_entries(
+    entries: &mut Vec<RuntimeTimelineEntry>,
+    project_root: &Path,
+) {
     for (path, label) in [
         (latest_hook_deferred_artifact(project_root), "hook deferred"),
         (
@@ -369,6 +432,31 @@ fn extend_with_runtime_family_entries(entries: &mut Vec<RuntimeTimelineEntry>, p
         (
             latest_permission_governance_artifact(project_root),
             "permission governance",
+        ),
+        (latest_prompt_cache_artifact(project_root), "prompt cache"),
+        (
+            latest_prompt_cache_state_artifact(project_root),
+            "prompt cache state",
+        ),
+        (
+            latest_prompt_cache_events_artifact(project_root),
+            "prompt cache events",
+        ),
+        (
+            latest_prompt_cache_diff_artifact(project_root),
+            "prompt cache diff",
+        ),
+        (
+            latest_post_compact_restore_artifact(project_root),
+            "post-compact restore",
+        ),
+        (
+            latest_post_compact_restore_state_artifact(project_root),
+            "post-compact restore state",
+        ),
+        (
+            latest_post_compact_restore_diff_artifact(project_root),
+            "post-compact restore diff",
         ),
         (latest_agent_team_artifact(project_root), "agent team"),
         (
@@ -401,9 +489,10 @@ fn extend_with_runtime_family_entries(entries: &mut Vec<RuntimeTimelineEntry>, p
         ("tool-search-activation.json", "tool search activation"),
         ("permission-policy.json", "permission policy"),
     ] {
-        if let Some(path) =
-            crate::commands::artifact_nav::latest_artifact_by_suffix(&project_root.join(".yode").join("startup"), suffix.0)
-        {
+        if let Some(path) = crate::commands::artifact_nav::latest_artifact_by_suffix(
+            &project_root.join(".yode").join("startup"),
+            suffix.0,
+        ) {
             entries.push(RuntimeTimelineEntry {
                 at: artifact_timestamp(&path.display().to_string()),
                 detail: format!("{}: artifact={}", suffix.1, path.display()),
@@ -650,10 +739,8 @@ mod tests {
 
     #[test]
     fn build_runtime_timeline_merges_dated_state_and_artifact_events() {
-        let dir = std::env::temp_dir().join(format!(
-            "yode-runtime-timeline-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("yode-runtime-timeline-{}", uuid::Uuid::new_v4()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let recovery = dir.join("recovery.md");
@@ -683,14 +770,25 @@ mod tests {
         state.last_turn_artifact_path = Some(turn.display().to_string());
 
         let lines = build_runtime_timeline_lines(&state, &[], 8);
-        assert!(lines.iter().any(|line| line.contains("context compacted: auto")));
-        assert!(lines.iter().any(|line| line.contains("hook failure: scripts/pre-tool [pre_tool]")));
-        assert!(lines.iter().any(|line| line.contains("hook timeout: scripts/pre-tool")));
-        assert!(lines.iter().any(|line| line.contains("permission decision: bash [confirm] needs approval / artifact=")));
+        assert!(lines
+            .iter()
+            .any(|line| line.contains("context compacted: auto")));
+        assert!(lines
+            .iter()
+            .any(|line| line.contains("hook failure: scripts/pre-tool [pre_tool]")));
+        assert!(lines
+            .iter()
+            .any(|line| line.contains("hook timeout: scripts/pre-tool")));
+        assert!(lines
+            .iter()
+            .any(|line| line
+                .contains("permission decision: bash [confirm] needs approval / artifact=")));
         assert!(lines
             .iter()
             .any(|line| line.contains("recovery state: SingleStepMode / breadcrumbs=")));
-        assert!(lines.iter().any(|line| line.contains("turn completed: stop=Stop / artifact=")));
+        assert!(lines
+            .iter()
+            .any(|line| line.contains("turn completed: stop=Stop / artifact=")));
         assert!(lines.iter().all(|line| !line.starts_with("undated |")));
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -703,29 +801,87 @@ mod tests {
 
     #[test]
     fn project_root_timeline_includes_extended_runtime_families() {
-        let dir = std::env::temp_dir().join(format!(
-            "yode-runtime-extended-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("yode-runtime-extended-{}", uuid::Uuid::new_v4()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join(".yode").join("hooks")).unwrap();
         std::fs::create_dir_all(dir.join(".yode").join("teams")).unwrap();
         std::fs::create_dir_all(dir.join(".yode").join("remote")).unwrap();
         std::fs::create_dir_all(dir.join(".yode").join("startup")).unwrap();
-        std::fs::write(dir.join(".yode").join("hooks").join("a-hook-deferred.md"), "x").unwrap();
-        std::fs::write(dir.join(".yode").join("teams").join("a-agent-team-monitor.md"), "x").unwrap();
-        std::fs::write(dir.join(".yode").join("remote").join("a-remote-live-session-state.json"), "{}").unwrap();
-        std::fs::write(dir.join(".yode").join("startup").join("a-settings-scopes.json"), "{}").unwrap();
-        std::fs::write(dir.join(".yode").join("startup").join("a-managed-mcp-inventory.json"), "{}").unwrap();
-        std::fs::write(dir.join(".yode").join("startup").join("a-tool-search-activation.json"), "{}").unwrap();
+        std::fs::create_dir_all(dir.join(".yode").join("status")).unwrap();
+        std::fs::write(
+            dir.join(".yode").join("hooks").join("a-hook-deferred.md"),
+            "x",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join(".yode")
+                .join("teams")
+                .join("a-agent-team-monitor.md"),
+            "x",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join(".yode")
+                .join("remote")
+                .join("a-remote-live-session-state.json"),
+            "{}",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join(".yode")
+                .join("startup")
+                .join("a-settings-scopes.json"),
+            "{}",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join(".yode")
+                .join("startup")
+                .join("a-managed-mcp-inventory.json"),
+            "{}",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join(".yode")
+                .join("startup")
+                .join("a-tool-search-activation.json"),
+            "{}",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join(".yode").join("status").join("a-prompt-cache.md"),
+            "x",
+        )
+        .unwrap();
 
-        let lines = build_runtime_timeline_lines_with_project_root(Some(&dir), &test_runtime_state(), &[], 12);
-        assert!(lines.iter().any(|line| line.contains("hook deferred: artifact=")));
-        assert!(lines.iter().any(|line| line.contains("agent team monitor: artifact=")));
-        assert!(lines.iter().any(|line| line.contains("remote live session state: artifact=")));
-        assert!(lines.iter().any(|line| line.contains("settings scopes: artifact=")));
-        assert!(lines.iter().any(|line| line.contains("managed mcp inventory: artifact=")));
-        assert!(lines.iter().any(|line| line.contains("tool search activation: artifact=")));
+        let lines = build_runtime_timeline_lines_with_project_root(
+            Some(&dir),
+            &test_runtime_state(),
+            &[],
+            12,
+        );
+        assert!(lines
+            .iter()
+            .any(|line| line.contains("hook deferred: artifact=")));
+        assert!(lines
+            .iter()
+            .any(|line| line.contains("agent team monitor: artifact=")));
+        assert!(lines
+            .iter()
+            .any(|line| line.contains("remote live session state: artifact=")));
+        assert!(lines
+            .iter()
+            .any(|line| line.contains("settings scopes: artifact=")));
+        assert!(lines
+            .iter()
+            .any(|line| line.contains("managed mcp inventory: artifact=")));
+        assert!(lines
+            .iter()
+            .any(|line| line.contains("tool search activation: artifact=")));
+        assert!(lines
+            .iter()
+            .any(|line| line.contains("prompt cache: artifact=")));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

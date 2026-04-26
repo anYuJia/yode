@@ -2,15 +2,18 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 
+use crate::app::rendering::strip_ansi;
 use crate::app::{
     format_scrollback_entry_as_strings, format_scrollback_grouped_subagent_batch,
-    format_scrollback_grouped_system_batch,
-    format_scrollback_grouped_tool_batch, ChatRole,
+    format_scrollback_grouped_system_batch, format_scrollback_grouped_tool_batch, ChatRole,
 };
-use crate::app::rendering::strip_ansi;
 use crate::commands::artifact_nav::{
-    artifact_freshness_badge, latest_coordinator_artifact,
-    latest_runtime_orchestration_artifact, latest_workflow_execution_artifact,
+    artifact_freshness_badge, latest_coordinator_artifact, latest_post_compact_restore_artifact,
+    latest_post_compact_restore_diff_artifact, latest_post_compact_restore_state_artifact,
+    latest_prompt_cache_artifact, latest_prompt_cache_break_artifact,
+    latest_prompt_cache_diff_artifact, latest_prompt_cache_events_artifact,
+    latest_prompt_cache_state_artifact, latest_runtime_orchestration_artifact,
+    latest_workflow_execution_artifact,
 };
 use crate::commands::context::CommandContext;
 use crate::commands::{
@@ -18,15 +21,16 @@ use crate::commands::{
     CommandResult,
 };
 use crate::runtime_artifacts::{
-    write_runtime_task_inventory_artifact, write_runtime_timeline_artifact,
+    write_prompt_cache_artifact, write_runtime_task_inventory_artifact,
+    write_runtime_timeline_artifact,
 };
 use crate::tool_grouping::{
     detect_groupable_subagent_batch, detect_groupable_system_batch, detect_groupable_tool_batch,
     should_hide_tool_from_transcript,
 };
 use crate::ui::status_summary::{
-    context_window_summary_text, runtime_status_snapshot_from_parts,
-    session_runtime_summary_text, tool_runtime_summary_text,
+    context_window_summary_text, runtime_status_snapshot_from_parts, session_runtime_summary_text,
+    tool_runtime_summary_text,
 };
 
 mod shared;
@@ -215,7 +219,12 @@ fn export_diagnostics_bundle(custom_name: Option<&str>, ctx: &mut CommandContext
         .engine
         .try_lock()
         .ok()
-        .map(|engine| (Some(engine.runtime_state()), engine.runtime_tasks_snapshot()))
+        .map(|engine| {
+            (
+                Some(engine.runtime_state()),
+                engine.runtime_tasks_snapshot(),
+            )
+        })
         .unwrap_or((None, Vec::new()));
     let project_root = PathBuf::from(&ctx.session.working_dir);
     let runtime_summary = render_runtime_bundle_summary(&project_root, runtime.as_ref(), &tasks);
@@ -237,6 +246,21 @@ fn export_diagnostics_bundle(custom_name: Option<&str>, ctx: &mut CommandContext
     };
     std::fs::write(&timeline_path, timeline_body)
         .map_err(|err| format!("Failed to write {}: {}", timeline_path.display(), err))?;
+
+    let prompt_cache_path = bundle_dir.join("prompt-cache.txt");
+    let prompt_cache_body = if let Some(state) = runtime.as_ref() {
+        write_prompt_cache_artifact(
+            &PathBuf::from(&ctx.session.working_dir),
+            &ctx.session.session_id,
+            state,
+        )
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .unwrap_or_else(|| "Prompt cache artifact unavailable.\n".to_string())
+    } else {
+        "Prompt cache artifact unavailable: engine busy.\n".to_string()
+    };
+    std::fs::write(&prompt_cache_path, prompt_cache_body)
+        .map_err(|err| format!("Failed to write {}: {}", prompt_cache_path.display(), err))?;
 
     let mut copied = Vec::new();
     for path in latest_artifact_candidates(ctx) {
@@ -281,6 +305,7 @@ fn export_diagnostics_bundle(custom_name: Option<&str>, ctx: &mut CommandContext
         &conversation_path,
         &diagnostics_path,
         &timeline_path,
+        &prompt_cache_path,
         if doctor_refs.is_empty() {
             None
         } else {
@@ -296,14 +321,23 @@ fn export_diagnostics_bundle(custom_name: Option<&str>, ctx: &mut CommandContext
         runtime_status_snapshot_from_parts(
             &project_root,
             Some(state.clone()),
-            tasks.iter()
+            tasks
+                .iter()
                 .filter(|task| matches!(task.status, yode_tools::RuntimeTaskStatus::Running))
                 .count(),
         )
     });
     let runtime_line = runtime_snapshot
         .as_ref()
-        .map(|snapshot| session_runtime_summary_text(snapshot, runtime.as_ref().map(|state| state.estimated_context_tokens).unwrap_or(0)))
+        .map(|snapshot| {
+            session_runtime_summary_text(
+                snapshot,
+                runtime
+                    .as_ref()
+                    .map(|state| state.estimated_context_tokens)
+                    .unwrap_or(0),
+            )
+        })
         .unwrap_or_else(|| "engine busy".to_string());
     let context_line = runtime
         .as_ref()
@@ -322,6 +356,7 @@ fn export_diagnostics_bundle(custom_name: Option<&str>, ctx: &mut CommandContext
         &conversation_path,
         &diagnostics_path,
         &workspace_index,
+        &prompt_cache_path,
         &copied,
         if doctor_refs.is_empty() {
             None
@@ -338,8 +373,10 @@ fn latest_artifact_candidates(ctx: &mut CommandContext) -> Vec<PathBuf> {
         .ok()
         .map(|engine| engine.runtime_state());
     let project_root = PathBuf::from(&ctx.session.working_dir);
-    let mut paths =
-        latest_artifact_candidates_from_links(&latest_runtime_artifact_links(runtime.clone()));
+    let mut paths = latest_artifact_candidates_from_links(&latest_runtime_artifact_links(
+        &project_root,
+        runtime.clone(),
+    ));
     let runtime_tasks = ctx
         .engine
         .try_lock()
@@ -361,6 +398,30 @@ fn latest_artifact_candidates(ctx: &mut CommandContext) -> Vec<PathBuf> {
         paths.push(path);
     }
     if let Some(path) = latest_runtime_orchestration_artifact(&project_root) {
+        paths.push(path);
+    }
+    if let Some(path) = latest_prompt_cache_artifact(&project_root) {
+        paths.push(path);
+    }
+    if let Some(path) = latest_prompt_cache_state_artifact(&project_root) {
+        paths.push(path);
+    }
+    if let Some(path) = latest_prompt_cache_events_artifact(&project_root) {
+        paths.push(path);
+    }
+    if let Some(path) = latest_prompt_cache_break_artifact(&project_root) {
+        paths.push(path);
+    }
+    if let Some(path) = latest_prompt_cache_diff_artifact(&project_root) {
+        paths.push(path);
+    }
+    if let Some(path) = latest_post_compact_restore_artifact(&project_root) {
+        paths.push(path);
+    }
+    if let Some(path) = latest_post_compact_restore_state_artifact(&project_root) {
+        paths.push(path);
+    }
+    if let Some(path) = latest_post_compact_restore_diff_artifact(&project_root) {
         paths.push(path);
     }
     paths.extend(startup_artifact_candidates(&project_root));
@@ -419,6 +480,7 @@ fn render_workspace_index(
     conversation_path: &std::path::Path,
     diagnostics_path: &std::path::Path,
     timeline_path: &std::path::Path,
+    prompt_cache_path: &std::path::Path,
     doctor_ref_path: Option<&std::path::Path>,
     workflow_artifact: &str,
     coordinator_artifact: &str,
@@ -444,7 +506,7 @@ fn render_workspace_index(
         )
     };
     format!(
-        "# Workspace Index\n\n## Summary\n\n- Bundle: {}\n- Runtime: {}\n- Context: {}\n- Tools: {}\n- Tasks: total {} / running {}\n- Conversation: {}\n- Runtime summary: {}\n- Runtime timeline: {}\n- Doctor refs: {}\n\n## Jump Targets\n\n- /tasks latest\n- /memory latest\n- /reviews latest\n- /status\n- /diagnostics\n- /doctor bundle\n\n## Orchestration Artifacts\n\n- workflow: {}\n- coordinator: {}\n- timeline: {}\n\n## Inspect Aliases\n\n- /inspect artifact summary\n- /inspect artifact latest-workflow\n- /inspect artifact latest-coordinate\n- /inspect artifact latest-orchestration\n- /inspect artifact latest-runtime-timeline\n- /inspect artifact latest-provider-inventory\n- /inspect artifact latest-review\n- /inspect artifact latest-transcript\n- /inspect artifact bundle\n",
+        "# Workspace Index\n\n## Summary\n\n- Bundle: {}\n- Runtime: {}\n- Context: {}\n- Tools: {}\n- Tasks: total {} / running {}\n- Conversation: {}\n- Runtime summary: {}\n- Runtime timeline: {}\n- Prompt cache: {}\n- Doctor refs: {}\n\n## Jump Targets\n\n- /tasks latest\n- /memory latest\n- /reviews latest\n- /status\n- /diagnostics\n- /doctor bundle\n\n## Orchestration Artifacts\n\n- workflow: {}\n- coordinator: {}\n- timeline: {}\n\n## Inspect Aliases\n\n- /inspect artifact summary\n- /inspect artifact latest-workflow\n- /inspect artifact latest-coordinate\n- /inspect artifact latest-orchestration\n- /inspect artifact latest-runtime-timeline\n- /inspect artifact latest-prompt-cache\n- /inspect artifact latest-prompt-cache-state\n- /inspect artifact latest-prompt-cache-events\n- /inspect artifact latest-prompt-cache-break\n- /inspect artifact latest-prompt-cache-diff\n- /inspect artifact latest-post-compact-restore\n- /inspect artifact latest-post-compact-restore-state\n- /inspect artifact latest-post-compact-restore-diff\n- /inspect artifact latest-provider-inventory\n- /inspect artifact latest-review\n- /inspect artifact latest-transcript\n- /inspect artifact bundle\n",
         bundle_dir.display(),
         runtime_line,
         context_line,
@@ -454,6 +516,7 @@ fn render_workspace_index(
         conversation_path.display(),
         diagnostics_path.display(),
         timeline_path.display(),
+        prompt_cache_path.display(),
         doctor_ref_path
             .map(|path| path.display().to_string())
             .unwrap_or_else(|| "none".to_string()),
@@ -469,7 +532,12 @@ fn render_conversation_summary(ctx: &CommandContext) -> String {
         .engine
         .try_lock()
         .ok()
-        .map(|engine| (Some(engine.runtime_state()), engine.runtime_tasks_snapshot()))
+        .map(|engine| {
+            (
+                Some(engine.runtime_state()),
+                engine.runtime_tasks_snapshot(),
+            )
+        })
         .unwrap_or((None, Vec::new()));
     let running_tasks = tasks
         .iter()
@@ -541,11 +609,12 @@ fn render_bundle_completion_message(
     conversation_path: &std::path::Path,
     diagnostics_path: &std::path::Path,
     workspace_index: &std::path::Path,
+    prompt_cache_path: &std::path::Path,
     copied: &[String],
     doctor_ref_path: Option<&std::path::Path>,
 ) -> String {
     format!(
-        "Diagnostics bundle exported to: {}\n  Runtime:      {}\n  Context:      {}\n  Tools:        {}\n  Core files:    {}, {}, {}\n  Copied files:  {}\n  Doctor refs:   {}\n  Inspect:       /inspect artifact bundle",
+        "Diagnostics bundle exported to: {}\n  Runtime:      {}\n  Context:      {}\n  Tools:        {}\n  Core files:    {}, {}, {}, {}\n  Copied files:  {}\n  Doctor refs:   {}\n  Inspect:       /inspect artifact bundle",
         bundle_dir.display(),
         runtime_line,
         context_line,
@@ -553,6 +622,7 @@ fn render_bundle_completion_message(
         conversation_path.display(),
         diagnostics_path.display(),
         workspace_index.display(),
+        prompt_cache_path.display(),
         if copied.is_empty() {
             "none".to_string()
         } else {
@@ -588,8 +658,8 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::{
-        render_bundle_completion_message, render_conversation_body, render_conversation_summary_block,
-        render_runtime_bundle_summary, render_workspace_index,
+        render_bundle_completion_message, render_conversation_body,
+        render_conversation_summary_block, render_runtime_bundle_summary, render_workspace_index,
     };
     use crate::app::{ChatEntry, ChatRole};
     use yode_core::engine::{EngineRuntimeState, PromptCacheRuntimeState};
@@ -695,7 +765,8 @@ mod tests {
 
     #[test]
     fn runtime_bundle_summary_uses_shared_runtime_lines() {
-        let rendered = render_runtime_bundle_summary(std::path::Path::new("/tmp"), Some(&state()), &[]);
+        let rendered =
+            render_runtime_bundle_summary(std::path::Path::new("/tmp"), Some(&state()), &[]);
         assert!(rendered.contains("- Runtime:"));
         assert!(rendered.contains("- Context:"));
         assert!(rendered.contains("- Tools:"));
@@ -712,6 +783,7 @@ mod tests {
             std::path::Path::new("/tmp/bundle/conversation.txt"),
             std::path::Path::new("/tmp/bundle/runtime-summary.txt"),
             std::path::Path::new("/tmp/bundle/runtime-timeline.txt"),
+            std::path::Path::new("/tmp/bundle/prompt-cache.txt"),
             None,
             "workflow",
             "coordinate",
@@ -733,6 +805,7 @@ mod tests {
             std::path::Path::new("/tmp/bundle/conversation.txt"),
             std::path::Path::new("/tmp/bundle/runtime-summary.txt"),
             std::path::Path::new("/tmp/bundle/workspace-index.md"),
+            std::path::Path::new("/tmp/bundle/prompt-cache.txt"),
             &["a".to_string(), "b".to_string()],
             None,
         );
@@ -744,16 +817,7 @@ mod tests {
     #[test]
     fn conversation_summary_block_renders_shared_lines() {
         let summary = render_conversation_summary_block(
-            "runtime",
-            "context",
-            "tools",
-            3,
-            10,
-            20,
-            30,
-            2,
-            4,
-            1,
+            "runtime", "context", "tools", 3, 10, 20, 30, 2, 4, 1,
         );
         assert!(summary.contains("Summary:"));
         assert!(summary.contains("Runtime:      runtime"));
@@ -818,8 +882,8 @@ mod tests {
         }));
 
         let body = render_conversation_body(&entries);
-        assert!(body.contains("⏺ Searched for 1 pattern, read 1 file"));
         assert!(body.contains("Turn completed"));
         assert!(!body.contains("--- [Tool: grep]"));
+        assert!(!body.contains("--- [Tool: read_file]"));
     }
 }

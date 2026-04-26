@@ -1,11 +1,11 @@
 use crate::commands::context::CommandContext;
 use crate::commands::info::startup_artifacts::ProviderInventorySummary;
-use crate::ui::inspector::inspector_experiment_enabled;
 use crate::runtime_display::{
     fold_recovery_breadcrumbs, format_permission_decision_summary,
     format_repeated_tool_failure_summary, format_tool_progress_summary,
 };
 use crate::runtime_timeline::build_runtime_timeline_lines_with_project_root;
+use crate::ui::inspector::inspector_experiment_enabled;
 use yode_tools::registry::ToolInventory;
 use yode_tools::RuntimeTask;
 
@@ -14,7 +14,9 @@ use super::helpers::{
     memory_update_pending, prompt_cache_last_turn_status, prompt_cache_miss_turns,
     system_prompt_segment_breakdown, ReviewSummary,
 };
-use super::sections::{artifact_links_section, busy_runtime_sections, reviews_section, StatusArtifactLinks};
+use super::sections::{
+    artifact_links_section, busy_runtime_sections, reviews_section, StatusArtifactLinks,
+};
 
 pub(super) fn build_runtime_sections(
     project_root: &std::path::Path,
@@ -63,11 +65,12 @@ pub(super) fn build_runtime_sections(
     );
     let repeated_failure_summary =
         format_repeated_tool_failure_summary(state.latest_repeated_tool_failure.as_deref());
-    let timeline = build_runtime_timeline_lines_with_project_root(Some(project_root), &state, tasks, 8)
-        .into_iter()
-        .map(|line| format!("  - {}", line))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let timeline =
+        build_runtime_timeline_lines_with_project_root(Some(project_root), &state, tasks, 8)
+            .into_iter()
+            .map(|line| format!("  - {}", line))
+            .collect::<Vec<_>>()
+            .join("\n");
     let observability_summary = format!(
         "hook_defer={} | agent_team={} | remote_live={} | settings={} | managed_mcp={} | tool_search={}",
         crate::commands::artifact_nav::latest_hook_deferred_state_artifact(project_root)
@@ -93,11 +96,12 @@ pub(super) fn build_runtime_sections(
     let failure_cluster_remediation = if failure_cluster_summary == "none" {
         "none".to_string()
     } else {
-        "inspect `/tools diag`, `/tasks`, and the latest team/remote artifacts before retrying.".to_string()
+        "inspect `/tools diag`, `/tasks`, and the latest team/remote artifacts before retrying."
+            .to_string()
     };
 
     format!(
-        "\n\nCompact:\n  Query source:    {}\n  Autocompact:     {}\n  Compact fails:   {}\n  Compact count:   {} (auto {}, manual {})\n  Breaker reason:  {}\n  Breaker hint:    {}\n  Cause histogram: {}\n  Last compact:    {}\n  Compact at:      {}\n  Compact summary: {}\n  Last compact mem: {}\n  Last transcript: {}\n\nSystem Prompt:\n  Total est:       {} tokens\n{}\n\nPrompt Cache:\n  Last turn:       {}\n  Last tokens:     {} prompt / {} completion\n  Last cache:      {} write / {} read\n  Cache turns:     {} reported / {} hit / {} miss / {} fill\n  Cache tokens:    {} write / {} read\n\nTurn Runtime:\n  Last turn:       {} ms\n  Stop reason:     {}\n  Turn artifact:   {}\n  Watchdog stage:  {}\n  Retry reasons:   {}\n\nMemory:\n  Live memory:     {}{}\n  Live memory file: {}\n  Memory updates:  {}\n  Last memory update: {}\n  Freshness:       {}\n  Pending update:  {}\n\nRecovery:\n  State:           {}\n  Single-step:     {}\n  Reanchor:        {}\n  Need guidance:   {}\n  Last signature:  {}\n  Breadcrumbs:     {}\n  Artifact:        {}\n  Permission:      {}\n  Permission artifact: {}\n  Recent denials:  {}\n\nTools:\n  Inventory:       {} total / {} active / {} deferred\n  Model pool:      {} active visible / {} active hidden\n  Deferred pool:   {} visible / {} hidden\n  Pool policy:     mode={} confirm={} deny={}\n  Visible sources: {} builtin / {} mcp\n  Search mode:     {}\n  Search reason:   {}\n  Activations:     {} (last: {})\n  Duplicate regs:  {} ({})\n  Session tools:   {}\n  Current turn:    {} calls / {} bytes\n  Budget notices:  {} (warning {})\n  Budget active:   notice={} warning={}\n  Progress events: {} ({})\n  Parallel:        {} batches / {} calls (max {})\n  Truncations:     {} (last: {})\n  Error types:     {}\n  Repeat fail:     {}\n  Failure fix:     {}\n  Tool traces:     {} turn / {} calls\n  Tool artifact:   {}\n  Tool turn done:  {}\n  Failed tools:    {}\n  Always-allow:    {}{}{}{}\n\nObservability:\n  Runtime family:  {}\n\nHooks:\n  Hook runs:       {}\n  Hook timeouts:   {}\n  Hook exec errs:  {}\n  Hook exits!=0:   {}\n  Hook wakes:      {}\n  Last hook fail:  {}\n  Last hook at:    {}\n  Last hook timeout: {}\n\nTimeline:\n{}",
+        "\n\nCompact:\n  Query source:    {}\n  Autocompact:     {}\n  Compact fails:   {}\n  Compact count:   {} (auto {}, manual {})\n  Breaker reason:  {}\n  Breaker hint:    {}\n  Cause histogram: {}\n  Last compact:    {}\n  Compact at:      {}\n  Compact summary: {}\n  Last compact mem: {}\n  Last transcript: {}\n\nSystem Prompt:\n  Total est:       {} tokens\n{}\n\nPrompt Cache:\n  Last turn:       {}\n  Last tokens:     {} prompt / {} completion\n  Last cache:      {} write / {} read / {} deleted_tok / {} deletions\n  Cache turns:     {} reported / {} hit / {} miss / {} fill / {} edit\n  Cache tokens:    {} write / {} read / {} deleted\n  Cache deletes:   {} total\n  Cache refs:      {} pending / {} pinned\n  Cache hashes:    {} / {} / {} / {} / {}\n  Cache change:    {}\n  Transition:      {} ({})\n  Diff artifact:   {}\n  Diff summary:    {}\n  Cache breaks:    {} (last: {})\n  Expected drop:   {}\n\nTurn Runtime:\n  Last turn:       {} ms\n  Stop reason:     {}\n  Turn artifact:   {}\n  Watchdog stage:  {}\n  Retry reasons:   {}\n\nMemory:\n  Live memory:     {}{}\n  Live memory file: {}\n  Memory updates:  {}\n  Last memory update: {}\n  Freshness:       {}\n  Pending update:  {}\n\nRecovery:\n  State:           {}\n  Single-step:     {}\n  Reanchor:        {}\n  Need guidance:   {}\n  Last signature:  {}\n  Breadcrumbs:     {}\n  Artifact:        {}\n  Permission:      {}\n  Permission artifact: {}\n  Recent denials:  {}\n\nTools:\n  Inventory:       {} total / {} active / {} deferred\n  Model pool:      {} active visible / {} active hidden\n  Deferred pool:   {} visible / {} hidden\n  Pool policy:     mode={} confirm={} deny={}\n  Visible sources: {} builtin / {} mcp\n  Search mode:     {}\n  Search reason:   {}\n  Activations:     {} (last: {})\n  Duplicate regs:  {} ({})\n  Session tools:   {}\n  Current turn:    {} calls / {} bytes\n  Budget notices:  {} (warning {})\n  Budget active:   notice={} warning={}\n  Progress events: {} ({})\n  Parallel:        {} batches / {} calls (max {})\n  Truncations:     {} (last: {})\n  Error types:     {}\n  Repeat fail:     {}\n  Failure fix:     {}\n  Tool traces:     {} turn / {} calls\n  Tool artifact:   {}\n  Tool turn done:  {}\n  Failed tools:    {}\n  Always-allow:    {}{}{}{}\n\nObservability:\n  Runtime family:  {}\n\nHooks:\n  Hook runs:       {}\n  Hook timeouts:   {}\n  Hook exec errs:  {}\n  Hook exits!=0:   {}\n  Hook wakes:      {}\n  Last hook fail:  {}\n  Last hook at:    {}\n  Last hook timeout: {}\n\nTimeline:\n{}",
         state.query_source,
         if state.autocompact_disabled {
             "disabled"
@@ -135,12 +139,60 @@ pub(super) fn build_runtime_sections(
         state.prompt_cache.last_turn_completion_tokens.unwrap_or(0),
         state.prompt_cache.last_turn_cache_write_tokens.unwrap_or(0),
         state.prompt_cache.last_turn_cache_read_tokens.unwrap_or(0),
+        state.prompt_cache.last_turn_cache_deleted_tokens.unwrap_or(0),
+        state.prompt_cache.last_turn_cache_edit_deletions.unwrap_or(0),
         state.prompt_cache.reported_turns,
         state.prompt_cache.cache_read_turns,
         prompt_cache_miss_turns,
         state.prompt_cache.cache_write_turns,
+        state.prompt_cache.cache_edit_turns,
         state.prompt_cache.cache_write_tokens_total,
         state.prompt_cache.cache_read_tokens_total,
+        state.prompt_cache.cache_deleted_tokens_total,
+        state.prompt_cache.cache_edit_deletions_total,
+        state.prompt_cache.pending_cache_edit_refs,
+        state.prompt_cache.pinned_cache_edit_refs,
+        state.prompt_cache.last_prompt_cache_prefix_hash.as_deref().unwrap_or("none"),
+        state.prompt_cache.last_prompt_cache_system_hash.as_deref().unwrap_or("none"),
+        state.prompt_cache.last_prompt_cache_restore_hash.as_deref().unwrap_or("none"),
+        state.prompt_cache.last_prompt_cache_tool_hash.as_deref().unwrap_or("none"),
+        state.prompt_cache.last_prompt_cache_message_hash.as_deref().unwrap_or("none"),
+        state
+            .prompt_cache
+            .last_prompt_cache_change_summary
+            .as_deref()
+            .unwrap_or("none"),
+        state
+            .prompt_cache
+            .last_prompt_cache_transition_kind
+            .as_deref()
+            .unwrap_or("none"),
+        state
+            .prompt_cache
+            .last_prompt_cache_transition_reason
+            .as_deref()
+            .unwrap_or("none"),
+        state
+            .prompt_cache
+            .last_prompt_cache_diff_artifact_path
+            .as_deref()
+            .unwrap_or("none"),
+        state
+            .prompt_cache
+            .last_prompt_cache_diff_summary
+            .as_deref()
+            .unwrap_or("none"),
+        state.prompt_cache.prompt_cache_break_count,
+        state
+            .prompt_cache
+            .last_prompt_cache_break_reason
+            .as_deref()
+            .unwrap_or("none"),
+        state
+            .prompt_cache
+            .last_prompt_cache_expected_drop_reason
+            .as_deref()
+            .unwrap_or("none"),
         state.last_turn_duration_ms.unwrap_or(0),
         state.last_turn_stop_reason.as_deref().unwrap_or("none"),
         state.last_turn_artifact_path.as_deref().unwrap_or("none"),

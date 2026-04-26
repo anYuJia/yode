@@ -3,8 +3,8 @@ use yode_tools::RuntimeTask;
 
 use crate::runtime_timeline::render_runtime_timeline_markdown_with_project_root;
 use crate::ui::status_summary::{
-    context_window_summary_text, runtime_status_snapshot_from_parts,
-    session_runtime_summary_text, tool_runtime_summary_text,
+    context_window_summary_text, runtime_status_snapshot_from_parts, session_runtime_summary_text,
+    tool_runtime_summary_text,
 };
 
 pub(crate) fn write_runtime_task_inventory_artifact(
@@ -90,6 +90,313 @@ pub(crate) fn write_hook_failure_artifact(
     Some(path.display().to_string())
 }
 
+pub(crate) fn write_prompt_cache_artifact(
+    project_root: &std::path::Path,
+    session_id: &str,
+    state: &EngineRuntimeState,
+) -> Option<String> {
+    let cache = &state.prompt_cache;
+    if cache.reported_turns == 0
+        && cache.cache_edit_turns == 0
+        && cache.prompt_cache_break_count == 0
+        && cache.pending_cache_edit_refs == 0
+        && cache.pinned_cache_edit_refs == 0
+    {
+        return None;
+    }
+
+    let dir = project_root.join(".yode").join("status");
+    std::fs::create_dir_all(&dir).ok()?;
+    let short_session = session_id.chars().take(8).collect::<String>();
+    let path = dir.join(format!("{}-prompt-cache.md", short_session));
+    let pending_refs = prompt_cache_ref_summary(&cache.pending_cache_edit_ref_values);
+    let pinned_refs = prompt_cache_ref_summary(&cache.pinned_cache_edit_ref_values);
+    let body = format!(
+        "# Prompt Cache Inspector\n\n{}## Prompt Cache\n\n- Last turn prompt tokens: {}\n- Last turn completion tokens: {}\n- Last turn cache write tokens: {}\n- Last turn cache read tokens: {}\n- Last turn cache deleted tokens: {}\n- Last turn cache edit deletions: {}\n- Reported turns: {}\n- Cache write turns: {}\n- Cache read turns: {}\n- Cache edit turns: {}\n- Cache write tokens total: {}\n- Cache read tokens total: {}\n- Cache deleted tokens total: {}\n- Cache edit deletions total: {}\n- Pending cache edit refs: {}\n- Pending cache edit ref ids: {}\n- Pinned cache edit refs: {}\n- Pinned cache edit ref ids: {}\n- Prefix hash: {}\n- System hash: {}\n- Restore hash: {}\n- Tool hash: {}\n- Message hash: {}\n- Prefix change summary: {}\n- Transition kind: {}\n- Transition reason: {}\n- Diff artifact: {}\n- Diff summary: {}\n- Prompt cache breaks: {}\n- Last break reason: {}\n- Last break at: {}\n- Expected drop reason: {}\n",
+        runtime_summary_markdown(project_root, Some(state), &[]),
+        cache.last_turn_prompt_tokens.unwrap_or(0),
+        cache.last_turn_completion_tokens.unwrap_or(0),
+        cache.last_turn_cache_write_tokens.unwrap_or(0),
+        cache.last_turn_cache_read_tokens.unwrap_or(0),
+        cache.last_turn_cache_deleted_tokens.unwrap_or(0),
+        cache.last_turn_cache_edit_deletions.unwrap_or(0),
+        cache.reported_turns,
+        cache.cache_write_turns,
+        cache.cache_read_turns,
+        cache.cache_edit_turns,
+        cache.cache_write_tokens_total,
+        cache.cache_read_tokens_total,
+        cache.cache_deleted_tokens_total,
+        cache.cache_edit_deletions_total,
+        cache.pending_cache_edit_refs,
+        pending_refs,
+        cache.pinned_cache_edit_refs,
+        pinned_refs,
+        cache
+            .last_prompt_cache_prefix_hash
+            .as_deref()
+            .unwrap_or("none"),
+        cache
+            .last_prompt_cache_system_hash
+            .as_deref()
+            .unwrap_or("none"),
+        cache
+            .last_prompt_cache_restore_hash
+            .as_deref()
+            .unwrap_or("none"),
+        cache
+            .last_prompt_cache_tool_hash
+            .as_deref()
+            .unwrap_or("none"),
+        cache
+            .last_prompt_cache_message_hash
+            .as_deref()
+            .unwrap_or("none"),
+        cache
+            .last_prompt_cache_change_summary
+            .as_deref()
+            .unwrap_or("none"),
+        cache
+            .last_prompt_cache_transition_kind
+            .as_deref()
+            .unwrap_or("none"),
+        cache
+            .last_prompt_cache_transition_reason
+            .as_deref()
+            .unwrap_or("none"),
+        cache
+            .last_prompt_cache_diff_artifact_path
+            .as_deref()
+            .unwrap_or("none"),
+        cache
+            .last_prompt_cache_diff_summary
+            .as_deref()
+            .unwrap_or("none"),
+        cache.prompt_cache_break_count,
+        cache
+            .last_prompt_cache_break_reason
+            .as_deref()
+            .unwrap_or("none"),
+        cache
+            .last_prompt_cache_break_at
+            .as_deref()
+            .unwrap_or("none"),
+        cache
+            .last_prompt_cache_expected_drop_reason
+            .as_deref()
+            .unwrap_or("none"),
+    );
+    std::fs::write(&path, body).ok()?;
+    Some(path.display().to_string())
+}
+
+pub(crate) fn write_prompt_cache_state_artifact(
+    project_root: &std::path::Path,
+    session_id: &str,
+    state: &EngineRuntimeState,
+) -> Option<String> {
+    let cache = &state.prompt_cache;
+    if cache.reported_turns == 0
+        && cache.cache_edit_turns == 0
+        && cache.prompt_cache_break_count == 0
+        && cache.pending_cache_edit_refs == 0
+        && cache.pinned_cache_edit_refs == 0
+    {
+        return None;
+    }
+
+    let dir = project_root.join(".yode").join("status");
+    std::fs::create_dir_all(&dir).ok()?;
+    let short_session = session_id.chars().take(8).collect::<String>();
+    let path = dir.join(format!("{}-prompt-cache-state.json", short_session));
+    let payload = serde_json::json!({
+        "query_source": state.query_source,
+        "reported_turns": cache.reported_turns,
+        "cache_write_turns": cache.cache_write_turns,
+        "cache_read_turns": cache.cache_read_turns,
+        "cache_edit_turns": cache.cache_edit_turns,
+        "cache_write_tokens_total": cache.cache_write_tokens_total,
+        "cache_read_tokens_total": cache.cache_read_tokens_total,
+        "cache_deleted_tokens_total": cache.cache_deleted_tokens_total,
+        "cache_edit_deletions_total": cache.cache_edit_deletions_total,
+        "last_turn_prompt_tokens": cache.last_turn_prompt_tokens,
+        "last_turn_completion_tokens": cache.last_turn_completion_tokens,
+        "last_turn_cache_write_tokens": cache.last_turn_cache_write_tokens,
+        "last_turn_cache_read_tokens": cache.last_turn_cache_read_tokens,
+        "last_turn_cache_deleted_tokens": cache.last_turn_cache_deleted_tokens,
+        "last_turn_cache_edit_deletions": cache.last_turn_cache_edit_deletions,
+        "pending_cache_edit_refs": cache.pending_cache_edit_refs,
+        "pinned_cache_edit_refs": cache.pinned_cache_edit_refs,
+        "pending_cache_edit_ref_values": cache.pending_cache_edit_ref_values,
+        "pinned_cache_edit_ref_values": cache.pinned_cache_edit_ref_values,
+        "last_prompt_cache_prefix_hash": cache.last_prompt_cache_prefix_hash,
+        "last_prompt_cache_system_hash": cache.last_prompt_cache_system_hash,
+        "last_prompt_cache_restore_hash": cache.last_prompt_cache_restore_hash,
+        "last_prompt_cache_tool_hash": cache.last_prompt_cache_tool_hash,
+        "last_prompt_cache_message_hash": cache.last_prompt_cache_message_hash,
+        "last_prompt_cache_change_summary": cache.last_prompt_cache_change_summary,
+        "last_prompt_cache_transition_kind": cache.last_prompt_cache_transition_kind,
+        "last_prompt_cache_transition_reason": cache.last_prompt_cache_transition_reason,
+        "last_prompt_cache_diff_artifact_path": cache.last_prompt_cache_diff_artifact_path,
+        "last_prompt_cache_diff_summary": cache.last_prompt_cache_diff_summary,
+        "prompt_cache_break_count": cache.prompt_cache_break_count,
+        "last_prompt_cache_break_reason": cache.last_prompt_cache_break_reason,
+        "last_prompt_cache_break_at": cache.last_prompt_cache_break_at,
+        "last_prompt_cache_expected_drop_reason": cache.last_prompt_cache_expected_drop_reason,
+        "updated_at": chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+    });
+    std::fs::write(&path, serde_json::to_string_pretty(&payload).ok()?).ok()?;
+    Some(path.display().to_string())
+}
+
+pub(crate) fn write_prompt_cache_event_artifact(
+    project_root: &std::path::Path,
+    session_id: &str,
+    state: &EngineRuntimeState,
+) -> Option<String> {
+    let cache = &state.prompt_cache;
+    if cache.reported_turns == 0
+        && cache.cache_edit_turns == 0
+        && cache.prompt_cache_break_count == 0
+    {
+        return None;
+    }
+
+    let dir = project_root.join(".yode").join("status");
+    std::fs::create_dir_all(&dir).ok()?;
+    let short_session = session_id.chars().take(8).collect::<String>();
+    let path = dir.join(format!("{}-prompt-cache-events.md", short_session));
+    let event = format!(
+        "- {} | reported={} read={} write={} deleted_tok={} edit_del={} pending={} pinned={} breaks={} status={} change={} transition={} expected_drop={} break_reason={}\n",
+        chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+        cache.reported_turns,
+        cache.last_turn_cache_read_tokens.unwrap_or(0),
+        cache.last_turn_cache_write_tokens.unwrap_or(0),
+        cache.last_turn_cache_deleted_tokens.unwrap_or(0),
+        cache.last_turn_cache_edit_deletions.unwrap_or(0),
+        cache.pending_cache_edit_refs,
+        cache.pinned_cache_edit_refs,
+        cache.prompt_cache_break_count,
+        prompt_cache_last_turn_status(cache),
+        cache
+            .last_prompt_cache_change_summary
+            .as_deref()
+            .unwrap_or("none"),
+        cache
+            .last_prompt_cache_transition_kind
+            .as_deref()
+            .unwrap_or("none"),
+        cache
+            .last_prompt_cache_expected_drop_reason
+            .as_deref()
+            .unwrap_or("none"),
+        cache
+            .last_prompt_cache_break_reason
+            .as_deref()
+            .unwrap_or("none")
+    );
+
+    let mut body = if path.exists() {
+        std::fs::read_to_string(&path).ok()?
+    } else {
+        "# Prompt Cache Event Timeline\n\n".to_string()
+    };
+
+    if body
+        .lines()
+        .last()
+        .is_some_and(|line| line == event.trim_end())
+    {
+        return Some(path.display().to_string());
+    }
+
+    body.push_str(&event);
+    std::fs::write(&path, body).ok()?;
+    Some(path.display().to_string())
+}
+
+pub(crate) fn write_prompt_cache_break_artifact(
+    project_root: &std::path::Path,
+    session_id: &str,
+    state: &EngineRuntimeState,
+) -> Option<String> {
+    let cache = &state.prompt_cache;
+    if cache.prompt_cache_break_count == 0 {
+        return None;
+    }
+
+    let dir = project_root.join(".yode").join("status");
+    std::fs::create_dir_all(&dir).ok()?;
+    let short_session = session_id.chars().take(8).collect::<String>();
+    let path = dir.join(format!("{}-prompt-cache-break.json", short_session));
+    let payload = serde_json::json!({
+        "session_id": session_id,
+        "prompt_cache_break_count": cache.prompt_cache_break_count,
+        "last_break_reason": cache.last_prompt_cache_break_reason,
+        "last_break_at": cache.last_prompt_cache_break_at,
+        "last_change_summary": cache.last_prompt_cache_change_summary,
+        "last_transition_kind": cache.last_prompt_cache_transition_kind,
+        "last_transition_reason": cache.last_prompt_cache_transition_reason,
+        "last_prefix_hash": cache.last_prompt_cache_prefix_hash,
+        "last_system_hash": cache.last_prompt_cache_system_hash,
+        "last_restore_hash": cache.last_prompt_cache_restore_hash,
+        "last_tool_hash": cache.last_prompt_cache_tool_hash,
+        "last_message_hash": cache.last_prompt_cache_message_hash,
+        "expected_drop_reason": cache.last_prompt_cache_expected_drop_reason,
+        "pending_cache_edit_refs": cache.pending_cache_edit_refs,
+        "pinned_cache_edit_refs": cache.pinned_cache_edit_refs,
+        "pending_cache_edit_ref_values": cache.pending_cache_edit_ref_values,
+        "pinned_cache_edit_ref_values": cache.pinned_cache_edit_ref_values,
+        "last_turn_cache_read_tokens": cache.last_turn_cache_read_tokens,
+        "last_turn_cache_write_tokens": cache.last_turn_cache_write_tokens,
+        "last_turn_cache_deleted_tokens": cache.last_turn_cache_deleted_tokens,
+        "last_turn_cache_edit_deletions": cache.last_turn_cache_edit_deletions,
+        "cache_read_tokens_total": cache.cache_read_tokens_total,
+        "cache_write_tokens_total": cache.cache_write_tokens_total,
+        "cache_deleted_tokens_total": cache.cache_deleted_tokens_total,
+        "cache_edit_deletions_total": cache.cache_edit_deletions_total,
+    });
+    std::fs::write(&path, serde_json::to_string_pretty(&payload).ok()?).ok()?;
+    Some(path.display().to_string())
+}
+
+fn prompt_cache_last_turn_status(cache: &yode_core::engine::PromptCacheRuntimeState) -> String {
+    let Some(_) = cache.last_turn_prompt_tokens else {
+        return "none".to_string();
+    };
+    let write = cache.last_turn_cache_write_tokens.unwrap_or(0);
+    let read = cache.last_turn_cache_read_tokens.unwrap_or(0);
+    let mut status = match (write > 0, read > 0) {
+        (true, true) => "hit+write".to_string(),
+        (true, false) => "miss+write".to_string(),
+        (false, true) => "hit".to_string(),
+        (false, false) => "miss".to_string(),
+    };
+    if cache.last_turn_cache_edit_deletions.unwrap_or(0) > 0
+        || cache.last_turn_cache_deleted_tokens.unwrap_or(0) > 0
+    {
+        status.push_str("+edit");
+    }
+    status
+}
+
+fn prompt_cache_ref_summary(values: &[String]) -> String {
+    if values.is_empty() {
+        return "none".to_string();
+    }
+
+    let mut refs = values.to_vec();
+    refs.sort();
+    refs.dedup();
+    let extra = refs.len().saturating_sub(6);
+    refs.truncate(6);
+    let mut summary = refs.join(", ");
+    if extra > 0 {
+        summary.push_str(&format!(", +{} more", extra));
+    }
+    summary
+}
+
 fn runtime_summary_markdown(
     project_root: &std::path::Path,
     state: Option<&EngineRuntimeState>,
@@ -101,11 +408,8 @@ fn runtime_summary_markdown(
         .count();
     let mut lines = vec!["## Summary".to_string(), String::new()];
     if let Some(state) = state {
-        let snapshot = runtime_status_snapshot_from_parts(
-            project_root,
-            Some(state.clone()),
-            running_tasks,
-        );
+        let snapshot =
+            runtime_status_snapshot_from_parts(project_root, Some(state.clone()), running_tasks);
         lines.push(format!(
             "- Runtime: {}",
             session_runtime_summary_text(&snapshot, state.estimated_context_tokens)
@@ -175,7 +479,9 @@ mod tests {
     use yode_tools::{RuntimeTask, RuntimeTaskStatus};
 
     use super::{
-        write_hook_failure_artifact, write_runtime_task_inventory_artifact,
+        write_hook_failure_artifact, write_prompt_cache_artifact,
+        write_prompt_cache_break_artifact, write_prompt_cache_event_artifact,
+        write_prompt_cache_state_artifact, write_runtime_task_inventory_artifact,
         write_runtime_timeline_artifact, write_task_workspace_bundle_artifact,
     };
 
@@ -274,10 +580,8 @@ mod tests {
 
     #[test]
     fn writes_runtime_task_inventory_markdown() {
-        let dir = std::env::temp_dir().join(format!(
-            "yode-runtime-artifacts-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("yode-runtime-artifacts-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
 
@@ -317,10 +621,8 @@ mod tests {
 
     #[test]
     fn writes_runtime_timeline_markdown() {
-        let dir = std::env::temp_dir().join(format!(
-            "yode-runtime-timeline-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("yode-runtime-timeline-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
 
@@ -337,10 +639,7 @@ mod tests {
 
     #[test]
     fn writes_hook_failure_markdown() {
-        let dir = std::env::temp_dir().join(format!(
-            "yode-hook-failures-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("yode-hook-failures-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let mut state = test_runtime_state();
@@ -358,11 +657,87 @@ mod tests {
     }
 
     #[test]
+    fn writes_prompt_cache_markdown() {
+        let dir = std::env::temp_dir().join(format!("yode-prompt-cache-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut state = test_runtime_state();
+        state.prompt_cache.reported_turns = 2;
+        state.prompt_cache.cache_read_turns = 1;
+        state.prompt_cache.last_turn_cache_read_tokens = Some(1200);
+        state.prompt_cache.prompt_cache_break_count = 1;
+        state.prompt_cache.last_prompt_cache_break_reason = Some("cache read dropped".to_string());
+        state.prompt_cache.pinned_cache_edit_ref_values = vec!["tc1".to_string(), "tc2".to_string()];
+
+        let path = write_prompt_cache_artifact(&dir, "session-1234", &state).unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("# Prompt Cache Inspector"));
+        assert!(content.contains("- Prompt cache breaks: 1"));
+        assert!(content.contains("- Pinned cache edit ref ids: tc1, tc2"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn writes_prompt_cache_state_json() {
+        let dir =
+            std::env::temp_dir().join(format!("yode-prompt-cache-state-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut state = test_runtime_state();
+        state.prompt_cache.reported_turns = 2;
+        state.prompt_cache.last_turn_prompt_tokens = Some(1200);
+        state.prompt_cache.last_prompt_cache_change_summary = Some("stable".to_string());
+        state.prompt_cache.pending_cache_edit_ref_values = vec!["tc9".to_string()];
+
+        let path = write_prompt_cache_state_artifact(&dir, "session-1234", &state).unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("\"reported_turns\": 2"));
+        assert!(content.contains("\"last_prompt_cache_change_summary\": \"stable\""));
+        assert!(content.contains("\"pending_cache_edit_ref_values\": ["));
+        assert!(content.contains("\"tc9\""));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn writes_prompt_cache_events_markdown() {
+        let dir =
+            std::env::temp_dir().join(format!("yode-prompt-cache-events-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut state = test_runtime_state();
+        state.prompt_cache.reported_turns = 2;
+        state.prompt_cache.last_turn_prompt_tokens = Some(1200);
+        state.prompt_cache.last_turn_cache_read_tokens = Some(900);
+        state.prompt_cache.pending_cache_edit_refs = 1;
+
+        let path = write_prompt_cache_event_artifact(&dir, "session-1234", &state).unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("# Prompt Cache Event Timeline"));
+        assert!(content.contains("reported=2"));
+        assert!(content.contains("change="));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn writes_prompt_cache_break_json() {
+        let dir =
+            std::env::temp_dir().join(format!("yode-prompt-cache-break-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut state = test_runtime_state();
+        state.prompt_cache.prompt_cache_break_count = 1;
+        state.prompt_cache.last_prompt_cache_break_reason = Some("cache read dropped".to_string());
+
+        let path = write_prompt_cache_break_artifact(&dir, "session-1234", &state).unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("\"prompt_cache_break_count\": 1"));
+        assert!(content.contains("cache read dropped"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn writes_task_workspace_bundle_markdown() {
-        let dir = std::env::temp_dir().join(format!(
-            "yode-task-bundle-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("yode-task-bundle-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let output = dir.join("task.log");

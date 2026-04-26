@@ -1,7 +1,7 @@
-use crate::commands::info::shared;
 use crate::commands::dev::review_workspace::{
     compact_review_status_badge, extract_review_result_body,
 };
+use crate::commands::info::shared;
 
 pub(super) struct ReviewSummary {
     pub path: std::path::PathBuf,
@@ -65,7 +65,8 @@ pub(super) fn memory_update_pending(
     let Some(last_tool_turn) = shared::parse_runtime_timestamp(last_tool_turn_completed_at) else {
         return false;
     };
-    let Some(last_memory_update) = shared::parse_runtime_timestamp(last_session_memory_update_at) else {
+    let Some(last_memory_update) = shared::parse_runtime_timestamp(last_session_memory_update_at)
+    else {
         return true;
     };
     last_tool_turn > last_memory_update
@@ -86,18 +87,24 @@ pub(super) fn compact_breaker_hint(reason: Option<&str>) -> &'static str {
 
 pub(super) fn prompt_cache_last_turn_status(
     cache: &yode_core::engine::PromptCacheRuntimeState,
-) -> &'static str {
+) -> String {
     let Some(_) = cache.last_turn_prompt_tokens else {
-        return "none";
+        return "none".to_string();
     };
     let write = cache.last_turn_cache_write_tokens.unwrap_or(0);
     let read = cache.last_turn_cache_read_tokens.unwrap_or(0);
-    match (write > 0, read > 0) {
-        (true, true) => "hit+write",
-        (true, false) => "miss+write",
-        (false, true) => "hit",
-        (false, false) => "miss",
+    let mut status = match (write > 0, read > 0) {
+        (true, true) => "hit+write".to_string(),
+        (true, false) => "miss+write".to_string(),
+        (false, true) => "hit".to_string(),
+        (false, false) => "miss".to_string(),
+    };
+    if cache.last_turn_cache_edit_deletions.unwrap_or(0) > 0
+        || cache.last_turn_cache_deleted_tokens.unwrap_or(0) > 0
+    {
+        status.push_str("+edit");
     }
+    status
 }
 
 pub(super) fn prompt_cache_miss_turns(cache: &yode_core::engine::PromptCacheRuntimeState) -> u32 {
@@ -189,13 +196,36 @@ mod tests {
             last_turn_completion_tokens: Some(180),
             last_turn_cache_write_tokens: Some(300),
             last_turn_cache_read_tokens: Some(200),
+            last_turn_cache_edit_deletions: Some(2),
+            last_turn_cache_deleted_tokens: Some(150),
+            pending_cache_edit_refs: 0,
+            pinned_cache_edit_refs: 0,
+            pending_cache_edit_ref_values: Vec::new(),
+            pinned_cache_edit_ref_values: Vec::new(),
+            prompt_cache_break_count: 0,
+            last_prompt_cache_break_reason: None,
+            last_prompt_cache_break_at: None,
+            last_prompt_cache_expected_drop_reason: None,
+            last_prompt_cache_change_summary: None,
+            last_prompt_cache_transition_kind: None,
+            last_prompt_cache_transition_reason: None,
+            last_prompt_cache_prefix_hash: None,
+            last_prompt_cache_system_hash: None,
+            last_prompt_cache_restore_hash: None,
+            last_prompt_cache_tool_hash: None,
+            last_prompt_cache_message_hash: None,
+            last_prompt_cache_diff_artifact_path: None,
+            last_prompt_cache_diff_summary: None,
             reported_turns: 4,
             cache_write_turns: 1,
             cache_read_turns: 3,
+            cache_edit_turns: 0,
             cache_write_tokens_total: 300,
             cache_read_tokens_total: 900,
+            cache_edit_deletions_total: 0,
+            cache_deleted_tokens_total: 0,
         };
-        assert_eq!(prompt_cache_last_turn_status(&hit), "hit+write");
+        assert_eq!(prompt_cache_last_turn_status(&hit), "hit+write+edit");
         assert_eq!(prompt_cache_miss_turns(&hit), 1);
 
         let miss = PromptCacheRuntimeState {
@@ -203,11 +233,34 @@ mod tests {
             last_turn_completion_tokens: Some(120),
             last_turn_cache_write_tokens: Some(0),
             last_turn_cache_read_tokens: Some(0),
+            last_turn_cache_edit_deletions: Some(0),
+            last_turn_cache_deleted_tokens: Some(0),
+            pending_cache_edit_refs: 0,
+            pinned_cache_edit_refs: 0,
+            pending_cache_edit_ref_values: Vec::new(),
+            pinned_cache_edit_ref_values: Vec::new(),
+            prompt_cache_break_count: 0,
+            last_prompt_cache_break_reason: None,
+            last_prompt_cache_break_at: None,
+            last_prompt_cache_expected_drop_reason: None,
+            last_prompt_cache_change_summary: None,
+            last_prompt_cache_transition_kind: None,
+            last_prompt_cache_transition_reason: None,
+            last_prompt_cache_prefix_hash: None,
+            last_prompt_cache_system_hash: None,
+            last_prompt_cache_restore_hash: None,
+            last_prompt_cache_tool_hash: None,
+            last_prompt_cache_message_hash: None,
+            last_prompt_cache_diff_artifact_path: None,
+            last_prompt_cache_diff_summary: None,
             reported_turns: 2,
             cache_write_turns: 0,
             cache_read_turns: 0,
+            cache_edit_turns: 0,
             cache_write_tokens_total: 0,
             cache_read_tokens_total: 0,
+            cache_edit_deletions_total: 0,
+            cache_deleted_tokens_total: 0,
         };
         assert_eq!(prompt_cache_last_turn_status(&miss), "miss");
         assert_eq!(prompt_cache_miss_turns(&miss), 2);

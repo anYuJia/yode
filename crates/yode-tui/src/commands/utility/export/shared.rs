@@ -1,6 +1,11 @@
 use std::path::PathBuf;
 
-use crate::commands::artifact_nav::latest_artifact_by_suffix;
+use crate::commands::artifact_nav::{
+    latest_artifact_by_suffix, latest_post_compact_restore_artifact,
+    latest_post_compact_restore_state_artifact, latest_prompt_cache_artifact,
+    latest_prompt_cache_break_artifact, latest_prompt_cache_diff_artifact,
+    latest_prompt_cache_events_artifact, latest_prompt_cache_state_artifact,
+};
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RuntimeArtifactLinks {
@@ -9,9 +14,17 @@ pub(crate) struct RuntimeArtifactLinks {
     pub session_memory: Option<String>,
     pub recovery: Option<String>,
     pub permission: Option<String>,
+    pub prompt_cache: Option<String>,
+    pub prompt_cache_events: Option<String>,
+    pub prompt_cache_break: Option<String>,
+    pub prompt_cache_diff: Option<String>,
+    pub prompt_cache_state: Option<String>,
+    pub post_compact_restore: Option<String>,
+    pub post_compact_restore_state: Option<String>,
 }
 
 pub(crate) fn latest_runtime_artifact_links(
+    project_root: &std::path::Path,
     runtime: Option<yode_core::engine::EngineRuntimeState>,
 ) -> RuntimeArtifactLinks {
     runtime
@@ -21,13 +34,25 @@ pub(crate) fn latest_runtime_artifact_links(
             session_memory: state.last_compaction_session_memory_path,
             recovery: state.last_recovery_artifact_path,
             permission: state.last_permission_artifact_path,
+            prompt_cache: latest_prompt_cache_artifact(project_root)
+                .map(|path| path.display().to_string()),
+            prompt_cache_events: latest_prompt_cache_events_artifact(project_root)
+                .map(|path| path.display().to_string()),
+            prompt_cache_break: latest_prompt_cache_break_artifact(project_root)
+                .map(|path| path.display().to_string()),
+            prompt_cache_diff: latest_prompt_cache_diff_artifact(project_root)
+                .map(|path| path.display().to_string()),
+            prompt_cache_state: latest_prompt_cache_state_artifact(project_root)
+                .map(|path| path.display().to_string()),
+            post_compact_restore: latest_post_compact_restore_artifact(project_root)
+                .map(|path| path.display().to_string()),
+            post_compact_restore_state: latest_post_compact_restore_state_artifact(project_root)
+                .map(|path| path.display().to_string()),
         })
         .unwrap_or_default()
 }
 
-pub(crate) fn latest_artifact_candidates_from_links(
-    links: &RuntimeArtifactLinks,
-) -> Vec<PathBuf> {
+pub(crate) fn latest_artifact_candidates_from_links(links: &RuntimeArtifactLinks) -> Vec<PathBuf> {
     let mut paths = Vec::new();
     for maybe_path in [
         links.tool.as_deref(),
@@ -35,6 +60,13 @@ pub(crate) fn latest_artifact_candidates_from_links(
         links.session_memory.as_deref(),
         links.recovery.as_deref(),
         links.permission.as_deref(),
+        links.prompt_cache.as_deref(),
+        links.prompt_cache_events.as_deref(),
+        links.prompt_cache_break.as_deref(),
+        links.prompt_cache_diff.as_deref(),
+        links.prompt_cache_state.as_deref(),
+        links.post_compact_restore.as_deref(),
+        links.post_compact_restore_state.as_deref(),
     ] {
         if let Some(path) = maybe_path {
             paths.push(PathBuf::from(path));
@@ -69,7 +101,7 @@ pub(crate) fn startup_artifact_candidates(project_root: &std::path::Path) -> Vec
     ]
     .into_iter()
     .filter_map(|suffix| latest_artifact_by_suffix(&dir, suffix))
-        .collect()
+    .collect()
 }
 
 pub(crate) fn doctor_bundle_references(cwd: &std::path::Path) -> Vec<PathBuf> {
@@ -94,5 +126,8 @@ pub(crate) fn truncate_preview_line(text: &str, max_chars: usize) -> String {
     if squashed.chars().count() <= max_chars {
         return squashed;
     }
-    format!("{}...", squashed.chars().take(max_chars).collect::<String>())
+    format!(
+        "{}...",
+        squashed.chars().take(max_chars).collect::<String>()
+    )
 }

@@ -2,26 +2,26 @@ use std::path::PathBuf;
 
 use crate::commands::artifact_nav::{
     artifact_display_line, artifact_history_lines, attach_inspector_actions,
-    latest_artifact_by_suffix,
-    latest_branch_artifact, latest_branch_merge_artifact, latest_branch_merge_state_artifact,
-    latest_branch_state_artifact, latest_bundle_workspace_index,
-    latest_checkpoint_artifact, latest_checkpoint_state_artifact, latest_coordinator_artifact,
-    latest_coordinator_state_artifact,
-    latest_agent_team_artifact, latest_agent_team_bundle_artifact,
-    latest_agent_team_messages_artifact, latest_agent_team_monitor_artifact,
-    latest_agent_team_state_artifact, latest_subagent_result_artifact,
-    latest_hook_deferred_artifact, latest_hook_deferred_state_artifact,
-    latest_permission_governance_artifact,
+    latest_action_history_artifact, latest_action_metrics_artifact, latest_agent_team_artifact,
+    latest_agent_team_bundle_artifact, latest_agent_team_messages_artifact,
+    latest_agent_team_monitor_artifact, latest_agent_team_state_artifact,
+    latest_artifact_by_suffix, latest_branch_artifact, latest_branch_merge_artifact,
+    latest_branch_merge_state_artifact, latest_branch_state_artifact,
+    latest_bundle_workspace_index, latest_checkpoint_artifact, latest_checkpoint_state_artifact,
+    latest_coordinator_artifact, latest_coordinator_state_artifact, latest_hook_deferred_artifact,
+    latest_hook_deferred_state_artifact, latest_permission_governance_artifact,
+    latest_post_compact_restore_artifact, latest_post_compact_restore_diff_artifact,
+    latest_post_compact_restore_state_artifact, latest_prompt_cache_artifact,
+    latest_prompt_cache_break_artifact, latest_prompt_cache_diff_artifact,
+    latest_prompt_cache_events_artifact, latest_prompt_cache_state_artifact,
     latest_remote_command_queue_artifact, latest_remote_control_artifact,
     latest_remote_control_state_artifact, latest_remote_live_session_artifact,
     latest_remote_live_session_state_artifact, latest_remote_queue_execution_artifact,
-    latest_remote_session_transcript_sync_artifact,
+    latest_remote_session_transcript_sync_artifact, latest_remote_task_handoff_artifact,
     latest_remote_transport_artifact, latest_remote_transport_events_artifact,
-    latest_remote_transport_state_artifact,
-    latest_remote_task_handoff_artifact,
-    latest_action_history_artifact, latest_action_metrics_artifact,
-    latest_rewind_anchor_artifact, latest_rewind_anchor_state_artifact,
-    latest_runtime_orchestration_artifact, latest_workflow_execution_artifact,
+    latest_remote_transport_state_artifact, latest_rewind_anchor_artifact,
+    latest_rewind_anchor_state_artifact, latest_runtime_orchestration_artifact,
+    latest_subagent_result_artifact, latest_workflow_execution_artifact,
     latest_workflow_state_artifact, open_artifact_inspector, recent_artifacts_by_suffix,
     recent_bundle_workspace_indexes, resolve_artifact_basename, stale_artifact_actions,
 };
@@ -128,9 +128,9 @@ impl Command for InspectCommand {
             CommandOutput::Message(body) => Ok(CommandOutput::OpenInspector(
                 document_from_command_output(&title, body.lines().map(str::to_string).collect()),
             )),
-            CommandOutput::Messages(lines) => {
-                Ok(CommandOutput::OpenInspector(document_from_command_output(&title, lines)))
-            }
+            CommandOutput::Messages(lines) => Ok(CommandOutput::OpenInspector(
+                document_from_command_output(&title, lines),
+            )),
             CommandOutput::OpenInspector(doc) => Ok(CommandOutput::OpenInspector(doc)),
             CommandOutput::Silent => Err("Inspect target produced no output.".to_string()),
             CommandOutput::StartWizard(_) | CommandOutput::ReloadProvider { .. } => {
@@ -148,7 +148,11 @@ fn inspect_artifact_target(args: &str, ctx: &mut CommandContext) -> CommandResul
     let review_dir = project_root.join(".yode").join("reviews");
     let transcript_dir = project_root.join(".yode").join("transcripts");
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let runtime = ctx.engine.try_lock().ok().map(|engine| engine.runtime_state());
+    let runtime = ctx
+        .engine
+        .try_lock()
+        .ok()
+        .map(|engine| engine.runtime_state());
 
     if args == "list" {
         let lines = artifact_inventory_lines(&project_root, &cwd);
@@ -201,28 +205,40 @@ fn inspect_artifact_target(args: &str, ctx: &mut CommandContext) -> CommandResul
                 .ok_or_else(|| "No coordinator artifact found.".to_string())?,
             "Coordinator inspector".to_string(),
             "coordinate".to_string(),
-            vec!["/coordinate latest".to_string(), "/coordinate timeline".to_string()],
+            vec![
+                "/coordinate latest".to_string(),
+                "/coordinate timeline".to_string(),
+            ],
         ),
         "latest-checkpoint" => (
             latest_checkpoint_artifact(&project_root)
                 .ok_or_else(|| "No checkpoint artifact found.".to_string())?,
             "Session checkpoint inspector".to_string(),
             "checkpoint".to_string(),
-            vec!["/checkpoint latest".to_string(), "/checkpoint list".to_string()],
+            vec![
+                "/checkpoint latest".to_string(),
+                "/checkpoint list".to_string(),
+            ],
         ),
         "latest-checkpoint-state" => (
             latest_checkpoint_state_artifact(&project_root)
                 .ok_or_else(|| "No checkpoint state artifact found.".to_string())?,
             "Session checkpoint state".to_string(),
             "checkpoint".to_string(),
-            vec!["/checkpoint latest".to_string(), "/checkpoint restore-dry-run latest".to_string()],
+            vec![
+                "/checkpoint latest".to_string(),
+                "/checkpoint restore-dry-run latest".to_string(),
+            ],
         ),
         "latest-branch" => (
             latest_branch_artifact(&project_root)
                 .ok_or_else(|| "No branch artifact found.".to_string())?,
             "Session branch inspector".to_string(),
             "branch".to_string(),
-            vec!["/checkpoint branch latest".to_string(), "/checkpoint branch list".to_string()],
+            vec![
+                "/checkpoint branch latest".to_string(),
+                "/checkpoint branch list".to_string(),
+            ],
         ),
         "latest-branch-state" => (
             latest_branch_state_artifact(&project_root)
@@ -236,7 +252,10 @@ fn inspect_artifact_target(args: &str, ctx: &mut CommandContext) -> CommandResul
                 .ok_or_else(|| "No rewind anchor artifact found.".to_string())?,
             "Rewind anchor inspector".to_string(),
             "rewind".to_string(),
-            vec!["/checkpoint rewind latest".to_string(), "/checkpoint rewind-anchor latest".to_string()],
+            vec![
+                "/checkpoint rewind latest".to_string(),
+                "/checkpoint rewind-anchor latest".to_string(),
+            ],
         ),
         "latest-rewind-anchor-state" => (
             latest_rewind_anchor_state_artifact(&project_root)
@@ -271,7 +290,10 @@ fn inspect_artifact_target(args: &str, ctx: &mut CommandContext) -> CommandResul
                 .ok_or_else(|| "No remote control state artifact found.".to_string())?,
             "Remote control state".to_string(),
             "remote_control".to_string(),
-            vec!["/remote-control latest".to_string(), "/remote-control doctor".to_string()],
+            vec![
+                "/remote-control latest".to_string(),
+                "/remote-control doctor".to_string(),
+            ],
         ),
         "latest-remote-queue" => (
             latest_remote_command_queue_artifact(&project_root)
@@ -424,7 +446,10 @@ fn inspect_artifact_target(args: &str, ctx: &mut CommandContext) -> CommandResul
                 .ok_or_else(|| "No runtime timeline artifact found.".to_string())?,
             "Runtime timeline artifact".to_string(),
             "runtime".to_string(),
-            vec!["/doctor bundle".to_string(), "/inspect artifact history runtime".to_string()],
+            vec![
+                "/doctor bundle".to_string(),
+                "/inspect artifact history runtime".to_string(),
+            ],
         ),
         "latest-runtime-tasks" => (
             latest_artifact_by_suffix(&status_dir, "runtime-tasks.md")
@@ -446,6 +471,62 @@ fn inspect_artifact_target(args: &str, ctx: &mut CommandContext) -> CommandResul
             "Inspector action metrics".to_string(),
             "actions".to_string(),
             vec!["/inspect artifact history actions".to_string()],
+        ),
+        "latest-prompt-cache" => (
+            latest_prompt_cache_artifact(&project_root)
+                .ok_or_else(|| "No prompt cache artifact found.".to_string())?,
+            "Prompt cache artifact".to_string(),
+            "prompt-cache".to_string(),
+            vec!["/status".to_string(), "/doctor".to_string()],
+        ),
+        "latest-prompt-cache-state" => (
+            latest_prompt_cache_state_artifact(&project_root)
+                .ok_or_else(|| "No prompt cache state artifact found.".to_string())?,
+            "Prompt cache state".to_string(),
+            "prompt-cache".to_string(),
+            vec!["/status".to_string(), "/doctor".to_string()],
+        ),
+        "latest-prompt-cache-events" => (
+            latest_prompt_cache_events_artifact(&project_root)
+                .ok_or_else(|| "No prompt cache events artifact found.".to_string())?,
+            "Prompt cache events".to_string(),
+            "prompt-cache".to_string(),
+            vec!["/status".to_string(), "/doctor".to_string()],
+        ),
+        "latest-prompt-cache-break" => (
+            latest_prompt_cache_break_artifact(&project_root)
+                .ok_or_else(|| "No prompt cache break artifact found.".to_string())?,
+            "Prompt cache break".to_string(),
+            "prompt-cache".to_string(),
+            vec!["/status".to_string(), "/doctor".to_string()],
+        ),
+        "latest-prompt-cache-diff" => (
+            latest_prompt_cache_diff_artifact(&project_root)
+                .ok_or_else(|| "No prompt cache diff artifact found.".to_string())?,
+            "Prompt cache diff".to_string(),
+            "prompt-cache".to_string(),
+            vec!["/status".to_string(), "/doctor".to_string()],
+        ),
+        "latest-post-compact-restore" => (
+            latest_post_compact_restore_artifact(&project_root)
+                .ok_or_else(|| "No post-compact restore artifact found.".to_string())?,
+            "Post-compact restore".to_string(),
+            "compact".to_string(),
+            vec!["/compact".to_string(), "/status".to_string()],
+        ),
+        "latest-post-compact-restore-state" => (
+            latest_post_compact_restore_state_artifact(&project_root)
+                .ok_or_else(|| "No post-compact restore state artifact found.".to_string())?,
+            "Post-compact restore state".to_string(),
+            "compact".to_string(),
+            vec!["/compact".to_string(), "/status".to_string()],
+        ),
+        "latest-post-compact-restore-diff" => (
+            latest_post_compact_restore_diff_artifact(&project_root)
+                .ok_or_else(|| "No post-compact restore diff artifact found.".to_string())?,
+            "Post-compact restore diff".to_string(),
+            "compact".to_string(),
+            vec!["/compact".to_string(), "/status".to_string()],
         ),
         "latest-hook-failures" => (
             latest_artifact_by_suffix(&status_dir, "hook-failures.md")
@@ -567,7 +648,12 @@ fn inspect_artifact_target(args: &str, ctx: &mut CommandContext) -> CommandResul
         "latest-tool" => (
             runtime
                 .as_ref()
-                .and_then(|state| state.last_tool_turn_artifact_path.as_ref().map(PathBuf::from))
+                .and_then(|state| {
+                    state
+                        .last_tool_turn_artifact_path
+                        .as_ref()
+                        .map(PathBuf::from)
+                })
                 .filter(|path| path.exists())
                 .ok_or_else(|| "No tool artifact found.".to_string())?,
             "Tool artifact".to_string(),
@@ -577,7 +663,12 @@ fn inspect_artifact_target(args: &str, ctx: &mut CommandContext) -> CommandResul
         "latest-recovery" => (
             runtime
                 .as_ref()
-                .and_then(|state| state.last_recovery_artifact_path.as_ref().map(PathBuf::from))
+                .and_then(|state| {
+                    state
+                        .last_recovery_artifact_path
+                        .as_ref()
+                        .map(PathBuf::from)
+                })
                 .filter(|path| path.exists())
                 .ok_or_else(|| "No recovery artifact found.".to_string())?,
             "Recovery artifact".to_string(),
@@ -587,7 +678,12 @@ fn inspect_artifact_target(args: &str, ctx: &mut CommandContext) -> CommandResul
         "latest-permission" => (
             runtime
                 .as_ref()
-                .and_then(|state| state.last_permission_artifact_path.as_ref().map(PathBuf::from))
+                .and_then(|state| {
+                    state
+                        .last_permission_artifact_path
+                        .as_ref()
+                        .map(PathBuf::from)
+                })
                 .filter(|path| path.exists())
                 .ok_or_else(|| "No permission artifact found.".to_string())?,
             "Permission artifact".to_string(),
@@ -715,6 +811,14 @@ fn inspect_completion_targets(ctx: &crate::commands::context::CompletionContext)
         "artifact latest-orchestration".to_string(),
         "artifact latest-runtime-timeline".to_string(),
         "artifact latest-runtime-tasks".to_string(),
+        "artifact latest-prompt-cache".to_string(),
+        "artifact latest-prompt-cache-state".to_string(),
+        "artifact latest-prompt-cache-events".to_string(),
+        "artifact latest-prompt-cache-break".to_string(),
+        "artifact latest-prompt-cache-diff".to_string(),
+        "artifact latest-post-compact-restore".to_string(),
+        "artifact latest-post-compact-restore-state".to_string(),
+        "artifact latest-post-compact-restore-diff".to_string(),
         "artifact latest-action-history".to_string(),
         "artifact latest-action-metrics".to_string(),
         "artifact latest-hook-failures".to_string(),
@@ -781,9 +885,10 @@ fn artifact_inventory_lines(project_root: &std::path::Path, cwd: &std::path::Pat
         "latest-branch | latest-branch-state | latest-branch-merge | latest-branch-merge-state | latest-rewind-anchor | latest-rewind-anchor-state".to_string(),
         "latest-remote-control | latest-remote-control-state | latest-remote-queue | latest-remote-queue-execution | latest-remote-transport | latest-remote-transport-state | latest-remote-transport-events | latest-remote-live-session | latest-remote-live-session-state | latest-remote-session-transcript-sync".to_string(),
         "latest-remote-task-handoff".to_string(),
-        "latest-runtime-timeline | latest-runtime-tasks | latest-hook-failures | latest-hook-deferred | latest-hook-deferred-state".to_string(),
+        "latest-runtime-timeline | latest-runtime-tasks | latest-prompt-cache | latest-prompt-cache-state | latest-prompt-cache-events | latest-prompt-cache-break | latest-prompt-cache-diff | latest-post-compact-restore | latest-post-compact-restore-state | latest-post-compact-restore-diff | latest-hook-failures | latest-hook-deferred | latest-hook-deferred-state".to_string(),
         "latest-permission | latest-permission-governance | latest-permission-policy".to_string(),
         "latest-action-history | latest-action-metrics".to_string(),
+        "history families: runtime | prompt-cache | compact | hooks | remote | startup | reviews | transcripts | bundles".to_string(),
         "latest-startup-profile | latest-startup-manifest | latest-provider-inventory | latest-mcp-failures | latest-permission-policy | latest-settings-scopes | latest-managed-mcp-inventory | latest-tool-search-activation".to_string(),
         "latest-review | latest-transcript | latest-session-memory | latest-tool | latest-recovery | latest-permission | latest-permission-governance".to_string(),
         "latest-remote-capability | latest-remote-execution | bundle".to_string(),
@@ -1033,6 +1138,30 @@ fn artifact_summary_lines(
         latest_action_metrics_artifact(project_root)
             .map(|path| format!("action_metrics -> {}", artifact_display_line(&path)))
             .unwrap_or_else(|| "action_metrics -> none".to_string()),
+        latest_prompt_cache_artifact(project_root)
+            .map(|path| format!("prompt_cache -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "prompt_cache -> none".to_string()),
+        latest_prompt_cache_state_artifact(project_root)
+            .map(|path| format!("prompt_cache_state -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "prompt_cache_state -> none".to_string()),
+        latest_prompt_cache_events_artifact(project_root)
+            .map(|path| format!("prompt_cache_events -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "prompt_cache_events -> none".to_string()),
+        latest_prompt_cache_break_artifact(project_root)
+            .map(|path| format!("prompt_cache_break -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "prompt_cache_break -> none".to_string()),
+        latest_prompt_cache_diff_artifact(project_root)
+            .map(|path| format!("prompt_cache_diff -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "prompt_cache_diff -> none".to_string()),
+        latest_post_compact_restore_artifact(project_root)
+            .map(|path| format!("post_compact_restore -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "post_compact_restore -> none".to_string()),
+        latest_post_compact_restore_state_artifact(project_root)
+            .map(|path| format!("post_compact_restore_state -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "post_compact_restore_state -> none".to_string()),
+        latest_post_compact_restore_diff_artifact(project_root)
+            .map(|path| format!("post_compact_restore_diff -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "post_compact_restore_diff -> none".to_string()),
         latest_coordinator_artifact(project_root)
             .map(|path| format!("coordinate -> {}", artifact_display_line(&path)))
             .unwrap_or_else(|| "coordinate -> none".to_string()),
@@ -1056,16 +1185,24 @@ fn artifact_history_family_lines(
     runtime: Option<&yode_core::engine::EngineRuntimeState>,
 ) -> Result<Vec<String>, String> {
     let paths: Vec<PathBuf> = match family {
-        "status" => recent_artifacts_by_suffix(&project_root.join(".yode").join("status"), ".md", 12),
-        "state" => recent_artifacts_by_suffix(&project_root.join(".yode").join("status"), ".json", 12),
-        "actions" => recent_artifacts_by_suffix(&project_root.join(".yode").join("status"), "inspector-action-history.md", 12)
-            .into_iter()
-            .chain(recent_artifacts_by_suffix(
-                &project_root.join(".yode").join("status"),
-                "inspector-action-metrics.json",
-                12,
-            ))
-            .collect(),
+        "status" => {
+            recent_artifacts_by_suffix(&project_root.join(".yode").join("status"), ".md", 12)
+        }
+        "state" => {
+            recent_artifacts_by_suffix(&project_root.join(".yode").join("status"), ".json", 12)
+        }
+        "actions" => recent_artifacts_by_suffix(
+            &project_root.join(".yode").join("status"),
+            "inspector-action-history.md",
+            12,
+        )
+        .into_iter()
+        .chain(recent_artifacts_by_suffix(
+            &project_root.join(".yode").join("status"),
+            "inspector-action-metrics.json",
+            12,
+        ))
+        .collect(),
         "teams" => recent_artifacts_by_suffix(&project_root.join(".yode").join("teams"), ".md", 12)
             .into_iter()
             .chain(recent_artifacts_by_suffix(
@@ -1092,46 +1229,95 @@ fn artifact_history_family_lines(
                 12,
             ))
             .collect(),
-        "checkpoints" => recent_artifacts_by_suffix(&project_root.join(".yode").join("checkpoints"), ".md", 12)
-            .into_iter()
-            .chain(recent_artifacts_by_suffix(
-                &project_root.join(".yode").join("checkpoints"),
-                ".json",
-                12,
-            ))
-            .collect(),
-        "branches" => recent_artifacts_by_suffix(&project_root.join(".yode").join("checkpoints"), "branch.md", 12)
-            .into_iter()
-            .chain(recent_artifacts_by_suffix(
-                &project_root.join(".yode").join("checkpoints"),
-                "branch-state.json",
-                12,
-            ))
-            .collect(),
-        "rewind" => recent_artifacts_by_suffix(&project_root.join(".yode").join("checkpoints"), "rewind-anchor.md", 12)
-            .into_iter()
-            .chain(recent_artifacts_by_suffix(
-                &project_root.join(".yode").join("checkpoints"),
-                "rewind-anchor-state.json",
-                12,
-            ))
-            .collect(),
-        "remote" => recent_artifacts_by_suffix(&project_root.join(".yode").join("remote"), ".json", 8)
-            .into_iter()
-            .chain(recent_artifacts_by_suffix(&project_root.join(".yode").join("remote"), ".md", 4))
-            .collect(),
-        "startup" => recent_artifacts_by_suffix(&project_root.join(".yode").join("startup"), ".json", 8)
-            .into_iter()
-            .chain(recent_artifacts_by_suffix(&project_root.join(".yode").join("startup"), ".txt", 4))
-            .collect(),
-        "reviews" => recent_artifacts_by_suffix(&project_root.join(".yode").join("reviews"), ".md", 12),
+        "checkpoints" => {
+            recent_artifacts_by_suffix(&project_root.join(".yode").join("checkpoints"), ".md", 12)
+                .into_iter()
+                .chain(recent_artifacts_by_suffix(
+                    &project_root.join(".yode").join("checkpoints"),
+                    ".json",
+                    12,
+                ))
+                .collect()
+        }
+        "branches" => recent_artifacts_by_suffix(
+            &project_root.join(".yode").join("checkpoints"),
+            "branch.md",
+            12,
+        )
+        .into_iter()
+        .chain(recent_artifacts_by_suffix(
+            &project_root.join(".yode").join("checkpoints"),
+            "branch-state.json",
+            12,
+        ))
+        .collect(),
+        "rewind" => recent_artifacts_by_suffix(
+            &project_root.join(".yode").join("checkpoints"),
+            "rewind-anchor.md",
+            12,
+        )
+        .into_iter()
+        .chain(recent_artifacts_by_suffix(
+            &project_root.join(".yode").join("checkpoints"),
+            "rewind-anchor-state.json",
+            12,
+        ))
+        .collect(),
+        "remote" => {
+            recent_artifacts_by_suffix(&project_root.join(".yode").join("remote"), ".json", 8)
+                .into_iter()
+                .chain(recent_artifacts_by_suffix(
+                    &project_root.join(".yode").join("remote"),
+                    ".md",
+                    4,
+                ))
+                .collect()
+        }
+        "startup" => {
+            recent_artifacts_by_suffix(&project_root.join(".yode").join("startup"), ".json", 8)
+                .into_iter()
+                .chain(recent_artifacts_by_suffix(
+                    &project_root.join(".yode").join("startup"),
+                    ".txt",
+                    4,
+                ))
+                .collect()
+        }
+        "reviews" => {
+            recent_artifacts_by_suffix(&project_root.join(".yode").join("reviews"), ".md", 12)
+        }
         "transcripts" => {
             recent_artifacts_by_suffix(&project_root.join(".yode").join("transcripts"), ".md", 12)
         }
+        "compact" => recent_artifacts_by_suffix(
+            &project_root.join(".yode").join("status"),
+            "post-compact-restore.md",
+            12,
+        )
+        .into_iter()
+        .chain(recent_artifacts_by_suffix(
+            &project_root.join(".yode").join("status"),
+            "post-compact-restore-state.json",
+            12,
+        ))
+        .chain(recent_artifacts_by_suffix(
+            &project_root.join(".yode").join("status"),
+            "post-compact-restore-diff.md",
+            12,
+        ))
+        .into_iter()
+        .chain(recent_artifacts_by_suffix(
+            &project_root.join(".yode").join("transcripts"),
+            ".md",
+            12,
+        ))
+        .collect(),
         "bundles" => recent_bundle_workspace_indexes(cwd, 8),
-        "workflow" => {
-            recent_artifacts_by_suffix(&project_root.join(".yode").join("status"), "workflow-execution.md", 8)
-        }
+        "workflow" => recent_artifacts_by_suffix(
+            &project_root.join(".yode").join("status"),
+            "workflow-execution.md",
+            8,
+        ),
         "coordinate" => recent_artifacts_by_suffix(
             &project_root.join(".yode").join("status"),
             "coordinate-summary.md",
@@ -1155,6 +1341,21 @@ fn artifact_history_family_lines(
                 "runtime-tasks.md",
                 4,
             ));
+            paths.extend(recent_artifacts_by_suffix(
+                &project_root.join(".yode").join("status"),
+                "prompt-cache.md",
+                4,
+            ));
+            paths.extend(recent_artifacts_by_suffix(
+                &project_root.join(".yode").join("status"),
+                "prompt-cache-events.md",
+                4,
+            ));
+            paths.extend(recent_artifacts_by_suffix(
+                &project_root.join(".yode").join("status"),
+                "post-compact-restore.md",
+                4,
+            ));
             if let Some(state) = runtime {
                 for candidate in [
                     state.last_tool_turn_artifact_path.as_deref(),
@@ -1172,6 +1373,33 @@ fn artifact_history_family_lines(
             }
             paths
         }
+        "prompt-cache" => recent_artifacts_by_suffix(
+            &project_root.join(".yode").join("status"),
+            "prompt-cache.md",
+            8,
+        )
+        .into_iter()
+        .chain(recent_artifacts_by_suffix(
+            &project_root.join(".yode").join("status"),
+            "prompt-cache-state.json",
+            8,
+        ))
+        .chain(recent_artifacts_by_suffix(
+            &project_root.join(".yode").join("status"),
+            "prompt-cache-events.md",
+            8,
+        ))
+        .chain(recent_artifacts_by_suffix(
+            &project_root.join(".yode").join("status"),
+            "prompt-cache-break.json",
+            8,
+        ))
+        .chain(recent_artifacts_by_suffix(
+            &project_root.join(".yode").join("status"),
+            "prompt-cache-diff.md",
+            8,
+        ))
+        .collect(),
         other => return Err(format!("Unknown artifact history family '{}'.", other)),
     };
     if paths.is_empty() {
@@ -1189,7 +1417,8 @@ mod tests {
 
     #[test]
     fn inventory_and_summary_lines_surface_aliases_and_counts() {
-        let dir = std::env::temp_dir().join(format!("yode-inspect-artifacts-{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("yode-inspect-artifacts-{}", uuid::Uuid::new_v4()));
         let status = dir.join(".yode").join("status");
         let remote = dir.join(".yode").join("remote");
         let startup = dir.join(".yode").join("startup");
@@ -1204,6 +1433,7 @@ mod tests {
         std::fs::create_dir_all(&transcripts).unwrap();
         std::fs::create_dir_all(&bundle).unwrap();
         std::fs::write(status.join("aaa-runtime-timeline.md"), "x").unwrap();
+        std::fs::write(status.join("fff-prompt-cache.md"), "x").unwrap();
         std::fs::write(remote.join("bbb-remote-execution-state.json"), "x").unwrap();
         std::fs::write(startup.join("ccc-provider-inventory.json"), "x").unwrap();
         std::fs::write(reviews.join("ddd-review.md"), "x").unwrap();
@@ -1211,19 +1441,23 @@ mod tests {
         std::fs::write(bundle.join("workspace-index.md"), "x").unwrap();
 
         let inventory = artifact_inventory_lines(&dir, &dir);
-        assert!(inventory.iter().any(|line| line.contains("latest-runtime-timeline")));
+        assert!(inventory
+            .iter()
+            .any(|line| line.contains("latest-runtime-timeline")));
         assert!(inventory.iter().any(|line| line.contains("[fresh]")));
 
         let summary = artifact_summary_lines(&dir, &dir, None);
         assert!(summary.iter().any(|line| line.contains("status=")));
         assert!(summary.iter().any(|line| line.contains("bundle ->")));
+        assert!(summary.iter().any(|line| line.contains("prompt_cache ->")));
 
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn history_family_errors_for_unknown_values() {
-        let dir = std::env::temp_dir().join(format!("yode-inspect-history-{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("yode-inspect-history-{}", uuid::Uuid::new_v4()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let err = artifact_history_family_lines("unknown", &dir, &dir, None).unwrap_err();
@@ -1232,8 +1466,49 @@ mod tests {
     }
 
     #[test]
+    fn prompt_cache_history_family_reads_prompt_cache_artifacts() {
+        let dir = std::env::temp_dir().join(format!(
+            "yode-inspect-prompt-cache-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let status = dir.join(".yode").join("status");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&status).unwrap();
+        std::fs::write(status.join("a-prompt-cache.md"), "x").unwrap();
+        std::fs::write(status.join("b-prompt-cache-events.md"), "x").unwrap();
+
+        let lines = artifact_history_family_lines("prompt-cache", &dir, &dir, None).unwrap();
+        assert!(lines.iter().any(|line| line.contains("prompt-cache.md")));
+        assert!(lines
+            .iter()
+            .any(|line| line.contains("prompt-cache-events.md")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn compact_history_family_reads_restore_and_transcript_artifacts() {
+        let dir =
+            std::env::temp_dir().join(format!("yode-inspect-compact-{}", uuid::Uuid::new_v4()));
+        let status = dir.join(".yode").join("status");
+        let transcripts = dir.join(".yode").join("transcripts");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&status).unwrap();
+        std::fs::create_dir_all(&transcripts).unwrap();
+        std::fs::write(status.join("a-post-compact-restore.md"), "x").unwrap();
+        std::fs::write(transcripts.join("b-transcript.md"), "x").unwrap();
+
+        let lines = artifact_history_family_lines("compact", &dir, &dir, None).unwrap();
+        assert!(lines
+            .iter()
+            .any(|line| line.contains("post-compact-restore.md")));
+        assert!(lines.iter().any(|line| line.contains("b-transcript.md")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn artifact_summary_surfaces_runtime_summaries_when_available() {
-        let dir = std::env::temp_dir().join(format!("yode-inspect-runtime-{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("yode-inspect-runtime-{}", uuid::Uuid::new_v4()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join(".yode").join("status")).unwrap();
         let state = yode_core::engine::EngineRuntimeState {

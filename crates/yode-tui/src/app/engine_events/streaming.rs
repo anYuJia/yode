@@ -6,6 +6,10 @@ use tokio::sync::{mpsc, Mutex};
 use yode_core::engine::{AgentEngine, EngineEvent};
 use yode_llm::types::ChatResponse;
 
+use crate::runtime_artifacts::{
+    write_prompt_cache_artifact, write_prompt_cache_break_artifact,
+    write_prompt_cache_event_artifact, write_prompt_cache_state_artifact,
+};
 use crate::runtime_display::format_turn_completed_message;
 use crate::ui::chat::{
     render_markdown_ansi_white_with_options, streaming_markdown_advance_stable_boundary,
@@ -150,6 +154,13 @@ pub(super) fn handle_done(
 ) {
     finalize_streaming(app);
     let runtime_state = engine.try_lock().ok().map(|engine| engine.runtime_state());
+    if let Some(state) = runtime_state.as_ref() {
+        let project_root = std::path::PathBuf::from(&app.session.working_dir);
+        let _ = write_prompt_cache_artifact(&project_root, &app.session.session_id, state);
+        let _ = write_prompt_cache_state_artifact(&project_root, &app.session.session_id, state);
+        let _ = write_prompt_cache_event_artifact(&project_root, &app.session.session_id, state);
+        let _ = write_prompt_cache_break_artifact(&project_root, &app.session.session_id, state);
+    }
 
     if let Some(started) = app.turn_started_at.take() {
         let elapsed = started.elapsed();

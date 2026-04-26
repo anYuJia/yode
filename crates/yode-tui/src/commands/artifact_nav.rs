@@ -14,14 +14,12 @@ struct ArtifactTimelineEntry {
 }
 
 pub(crate) fn latest_artifact_by_suffix(dir: &Path, suffix: &str) -> Option<PathBuf> {
-    recent_artifacts_by_suffix(dir, suffix, 1).into_iter().next()
+    recent_artifacts_by_suffix(dir, suffix, 1)
+        .into_iter()
+        .next()
 }
 
-pub(crate) fn recent_artifacts_by_suffix(
-    dir: &Path,
-    suffix: &str,
-    limit: usize,
-) -> Vec<PathBuf> {
+pub(crate) fn recent_artifacts_by_suffix(dir: &Path, suffix: &str, limit: usize) -> Vec<PathBuf> {
     let mut entries = std::fs::read_dir(dir)
         .ok()
         .into_iter()
@@ -38,11 +36,17 @@ pub(crate) fn recent_artifacts_by_suffix(
 }
 
 pub(crate) fn latest_workflow_execution_artifact(project_root: &Path) -> Option<PathBuf> {
-    latest_artifact_by_suffix(&project_root.join(".yode").join("status"), "workflow-execution.md")
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("status"),
+        "workflow-execution.md",
+    )
 }
 
 pub(crate) fn latest_checkpoint_artifact(project_root: &Path) -> Option<PathBuf> {
-    latest_artifact_by_suffix(&project_root.join(".yode").join("checkpoints"), "checkpoint.md")
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("checkpoints"),
+        "checkpoint.md",
+    )
 }
 
 pub(crate) fn latest_branch_artifact(project_root: &Path) -> Option<PathBuf> {
@@ -161,7 +165,9 @@ pub(crate) fn latest_remote_live_session_state_artifact(project_root: &Path) -> 
     )
 }
 
-pub(crate) fn latest_remote_session_transcript_sync_artifact(project_root: &Path) -> Option<PathBuf> {
+pub(crate) fn latest_remote_session_transcript_sync_artifact(
+    project_root: &Path,
+) -> Option<PathBuf> {
     latest_artifact_by_suffix(
         &project_root.join(".yode").join("remote"),
         "remote-session-transcript-sync.md",
@@ -169,7 +175,10 @@ pub(crate) fn latest_remote_session_transcript_sync_artifact(project_root: &Path
 }
 
 pub(crate) fn latest_hook_deferred_artifact(project_root: &Path) -> Option<PathBuf> {
-    latest_artifact_by_suffix(&project_root.join(".yode").join("hooks"), "hook-deferred.md")
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("hooks"),
+        "hook-deferred.md",
+    )
 }
 
 pub(crate) fn latest_hook_deferred_state_artifact(project_root: &Path) -> Option<PathBuf> {
@@ -219,10 +228,7 @@ pub(crate) fn latest_agent_team_bundle_artifact(project_root: &Path) -> Option<P
 }
 
 pub(crate) fn latest_subagent_result_artifact(project_root: &Path) -> Option<PathBuf> {
-    latest_artifact_by_suffix(
-        &project_root.join(".yode").join("agent-results"),
-        ".md",
-    )
+    latest_artifact_by_suffix(&project_root.join(".yode").join("agent-results"), ".md")
 }
 
 pub(crate) fn latest_action_history_artifact(project_root: &Path) -> Option<PathBuf> {
@@ -239,6 +245,62 @@ pub(crate) fn latest_action_metrics_artifact(project_root: &Path) -> Option<Path
     )
 }
 
+pub(crate) fn latest_prompt_cache_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("status"),
+        "prompt-cache.md",
+    )
+}
+
+pub(crate) fn latest_prompt_cache_state_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("status"),
+        "prompt-cache-state.json",
+    )
+}
+
+pub(crate) fn latest_prompt_cache_events_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("status"),
+        "prompt-cache-events.md",
+    )
+}
+
+pub(crate) fn latest_prompt_cache_break_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("status"),
+        "prompt-cache-break.json",
+    )
+}
+
+pub(crate) fn latest_prompt_cache_diff_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("status"),
+        "prompt-cache-diff.md",
+    )
+}
+
+pub(crate) fn latest_post_compact_restore_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("status"),
+        "post-compact-restore.md",
+    )
+}
+
+pub(crate) fn latest_post_compact_restore_state_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("status"),
+        "post-compact-restore-state.json",
+    )
+}
+
+pub(crate) fn latest_post_compact_restore_diff_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("status"),
+        "post-compact-restore-diff.md",
+    )
+}
+
 pub(crate) fn latest_workflow_state_artifact(project_root: &Path) -> Option<PathBuf> {
     latest_artifact_by_suffix(
         &project_root.join(".yode").join("status"),
@@ -247,13 +309,16 @@ pub(crate) fn latest_workflow_state_artifact(project_root: &Path) -> Option<Path
 }
 
 pub(crate) fn latest_coordinator_artifact(project_root: &Path) -> Option<PathBuf> {
-    latest_artifact_by_suffix(&project_root.join(".yode").join("status"), "coordinate-summary.md")
-        .or_else(|| {
-            latest_artifact_by_suffix(
-                &project_root.join(".yode").join("status"),
-                "coordinate-dry-run.md",
-            )
-        })
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("status"),
+        "coordinate-summary.md",
+    )
+    .or_else(|| {
+        latest_artifact_by_suffix(
+            &project_root.join(".yode").join("status"),
+            "coordinate-dry-run.md",
+        )
+    })
 }
 
 pub(crate) fn latest_coordinator_state_artifact(project_root: &Path) -> Option<PathBuf> {
@@ -320,7 +385,10 @@ pub(crate) fn resolve_artifact_basename(project_root: &Path, target: &str) -> Op
 }
 
 pub(crate) fn artifact_freshness_badge(path: &Path) -> &'static str {
-    let Some(modified) = std::fs::metadata(path).ok().and_then(|meta| meta.modified().ok()) else {
+    let Some(modified) = std::fs::metadata(path)
+        .ok()
+        .and_then(|meta| meta.modified().ok())
+    else {
         return "unknown";
     };
     let Ok(age) = SystemTime::now().duration_since(modified) else {
@@ -350,15 +418,12 @@ pub(crate) fn stale_artifact_actions(path: &Path, refresh_commands: &[String]) -
 }
 
 pub(crate) fn artifact_display_line(path: &Path) -> String {
-    format!(
-        "[{}] {}",
-        artifact_freshness_badge(path),
-        path.display()
-    )
+    format!("[{}] {}", artifact_freshness_badge(path), path.display())
 }
 
 pub(crate) fn artifact_history_lines(paths: impl IntoIterator<Item = PathBuf>) -> Vec<String> {
-    paths.into_iter()
+    paths
+        .into_iter()
         .map(|path| artifact_display_line(&path))
         .collect()
 }
@@ -498,6 +563,33 @@ pub(crate) fn build_runtime_orchestration_timeline_lines(
     if let Some(path) = latest_action_metrics_artifact(project_root) {
         entries.push(artifact_timeline_entry(&path, "action metrics"));
     }
+    if let Some(path) = latest_prompt_cache_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "prompt cache"));
+    }
+    if let Some(path) = latest_prompt_cache_state_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "prompt cache state"));
+    }
+    if let Some(path) = latest_prompt_cache_events_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "prompt cache events"));
+    }
+    if let Some(path) = latest_prompt_cache_break_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "prompt cache break"));
+    }
+    if let Some(path) = latest_prompt_cache_diff_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "prompt cache diff"));
+    }
+    if let Some(path) = latest_prompt_cache_state_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "prompt cache state"));
+    }
+    if let Some(path) = latest_post_compact_restore_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "post-compact restore"));
+    }
+    if let Some(path) = latest_post_compact_restore_state_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "post-compact restore state"));
+    }
+    if let Some(path) = latest_post_compact_restore_diff_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "post-compact restore diff"));
+    }
     if let Some(path) = latest_workflow_state_artifact(project_root) {
         entries.push(artifact_timeline_entry(&path, "workflow state"));
     }
@@ -587,19 +679,28 @@ pub(crate) fn write_runtime_orchestration_timeline_artifact(
     let dir = project_root.join(".yode").join("status");
     std::fs::create_dir_all(&dir).ok()?;
     let short_session = session_id.chars().take(8).collect::<String>();
-    let path = dir.join(format!("{}-runtime-orchestration-timeline.md", short_session));
+    let path = dir.join(format!(
+        "{}-runtime-orchestration-timeline.md",
+        short_session
+    ));
     let body = build_runtime_orchestration_timeline_lines(project_root, 12)
         .into_iter()
         .map(|line| format!("- {}", line))
         .collect::<Vec<_>>()
         .join("\n");
-    std::fs::write(&path, format!("# Runtime Orchestration Timeline\n\n{}\n", body)).ok()?;
+    std::fs::write(
+        &path,
+        format!("# Runtime Orchestration Timeline\n\n{}\n", body),
+    )
+    .ok()?;
     Some(path.display().to_string())
 }
 
 fn artifact_timeline_entry(path: &Path, label: &str) -> ArtifactTimelineEntry {
     ArtifactTimelineEntry {
-        at: std::fs::metadata(path).ok().and_then(|meta| meta.modified().ok()),
+        at: std::fs::metadata(path)
+            .ok()
+            .and_then(|meta| meta.modified().ok()),
         detail: format!(
             "{}: {} / artifact={}",
             label,
@@ -616,7 +717,9 @@ fn preview_artifact(path: &Path) -> String {
             content
                 .lines()
                 .map(str::trim)
-                .filter(|line| !line.is_empty() && !line.starts_with('#') && !line.starts_with("```"))
+                .filter(|line| {
+                    !line.is_empty() && !line.starts_with('#') && !line.starts_with("```")
+                })
                 .take(2)
                 .collect::<Vec<_>>()
                 .join(" | ")
@@ -662,8 +765,12 @@ fn render_timeline_entries(
 }
 
 fn compare_paths_by_modified_desc(left: &PathBuf, right: &PathBuf) -> Ordering {
-    let left_modified = std::fs::metadata(left).ok().and_then(|meta| meta.modified().ok());
-    let right_modified = std::fs::metadata(right).ok().and_then(|meta| meta.modified().ok());
+    let left_modified = std::fs::metadata(left)
+        .ok()
+        .and_then(|meta| meta.modified().ok());
+    let right_modified = std::fs::metadata(right)
+        .ok()
+        .and_then(|meta| meta.modified().ok());
     match (left_modified, right_modified) {
         (Some(left_modified), Some(right_modified)) => right_modified
             .cmp(&left_modified)
@@ -677,9 +784,10 @@ fn compare_paths_by_modified_desc(left: &PathBuf, right: &PathBuf) -> Ordering {
 #[cfg(test)]
 mod tests {
     use super::{
-        artifact_display_line, artifact_freshness_badge, build_runtime_orchestration_timeline_lines,
-        latest_artifact_by_suffix, latest_bundle_workspace_index, open_artifact_inspector,
-        recent_artifacts_by_suffix, recent_bundle_workspace_indexes, resolve_artifact_basename,
+        artifact_display_line, artifact_freshness_badge,
+        build_runtime_orchestration_timeline_lines, latest_artifact_by_suffix,
+        latest_bundle_workspace_index, open_artifact_inspector, recent_artifacts_by_suffix,
+        recent_bundle_workspace_indexes, resolve_artifact_basename,
         write_runtime_orchestration_timeline_artifact,
     };
 
@@ -743,8 +851,9 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("demo.md");
         std::fs::write(&path, "# Demo\n\nSummary:\n- value\n").unwrap();
-        let doc = open_artifact_inspector("Demo", &path, None, vec![("kind".into(), "demo".into())])
-            .unwrap();
+        let doc =
+            open_artifact_inspector("Demo", &path, None, vec![("kind".into(), "demo".into())])
+                .unwrap();
         assert_eq!(artifact_freshness_badge(&path), "fresh");
         assert!(artifact_display_line(&path).contains("[fresh]"));
         assert!(doc.panels[0]
