@@ -78,7 +78,7 @@ pub fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &
             let turn_out = app.session.turn_output_tokens;
             let mut spans = vec![Span::styled(
                 format!(
-                    "  ⚡ Done · {} (↓{} tokens)",
+                    "  ⚡ Completed · {} (↓{} tokens)",
                     elapsed_str,
                     format_tok(turn_out)
                 ),
@@ -309,7 +309,7 @@ mod tests {
     #[test]
     fn working_label_falls_back_to_turn_verb_without_active_batch() {
         let app = test_app();
-        assert_eq!(active_working_label(&app, "Forging"), "Forging…");
+        assert_eq!(active_working_label(&app, "Analyzing"), "Analyzing…");
     }
 
     #[test]

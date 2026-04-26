@@ -359,23 +359,23 @@ mod tests {
 
     #[test]
     fn retry_status_preserves_original_verb() {
-        let status = TurnStatus::Working { verb: "Brewing" };
-        assert_eq!(retry_verb(&status), "Brewing");
+        let status = TurnStatus::Working { verb: "Analyzing" };
+        assert_eq!(retry_verb(&status), "Analyzing");
 
         let status = TurnStatus::Retrying {
-            verb: "Weaving",
+            verb: "Reviewing",
             error: "network".to_string(),
             attempt: 2,
             max_attempts: 10,
             delay_secs: 0,
         };
-        assert_eq!(retry_verb(&status), "Weaving");
+        assert_eq!(retry_verb(&status), "Reviewing");
     }
 
     #[test]
     fn retry_status_recovers_to_working_on_progress() {
         let mut status = TurnStatus::Retrying {
-            verb: "Forging",
+            verb: "Planning",
             error: "network".to_string(),
             attempt: 3,
             max_attempts: 10,
@@ -383,7 +383,7 @@ mod tests {
         };
         resume_working_after_retry(&mut status);
         match status {
-            TurnStatus::Working { verb } => assert_eq!(verb, "Forging"),
+            TurnStatus::Working { verb } => assert_eq!(verb, "Planning"),
             other => panic!("expected working status, got {:?}", other),
         }
     }
