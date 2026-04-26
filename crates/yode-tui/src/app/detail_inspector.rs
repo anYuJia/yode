@@ -3,6 +3,11 @@ use crate::tool_grouping::{
     describe_tool_call, detect_groupable_tool_batch, tool_batch_summary_text, ToolBatch,
 };
 use crate::tool_output_summary::{parse_shell_output_sections, summarize_tool_result};
+use crate::system_message::{parse_system_message, system_message_summary};
+use crate::ui::chat::{
+    render_markdown_ansi_dim_with_options, render_markdown_ansi_white_with_options,
+};
+use crate::ui::error_format::parse_error_view;
 use crate::ui::inspector::{
     InspectorAction, InspectorDocument, InspectorPanel, InspectorState, InspectorTab,
 };
@@ -119,13 +124,7 @@ fn build_latest_tool_document(app: &App) -> Option<InspectorDocument> {
 
         match &entries[index].role {
             ChatRole::Assistant => {
-                if entries[index]
-                    .reasoning
-                    .as_deref()
-                    .is_some_and(|reasoning| !reasoning.trim().is_empty())
-                {
-                    return Some(build_assistant_entry_document(&entries[index]));
-                }
+                return Some(build_assistant_entry_document(&entries[index]));
             }
             ChatRole::ToolCall { id, name } => {
                 let result = entries[index + 1..]
@@ -148,6 +147,8 @@ fn build_latest_tool_document(app: &App) -> Option<InspectorDocument> {
                     return Some(build_standalone_result_document(app, &entries[index]));
                 }
             }
+            ChatRole::System => return Some(build_system_entry_document(&entries[index])),
+            ChatRole::Error => return Some(build_error_entry_document(&entries[index])),
             _ => {}
         }
     }
@@ -180,11 +181,11 @@ fn build_assistant_entry_document(entry: &ChatEntry) -> InspectorDocument {
         }],
     }];
 
-    let content_lines = entry
-        .content
-        .lines()
-        .map(|line| line.to_string())
-        .collect::<Vec<_>>();
+    let content_lines = if entry.content.trim().is_empty() {
+        Vec::new()
+    } else {
+        render_markdown_ansi_white_with_options(&entry.content, Some(100), true)
+    };
     if !content_lines.is_empty() {
         panels.push(PanelSpec {
             label: "Content".to_string(),
@@ -201,7 +202,7 @@ fn build_assistant_entry_document(entry: &ChatEntry) -> InspectorDocument {
     if let Some(reasoning) = entry.reasoning.as_deref().filter(|value| !value.trim().is_empty()) {
         panels.push(PanelSpec {
             label: "Reasoning".to_string(),
-            lines: reasoning.lines().map(|line| line.to_string()).collect(),
+            lines: render_markdown_ansi_dim_with_options(reasoning, Some(100), true),
             actions: vec![InspectorAction {
                 label: "distill".to_string(),
                 command:
@@ -213,6 +214,75 @@ fn build_assistant_entry_document(entry: &ChatEntry) -> InspectorDocument {
 
     build_document(
         "Assistant details".to_string(),
+        panels,
+        Some("Esc close inspector".to_string()),
+    )
+}
+
+fn build_system_entry_document(entry: &ChatEntry) -> InspectorDocument {
+    let view = parse_system_message(&entry.content);
+    let mut panels = vec![PanelSpec {
+        label: "Summary".to_string(),
+        lines: vec![
+            "Role: System".to_string(),
+            format!("Kind: {:?}", view.kind),
+            format!("Summary: {}", system_message_summary(&view)),
+        ],
+        actions: vec![InspectorAction {
+            label: "status".to_string(),
+            command: "/status".to_string(),
+        }],
+    }];
+
+    if !view.detail_lines.is_empty() {
+        panels.push(PanelSpec {
+            label: "Details".to_string(),
+            lines: view.detail_lines,
+            actions: vec![InspectorAction {
+                label: "timeline".to_string(),
+                command: "/inspect artifact history runtime".to_string(),
+            }],
+        });
+    }
+
+    if entry.content.lines().count() > 1 {
+        panels.push(PanelSpec {
+            label: "Raw".to_string(),
+            lines: entry.content.lines().map(|line| line.to_string()).collect(),
+            actions: vec![],
+        });
+    }
+
+    build_document(
+        "System details".to_string(),
+        panels,
+        Some("Esc close inspector".to_string()),
+    )
+}
+
+fn build_error_entry_document(entry: &ChatEntry) -> InspectorDocument {
+    let view = parse_error_view(&entry.content);
+    let mut panels = vec![PanelSpec {
+        label: "Summary".to_string(),
+        lines: std::iter::once(view.title.clone())
+            .chain(view.detail_lines.iter().cloned())
+            .collect(),
+        actions: vec![InspectorAction {
+            label: "status".to_string(),
+            command: "/status".to_string(),
+        }],
+    }];
+    panels.push(PanelSpec {
+        label: "Raw".to_string(),
+        lines: entry.content.lines().map(|line| line.to_string()).collect(),
+        actions: vec![InspectorAction {
+            label: "follow-up".to_string(),
+            command: "Explain the latest error and suggest the safest recovery step.".to_string(),
+        }],
+    });
+
+    build_document(
+        "Error details".to_string(),
         panels,
         Some("Esc close inspector".to_string()),
     )
@@ -781,6 +851,57 @@ mod tests {
         assert!(doc
             .panels
             .iter()
-            .any(|panel| panel.lines.iter().any(|line| line.contains("## Plan"))));
+            .any(|panel| panel.lines.iter().any(|line| line.contains("Plan"))));
+        assert!(doc
+            .panels
+            .iter()
+            .any(|panel| panel.lines.iter().any(|line| line.contains("inspect"))));
+    }
+
+    #[test]
+    fn latest_tool_document_supports_recent_assistant_without_reasoning() {
+        let mut app = test_app();
+        app.chat_entries = vec![ChatEntry::new(
+            ChatRole::Assistant,
+            "# Title\n\nBody".to_string(),
+        )];
+
+        let doc = build_latest_tool_document(&app).unwrap();
+        assert_eq!(doc.state.title, "Assistant details");
+        assert!(doc.panels.iter().any(|panel| panel.tab.label == "Content"));
+        assert!(doc
+            .panels
+            .iter()
+            .any(|panel| panel.lines.iter().any(|line| line.contains("Title"))));
+    }
+
+    #[test]
+    fn latest_tool_document_supports_recent_system_entry() {
+        let mut app = test_app();
+        app.chat_entries = vec![ChatEntry::new(
+            ChatRole::System,
+            "Session memory updated · summary · /tmp/live.md".to_string(),
+        )];
+
+        let doc = build_latest_tool_document(&app).unwrap();
+        assert_eq!(doc.state.title, "System details");
+        assert!(doc.panels.iter().any(|panel| panel.tab.label == "Details"));
+    }
+
+    #[test]
+    fn latest_tool_document_supports_recent_error_entry() {
+        let mut app = test_app();
+        app.chat_entries = vec![ChatEntry::new(
+            ChatRole::Error,
+            "OpenAI API error (400): This model's maximum context length is 128000 tokens."
+                .to_string(),
+        )];
+
+        let doc = build_latest_tool_document(&app).unwrap();
+        assert_eq!(doc.state.title, "Error details");
+        assert!(doc
+            .panels
+            .iter()
+            .any(|panel| panel.lines.iter().any(|line| line.contains("Context limit reached"))));
     }
 }
