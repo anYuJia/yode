@@ -417,9 +417,9 @@ pub(crate) fn inspector_action_safety_summary(actions: &[InspectorAction]) -> Op
         .iter()
         .any(|action| action.command.contains("run-write") || action.command.contains(" restore "));
     Some(if has_write {
-        "action safety: prefer preview/diff/doctor before write-capable run or restore".to_string()
+        "safety: preview/diff before write or restore".to_string()
     } else {
-        "action safety: Ctrl+Enter executes the selected action immediately".to_string()
+        "safety: Ctrl+Enter runs the selected action".to_string()
     })
 }
 
@@ -434,14 +434,45 @@ pub(crate) fn inspector_empty_state_actions(actions: &[&str]) -> Vec<String> {
 }
 
 pub(crate) fn inspector_pagination_footer(selected: usize, total: usize) -> String {
-    if total == 0 {
-        "0/0 · Enter load · Ctrl+Enter run · PgUp/PgDn page · Esc close".to_string()
+    inspector_footer_text(selected, total, None)
+}
+
+fn inspector_footer_text(selected: usize, total: usize, note: Option<&str>) -> String {
+    let mut parts = vec![if total == 0 {
+        "0/0".to_string()
     } else {
-        format!(
-            "{}/{} · Enter load · Ctrl+Enter run · PgUp/PgDn page · Esc close",
-            selected.min(total.saturating_sub(1)) + 1,
-            total
+        format!("{}/{}", selected.min(total.saturating_sub(1)) + 1, total)
+    }];
+    if let Some(note) = note.and_then(compact_inspector_footer_note) {
+        parts.push(note);
+    }
+    parts.push("/ search".to_string());
+    parts.push("Enter load".to_string());
+    parts.push("Ctrl+Enter run".to_string());
+    if total > 1 {
+        parts.push("PgUp/PgDn".to_string());
+    }
+    parts.push("Esc close".to_string());
+    parts.join(" · ")
+}
+
+fn compact_inspector_footer_note(note: &str) -> Option<String> {
+    let compact = note
+        .replace(
+            "Esc close inspector · return to confirmation with y / a / n",
+            "y allow · a always · n deny",
         )
+        .replace("Esc close inspector", "")
+        .replace("Esc close", "")
+        .trim()
+        .trim_matches('·')
+        .trim()
+        .to_string();
+
+    if compact.is_empty() {
+        None
+    } else {
+        Some(compact)
     }
 }
 
@@ -552,7 +583,8 @@ pub(crate) fn render_inspector(frame: &mut Frame, area: Rect, document: &Inspect
 
     let footer = document
         .footer
-        .clone()
+        .as_deref()
+        .map(|note| inspector_footer_text(document.state.selected_line, total, Some(note)))
         .unwrap_or_else(|| inspector_pagination_footer(document.state.selected_line, total));
     lines.push(footer_hint_line(&[&footer], BORDER_MUTED));
     frame.render_widget(Paragraph::new(lines), area);
@@ -591,9 +623,9 @@ mod tests {
 
     use super::{
         inspector_action_row, inspector_action_safety_summary, inspector_empty_state_actions,
-        inspector_experiment_enabled, inspector_pagination_footer, inspector_status_badge_row,
-        multi_pane_title_strip, InspectorAction, InspectorBodySource, InspectorDocument,
-        InspectorFocus, InspectorState, InspectorTab, PanelStackCoordinator,
+        inspector_experiment_enabled, inspector_footer_text, inspector_pagination_footer,
+        inspector_status_badge_row, multi_pane_title_strip, InspectorAction, InspectorBodySource,
+        InspectorDocument, InspectorFocus, InspectorState, InspectorTab, PanelStackCoordinator,
     };
 
     #[test]
@@ -633,7 +665,7 @@ mod tests {
             command: "/checkpoint restore latest".to_string(),
         }])
         .unwrap();
-        assert!(safety.contains("prefer preview"));
+        assert!(safety.contains("preview/diff before write"));
     }
 
     #[test]
@@ -643,7 +675,17 @@ mod tests {
             vec!["no actions available".to_string()]
         );
         assert!(inspector_pagination_footer(0, 0).contains("0/0"));
+        assert!(inspector_pagination_footer(0, 0).contains("/ search"));
         assert!(inspector_pagination_footer(1, 5).contains("2/5"));
+        assert!(inspector_pagination_footer(1, 5).contains("PgUp/PgDn"));
+        assert_eq!(
+            inspector_footer_text(
+                0,
+                0,
+                Some("Esc close inspector · return to confirmation with y / a / n"),
+            ),
+            "0/0 · y allow · a always · n deny · / search · Enter load · Ctrl+Enter run · Esc close"
+        );
     }
 
     #[test]
