@@ -90,6 +90,7 @@ fn loads_project_memory_from_supported_locations() {
     let temp = tempfile::tempdir().unwrap();
     let project = temp.path().join("project");
     fs::create_dir_all(project.join(".yode").join("memory").join("nested")).unwrap();
+    fs::create_dir_all(project.join(".claude").join("memory").join("team")).unwrap();
     fs::create_dir_all(project.join("memory")).unwrap();
 
     fs::write(project.join("MEMORY.md"), "root memory").unwrap();
@@ -103,9 +104,26 @@ fn loads_project_memory_from_supported_locations() {
     )
     .unwrap();
     fs::write(project.join("memory").join("legacy.md"), "legacy memory").unwrap();
+    fs::write(
+        project
+            .join(".claude")
+            .join("memory")
+            .join("team")
+            .join("shared.md"),
+        "---\nname: Shared memory\ndescription: shared team convention\ntype: feedback\nscope: team\n---\nclaude memory",
+    )
+    .unwrap();
 
     let loaded = load_memory_context(&project).unwrap();
+    assert!(loaded.contains("## How To Use Memory"));
+    assert!(loaded.contains("ignore or not use memory"));
     assert!(loaded.contains("root memory"));
     assert!(loaded.contains("nested memory"));
     assert!(loaded.contains("legacy memory"));
+    assert!(loaded.contains("Name: Shared memory"));
+    assert!(loaded.contains("Description: shared team convention"));
+    assert!(loaded.contains("Type: feedback"));
+    assert!(loaded.contains("Scope: team"));
+    assert!(loaded.contains("claude memory"));
+    assert!(!loaded.contains("---\nname: Shared memory"));
 }
