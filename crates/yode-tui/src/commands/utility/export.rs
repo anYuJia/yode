@@ -637,7 +637,7 @@ fn render_bundle_completion_message(
     .collect::<Vec<_>>()
     .join(", ");
     format!(
-        "Diagnostics bundle exported to: {}\n  Runtime: {}\n  Context: {}\n  Tools: {}\n  Core: {}\n  Extras: {} copied · doctor {}\n  Inspect: /inspect artifact bundle",
+        "Diagnostics bundle exported to: {}\n  Runtime: {}\n  Context: {}\n  Tools: {}\n  Core: {}\n  Extras: {} copied · doctor {}\n  Inspect: /inspect artifact bundle · /diagnostics",
         bundle_dir.display(),
         runtime_line,
         context_line,
@@ -833,6 +833,7 @@ mod tests {
         assert!(rendered.contains("Diagnostics bundle exported to:"));
         assert!(rendered.contains("Core: conversation.txt, runtime-summary.txt, workspace-index.md, prompt-cache.txt"));
         assert!(rendered.contains("Extras: 2 copied · doctor none"));
+        assert!(rendered.contains("/diagnostics"));
     }
 
     #[test]
