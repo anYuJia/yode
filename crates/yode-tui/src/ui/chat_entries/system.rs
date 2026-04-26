@@ -46,7 +46,7 @@ pub(crate) fn render_grouped_system_entries(
             Style::default().fg(INFO_COLOR).add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            format!("{}({})", grouped_batch_title(batch), batch.items.len()),
+            format!("{}({})", grouped_batch_title(all_entries, batch), batch.items.len()),
             Style::default().fg(LIGHT).add_modifier(Modifier::BOLD),
         ),
         Span::styled(
@@ -144,13 +144,21 @@ fn system_styles(kind: SystemMessageKind) -> (&'static str, Style, Style) {
     }
 }
 
-fn grouped_batch_title(batch: &SystemBatch) -> &'static str {
+fn grouped_batch_title(all_entries: &[ChatEntry], batch: &SystemBatch) -> &'static str {
     if batch
         .items
         .iter()
         .all(|item| item.kind == SystemMessageKind::Task)
     {
-        "Task updates"
+        if batch.items.iter().all(|item| {
+            all_entries
+                .get(item.entry_index)
+                .is_some_and(|entry| entry.content.to_ascii_lowercase().contains("hook"))
+        }) {
+            "Hook updates"
+        } else {
+            "Task updates"
+        }
     } else if batch
         .items
         .iter()
@@ -241,6 +249,31 @@ mod tests {
         render_grouped_system_entries(&mut lines, &entries, &batch);
         assert!(lines[0].to_string().contains("Task updates(2)"));
         assert!(lines[0].to_string().contains("ctrl+o to inspect"));
+    }
+
+    #[test]
+    fn render_grouped_system_entries_uses_hook_batch_title() {
+        let entries = vec![
+            ChatEntry::new(ChatRole::System, "[Task:warn] hook timeout: scripts/pre-tool".to_string()),
+            ChatEntry::new(ChatRole::System, "[Task:info] hook deferred: preview".to_string()),
+        ];
+        let batch = SystemBatch {
+            start_index: 0,
+            next_index: 2,
+            items: vec![
+                SystemBatchItem {
+                    entry_index: 0,
+                    kind: crate::system_message::SystemMessageKind::Task,
+                },
+                SystemBatchItem {
+                    entry_index: 1,
+                    kind: crate::system_message::SystemMessageKind::Task,
+                },
+            ],
+        };
+        let mut lines = Vec::new();
+        render_grouped_system_entries(&mut lines, &entries, &batch);
+        assert!(lines[0].to_string().contains("Hook updates(2)"));
     }
 
     #[test]

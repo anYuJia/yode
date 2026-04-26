@@ -185,8 +185,12 @@ fn split_export_line(line: &str) -> Option<(String, Option<String>)> {
 
 fn split_task_line(line: &str) -> Option<(String, Option<String>)> {
     let severity = line.strip_prefix("[Task:")?.split_once(']')?;
-    let title = format!("Task {}", severity.0.trim());
     let detail = severity.1.trim().to_string();
+    let title = if detail.to_ascii_lowercase().contains("hook") {
+        format!("Hook {}", severity.0.trim())
+    } else {
+        format!("Task {}", severity.0.trim())
+    };
     Some((
         title,
         if detail.is_empty() {
@@ -310,6 +314,14 @@ mod tests {
         assert_eq!(view.kind, SystemMessageKind::Task);
         assert_eq!(view.title, "Task warn");
         assert_eq!(view.detail_lines, vec!["agent stalled".to_string()]);
+    }
+
+    #[test]
+    fn parses_hook_task_notifications_with_hook_title() {
+        let view = parse_system_message("[Task:warn] hook timeout: scripts/pre-tool");
+        assert_eq!(view.kind, SystemMessageKind::Task);
+        assert_eq!(view.title, "Hook warn");
+        assert_eq!(view.detail_lines, vec!["hook timeout: scripts/pre-tool".to_string()]);
     }
 
     #[test]

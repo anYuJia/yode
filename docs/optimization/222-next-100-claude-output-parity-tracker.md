@@ -21,7 +21,7 @@
 
 当前进度：
 
-- `67 / 100` 已完成
+- `68 / 100` 已完成
 
 ## 001-010 Markdown Core
 
@@ -83,7 +83,7 @@
 - `[x]` 044 single system `ctrl+o` discoverability
 - `[x]` 045 system detail inspector
 - `[x]` 046 system message raw/detail split refinement
-- `[ ]` 047 stop-hook summary panel polish
+- `[x]` 047 stop-hook summary panel polish
 - `[x]` 048 export message panel polish
 - `[x]` 049 turn-complete system card polish
 - `[x]` 050 lifecycle message simplification pass
@@ -166,4 +166,4 @@
   - `775d61e`, `3970110`
 
 - 下一步优先实现：
-  - `047 stop-hook summary panel polish`
+  - `027 transcript-mode thinking collapse policy`

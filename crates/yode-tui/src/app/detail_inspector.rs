@@ -1798,6 +1798,21 @@ mod tests {
     }
 
     #[test]
+    fn latest_tool_document_adds_hooks_action_for_hook_task_system_entry() {
+        let mut app = test_app();
+        app.chat_entries = vec![ChatEntry::new(
+            ChatRole::System,
+            "[Task:warn] hook timeout: scripts/pre-tool".to_string(),
+        )];
+
+        let doc = build_latest_tool_document(&app).unwrap();
+        assert!(doc.panels[0]
+            .actions
+            .iter()
+            .any(|action| action.label == "open hooks"));
+    }
+
+    #[test]
     fn latest_tool_document_supports_recent_error_entry() {
         let mut app = test_app();
         app.chat_entries = vec![ChatEntry::new(
