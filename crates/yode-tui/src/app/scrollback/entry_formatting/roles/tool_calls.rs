@@ -57,7 +57,7 @@ pub(super) fn render_tool_call(
         let title =
             activity_title.unwrap_or_else(|| format!("{}({})", tool_display_name(name), summary));
         result.push((
-            format!("⏺ {}{}", title, timing),
+            format!("⏺ {}{} (ctrl+o to inspect)", title, timing),
             if is_error { red } else { accent },
         ));
 
@@ -202,7 +202,7 @@ pub(super) fn render_standalone_result(
         *is_error,
     );
     result.push((
-        format!("⏺ {}", tool_display_name(name)),
+        format!("⏺ {} (ctrl+o to inspect)", tool_display_name(name)),
         if *is_error { red } else { accent },
     ));
     if let Some(metadata) = entry.tool_metadata.as_ref() {
@@ -684,6 +684,7 @@ mod tests {
             Style::default(),
         );
         assert!(result[0].0.contains("⏺ Read .../src/main.rs"));
+        assert!(result[0].0.contains("ctrl+o to inspect"));
         assert!(!result[0].0.contains("Read_file"));
     }
 
@@ -757,6 +758,7 @@ mod tests {
             Style::default(),
         );
         assert!(result[0].0.contains("PowerShell"));
+        assert!(result[0].0.contains("ctrl+o to inspect"));
         assert!(result
             .iter()
             .any(|line| line.0.contains("read-only: validated git status")));

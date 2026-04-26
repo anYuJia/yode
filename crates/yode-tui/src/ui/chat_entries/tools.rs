@@ -87,6 +87,10 @@ pub(crate) fn render_tool_call(
             ));
         }
     }
+    title_spans.push(Span::styled(
+        " (ctrl+o to inspect)",
+        Style::default().fg(DIM).add_modifier(Modifier::ITALIC),
+    ));
 
     lines.push(Line::from(title_spans));
 
@@ -219,6 +223,10 @@ pub(crate) fn render_standalone_result(lines: &mut Vec<Line<'static>>, entry: &C
                 Style::default()
                     .fg(if *is_error { RED } else { WHITE })
                     .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                " (ctrl+o to inspect)",
+                Style::default().fg(DIM).add_modifier(Modifier::ITALIC),
             ),
         ]));
         if let Some(metadata) = entry.tool_metadata.as_ref() {
@@ -513,6 +521,7 @@ mod tests {
             call.timestamp,
         );
         assert!(lines[0].to_string().contains("Read .../src/main.rs"));
+        assert!(lines[0].to_string().contains("ctrl+o to inspect"));
         assert!(!lines[0].to_string().contains("Read_file"));
     }
 
@@ -532,6 +541,7 @@ mod tests {
         }));
         let mut lines: Vec<Line<'static>> = Vec::new();
         render_standalone_result(&mut lines, &entry);
+        assert!(lines[0].to_string().contains("ctrl+o to inspect"));
         assert!(lines
             .iter()
             .any(|line| line.to_string().contains("read-only: validated git status")));
