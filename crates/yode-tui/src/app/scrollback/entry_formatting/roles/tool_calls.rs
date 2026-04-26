@@ -464,14 +464,19 @@ fn render_summary_lines(
     _red: ratatui::style::Style,
     _red_dim: ratatui::style::Style,
 ) {
-    for (index, line) in lines.iter().enumerate() {
-        let prefix = if index == 0 { "  ⎿  " } else { "     " };
-        let style = match line.tone {
+    if let Some(first) = lines.first() {
+        let style = match first.tone {
             ToolSummaryTone::Neutral => dim,
             ToolSummaryTone::Success => green,
             ToolSummaryTone::Warning => ratatui::style::Style::default().fg(Color::Yellow),
         };
-        result.push((format!("{}{}", prefix, line.text), style));
+        result.push((format!("  ⎿  {}", first.text), style));
+    }
+    if lines.len() > 1 {
+        result.push((
+            format!("     … +{} more lines (ctrl+o to inspect)", lines.len() - 1),
+            dim,
+        ));
     }
 }
 
@@ -482,7 +487,11 @@ mod tests {
     use crate::app::{ChatEntry, ChatRole};
     use crate::tool_grouping::detect_groupable_tool_batch;
 
-    use super::{render_grouped_tool_call, render_standalone_result, render_tool_call};
+    use crate::tool_output_summary::{ToolSummaryLine, ToolSummaryTone};
+
+    use super::{
+        render_grouped_tool_call, render_standalone_result, render_summary_lines, render_tool_call,
+    };
 
     #[test]
     fn scrollback_grouped_tool_call_uses_exploration_summary_title() {
@@ -739,6 +748,34 @@ mod tests {
         assert!(result
             .iter()
             .any(|line| line.0.contains("Prefer read_file")));
+    }
+
+    #[test]
+    fn scrollback_summary_lines_collapse_to_first_line_and_teaser() {
+        let mut result = Vec::new();
+        render_summary_lines(
+            &mut result,
+            &[
+                ToolSummaryLine {
+                    text: "first".to_string(),
+                    tone: ToolSummaryTone::Neutral,
+                },
+                ToolSummaryLine {
+                    text: "second".to_string(),
+                    tone: ToolSummaryTone::Success,
+                },
+                ToolSummaryLine {
+                    text: "third".to_string(),
+                    tone: ToolSummaryTone::Warning,
+                },
+            ],
+            Style::default(),
+            Style::default(),
+            Style::default(),
+            Style::default(),
+        );
+        assert_eq!(result[0].0, "  ⎿  first");
+        assert!(result[1].0.contains("+2 more lines (ctrl+o to inspect)"));
     }
 
     #[test]

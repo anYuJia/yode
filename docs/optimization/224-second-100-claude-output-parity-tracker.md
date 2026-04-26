@@ -18,7 +18,7 @@
 
 当前进度：
 
-- `14 / 100` 已完成
+- `15 / 100` 已完成
 
 ## 001-010 Snapshot Hardening
 
@@ -35,7 +35,7 @@
 
 ## 011-020 Transcript Semantics
 
-- `[ ]` 011 transcript-mode tool teaser collapse parity
+- `[x]` 011 transcript-mode tool teaser collapse parity
 - `[x]` 012 transcript-mode system detail elision parity
 - `[x]` 013 transcript-mode error detail collapse parity
 - `[x]` 014 transcript-mode assistant spacing polish
