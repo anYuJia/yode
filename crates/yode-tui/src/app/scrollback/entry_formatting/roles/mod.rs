@@ -89,10 +89,16 @@ pub(crate) fn format_entry_as_strings(
                     .fg(Color::LightRed)
                     .add_modifier(Modifier::BOLD),
             ));
-            for line in view.detail_lines {
+            if let Some(first_line) = view.detail_lines.first() {
                 result.push((
-                    format!("    {}", line),
+                    format!("    {}", first_line),
                     ratatui::style::Style::default().fg(Color::Yellow),
+                ));
+            }
+            if view.detail_lines.len() > 1 {
+                result.push((
+                    format!("    … +{} more lines (ctrl+o to inspect)", view.detail_lines.len() - 1),
+                    ratatui::style::Style::default().fg(Color::Gray),
                 ));
             }
             result.push((
@@ -160,13 +166,16 @@ mod tests {
     fn error_entries_include_inspector_hint() {
         let entry = ChatEntry::new(
             ChatRole::Error,
-            "OpenAI API error (400): This model's maximum context length is 128000 tokens."
-                .to_string(),
+            "something odd happened\nwith more detail".to_string(),
         );
         let rendered = format_entry_as_strings(&entry, std::slice::from_ref(&entry), 0);
+        assert!(rendered.iter().any(|(line, _)| line.contains("! Error")));
         assert!(rendered
             .iter()
-            .any(|(line, _)| line.contains("! Context limit reached")));
+            .any(|(line, _)| line.contains("something odd happened")));
+        assert!(rendered
+            .iter()
+            .any(|(line, _)| line.contains("+1 more lines")));
         assert!(rendered
             .iter()
             .any(|(line, _)| line.contains("ctrl+o to inspect")));

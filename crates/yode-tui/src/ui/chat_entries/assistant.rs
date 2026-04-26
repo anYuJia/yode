@@ -17,7 +17,11 @@ pub(crate) fn render_assistant(
     if let Some(reasoning) = &entry.reasoning {
         if !reasoning.trim().is_empty() {
             lines.push(Line::from(vec![Span::styled(
-                "  ∴ Thinking… (ctrl+o to inspect)",
+                if show_reasoning_detail {
+                    "  ∴ Thinking… (ctrl+o to inspect)"
+                } else {
+                    "  ∴ Thinking hidden (ctrl+o to inspect)"
+                },
                 Style::default()
                     .fg(PANEL_ACCENT)
                     .add_modifier(Modifier::ITALIC | Modifier::BOLD),
@@ -231,7 +235,8 @@ mod tests {
         let rendered = lines.iter().map(|line| line.to_string()).collect::<Vec<_>>();
         assert!(rendered
             .iter()
-            .any(|line| line.contains("Thinking… (ctrl+o to inspect)")));
+            .any(|line| line.contains("Thinking hidden (ctrl+o to inspect)")));
         assert!(rendered.iter().all(|line| !line.contains("• inspect")));
+        assert!(!rendered[1].is_empty());
     }
 }

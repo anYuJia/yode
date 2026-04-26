@@ -37,7 +37,11 @@ pub(super) fn render_assistant(
     if let Some(reasoning) = &entry.reasoning {
         if !reasoning.trim().is_empty() {
             result.push((
-                "  ∴ Thinking… (ctrl+o to inspect)".to_string(),
+                if show_reasoning_detail {
+                    "  ∴ Thinking… (ctrl+o to inspect)".to_string()
+                } else {
+                    "  ∴ Thinking hidden (ctrl+o to inspect)".to_string()
+                },
                 dim.add_modifier(ratatui::style::Modifier::ITALIC),
             ));
             if show_reasoning_detail {
@@ -62,7 +66,15 @@ pub(super) fn render_assistant(
         }
     }
 
-    result.push((String::new(), dim));
+    if entry
+        .reasoning
+        .as_deref()
+        .filter(|reasoning| !reasoning.trim().is_empty())
+        .is_none()
+        || show_reasoning_detail
+    {
+        result.push((String::new(), dim));
+    }
     let render_width = scrollback_render_width(2, 78);
     let lines = render_markdown_ansi_white_with_options(&entry.content, Some(render_width), true);
     let mut first_content = true;
@@ -215,7 +227,8 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(rendered
             .iter()
-            .any(|line| line.contains("Thinking… (ctrl+o to inspect)")));
+            .any(|line| line.contains("Thinking hidden (ctrl+o to inspect)")));
         assert!(rendered.iter().all(|line| !line.contains("• inspect")));
+        assert!(!rendered[1].is_empty());
     }
 }

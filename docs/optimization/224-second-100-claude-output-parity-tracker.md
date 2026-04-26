@@ -18,7 +18,7 @@
 
 当前进度：
 
-- `10 / 100` 已完成
+- `14 / 100` 已完成
 
 ## 001-010 Snapshot Hardening
 
@@ -36,14 +36,14 @@
 ## 011-020 Transcript Semantics
 
 - `[ ]` 011 transcript-mode tool teaser collapse parity
-- `[ ]` 012 transcript-mode system detail elision parity
-- `[ ]` 013 transcript-mode error detail collapse parity
-- `[ ]` 014 transcript-mode assistant spacing polish
+- `[x]` 012 transcript-mode system detail elision parity
+- `[x]` 013 transcript-mode error detail collapse parity
+- `[x]` 014 transcript-mode assistant spacing polish
 - `[ ]` 015 transcript-mode latest-tool focus parity
 - `[ ]` 016 transcript-mode latest-error focus parity
 - `[ ]` 017 transcript-mode latest-system focus parity
 - `[ ]` 018 transcript-mode follow-up prompt density pass
-- `[ ]` 019 transcript-mode reasoning teaser copy pass
+- `[x]` 019 transcript-mode reasoning teaser copy pass
 - `[ ]` 020 transcript-mode line-prefix audit
 
 ## 021-030 Hook / Task Output
