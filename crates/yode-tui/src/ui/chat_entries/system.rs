@@ -6,6 +6,7 @@ use crate::system_message::{
     format_system_detail_line, parse_system_message, system_message_summary, SystemMessageKind,
 };
 use crate::tool_grouping::SystemBatch;
+use crate::ui::chat::render_markdown_white_with_options;
 use crate::ui::palette::{ERROR_COLOR, INFO_COLOR, LIGHT, MUTED, SUCCESS_COLOR, WARNING_COLOR};
 
 pub(crate) fn render_system_entry(lines: &mut Vec<Line<'static>>, entry: &ChatEntry) {
@@ -14,17 +15,19 @@ pub(crate) fn render_system_entry(lines: &mut Vec<Line<'static>>, entry: &ChatEn
         return;
     }
 
-    let (prefix, title_style, detail_style) = system_styles(view.kind);
+    let (prefix, title_style, _detail_style) = system_styles(view.kind);
     lines.push(Line::from(vec![
         Span::styled(prefix.to_string(), title_style),
         Span::styled(view.title, title_style.add_modifier(Modifier::BOLD)),
     ]));
 
     for detail in view.detail_lines {
-        lines.push(Line::from(vec![
-            Span::styled("    ".to_string(), Style::default().fg(MUTED)),
-            Span::styled(format_system_detail_line(&detail), detail_style),
-        ]));
+        for line in render_markdown_white_with_options(&format_system_detail_line(&detail), None, true)
+        {
+            let mut spans = vec![Span::styled("    ".to_string(), Style::default().fg(MUTED))];
+            spans.extend(line.spans);
+            lines.push(Line::from(spans));
+        }
     }
     lines.push(Line::from(vec![
         Span::styled("    ".to_string(), Style::default().fg(MUTED)),
@@ -190,6 +193,19 @@ mod tests {
         assert!(lines[1].to_string().contains("auto · -4 msgs"));
         assert!(lines[2].to_string().contains("summary · older turns"));
         assert!(lines[3].to_string().contains("ctrl+o to inspect"));
+    }
+
+    #[test]
+    fn render_system_entry_hyperlinks_detail_urls() {
+        let entry = ChatEntry::new(
+            ChatRole::System,
+            "Session memory updated · ref · https://example.com/docs".to_string(),
+        );
+        let mut lines = Vec::new();
+        render_system_entry(&mut lines, &entry);
+        assert!(lines
+            .iter()
+            .any(|line| line.to_string().contains("\u{1b}]8;;https://example.com/docs")));
     }
 
     #[test]

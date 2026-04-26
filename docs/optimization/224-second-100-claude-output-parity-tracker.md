@@ -18,7 +18,7 @@
 
 当前进度：
 
-- `26 / 100` 已完成
+- `28 / 100` 已完成
 
 ## 001-010 Snapshot Hardening
 
@@ -113,8 +113,8 @@
 
 ## 071-080 Hyperlinks / Markdown Edge Cases
 
-- `[ ]` 071 system detail hyperlink coverage expansion
-- `[ ]` 072 error detail hyperlink coverage expansion
+- `[x]` 071 system detail hyperlink coverage expansion
+- `[x]` 072 error detail hyperlink coverage expansion
 - `[ ]` 073 confirm preview hyperlink coverage audit
 - `[ ]` 074 artifact preview hyperlink coverage audit
 - `[ ]` 075 transcript export hyperlink preservation audit

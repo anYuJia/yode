@@ -143,10 +143,16 @@ pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
                     ),
                 ]));
                 for detail in view.detail_lines {
-                    lines.push(Line::from(vec![
-                        Span::styled("    ".to_string(), Style::default().fg(DIM)),
-                        Span::styled(detail, Style::default().fg(YELLOW)),
-                    ]));
+                    for line in render_markdown_white_with_options(
+                        &detail,
+                        None,
+                        app.terminal_caps.supports_hyperlinks(),
+                    ) {
+                        let mut spans =
+                            vec![Span::styled("    ".to_string(), Style::default().fg(DIM))];
+                        spans.extend(line.spans);
+                        lines.push(Line::from(spans));
+                    }
                 }
                 lines.push(Line::from(vec![
                     Span::styled("    ".to_string(), Style::default().fg(DIM)),
