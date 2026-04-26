@@ -283,16 +283,21 @@ fn streaming_reasoning_teaser(reasoning: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use std::time::Instant;
+    use std::sync::Arc;
 
     use ratatui::text::Line;
+    use yode_llm::registry::ProviderRegistry;
+    use yode_tools::registry::ToolRegistry;
 
-    use crate::app::{ChatEntry, ChatRole};
+    use crate::app::{App, ChatEntry, ChatRole, TurnStatus};
     use crate::tool_grouping::SystemBatch;
     use crate::tool_grouping::SystemBatchItem;
     use crate::ui::chat_entries::{
         render_assistant, render_grouped_system_entries, render_tool_call,
     };
+    use crate::ui::turn_status::{active_working_hint, active_working_label};
 
     use super::streaming_reasoning_teaser;
 
@@ -347,6 +352,7 @@ mod tests {
             None,
             Instant::now(),
         );
+        let tool_entries = vec![tool_call.clone(), tool_result.clone()];
 
         let system_entries = vec![
             ChatEntry::new(ChatRole::System, "Session resumed.".to_string()),
@@ -382,7 +388,27 @@ mod tests {
             },
         );
 
+        let mut app = App::new(
+            "test-model".to_string(),
+            "session-1234".to_string(),
+            "/tmp".to_string(),
+            "test".to_string(),
+            Vec::new(),
+            HashMap::new(),
+            Arc::new(ProviderRegistry::new()),
+            Arc::new(ToolRegistry::new()),
+        );
+        app.chat_entries = tool_entries.clone();
+        app.turn_status = TurnStatus::Working { verb: "Analyzing" };
+        let turn_status_lines = vec![
+            format!("⠋ {}", active_working_label(&app, "Analyzing")),
+            active_working_hint(&app).unwrap_or_else(|| "no hint".to_string()),
+        ];
+
         println!("# Output Regression Snapshot\n");
+        println!("## Turn Status\n");
+        println!("{}", turn_status_lines.join("\n"));
+        println!();
         println!("## Assistant Narrow\n");
         println!("{}", lines_to_text(&assistant_lines));
         println!("\n## Tool Metadata Dense\n");
