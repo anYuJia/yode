@@ -168,6 +168,11 @@ pub(crate) fn active_working_label(app: &App, fallback_verb: &str) -> String {
                 if let Some(summary) = summarize_groupable_tool_call(name, &entry.content, true) {
                     return summary;
                 }
+                let args: serde_json::Value =
+                    serde_json::from_str(&entry.content).unwrap_or(serde_json::Value::Null);
+                if let Some(summary) = describe_tool_call(name, &args, true) {
+                    return ensure_active_ellipsis(&summary);
+                }
                 if let Some(summary) = tool_activity_label(app, name, &entry.content) {
                     return summary;
                 }
@@ -325,7 +330,7 @@ mod tests {
     }
 
     #[test]
-    fn working_label_uses_tool_activity_description_for_non_groupable_tools() {
+    fn working_label_prefers_compact_tool_call_description_for_non_groupable_tools() {
         let registry = Arc::new(ToolRegistry::new());
         registry.register(Arc::new(EditFileTool));
         let mut app = App::new(
@@ -349,7 +354,7 @@ mod tests {
 
         assert_eq!(
             active_working_label(&app, "Working"),
-            "Editing file: /tmp/demo.rs…"
+            "Editing .../tmp/demo.rs…"
         );
     }
 
