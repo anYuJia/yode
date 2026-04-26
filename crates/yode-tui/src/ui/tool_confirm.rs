@@ -12,6 +12,25 @@ use crate::tool_grouping::describe_groupable_tool_call;
 /// Render inline confirmation selector in a bottom-anchored panel.
 pub const INLINE_CONFIRM_HEIGHT: u16 = 14;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConfirmDensity {
+    Default,
+    Narrow,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConfirmRiskLevel {
+    Low,
+    Medium,
+    High,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ConfirmRisk {
+    level: ConfirmRiskLevel,
+    label: String,
+}
+
 pub fn render_inline_confirm(frame: &mut Frame, area: Rect, app: &App) {
     let Some(ref confirm) = app.pending_confirmation else {
         return;
@@ -20,22 +39,28 @@ pub fn render_inline_confirm(frame: &mut Frame, area: Rect, app: &App) {
     let tool_label = tool_display_name(app, &confirm.name);
     let activity = tool_activity_summary(app, &confirm.name, &confirm.arguments);
     let title = confirmation_title(app, &confirm.name, &confirm.arguments);
-    let risk_hint = tool_risk_hint(app, &confirm.name);
+    let risk = tool_risk_hint(app, &confirm.name);
     let preview = tool_preview_line(&confirm.name, &confirm.arguments);
+    let density = confirm_density(panel_area_width(area, frame));
     let options = vec![
         "Allow once".to_string(),
         tool_allow_option_label(&confirm.name, &confirm.arguments, &tool_label),
         "Deny".to_string(),
     ];
-    let panel_area = if area.height >= INLINE_CONFIRM_HEIGHT {
+    let confirm_height = inline_confirm_height(density);
+    let panel_area = if area.height >= confirm_height {
         area
     } else {
         let full = frame.area();
-        let y = full.y + full.height.saturating_sub(INLINE_CONFIRM_HEIGHT);
-        Rect::new(full.x, y, full.width, INLINE_CONFIRM_HEIGHT)
+        let y = full.y + full.height.saturating_sub(confirm_height);
+        Rect::new(full.x, y, full.width, confirm_height)
     };
 
     let separator = "─".repeat(panel_area.width.saturating_sub(2) as usize);
+    let truncate_width = match density {
+        ConfirmDensity::Default => 96,
+        ConfirmDensity::Narrow => 68,
+    };
     let mut lines = vec![
         Line::from(vec![
             Span::styled("⏺ ", Style::default().fg(PANEL_ACCENT)),
@@ -48,9 +73,7 @@ pub fn render_inline_confirm(frame: &mut Frame, area: Rect, app: &App) {
             Span::styled("  ⎿  ", Style::default().fg(MUTED)),
             Span::styled("Running...", Style::default().fg(MUTED)),
         ]),
-        Line::from(""),
         Line::from(Span::styled(separator, Style::default().fg(BORDER_MUTED))),
-        Line::from(""),
         Line::from(vec![Span::styled(
             format!(
                 "  {}",
@@ -58,13 +81,12 @@ pub fn render_inline_confirm(frame: &mut Frame, area: Rect, app: &App) {
             ),
             Style::default().fg(LIGHT).add_modifier(Modifier::BOLD),
         )]),
-        Line::from(""),
         Line::from(vec![Span::styled(
             format!(
                 "   {}",
                 truncate_str(
                     &confirmation_primary_value(&confirm.name, &confirm.arguments),
-                    96
+                    truncate_width
                 )
             ),
             Style::default().fg(LIGHT),
@@ -72,14 +94,14 @@ pub fn render_inline_confirm(frame: &mut Frame, area: Rect, app: &App) {
     ];
     if activity.trim() != confirmation_primary_value(&confirm.name, &confirm.arguments).trim() {
         lines.push(Line::from(vec![Span::styled(
-            format!("   {}", truncate_str(&activity, 96)),
+            format!("   {}", truncate_str(&activity, truncate_width)),
             Style::default().fg(MUTED),
         )]));
     }
-    if let Some(risk) = risk_hint {
+    if let Some(risk) = risk {
         lines.push(Line::from(vec![Span::styled(
-            format!("   Risk: {}", risk),
-            Style::default().fg(MUTED),
+            format!("   Safety: {}", risk.label),
+            risk_style(risk.level),
         )]));
     }
     if !preview.trim().is_empty()
@@ -89,30 +111,39 @@ pub fn render_inline_confirm(frame: &mut Frame, area: Rect, app: &App) {
         ))
     {
         lines.push(Line::from(vec![Span::styled(
-            format!("   {}", truncate_str(&preview, 96)),
+            format!("   {}", truncate_str(&preview, truncate_width)),
             Style::default().fg(MUTED),
         )]));
     }
-    lines.push(Line::from(""));
     lines.push(Line::from(vec![Span::styled(
         " This command requires approval",
         Style::default()
             .fg(ERROR_COLOR)
             .add_modifier(Modifier::BOLD),
     )]));
-    lines.push(Line::from(""));
     lines.push(Line::from(vec![Span::styled(
         " Do you want to proceed?",
         Style::default().fg(LIGHT),
     )]));
     lines.extend(option_list_lines(&options, app.confirm_selected));
     lines.push(Line::from(vec![Span::styled(
-        " Esc to cancel · Tab to amend · Ctrl+E to explain",
+        match density {
+            ConfirmDensity::Default => " Esc cancel · Tab amend · Ctrl+E explain",
+            ConfirmDensity::Narrow => " Esc cancel · Tab amend · ^E explain",
+        },
         Style::default().fg(MUTED),
     )]));
 
     frame.render_widget(Paragraph::new(lines), panel_area);
     let _ = preview_empty_state("Confirm");
+}
+
+fn panel_area_width(area: Rect, frame: &Frame) -> u16 {
+    if area.width > 0 {
+        area.width
+    } else {
+        frame.area().width
+    }
 }
 
 fn option_list_lines(options: &[String], selected: usize) -> Vec<Line<'static>> {
@@ -282,22 +313,57 @@ fn tool_display_name(app: &App, tool_name: &str) -> String {
         .join(" ")
 }
 
-fn tool_risk_hint(app: &App, tool_name: &str) -> Option<String> {
+fn inline_confirm_height(density: ConfirmDensity) -> u16 {
+    match density {
+        ConfirmDensity::Default => INLINE_CONFIRM_HEIGHT,
+        ConfirmDensity::Narrow => 12,
+    }
+}
+
+fn confirm_density(width: u16) -> ConfirmDensity {
+    if width < 72 {
+        ConfirmDensity::Narrow
+    } else {
+        ConfirmDensity::Default
+    }
+}
+
+fn risk_style(level: ConfirmRiskLevel) -> Style {
+    match level {
+        ConfirmRiskLevel::Low => Style::default().fg(MUTED),
+        ConfirmRiskLevel::Medium => Style::default().fg(Color::Yellow),
+        ConfirmRiskLevel::High => Style::default().fg(ERROR_COLOR).add_modifier(Modifier::BOLD),
+    }
+}
+
+fn tool_risk_hint(app: &App, tool_name: &str) -> Option<ConfirmRisk> {
     if let Some(tool) = app.tools.get(tool_name) {
         if tool.capabilities().read_only {
-            return Some("read-only".to_string());
+            return Some(ConfirmRisk {
+                level: ConfirmRiskLevel::Low,
+                label: "low · read-only".to_string(),
+            });
         }
     }
 
-    let hint = match tool_name {
-        "edit_file" | "write_file" | "multi_edit" | "notebook_edit" => "changes files",
-        "bash" | "powershell" => "shell access",
-        "web_search" | "web_fetch" | "web_browser" => "network access",
-        "git_commit" => "git write",
-        "agent" | "send_message" | "team_create" => "agent action",
-        _ => "needs approval",
+    let (level, label) = match tool_name {
+        "edit_file" | "write_file" | "multi_edit" | "notebook_edit" => {
+            (ConfirmRiskLevel::High, "high · writes files")
+        }
+        "bash" | "powershell" => (ConfirmRiskLevel::High, "high · shell access"),
+        "git_commit" => (ConfirmRiskLevel::High, "high · git write"),
+        "web_search" | "web_fetch" | "web_browser" => {
+            (ConfirmRiskLevel::Medium, "medium · network access")
+        }
+        "agent" | "send_message" | "team_create" => {
+            (ConfirmRiskLevel::Medium, "medium · agent action")
+        }
+        _ => (ConfirmRiskLevel::Medium, "medium · needs approval"),
     };
-    Some(hint.to_string())
+    Some(ConfirmRisk {
+        level,
+        label: label.to_string(),
+    })
 }
 
 fn tool_preview_line(tool_name: &str, args_json: &str) -> String {
@@ -413,8 +479,9 @@ mod tests {
     use crate::app::App;
 
     use super::{
-        confirmation_primary_value, option_list_lines, tool_activity_summary,
-        tool_allow_option_label, tool_display_name, tool_preview_line, tool_risk_hint,
+        confirmation_primary_value, confirm_density, inline_confirm_height, option_list_lines,
+        tool_activity_summary, tool_allow_option_label, tool_display_name, tool_preview_line,
+        tool_risk_hint, ConfirmDensity, ConfirmRiskLevel,
     };
 
     fn test_app() -> App {
@@ -446,8 +513,9 @@ mod tests {
         let app = test_app();
         assert_eq!(tool_display_name(&app, "web_search"), "Web Search");
         assert_eq!(
-            tool_risk_hint(&app, "edit_file").as_deref(),
-            Some("changes files")
+            tool_risk_hint(&app, "edit_file")
+                .map(|risk| (risk.level, risk.label)),
+            Some((ConfirmRiskLevel::High, "high · writes files".to_string()))
         );
     }
 
@@ -505,6 +573,13 @@ mod tests {
     fn bash_allow_option_uses_command_prefix_pattern() {
         let label = tool_allow_option_label("bash", r#"{"command":"python main.py"}"#, "Bash");
         assert_eq!(label, "Always allow: python *");
+    }
+
+    #[test]
+    fn confirmation_density_switches_on_narrow_widths() {
+        assert_eq!(confirm_density(80), ConfirmDensity::Default);
+        assert_eq!(confirm_density(60), ConfirmDensity::Narrow);
+        assert_eq!(inline_confirm_height(ConfirmDensity::Narrow), 12);
     }
 }
 

@@ -21,7 +21,7 @@
 
 当前进度：
 
-- `45 / 100` 已完成
+- `47 / 100` 已完成
 
 ## 001-010 Markdown Core
 
@@ -96,9 +96,9 @@
 - `[x]` 054 pending confirmation inspector
 - `[x]` 055 confirm preview for LSP path compaction
 - `[x]` 056 confirm preview for URL emphasis
-- `[ ]` 057 confirm risk hierarchy polish
+- `[x]` 057 confirm risk hierarchy polish
 - `[x]` 058 confirm action wording parity
-- `[ ]` 059 confirm panel dense/narrow layout pass
+- `[x]` 059 confirm panel dense/narrow layout pass
 - `[ ]` 060 confirm shell command folding parity
 
 ## 061-070 Inspector Runtime
@@ -166,4 +166,4 @@
   - `775d61e`, `3970110`
 
 - 下一步优先实现：
-  - `059 confirm panel dense/narrow layout pass`
+  - `077 scrollback tool metadata density pass`
