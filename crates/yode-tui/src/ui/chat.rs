@@ -3,6 +3,7 @@ use super::chat_entries::{
     render_grouped_tool_call, render_standalone_result, render_subagent_call, render_system_entry,
     render_tool_call, render_user,
 };
+use super::error_format::parse_error_view;
 use super::chat_layout::{manual_wrap, render_header};
 use super::chat_markdown::render_markdown_impl;
 use super::palette::{
@@ -117,16 +118,23 @@ pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
                 }
             }
             ChatRole::Error => {
+                let view = parse_error_view(&entry.content);
                 lines.push(Line::from(vec![
                     Span::styled(
-                        "  ✕ ",
+                        "  ! ",
                         Style::default().fg(RED).add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(
-                        entry.content.clone(),
+                        view.title,
                         Style::default().fg(RED).add_modifier(Modifier::BOLD),
                     ),
                 ]));
+                for detail in view.detail_lines {
+                    lines.push(Line::from(vec![
+                        Span::styled("    ".to_string(), Style::default().fg(DIM)),
+                        Span::styled(detail, Style::default().fg(YELLOW)),
+                    ]));
+                }
             }
             ChatRole::System => {
                 if let Some(batch) = detect_groupable_system_batch(entries, i) {

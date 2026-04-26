@@ -4,6 +4,7 @@ pub(crate) mod chat_entries;
 mod chat_header;
 pub(crate) mod chat_layout;
 mod chat_markdown;
+pub(crate) mod error_format;
 mod highlighted_code;
 pub mod input;
 pub(crate) mod inspector;

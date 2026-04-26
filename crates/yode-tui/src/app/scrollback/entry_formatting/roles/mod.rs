@@ -8,6 +8,7 @@ use ratatui::style::{Color, Modifier};
 
 use crate::app::{ChatEntry, ChatRole};
 use crate::tool_grouping::{should_hide_tool_from_transcript, SubAgentBatch};
+use crate::ui::error_format::parse_error_view;
 
 use self::style::role_style_palette;
 use self::subagents::{render_grouped_subagent_batch, render_subagent_call};
@@ -63,12 +64,17 @@ pub(crate) fn format_entry_as_strings(
             }
         }
         ChatRole::Error => {
+            let view = parse_error_view(&entry.content);
             let err_style = ratatui::style::Style::default()
                 .fg(Color::LightRed)
                 .add_modifier(Modifier::BOLD);
             result.push(("╭─ Error ──────────────────────────".to_string(), err_style));
-            for line in entry.content.lines() {
-                result.push((format!("│ {}", line), palette.red));
+            result.push((format!("│ {}", view.title), palette.red));
+            for line in view.detail_lines {
+                result.push((
+                    format!("│ {}", line),
+                    ratatui::style::Style::default().fg(Color::Yellow),
+                ));
             }
             result.push(("╰──────────────────────────────────".to_string(), err_style));
         }
