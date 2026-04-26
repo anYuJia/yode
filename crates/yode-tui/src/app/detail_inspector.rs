@@ -118,6 +118,15 @@ fn build_latest_tool_document(app: &App) -> Option<InspectorDocument> {
         }
 
         match &entries[index].role {
+            ChatRole::Assistant => {
+                if entries[index]
+                    .reasoning
+                    .as_deref()
+                    .is_some_and(|reasoning| !reasoning.trim().is_empty())
+                {
+                    return Some(build_assistant_entry_document(&entries[index]));
+                }
+            }
             ChatRole::ToolCall { id, name } => {
                 let result = entries[index + 1..]
                     .iter()
@@ -143,6 +152,70 @@ fn build_latest_tool_document(app: &App) -> Option<InspectorDocument> {
         }
     }
     None
+}
+
+fn build_assistant_entry_document(entry: &ChatEntry) -> InspectorDocument {
+    let mut panels = vec![PanelSpec {
+        label: "Summary".to_string(),
+        lines: vec![
+            "Role: Assistant".to_string(),
+            format!("Content lines: {}", entry.content.lines().count()),
+            format!(
+                "Reasoning: {}",
+                entry.reasoning
+                    .as_deref()
+                    .map(|reasoning| {
+                        if reasoning.trim().is_empty() {
+                            "none".to_string()
+                        } else {
+                            format!("{} lines", reasoning.lines().count())
+                        }
+                    })
+                    .unwrap_or_else(|| "none".to_string())
+            ),
+        ],
+        actions: vec![InspectorAction {
+            label: "status".to_string(),
+            command: "/status".to_string(),
+        }],
+    }];
+
+    let content_lines = entry
+        .content
+        .lines()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>();
+    if !content_lines.is_empty() {
+        panels.push(PanelSpec {
+            label: "Content".to_string(),
+            lines: content_lines,
+            actions: vec![InspectorAction {
+                label: "follow-up".to_string(),
+                command:
+                    "Summarize the latest assistant response and suggest the next best action."
+                        .to_string(),
+            }],
+        });
+    }
+
+    if let Some(reasoning) = entry.reasoning.as_deref().filter(|value| !value.trim().is_empty()) {
+        panels.push(PanelSpec {
+            label: "Reasoning".to_string(),
+            lines: reasoning.lines().map(|line| line.to_string()).collect(),
+            actions: vec![InspectorAction {
+                label: "distill".to_string(),
+                command:
+                    "Distill the latest assistant reasoning into the key decisions and next step."
+                        .to_string(),
+            }],
+        });
+    }
+
+    build_document(
+        "Assistant details".to_string(),
+        panels,
+        Some("Esc close inspector".to_string()),
+    )
 }
 
 fn build_tool_batch_document(
@@ -691,5 +764,23 @@ mod tests {
             .actions
             .iter()
             .any(|action| action.label == "follow-up"));
+    }
+
+    #[test]
+    fn latest_tool_document_prefers_recent_assistant_reasoning_when_present() {
+        let mut app = test_app();
+        app.chat_entries = vec![ChatEntry::new_with_reasoning(
+            ChatRole::Assistant,
+            "Final answer".to_string(),
+            Some("## Plan\n- inspect\n- patch".to_string()),
+        )];
+
+        let doc = build_latest_tool_document(&app).unwrap();
+        assert_eq!(doc.state.title, "Assistant details");
+        assert!(doc.panels.iter().any(|panel| panel.tab.label == "Reasoning"));
+        assert!(doc
+            .panels
+            .iter()
+            .any(|panel| panel.lines.iter().any(|line| line.contains("## Plan"))));
     }
 }
