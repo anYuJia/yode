@@ -184,6 +184,22 @@ pub(crate) fn tool_batch_hint_text(entries: &[ChatEntry], batch: &ToolBatch) -> 
     describe_tool_call(name, &args, batch.is_active)
 }
 
+pub(crate) fn tool_batch_progress_text(entries: &[ChatEntry], batch: &ToolBatch) -> Option<String> {
+    batch
+        .items
+        .iter()
+        .rev()
+        .filter_map(|item| entries.get(item.call_index))
+        .find_map(|entry| {
+            let progress = entry.progress.as_ref()?;
+            let mut text = progress.message.clone();
+            if let Some(percent) = progress.percent {
+                text.push_str(&format!(" {}%", percent));
+            }
+            Some(text)
+        })
+}
+
 pub(crate) fn summarize_batch_invocations(
     args: &Value,
     is_active: bool,
@@ -808,7 +824,8 @@ mod tests {
     use super::{
         describe_groupable_tool_call, describe_tool_call, detect_groupable_subagent_batch,
         detect_groupable_system_batch, detect_groupable_tool_batch, summarize_batch_invocations,
-        tool_batch_hint_text, tool_batch_summary_text, ToolBatchItemKind, ToolBatchKind,
+        tool_batch_hint_text, tool_batch_progress_text, tool_batch_summary_text,
+        ToolBatchItemKind, ToolBatchKind,
     };
 
     #[test]
@@ -1083,6 +1100,43 @@ mod tests {
         assert_eq!(
             tool_batch_hint_text(&entries, &batch).as_deref(),
             Some("Reading .../src/main.rs")
+        );
+    }
+
+    #[test]
+    fn tool_batch_progress_uses_latest_progress_update() {
+        let mut entries = vec![
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "a".to_string(),
+                    name: "grep".to_string(),
+                },
+                "{\"pattern\":\"retry\"}".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolResult {
+                    id: "a".to_string(),
+                    name: "grep".to_string(),
+                    is_error: false,
+                },
+                "ok".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "b".to_string(),
+                    name: "read_file".to_string(),
+                },
+                "{\"file_path\":\"/tmp/src/main.rs\"}".to_string(),
+            ),
+        ];
+        entries[2].progress = Some(yode_tools::tool::ToolProgress {
+            message: "chunk 2/4".to_string(),
+            percent: Some(50),
+        });
+        let batch = detect_groupable_tool_batch(&entries, 0).unwrap();
+        assert_eq!(
+            tool_batch_progress_text(&entries, &batch).as_deref(),
+            Some("chunk 2/4 50%")
         );
     }
 }

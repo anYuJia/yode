@@ -5,7 +5,8 @@ use ratatui::style::Color;
 use crate::app::rendering::truncate_line;
 use crate::app::{ChatEntry, ChatRole};
 use crate::tool_grouping::{
-    describe_tool_call, tool_batch_hint_text, tool_batch_summary_text, ToolBatch,
+    describe_tool_call, tool_batch_hint_text, tool_batch_progress_text, tool_batch_summary_text,
+    ToolBatch,
 };
 use crate::tool_output_summary::{
     parse_shell_output_sections, summarize_tool_result, ToolSummaryTone,
@@ -175,7 +176,9 @@ pub(super) fn render_grouped_tool_call(
         format!("⏺ {} (ctrl+o to expand)", tool_batch_summary_text(batch)),
         if batch.is_active { dim } else { accent },
     ));
-    if let Some(hint) = tool_batch_hint_text(all_entries, batch) {
+    if let Some(progress) = tool_batch_progress_text(all_entries, batch) {
+        result.push((format!("  ⎿  {}", progress), dim));
+    } else if let Some(hint) = tool_batch_hint_text(all_entries, batch) {
         result.push((format!("  ⎿  {}", hint), dim));
     }
 }
@@ -613,6 +616,41 @@ mod tests {
             .contains("Searched the web for 1 query, inspected 1 symbol"));
         assert!(result[0].0.contains("ctrl+o to expand"));
         assert!(result[1].0.contains("Inspected"));
+    }
+
+    #[test]
+    fn scrollback_grouped_tool_call_prefers_progress_message() {
+        let mut entries = vec![
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "a".to_string(),
+                    name: "read_file".to_string(),
+                },
+                "{\"file_path\":\"/tmp/src/main.rs\"}".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "b".to_string(),
+                    name: "grep".to_string(),
+                },
+                "{\"pattern\":\"retry\"}".to_string(),
+            ),
+        ];
+        entries[1].progress = Some(yode_tools::tool::ToolProgress {
+            message: "chunk 2/4".to_string(),
+            percent: Some(50),
+        });
+
+        let batch = detect_groupable_tool_batch(&entries, 0).unwrap();
+        let mut result = Vec::new();
+        render_grouped_tool_call(
+            &entries,
+            &batch,
+            &mut result,
+            Style::default(),
+            Style::default(),
+        );
+        assert!(result[1].0.contains("chunk 2/4 50%"));
     }
 
     #[test]

@@ -9,7 +9,8 @@ use super::metadata::render_metadata_lines;
 use super::tool_helpers::{tool_summary_value, truncate_ellipsis};
 use crate::app::{ChatEntry, ChatRole};
 use crate::tool_grouping::{
-    describe_tool_call, tool_batch_hint_text, tool_batch_summary_text, ToolBatch,
+    describe_tool_call, tool_batch_hint_text, tool_batch_progress_text, tool_batch_summary_text,
+    ToolBatch,
 };
 use crate::tool_output_summary::{summarize_tool_result, ToolSummaryLine, ToolSummaryTone};
 use crate::ui::chat::{ACCENT, DIM, GREEN, RED, WHITE};
@@ -180,7 +181,15 @@ pub(crate) fn render_grouped_tool_call(
             Style::default().fg(DIM).add_modifier(Modifier::ITALIC),
         ),
     ]));
-    if let Some(hint) = tool_batch_hint_text(all_entries, batch) {
+    if let Some(progress) = tool_batch_progress_text(all_entries, batch) {
+        lines.push(Line::from(vec![
+            Span::styled("  ⎿ ", Style::default().fg(INFO_COLOR)),
+            Span::styled(
+                truncate_ellipsis(&progress, 84),
+                Style::default().fg(INFO_COLOR).add_modifier(Modifier::ITALIC),
+            ),
+        ]));
+    } else if let Some(hint) = tool_batch_hint_text(all_entries, batch) {
         lines.push(Line::from(vec![
             Span::styled("  ⎿ ", Style::default().fg(INFO_COLOR)),
             Span::styled(
@@ -445,6 +454,36 @@ mod tests {
             .contains("Searched the web for 1 query, inspected 1 symbol"));
         assert!(lines[0].to_string().contains("ctrl+o to expand"));
         assert!(lines[1].to_string().contains("Inspected"));
+    }
+
+    #[test]
+    fn grouped_tool_call_prefers_progress_message_over_hint() {
+        let mut entries = vec![
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "a".to_string(),
+                    name: "read_file".to_string(),
+                },
+                "{\"file_path\":\"/tmp/src/main.rs\"}".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "b".to_string(),
+                    name: "grep".to_string(),
+                },
+                "{\"pattern\":\"retry\"}".to_string(),
+            ),
+        ];
+        entries[1].progress = Some(yode_tools::tool::ToolProgress {
+            message: "chunk 2/4".to_string(),
+            percent: Some(50),
+        });
+
+        let batch = detect_groupable_tool_batch(&entries, 0).unwrap();
+        let mut lines = Vec::new();
+        render_grouped_tool_call(&mut lines, &entries, &batch);
+
+        assert!(lines[1].to_string().contains("chunk 2/4 50%"));
     }
 
     #[test]
