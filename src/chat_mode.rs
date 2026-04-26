@@ -34,7 +34,7 @@ pub(crate) async fn run_noninteractive_chat(
     }
 
     if !config.hooks.hooks.is_empty() {
-        let mut hook_manager = HookManager::new(std::env::current_dir().unwrap_or_default());
+        let mut hook_manager = HookManager::new(engine.context().working_dir_compat());
         for hook in &config.hooks.hooks {
             hook_manager.register(HookDefinition {
                 command: hook.command.clone(),

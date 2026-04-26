@@ -186,9 +186,7 @@ fn attach_hook_manager(engine: &mut AgentEngine) {
         if !config.hooks.hooks.is_empty() {
             use yode_core::hooks::{HookDefinition, HookManager};
 
-            let mut hook_manager = HookManager::new(
-                std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
-            );
+            let mut hook_manager = HookManager::new(engine.context().working_dir_compat());
             for hook in &config.hooks.hooks {
                 hook_manager.register(HookDefinition {
                     command: hook.command.clone(),
