@@ -563,17 +563,17 @@ pub(crate) fn record_remote_transport_event(
 
 pub(crate) fn render_remote_task_inventory(tasks: &[RuntimeTask]) -> String {
     if tasks.is_empty() {
-        return "Remote task continuation inventory\n  Tasks: none".to_string();
+        return "Remote task continuation inventory\n  tasks=none".to_string();
     }
     let mut tasks = tasks.to_vec();
     tasks.sort_by(|a, b| b.last_progress_at.cmp(&a.last_progress_at));
     let mut lines = vec![
         "Remote task continuation inventory".to_string(),
-        format!("  Tasks: {}", tasks.len()),
+        format!("  tasks={}", tasks.len()),
     ];
     for task in tasks.iter().take(12) {
         lines.push(format!(
-            "  - {} [{}:{}] {} / transcript={} / output={}",
+            "  - {} [{}:{}] {} · tx={} · out={}",
             task.id,
             task.kind,
             task_status_label(&task.status),
@@ -582,10 +582,7 @@ pub(crate) fn render_remote_task_inventory(tasks: &[RuntimeTask]) -> String {
             task.output_path
         ));
     }
-    lines.push(
-        "  Follow: /remote-control follow latest | /tasks monitor | /tasks follow latest"
-            .to_string(),
-    );
+    lines.push("  next: /remote-control follow latest | /tasks monitor | /tasks follow latest".to_string());
     lines.join("\n")
 }
 
@@ -601,26 +598,26 @@ pub(crate) fn render_remote_retry_summary(tasks: &[RuntimeTask]) -> String {
         .collect::<Vec<_>>();
     failed.sort_by(|a, b| b.completed_at.cmp(&a.completed_at));
     if failed.is_empty() {
-        return "Remote task retry summary\n  Failed tasks: none".to_string();
+        return "Remote task retry summary\n  failed=none".to_string();
     }
     let mut lines = vec![
         "Remote task retry summary".to_string(),
-        format!("  Failed tasks: {}", failed.len()),
+        format!("  failed={}", failed.len()),
     ];
     for task in failed.iter().take(8) {
         lines.push(format!(
-            "  - {} [{}] attempt {}{} / {}",
+            "  - {} [{}] try {}{} · {}",
             task.id,
             task_status_label(&task.status),
             task.attempt,
             task.retry_of
                 .as_ref()
-                .map(|retry_of| format!(" (retry of {})", retry_of))
+                .map(|retry_of| format!(" ← {}", retry_of))
                 .unwrap_or_default(),
             task.error.as_deref().unwrap_or("no error detail")
         ));
     }
-    lines.push("  Next: /remote-control retry latest | /remote-control follow latest | /remote-control doctor".to_string());
+    lines.push("  next: /remote-control retry latest | /remote-control follow latest | /remote-control doctor".to_string());
     lines.join("\n")
 }
 
@@ -1289,12 +1286,11 @@ fn remote_transport_handshake_summary(
     payload: &RemoteTransportPayload,
 ) -> String {
     if !remote_dir_ready {
-        return "remote artifact directory missing; run remote-control plan or doctor remote"
-            .to_string();
+        return "dir missing; run /remote-control plan or /doctor remote".to_string();
     }
     match payload.connection_status.as_str() {
         "connected" => format!(
-            "transport connected{}; queue gate={}",
+            "connected{} · gate={}",
             payload
                 .connection_id
                 .as_ref()
@@ -1303,7 +1299,7 @@ fn remote_transport_handshake_summary(
             payload.queue_gate.as_deref().unwrap_or("ready"),
         ),
         "reconnecting" => format!(
-            "transport reconnecting; attempts={} / task={}",
+            "reconnecting · a{} · task={}",
             payload.reconnect_attempts.saturating_add(1),
             payload
                 .latest_transport_task_id
@@ -1311,15 +1307,15 @@ fn remote_transport_handshake_summary(
                 .unwrap_or("none"),
         ),
         "error" => format!(
-            "transport error: {}",
+            "error · {}",
             payload.last_error.as_deref().unwrap_or("unknown failure")
         ),
         _ => format!(
-            "remote artifact directory available; transport ready but disconnected{}",
+            "ready · disconnected{}",
             payload
                 .queue_gate
                 .as_ref()
-                .map(|gate| format!(" / {}", gate))
+                .map(|gate| format!(" · {}", gate))
                 .unwrap_or_default(),
         ),
     }
@@ -1798,8 +1794,9 @@ mod tests {
         load_remote_transport_payload, mark_remote_queue_item, mark_remote_transport_connected,
         mark_remote_transport_disconnected, mark_remote_transport_failed,
         mark_remote_transport_reconnecting, note_remote_transport_dispatch, queue_item_target,
-        record_remote_transport_event, remote_queue_status_label, render_remote_control_doctor,
-        render_remote_retry_summary, render_remote_task_inventory,
+        record_remote_transport_event, remote_queue_status_label, remote_transport_handshake_summary,
+        render_remote_control_doctor, render_remote_retry_summary, render_remote_task_inventory,
+        RemoteTransportPayload,
         sync_remote_live_session_transport, write_remote_control_artifacts,
         write_remote_live_session_artifacts, write_remote_task_handoff_artifact,
         write_remote_transport_artifacts,
@@ -1848,7 +1845,7 @@ mod tests {
             error: Some("boom".to_string()),
         };
         assert!(render_remote_task_inventory(std::slice::from_ref(&task)).contains("task-1"));
-        assert!(render_remote_retry_summary(std::slice::from_ref(&task)).contains("Failed tasks"));
+        assert!(render_remote_retry_summary(std::slice::from_ref(&task)).contains("failed=1"));
         let handoff = write_remote_task_handoff_artifact(&dir, "session-1234", &task).unwrap();
         assert!(latest_remote_task_handoff_artifact(&dir).is_some());
         assert!(handoff.exists());
@@ -2083,5 +2080,82 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn remote_inventory_and_retry_summaries_are_compact() {
+        let task = yode_tools::RuntimeTask {
+            id: "task-1".to_string(),
+            kind: "agent".to_string(),
+            source_tool: "agent".to_string(),
+            description: "continue remote review".to_string(),
+            status: yode_tools::RuntimeTaskStatus::Failed,
+            attempt: 2,
+            retry_of: Some("task-0".to_string()),
+            output_path: "/tmp/task.log".to_string(),
+            transcript_path: Some("/tmp/task.md".to_string()),
+            created_at: "2026-01-01 00:00:00".to_string(),
+            started_at: None,
+            completed_at: Some("2026-01-01 00:00:02".to_string()),
+            last_progress: None,
+            last_progress_at: None,
+            progress_history: Vec::new(),
+            error: Some("boom".to_string()),
+        };
+        let inventory = render_remote_task_inventory(std::slice::from_ref(&task));
+        assert!(inventory.contains("tasks=1"));
+        assert!(inventory.contains("tx=/tmp/task.md"));
+        assert!(inventory.contains("out=/tmp/task.log"));
+
+        let retry = render_remote_retry_summary(std::slice::from_ref(&task));
+        assert!(retry.contains("failed=1"));
+        assert!(retry.contains("try 2 ← task-0"));
+    }
+
+    #[test]
+    fn remote_transport_handshake_summary_is_compact() {
+        let mut payload = sample_transport_payload();
+        assert_eq!(
+            remote_transport_handshake_summary(false, &payload),
+            "dir missing; run /remote-control plan or /doctor remote"
+        );
+        payload.connection_status = "connected".to_string();
+        payload.connection_id = Some("conn-1".to_string());
+        payload.queue_gate = Some("ready".to_string());
+        assert!(remote_transport_handshake_summary(true, &payload).contains("connected (conn-1)"));
+        payload.connection_status = "reconnecting".to_string();
+        payload.reconnect_attempts = 2;
+        assert!(remote_transport_handshake_summary(true, &payload).contains("reconnecting · a3"));
+    }
+
+    fn sample_transport_payload() -> RemoteTransportPayload {
+        RemoteTransportPayload {
+            kind: "remote_transport".to_string(),
+            session_id: "session-1234".to_string(),
+            remote_dir: "/tmp/remote".to_string(),
+            created_at: "2026-01-01 00:00:00".to_string(),
+            handshake_status: "missing".to_string(),
+            handshake_summary: String::new(),
+            retry_backoff_secs: vec![1, 2, 5],
+            connection_status: "idle".to_string(),
+            connection_id: None,
+            connected_at: None,
+            disconnected_at: None,
+            reconnect_attempts: 0,
+            last_error: Some("boom".to_string()),
+            last_command: None,
+            queue_gate: None,
+            last_transition_at: None,
+            latest_transport_task_id: Some("task-1".to_string()),
+            latest_event: None,
+            latest_event_at: None,
+            latest_event_artifact: None,
+            live_session_status: None,
+            continuity_id: None,
+            active_endpoint_id: None,
+            resume_cursor: None,
+            latest_remote_control: None,
+            latest_remote_execution: None,
+        }
     }
 }
