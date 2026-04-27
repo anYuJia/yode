@@ -17,7 +17,7 @@
 
 当前进度：
 
-- `28 / 100` 已完成
+- `29 / 100` 已完成
 
 ## 001-010 Transcript Deepening
 
@@ -134,7 +134,7 @@
 - `[x]` 087 regression test for doctor handoff density
 - `[x]` 088 regression test for export role headings
 - `[x]` 089 regression test for artifact hyperlink inspector lines
-- `[ ]` 090 regression test for token wording consistency
+- `[x]` 090 regression test for token wording consistency
 
 ## 091-100 Closeout
 

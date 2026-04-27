@@ -63,7 +63,7 @@ pub fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &
                 ),
                 Span::styled(working_label, Style::default().fg(Color::LightMagenta)),
                 Span::styled(
-                    format!(" ({} · ↓{} tok)", elapsed, format_tok(output_tok)),
+                    format!(" ({} · {})", elapsed, compact_output_token_phrase(output_tok)),
                     Style::default().fg(Color::DarkGray),
                 ),
             ];
@@ -78,9 +78,9 @@ pub fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &
             let turn_out = app.session.turn_output_tokens;
             let mut spans = vec![Span::styled(
                 format!(
-                    "  ⚡ Completed · {} (↓{} tok)",
+                    "  ⚡ Completed · {} ({})",
                     elapsed_str,
-                    format_tok(turn_out)
+                    compact_output_token_phrase(turn_out)
                 ),
                 Style::default().fg(Color::DarkGray),
             )];
@@ -254,6 +254,10 @@ fn format_tok(n: u32) -> String {
     }
 }
 
+fn compact_output_token_phrase(n: u32) -> String {
+    format!("↓{} tok", format_tok(n))
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -265,7 +269,7 @@ mod tests {
 
     use crate::app::{App, ChatEntry, ChatRole};
 
-    use super::{active_working_hint, active_working_label, format_tok};
+    use super::{active_working_hint, active_working_label, compact_output_token_phrase, format_tok};
 
     fn test_app() -> App {
         App::new(
@@ -315,6 +319,7 @@ mod tests {
     #[test]
     fn working_and_done_status_use_compact_tok_suffix() {
         assert_eq!(format_tok(1200), "1.2k");
+        assert_eq!(compact_output_token_phrase(1200), "↓1.2k tok");
     }
 
     #[test]
