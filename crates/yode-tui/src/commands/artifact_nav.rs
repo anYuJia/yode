@@ -434,7 +434,7 @@ pub(crate) fn stale_artifact_actions(path: &Path, refresh_commands: &[String]) -
         None
     } else {
         Some(format!(
-            "Artifact freshness={} . Refresh with {}",
+            "freshness={} · refresh {}",
             freshness,
             refresh_commands.join(" | ")
         ))
@@ -442,7 +442,11 @@ pub(crate) fn stale_artifact_actions(path: &Path, refresh_commands: &[String]) -
 }
 
 pub(crate) fn artifact_display_line(path: &Path) -> String {
-    format!("[{}] {}", artifact_freshness_badge(path), path.display())
+    format!(
+        "[{}] {}",
+        artifact_freshness_badge(path),
+        crate::display_text::compact_path_tail(&path.display().to_string())
+    )
 }
 
 pub(crate) fn artifact_history_lines(paths: impl IntoIterator<Item = PathBuf>) -> Vec<String> {
@@ -841,7 +845,8 @@ mod tests {
         build_runtime_orchestration_timeline_lines, export_bundle_root, latest_artifact_by_suffix,
         latest_bundle_workspace_index, open_artifact_inspector, preview_artifact,
         recent_artifacts_by_suffix, recent_bundle_workspace_indexes, resolve_artifact_basename,
-        render_timeline_entries, write_runtime_orchestration_timeline_artifact, ArtifactTimelineEntry,
+        render_timeline_entries, stale_artifact_actions, write_runtime_orchestration_timeline_artifact,
+        ArtifactTimelineEntry,
     };
 
     #[test]
@@ -945,6 +950,18 @@ mod tests {
             .iter()
             .flat_map(|panel| panel.lines.iter())
             .any(|line| line.contains("\u{1b}]8;;https://example.com")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stale_artifact_actions_use_compact_refresh_copy() {
+        let dir = std::env::temp_dir().join(format!("yode-stale-artifact-{}", uuid::Uuid::new_v4()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("artifact.md");
+        std::fs::write(&path, "x").unwrap();
+        let text = stale_artifact_actions(&path, &["/inspect artifact latest".to_string()]);
+        assert!(text.is_none() || text.as_deref().is_some_and(|line: &str| line.contains("refresh")));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

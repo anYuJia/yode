@@ -17,7 +17,7 @@
 
 当前进度：
 
-- `40 / 100` 已完成
+- `42 / 100` 已完成
 
 ## 001-010 Transcript Deepening
 
@@ -78,9 +78,9 @@
 - `[ ]` 043 conversation export error block framing polish
 - `[ ]` 044 workspace index inspect grouping second pass
 - `[ ]` 045 doctor bundle navigation wording audit
-- `[ ]` 046 artifact history refresh hint density pass
+- `[x]` 046 artifact history refresh hint density pass
 - `[ ]` 047 artifact summary alias ordering audit
-- `[ ]` 048 artifact inspector freshness copy polish
+- `[x]` 048 artifact inspector freshness copy polish
 - `[x]` 049 export failure message compactness pass
 - `[x]` 050 bundle path breadcrumb density pass
 
