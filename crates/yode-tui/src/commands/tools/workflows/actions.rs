@@ -43,14 +43,14 @@ pub(super) fn execute_workflows_command(
         attach_inspector_actions(
             &mut doc,
             vec![
-                ("history".to_string(), "/workflows history".to_string()),
+                ("open history".to_string(), "/workflows history".to_string()),
                 (
-                    "preview".to_string(),
+                    "preview workflow".to_string(),
                     "/workflows preview latest".to_string(),
                 ),
-                ("rerun".to_string(), "/workflows run latest".to_string()),
+                ("run workflow".to_string(), "/workflows run latest".to_string()),
                 (
-                    "rerun-write".to_string(),
+                    "run with writes".to_string(),
                     "/workflows run-write latest".to_string(),
                 ),
             ],
@@ -62,7 +62,7 @@ pub(super) fn execute_workflows_command(
             write_runtime_orchestration_timeline_artifact(&project_root, &ctx.session.session_id)
                 .ok_or_else(|| "Failed to write runtime orchestration timeline.".to_string())?;
         let doc = open_artifact_inspector(
-            "Runtime orchestration timeline",
+            "Orchestration timeline",
             std::path::Path::new(&path),
             Some("/inspect artifact latest-orchestration | /inspect workflows latest".to_string()),
             vec![("kind".into(), "orchestration".into())],
@@ -73,10 +73,10 @@ pub(super) fn execute_workflows_command(
             &mut doc,
             vec![
                 (
-                    "workflow".to_string(),
+                    "open workflow".to_string(),
                     "/inspect workflows latest".to_string(),
                 ),
-                ("coordinate".to_string(), "/coordinate latest".to_string()),
+                ("open coordinator".to_string(), "/coordinate latest".to_string()),
             ],
         );
         return Ok(CommandOutput::OpenInspector(doc));
