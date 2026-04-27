@@ -70,7 +70,7 @@ pub(super) fn render_grouped_system_entries(
     }
     if batch.items.len() > max_items {
         result.push((
-            format!("     … +{} earlier updates", batch.items.len() - max_items),
+            format!("     … +{} earlier events", batch.items.len() - max_items),
             Style::default().fg(Color::Gray),
         ));
     }
@@ -138,6 +138,27 @@ fn system_styles(kind: SystemMessageKind) -> (&'static str, Style, Style) {
 }
 
 fn grouped_batch_title(all_entries: &[ChatEntry], batch: &SystemBatch) -> &'static str {
+    if batch.items.iter().all(|item| {
+        all_entries
+            .get(item.entry_index)
+            .is_some_and(|entry| entry.content.to_ascii_lowercase().contains("remote"))
+    }) {
+        return "Remote updates";
+    }
+    if batch.items.iter().all(|item| {
+        all_entries
+            .get(item.entry_index)
+            .is_some_and(|entry| entry.content.to_ascii_lowercase().contains("review"))
+    }) {
+        return "Review artifacts";
+    }
+    if batch.items.iter().all(|item| {
+        all_entries
+            .get(item.entry_index)
+            .is_some_and(|entry| entry.content.to_ascii_lowercase().contains("workflow"))
+    }) {
+        return "Workflow artifacts";
+    }
     if batch
         .items
         .iter()
@@ -190,7 +211,7 @@ mod tests {
         let entries = vec![
             ChatEntry::new(
                 ChatRole::System,
-                "Context compressed · auto · -4 msgs".to_string(),
+                "Context compacted · auto · -4 msgs".to_string(),
             ),
             ChatEntry::new(
                 ChatRole::System,
@@ -214,7 +235,7 @@ mod tests {
         let lines = render_grouped_system_entries(&entries, &batch);
         assert!(lines[0].0.contains("Status updates(2)"));
         assert!(lines[0].0.contains("ctrl+o to inspect"));
-        assert!(lines[1].0.contains("Context compressed"));
+        assert!(lines[1].0.contains("Context compacted"));
     }
 
     #[test]
@@ -270,7 +291,7 @@ mod tests {
     fn scrollback_grouped_system_entries_prefer_latest_items_when_trimming() {
         let entries = vec![
             ChatEntry::new(ChatRole::System, "Session resumed.".to_string()),
-            ChatEntry::new(ChatRole::System, "Context compressed · auto · -4 msgs".to_string()),
+            ChatEntry::new(ChatRole::System, "Context compacted · auto · -4 msgs".to_string()),
             ChatEntry::new(ChatRole::System, "Session memory updated · summary · /tmp/live.md".to_string()),
             ChatEntry::new(ChatRole::System, "Diagnostics bundle exported to: /tmp/bundle".to_string()),
         ];
@@ -298,7 +319,7 @@ mod tests {
         };
         let lines = render_grouped_system_entries(&entries, &batch);
         let rendered = lines.iter().map(|(line, _)| line.clone()).collect::<Vec<_>>();
-        assert!(rendered.iter().any(|line| line.contains("Context compressed")));
+        assert!(rendered.iter().any(|line| line.contains("Context compacted")));
         assert!(rendered
             .iter()
             .any(|line| line.contains("Session memory updated")));
@@ -310,7 +331,37 @@ mod tests {
             .all(|line| !line.contains("Session resumed.")));
         assert!(rendered
             .iter()
-            .any(|line| line.contains("+1 earlier updates")));
+            .any(|line| line.contains("+1 earlier events")));
+    }
+
+    #[test]
+    fn scrollback_grouped_system_entries_name_remote_review_and_workflow_batches() {
+        for (needle, expected) in [
+            ("Remote live session ready", "Remote updates"),
+            ("Review artifact exported", "Review artifacts"),
+            ("Workflow execution artifact", "Workflow artifacts"),
+        ] {
+            let entries = vec![
+                ChatEntry::new(ChatRole::System, needle.to_string()),
+                ChatEntry::new(ChatRole::System, format!("{} again", needle)),
+            ];
+            let batch = SystemBatch {
+                start_index: 0,
+                next_index: 2,
+                items: vec![
+                    SystemBatchItem {
+                        entry_index: 0,
+                        kind: crate::system_message::SystemMessageKind::Generic,
+                    },
+                    SystemBatchItem {
+                        entry_index: 1,
+                        kind: crate::system_message::SystemMessageKind::Generic,
+                    },
+                ],
+            };
+            let lines = render_grouped_system_entries(&entries, &batch);
+            assert!(lines[0].0.contains(expected));
+        }
     }
 
     #[test]

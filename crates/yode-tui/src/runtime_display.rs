@@ -19,7 +19,7 @@ pub(crate) fn format_context_compressed_message(
     session_memory_path: Option<&str>,
     transcript_path: Option<&str>,
 ) -> String {
-    let mut parts = vec!["Context compressed".to_string(), mode.to_string()];
+    let mut parts = vec!["Context compacted".to_string(), mode.to_string()];
     if removed > 0 {
         parts.push(format!("-{} msgs", removed));
     }
@@ -366,7 +366,7 @@ mod tests {
                 Some("/tmp/memory.md"),
                 Some("/tmp/transcript.md"),
             ),
-            "Context compressed · auto · -4 msgs · 2 tool results truncated\nsummary · trimmed older turns\nmemory · .../tmp/memory.md\ntranscript · .../tmp/transcript.md"
+            "Context compacted · auto · -4 msgs · 2 tool results truncated\nsummary · trimmed older turns\nmemory · .../tmp/memory.md\ntranscript · .../tmp/transcript.md"
         );
     }
 

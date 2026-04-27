@@ -53,7 +53,7 @@ pub(crate) fn render_grouped_subagent_batch(
         Span::styled("⏺ ", Style::default().fg(ACCENT)),
         Span::styled(
             format!(
-                "{} {} finished (ctrl+o to expand)",
+                "{} {} done (ctrl+o to expand)",
                 batch.items.len(),
                 grouped_subagent_title(batch)
             ),
@@ -204,7 +204,7 @@ mod tests {
         };
         let mut lines = Vec::new();
         render_grouped_subagent_batch(&mut lines, &entries, &batch);
-        assert!(lines[0].to_string().contains("2 Explore agents finished"));
+        assert!(lines[0].to_string().contains("2 Explore agents done"));
         assert!(lines[1].to_string().contains("0 tool uses"));
     }
 }

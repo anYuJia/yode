@@ -74,7 +74,7 @@ pub(super) fn render_grouped_subagent_batch(
     let noun = grouped_subagent_title(batch);
     result.push((
         format!(
-            "⏺ {} {} finished (ctrl+o to expand)",
+            "⏺ {} {} done (ctrl+o to expand)",
             batch.items.len(),
             noun
         ),
@@ -246,7 +246,7 @@ mod tests {
             Style::default(),
             Style::default(),
         );
-        assert!(rendered[0].0.contains("2 Explore agents finished"));
+        assert!(rendered[0].0.contains("2 Explore agents done"));
         assert!(rendered[1].0.contains("0 tool uses"));
     }
 }

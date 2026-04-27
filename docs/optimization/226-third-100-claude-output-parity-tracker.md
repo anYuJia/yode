@@ -17,20 +17,20 @@
 
 当前进度：
 
-- `69 / 100` 已完成
+- `79 / 100` 已完成
 
 ## 001-010 Transcript Deepening
 
-- `[ ]` 001 transcript latest-focus parity for mixed tool/system/error runs
-- `[ ]` 002 transcript collapse parity for remote runtime notifications
-- `[ ]` 003 transcript collapse parity for review artifacts
-- `[ ]` 004 transcript detail affordance parity for workflow artifacts
-- `[ ]` 005 transcript side-note spacing parity
-- `[ ]` 006 transcript continuation indent audit
-- `[ ]` 007 transcript subagent title density pass
-- `[ ]` 008 transcript ask-user framing polish
-- `[ ]` 009 transcript progress-line wording pass
-- `[ ]` 010 transcript compact-boundary phrasing pass
+- `[x]` 001 transcript latest-focus parity for mixed tool/system/error runs
+- `[x]` 002 transcript collapse parity for remote runtime notifications
+- `[x]` 003 transcript collapse parity for review artifacts
+- `[x]` 004 transcript detail affordance parity for workflow artifacts
+- `[x]` 005 transcript side-note spacing parity
+- `[x]` 006 transcript continuation indent audit
+- `[x]` 007 transcript subagent title density pass
+- `[x]` 008 transcript ask-user framing polish
+- `[x]` 009 transcript progress-line wording pass
+- `[x]` 010 transcript compact-boundary phrasing pass
 
 ## 011-020 Markdown Typography
 

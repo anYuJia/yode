@@ -964,7 +964,7 @@ mod tests {
         let entries = vec![
             ChatEntry::new(
                 ChatRole::System,
-                "Context compressed · auto · -4 msgs".to_string(),
+                "Context compacted · auto · -4 msgs".to_string(),
             ),
             ChatEntry::new(
                 ChatRole::System,

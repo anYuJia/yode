@@ -121,11 +121,11 @@ mod tests {
         let mut app = test_app();
         append_grouped_system_entry(
             &mut app.chat_entries,
-            "Context compressed · auto · -4 msgs".to_string(),
+            "Context compacted · auto · -4 msgs".to_string(),
         );
         append_grouped_system_entry(
             &mut app.chat_entries,
-            "Context compressed · manual · -2 msgs".to_string(),
+            "Context compacted · manual · -2 msgs".to_string(),
         );
         assert_eq!(app.chat_entries.len(), 1);
         assert!(app.chat_entries[0].content.contains("auto · -4 msgs"));
@@ -137,7 +137,7 @@ mod tests {
         let mut app = test_app();
         append_grouped_system_entry(
             &mut app.chat_entries,
-            "Context compressed · auto · -4 msgs".to_string(),
+            "Context compacted · auto · -4 msgs".to_string(),
         );
         append_grouped_system_entry(
             &mut app.chat_entries,

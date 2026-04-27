@@ -362,7 +362,7 @@ mod tests {
 
         let system_entries = vec![
             ChatEntry::new(ChatRole::System, "Session resumed.".to_string()),
-            ChatEntry::new(ChatRole::System, "Context compressed · auto · -4 msgs".to_string()),
+            ChatEntry::new(ChatRole::System, "Context compacted · auto · -4 msgs".to_string()),
             ChatEntry::new(ChatRole::System, "Session memory updated · summary · /tmp/live.md".to_string()),
             ChatEntry::new(ChatRole::System, "Diagnostics bundle exported to: /tmp/bundle".to_string()),
         ];

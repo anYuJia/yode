@@ -154,7 +154,14 @@ pub(crate) fn format_entry_as_strings(
         }
         ChatRole::SubAgentToolCall { .. } => {}
         ChatRole::SubAgentResult => {}
-        ChatRole::AskUser { .. } => {}
+        ChatRole::AskUser { .. } => {
+            for (line_index, line) in entry.content.lines().enumerate() {
+                result.push((
+                    format!("{}{}", if line_index == 0 { "  ? " } else { "    " }, line),
+                    palette.accent,
+                ));
+            }
+        }
     }
     result
 }
@@ -240,7 +247,7 @@ mod tests {
         let system_entries = vec![
             ChatEntry::new(
                 ChatRole::System,
-                "Context compressed · auto · -4 msgs".to_string(),
+                "Context compacted · auto · -4 msgs".to_string(),
             ),
             ChatEntry::new(
                 ChatRole::System,
@@ -372,6 +379,70 @@ mod tests {
         assert!(latest
             .iter()
             .any(|(line, _)| line.contains("latest metadata")));
+    }
+
+    #[test]
+    fn latest_focus_mixed_tool_system_and_error_runs() {
+        let entries = vec![
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "a".to_string(),
+                    name: "read_file".to_string(),
+                },
+                "{\"file_path\":\"/tmp/old.rs\"}".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolResult {
+                    id: "a".to_string(),
+                    name: "read_file".to_string(),
+                    is_error: false,
+                },
+                "old".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::System,
+                "Session memory updated · summary · /tmp/older.md\nolder detail".to_string(),
+            ),
+            ChatEntry::new(ChatRole::Error, "older error\nhidden detail".to_string()),
+            ChatEntry::new(
+                ChatRole::System,
+                "Session memory updated · summary · /tmp/latest.md\nlatest detail".to_string(),
+            ),
+            ChatEntry::new(ChatRole::Error, "latest error\nvisible detail".to_string()),
+        ];
+        let older_system = format_entry_as_strings(&entries[2], &entries, 2);
+        let latest_system = format_entry_as_strings(&entries[4], &entries, 4);
+        let older_error = format_entry_as_strings(&entries[3], &entries, 3);
+        let latest_error = format_entry_as_strings(&entries[5], &entries, 5);
+
+        assert!(older_system
+            .iter()
+            .all(|(line, _)| !line.contains("older detail")));
+        assert!(latest_system
+            .iter()
+            .any(|(line, _)| line.contains("/tmp/latest.md")));
+        assert!(latest_system
+            .iter()
+            .any(|(line, _)| line.contains("+1 more lines")));
+        assert!(older_error
+            .iter()
+            .all(|(line, _)| !line.contains("hidden detail")));
+        assert!(latest_error
+            .iter()
+            .any(|(line, _)| line.contains("latest error")));
+    }
+
+    #[test]
+    fn ask_user_entries_render_question_framing() {
+        let entry = ChatEntry::new(
+            ChatRole::AskUser {
+                id: "ask-1".to_string(),
+            },
+            "Choose a deployment target\nstaging or prod".to_string(),
+        );
+        let rendered = format_entry_as_strings(&entry, std::slice::from_ref(&entry), 0);
+        assert!(rendered[0].0.starts_with("  ? Choose"));
+        assert!(rendered[1].0.starts_with("    staging"));
     }
 
     #[test]

@@ -37,11 +37,12 @@ pub(crate) fn parse_system_message(content: &str) -> SystemMessageView {
     };
 
     let (kind, title, first_detail) = if let Some(detail) =
-        strip_title_suffix(first_line, "Context compressed")
+        strip_title_suffix(first_line, "Context compacted")
+            .or_else(|| strip_title_suffix(first_line, "Context compressed"))
     {
         (
             SystemMessageKind::Context,
-            "Context compressed".to_string(),
+            "Context compacted".to_string(),
             detail,
         )
     } else if let Some(detail) = strip_title_suffix(first_line, "Session memory updated") {
@@ -291,10 +292,10 @@ mod tests {
     #[test]
     fn parses_compaction_messages_into_title_and_details() {
         let view = parse_system_message(
-            "Context compressed · auto · -4 msgs\nsummary · trimmed older turns",
+            "Context compacted · auto · -4 msgs\nsummary · trimmed older turns",
         );
         assert_eq!(view.kind, SystemMessageKind::Context);
-        assert_eq!(view.title, "Context compressed");
+        assert_eq!(view.title, "Context compacted");
         assert_eq!(view.detail_lines[0], "auto · -4 msgs");
         assert_eq!(view.detail_lines[1], "summary · trimmed older turns");
     }
@@ -318,11 +319,11 @@ mod tests {
     #[test]
     fn summary_compacts_extra_detail_lines() {
         let view = parse_system_message(
-            "Context compressed · auto · -4 msgs\nsummary · trimmed older turns",
+            "Context compacted · auto · -4 msgs\nsummary · trimmed older turns",
         );
         assert_eq!(
             system_message_summary(&view),
-            "Context compressed · auto · -4 msgs · +1 more"
+            "Context compacted · auto · -4 msgs · +1 more"
         );
     }
 
@@ -380,7 +381,7 @@ mod tests {
         );
         assert_eq!(
             parse_system_message("Context compressed · auto · -4 msgs").title,
-            "Context compressed"
+            "Context compacted"
         );
     }
 
