@@ -86,7 +86,7 @@ pub(crate) fn permission_recovery_jump_inventory(
 }
 
 pub(crate) fn permission_recovery_operator_guide() -> &'static str {
-    "Operator guide: inspect `/permissions` for rule intent, `/hooks` for hook failures, and `/brief` for the latest recovery preview."
+    "Guide: `/permissions` for rules, `/hooks` for failures, `/brief` for recovery preview."
 }
 
 pub(crate) fn render_permission_workspace(
@@ -129,7 +129,7 @@ pub(crate) fn render_permission_workspace(
     } else {
         confirmation_suggestions
             .iter()
-            .map(|suggestion| format!("[{}] {}", suggestion_severity(suggestion), suggestion))
+            .map(|suggestion| format!("{} · {}", suggestion_severity(suggestion), suggestion))
             .collect()
     };
     let source_lines = if source_views.is_empty() {

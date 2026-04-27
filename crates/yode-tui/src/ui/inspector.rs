@@ -759,6 +759,29 @@ mod tests {
     }
 
     #[test]
+    fn inspector_action_labels_use_open_show_run_verbs() {
+        let actions = [
+            InspectorAction {
+                label: "show status".to_string(),
+                command: "/status".to_string(),
+            },
+            InspectorAction {
+                label: "open help".to_string(),
+                command: "/help".to_string(),
+            },
+            InspectorAction {
+                label: "run /compact".to_string(),
+                command: "/compact".to_string(),
+            },
+        ];
+        assert!(actions.iter().all(|action| {
+            action.label.starts_with("show ")
+                || action.label.starts_with("open ")
+                || action.label.starts_with("run ")
+        }));
+    }
+
+    #[test]
     fn panel_stack_tracks_active_layer() {
         let mut stack = PanelStackCoordinator::default();
         stack.push("task");

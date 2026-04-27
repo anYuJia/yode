@@ -608,6 +608,22 @@ mod tests {
     }
 
     #[test]
+    fn confirm_verbs_stay_consistent() {
+        let lines = option_list_lines(
+            &[
+                "Allow once (default)".to_string(),
+                "Always allow: Bash".to_string(),
+                "Deny".to_string(),
+            ],
+            0,
+        );
+        let rendered = lines.iter().map(|line| line.to_string()).collect::<Vec<_>>();
+        assert!(rendered[0].contains("Allow once"));
+        assert!(rendered[1].contains("Always allow"));
+        assert!(rendered[2].contains("Deny"));
+    }
+
+    #[test]
     fn confirmation_preview_line_emphasizes_url_host() {
         let preview = tool_preview_line(
             "web_fetch",

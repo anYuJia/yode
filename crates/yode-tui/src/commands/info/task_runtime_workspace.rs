@@ -89,7 +89,7 @@ pub(super) fn runtime_freshness_banner(
     if age.num_minutes() <= 10 {
         format!("runtime freshness: fresh ({}m)", age.num_minutes())
     } else if age.num_minutes() <= 60 {
-        format!("runtime freshness: warm ({}m)", age.num_minutes())
+        format!("runtime freshness: recent ({}m)", age.num_minutes())
     } else {
         format!("runtime freshness: stale ({}m)", age.num_minutes())
     }
@@ -97,7 +97,7 @@ pub(super) fn runtime_freshness_banner(
 
 pub(super) fn task_follow_prompt(task_id: &str) -> String {
     format!(
-        "Use `task_output` with task_id=\"{}\", follow=true, and timeout_secs=120. Summarize final status, retries, artifact paths, and the most important output.",
+        "Use `task_output` with task_id=\"{}\", follow=true, timeout_secs=120. Summarize status, retries, artifacts, and key output.",
         task_id
     )
 }
@@ -206,6 +206,7 @@ mod tests {
             "2026-01-01 00:00:00",
         );
         assert!(task_follow_prompt("task-1").contains("task_output"));
+        assert!(task_follow_prompt("task-1").contains("Summarize status, retries"));
         assert!(task_issue_template(&task).contains("# Task Runtime Issue"));
     }
 
