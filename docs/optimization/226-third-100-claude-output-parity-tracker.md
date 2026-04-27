@@ -17,7 +17,7 @@
 
 当前进度：
 
-- `19 / 100` 已完成
+- `28 / 100` 已完成
 
 ## 001-010 Transcript Deepening
 
@@ -125,15 +125,15 @@
 
 ## 081-090 Regression Coverage
 
-- `[ ]` 081 regression test for latest-focus tool collapse
-- `[ ]` 082 regression test for latest-focus system collapse
-- `[ ]` 083 regression test for latest-focus error collapse
-- `[ ]` 084 regression test for delegated confirm copy
-- `[ ]` 085 regression test for remote queue compactness
-- `[ ]` 086 regression test for workflow artifact labels
-- `[ ]` 087 regression test for doctor handoff density
-- `[ ]` 088 regression test for export role headings
-- `[ ]` 089 regression test for artifact hyperlink inspector lines
+- `[x]` 081 regression test for latest-focus tool collapse
+- `[x]` 082 regression test for latest-focus system collapse
+- `[x]` 083 regression test for latest-focus error collapse
+- `[x]` 084 regression test for delegated confirm copy
+- `[x]` 085 regression test for remote queue compactness
+- `[x]` 086 regression test for workflow artifact labels
+- `[x]` 087 regression test for doctor handoff density
+- `[x]` 088 regression test for export role headings
+- `[x]` 089 regression test for artifact hyperlink inspector lines
 - `[ ]` 090 regression test for token wording consistency
 
 ## 091-100 Closeout
