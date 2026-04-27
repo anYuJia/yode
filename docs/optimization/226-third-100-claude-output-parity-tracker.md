@@ -17,7 +17,7 @@
 
 当前进度：
 
-- `89 / 100` 已完成
+- `100 / 100` 已完成
 
 ## 001-010 Transcript Deepening
 
@@ -138,13 +138,13 @@
 
 ## 091-100 Closeout
 
-- `[ ]` 091 third-round parity gap review
-- `[ ]` 092 third-round release note draft
-- `[ ]` 093 fourth-round backlog seed
-- `[ ]` 094 snapshot maintenance checklist
-- `[ ]` 095 transcript semantics checklist
-- `[ ]` 096 markdown typography checklist
-- `[ ]` 097 remote/workflow/review checklist
-- `[ ]` 098 inspector/confirm checklist
-- `[ ]` 099 third-round closeout review
-- `[ ]` 100 handoff into fourth 100 tracker
+- `[x]` 091 third-round parity gap review
+- `[x]` 092 third-round release note draft
+- `[x]` 093 fourth-round backlog seed
+- `[x]` 094 snapshot maintenance checklist
+- `[x]` 095 transcript semantics checklist
+- `[x]` 096 markdown typography checklist
+- `[x]` 097 remote/workflow/review checklist
+- `[x]` 098 inspector/confirm checklist
+- `[x]` 099 third-round closeout review
+- `[x]` 100 handoff into fourth 100 tracker
