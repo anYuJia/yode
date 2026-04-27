@@ -531,7 +531,7 @@ pub(crate) fn record_remote_transport_event(
         task_id
             .map(|task_id| format!(" | task={}", task_id))
             .unwrap_or_default(),
-        truncate_preview(detail, 240)
+        truncate_preview(detail, 160)
     );
     if path.exists() {
         let mut body = std::fs::read_to_string(&path)?;
@@ -985,7 +985,7 @@ pub(crate) fn write_remote_queue_execution_artifact(
     let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
     let path = dir.join(format!("{}-{}-remote-queue-execution.md", stamp, item.id));
     let body = format!(
-        "# Remote Queue Execution\n\n- Item: {}\n- Command: {}\n- Phase: {}\n- Status: {}\n- Attempts: {}\n- Last run: {}\n- Transport events: {}\n\n## Output Preview\n\n```text\n{}\n```\n",
+        "# Remote Queue Execution\n\n- Item: {}\n- Command: {}\n- Phase: {}\n- Status: {}\n- Attempts: {}\n- Last run: {}\n- Events: {}\n\n## Output Preview\n\n```text\n{}\n```\n",
         item.id,
         item.command,
         phase,
@@ -993,7 +993,7 @@ pub(crate) fn write_remote_queue_execution_artifact(
         item.attempts,
         item.last_run_at.as_deref().unwrap_or("none"),
         transport_event_artifact
-            .map(|path| path.display().to_string())
+            .map(|path| crate::display_text::compact_path_tail(&path.display().to_string()))
             .unwrap_or_else(|| "none".to_string()),
         output_preview,
     );
@@ -1470,7 +1470,7 @@ fn render_remote_live_session_summary(
             .join("\n")
     };
     format!(
-        "# Remote Live Session\n\n- Session: {}\n- Continuity id: {}\n- Status: {}\n- Transport: {}\n- Active endpoint: {}\n- Resume count: {}\n- Last resumed at: {}\n- Latest queue item: {}\n- Latest result id: {}\n- Latest result status: {}\n- Latest result summary: {}\n- Result cursor: {}\n- Resume cursor: {}\n- Latest transcript: {}\n- Transcript sync: {}\n- Transcript sync artifact: {}\n- Latest remote control: {}\n- Latest transport state: {}\n- Latest transport events: {}\n- State artifact: {}\n\n## Endpoints\n\n{}\n",
+        "# Remote Live Session\n\n- Session: {}\n- Continuity: {}\n- Status: {}\n- Transport: {}\n- Active endpoint: {}\n- Resume count: {}\n- Last resumed at: {}\n- Latest queue item: {}\n- Latest result id: {}\n- Latest result status: {}\n- Latest result summary: {}\n- Result cursor: {}\n- Resume cursor: {}\n- Latest transcript: {}\n- Transcript sync: {}\n- Transcript sync artifact: {}\n- Latest remote control: {}\n- Latest transport state: {}\n- Latest transport events: {}\n- State artifact: {}\n\n## Endpoints\n\n{}\n",
         payload.session_id,
         payload.continuity_id,
         payload.session_status,
@@ -1484,13 +1484,33 @@ fn render_remote_live_session_summary(
         payload.latest_result_summary.as_deref().unwrap_or("none"),
         payload.result_cursor,
         payload.resume_cursor,
-        payload.latest_transcript_path.as_deref().unwrap_or("none"),
+        payload
+            .latest_transcript_path
+            .as_deref()
+            .map(crate::display_text::compact_path_tail)
+            .unwrap_or_else(|| "none".to_string()),
         payload.transcript_sync_status,
-        payload.transcript_sync_artifact.as_deref().unwrap_or("none"),
-        payload.latest_remote_control.as_deref().unwrap_or("none"),
-        payload.latest_transport_state.as_deref().unwrap_or("none"),
-        payload.latest_transport_events.as_deref().unwrap_or("none"),
-        state_path.display(),
+        payload
+            .transcript_sync_artifact
+            .as_deref()
+            .map(crate::display_text::compact_path_tail)
+            .unwrap_or_else(|| "none".to_string()),
+        payload
+            .latest_remote_control
+            .as_deref()
+            .map(crate::display_text::compact_path_tail)
+            .unwrap_or_else(|| "none".to_string()),
+        payload
+            .latest_transport_state
+            .as_deref()
+            .map(crate::display_text::compact_path_tail)
+            .unwrap_or_else(|| "none".to_string()),
+        payload
+            .latest_transport_events
+            .as_deref()
+            .map(crate::display_text::compact_path_tail)
+            .unwrap_or_else(|| "none".to_string()),
+        crate::display_text::compact_path_tail(&state_path.display().to_string()),
         endpoints,
     )
 }

@@ -15,7 +15,7 @@ pub(crate) fn write_coordinator_stub_artifact(
     let short_session = session_id.chars().take(8).collect::<String>();
     let path = dir.join(format!("{}-coordinate-dry-run.md", short_session));
     let body = format!(
-        "# Coordinator Dry Run\n\n- Goal: {}\n- Prompt: {}\n\nExecution outline:\n- dry_run=true\n- show workstreams, dependencies, and suggested order\n- do not start real work before reviewing the dry-run plan\n\nJump targets:\n{}\n",
+        "# Coordinator Dry Run\n\n- Goal: {}\n- Prompt: {}\n\n## Plan\n- dry_run=true\n- show workstreams, dependencies, and suggested order\n- do not start real work before reviewing the dry-run plan\n\n## Jump\n{}\n",
         goal,
         coordinator_dry_run_prompt(goal),
         coordinator_jump_targets()
@@ -84,6 +84,7 @@ mod tests {
         let path = write_coordinator_stub_artifact(&dir, "session-1234", "demo").unwrap();
         let content = std::fs::read_to_string(path).unwrap();
         assert!(content.contains("# Coordinator Dry Run"));
+        assert!(content.contains("## Jump"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
