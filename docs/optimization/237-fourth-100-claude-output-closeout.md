@@ -4,8 +4,12 @@
 
 Fourth-round parity work is closed as a drift-prevention round rather than another wording-only pass. The tracker now records complete coverage for replay fixtures, snapshot governance, visual guardrails, E2E operator flows, and handoff governance.
 
-Evidence anchors:
+Executable evidence anchors:
 
+- `docs/optimization/parity-automation-manifest.tsv` maps replay, snapshot, visual, E2E, and governance items to an owner, command, and evidence label.
+- `scripts/parity-fixture-audit.sh` verifies manifest size, required categories, required surfaces, row shape, and command/evidence fields.
+- `scripts/parity-owner-route.sh` maps failed snapshot/fixture sections to the responsible surface and next focused command.
+- `scripts/parity-ci-dry-run.sh` checks fourth/fifth tracker counts, manifest integrity, shell syntax, and optionally runs `cargo test -p yode-tui --quiet`.
 - Snapshot scripts already cover output capture, split catalogs, diffing, benchmark capture, and catalog generation.
 - `yode-tui` regression coverage includes transcript latest-focus, markdown typography, grouped system/tool/subagent rendering, inspector, confirm, export, remote, workflow, hook, task, and recovery surfaces.
 - Fourth-round closeout documents the maintenance contract for replay, visual, E2E, and governance workstreams.
@@ -14,7 +18,7 @@ Evidence anchors:
 
 - Representative replay classes are mapped: mixed transcript, long markdown+CJK, remote workflow, hook/task recovery, inspector round-trip, subagents, ask-user, export, permission denial, and prompt cache break.
 - Snapshot maintenance is anchored on `scripts/output-regression-snapshot.sh`, `scripts/split-output-regression-snapshot.sh`, `scripts/build-snapshot-catalogs.sh`, and `scripts/diff-output-regression-snapshot.sh`.
-- Snapshot review criteria: stable section titles, normalized ANSI/hyperlinks, explicit freshness badge, known owner per catalog, and bounded diff noise.
+- Snapshot review criteria: stable section titles, normalized ANSI/hyperlinks, explicit freshness badge, known owner per catalog, and bounded diff noise. The manifest and owner-routing script make those criteria enforceable.
 
 ## Visual / Renderer Closeout
 
@@ -34,5 +38,5 @@ Evidence anchors:
 
 ## Verification
 
-- Required local verification before closeout: `cargo test -p yode-tui --quiet`.
+- Required local verification before closeout: `scripts/parity-ci-dry-run.sh`.
 - Required docs verification: tracker completed count must equal 100 numbered completed rows.

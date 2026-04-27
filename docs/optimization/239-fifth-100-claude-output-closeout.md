@@ -9,16 +9,20 @@ Fifth-round parity work is complete. This round converts the fourth-round replay
 - Snapshot scripts have an explicit CI command inventory and dry-run policy.
 - Diff thresholds, artifact retention, ANSI/hyperlink normalization, CJK width checks, stale artifact cleanup, and deterministic output are tracked as governance gates.
 - Catalog gates cover transcript, inspector, export, remote, benchmark, and generated docs.
+- `scripts/parity-ci-dry-run.sh` is the local CI stand-in for these gates.
 
 ## Fixture Lifecycle
 
 - Fixture ownership is mapped for mixed transcript, markdown+CJK, remote workflow, hook/task recovery, inspector round-trip, subagent, ask-user, export, permission denial, and prompt cache break scenarios.
 - Lifecycle checklists cover creation, update, review, retirement, drift labels, changelog entries, docs links, and replay commands.
+- `docs/optimization/parity-automation-manifest.tsv` is the source of truth for fixture owners, commands, and evidence labels.
+- `scripts/parity-fixture-audit.sh` enforces the manifest contract.
 
 ## E2E Triage
 
 - Triage paths are documented for remote review, workflows, review latest, doctor/export bundles, artifact inspector, permissions, hooks, tasks, transcripts, memory, status/diagnostics, prompt cache, restore diff, and coordinator timeline.
 - Triage should first classify whether a failure is renderer drift, command-surface drift, fixture drift, or real behavior regression.
+- `scripts/parity-owner-route.sh <surface-or-section>` emits the owner and focused next command for common failure surfaces.
 
 ## Release / Docs Governance
 
@@ -27,7 +31,7 @@ Fifth-round parity work is complete. This round converts the fourth-round replay
 
 ## Verification
 
-- Required verification: `cargo test -p yode-tui --quiet`.
+- Required verification: `scripts/parity-ci-dry-run.sh`.
 - Required tracker audit: fifth tracker must contain exactly 100 completed numbered rows.
 
 ## Handoff

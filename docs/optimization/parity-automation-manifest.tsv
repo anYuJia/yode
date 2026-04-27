@@ -1,0 +1,106 @@
+id	round	category	surface	owner	command	evidence
+001	fourth	replay	mixed-transcript	transcript-rendering	cargo test -p yode-tui latest_focus_mixed_tool_system_and_error_runs	app/scrollback latest focus
+002	fourth	replay	markdown-cjk	markdown-rendering	cargo test -p yode-tui cjk_tables_render_without_losing_cells	chat_markdown CJK table
+003	fourth	replay	remote-workflow	remote-workflow	cargo test -p yode-tui grouped_system_entries_names_remote_review_and_workflow_batches	system batch remote/workflow
+004	fourth	replay	hook-task-recovery	hooks-tasks	cargo test -p yode-tui build_runtime_timeline_merges_dated_state_and_artifact_events	runtime timeline hooks/recovery
+005	fourth	replay	inspector-round-trip	inspector-confirm	cargo test -p yode-tui inspector_internal_actions_resolve_pending_confirmation	confirm inspector action
+006	fourth	snapshot	diff-budget	snapshot-governance	bash scripts/diff-output-regression-snapshot.sh	snapshot diff helper
+007	fourth	snapshot	stale-artifact	snapshot-governance	bash scripts/build-snapshot-catalogs.sh	catalog freshness
+008	fourth	snapshot	ci-dry-run	snapshot-governance	bash scripts/parity-ci-dry-run.sh	CI dry-run
+009	fourth	snapshot	docs-link-validation	docs-governance	bash scripts/parity-fixture-audit.sh	docs link audit
+010	fourth	snapshot	fixture-minimization	fixture-governance	bash scripts/parity-fixture-audit.sh	fixture manifest
+011	fourth	replay	subagent-batch	transcript-rendering	cargo test -p yode-tui grouped_subagent_batch_compacts_multiple_segments	subagent batch
+012	fourth	replay	ask-user	transcript-rendering	cargo test -p yode-tui ask_user_entries_render_question_framing	ask-user framing
+013	fourth	replay	export-bundle	export-artifacts	cargo test -p yode-tui print_export_regression_snapshot	export snapshot
+014	fourth	replay	permission-denial	permissions	cargo test -p yode-tui rule_and_suggestion_helpers_render	permission suggestions
+015	fourth	replay	prompt-cache-break	prompt-cache	cargo test -p yode-tui build_runtime_timeline_merges_dated_state_and_artifact_events	prompt cache timeline
+016	fourth	snapshot	section-owner-map	snapshot-governance	bash scripts/parity-owner-route.sh transcript	transcript owner route
+017	fourth	snapshot	output-stability	snapshot-governance	bash scripts/output-regression-snapshot.sh	output snapshot
+018	fourth	snapshot	ansi-hyperlink-normalization	snapshot-governance	bash scripts/parity-fixture-audit.sh	normalization policy
+019	fourth	snapshot	cjk-width-baseline	markdown-rendering	cargo test -p yode-tui cjk_tables_render_without_losing_cells	CJK width baseline
+020	fourth	snapshot	closeout	snapshot-governance	bash scripts/parity-tracker-summary.sh docs/optimization/236-fourth-100-claude-output-parity-tracker.md	tracker summary
+021	fourth	visual	markdown-heading	markdown-rendering	cargo test -p yode-tui heading_wrap_continuations_keep_heading_style	heading wrap
+022	fourth	visual	markdown-list	markdown-rendering	cargo test -p yode-tui nested_bullets_keep_distinct_indentation_and_markers	list nesting
+023	fourth	visual	markdown-table	markdown-rendering	cargo test -p yode-tui tables_wrap_to_fit_requested_width	table width
+024	fourth	visual	markdown-code-fence	markdown-rendering	cargo test -p yode-tui code_fence_caption_stays_dense_and_labeled	code fence
+025	fourth	visual	transcript-latest-focus	transcript-rendering	cargo test -p yode-tui latest_focus_mixed_tool_system_and_error_runs	latest focus
+026	fourth	visual	grouped-system	transcript-rendering	cargo test -p yode-tui scrollback_grouped_system_entries_name_remote_review_and_workflow_batches	grouped system
+027	fourth	visual	grouped-tool	transcript-rendering	cargo test -p yode-tui latest_tool_entry_keeps_metadata_while_older_entries_collapse	grouped tool
+028	fourth	visual	subagent-batch	transcript-rendering	cargo test -p yode-tui renders_grouped_subagent_batch_summary	subagent visual
+029	fourth	visual	inspector-panel	inspector-confirm	cargo test -p yode-tui panel_stack_tracks_active_layer	inspector panel
+030	fourth	visual	confirm-panel	inspector-confirm	cargo test -p yode-tui confirmation_density_switches_on_narrow_widths	confirm panel
+031	fourth	visual	narrow-terminal	responsive-ui	cargo test -p yode-tui status_bar_density_compacts_on_narrow_widths	narrow smoke
+032	fourth	visual	medium-terminal	responsive-ui	cargo test -p yode-tui preview_and_timeline_panels_render_headers_and_footer	medium smoke
+033	fourth	visual	wide-terminal	responsive-ui	cargo test -p yode-tui centered_panel_rect_respects_narrow_widths	wide smoke
+034	fourth	visual	hyperlink-terminal	markdown-rendering	cargo test -p yode-tui hyperlink_text_keeps_underline_intensity	hyperlink smoke
+035	fourth	visual	cjk-terminal	markdown-rendering	cargo test -p yode-tui cjk_tables_render_without_losing_cells	CJK smoke
+036	fourth	visual	color-hierarchy	rendering-governance	cargo test -p yode-tui confirmation_uses_user_facing_tool_name_and_risk_hint	color hierarchy
+037	fourth	visual	density-token	rendering-governance	cargo test -p yode-tui tool_runtime_summary_text_is_compact	density token
+038	fourth	visual	prefix-gutter	transcript-rendering	cargo test -p yode-tui transcript_line_prefixes_stay_consistent_across_core_roles	prefix gutter
+039	fourth	visual	footer-hint	inspector-confirm	cargo test -p yode-tui empty_actions_and_pagination_render_fallbacks	footer hint
+040	fourth	visual	focus-selection	inspector-confirm	cargo test -p yode-tui inspector_action_focus_cycles_when_actions_exist	focus selection
+041	fourth	visual	scroll-offset	inspector-confirm	cargo test -p yode-tui pager_state_clamps_selection_into_visible_range	scroll offset
+042	fourth	visual	streaming-preview	streaming-rendering	cargo test -p yode-tui streaming_boundary_advances_monotonically_from_existing_prefix	streaming preview
+043	fourth	visual	code-block-theme	markdown-rendering	cargo test -p yode-tui shell_code_blocks_render_as_generic_highlighted_code_without_transcript_gutter	code theme
+044	fourth	visual	table-fallback	markdown-rendering	cargo test -p yode-tui narrow_tables_fall_back_to_vertical_key_value_layout	table fallback
+045	fourth	visual	blockquote	markdown-rendering	cargo test -p yode-tui blockquote_content_is_rendered_italic_like_claude	blockquote
+046	fourth	visual	inline-code	markdown-rendering	cargo test -p yode-tui inline_code_wraps_across_narrow_widths	inline code
+047	fourth	visual	error-rendering	transcript-rendering	cargo test -p yode-tui latest_error_entry_keeps_detail_while_older_entries_collapse	error rendering
+048	fourth	visual	system-rendering	transcript-rendering	cargo test -p yode-tui latest_system_entry_keeps_detail_while_older_entries_collapse	system rendering
+049	fourth	visual	assistant-rendering	transcript-rendering	cargo test -p yode-tui older_assistant_reasoning_can_collapse_to_teaser_only	assistant rendering
+050	fourth	visual	closeout	rendering-governance	bash scripts/parity-fixture-audit.sh	visual closeout
+051	fourth	e2e	remote-review	remote-workflow	cargo test -p yode-tui command_inventory_lists_remote_commands	remote review E2E
+052	fourth	e2e	workflow-preview-run	remote-workflow	cargo test -p yode-tui workflow_preview_uses_dense_step_lines	workflow preview/run
+053	fourth	e2e	workflow-write-mode	remote-workflow	cargo test -p yode-tui workflow_workspace_renders_sections	workflow write
+054	fourth	e2e	review-latest	review-artifacts	cargo test -p yode-tui print_remote_bundle_regression_snapshot	review latest
+055	fourth	e2e	doctor-bundle	doctor-export	cargo test -p yode-tui doctor_bundle_handoff_is_dense	doctor bundle
+056	fourth	e2e	export-bundle	doctor-export	cargo test -p yode-tui workspace_index_groups_inspect_targets	export bundle
+057	fourth	e2e	artifact-inspector	artifact-nav	cargo test -p yode-tui artifact_inspector_applies_badges	artifact inspector
+058	fourth	e2e	permission-recovery	permissions	cargo test -p yode-tui rule_and_suggestion_helpers_render	permission recovery
+059	fourth	e2e	hook-deferred	hooks-tasks	cargo test -p yode-tui orchestration_timeline_writes_markdown	hook deferred
+060	fourth	e2e	task-monitor	hooks-tasks	cargo test -p yode-tui task_summary_uses_monitor_headline	task monitor
+061	fourth	e2e	task-follow	hooks-tasks	cargo test -p yode-tui follow_prompt_and_issue_template_include_task_context	task follow
+062	fourth	e2e	task-issue	hooks-tasks	cargo test -p yode-tui follow_prompt_and_issue_template_include_task_context	task issue
+063	fourth	e2e	transcript-compare	transcript-rendering	cargo test -p yode-tui build_transcript_compare_output_highlights_differences	transcript compare
+064	fourth	e2e	transcript-picker	transcript-rendering	cargo test -p yode-tui transcript_picker_summary_preview	transcript picker
+065	fourth	e2e	memory-latest	transcript-rendering	cargo test -p yode-tui render_latest_transcript	memory latest
+066	fourth	e2e	status-diagnostics	status-diagnostics	cargo test -p yode-tui status_bar_density_compacts_on_narrow_widths	status diagnostics
+067	fourth	e2e	prompt-cache	prompt-cache	cargo test -p yode-tui prompt_cache_badge_highlights_breaks	prompt cache
+068	fourth	e2e	restore-diff	checkpoint-restore	cargo test -p yode-tui writes_remote_execution_inventory	restore diff
+069	fourth	e2e	coordinator-timeline	coordinator	cargo test -p yode-tui orchestration_timeline_writes_markdown	coordinator timeline
+070	fourth	e2e	remote-live	remote-workflow	cargo test -p yode-tui remote_bridge_follow_up_reads_capability_artifact	remote live
+071	fourth	e2e	confirmation-inspect	inspector-confirm	cargo test -p yode-tui inspector_internal_actions_resolve_pending_confirmation	confirm inspect
+072	fourth	e2e	confirmation-explain	inspector-confirm	cargo test -p yode-tui confirmation_activity_summary_folds_multiline_shell_commands	confirm explain
+073	fourth	e2e	confirmation-deny	inspector-confirm	cargo test -p yode-tui inspector_internal_action_can_deny	confirm deny
+074	fourth	e2e	confirmation-always	inspector-confirm	cargo test -p yode-tui inspector_internal_action_can_always_allow	confirm always
+075	fourth	e2e	inspector-action	inspector-confirm	cargo test -p yode-tui inspector_action_focus_cycles_when_actions_exist	inspector action
+076	fourth	e2e	inspector-search	inspector-confirm	cargo test -p yode-tui inspector_search_filters_lines	inspector search
+077	fourth	e2e	inspector-tab-focus	inspector-confirm	cargo test -p yode-tui inspector_action_focus_cycles_when_actions_exist	inspector focus
+078	fourth	e2e	update-lifecycle	status-diagnostics	cargo test -p yode-tui parses_warning_messages	update lifecycle
+079	fourth	e2e	compaction-boundary	transcript-rendering	cargo test -p yode-tui context_compressed_message_is_compact	compaction boundary
+080	fourth	e2e	closeout	e2e-governance	bash scripts/parity-fixture-audit.sh	E2E closeout
+081	fourth	governance	owner-map	governance	bash scripts/parity-owner-route.sh markdown	owner map
+082	fourth	governance	label-taxonomy	governance	bash scripts/parity-fixture-audit.sh	label taxonomy
+083	fourth	governance	release-template	governance	bash scripts/parity-fixture-audit.sh	release template
+084	fourth	governance	gap-review	governance	bash scripts/parity-fixture-audit.sh	gap review
+085	fourth	governance	progress-checkpoint	governance	bash scripts/parity-tracker-summary.sh docs/optimization/236-fourth-100-claude-output-parity-tracker.md	progress
+086	fourth	governance	renderer-checklist	rendering-governance	bash scripts/parity-fixture-audit.sh	renderer checklist
+087	fourth	governance	snapshot-checklist	snapshot-governance	bash scripts/parity-fixture-audit.sh	snapshot checklist
+088	fourth	governance	e2e-checklist	e2e-governance	bash scripts/parity-fixture-audit.sh	E2E checklist
+089	fourth	governance	docs-drift	docs-governance	bash scripts/parity-fixture-audit.sh	docs drift
+090	fourth	governance	signoff	governance	bash scripts/parity-ci-dry-run.sh	signoff
+091	fourth	governance	fifth-backlog	governance	test -f docs/optimization/238-fifth-100-claude-output-parity-tracker.md	fifth backlog
+092	fourth	governance	release-note	governance	test -f docs/optimization/237-fourth-100-claude-output-closeout.md	release note
+093	fourth	governance	closeout-review	governance	test -f docs/optimization/237-fourth-100-claude-output-closeout.md	closeout
+094	fourth	governance	handoff-artifact	governance	test -f docs/optimization/238-fifth-100-claude-output-parity-tracker.md	handoff
+095	fourth	governance	risk-register	governance	bash scripts/parity-fixture-audit.sh	risk
+096	fourth	governance	limitations	governance	bash scripts/parity-fixture-audit.sh	limitations
+097	fourth	governance	ci-proposal	governance	bash scripts/parity-ci-dry-run.sh	CI proposal
+098	fourth	governance	fixture-guide	fixture-governance	bash scripts/parity-fixture-audit.sh	fixture guide
+099	fourth	governance	tracker-audit	governance	bash scripts/parity-tracker-summary.sh docs/optimization/236-fourth-100-claude-output-parity-tracker.md	tracker audit
+100	fourth	governance	fifth-handoff	governance	test -f docs/optimization/238-fifth-100-claude-output-parity-tracker.md	fifth handoff
+101	fifth	ci	snapshot-command	snapshot-governance	bash scripts/parity-ci-dry-run.sh	snapshot CI
+102	fifth	ci	fixture-lifecycle	fixture-governance	bash scripts/parity-fixture-audit.sh	fixture lifecycle
+103	fifth	ci	owner-routing	governance	bash scripts/parity-owner-route.sh remote	owner routing
+104	fifth	ci	tracker-count	docs-governance	bash scripts/parity-tracker-summary.sh docs/optimization/238-fifth-100-claude-output-parity-tracker.md	tracker count
+105	fifth	ci	sixth-handoff	governance	test -f docs/optimization/240-sixth-100-claude-output-parity-tracker.md	sixth handoff
