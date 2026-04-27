@@ -199,6 +199,10 @@ fn render_conversation_body(entries: &[crate::app::ChatEntry]) -> String {
             )
         };
 
+        if let Some(heading) = conversation_block_heading(entries, index, next_index) {
+            output.push_str(&format!("### {}\n\n", heading));
+        }
+
         for (line, _) in lines {
             output.push_str(&strip_ansi(&line));
             output.push('\n');
@@ -209,6 +213,34 @@ fn render_conversation_body(entries: &[crate::app::ChatEntry]) -> String {
         index = next_index;
     }
     output
+}
+
+fn conversation_block_heading(
+    entries: &[crate::app::ChatEntry],
+    index: usize,
+    next_index: usize,
+) -> Option<&'static str> {
+    let entry = entries.get(index)?;
+    if next_index > index + 1 {
+        return match entry.role {
+            ChatRole::ToolCall { .. } => Some("Tool Activity"),
+            ChatRole::System => Some("System"),
+            ChatRole::SubAgentCall { .. } => Some("Subagent Activity"),
+            _ => None,
+        };
+    }
+
+    match entry.role {
+        ChatRole::User => Some("User"),
+        ChatRole::Assistant => Some("Assistant"),
+        ChatRole::ToolCall { .. } | ChatRole::ToolResult { .. } => Some("Tool Activity"),
+        ChatRole::System => Some("System"),
+        ChatRole::Error => Some("Error"),
+        ChatRole::SubAgentCall { .. }
+        | ChatRole::SubAgentToolCall { .. }
+        | ChatRole::SubAgentResult => Some("Subagent Activity"),
+        ChatRole::AskUser { .. } => Some("Ask User"),
+    }
 }
 
 fn export_diagnostics_bundle(custom_name: Option<&str>, ctx: &mut CommandContext) -> CommandResult {
@@ -916,6 +948,9 @@ mod tests {
         }));
 
         let body = render_conversation_body(&entries);
+        assert!(body.contains("### User"));
+        assert!(body.contains("### Tool Activity"));
+        assert!(body.contains("### System"));
         assert!(body.contains("Turn completed"));
         assert!(!body.contains("--- [Tool: grep]"));
         assert!(!body.contains("--- [Tool: read_file]"));
