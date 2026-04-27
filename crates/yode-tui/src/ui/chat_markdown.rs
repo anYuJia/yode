@@ -1500,7 +1500,7 @@ fn render_inline_nodes_as_lines_with_style(
     let mut rendered: Vec<Vec<Span<'static>>> = vec![Vec::new()];
     append_inline_nodes(&mut rendered, nodes, base_style, options);
 
-    rendered
+    let lines = rendered
         .into_iter()
         .map(|spans| {
             if spans.is_empty() {
@@ -1509,7 +1509,12 @@ fn render_inline_nodes_as_lines_with_style(
                 Line::from(spans)
             }
         })
-        .collect()
+        .collect::<Vec<_>>();
+    if let Some(max_width) = options.max_width {
+        manual_wrap(lines, max_width as u16)
+    } else {
+        lines
+    }
 }
 
 fn append_inline_nodes(
@@ -2046,10 +2051,12 @@ fn code_token_color(kind: CodeTokenKind, language: CodeLanguage) -> Color {
 #[cfg(test)]
 mod tests {
     use super::{
-        line_display_width, render_markdown_impl, render_markdown_with_options,
-        streaming_markdown_advance_stable_boundary, MarkdownRenderOptions,
+        line_display_width, render_markdown_ansi_with_options, render_markdown_impl,
+        render_markdown_with_options, streaming_markdown_advance_stable_boundary,
+        MarkdownRenderOptions,
     };
     use ratatui::style::{Color, Modifier};
+    use crate::ui::chat::WHITE;
 
     #[test]
     fn fenced_code_blocks_render_header_and_highlighted_tokens() {
@@ -2300,6 +2307,81 @@ mod tests {
             .join("\n");
         assert!(rendered.contains("\x1b]8;;https://example.com/docs"));
         assert!(!rendered.contains("\x1b]8;;https://example.com/docs,"));
+    }
+
+    #[test]
+    fn github_issue_links_exclude_trailing_punctuation() {
+        let rendered = render_markdown_ansi_with_options(
+            "See anthropics/claude-code#24180, then continue.",
+            Some(WHITE),
+            MarkdownRenderOptions {
+                max_width: None,
+                enable_hyperlinks: true,
+            },
+        )
+        .join("\n");
+        assert!(rendered.contains("anthropics/claude-code#24180"));
+        assert!(rendered.contains(
+            "\u{1b}]8;;https://github.com/anthropics/claude-code/issues/24180"
+        ));
+        assert!(!rendered.contains(
+            "\u{1b}]8;;https://github.com/anthropics/claude-code/issues/24180,"
+        ));
+    }
+
+    #[test]
+    fn markdown_lists_keep_single_space_after_bullets() {
+        let lines = render_markdown_impl("- one\n- two", None)
+            .into_iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>();
+        assert!(lines.iter().any(|line| line == "• one"));
+        assert!(lines.iter().any(|line| line == "• two"));
+    }
+
+    #[test]
+    fn long_headings_wrap_without_losing_heading_text() {
+        let rendered = render_markdown_with_options(
+            "# This is a very long heading that should wrap cleanly",
+            Some(WHITE),
+            MarkdownRenderOptions {
+                max_width: Some(24),
+                enable_hyperlinks: false,
+            },
+        )
+        .into_iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>();
+        assert!(rendered.len() >= 2);
+        assert!(rendered.iter().any(|line| line.contains("This is a very long")));
+    }
+
+    #[test]
+    fn inline_code_wraps_across_narrow_widths() {
+        let rendered = render_markdown_with_options(
+            "Use `very_long_inline_code_value_here` now.",
+            Some(WHITE),
+            MarkdownRenderOptions {
+                max_width: Some(18),
+                enable_hyperlinks: false,
+            },
+        )
+        .into_iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>();
+        assert!(rendered.len() >= 2);
+        assert!(rendered.iter().any(|line| line.contains("very_long")));
+    }
+
+    #[test]
+    fn cjk_tables_render_without_losing_cells() {
+        let lines = render_markdown_impl("| 列 | 值 |\n| --- | --- |\n| 工具 | 远程 |\n| 状态 | 正常 |", None)
+            .into_iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>();
+        assert!(lines.iter().any(|line| line.contains("工具")));
+        assert!(lines.iter().any(|line| line.contains("状态")));
+        assert!(lines.iter().any(|line| line.starts_with('┌') || line.contains("Column")));
     }
 
     #[test]

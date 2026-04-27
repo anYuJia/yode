@@ -25,6 +25,7 @@ pub(super) fn render_tool_call(
     dim: ratatui::style::Style,
     accent: ratatui::style::Style,
     red: ratatui::style::Style,
+    show_detail: bool,
 ) {
     let args: serde_json::Value = serde_json::from_str(&entry.content).unwrap_or_default();
     let tool_result = all_entries[index + 1..]
@@ -64,13 +65,19 @@ pub(super) fn render_tool_call(
             if is_error { red } else { accent },
         ));
 
-        if let Some(metadata) = tool_result.and_then(|entry| entry.tool_metadata.as_ref()) {
-            render_metadata_hints(result, metadata, dim);
+        if show_detail {
+            if let Some(metadata) = tool_result.and_then(|entry| entry.tool_metadata.as_ref()) {
+                render_metadata_hints(result, metadata, dim);
+            }
         }
         if name == "batch" && !summary_result.lines.is_empty() {
             render_summary_lines(result, &summary_result.lines[1..], dim, green, red, red_dim);
         } else {
             render_summary_lines(result, &summary_result.lines, dim, green, red, red_dim);
+        }
+
+        if !show_detail {
+            return;
         }
 
         if let Some(res) = tool_result {
@@ -194,6 +201,7 @@ pub(super) fn render_standalone_result(
     dim: ratatui::style::Style,
     accent: ratatui::style::Style,
     red: ratatui::style::Style,
+    show_detail: bool,
 ) {
     let ChatRole::ToolResult { name, is_error, .. } = &entry.role else {
         return;
@@ -206,16 +214,21 @@ pub(super) fn render_standalone_result(
         &entry.content,
         *is_error,
     );
+    let green = ratatui::style::Style::default().fg(Color::LightGreen);
+    let red_dim = ratatui::style::Style::default().fg(Color::LightRed);
     result.push((
         format!("⏺ {} (ctrl+o to inspect)", tool_display_name(name)),
         if *is_error { red } else { accent },
     ));
-    if let Some(metadata) = entry.tool_metadata.as_ref() {
-        render_metadata_hints(result, metadata, dim);
+    if show_detail {
+        if let Some(metadata) = entry.tool_metadata.as_ref() {
+            render_metadata_hints(result, metadata, dim);
+        }
     }
-    let green = ratatui::style::Style::default().fg(Color::LightGreen);
-    let red_dim = ratatui::style::Style::default().fg(Color::LightRed);
     render_summary_lines(result, &summary_result.lines, dim, green, red, red_dim);
+    if !show_detail {
+        return;
+    }
     if !summary_result.hide_body_by_default
         && summary_result.lines.is_empty()
         && !entry.content.is_empty()
@@ -669,6 +682,7 @@ mod tests {
             Style::default(),
             Style::default(),
             Style::default(),
+            true,
         );
         assert!(result[0].0.contains("⏺ Read .../src/main.rs"));
         assert!(result[0].0.contains("ctrl+o to inspect"));
@@ -709,6 +723,7 @@ mod tests {
             Style::default(),
             Style::default(),
             Style::default(),
+            true,
         );
         assert!(result
             .iter()
@@ -739,6 +754,7 @@ mod tests {
             Style::default(),
             Style::default(),
             Style::default(),
+            true,
         );
         assert!(result[0].0.contains("PowerShell"));
         assert!(result[0].0.contains("ctrl+o to inspect"));
@@ -795,6 +811,7 @@ mod tests {
             Style::default(),
             Style::default(),
             Style::default(),
+            true,
         );
         assert!(result[0].0.contains("Bash"));
         assert!(result.iter().all(|line| !line.0.contains("stdout")));

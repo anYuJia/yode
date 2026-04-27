@@ -63,7 +63,7 @@ pub fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &
                 ),
                 Span::styled(working_label, Style::default().fg(Color::LightMagenta)),
                 Span::styled(
-                    format!(" ({} · ↓{} tokens)", elapsed, format_tok(output_tok)),
+                    format!(" ({} · ↓{} tok)", elapsed, format_tok(output_tok)),
                     Style::default().fg(Color::DarkGray),
                 ),
             ];
@@ -78,7 +78,7 @@ pub fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &
             let turn_out = app.session.turn_output_tokens;
             let mut spans = vec![Span::styled(
                 format!(
-                    "  ⚡ Completed · {} (↓{} tokens)",
+                    "  ⚡ Completed · {} (↓{} tok)",
                     elapsed_str,
                     format_tok(turn_out)
                 ),
@@ -265,7 +265,7 @@ mod tests {
 
     use crate::app::{App, ChatEntry, ChatRole};
 
-    use super::{active_working_hint, active_working_label};
+    use super::{active_working_hint, active_working_label, format_tok};
 
     fn test_app() -> App {
         App::new(
@@ -310,6 +310,11 @@ mod tests {
     fn working_label_falls_back_to_turn_verb_without_active_batch() {
         let app = test_app();
         assert_eq!(active_working_label(&app, "Analyzing"), "Analyzing…");
+    }
+
+    #[test]
+    fn working_and_done_status_use_compact_tok_suffix() {
+        assert_eq!(format_tok(1200), "1.2k");
     }
 
     #[test]

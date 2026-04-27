@@ -997,4 +997,18 @@ mod tests {
         println!("\n## Transcript Summary\n");
         println!("{}", transcript_summary);
     }
+
+    #[test]
+    fn conversation_export_preserves_plain_url_text() {
+        let entries = vec![
+            ChatEntry::new(ChatRole::Assistant, "See https://example.com/docs".to_string()),
+            ChatEntry::new(
+                ChatRole::System,
+                "Session memory updated · ref · https://docs.rs".to_string(),
+            ),
+        ];
+        let body = render_conversation_body(&entries);
+        assert!(body.contains("https://example.com/docs"));
+        assert!(body.contains("https://docs.rs"));
+    }
 }

@@ -156,4 +156,17 @@ mod tests {
         assert!(view.detail_lines[0].ends_with("..."));
         assert!(view.detail_lines[0].chars().count() < content.chars().count());
     }
+
+    #[test]
+    fn error_titles_keep_consistent_sentence_case() {
+        assert_eq!(
+            parse_error_view("invalid api key").title,
+            "Authentication failed"
+        );
+        assert_eq!(
+            parse_error_view("rate limit exceeded").title,
+            "Rate limited"
+        );
+        assert_eq!(parse_error_view("something odd happened").title, "Error");
+    }
 }

@@ -17,7 +17,7 @@
 
 当前进度：
 
-- `0 / 100` 已完成
+- `5 / 100` 已完成
 
 ## 001-010 Transcript Deepening
 
@@ -99,11 +99,11 @@
 
 ## 061-070 Snapshot Infrastructure
 
-- `[ ]` 061 snapshot script per-section splitter
-- `[ ]` 062 snapshot script diff helper
-- `[ ]` 063 snapshot script stderr filtering pass
-- `[ ]` 064 benchmark snapshot section labeling
-- `[ ]` 065 snapshot README integration
+- `[x]` 061 snapshot script per-section splitter
+- `[x]` 062 snapshot script diff helper
+- `[x]` 063 snapshot script stderr filtering pass
+- `[x]` 064 benchmark snapshot section labeling
+- `[x]` 065 snapshot README integration
 - `[ ]` 066 inspector snapshot catalog script
 - `[ ]` 067 export snapshot catalog script
 - `[ ]` 068 remote snapshot catalog script

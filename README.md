@@ -155,6 +155,17 @@ Yode surfaces more than "which tools are loaded":
 | `/workflows` | Workflow inspection and run prompts |
 | `/checkpoint` | Save/restore/branch/rewind/rollback session state |
 
+## Regression Snapshots
+
+- `./scripts/output-regression-snapshot.sh`
+  Writes a multi-surface output snapshot to `.yode/benchmarks/output-regression-snapshot.md`.
+- `./scripts/split-output-regression-snapshot.sh`
+  Splits the combined output snapshot into per-section markdown files.
+- `./scripts/diff-output-regression-snapshot.sh`
+  Regenerates the snapshot in a temp dir and diffs it against the saved baseline.
+- `./scripts/benchmark-snapshot.sh`
+  Writes the long-session benchmark snapshot to `.yode/benchmarks/long-session-benchmark.md`.
+
 ## CLI Entry Points
 
 | Command | Description |

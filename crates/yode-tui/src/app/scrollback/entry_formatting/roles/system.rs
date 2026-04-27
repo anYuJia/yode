@@ -6,7 +6,7 @@ use crate::system_message::{
 };
 use crate::tool_grouping::SystemBatch;
 
-pub(super) fn render_system_entry(entry: &ChatEntry) -> Vec<(String, Style)> {
+pub(super) fn render_system_entry(entry: &ChatEntry, show_detail: bool) -> Vec<(String, Style)> {
     let view = parse_system_message(&entry.content);
     if view.title.is_empty() {
         return vec![(String::new(), Style::default().fg(Color::Gray))];
@@ -14,17 +14,19 @@ pub(super) fn render_system_entry(entry: &ChatEntry) -> Vec<(String, Style)> {
 
     let (prefix, title_style, detail_style) = system_styles(view.kind);
     let mut result = vec![(format!("{}{}", prefix, view.title), title_style)];
-    if let Some(first_detail) = view.detail_lines.first() {
-        result.push((
-            format!("    {}", format_system_detail_line(first_detail)),
-            detail_style,
-        ));
-    }
-    if view.detail_lines.len() > 1 {
-        result.push((
-            format!("    … +{} more lines (ctrl+o to inspect)", view.detail_lines.len() - 1),
-            Style::default().fg(Color::Gray),
-        ));
+    if show_detail {
+        if let Some(first_detail) = view.detail_lines.first() {
+            result.push((
+                format!("    {}", format_system_detail_line(first_detail)),
+                detail_style,
+            ));
+        }
+        if view.detail_lines.len() > 1 {
+            result.push((
+                format!("    … +{} more lines (ctrl+o to inspect)", view.detail_lines.len() - 1),
+                Style::default().fg(Color::Gray),
+            ));
+        }
     }
     result.push((
         "    ctrl+o to inspect".to_string(),
@@ -176,7 +178,7 @@ mod tests {
             "Session memory updated · summary · /tmp/live.md\nnote · older context trimmed"
                 .to_string(),
         );
-        let lines = render_system_entry(&entry);
+        let lines = render_system_entry(&entry, true);
         assert!(lines[0].0.contains("Session memory updated"));
         assert!(lines[1].0.contains("/tmp/live.md"));
         assert!(lines[2].0.contains("+1 more lines"));
@@ -318,7 +320,7 @@ mod tests {
             "Turn completed · 1.4s · 3 tools · 1.2k↑ 180↓ tok\nsession · 15.4k total tok · 34 tools"
                 .to_string(),
         );
-        let lines = render_system_entry(&entry);
+        let lines = render_system_entry(&entry, true);
         assert!(lines[0].0.contains("Turn completed"));
         assert!(lines[1].0.contains("1.4s · 3 tools"));
         assert!(lines[2].0.contains("+1 more lines"));

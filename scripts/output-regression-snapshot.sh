@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+source "$(dirname "$0")/snapshot-lib.sh"
+
 out_dir="${1:-.yode/benchmarks}"
 mkdir -p "$out_dir"
 out_file="$out_dir/output-regression-snapshot.md"
@@ -9,13 +11,11 @@ out_file="$out_dir/output-regression-snapshot.md"
 
 append_snapshot() {
   local test_name="$1"
-  cargo test -p yode-tui "$test_name" -- --nocapture 2>&1 \
-    | awk -v test_name="$test_name" '
-        /^#/ { capture=1 }
-        capture && $0 ~ ("^test .*" test_name) { exit }
-        capture && /^test result:/ { exit }
-        capture { print }
-      ' >> "$out_file"
+  local tmp
+  tmp="$(mktemp)"
+  run_snapshot_capture "$test_name" '^#' "$tmp"
+  cat "$tmp" >> "$out_file"
+  rm -f "$tmp"
   printf "\n" >> "$out_file"
 }
 

@@ -369,6 +369,22 @@ mod tests {
     }
 
     #[test]
+    fn system_titles_keep_sentence_case_without_trailing_periods() {
+        assert_eq!(
+            parse_system_message("Session resumed.").title,
+            "Session resumed"
+        );
+        assert_eq!(
+            parse_system_message("Turn completed · 1.4s · 3 tools").title,
+            "Turn completed"
+        );
+        assert_eq!(
+            parse_system_message("Context compressed · auto · -4 msgs").title,
+            "Context compressed"
+        );
+    }
+
+    #[test]
     fn append_grouped_system_entry_merges_semantic_duplicates() {
         let mut entries = vec![ChatEntry::new(
             ChatRole::System,
