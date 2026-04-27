@@ -17,7 +17,7 @@
 
 当前进度：
 
-- `5 / 100` 已完成
+- `10 / 100` 已完成
 
 ## 001-010 Transcript Deepening
 
@@ -104,11 +104,11 @@
 - `[x]` 063 snapshot script stderr filtering pass
 - `[x]` 064 benchmark snapshot section labeling
 - `[x]` 065 snapshot README integration
-- `[ ]` 066 inspector snapshot catalog script
-- `[ ]` 067 export snapshot catalog script
-- `[ ]` 068 remote snapshot catalog script
-- `[ ]` 069 transcript snapshot catalog script
-- `[ ]` 070 snapshot artifact freshness badge in generated docs
+- `[x]` 066 inspector snapshot catalog script
+- `[x]` 067 export snapshot catalog script
+- `[x]` 068 remote snapshot catalog script
+- `[x]` 069 transcript snapshot catalog script
+- `[x]` 070 snapshot artifact freshness badge in generated docs
 
 ## 071-080 Wording Audits
 
