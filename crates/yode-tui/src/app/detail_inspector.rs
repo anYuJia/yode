@@ -20,6 +20,7 @@ pub(crate) const INSPECTOR_CONFIRM_ALWAYS: &str = "__yode_confirm_always__";
 pub(crate) const INSPECTOR_CONFIRM_DENY: &str = "__yode_confirm_deny__";
 
 const INSPECTOR_MARKDOWN_WIDTH: usize = 100;
+const RAW_PANEL_LABEL: &str = "Raw";
 
 pub(crate) fn open_pending_confirmation_inspector(app: &mut App) -> bool {
     let Some(confirm) = app.pending_confirmation.as_ref() else {
@@ -249,7 +250,7 @@ fn build_system_entry_document(entry: &ChatEntry) -> InspectorDocument {
 
     if let Some(raw_lines) = system_raw_panel_lines(entry, &view) {
         panels.push(PanelSpec {
-            label: "Raw".to_string(),
+            label: RAW_PANEL_LABEL.to_string(),
             lines: render_markdown_panel_lines(&raw_lines.join("\n")),
             badges,
             actions,
@@ -280,7 +281,7 @@ fn build_error_entry_document(entry: &ChatEntry) -> InspectorDocument {
         actions: recovery_actions.clone(),
     }];
     panels.push(PanelSpec {
-        label: "Raw".to_string(),
+        label: RAW_PANEL_LABEL.to_string(),
         lines: render_markdown_panel_lines(&entry.content),
         badges,
         actions: recovery_actions,

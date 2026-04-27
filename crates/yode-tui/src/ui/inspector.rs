@@ -347,7 +347,7 @@ pub(crate) fn multi_pane_title_strip(
         }
         let label = tab
             .item_count
-            .map(|count| format!("{} ({})", tab.label, count))
+            .map(|count| format!("{} ·{}", tab.label, compact_tab_count(count)))
             .unwrap_or_else(|| tab.label.clone());
         let style = if index == selected {
             Style::default()
@@ -364,7 +364,9 @@ pub(crate) fn multi_pane_title_strip(
 
 pub(crate) fn inspector_status_badge_row(badges: &[(&str, &str)], accent: Color) -> Line<'static> {
     let mut spans = vec![Span::styled("  ", Style::default())];
-    for (index, (label, value)) in badges.iter().enumerate() {
+    let mut ordered = badges.to_vec();
+    ordered.sort_by_key(|(label, _)| badge_priority(label));
+    for (index, (label, value)) in ordered.iter().enumerate() {
         if index > 0 {
             spans.push(Span::raw(" "));
         }
@@ -478,10 +480,38 @@ fn compact_inspector_footer_note(note: &str) -> Option<String> {
     }
 }
 
+fn compact_tab_count(count: usize) -> String {
+    if count >= 100 {
+        "99+".to_string()
+    } else {
+        count.to_string()
+    }
+}
+
+fn badge_priority(label: &str) -> usize {
+    match label {
+        "state" => 0,
+        "severity" => 1,
+        "kind" => 2,
+        "content" => 3,
+        "reasoning" => 4,
+        "summary" => 5,
+        "access" => 6,
+        "mode" => 7,
+        "warning" => 8,
+        "hint" => 9,
+        "diff" => 10,
+        "output" => 11,
+        _ => 20,
+    }
+}
+
 pub(crate) fn render_inspector(frame: &mut Frame, area: Rect, document: &InspectorDocument) {
     let Some(panel) = document.active_panel() else {
         return;
     };
+    let filtered = document.filtered_indices();
+    let total = filtered.len();
 
     let mut lines = vec![Line::from(vec![Span::styled(
         format!("  {} ", document.state.title),
@@ -498,7 +528,13 @@ pub(crate) fn render_inspector(frame: &mut Frame, area: Rect, document: &Inspect
                 InspectorFocus::Actions => "actions",
             },
             document.tab_cycle_summary(),
-            if document.state.search_active || !document.state.search_query.is_empty() {
+            if matches!(document.state.focus, InspectorFocus::Body) && total > 0 {
+                format!(
+                    " · line {}/{}",
+                    document.state.selected_line.min(total.saturating_sub(1)) + 1,
+                    total
+                )
+            } else if document.state.search_active || !document.state.search_query.is_empty() {
                 format!(" · / {}", document.state.search_query)
             } else if let Some(last_action) = &document.state.last_action_label {
                 format!(
@@ -550,8 +586,6 @@ pub(crate) fn render_inspector(frame: &mut Frame, area: Rect, document: &Inspect
     }
     lines.push(section_title_line(&panel.tab.label, PANEL_ACCENT));
 
-    let filtered = document.filtered_indices();
-    let total = filtered.len();
     let start = document.state.scroll_offset.min(total);
     let end = (start + 12).min(total);
     if start == end {
@@ -649,9 +683,15 @@ mod tests {
             Color::Yellow,
             Color::Gray,
         );
-        assert!(line.to_string().contains("Timeline (2)"));
+        assert!(line.to_string().contains("Timeline ·2"));
         let badges = inspector_status_badge_row(&[("status", "running")], Color::Yellow);
         assert!(badges.to_string().contains("status=running"));
+        let ordered = inspector_status_badge_row(
+            &[("hint", "rewrite"), ("state", "running"), ("severity", "warn")],
+            Color::Yellow,
+        )
+        .to_string();
+        assert!(ordered.find("state=running").unwrap() < ordered.find("hint=rewrite").unwrap());
         let actions = inspector_action_row(
             &[InspectorAction {
                 label: "rerun".to_string(),
