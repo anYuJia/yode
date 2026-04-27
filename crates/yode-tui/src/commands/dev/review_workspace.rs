@@ -22,7 +22,7 @@ pub(crate) fn review_summary_pane(path: &std::path::Path, content: &str) -> Stri
         .collect::<Vec<_>>()
         .join(" | ");
     format!(
-        "{}\n  Badge:  {}\n  Preview: {}{}",
+        "{}\n  Result: {} · {}{}",
         review_metadata_section(path, content),
         compact_review_status_badge(content),
         if preview.is_empty() { "none" } else { &preview },
@@ -84,7 +84,7 @@ mod tests {
         let pane =
             review_summary_pane(path, "```text\nNo issues found.\nResidual risk: none.\n```");
         assert!(pane.contains("/tmp/review.md"));
-        assert!(pane.contains("Preview"));
+        assert!(pane.contains("Result: clean"));
     }
 
     #[test]

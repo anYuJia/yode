@@ -42,9 +42,9 @@ pub(super) fn workflow_remote_bridge_follow_up(project_root: &Path) -> Vec<Strin
     let Some(path) = latest_artifact_by_suffix(&remote_dir, "remote-workflow-capability.json")
     else {
         return vec![
-            "status: unknown".to_string(),
-            "artifact: none".to_string(),
-            "follow-up: /doctor remote-review".to_string(),
+            "status=unknown".to_string(),
+            "artifact=none".to_string(),
+            "next=/doctor remote-review".to_string(),
         ];
     };
 
@@ -58,15 +58,15 @@ pub(super) fn workflow_remote_bridge_follow_up(project_root: &Path) -> Vec<Strin
         .unwrap_or("unknown");
     vec![
         format!(
-            "status: {}",
+            "status={}",
             if missing == "none" {
                 "ready".to_string()
             } else {
                 format!("missing {}", missing)
             }
         ),
-        format!("artifact: {}", path.display()),
-        "follow-up: /doctor remote-review".to_string(),
+        format!("artifact={}", path.display()),
+        "next=/doctor remote-review".to_string(),
     ]
 }
 
@@ -101,7 +101,7 @@ pub(super) fn write_workflow_execution_artifact(
         .collect::<Vec<_>>()
         .join("\n");
     let body = format!(
-        "# Workflow Execution\n\n- Name: {}\n- Mode: {}\n- Definition: {}\n- Description: {}\n- Prompt: {}\n\nSteps:\n{}\n\nRemote bridge:\n{}\n\nJump targets:\n{}\n",
+        "# Workflow Execution\n\n- Name: {}\n- Mode: {}\n- Definition: {}\n- Description: {}\n- Prompt: {}\n\n## Steps\n{}\n\n## Remote\n{}\n\n## Jump\n{}\n",
         name,
         mode,
         definition_path.display(),
@@ -169,7 +169,7 @@ mod tests {
         )
         .unwrap();
         let lines = workflow_remote_bridge_follow_up(&dir);
-        assert!(lines[0].contains("ready"));
+        assert!(lines[0].contains("status=ready"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -194,7 +194,7 @@ mod tests {
         .unwrap();
         let content = std::fs::read_to_string(path).unwrap();
         assert!(content.contains("# Workflow Execution"));
-        assert!(content.contains("Jump targets:"));
+        assert!(content.contains("## Jump"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -18,7 +18,7 @@
 
 当前进度：
 
-- `68 / 100` 已完成
+- `72 / 100` 已完成
 
 ## 001-010 Snapshot Hardening
 
@@ -65,12 +65,12 @@
 - `[x]` 032 remote queue summary density pass
 - `[x]` 033 remote retry summary density pass
 - `[x]` 034 remote bundle inspector affordance pass
-- `[ ]` 035 workflow preview output density pass
+- `[x]` 035 workflow preview output density pass
 - `[ ]` 036 workflow inspector action copy polish
-- `[ ]` 037 coordinator summary density pass
+- `[x]` 037 coordinator summary density pass
 - `[ ]` 038 orchestration timeline wording pass
-- `[ ]` 039 review artifact preview density pass
-- `[ ]` 040 review result framing parity
+- `[x]` 039 review artifact preview density pass
+- `[x]` 040 review result framing parity
 
 ## 041-050 Inspector Phase Two
 

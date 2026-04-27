@@ -40,7 +40,7 @@ pub(crate) fn write_coordinator_summary_artifact(
     let short_session = session_id.chars().take(8).collect::<String>();
     let path = dir.join(format!("{}-coordinate-summary.md", short_session));
     let body = format!(
-        "# Coordinator Summary\n\n- Goal: {}\n- Dry run artifact: {}\n- Timeline artifact: {}\n- Prompt: {}\n\nOperator notes:\n- start from the dry-run artifact before launching real workstreams\n- merge workflow/coordinator state through `/coordinate timeline`\n- keep remote review checks explicit when the workspace is remote\n\nJump targets:\n{}\n",
+        "# Coordinator Summary\n\n- Goal: {}\n- Dry run artifact: {}\n- Timeline artifact: {}\n- Prompt: {}\n\n## Notes\n- start from the dry-run artifact before launching real workstreams\n- merge workflow/coordinator state through `/coordinate timeline`\n- keep remote review checks explicit when the workspace is remote\n\n## Jump\n{}\n",
         goal,
         dry_run_artifact.unwrap_or("none"),
         timeline_artifact.unwrap_or("none"),
@@ -104,6 +104,7 @@ mod tests {
         let content = std::fs::read_to_string(path).unwrap();
         assert!(content.contains("# Coordinator Summary"));
         assert!(content.contains("/tmp/timeline.md"));
+        assert!(content.contains("## Jump"));
         assert!(coordinator_jump_targets()
             .iter()
             .any(|target| target.contains("/coordinate timeline")));
