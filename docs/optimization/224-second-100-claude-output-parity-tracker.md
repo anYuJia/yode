@@ -18,7 +18,7 @@
 
 当前进度：
 
-- `61 / 100` 已完成
+- `62 / 100` 已完成
 
 ## 001-010 Snapshot Hardening
 
@@ -91,7 +91,7 @@
 - `[x]` 052 confirm network risk copy refinement
 - `[x]` 053 confirm file-write risk copy refinement
 - `[x]` 054 confirm option emphasis hierarchy polish
-- `[ ]` 055 confirm inline command wrapping parity
+- `[x]` 055 confirm inline command wrapping parity
 - `[x]` 056 confirm inspector reopen affordance
 - `[ ]` 057 confirm host/path mixed preview density pass
 - `[ ]` 058 confirm background-task approval copy pass

@@ -257,6 +257,10 @@ fn tool_activity_summary(app: &App, tool_name: &str, args_json: &str) -> String 
         Err(_) => return "Pending tool execution".to_string(),
     };
 
+    if matches!(tool_name, "bash" | "powershell") {
+        return shell_command_activity_summary(parsed["command"].as_str().unwrap_or("command"));
+    }
+
     if let Some(description) = describe_groupable_tool_call(tool_name, &parsed, true) {
         return description;
     }
@@ -269,10 +273,6 @@ fn tool_activity_summary(app: &App, tool_name: &str, args_json: &str) -> String 
     }
 
     match tool_name {
-        "bash" | "powershell" => {
-            let cmd = parsed["command"].as_str().unwrap_or("command");
-            format!("Run {}", truncate_str(cmd, 60))
-        }
         "edit_file" | "write_file" => {
             format!(
                 "Update {}",
@@ -454,6 +454,16 @@ fn shell_command_preview(command: &str) -> String {
     }
 }
 
+fn shell_command_activity_summary(command: &str) -> String {
+    let lines = command.lines().collect::<Vec<_>>();
+    let head = lines.first().copied().unwrap_or("command");
+    if lines.len() > 1 {
+        format!("Run {} ↳ +{} more lines", truncate_str(head, 60), lines.len() - 1)
+    } else {
+        format!("Run {}", truncate_str(head, 60))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -495,6 +505,17 @@ mod tests {
         let summary =
             tool_activity_summary(&app, "read_file", r#"{"file_path":"/tmp/src/main.rs"}"#);
         assert_eq!(summary, "Reading .../src/main.rs");
+    }
+
+    #[test]
+    fn confirmation_activity_summary_folds_multiline_shell_commands() {
+        let app = test_app();
+        let summary = tool_activity_summary(
+            &app,
+            "bash",
+            r#"{"command":"python main.py\npytest -q\ncargo test"}"#,
+        );
+        assert_eq!(summary, "Run python main.py ↳ +2 more lines");
     }
 
     #[test]
