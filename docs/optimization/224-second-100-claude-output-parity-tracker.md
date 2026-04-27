@@ -18,7 +18,7 @@
 
 当前进度：
 
-- `62 / 100` 已完成
+- `64 / 100` 已完成
 
 ## 001-010 Snapshot Hardening
 
@@ -93,7 +93,7 @@
 - `[x]` 054 confirm option emphasis hierarchy polish
 - `[x]` 055 confirm inline command wrapping parity
 - `[x]` 056 confirm inspector reopen affordance
-- `[ ]` 057 confirm host/path mixed preview density pass
+- `[x]` 057 confirm host/path mixed preview density pass
 - `[ ]` 058 confirm background-task approval copy pass
 - `[x]` 059 confirm multiline preview continuation style
 - `[x]` 060 confirm final safety copy audit
@@ -115,7 +115,7 @@
 
 - `[x]` 071 system detail hyperlink coverage expansion
 - `[x]` 072 error detail hyperlink coverage expansion
-- `[ ]` 073 confirm preview hyperlink coverage audit
+- `[x]` 073 confirm preview hyperlink coverage audit
 - `[ ]` 074 artifact preview hyperlink coverage audit
 - `[ ]` 075 transcript export hyperlink preservation audit
 - `[ ]` 076 markdown bullet spacing parity pass

@@ -6,6 +6,7 @@ use ratatui::Frame;
 
 use super::palette::{BORDER_MUTED, ERROR_COLOR, LIGHT, MUTED, PANEL_ACCENT, SELECT_BG};
 use super::panels::preview_empty_state;
+use crate::ui::chat::render_markdown_white_with_options;
 use crate::app::App;
 use crate::display_text::{compact_path_tail as compact_path, human_tool_display_name};
 use crate::tool_grouping::describe_groupable_tool_call;
@@ -115,6 +116,9 @@ pub fn render_inline_confirm(frame: &mut Frame, area: Rect, app: &App) {
             format!("   {}", truncate_str(&preview, truncate_width)),
             Style::default().fg(MUTED),
         )]));
+    }
+    if let Some(url) = confirm_full_url_preview(&confirm.name, &confirm.arguments) {
+        lines.extend(prefixed_markdown_lines("   url · ", &url, truncate_width));
     }
     lines.push(Line::from(vec![Span::styled(
         " This command requires approval",
@@ -444,6 +448,27 @@ fn compact_url_host(url: &str) -> String {
         .to_string()
 }
 
+fn confirm_full_url_preview(tool_name: &str, args_json: &str) -> Option<String> {
+    if tool_name != "web_fetch" {
+        return None;
+    }
+    serde_json::from_str::<serde_json::Value>(args_json)
+        .ok()
+        .and_then(|parsed| parsed.get("url").and_then(|value| value.as_str()).map(str::to_string))
+}
+
+fn prefixed_markdown_lines(prefix: &str, text: &str, max_width: usize) -> Vec<Line<'static>> {
+    let rendered = render_markdown_white_with_options(text, Some(max_width), true);
+    let mut lines = Vec::new();
+    for (index, line) in rendered.into_iter().enumerate() {
+        let prefix_text = if index == 0 { prefix } else { "         " };
+        let mut spans = vec![Span::styled(prefix_text.to_string(), Style::default().fg(MUTED))];
+        spans.extend(line.spans);
+        lines.push(Line::from(spans));
+    }
+    lines
+}
+
 fn shell_command_preview(command: &str) -> String {
     let lines = command.lines().collect::<Vec<_>>();
     let head = lines.first().copied().unwrap_or("command");
@@ -563,6 +588,18 @@ mod tests {
             r#"{"url":"https://docs.rs/ratatui/latest/ratatui/widgets/struct.Paragraph.html"}"#,
         );
         assert_eq!(preview, "host · docs.rs");
+    }
+
+    #[test]
+    fn confirmation_full_url_preview_keeps_hyperlinked_url() {
+        let lines = super::prefixed_markdown_lines(
+            "   url · ",
+            "https://docs.rs/ratatui/latest/ratatui/widgets/struct.Paragraph.html",
+            96,
+        );
+        assert!(lines
+            .iter()
+            .any(|line| line.to_string().contains("\u{1b}]8;;https://docs.rs/ratatui/latest/ratatui/widgets/struct.Paragraph.html")));
     }
 
     #[test]
