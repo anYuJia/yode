@@ -119,8 +119,9 @@ impl Command for ExportCommand {
             Ok(mut file) => {
                 if let Err(e) = file.write_all(content.as_bytes()) {
                     return Ok(CommandOutput::Message(format!(
-                        "Failed to write file: {}",
-                        e
+                        "Failed to write {}: {}",
+                        compact_path_tail(&filepath.display().to_string()),
+                        e,
                     )));
                 }
                 Ok(CommandOutput::Message(format!(
@@ -129,8 +130,9 @@ impl Command for ExportCommand {
                 )))
             }
             Err(e) => Ok(CommandOutput::Message(format!(
-                "Failed to create file: {}",
-                e
+                "Failed to create {}: {}",
+                compact_path_tail(&filepath.display().to_string()),
+                e,
             ))),
         }
     }
@@ -553,7 +555,7 @@ fn render_workspace_index(
     };
     format!(
         "# Workspace Index\n\n## Summary\n\n- Bundle: {}\n- Runtime: {}\n- Context: {}\n- Tools: {}\n- Tasks: total {} / running {}\n- Conversation: {}\n- Runtime summary: {}\n- Runtime timeline: {}\n- Prompt cache: {}\n- Doctor refs: {}\n\n## Jump\n\n- Status: /status · /diagnostics · /doctor bundle\n- Work: /tasks latest · /memory latest · /reviews latest\n\n## Orchestration\n\n- workflow: {}\n- coordinator: {}\n- timeline: {}\n\n## Inspect\n\n- Overview: /inspect artifact summary · bundle\n- Flow: /inspect artifact latest-workflow · latest-coordinate · latest-orchestration\n- Runtime: /inspect artifact latest-runtime-timeline · latest-prompt-cache · latest-prompt-cache-state\n- Cache: /inspect artifact latest-prompt-cache-events · latest-prompt-cache-break · latest-prompt-cache-diff\n- Restore: /inspect artifact latest-post-compact-restore · latest-post-compact-restore-state · latest-post-compact-restore-diff\n- Refs: /inspect artifact latest-provider-inventory · latest-review · latest-transcript\n",
-        bundle_dir.display(),
+        compact_path_tail(&bundle_dir.display().to_string()),
         runtime_line,
         context_line,
         tool_line,
@@ -843,6 +845,7 @@ mod tests {
             "timeline",
         );
         assert!(rendered.contains("## Summary"));
+        assert!(rendered.contains("- Bundle: .../tmp/bundle"));
         assert!(rendered.contains("- Runtime:"));
         assert!(rendered.contains("## Jump"));
         assert!(rendered.contains("## Inspect"));

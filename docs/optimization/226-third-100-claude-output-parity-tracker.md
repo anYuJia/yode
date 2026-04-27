@@ -17,7 +17,7 @@
 
 当前进度：
 
-- `10 / 100` 已完成
+- `12 / 100` 已完成
 
 ## 001-010 Transcript Deepening
 
@@ -81,8 +81,8 @@
 - `[ ]` 046 artifact history refresh hint density pass
 - `[ ]` 047 artifact summary alias ordering audit
 - `[ ]` 048 artifact inspector freshness copy polish
-- `[ ]` 049 export failure message compactness pass
-- `[ ]` 050 bundle path breadcrumb density pass
+- `[x]` 049 export failure message compactness pass
+- `[x]` 050 bundle path breadcrumb density pass
 
 ## 051-060 Hooks / Tasks / Recovery
 
