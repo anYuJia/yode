@@ -45,7 +45,7 @@ pub(crate) fn fold_review_preview_for_workspace(content: &str) -> String {
     let mut output = lines[..HEAD.min(lines.len())].join("\n");
     let omitted = lines.len().saturating_sub(HEAD + TAIL);
     output.push_str(&format!(
-        "\n\n... [review workspace preview folded: {} middle lines omitted] ...\n\n",
+        "\n\n... [review preview folded: {} middle lines omitted] ...\n\n",
         omitted
     ));
     output.push_str(&lines[lines.len() - TAIL.min(lines.len())..].join("\n"));
@@ -85,6 +85,7 @@ mod tests {
             review_summary_pane(path, "```text\nNo issues found.\nResidual risk: none.\n```");
         assert!(pane.contains("/tmp/review.md"));
         assert!(pane.contains("Result: clean"));
+        assert!(pane.contains("risk: none"));
     }
 
     #[test]
@@ -94,7 +95,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         let folded = fold_review_preview_for_workspace(&content);
-        assert!(folded.contains("review workspace preview folded"));
+        assert!(folded.contains("review preview folded"));
     }
 
     #[test]

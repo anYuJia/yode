@@ -17,7 +17,7 @@
 
 当前进度：
 
-- `12 / 100` 已完成
+- `15 / 100` 已完成
 
 ## 001-010 Transcript Deepening
 
@@ -50,13 +50,13 @@
 - `[ ]` 021 remote live-session summary density pass
 - `[ ]` 022 remote queue execution artifact compactness pass
 - `[ ]` 023 remote transport event preview density pass
-- `[ ]` 024 workflow show output density pass
+- `[x]` 024 workflow show output density pass
 - `[ ]` 025 workflow preview output density second pass
-- `[ ]` 026 workflow write-mode wording polish
+- `[x]` 026 workflow write-mode wording polish
 - `[ ]` 027 coordinator dry-run artifact density pass
 - `[ ]` 028 review workspace fold marker wording pass
 - `[ ]` 029 review artifact badge wording pass
-- `[ ]` 030 review residual-risk phrasing polish
+- `[x]` 030 review residual-risk phrasing polish
 
 ## 031-040 Inspector / Confirm
 

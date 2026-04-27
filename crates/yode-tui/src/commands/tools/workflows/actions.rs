@@ -253,9 +253,9 @@ fn render_show_workflow(dir: &Path, name: String) -> Result<String, String> {
             .and_then(|value| value.as_str())
             .unwrap_or("none"),
         if write_capable {
-            "write-capable (use /workflows run-write)"
+            "write-enabled · /workflows run-write"
         } else {
-            "safe read-only (use /workflows run)"
+            "safe · /workflows run"
         },
         rendered_steps,
     );
@@ -317,9 +317,9 @@ fn render_preview_workflow(dir: &Path, name: String) -> Result<String, String> {
                 .and_then(|value| value.as_str())
                 .unwrap_or("none"),
             if workflow_requires_write_mode(&steps) {
-                "write-capable"
+                "write-enabled"
             } else {
-                "safe read-only"
+                "safe"
             },
             rendered_steps,
         ),

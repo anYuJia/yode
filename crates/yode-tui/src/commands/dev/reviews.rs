@@ -330,7 +330,7 @@ mod tests {
         }
 
         let folded = fold_review_preview_for_workspace(&content);
-        assert!(folded.contains("review workspace preview folded"));
+        assert!(folded.contains("review preview folded"));
         assert!(folded.contains("line 199"));
     }
 }

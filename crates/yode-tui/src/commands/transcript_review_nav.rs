@@ -100,7 +100,7 @@ pub(crate) fn residual_risk_banner(content: &str) -> Option<String> {
     content
         .lines()
         .find(|line| line.to_lowercase().contains("residual risk"))
-        .map(|line| line.trim().to_string())
+        .map(|line| line.trim().replace("Residual risk:", "risk:"))
 }
 
 pub(crate) fn transcript_review_operator_guide(kind: &str) -> String {
@@ -163,7 +163,7 @@ mod tests {
         assert!(folded.contains("workspace diff folded"));
         assert_eq!(
             residual_risk_banner("Residual risk: medium").as_deref(),
-            Some("Residual risk: medium")
+            Some("risk: medium")
         );
         assert!(transcript_review_operator_guide("review").contains("/memory compare"));
     }
