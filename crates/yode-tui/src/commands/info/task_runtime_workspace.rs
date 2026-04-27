@@ -104,7 +104,7 @@ pub(super) fn task_follow_prompt(task_id: &str) -> String {
 
 pub(super) fn task_issue_template(task: &RuntimeTask) -> String {
     format!(
-        "# Task Runtime Issue\n\n- Task: {}\n- Kind: {}\n- Source tool: {}\n- Status: {:?}\n- Retry: try {}{}\n- Output: {}\n- Transcript: {}\n- Last progress: {}\n- Error: {}\n\n## Reproduction / Context\n\n- Describe what triggered this task.\n- Include relevant runtime timeline or diagnostics snippets.\n\n## Expected\n\n- Describe the expected task outcome.\n\n## Actual\n\n- Summarize the observed outcome and attach the output/transcript artifacts above.\n",
+        "# Task Issue\n\n- Task: {}\n- Kind: {}\n- Source: {}\n- Status: {:?}\n- Retry: try {}{}\n- Output: {}\n- Transcript: {}\n- Progress: {}\n- Error: {}\n\n## Context\n\n- Trigger:\n- Runtime/diagnostics refs:\n\n## Expected\n\n- Outcome:\n\n## Actual\n\n- Outcome:\n- Attach output/transcript artifacts above.\n",
         task.id,
         task.kind,
         task.source_tool,
@@ -207,7 +207,8 @@ mod tests {
         );
         assert!(task_follow_prompt("task-1").contains("task_output"));
         assert!(task_follow_prompt("task-1").contains("Summarize status, retries"));
-        assert!(task_issue_template(&task).contains("# Task Runtime Issue"));
+        assert!(task_issue_template(&task).contains("# Task Issue"));
+        assert!(task_issue_template(&task).contains("## Context"));
     }
 
     #[test]

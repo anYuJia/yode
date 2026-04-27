@@ -26,7 +26,10 @@ pub(super) fn render_task_list(tasks: Vec<yode_tools::RuntimeTask>) -> CommandRe
     }
     let mut tasks = tasks;
     sort_tasks_by_latest_activity(&mut tasks);
-    let mut lines = vec![format!("Runtime tasks ({})", tasks.len())];
+    let mut lines = vec![
+        format!("Task monitor ({})", tasks.len()),
+        "Sort: newest activity first".to_string(),
+    ];
     for (source_tool, grouped_tasks) in group_tasks_by_source_tool(tasks) {
         lines.push(format!(
             "Source tool: {} ({})",
@@ -35,7 +38,7 @@ pub(super) fn render_task_list(tasks: Vec<yode_tools::RuntimeTask>) -> CommandRe
         ));
         for task in grouped_tasks {
             lines.push(format!(
-                "{} [{}:{}] {} @ {} / {} / {}",
+                "{} [{}:{}] {} @ {} · {} · {}",
                 task.id,
                 task.kind,
                 task_status_label(&task.status),
@@ -215,7 +218,7 @@ pub(super) fn render_task_summary(
     });
 
     Ok(CommandOutput::Message(
-        WorkspaceText::new("Task runtime workspace")
+        WorkspaceText::new("Task monitor")
             .field("Total", total.to_string())
             .field("Running", running.to_string())
             .field("Failed", failed.to_string())
@@ -267,7 +270,7 @@ pub(super) fn task_matches_filter(task: &yode_tools::RuntimeTask, filter: &TaskF
 mod tests {
     use yode_tools::{RuntimeTask, RuntimeTaskStatus};
 
-    use super::{render_task_list, render_task_output};
+    use super::{render_task_list, render_task_output, render_task_summary};
 
     fn make_task(
         id: &str,
@@ -318,12 +321,35 @@ mod tests {
         .unwrap();
         match output {
             crate::commands::CommandOutput::Messages(lines) => {
+                assert_eq!(lines[0], "Task monitor (2)");
+                assert_eq!(lines[1], "Sort: newest activity first");
                 assert!(lines
                     .iter()
                     .any(|line| line.contains("Source tool: spawn_agent")));
                 assert!(lines.iter().any(|line| line.contains("Source tool: bash")));
             }
             _ => panic!("expected message list"),
+        }
+    }
+
+    #[test]
+    fn task_summary_uses_monitor_headline() {
+        let output = render_task_summary(
+            vec![make_task(
+                "task-1",
+                "bash",
+                RuntimeTaskStatus::Running,
+                "2026-01-01 00:00:02",
+            )],
+            None,
+        )
+        .unwrap();
+        match output {
+            crate::commands::CommandOutput::Message(body) => {
+                assert!(body.contains("Task monitor"));
+                assert!(body.contains("Freshness:"));
+            }
+            _ => panic!("expected message"),
         }
     }
 

@@ -8,7 +8,7 @@ use super::artifact_preview::preview_markdown;
 #[allow(dead_code)]
 pub(crate) fn hook_failure_summary(state: &EngineRuntimeState) -> String {
     format!(
-        "hook failure: {} [{}] {} / timeout={} ({})",
+        "hook fail: {} · {} · {} / timeout={} ({})",
         state.last_hook_failure_command.as_deref().unwrap_or("none"),
         state.last_hook_failure_event.as_deref().unwrap_or("none"),
         state.last_hook_failure_reason.as_deref().unwrap_or("none"),

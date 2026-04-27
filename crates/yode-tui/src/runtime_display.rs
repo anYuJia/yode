@@ -103,10 +103,10 @@ pub(crate) fn fold_recovery_breadcrumbs(breadcrumbs: &[String], max_items: usize
         return "none".to_string();
     }
     if breadcrumbs.len() <= max_items {
-        return breadcrumbs.join(" -> ");
+        return breadcrumbs.join(" · ");
     }
-    let tail = breadcrumbs[breadcrumbs.len() - max_items..].join(" -> ");
-    format!("+{} earlier -> {}", breadcrumbs.len() - max_items, tail)
+    let tail = breadcrumbs[breadcrumbs.len() - max_items..].join(" · ");
+    format!("+{} earlier · {}", breadcrumbs.len() - max_items, tail)
 }
 
 pub(crate) fn format_turn_artifact_status(path: Option<&str>) -> String {
@@ -347,7 +347,7 @@ mod tests {
             ],
             2,
         );
-        assert_eq!(folded, "+2 earlier -> tool -> recover");
+        assert_eq!(folded, "+2 earlier · tool · recover");
     }
 
     #[test]

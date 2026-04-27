@@ -17,7 +17,7 @@
 
 当前进度：
 
-- `52 / 100` 已完成
+- `58 / 100` 已完成
 
 ## 001-010 Transcript Deepening
 
@@ -86,14 +86,14 @@
 
 ## 051-060 Hooks / Tasks / Recovery
 
-- `[ ]` 051 hook failure timeline wording second pass
-- `[ ]` 052 hook deferred artifact wording second pass
+- `[x]` 051 hook failure timeline wording second pass
+- `[x]` 052 hook deferred artifact wording second pass
 - `[x]` 053 permission workspace suggestion density pass
-- `[ ]` 054 recovery workspace breadcrumb density pass
-- `[ ]` 055 task monitor headline density pass
-- `[ ]` 056 task issue template wording audit
+- `[x]` 054 recovery workspace breadcrumb density pass
+- `[x]` 055 task monitor headline density pass
+- `[x]` 056 task issue template wording audit
 - `[x]` 057 task follow prompt density pass
-- `[ ]` 058 task inventory sort-note wording pass
+- `[x]` 058 task inventory sort-note wording pass
 - `[x]` 059 runtime freshness banner wording audit
 - `[x]` 060 recovery/operator guide wording pass
 

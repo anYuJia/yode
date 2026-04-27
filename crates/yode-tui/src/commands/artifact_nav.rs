@@ -663,10 +663,10 @@ pub(crate) fn build_runtime_orchestration_timeline_lines(
         entries.push(artifact_timeline_entry(&path, "remote transcript sync"));
     }
     if let Some(path) = latest_hook_deferred_artifact(project_root) {
-        entries.push(artifact_timeline_entry(&path, "hook deferred"));
+        entries.push(artifact_timeline_entry(&path, "hook defer"));
     }
     if let Some(path) = latest_hook_deferred_state_artifact(project_root) {
-        entries.push(artifact_timeline_entry(&path, "hook deferred state"));
+        entries.push(artifact_timeline_entry(&path, "hook defer state"));
     }
     if let Some(path) = latest_agent_team_artifact(project_root) {
         entries.push(artifact_timeline_entry(&path, "agent team"));
@@ -914,15 +914,19 @@ mod tests {
     fn orchestration_timeline_writes_markdown() {
         let dir = std::env::temp_dir().join(format!("yode-orchestration-{}", uuid::Uuid::new_v4()));
         let status = dir.join(".yode").join("status");
+        let hooks = dir.join(".yode").join("hooks");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&status).unwrap();
+        std::fs::create_dir_all(&hooks).unwrap();
         std::fs::write(
             status.join("session-workflow-execution.md"),
             "# Workflow Execution\n\n- Name: demo\n",
         )
         .unwrap();
+        std::fs::write(hooks.join("session-hook-deferred.md"), "# Hook Deferred\n").unwrap();
         let lines = build_runtime_orchestration_timeline_lines(&dir, 4);
-        assert!(lines[0].contains("workflow execution"));
+        assert!(lines.iter().any(|line| line.contains("workflow execution")));
+        assert!(lines.iter().any(|line| line.contains("hook defer")));
         let path = write_runtime_orchestration_timeline_artifact(&dir, "session-1234").unwrap();
         let content = std::fs::read_to_string(path).unwrap();
         assert!(content.contains("Runtime Orchestration Timeline"));

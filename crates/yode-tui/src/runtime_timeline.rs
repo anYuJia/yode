@@ -166,7 +166,7 @@ pub(crate) fn build_runtime_timeline_lines_with_project_root(
         entries.push(RuntimeTimelineEntry {
             at: Some(at.to_string()),
             detail: format!(
-                "hook failure: {} [{}] {}",
+                "hook fail: {} · {} · {}",
                 state
                     .last_hook_failure_command
                     .as_deref()
@@ -188,7 +188,7 @@ pub(crate) fn build_runtime_timeline_lines_with_project_root(
         entries.push(RuntimeTimelineEntry {
             at: state.last_hook_failure_at.clone(),
             detail: format!(
-                "hook timeout: {} (count={})",
+                "hook timeout: {} · count={}",
                 state
                     .last_hook_timeout_command
                     .as_deref()
@@ -229,7 +229,7 @@ pub(crate) fn build_runtime_timeline_lines_with_project_root(
         if let Some(entry) =
             artifact_timeline_entry(state.last_recovery_artifact_path.as_deref(), |path| {
                 format!(
-                    "recovery state: {} / breadcrumbs={} / artifact={}",
+                    "recovery: {} · trail={} · artifact={}",
                     state.recovery_state,
                     fold_recovery_breadcrumbs(&state.recovery_breadcrumbs, 3),
                     path
@@ -241,7 +241,7 @@ pub(crate) fn build_runtime_timeline_lines_with_project_root(
             entries.push(RuntimeTimelineEntry {
                 at: None,
                 detail: format!(
-                    "recovery state: {} / breadcrumbs={} / artifact={}",
+                    "recovery: {} · trail={} · artifact={}",
                     state.recovery_state,
                     fold_recovery_breadcrumbs(&state.recovery_breadcrumbs, 3),
                     state
@@ -424,10 +424,10 @@ fn extend_with_runtime_family_entries(
     project_root: &Path,
 ) {
     for (path, label) in [
-        (latest_hook_deferred_artifact(project_root), "hook deferred"),
+        (latest_hook_deferred_artifact(project_root), "hook defer"),
         (
             latest_hook_deferred_state_artifact(project_root),
-            "hook deferred state",
+            "hook defer state",
         ),
         (
             latest_permission_governance_artifact(project_root),
@@ -775,17 +775,17 @@ mod tests {
             .any(|line| line.contains("context compacted: auto")));
         assert!(lines
             .iter()
-            .any(|line| line.contains("hook failure: scripts/pre-tool [pre_tool]")));
+            .any(|line| line.contains("hook fail: scripts/pre-tool · pre_tool")));
         assert!(lines
             .iter()
-            .any(|line| line.contains("hook timeout: scripts/pre-tool")));
+            .any(|line| line.contains("hook timeout: scripts/pre-tool · count=1")));
         assert!(lines
             .iter()
             .any(|line| line
                 .contains("permission decision: bash [confirm] needs approval / artifact=")));
         assert!(lines
             .iter()
-            .any(|line| line.contains("recovery state: SingleStepMode / breadcrumbs=")));
+            .any(|line| line.contains("recovery: SingleStepMode · trail=")));
         assert!(lines
             .iter()
             .any(|line| line.contains("turn completed: stop=Stop / artifact=")));
@@ -863,7 +863,7 @@ mod tests {
         );
         assert!(lines
             .iter()
-            .any(|line| line.contains("hook deferred: artifact=")));
+            .any(|line| line.contains("hook defer: artifact=")));
         assert!(lines
             .iter()
             .any(|line| line.contains("agent team monitor: artifact=")));
