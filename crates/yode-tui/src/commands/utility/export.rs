@@ -1014,4 +1014,39 @@ mod tests {
         assert!(body.contains("https://example.com/docs"));
         assert!(body.contains("https://docs.rs"));
     }
+
+    #[test]
+    fn export_and_bundle_copy_use_distinct_nouns() {
+        let completion = render_bundle_completion_message(
+            std::path::Path::new("/tmp/bundle"),
+            "runtime",
+            "context",
+            "tools",
+            std::path::Path::new("/tmp/bundle/conversation.txt"),
+            std::path::Path::new("/tmp/bundle/runtime-summary.txt"),
+            std::path::Path::new("/tmp/bundle/workspace-index.md"),
+            std::path::Path::new("/tmp/bundle/prompt-cache.txt"),
+            &[],
+            None,
+        );
+        assert!(completion.contains("Diagnostics bundle written:"));
+        assert!(!completion.contains("Diagnostics export"));
+    }
+
+    #[test]
+    fn bundle_copy_keeps_compact_punctuation_spacing() {
+        let completion = render_bundle_completion_message(
+            std::path::Path::new("/tmp/bundle"),
+            "runtime",
+            "context",
+            "tools",
+            std::path::Path::new("/tmp/bundle/conversation.txt"),
+            std::path::Path::new("/tmp/bundle/runtime-summary.txt"),
+            std::path::Path::new("/tmp/bundle/workspace-index.md"),
+            std::path::Path::new("/tmp/bundle/prompt-cache.txt"),
+            &[],
+            None,
+        );
+        assert!(!completion.contains(" :"));
+    }
 }

@@ -17,7 +17,7 @@
 
 当前进度：
 
-- `29 / 100` 已完成
+- `40 / 100` 已完成
 
 ## 001-010 Transcript Deepening
 
@@ -54,8 +54,8 @@
 - `[ ]` 025 workflow preview output density second pass
 - `[x]` 026 workflow write-mode wording polish
 - `[x]` 027 coordinator dry-run artifact density pass
-- `[ ]` 028 review workspace fold marker wording pass
-- `[ ]` 029 review artifact badge wording pass
+- `[x]` 028 review workspace fold marker wording pass
+- `[x]` 029 review artifact badge wording pass
 - `[x]` 030 review residual-risk phrasing polish
 
 ## 031-040 Inspector / Confirm
@@ -112,16 +112,16 @@
 
 ## 071-080 Wording Audits
 
-- `[ ]` 071 status/help/diagnostics command copy audit
-- `[ ]` 072 system noun audit
-- `[ ]` 073 error noun audit
-- `[ ]` 074 remote noun audit
-- `[ ]` 075 workflow noun audit
-- `[ ]` 076 confirm verb audit
-- `[ ]` 077 inspector verb audit
-- `[ ]` 078 export/bundle noun audit second pass
-- `[ ]` 079 punctuation and colon spacing audit
-- `[ ]` 080 ellipsis and arrow glyph audit
+- `[x]` 071 status/help/diagnostics command copy audit
+- `[x]` 072 system noun audit
+- `[x]` 073 error noun audit
+- `[x]` 074 remote noun audit
+- `[x]` 075 workflow noun audit
+- `[x]` 076 confirm verb audit
+- `[x]` 077 inspector verb audit
+- `[x]` 078 export/bundle noun audit second pass
+- `[x]` 079 punctuation and colon spacing audit
+- `[x]` 080 ellipsis and arrow glyph audit
 
 ## 081-090 Regression Coverage
 

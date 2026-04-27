@@ -167,4 +167,10 @@ mod tests {
         );
         assert!(transcript_review_operator_guide("review").contains("/memory compare"));
     }
+
+    #[test]
+    fn review_and_verify_nouns_stay_compact() {
+        assert_eq!(review_kind_badge(Path::new("/tmp/review-demo.md")), "review");
+        assert_eq!(review_kind_badge(Path::new("/tmp/verification-demo.md")), "verify");
+    }
 }

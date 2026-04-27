@@ -808,6 +808,18 @@ mod tests {
     }
 
     #[test]
+    fn remote_copy_uses_consistent_nouns() {
+        let dir = std::env::temp_dir().join(format!("yode-remote-copy-{}", uuid::Uuid::new_v4()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("remote-control.md"), "x").unwrap();
+        let summary = remote_bundle_completion_message(&dir);
+        assert!(summary.contains("Remote control bundle written:"));
+        assert!(!summary.contains("remote export"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn print_remote_bundle_regression_snapshot() {
         let dir = std::env::temp_dir().join(format!("yode-remote-bundle-{}", uuid::Uuid::new_v4()));
         let _ = std::fs::remove_dir_all(&dir);
