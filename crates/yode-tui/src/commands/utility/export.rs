@@ -20,6 +20,7 @@ use crate::commands::{
     ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
     CommandResult,
 };
+use crate::display_text::compact_path_tail;
 use crate::runtime_artifacts::{
     write_prompt_cache_artifact, write_runtime_task_inventory_artifact,
     write_runtime_timeline_artifact,
@@ -123,8 +124,8 @@ impl Command for ExportCommand {
                     )));
                 }
                 Ok(CommandOutput::Message(format!(
-                    "Conversation exported to: {}",
-                    filepath.display()
+                    "Conversation export written: {}",
+                    compact_path_tail(&filepath.display().to_string())
                 )))
             }
             Err(e) => Ok(CommandOutput::Message(format!(
@@ -669,8 +670,8 @@ fn render_bundle_completion_message(
     .collect::<Vec<_>>()
     .join(", ");
     format!(
-        "Diagnostics bundle exported to: {}\n  Runtime: {}\n  Context: {}\n  Tools: {}\n  Core: {}\n  Extras: {} copied · doctor {}\n  Inspect: /inspect artifact bundle · /diagnostics",
-        bundle_dir.display(),
+        "Diagnostics bundle written: {}\n  Runtime: {}\n  Context: {}\n  Tools: {}\n  Core: {}\n  Extras: {} copied · doctor {}\n  Inspect: /inspect artifact bundle · /diagnostics",
+        compact_path_tail(&bundle_dir.display().to_string()),
         runtime_line,
         context_line,
         tool_line,
@@ -863,7 +864,7 @@ mod tests {
             &["a".to_string(), "b".to_string()],
             None,
         );
-        assert!(rendered.contains("Diagnostics bundle exported to:"));
+        assert!(rendered.contains("Diagnostics bundle written:"));
         assert!(rendered.contains("Core: conversation.txt, runtime-summary.txt, workspace-index.md, prompt-cache.txt"));
         assert!(rendered.contains("Extras: 2 copied · doctor none"));
         assert!(rendered.contains("/diagnostics"));

@@ -18,7 +18,7 @@
 
 当前进度：
 
-- `59 / 100` 已完成
+- `61 / 100` 已完成
 
 ## 001-010 Snapshot Hardening
 
@@ -108,7 +108,7 @@
 - `[x]` 066 artifact history line ordering audit
 - `[x]` 067 artifact preview label consistency
 - `[ ]` 068 artifact freshness badge wording pass
-- `[ ]` 069 export filename/path compactness audit
+- `[x]` 069 export filename/path compactness audit
 - `[x]` 070 benchmark snapshot output polish
 
 ## 071-080 Hyperlinks / Markdown Edge Cases
@@ -131,7 +131,7 @@
 - `[ ]` 083 error title casing audit
 - `[x]` 084 assistant teaser copy audit
 - `[x]` 085 tool progress wording audit
-- `[ ]` 086 export/bundle noun audit
+- `[x]` 086 export/bundle noun audit
 - `[x]` 087 retry wording audit across task/remote/runtime
 - `[x]` 088 hook wording audit across system/inspector/workspace
 - `[ ]` 089 compact token wording audit

@@ -150,8 +150,8 @@ pub(super) fn doctor_copy_paste_summary(
     let preview = file_names.iter().take(4).copied().collect::<Vec<_>>().join(", ");
     let extra = file_names.len().saturating_sub(4);
     format!(
-        "Doctor bundle exported to: {}\n  Files: {}{}",
-        bundle_dir.display(),
+        "Doctor bundle written: {}\n  Files: {}{}",
+        crate::display_text::compact_path_tail(&bundle_dir.display().to_string()),
         if preview.is_empty() {
             "none".to_string()
         } else {
@@ -220,6 +220,7 @@ mod tests {
             &dir,
             &[file.clone(), file2, file3, file4, file5],
         );
+        assert!(summary.contains("Doctor bundle written:"));
         assert!(summary.contains("local-doctor.txt"));
         assert!(summary.contains("+1 more"));
         let navigation = doctor_bundle_navigation_summary(&dir);

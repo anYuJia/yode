@@ -740,8 +740,8 @@ fn remote_bundle_completion_message(bundle_dir: &std::path::Path) -> String {
     let preview = names.iter().take(4).cloned().collect::<Vec<_>>().join(", ");
     let extra = names.len().saturating_sub(4);
     format!(
-        "Remote control bundle exported to: {}\n  Files: {}{}\n  Inspect: /inspect artifact bundle · /remote-control latest",
-        bundle_dir.display(),
+        "Remote control bundle written: {}\n  Files: {}{}\n  Inspect: /inspect artifact bundle · /remote-control latest",
+        crate::display_text::compact_path_tail(&bundle_dir.display().to_string()),
         if preview.is_empty() {
             "none".to_string()
         } else {
@@ -800,7 +800,7 @@ mod tests {
             std::fs::write(dir.join(name), "x").unwrap();
         }
         let summary = remote_bundle_completion_message(&dir);
-        assert!(summary.contains("Remote control bundle exported to:"));
+        assert!(summary.contains("Remote control bundle written:"));
         assert!(summary.contains("remote-control.md"));
         assert!(summary.contains("+1 more"));
         assert!(summary.contains("/remote-control latest"));
