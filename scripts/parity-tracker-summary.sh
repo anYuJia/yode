@@ -8,9 +8,9 @@ if [[ ! -f "$TRACKER" ]]; then
   exit 1
 fi
 
-done_count=$(grep -c '^-[[:space:]]\+`\[x\][[:space:]][0-9]' "$TRACKER" || true)
-in_progress_count=$(grep -c '^-[[:space:]]\+`\[~\][[:space:]][0-9]' "$TRACKER" || true)
-todo_count=$(grep -c '^-[[:space:]]\+`\[ \][[:space:]][0-9]' "$TRACKER" || true)
+done_count=$(grep -Ec '^- `\[x\]`? [0-9]' "$TRACKER" || true)
+in_progress_count=$(grep -Ec '^- `\[~\]`? [0-9]' "$TRACKER" || true)
+todo_count=$(grep -Ec '^- `\[ \]`? [0-9]' "$TRACKER" || true)
 
 echo "Tracker: $TRACKER"
 echo "Done: $done_count"
@@ -25,5 +25,5 @@ awk '
 echo
 echo "Next 10 open items:"
 awk '
-  /^- `\[ \] [0-9]/ { print; count++; if (count == 10) exit }
+  /^- `\[ \]`? [0-9]/ { print; count++; if (count == 10) exit }
 ' "$TRACKER"
