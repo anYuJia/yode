@@ -18,7 +18,7 @@
 
 当前进度：
 
-- `66 / 100` 已完成
+- `68 / 100` 已完成
 
 ## 001-010 Snapshot Hardening
 
@@ -79,7 +79,7 @@
 - `[x]` 043 inspector action keyboard hint parity
 - `[x]` 044 inspector selected-line framing polish
 - `[x]` 045 inspector badge ordering audit
-- `[ ]` 046 inspector footer stale-action warning
+- `[x]` 046 inspector footer stale-action warning
 - `[x]` 047 inspector raw panel title consistency
 - `[x]` 048 inspector panel count density pass
 - `[x]` 049 inspector empty-state copy polish
@@ -94,7 +94,7 @@
 - `[x]` 055 confirm inline command wrapping parity
 - `[x]` 056 confirm inspector reopen affordance
 - `[x]` 057 confirm host/path mixed preview density pass
-- `[ ]` 058 confirm background-task approval copy pass
+- `[x]` 058 confirm background-task approval copy pass
 - `[x]` 059 confirm multiline preview continuation style
 - `[x]` 060 confirm final safety copy audit
 

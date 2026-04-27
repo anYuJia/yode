@@ -186,6 +186,7 @@ fn confirmation_section_title(tool_name: &str, tool_label: &str) -> String {
     match tool_name {
         "bash" => "Bash command".to_string(),
         "powershell" => "PowerShell command".to_string(),
+        "agent" | "send_message" | "team_create" => "Delegated action".to_string(),
         _ => format!("{} request", tool_label),
     }
 }
@@ -233,6 +234,12 @@ fn confirmation_primary_value(tool_name: &str, args_json: &str) -> String {
             .get("url")
             .and_then(|value| value.as_str())
             .unwrap_or("url")
+            .to_string(),
+        "agent" | "send_message" | "team_create" => parsed
+            .get("description")
+            .or_else(|| parsed.get("message"))
+            .and_then(|value| value.as_str())
+            .unwrap_or("delegated action")
             .to_string(),
         _ => tool_preview_line(tool_name, args_json),
     }
@@ -282,6 +289,14 @@ fn tool_activity_summary(app: &App, tool_name: &str, args_json: &str) -> String 
                 "Update {}",
                 compact_path(parsed["file_path"].as_str().unwrap_or("file"))
             )
+        }
+        "agent" | "send_message" | "team_create" => {
+            let desc = parsed
+                .get("description")
+                .or_else(|| parsed.get("message"))
+                .and_then(|value| value.as_str())
+                .unwrap_or("delegated action");
+            format!("Delegate {}", truncate_str(desc, 60))
         }
         _ => "Pending tool execution".to_string(),
     }
@@ -503,9 +518,10 @@ mod tests {
     use crate::app::App;
 
     use super::{
-        confirmation_primary_value, confirmation_title, confirm_density, inline_confirm_height,
-        option_list_lines, tool_activity_summary, tool_allow_option_label, tool_display_name,
-        tool_preview_line, tool_risk_hint, ConfirmDensity, ConfirmRiskLevel,
+        confirmation_primary_value, confirmation_section_title, confirmation_title,
+        confirm_density, inline_confirm_height, option_list_lines, tool_activity_summary,
+        tool_allow_option_label, tool_display_name, tool_preview_line, tool_risk_hint,
+        ConfirmDensity, ConfirmRiskLevel,
     };
 
     fn test_app() -> App {
@@ -579,6 +595,16 @@ mod tests {
             r#"{"operation":"hover","filePath":"/tmp/src/main.rs"}"#,
         );
         assert_eq!(value, "hover @ .../src/main.rs");
+    }
+
+    #[test]
+    fn confirmation_primary_value_handles_delegated_actions() {
+        let value = confirmation_primary_value(
+            "agent",
+            r#"{"description":"review current diff"}"#,
+        );
+        assert_eq!(value, "review current diff");
+        assert_eq!(confirmation_section_title("agent", "Agent"), "Delegated action");
     }
 
     #[test]

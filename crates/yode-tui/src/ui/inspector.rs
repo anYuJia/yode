@@ -480,6 +480,17 @@ fn compact_inspector_footer_note(note: &str) -> Option<String> {
     }
 }
 
+fn merge_inspector_footer_note(base: Option<&str>, extra: Option<&str>) -> Option<String> {
+    let mut parts = Vec::new();
+    if let Some(base) = base.and_then(compact_inspector_footer_note) {
+        parts.push(base);
+    }
+    if let Some(extra) = extra.and_then(compact_inspector_footer_note) {
+        parts.push(extra);
+    }
+    (!parts.is_empty()).then(|| parts.join(" · "))
+}
+
 fn compact_tab_count(count: usize) -> String {
     if count >= 100 {
         "99+".to_string()
@@ -617,8 +628,15 @@ pub(crate) fn render_inspector(frame: &mut Frame, area: Rect, document: &Inspect
         }
     }
 
-    let footer = document
-        .footer
+    let footer_note = merge_inspector_footer_note(
+        document.footer.as_deref(),
+        document
+            .state
+            .last_action_label
+            .as_deref()
+            .map(|_| "last action may be stale"),
+    );
+    let footer = footer_note
         .as_deref()
         .map(|note| inspector_footer_text(document.state.selected_line, total, Some(note)))
         .unwrap_or_else(|| inspector_pagination_footer(document.state.selected_line, total));
@@ -660,8 +678,9 @@ mod tests {
     use super::{
         inspector_action_row, inspector_action_safety_summary, inspector_empty_state_actions,
         inspector_experiment_enabled, inspector_footer_text, inspector_pagination_footer,
-        inspector_status_badge_row, multi_pane_title_strip, InspectorAction, InspectorBodySource,
-        InspectorDocument, InspectorFocus, InspectorState, InspectorTab, PanelStackCoordinator,
+        inspector_status_badge_row, merge_inspector_footer_note, multi_pane_title_strip,
+        InspectorAction, InspectorBodySource, InspectorDocument, InspectorFocus, InspectorState,
+        InspectorTab, PanelStackCoordinator,
     };
 
     #[test]
@@ -728,6 +747,14 @@ mod tests {
                 Some("Esc close inspector · return to confirmation with y / a / n"),
             ),
             "0/0 · y allow · a always · n deny · Tab tabs · S-Tab focus · / search · Enter load · Ctrl+Enter run · Esc close"
+        );
+        assert_eq!(
+            merge_inspector_footer_note(
+                Some("Esc close inspector"),
+                Some("last action may be stale"),
+            )
+            .as_deref(),
+            Some("last action may be stale")
         );
     }
 
