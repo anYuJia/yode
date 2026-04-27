@@ -961,6 +961,22 @@ mod tests {
     }
 
     #[test]
+    fn conversation_export_headings_cover_assistant_system_and_error_blocks() {
+        let entries = vec![
+            ChatEntry::new(ChatRole::Assistant, "Final answer".to_string()),
+            ChatEntry::new(
+                ChatRole::System,
+                "Session memory updated · summary · /tmp/live.md".to_string(),
+            ),
+            ChatEntry::new(ChatRole::Error, "something odd happened".to_string()),
+        ];
+        let body = render_conversation_body(&entries);
+        assert!(body.contains("### Assistant"));
+        assert!(body.contains("### System"));
+        assert!(body.contains("### Error"));
+    }
+
+    #[test]
     fn print_export_regression_snapshot() {
         let workspace_index = render_workspace_index(
             std::path::Path::new("/tmp/bundle"),

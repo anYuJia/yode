@@ -1450,6 +1450,15 @@ mod tests {
         assert!(summary.iter().any(|line| line.contains("status=")));
         assert!(summary.iter().any(|line| line.contains("bundle ->")));
         assert!(summary.iter().any(|line| line.contains("prompt_cache ->")));
+        let bundle_index = summary
+            .iter()
+            .position(|line| line.starts_with("bundle ->"))
+            .unwrap();
+        let prompt_index = summary
+            .iter()
+            .position(|line| line.contains("prompt_cache ->"))
+            .unwrap();
+        assert!(prompt_index < bundle_index);
 
         let _ = std::fs::remove_dir_all(&dir);
     }

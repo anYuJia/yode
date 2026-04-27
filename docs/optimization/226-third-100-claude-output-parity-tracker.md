@@ -17,7 +17,7 @@
 
 当前进度：
 
-- `42 / 100` 已完成
+- `48 / 100` 已完成
 
 ## 001-010 Transcript Deepening
 
@@ -73,13 +73,13 @@
 
 ## 041-050 Export / Artifact Narratives
 
-- `[ ]` 041 conversation export assistant block framing polish
-- `[ ]` 042 conversation export system block framing polish
-- `[ ]` 043 conversation export error block framing polish
-- `[ ]` 044 workspace index inspect grouping second pass
-- `[ ]` 045 doctor bundle navigation wording audit
+- `[x]` 041 conversation export assistant block framing polish
+- `[x]` 042 conversation export system block framing polish
+- `[x]` 043 conversation export error block framing polish
+- `[x]` 044 workspace index inspect grouping second pass
+- `[x]` 045 doctor bundle navigation wording audit
 - `[x]` 046 artifact history refresh hint density pass
-- `[ ]` 047 artifact summary alias ordering audit
+- `[x]` 047 artifact summary alias ordering audit
 - `[x]` 048 artifact inspector freshness copy polish
 - `[x]` 049 export failure message compactness pass
 - `[x]` 050 bundle path breadcrumb density pass
