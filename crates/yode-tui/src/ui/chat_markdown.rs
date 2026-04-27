@@ -408,11 +408,26 @@ fn normalize_structural_lines(text: &str) -> Vec<String> {
 fn strip_structural_indent(raw_line: &str) -> String {
     let indent = raw_line.chars().take_while(|ch| *ch == ' ').count();
     let trimmed = raw_line.trim_start_matches(' ');
+    if indent > 0 && looks_like_list_line(trimmed) {
+        return raw_line.to_string();
+    }
     if indent >= 2 && looks_like_structural_line(trimmed) {
         trimmed.to_string()
     } else {
         raw_line.to_string()
     }
+}
+
+fn looks_like_list_line(trimmed: &str) -> bool {
+    trimmed.starts_with("- ")
+        || trimmed.starts_with("* ")
+        || trimmed.starts_with("+ ")
+        || trimmed.starts_with("• ")
+        || trimmed.starts_with("◦ ")
+        || trimmed.starts_with("▪ ")
+        || trimmed
+            .split_once(". ")
+            .is_some_and(|(number, _)| number.chars().all(|ch| ch.is_ascii_digit()))
 }
 
 fn normalize_unicode_bullet_line(trimmed: &str) -> Option<String> {
@@ -2357,6 +2372,25 @@ mod tests {
     }
 
     #[test]
+    fn heading_wrap_continuations_keep_heading_style() {
+        let rendered = render_markdown_with_options(
+            "# Heading with enough words to wrap across multiple visual rows",
+            Some(WHITE),
+            MarkdownRenderOptions {
+                max_width: Some(22),
+                enable_hyperlinks: false,
+            },
+        );
+        assert!(rendered.len() >= 2);
+        assert!(rendered.iter().all(|line| {
+            line.spans.iter().any(|span| {
+                span.style.add_modifier.contains(Modifier::BOLD)
+                    && span.style.add_modifier.contains(Modifier::UNDERLINED)
+            })
+        }));
+    }
+
+    #[test]
     fn inline_code_wraps_across_narrow_widths() {
         let rendered = render_markdown_with_options(
             "Use `very_long_inline_code_value_here` now.",
@@ -2371,6 +2405,44 @@ mod tests {
         .collect::<Vec<_>>();
         assert!(rendered.len() >= 2);
         assert!(rendered.iter().any(|line| line.contains("very_long")));
+    }
+
+    #[test]
+    fn nested_bullets_keep_distinct_indentation_and_markers() {
+        let rendered = render_markdown_impl("- parent\n    - child\n        - grandchild", None)
+            .into_iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>();
+        assert!(rendered.iter().any(|line| line.starts_with("• parent")));
+        let child = rendered
+            .iter()
+            .find(|line| line.contains("◦ child"))
+            .expect("child bullet");
+        let grandchild = rendered
+            .iter()
+            .find(|line| line.contains("▪ grandchild"))
+            .expect("grandchild bullet");
+        assert!(child.find('◦').unwrap() > 0);
+        assert!(grandchild.find('▪').unwrap() > child.find('◦').unwrap());
+    }
+
+    #[test]
+    fn mixed_bold_italic_wrap_preserves_style_continuity() {
+        let rendered = render_markdown_with_options(
+            "***important wrapped emphasis keeps its combined style across lines***",
+            Some(WHITE),
+            MarkdownRenderOptions {
+                max_width: Some(18),
+                enable_hyperlinks: false,
+            },
+        );
+        assert!(rendered.len() >= 2);
+        assert!(rendered.iter().all(|line| {
+            line.spans.iter().any(|span| {
+                span.style.add_modifier.contains(Modifier::BOLD)
+                    && span.style.add_modifier.contains(Modifier::ITALIC)
+            })
+        }));
     }
 
     #[test]
@@ -2417,6 +2489,32 @@ mod tests {
         assert!(lines.iter().any(|line| line.contains("Metric:")));
         assert!(lines.iter().any(|line| line.contains("Value:")));
         assert!(!lines.iter().any(|line| line.contains("┼")));
+    }
+
+    #[test]
+    fn code_fence_caption_stays_dense_and_labeled() {
+        let rendered = render_markdown_impl("```rust\nfn main() {}\n```", None)
+            .into_iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>();
+        assert!(rendered[0].contains("rust"));
+        assert!(rendered[0].starts_with("╭─"));
+        assert!(!rendered[0].contains("Code block"));
+    }
+
+    #[test]
+    fn hyperlink_text_keeps_underline_intensity() {
+        let lines = render_markdown_with_options(
+            "[Docs](https://example.com/docs)",
+            None,
+            MarkdownRenderOptions {
+                max_width: Some(80),
+                enable_hyperlinks: true,
+            },
+        );
+        assert!(lines[0].spans.iter().any(|span| {
+            span.content == "Docs" && span.style.add_modifier.contains(Modifier::UNDERLINED)
+        }));
     }
 
     #[test]

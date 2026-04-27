@@ -17,7 +17,7 @@
 
 当前进度：
 
-- `79 / 100` 已完成
+- `89 / 100` 已完成
 
 ## 001-010 Transcript Deepening
 
@@ -34,16 +34,16 @@
 
 ## 011-020 Markdown Typography
 
-- `[ ]` 011 heading emphasis density pass
-- `[ ]` 012 heading wrap continuation styling
-- `[ ]` 013 bullet indentation parity across nested lists
-- `[ ]` 014 inline-code wrap style continuity
-- `[ ]` 015 blockquote spacing polish
-- `[ ]` 016 mixed bold+italic wrap polish
-- `[ ]` 017 CJK table width calibration pass
-- `[ ]` 018 code fence caption density pass
-- `[ ]` 019 hyperlink underline intensity audit
-- `[ ]` 020 markdown paragraph spacing audit
+- `[x]` 011 heading emphasis density pass
+- `[x]` 012 heading wrap continuation styling
+- `[x]` 013 bullet indentation parity across nested lists
+- `[x]` 014 inline-code wrap style continuity
+- `[x]` 015 blockquote spacing polish
+- `[x]` 016 mixed bold+italic wrap polish
+- `[x]` 017 CJK table width calibration pass
+- `[x]` 018 code fence caption density pass
+- `[x]` 019 hyperlink underline intensity audit
+- `[x]` 020 markdown paragraph spacing audit
 
 ## 021-030 Remote / Workflow / Review
 
