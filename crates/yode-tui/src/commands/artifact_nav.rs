@@ -6,6 +6,7 @@ use std::time::SystemTime;
 use chrono::{DateTime, Local};
 
 use crate::commands::inspector_bridge::document_from_command_output;
+use crate::ui::chat::render_markdown_ansi_white_with_options;
 use crate::ui::inspector::{InspectorAction, InspectorDocument};
 
 #[derive(Debug, Clone)]
@@ -476,6 +477,11 @@ pub(crate) fn open_artifact_inspector(
     badges.extend(extra_badges);
     for panel in &mut doc.panels {
         panel.badges.extend(badges.clone());
+        panel.lines = panel
+            .lines
+            .iter()
+            .flat_map(|line| render_markdown_ansi_white_with_options(line, Some(100), true))
+            .collect();
     }
     doc.footer = footer;
     Some(doc)
@@ -912,7 +918,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("demo.md");
-        std::fs::write(&path, "# Demo\n\nSummary:\n- value\n").unwrap();
+        std::fs::write(&path, "# Demo\n\nSummary:\n- value\n- https://example.com\n").unwrap();
         let doc =
             open_artifact_inspector("Demo", &path, None, vec![("kind".into(), "demo".into())])
                 .unwrap();
@@ -922,6 +928,11 @@ mod tests {
             .badges
             .iter()
             .any(|(label, value)| label == "kind" && value == "demo"));
+        assert!(doc
+            .panels
+            .iter()
+            .flat_map(|panel| panel.lines.iter())
+            .any(|line| line.contains("\u{1b}]8;;https://example.com")));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

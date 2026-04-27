@@ -18,7 +18,7 @@
 
 当前进度：
 
-- `64 / 100` 已完成
+- `65 / 100` 已完成
 
 ## 001-010 Snapshot Hardening
 
@@ -116,7 +116,7 @@
 - `[x]` 071 system detail hyperlink coverage expansion
 - `[x]` 072 error detail hyperlink coverage expansion
 - `[x]` 073 confirm preview hyperlink coverage audit
-- `[ ]` 074 artifact preview hyperlink coverage audit
+- `[x]` 074 artifact preview hyperlink coverage audit
 - `[ ]` 075 transcript export hyperlink preservation audit
 - `[ ]` 076 markdown bullet spacing parity pass
 - `[ ]` 077 markdown heading wrap polish
