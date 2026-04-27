@@ -35,6 +35,33 @@ pub(crate) fn format_entry_as_strings(
                     .is_some_and(|reasoning| !reasoning.trim().is_empty())
         })
         .map(|(idx, _)| idx);
+    let latest_system_index = all_entries
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(_, item)| matches!(item.role, ChatRole::System))
+        .map(|(idx, _)| idx);
+    let latest_error_index = all_entries
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(_, item)| matches!(item.role, ChatRole::Error))
+        .map(|(idx, _)| idx);
+    let latest_tool_index = all_entries
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(idx, item)| match &item.role {
+            ChatRole::ToolCall { .. } => true,
+            ChatRole::ToolResult { id, .. } => {
+                !all_entries[..*idx]
+                    .iter()
+                    .rev()
+                    .any(|entry| matches!(&entry.role, ChatRole::ToolCall { id: tid, .. } if tid == id))
+            }
+            _ => false,
+        })
+        .map(|(idx, _)| idx);
 
     match &entry.role {
         ChatRole::User => render_user(entry, &mut result, palette.cyan),
@@ -59,6 +86,7 @@ pub(crate) fn format_entry_as_strings(
                 palette.dim,
                 palette.accent,
                 palette.red,
+                latest_tool_index == Some(index),
             )
         }
         ChatRole::ToolResult { id: rid, .. } => {
@@ -78,6 +106,7 @@ pub(crate) fn format_entry_as_strings(
                     palette.dim,
                     palette.accent,
                     palette.red,
+                    latest_tool_index == Some(index),
                 );
             }
         }
@@ -89,17 +118,19 @@ pub(crate) fn format_entry_as_strings(
                     .fg(Color::LightRed)
                     .add_modifier(Modifier::BOLD),
             ));
-            if let Some(first_line) = view.detail_lines.first() {
-                result.push((
-                    format!("    {}", first_line),
-                    ratatui::style::Style::default().fg(Color::Yellow),
-                ));
-            }
-            if view.detail_lines.len() > 1 {
-                result.push((
-                    format!("    … +{} more lines (ctrl+o to inspect)", view.detail_lines.len() - 1),
-                    ratatui::style::Style::default().fg(Color::Gray),
-                ));
+            if latest_error_index == Some(index) {
+                if let Some(first_line) = view.detail_lines.first() {
+                    result.push((
+                        format!("    {}", first_line),
+                        ratatui::style::Style::default().fg(Color::Yellow),
+                    ));
+                }
+                if view.detail_lines.len() > 1 {
+                    result.push((
+                        format!("    … +{} more lines (ctrl+o to inspect)", view.detail_lines.len() - 1),
+                        ratatui::style::Style::default().fg(Color::Gray),
+                    ));
+                }
             }
             result.push((
                 "    ctrl+o to inspect".to_string(),
@@ -109,7 +140,7 @@ pub(crate) fn format_entry_as_strings(
             ));
         }
         ChatRole::System => {
-            result.extend(render_system_entry(entry));
+            result.extend(render_system_entry(entry, latest_system_index == Some(index)));
         }
         ChatRole::SubAgentCall { description } => {
             render_subagent_call(
@@ -247,5 +278,142 @@ mod tests {
         assert!(error_rendered
             .iter()
             .any(|(line, _)| line.contains("ctrl+o to inspect")));
+    }
+
+    #[test]
+    fn latest_system_entry_keeps_detail_while_older_entries_collapse() {
+        let entries = vec![
+            ChatEntry::new(
+                ChatRole::System,
+                "Session memory updated · summary · /tmp/a.md\nnote · older".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::System,
+                "Session memory updated · summary · /tmp/b.md\nnote · latest".to_string(),
+            ),
+        ];
+        let older = format_entry_as_strings(&entries[0], &entries, 0);
+        let latest = format_entry_as_strings(&entries[1], &entries, 1);
+        assert!(older.iter().all(|(line, _)| !line.contains("/tmp/a.md")));
+        assert!(latest.iter().any(|(line, _)| line.contains("/tmp/b.md")));
+    }
+
+    #[test]
+    fn latest_error_entry_keeps_detail_while_older_entries_collapse() {
+        let entries = vec![
+            ChatEntry::new(
+                ChatRole::Error,
+                "OpenAI API error (400): This model's maximum context length is 128000 tokens."
+                    .to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::Error,
+                "OpenAI API error (400): This model's maximum context length is 128000 tokens."
+                    .to_string(),
+            ),
+        ];
+        let older = format_entry_as_strings(&entries[0], &entries, 0);
+        let latest = format_entry_as_strings(&entries[1], &entries, 1);
+        assert!(older
+            .iter()
+            .all(|(line, _)| !line.contains("The request exceeded the model context window.")));
+        assert!(latest
+            .iter()
+            .any(|(line, _)| line.contains("The request exceeded the model context window.")));
+    }
+
+    #[test]
+    fn latest_tool_entry_keeps_metadata_while_older_entries_collapse() {
+        let mut first_result = ChatEntry::new(
+            ChatRole::ToolResult {
+                id: "a".to_string(),
+                name: "powershell".to_string(),
+                is_error: false,
+            },
+            "ok".to_string(),
+        );
+        first_result.tool_metadata = Some(serde_json::json!({
+            "read_only_reason": "older metadata"
+        }));
+        let mut second_result = ChatEntry::new(
+            ChatRole::ToolResult {
+                id: "b".to_string(),
+                name: "powershell".to_string(),
+                is_error: false,
+            },
+            "ok".to_string(),
+        );
+        second_result.tool_metadata = Some(serde_json::json!({
+            "read_only_reason": "latest metadata"
+        }));
+        let entries = vec![
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "a".to_string(),
+                    name: "powershell".to_string(),
+                },
+                "{\"command\":\"Get-Content a.txt\"}".to_string(),
+            ),
+            first_result,
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "b".to_string(),
+                    name: "powershell".to_string(),
+                },
+                "{\"command\":\"Get-Content b.txt\"}".to_string(),
+            ),
+            second_result,
+        ];
+        let older = format_entry_as_strings(&entries[0], &entries, 0);
+        let latest = format_entry_as_strings(&entries[2], &entries, 2);
+        assert!(older
+            .iter()
+            .all(|(line, _)| !line.contains("older metadata")));
+        assert!(latest
+            .iter()
+            .any(|(line, _)| line.contains("latest metadata")));
+    }
+
+    #[test]
+    fn transcript_line_prefixes_stay_consistent_across_core_roles() {
+        let assistant = ChatEntry::new(ChatRole::Assistant, "Final answer".to_string());
+        let assistant_lines =
+            format_entry_as_strings(&assistant, std::slice::from_ref(&assistant), 0);
+        assert!(assistant_lines[1].0.starts_with("⏺ "));
+
+        let tool_entries = vec![
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "a".to_string(),
+                    name: "read_file".to_string(),
+                },
+                "{\"file_path\":\"/tmp/src/main.rs\"}".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolResult {
+                    id: "a".to_string(),
+                    name: "read_file".to_string(),
+                    is_error: false,
+                },
+                "fn main() {}".to_string(),
+            ),
+        ];
+        let tool_lines = format_entry_as_strings(&tool_entries[0], &tool_entries, 0);
+        assert!(tool_lines[0].0.starts_with("⏺ "));
+
+        let system = ChatEntry::new(
+            ChatRole::System,
+            "Session memory updated · summary · /tmp/live.md".to_string(),
+        );
+        let system_lines = format_entry_as_strings(&system, std::slice::from_ref(&system), 0);
+        assert!(system_lines[0].0.starts_with("  ≈ "));
+
+        let error = ChatEntry::new(
+            ChatRole::Error,
+            "OpenAI API error (400): This model's maximum context length is 128000 tokens."
+                .to_string(),
+        );
+        let error_lines = format_entry_as_strings(&error, std::slice::from_ref(&error), 0);
+        assert!(error_lines[0].0.starts_with("  ! "));
     }
 }

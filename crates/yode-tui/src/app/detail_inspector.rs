@@ -964,7 +964,7 @@ fn primary_followup_prompt(
         .is_some_and(|entry| matches!(entry.role, ChatRole::ToolResult { is_error: true, .. }))
     {
         return Some(format!(
-            "Explain why the last {} step failed and suggest the safest next action.",
+            "Why did the last {} step fail? Give the safest next action.",
             title
         ));
     }
@@ -975,22 +975,19 @@ fn primary_followup_prompt(
         .and_then(|value| value.as_str())
     {
         return Some(format!(
-            "Inspect {} and summarize the most relevant details from the last {} step.",
+            "Inspect {}. Summarize the last {} step and the next action.",
             compact_path(file_path),
             tool_name
         ));
     }
 
     if let Some(url) = args.get("url").and_then(|value| value.as_str()) {
-        return Some(format!(
-            "Summarize the most important findings related to {} from the last {} step.",
-            url, tool_name
-        ));
+        return Some(format!("Summarize the key findings from {}.", url));
     }
 
     if let Some(query) = args.get("query").and_then(|value| value.as_str()) {
         return Some(format!(
-            "Continue from the last web search for '{}' and summarize the highest-signal findings.",
+            "Continue the web search for '{}' and summarize the best findings.",
             query
         ));
     }
@@ -1003,7 +1000,7 @@ fn primary_followup_prompt(
     }
 
     Some(format!(
-        "Summarize the most important outcome from the last {} step and suggest the next best action.",
+        "Summarize the last {} step and give the next best action.",
         title
     ))
 }
@@ -1295,8 +1292,8 @@ mod tests {
     use crate::app::{App, ChatEntry, ChatRole, PendingConfirmation};
 
     use super::{
-        build_latest_tool_document, build_pending_confirmation_document, primary_followup_prompt,
-        INSPECTOR_CONFIRM_ALLOW,
+        build_latest_tool_document, build_pending_confirmation_document, help_action,
+        primary_followup_prompt, status_action, INSPECTOR_CONFIRM_ALLOW,
     };
 
     fn test_app() -> App {
@@ -1893,6 +1890,30 @@ mod tests {
         let args = serde_json::json!({"file_path": "/tmp/src/main.rs"});
         let prompt = primary_followup_prompt("Read", "read_file", &args, None).unwrap();
         assert!(prompt.contains(".../src/main.rs"));
+    }
+
+    #[test]
+    fn inspector_status_and_help_actions_use_consistent_casing() {
+        let status = status_action();
+        let help = help_action();
+        assert_eq!(status.label, "show status");
+        assert_eq!(status.command, "/status");
+        assert_eq!(help.label, "open help");
+        assert_eq!(help.command, "/help");
+    }
+
+    #[test]
+    fn follow_up_prompts_are_compact_in_transcript_style() {
+        let file_args = serde_json::json!({"file_path": "/tmp/src/main.rs"});
+        let file_prompt = primary_followup_prompt("Read", "read_file", &file_args, None).unwrap();
+        assert!(file_prompt.contains("Summarize the last read_file step"));
+        assert!(!file_prompt.contains("most relevant details"));
+
+        let query_args = serde_json::json!({"query": "ratatui tables"});
+        let query_prompt =
+            primary_followup_prompt("Web Search", "web_search", &query_args, None).unwrap();
+        assert!(query_prompt.contains("Continue the web search"));
+        assert!(!query_prompt.contains("highest-signal"));
     }
 
     #[test]

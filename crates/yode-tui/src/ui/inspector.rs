@@ -253,7 +253,7 @@ impl InspectorDocument {
 
     pub(crate) fn tab_cycle_summary(&self) -> String {
         format!(
-            "tab {}/{}",
+            "view {}/{}",
             self.state.selected_tab + 1,
             self.state.tabs.len().max(1)
         )

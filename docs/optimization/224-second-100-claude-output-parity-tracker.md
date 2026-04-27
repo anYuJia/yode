@@ -18,7 +18,7 @@
 
 当前进度：
 
-- `74 / 100` 已完成
+- `89 / 100` 已完成
 
 ## 001-010 Snapshot Hardening
 
@@ -42,9 +42,9 @@
 - `[ ]` 015 transcript-mode latest-tool focus parity
 - `[ ]` 016 transcript-mode latest-error focus parity
 - `[ ]` 017 transcript-mode latest-system focus parity
-- `[ ]` 018 transcript-mode follow-up prompt density pass
+- `[x]` 018 transcript-mode follow-up prompt density pass
 - `[x]` 019 transcript-mode reasoning teaser copy pass
-- `[ ]` 020 transcript-mode line-prefix audit
+- `[x]` 020 transcript-mode line-prefix audit
 
 ## 021-030 Hook / Task Output
 
@@ -83,7 +83,7 @@
 - `[x]` 047 inspector raw panel title consistency
 - `[x]` 048 inspector panel count density pass
 - `[x]` 049 inspector empty-state copy polish
-- `[ ]` 050 inspector latest-open stack wording pass
+- `[x]` 050 inspector latest-open stack wording pass
 
 ## 051-060 Confirm Phase Two
 
@@ -117,25 +117,25 @@
 - `[x]` 072 error detail hyperlink coverage expansion
 - `[x]` 073 confirm preview hyperlink coverage audit
 - `[x]` 074 artifact preview hyperlink coverage audit
-- `[ ]` 075 transcript export hyperlink preservation audit
-- `[ ]` 076 markdown bullet spacing parity pass
-- `[ ]` 077 markdown heading wrap polish
-- `[ ]` 078 markdown inline-code wrap polish
-- `[ ]` 079 markdown mixed CJK table spacing pass
-- `[ ]` 080 markdown issue-link punctuation edge cases
+- `[x]` 075 transcript export hyperlink preservation audit
+- `[x]` 076 markdown bullet spacing parity pass
+- `[x]` 077 markdown heading wrap polish
+- `[x]` 078 markdown inline-code wrap polish
+- `[x]` 079 markdown mixed CJK table spacing pass
+- `[x]` 080 markdown issue-link punctuation edge cases
 
 ## 081-090 Wording / Consistency
 
-- `[ ]` 081 status/help copy casing audit
-- `[ ]` 082 system title casing audit
-- `[ ]` 083 error title casing audit
+- `[x]` 081 status/help copy casing audit
+- `[x]` 082 system title casing audit
+- `[x]` 083 error title casing audit
 - `[x]` 084 assistant teaser copy audit
 - `[x]` 085 tool progress wording audit
 - `[x]` 086 export/bundle noun audit
 - `[x]` 087 retry wording audit across task/remote/runtime
 - `[x]` 088 hook wording audit across system/inspector/workspace
-- `[ ]` 089 compact token wording audit
-- `[ ]` 090 punctuation / ellipsis consistency audit
+- `[x]` 089 compact token wording audit
+- `[x]` 090 punctuation / ellipsis consistency audit
 
 ## 091-100 Closeout
 
