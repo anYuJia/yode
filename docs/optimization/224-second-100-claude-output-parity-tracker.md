@@ -18,7 +18,7 @@
 
 当前进度：
 
-- `65 / 100` 已完成
+- `66 / 100` 已完成
 
 ## 001-010 Snapshot Hardening
 
@@ -107,7 +107,7 @@
 - `[x]` 065 doctor handoff template density pass
 - `[x]` 066 artifact history line ordering audit
 - `[x]` 067 artifact preview label consistency
-- `[ ]` 068 artifact freshness badge wording pass
+- `[x]` 068 artifact freshness badge wording pass
 - `[x]` 069 export filename/path compactness audit
 - `[x]` 070 benchmark snapshot output polish
 

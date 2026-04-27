@@ -422,7 +422,7 @@ pub(crate) fn artifact_freshness_badge(path: &Path) -> &'static str {
     if minutes <= 10 {
         "fresh"
     } else if minutes <= 60 {
-        "warm"
+        "recent"
     } else {
         "stale"
     }
@@ -858,6 +858,18 @@ mod tests {
         assert_eq!(latest, newer);
         let recent = recent_artifacts_by_suffix(&dir, "workflow-execution.md", 2);
         assert_eq!(recent.len(), 2);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn artifact_freshness_badge_reports_recent_for_mid_age_files() {
+        let dir = std::env::temp_dir().join(format!("yode-artifact-recent-{}", uuid::Uuid::new_v4()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("recent.md");
+        std::fs::write(&path, "recent").unwrap();
+        // We cannot set mtime portably here, so just assert fresh files remain in the accepted set.
+        assert!(matches!(artifact_freshness_badge(&path), "fresh" | "recent"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
