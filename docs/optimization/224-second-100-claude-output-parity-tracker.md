@@ -18,7 +18,7 @@
 
 当前进度：
 
-- `89 / 100` 已完成
+- `100 / 100` 已完成
 
 ## 001-010 Snapshot Hardening
 
@@ -39,9 +39,9 @@
 - `[x]` 012 transcript-mode system detail elision parity
 - `[x]` 013 transcript-mode error detail collapse parity
 - `[x]` 014 transcript-mode assistant spacing polish
-- `[ ]` 015 transcript-mode latest-tool focus parity
-- `[ ]` 016 transcript-mode latest-error focus parity
-- `[ ]` 017 transcript-mode latest-system focus parity
+- `[x]` 015 transcript-mode latest-tool focus parity
+- `[x]` 016 transcript-mode latest-error focus parity
+- `[x]` 017 transcript-mode latest-system focus parity
 - `[x]` 018 transcript-mode follow-up prompt density pass
 - `[x]` 019 transcript-mode reasoning teaser copy pass
 - `[x]` 020 transcript-mode line-prefix audit
@@ -139,13 +139,13 @@
 
 ## 091-100 Closeout
 
-- `[ ]` 091 second-round parity gap review
-- `[ ]` 092 second-round release note draft
-- `[ ]` 093 third-round candidate backlog seed
-- `[ ]` 094 regression script usage note
-- `[ ]` 095 narrow snapshot catalog
-- `[ ]` 096 inspector snapshot catalog
-- `[ ]` 097 export snapshot catalog
-- `[ ]` 098 remote snapshot catalog
-- `[ ]` 099 second-round closeout review
-- `[ ]` 100 handoff into third 100 tracker
+- `[x]` 091 second-round parity gap review
+- `[x]` 092 second-round release note draft
+- `[x]` 093 third-round candidate backlog seed
+- `[x]` 094 regression script usage note
+- `[x]` 095 narrow snapshot catalog
+- `[x]` 096 inspector snapshot catalog
+- `[x]` 097 export snapshot catalog
+- `[x]` 098 remote snapshot catalog
+- `[x]` 099 second-round closeout review
+- `[x]` 100 handoff into third 100 tracker
