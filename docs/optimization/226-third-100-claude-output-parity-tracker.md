@@ -17,7 +17,7 @@
 
 当前进度：
 
-- `58 / 100` 已完成
+- `69 / 100` 已完成
 
 ## 001-010 Transcript Deepening
 
@@ -51,7 +51,7 @@
 - `[x]` 022 remote queue execution artifact compactness pass
 - `[x]` 023 remote transport event preview density pass
 - `[x]` 024 workflow show output density pass
-- `[ ]` 025 workflow preview output density second pass
+- `[x]` 025 workflow preview output density second pass
 - `[x]` 026 workflow write-mode wording polish
 - `[x]` 027 coordinator dry-run artifact density pass
 - `[x]` 028 review workspace fold marker wording pass
@@ -60,16 +60,16 @@
 
 ## 031-040 Inspector / Confirm
 
-- `[ ]` 031 inspector stack depth affordance
-- `[ ]` 032 inspector latest-open breadcrumb polish
-- `[ ]` 033 inspector panel selection copy audit
-- `[ ]` 034 inspector markdown raw-view toggle wording
-- `[ ]` 035 confirm delegated-action preview density pass
-- `[ ]` 036 confirm shell explain-copy polish
-- `[ ]` 037 confirm path/url mixed preview second pass
-- `[ ]` 038 confirm inspector round-trip wording pass
-- `[ ]` 039 confirm option color hierarchy audit
-- `[ ]` 040 confirm narrow-height stress pass
+- `[x]` 031 inspector stack depth affordance
+- `[x]` 032 inspector latest-open breadcrumb polish
+- `[x]` 033 inspector panel selection copy audit
+- `[x]` 034 inspector markdown raw-view toggle wording
+- `[x]` 035 confirm delegated-action preview density pass
+- `[x]` 036 confirm shell explain-copy polish
+- `[x]` 037 confirm path/url mixed preview second pass
+- `[x]` 038 confirm inspector round-trip wording pass
+- `[x]` 039 confirm option color hierarchy audit
+- `[x]` 040 confirm narrow-height stress pass
 
 ## 041-050 Export / Artifact Narratives
 

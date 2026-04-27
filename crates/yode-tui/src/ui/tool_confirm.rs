@@ -133,7 +133,7 @@ pub fn render_inline_confirm(frame: &mut Frame, area: Rect, app: &App) {
     lines.extend(option_list_lines(&options, app.confirm_selected));
     lines.push(Line::from(vec![Span::styled(
         match density {
-            ConfirmDensity::Default => " Esc cancel · Ctrl+O inspect · Tab amend · Ctrl+E explain",
+            ConfirmDensity::Default => " Esc cancel · Ctrl+O inspect · y/a/n decide · Ctrl+E explain cmd",
             ConfirmDensity::Narrow => " Esc cancel · ^O inspect · Tab amend · ^E explain",
         },
         Style::default().fg(MUTED),
@@ -186,7 +186,7 @@ fn confirmation_section_title(tool_name: &str, tool_label: &str) -> String {
     match tool_name {
         "bash" => "Bash command".to_string(),
         "powershell" => "PowerShell command".to_string(),
-        "agent" | "send_message" | "team_create" => "Delegated action".to_string(),
+        "agent" | "send_message" | "team_create" => "Delegation".to_string(),
         _ => format!("{} request", tool_label),
     }
 }
@@ -296,7 +296,7 @@ fn tool_activity_summary(app: &App, tool_name: &str, args_json: &str) -> String 
                 .or_else(|| parsed.get("message"))
                 .and_then(|value| value.as_str())
                 .unwrap_or("delegated action");
-            format!("Delegate {}", truncate_str(desc, 60))
+            format!("Delegate · {}", truncate_str(desc, 60))
         }
         _ => "Pending tool execution".to_string(),
     }
@@ -427,25 +427,38 @@ fn tool_preview_line(tool_name: &str, args_json: &str) -> String {
         _ => parsed
             .as_object()
             .and_then(|object| {
-                [
-                    "command",
-                    "path",
-                    "file_path",
-                    "query",
-                    "pattern",
-                    "url",
-                    "name",
-                ]
-                .iter()
-                .find_map(|key| object.get(*key).and_then(|value| value.as_str()).map(|value| (*key, value)))
-            })
-            .map(|(key, value)| {
-                let value = if matches!(key, "path" | "file_path") {
-                    compact_path(value)
+                let path = object
+                    .get("file_path")
+                    .or_else(|| object.get("path"))
+                    .and_then(|value| value.as_str());
+                let url = object.get("url").and_then(|value| value.as_str());
+                if let (Some(path), Some(url)) = (path, url) {
+                    Some(format!(
+                        "target · path={} · host={}",
+                        compact_path(path),
+                        compact_url_host(url)
+                    ))
                 } else {
-                    value.to_string()
-                };
-                format!("preview · {}", value)
+                    [
+                        "command",
+                        "path",
+                        "file_path",
+                        "query",
+                        "pattern",
+                        "url",
+                        "name",
+                    ]
+                    .iter()
+                    .find_map(|key| object.get(*key).and_then(|value| value.as_str()).map(|value| (*key, value)))
+                    .map(|(key, value)| {
+                        let value = if matches!(key, "path" | "file_path") {
+                            compact_path(value)
+                        } else {
+                            value.to_string()
+                        };
+                        format!("preview · {}", value)
+                    })
+                }
             })
             .unwrap_or_else(|| "preview unavailable".to_string()),
     }
@@ -488,9 +501,9 @@ fn shell_command_preview(command: &str) -> String {
     let lines = command.lines().collect::<Vec<_>>();
     let head = lines.first().copied().unwrap_or("command");
     if lines.len() > 1 {
-        format!("command · {} ↳ +{} more lines", head, lines.len() - 1)
+        format!("cmd · {} ↳ +{} more lines", head, lines.len() - 1)
     } else {
-        format!("command · {}", head)
+        format!("cmd · {}", head)
     }
 }
 
@@ -498,9 +511,9 @@ fn shell_command_activity_summary(command: &str) -> String {
     let lines = command.lines().collect::<Vec<_>>();
     let head = lines.first().copied().unwrap_or("command");
     if lines.len() > 1 {
-        format!("Run {} ↳ +{} more lines", truncate_str(head, 60), lines.len() - 1)
+        format!("Run · {} ↳ +{} more lines", truncate_str(head, 60), lines.len() - 1)
     } else {
-        format!("Run {}", truncate_str(head, 60))
+        format!("Run · {}", truncate_str(head, 60))
     }
 }
 
@@ -556,7 +569,7 @@ mod tests {
             "bash",
             r#"{"command":"python main.py\npytest -q\ncargo test"}"#,
         );
-        assert_eq!(summary, "Run python main.py ↳ +2 more lines");
+        assert_eq!(summary, "Run · python main.py ↳ +2 more lines");
     }
 
     #[test]
@@ -573,7 +586,7 @@ mod tests {
     #[test]
     fn confirmation_preview_line_uses_key_fields() {
         let preview = tool_preview_line("bash", r#"{"command":"cargo test -p yode-tui"}"#);
-        assert!(preview.contains("command · cargo test -p yode-tui"));
+        assert!(preview.contains("cmd · cargo test -p yode-tui"));
     }
 
     #[test]
@@ -604,7 +617,7 @@ mod tests {
             r#"{"description":"review current diff"}"#,
         );
         assert_eq!(value, "review current diff");
-        assert_eq!(confirmation_section_title("agent", "Agent"), "Delegated action");
+        assert_eq!(confirmation_section_title("agent", "Agent"), "Delegation");
     }
 
     #[test]
@@ -650,7 +663,16 @@ mod tests {
             "bash",
             r#"{"command":"python main.py\npytest -q\ncargo test"}"#,
         );
-        assert_eq!(preview, "command · python main.py ↳ +2 more lines");
+        assert_eq!(preview, "cmd · python main.py ↳ +2 more lines");
+    }
+
+    #[test]
+    fn confirmation_preview_line_combines_path_and_url_targets() {
+        let preview = tool_preview_line(
+            "custom",
+            r#"{"file_path":"/tmp/src/main.rs","url":"https://example.com/a/b"}"#,
+        );
+        assert_eq!(preview, "target · path=.../src/main.rs · host=example.com");
     }
 
     #[test]

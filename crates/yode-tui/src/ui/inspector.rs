@@ -253,7 +253,7 @@ impl InspectorDocument {
 
     pub(crate) fn tab_cycle_summary(&self) -> String {
         format!(
-            "view {}/{}",
+            "panel {}/{}",
             self.state.selected_tab + 1,
             self.state.tabs.len().max(1)
         )
@@ -448,7 +448,7 @@ fn inspector_footer_text(selected: usize, total: usize, note: Option<&str>) -> S
     if let Some(note) = note.and_then(compact_inspector_footer_note) {
         parts.push(note);
     }
-    parts.push("Tab tabs".to_string());
+    parts.push("Tab panel".to_string());
     parts.push("S-Tab focus".to_string());
     parts.push("/ search".to_string());
     parts.push("Enter load".to_string());
@@ -662,6 +662,19 @@ impl PanelStackCoordinator {
     pub(crate) fn active(&self) -> Option<&str> {
         self.layers.last().map(String::as_str)
     }
+
+    #[allow(dead_code)]
+    pub(crate) fn depth_label(&self) -> String {
+        format!("stack depth {}", self.layers.len().min(99))
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn breadcrumb_label(&self) -> String {
+        if self.layers.is_empty() {
+            return "latest: none".to_string();
+        }
+        format!("latest: {}", self.layers.join(" > "))
+    }
 }
 
 fn extract_command_target(text: &str) -> Option<String> {
@@ -736,7 +749,7 @@ mod tests {
             vec!["no visible lines".to_string()]
         );
         assert!(inspector_pagination_footer(0, 0).contains("0/0"));
-        assert!(inspector_pagination_footer(0, 0).contains("Tab tabs"));
+        assert!(inspector_pagination_footer(0, 0).contains("Tab panel"));
         assert!(inspector_pagination_footer(0, 0).contains("/ search"));
         assert!(inspector_pagination_footer(1, 5).contains("2/5"));
         assert!(inspector_pagination_footer(1, 5).contains("PgUp/PgDn"));
@@ -746,7 +759,7 @@ mod tests {
                 0,
                 Some("Esc close inspector · return to confirmation with y / a / n"),
             ),
-            "0/0 · y allow · a always · n deny · Tab tabs · S-Tab focus · / search · Enter load · Ctrl+Enter run · Esc close"
+            "0/0 · y allow · a always · n deny · Tab panel · S-Tab focus · / search · Enter load · Ctrl+Enter run · Esc close"
         );
         assert_eq!(
             merge_inspector_footer_note(
@@ -787,6 +800,8 @@ mod tests {
         stack.push("task");
         stack.push("transcript");
         assert_eq!(stack.active(), Some("transcript"));
+        assert_eq!(stack.depth_label(), "stack depth 2");
+        assert_eq!(stack.breadcrumb_label(), "latest: task > transcript");
         assert_eq!(stack.pop().as_deref(), Some("transcript"));
         assert_eq!(stack.active(), Some("task"));
     }

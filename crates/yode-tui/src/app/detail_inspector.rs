@@ -20,7 +20,7 @@ pub(crate) const INSPECTOR_CONFIRM_ALWAYS: &str = "__yode_confirm_always__";
 pub(crate) const INSPECTOR_CONFIRM_DENY: &str = "__yode_confirm_deny__";
 
 const INSPECTOR_MARKDOWN_WIDTH: usize = 100;
-const RAW_PANEL_LABEL: &str = "Raw";
+const RAW_PANEL_LABEL: &str = "Raw view";
 
 pub(crate) fn open_pending_confirmation_inspector(app: &mut App) -> bool {
     let Some(confirm) = app.pending_confirmation.as_ref() else {
@@ -440,7 +440,7 @@ fn build_system_batch_document(entries: &[ChatEntry], batch: &SystemBatch) -> In
         }
         if let Some(raw_lines) = system_raw_panel_lines(entry, &view) {
             lines.push(String::new());
-            lines.push("Raw".to_string());
+            lines.push("Raw view".to_string());
             lines.extend(render_markdown_panel_lines(&raw_lines.join("\n")));
         }
 
@@ -1717,7 +1717,7 @@ mod tests {
         assert_eq!(doc.state.title, "System details");
         assert_eq!(doc.panels[0].tab.label, "Overview");
         assert!(doc.panels.iter().any(|panel| panel.tab.label == "Details"));
-        assert!(doc.panels.iter().any(|panel| panel.tab.label == "Raw"));
+        assert!(doc.panels.iter().any(|panel| panel.tab.label == "Raw view"));
         assert!(doc.panels[0]
             .badges
             .contains(&("kind".to_string(), "memory".to_string())));
@@ -1733,7 +1733,7 @@ mod tests {
         let raw = doc
             .panels
             .iter()
-            .find(|panel| panel.tab.label == "Raw")
+            .find(|panel| panel.tab.label == "Raw view")
             .expect("raw");
         assert!(raw
             .lines
@@ -1757,7 +1757,7 @@ mod tests {
         let raw = doc
             .panels
             .iter()
-            .find(|panel| panel.tab.label == "Raw")
+            .find(|panel| panel.tab.label == "Raw view")
             .expect("raw");
         assert!(raw
             .lines
@@ -1854,7 +1854,7 @@ mod tests {
         let raw = doc
             .panels
             .iter()
-            .find(|panel| panel.tab.label == "Raw")
+            .find(|panel| panel.tab.label == "Raw view")
             .expect("raw");
         assert!(raw
             .lines

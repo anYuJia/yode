@@ -288,7 +288,7 @@ fn render_preview_workflow(dir: &Path, name: String) -> Result<String, String> {
             .map(compact_json_preview)
             .unwrap_or_else(|| "{}".to_string());
         rendered_steps.push(format!(
-            "{}. {} [{}]{} / params: {}",
+            "{:02} · {} · {}{} · params={}",
             index + 1,
             tool_name,
             if is_safe_workflow_step(tool_name) {
@@ -301,7 +301,7 @@ fn render_preview_workflow(dir: &Path, name: String) -> Result<String, String> {
                 .and_then(|value| value.as_bool())
                 .unwrap_or(false)
             {
-                " continue_on_error"
+                " · continue"
             } else {
                 ""
             },
@@ -429,4 +429,33 @@ fn workflow_artifact_footer(path: &Path) -> String {
         lines.push(stale);
     }
     lines.join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::render_preview_workflow;
+
+    #[test]
+    fn workflow_preview_uses_dense_step_lines() {
+        let dir =
+            std::env::temp_dir().join(format!("yode-workflow-preview-{}", uuid::Uuid::new_v4()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("demo.json"),
+            r#"{
+  "name": "demo",
+  "description": "preview density",
+  "steps": [
+    {"tool_name": "read_file", "params": {"file_path": "src/main.rs"}},
+    {"tool_name": "bash", "continue_on_error": true, "params": {"command": "cargo test"}}
+  ]
+}"#,
+        )
+        .unwrap();
+        let output = render_preview_workflow(&dir, "demo".to_string()).unwrap();
+        assert!(output.contains("01 · read_file · safe · params="));
+        assert!(output.contains("02 · bash · write · continue · params="));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

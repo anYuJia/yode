@@ -147,6 +147,7 @@ mod tests {
         );
         assert!(output.contains("Workflow preview"));
         assert!(output.contains("Steps"));
+        assert!(output.contains("1. review_changes"));
     }
 
     #[test]
