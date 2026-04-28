@@ -38,6 +38,7 @@ use tracing::{debug, error, info, warn};
 
 use yode_llm::provider::LlmProvider;
 use yode_llm::types::{ChatRequest, ChatResponse, Message, Role, StreamEvent, ToolCall};
+use yode_agent::AgentTeamManager;
 use yode_tools::registry::ToolRegistry;
 use yode_tools::runtime_tasks::{RuntimeTask, RuntimeTaskNotification, RuntimeTaskStore};
 use yode_tools::state::TaskStore;
@@ -110,6 +111,8 @@ pub struct AgentEngine {
     task_store: Arc<Mutex<TaskStore>>,
     /// Shared runtime task store for background bash/sub-agent work.
     runtime_task_store: Arc<Mutex<RuntimeTaskStore>>,
+    /// Shared live multi-agent/team runtime manager.
+    team_runtime_manager: Arc<Mutex<AgentTeamManager>>,
     /// Shared worktree state for enter/exit worktree tools.
     worktree_state: Arc<Mutex<WorktreeState>>,
     /// Channel for ask_user questions (engine → TUI).

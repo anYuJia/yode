@@ -10,6 +10,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+yode-agent = { workspace = true }
 yode-llm = { workspace = true }
 yode-tools = { workspace = true }
 async-trait = { workspace = true }

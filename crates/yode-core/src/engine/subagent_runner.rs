@@ -5,8 +5,11 @@ use anyhow::Result;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
 
+use yode_agent::AgentTeamManager;
 use yode_llm::provider::LlmProvider;
-use yode_tools::builtin::team_runtime::update_agent_team_member;
+use yode_tools::builtin::team_runtime::{
+    hydrate_agent_team_manager, persist_agent_team_snapshot, update_agent_team_member,
+};
 use yode_tools::registry::ToolRegistry;
 use yode_tools::runtime_tasks::{latest_transcript_artifact_path, RuntimeTaskStore};
 use yode_tools::tool::{SubAgentOptions, SubAgentRunner};
@@ -23,6 +26,7 @@ pub struct SubAgentRunnerImpl {
     pub tools: Arc<ToolRegistry>,
     pub context: AgentContext,
     pub runtime_tasks: Arc<Mutex<RuntimeTaskStore>>,
+    pub team_runtime: Arc<Mutex<AgentTeamManager>>,
     pub hook_manager: Option<Arc<HookManager>>,
 }
 
@@ -96,6 +100,7 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                     sub_context.model = m;
                 }
                 let runtime_tasks = Arc::clone(&self.runtime_tasks);
+                let team_runtime = Arc::clone(&self.team_runtime);
                 let hook_manager = self.hook_manager.clone();
                 let turn_prompt = format!("[Sub-task: {}]\n\n{}", options.description, prompt);
                 let allowed_tools = allowed_tools.clone();
@@ -206,19 +211,17 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                     if cancelled {
                         let _ = tokio::fs::write(&output_path, "Sub-agent task cancelled.\n").await;
                         runtime_tasks.lock().await.mark_cancelled(&task_id);
-                        if let (Some(team_id), Some(member_id)) =
-                            (team_id.as_deref(), member_id.as_deref())
-                        {
-                            let _ = update_agent_team_member(
-                                &hook_context.working_dir_compat(),
-                                team_id,
-                                member_id,
-                                "cancelled",
-                                Some(task_id.clone()),
-                                Some("Sub-agent task cancelled.".to_string()),
-                                None,
-                            );
-                        }
+                        sync_team_runtime_update(
+                            &team_runtime,
+                            &hook_context.working_dir_compat(),
+                            team_id.as_deref(),
+                            member_id.as_deref(),
+                            "cancelled",
+                            Some(task_id.clone()),
+                            Some("Sub-agent task cancelled.".to_string()),
+                            None,
+                        )
+                        .await;
                         emit_task_hook(
                             hook_manager.as_ref(),
                             HookEvent::TaskCompleted,
@@ -254,19 +257,17 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                             let _ = tokio::fs::write(&output_path, content).await;
                             if let Some(error) = error_text {
                                 runtime_tasks.lock().await.mark_failed(&task_id, error);
-                                if let (Some(team_id), Some(member_id)) =
-                                    (team_id.as_deref(), member_id.as_deref())
-                                {
-                                    let _ = update_agent_team_member(
-                                        &hook_context.working_dir_compat(),
-                                        team_id,
-                                        member_id,
-                                        "failed",
-                                        Some(task_id.clone()),
-                                        Some("Sub-agent finished with error text.".to_string()),
-                                        None,
-                                    );
-                                }
+                                sync_team_runtime_update(
+                                    &team_runtime,
+                                    &hook_context.working_dir_compat(),
+                                    team_id.as_deref(),
+                                    member_id.as_deref(),
+                                    "failed",
+                                    Some(task_id.clone()),
+                                    Some("Sub-agent finished with error text.".to_string()),
+                                    None,
+                                )
+                                .await;
                                 emit_task_hook(
                                     hook_manager.as_ref(),
                                     HookEvent::TaskCompleted,
@@ -291,19 +292,17 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                                 .await;
                             } else {
                                 runtime_tasks.lock().await.mark_completed(&task_id);
-                                if let (Some(team_id), Some(member_id)) =
-                                    (team_id.as_deref(), member_id.as_deref())
-                                {
-                                    let _ = update_agent_team_member(
-                                        &hook_context.working_dir_compat(),
-                                        team_id,
-                                        member_id,
-                                        "completed",
-                                        Some(task_id.clone()),
-                                        Some("Sub-agent completed successfully.".to_string()),
-                                        None,
-                                    );
-                                }
+                                sync_team_runtime_update(
+                                    &team_runtime,
+                                    &hook_context.working_dir_compat(),
+                                    team_id.as_deref(),
+                                    member_id.as_deref(),
+                                    "completed",
+                                    Some(task_id.clone()),
+                                    Some("Sub-agent completed successfully.".to_string()),
+                                    None,
+                                )
+                                .await;
                                 emit_task_hook(
                                     hook_manager.as_ref(),
                                     HookEvent::TaskCompleted,
@@ -338,19 +337,17 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                                 .lock()
                                 .await
                                 .mark_failed(&task_id, format!("{}", err));
-                            if let (Some(team_id), Some(member_id)) =
-                                (team_id.as_deref(), member_id.as_deref())
-                            {
-                                let _ = update_agent_team_member(
-                                    &hook_context.working_dir_compat(),
-                                    team_id,
-                                    member_id,
-                                    "failed",
-                                    Some(task_id.clone()),
-                                    Some(format!("{}", err)),
-                                    None,
-                                );
-                            }
+                            sync_team_runtime_update(
+                                &team_runtime,
+                                &hook_context.working_dir_compat(),
+                                team_id.as_deref(),
+                                member_id.as_deref(),
+                                "failed",
+                                Some(task_id.clone()),
+                                Some(format!("{}", err)),
+                                None,
+                            )
+                            .await;
                             emit_task_hook(
                                 hook_manager.as_ref(),
                                 HookEvent::TaskCompleted,
@@ -384,19 +381,17 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                                 .lock()
                                 .await
                                 .mark_failed(&task_id, format!("Join error: {}", err));
-                            if let (Some(team_id), Some(member_id)) =
-                                (team_id.as_deref(), member_id.as_deref())
-                            {
-                                let _ = update_agent_team_member(
-                                    &hook_context.working_dir_compat(),
-                                    team_id,
-                                    member_id,
-                                    "failed",
-                                    Some(task_id.clone()),
-                                    Some(format!("Join error: {}", err)),
-                                    None,
-                                );
-                            }
+                            sync_team_runtime_update(
+                                &team_runtime,
+                                &hook_context.working_dir_compat(),
+                                team_id.as_deref(),
+                                member_id.as_deref(),
+                                "failed",
+                                Some(task_id.clone()),
+                                Some(format!("Join error: {}", err)),
+                                None,
+                            )
+                            .await;
                             emit_task_hook(
                                 hook_manager.as_ref(),
                                 HookEvent::TaskCompleted,
@@ -480,6 +475,18 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                 result_text = "Sub-agent completed without text output.".to_string();
             }
 
+            sync_team_runtime_update(
+                &self.team_runtime,
+                &self.context.working_dir_compat(),
+                options.team_id.as_deref(),
+                options.member_id.as_deref(),
+                "completed",
+                None,
+                Some(result_text.clone()),
+                None,
+            )
+            .await;
+
             emit_subagent_hook(
                 self.hook_manager.as_ref(),
                 HookEvent::SubagentStop,
@@ -499,6 +506,49 @@ impl SubAgentRunner for SubAgentRunnerImpl {
 
             Ok(result_text)
         })
+    }
+}
+
+async fn sync_team_runtime_update(
+    manager: &Arc<Mutex<AgentTeamManager>>,
+    working_dir: &std::path::Path,
+    team_id: Option<&str>,
+    member_id: Option<&str>,
+    status: &str,
+    runtime_task_id: Option<String>,
+    result_preview: Option<String>,
+    result_artifact_path: Option<String>,
+) {
+    let (Some(team_id), Some(member_id)) = (team_id, member_id) else {
+        return;
+    };
+
+    let snapshot = {
+        let mut manager = manager.lock().await;
+        let _ = hydrate_agent_team_manager(working_dir, &mut manager, team_id);
+        let _ = manager.update_member(
+            team_id,
+            member_id,
+            status,
+            runtime_task_id.clone(),
+            result_preview.clone(),
+            result_artifact_path.clone(),
+        );
+        manager.snapshot(team_id)
+    };
+
+    if let Some(snapshot) = snapshot.as_ref() {
+        let _ = persist_agent_team_snapshot(working_dir, snapshot);
+    } else {
+        let _ = update_agent_team_member(
+            working_dir,
+            team_id,
+            member_id,
+            status,
+            runtime_task_id,
+            result_preview,
+            result_artifact_path,
+        );
     }
 }
 

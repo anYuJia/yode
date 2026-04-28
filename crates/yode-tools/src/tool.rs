@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::{mpsc, Mutex};
+use yode_agent::AgentTeamManager;
 
 use crate::registry::ToolPoolSnapshot;
 use crate::registry::ToolRegistry;
@@ -107,6 +108,8 @@ pub struct ToolContext {
     pub tasks: Option<Arc<Mutex<TaskStore>>>,
     /// Shared background/runtime task store.
     pub runtime_tasks: Option<Arc<Mutex<crate::runtime_tasks::RuntimeTaskStore>>>,
+    /// Shared team runtime manager for live multi-agent state.
+    pub team_runtime: Option<Arc<Mutex<AgentTeamManager>>>,
     /// Channel to send questions to the user (needed by `ask_user`).
     pub user_input_tx: Option<mpsc::UnboundedSender<UserQuery>>,
     /// Channel to receive answers from the user (needed by `ask_user`).
@@ -146,6 +149,7 @@ impl ToolContext {
             registry: None,
             tasks: None,
             runtime_tasks: None,
+            team_runtime: None,
             user_input_tx: None,
             user_input_rx: None,
             progress_tx: None,

@@ -25,6 +25,7 @@ impl AgentEngine {
             db: None,
             task_store: Arc::new(Mutex::new(TaskStore::new())),
             runtime_task_store: Arc::new(Mutex::new(RuntimeTaskStore::new())),
+            team_runtime_manager: Arc::new(Mutex::new(AgentTeamManager::new())),
             worktree_state: Arc::new(Mutex::new(WorktreeState::default())),
             ask_user_tx: None,
             ask_user_rx: None,

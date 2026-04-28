@@ -306,6 +306,7 @@ fn clone_step_context(ctx: &ToolContext) -> ToolContext {
         registry: ctx.registry.clone(),
         tasks: ctx.tasks.clone(),
         runtime_tasks: ctx.runtime_tasks.clone(),
+        team_runtime: ctx.team_runtime.clone(),
         user_input_tx: ctx.user_input_tx.clone(),
         user_input_rx: ctx.user_input_rx.clone(),
         progress_tx: ctx.progress_tx.clone(),

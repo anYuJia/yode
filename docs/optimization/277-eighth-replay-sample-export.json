@@ -1,10 +1,10 @@
 {
   "version": "v1",
-  "created_at": "2026-04-28T06:20:48Z",
+  "created_at": "2026-04-28T06:23:41Z",
   "fixtures": [
     {
       "version": "v1",
-      "created_at": "2026-04-28T06:20:48Z",
+      "created_at": "2026-04-28T06:23:41Z",
       "source_generator": "parity-fixture-pack.sh",
       "name": "e2e",
       "kind": "operator",
@@ -13,7 +13,7 @@
     },
     {
       "version": "v1",
-      "created_at": "2026-04-28T06:20:48Z",
+      "created_at": "2026-04-28T06:23:41Z",
       "source_generator": "parity-fixture-pack.sh",
       "name": "replay",
       "kind": "transcript",
@@ -22,7 +22,7 @@
     },
     {
       "version": "v1",
-      "created_at": "2026-04-28T06:20:48Z",
+      "created_at": "2026-04-28T06:23:41Z",
       "source_generator": "parity-fixture-pack.sh",
       "name": "sample",
       "kind": "generic",
@@ -31,7 +31,7 @@
     },
     {
       "version": "v1",
-      "created_at": "2026-04-28T06:20:48Z",
+      "created_at": "2026-04-28T06:23:41Z",
       "source_generator": "parity-fixture-pack.sh",
       "name": "visual",
       "kind": "markdown",

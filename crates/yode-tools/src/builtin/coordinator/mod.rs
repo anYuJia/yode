@@ -8,7 +8,8 @@ use serde_json::{json, Value};
 
 use crate::builtin::orchestration_common::persist_coordinator_runtime_artifacts;
 use crate::builtin::team_runtime::{
-    persist_agent_team_runtime, update_agent_team_member, AgentTeamMemberState,
+    hydrate_agent_team_manager, persist_agent_team_runtime, persist_agent_team_snapshot,
+    update_agent_team_member, AgentTeamMemberState,
 };
 use crate::tool::{SubAgentOptions, Tool, ToolCapabilities, ToolContext, ToolResult};
 
@@ -180,16 +181,38 @@ impl Tool for CoordinateAgentsTool {
                 last_updated_at: Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()),
             })
             .collect::<Vec<_>>();
-        let team_artifacts = ctx.working_dir.as_deref().and_then(|dir| {
-            persist_agent_team_runtime(
+        let team_artifacts = if let (Some(dir), Some(manager)) =
+            (ctx.working_dir.as_deref(), ctx.team_runtime.as_ref())
+        {
+            let state = {
+                let mut manager = manager.lock().await;
+                manager.ensure_team(
+                    &goal,
+                    Some(&team_id),
+                    if dry_run { "dry_run" } else { "coordinate" },
+                    team_members,
+                )
+            };
+            persist_agent_team_snapshot(
                 dir,
-                &goal,
-                Some(&team_id),
-                if dry_run { "dry_run" } else { "coordinate" },
-                team_members,
+                &yode_agent::AgentTeamSnapshot {
+                    state: Some(state),
+                    messages: Vec::new(),
+                },
             )
             .ok()
-        });
+        } else {
+            ctx.working_dir.as_deref().and_then(|dir| {
+                persist_agent_team_runtime(
+                    dir,
+                    &goal,
+                    Some(&team_id),
+                    if dry_run { "dry_run" } else { "coordinate" },
+                    team_members,
+                )
+                .ok()
+            })
+        };
 
         if dry_run {
             let plan = render_phase_plan(&phases, max_parallel);
@@ -307,7 +330,30 @@ impl Tool for CoordinateAgentsTool {
                     match result {
                         Ok(output) => {
                             completed_outputs.insert(workstream.id.clone(), output.clone());
-                            if let Some(dir) = ctx.working_dir.as_deref() {
+                            if let (Some(dir), Some(manager)) =
+                                (ctx.working_dir.as_deref(), ctx.team_runtime.as_ref())
+                            {
+                                let snapshot = {
+                                    let mut manager = manager.lock().await;
+                                    let _ = hydrate_agent_team_manager(dir, &mut manager, &team_id);
+                                    let _ = manager.update_member(
+                                        &team_id,
+                                        &workstream.id,
+                                        if workstream.run_in_background.unwrap_or(true) {
+                                            "running"
+                                        } else {
+                                            "completed"
+                                        },
+                                        parse_team_task_id(&output),
+                                        Some(output.clone()),
+                                        None,
+                                    );
+                                    manager.snapshot(&team_id)
+                                };
+                                if let Some(snapshot) = snapshot.as_ref() {
+                                    let _ = persist_agent_team_snapshot(dir, snapshot);
+                                }
+                            } else if let Some(dir) = ctx.working_dir.as_deref() {
                                 let _ = update_agent_team_member(
                                     dir,
                                     &team_id,
@@ -332,7 +378,26 @@ impl Tool for CoordinateAgentsTool {
                             }));
                         }
                         Err(err) => {
-                            if let Some(dir) = ctx.working_dir.as_deref() {
+                            if let (Some(dir), Some(manager)) =
+                                (ctx.working_dir.as_deref(), ctx.team_runtime.as_ref())
+                            {
+                                let snapshot = {
+                                    let mut manager = manager.lock().await;
+                                    let _ = hydrate_agent_team_manager(dir, &mut manager, &team_id);
+                                    let _ = manager.update_member(
+                                        &team_id,
+                                        &workstream.id,
+                                        "failed",
+                                        None,
+                                        Some(format!("{}", err)),
+                                        None,
+                                    );
+                                    manager.snapshot(&team_id)
+                                };
+                                if let Some(snapshot) = snapshot.as_ref() {
+                                    let _ = persist_agent_team_snapshot(dir, snapshot);
+                                }
+                            } else if let Some(dir) = ctx.working_dir.as_deref() {
                                 let _ = update_agent_team_member(
                                     dir,
                                     &team_id,

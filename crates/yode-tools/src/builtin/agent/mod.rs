@@ -5,7 +5,8 @@ use serde_json::json;
 use serde_json::Value;
 
 use crate::builtin::team_runtime::{
-    persist_agent_team_runtime, update_agent_team_member, AgentTeamMemberState,
+    hydrate_agent_team_manager, persist_agent_team_runtime, persist_agent_team_snapshot,
+    update_agent_team_member, AgentTeamMemberState,
 };
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
@@ -171,54 +172,119 @@ impl Tool for AgentTool {
                 let team_artifacts = if let (Some(team_id), Some(working_dir)) =
                     (team_id.as_deref(), ctx.working_dir.as_deref())
                 {
-                    let _ = persist_agent_team_runtime(
-                        working_dir,
-                        &description,
-                        Some(team_id),
-                        if run_in_background {
-                            "background"
-                        } else {
-                            "foreground"
-                        },
-                        vec![AgentTeamMemberState {
-                            member_id: member_id.clone().unwrap_or_else(|| "member-1".to_string()),
-                            description: description.clone(),
-                            subagent_type: subagent_type_clone.clone(),
-                            model: model_clone.clone(),
-                            run_in_background,
-                            allowed_tools: allowed_tools_clone.clone(),
-                            permission_inheritance: if allowed_tools_clone.is_empty() {
-                                "parent_tool_pool".to_string()
+                    if let Some(manager) = ctx.team_runtime.as_ref() {
+                        let snapshot = {
+                            let mut manager = manager.lock().await;
+                            if hydrate_agent_team_manager(working_dir, &mut manager, team_id)?
+                                .is_none()
+                            {
+                                let state = manager.ensure_team(
+                                    &description,
+                                    Some(team_id),
+                                    if run_in_background {
+                                        "background"
+                                    } else {
+                                        "foreground"
+                                    },
+                                    vec![AgentTeamMemberState {
+                                        member_id: member_id
+                                            .clone()
+                                            .unwrap_or_else(|| "member-1".to_string()),
+                                        description: description.clone(),
+                                        subagent_type: subagent_type_clone.clone(),
+                                        model: model_clone.clone(),
+                                        run_in_background,
+                                        allowed_tools: allowed_tools_clone.clone(),
+                                        permission_inheritance: if allowed_tools_clone.is_empty() {
+                                            "parent_tool_pool".to_string()
+                                        } else {
+                                            "explicit_allowlist".to_string()
+                                        },
+                                        status: if run_in_background {
+                                            "running".to_string()
+                                        } else {
+                                            "completed".to_string()
+                                        },
+                                        runtime_task_id: parse_background_task_id(&result),
+                                        last_result_preview: Some(result.chars().take(240).collect()),
+                                        result_artifact_path: artifact_path.clone(),
+                                        last_updated_at: Some(
+                                            chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                                        ),
+                                    }],
+                                );
+                                manager.upsert_snapshot(
+                                    state,
+                                    Vec::new(),
+                                );
+                            }
+                            let _ = manager.update_member(
+                                team_id,
+                                member_id.as_deref().unwrap_or("member-1"),
+                                if run_in_background {
+                                    "running"
+                                } else {
+                                    "completed"
+                                },
+                                parse_background_task_id(&result),
+                                Some(result.clone()),
+                                artifact_path.clone(),
+                            );
+                            manager.snapshot(team_id)
+                        };
+                        snapshot
+                            .as_ref()
+                            .and_then(|snapshot| persist_agent_team_snapshot(working_dir, snapshot).ok())
+                    } else {
+                        let _ = persist_agent_team_runtime(
+                            working_dir,
+                            &description,
+                            Some(team_id),
+                            if run_in_background {
+                                "background"
                             } else {
-                                "explicit_allowlist".to_string()
+                                "foreground"
                             },
-                            status: if run_in_background {
-                                "running".to_string()
+                            vec![AgentTeamMemberState {
+                                member_id: member_id.clone().unwrap_or_else(|| "member-1".to_string()),
+                                description: description.clone(),
+                                subagent_type: subagent_type_clone.clone(),
+                                model: model_clone.clone(),
+                                run_in_background,
+                                allowed_tools: allowed_tools_clone.clone(),
+                                permission_inheritance: if allowed_tools_clone.is_empty() {
+                                    "parent_tool_pool".to_string()
+                                } else {
+                                    "explicit_allowlist".to_string()
+                                },
+                                status: if run_in_background {
+                                    "running".to_string()
+                                } else {
+                                    "completed".to_string()
+                                },
+                                runtime_task_id: parse_background_task_id(&result),
+                                last_result_preview: Some(result.chars().take(240).collect()),
+                                result_artifact_path: artifact_path.clone(),
+                                last_updated_at: Some(
+                                    chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                                ),
+                            }],
+                        );
+                        update_agent_team_member(
+                            working_dir,
+                            team_id,
+                            member_id.as_deref().unwrap_or("member-1"),
+                            if run_in_background {
+                                "running"
                             } else {
-                                "completed".to_string()
+                                "completed"
                             },
-                            runtime_task_id: parse_background_task_id(&result),
-                            last_result_preview: Some(result.chars().take(240).collect()),
-                            result_artifact_path: artifact_path.clone(),
-                            last_updated_at: Some(
-                                chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
-                            ),
-                        }],
-                    );
-                    update_agent_team_member(
-                        working_dir,
-                        team_id,
-                        member_id.as_deref().unwrap_or("member-1"),
-                        if run_in_background {
-                            "running"
-                        } else {
-                            "completed"
-                        },
-                        parse_background_task_id(&result),
-                        Some(result.clone()),
-                        artifact_path.clone(),
-                    )
-                    .ok()
+                            parse_background_task_id(&result),
+                            Some(result.clone()),
+                            artifact_path.clone(),
+                        )
+                        .ok()
+                    }
                 } else {
                     None
                 };
@@ -286,6 +352,8 @@ fn persist_sub_agent_artifact(
 
 #[cfg(test)]
 mod tests {
+    use yode_agent::AgentTeamManager;
+
     use super::AgentTool;
     use crate::tool::{SubAgentOptions, SubAgentRunner, Tool, ToolContext};
     use serde_json::json;
@@ -343,6 +411,7 @@ mod tests {
         let mut ctx = ToolContext::empty();
         ctx.working_dir = Some(dir.path().to_path_buf());
         ctx.sub_agent_runner = Some(Arc::new(MockRunner));
+        ctx.team_runtime = Some(Arc::new(tokio::sync::Mutex::new(AgentTeamManager::new())));
 
         let tool = AgentTool;
         let result = tool
@@ -370,5 +439,17 @@ mod tests {
             .unwrap();
         assert!(std::path::Path::new(team_state).exists());
         assert!(std::path::Path::new(team_monitor).exists());
+        let snapshot = ctx
+            .team_runtime
+            .as_ref()
+            .unwrap()
+            .lock()
+            .await
+            .snapshot("team-demo")
+            .unwrap();
+        assert_eq!(
+            snapshot.state.as_ref().unwrap().members[0].status,
+            "completed"
+        );
     }
 }

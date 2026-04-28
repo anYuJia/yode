@@ -1,62 +1,13 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+pub use yode_agent::{
+    AgentTeamManager, AgentTeamMemberState, AgentTeamMessage, AgentTeamSnapshot, AgentTeamState,
+};
 
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentTeamMemberState {
-    pub member_id: String,
-    pub description: String,
-    #[serde(default)]
-    pub subagent_type: Option<String>,
-    #[serde(default)]
-    pub model: Option<String>,
-    pub run_in_background: bool,
-    #[serde(default)]
-    pub allowed_tools: Vec<String>,
-    pub permission_inheritance: String,
-    pub status: String,
-    #[serde(default)]
-    pub runtime_task_id: Option<String>,
-    #[serde(default)]
-    pub last_result_preview: Option<String>,
-    #[serde(default)]
-    pub result_artifact_path: Option<String>,
-    #[serde(default)]
-    pub last_updated_at: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentTeamMessage {
-    pub at: String,
-    pub target: String,
-    pub kind: String,
-    pub message: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentTeamState {
-    pub kind: String,
-    pub team_id: String,
-    pub goal: String,
-    pub mode: String,
-    pub created_at: String,
-    pub updated_at: String,
-    pub member_count: usize,
-    pub active_count: usize,
-    pub completed_count: usize,
-    pub failed_count: usize,
-    pub latest_message_count: usize,
-    #[serde(default)]
-    pub latest_message_artifact: Option<String>,
-    #[serde(default)]
-    pub latest_bundle_artifact: Option<String>,
-    pub members: Vec<AgentTeamMemberState>,
-}
 
 #[derive(Debug, Clone, Default)]
 pub struct AgentTeamArtifactSet {
@@ -67,7 +18,7 @@ pub struct AgentTeamArtifactSet {
     pub bundle_path: Option<PathBuf>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize)]
 struct TeamMemberInput {
     id: String,
     description: String,
@@ -141,6 +92,77 @@ pub fn load_agent_team_state(working_dir: &Path, team_id: &str) -> Result<Option
         return Ok(None);
     }
     Ok(Some(serde_json::from_str(&std::fs::read_to_string(path)?)?))
+}
+
+pub fn hydrate_agent_team_manager(
+    working_dir: &Path,
+    manager: &mut AgentTeamManager,
+    team_id: &str,
+) -> Result<Option<AgentTeamSnapshot>> {
+    if manager.snapshot(team_id).is_none() {
+        if let Some(state) = load_agent_team_state(working_dir, team_id)? {
+            let messages = load_team_messages(working_dir, team_id).unwrap_or_default();
+            manager.upsert_snapshot(state, messages);
+        }
+    }
+    Ok(manager.snapshot(team_id))
+}
+
+pub fn persist_agent_team_snapshot(
+    working_dir: &Path,
+    snapshot: &AgentTeamSnapshot,
+) -> Result<AgentTeamArtifactSet> {
+    let mut state = snapshot
+        .state
+        .clone()
+        .ok_or_else(|| anyhow::anyhow!("Agent team snapshot has no state."))?;
+    let dir = teams_dir(working_dir);
+    std::fs::create_dir_all(&dir)?;
+    let state_path = team_state_path(working_dir, &state.team_id);
+    let summary_path = team_summary_path(working_dir, &state.team_id);
+    let messages_path = team_messages_path(working_dir, &state.team_id);
+    let monitor_path = team_monitor_path(working_dir, &state.team_id);
+    let bundle_path = team_bundle_path(working_dir, &state.team_id);
+
+    state.latest_message_count = snapshot.messages.len();
+    state.latest_message_artifact = Some(messages_path.display().to_string());
+    state.latest_bundle_artifact = Some(bundle_path.display().to_string());
+
+    let message_body = if snapshot.messages.is_empty() {
+        "# Agent Team Messages\n\n- none\n".to_string()
+    } else {
+        format!(
+            "# Agent Team Messages\n\n{}\n",
+            snapshot
+                .messages
+                .iter()
+                .map(|entry| format!(
+                    "- {} | {} | {} | {}",
+                    entry.at, entry.target, entry.kind, entry.message
+                ))
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
+    };
+    std::fs::write(&messages_path, message_body)?;
+    std::fs::write(&state_path, serde_json::to_string_pretty(&state)?)?;
+    std::fs::write(&summary_path, render_team_summary(&state))?;
+    std::fs::write(
+        &monitor_path,
+        render_agent_team_monitor_from_snapshot(snapshot, None, true)?,
+    )?;
+    std::fs::write(
+        &bundle_path,
+        render_team_bundle(&state, messages_path.as_path()),
+    )?;
+
+    Ok(AgentTeamArtifactSet {
+        summary_path: Some(summary_path),
+        state_path: Some(state_path),
+        messages_path: Some(messages_path),
+        monitor_path: Some(monitor_path),
+        bundle_path: Some(bundle_path),
+    })
 }
 
 pub fn latest_agent_team_file(working_dir: &Path, suffix: &str) -> Option<PathBuf> {
@@ -268,6 +290,30 @@ pub fn render_agent_team_monitor(
     };
     let state = load_agent_team_state(working_dir, &team_id)?
         .ok_or_else(|| anyhow::anyhow!("Team '{}' not found.", team_id))?;
+    let messages = if include_messages {
+        load_team_messages(working_dir, &team_id).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    render_agent_team_monitor_from_snapshot(
+        &AgentTeamSnapshot {
+            state: Some(state),
+            messages,
+        },
+        runtime_tasks,
+        include_messages,
+    )
+}
+
+pub fn render_agent_team_monitor_from_snapshot(
+    snapshot: &AgentTeamSnapshot,
+    runtime_tasks: Option<&Arc<tokio::sync::Mutex<crate::runtime_tasks::RuntimeTaskStore>>>,
+    include_messages: bool,
+) -> Result<String> {
+    let state = snapshot
+        .state
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Agent team snapshot has no state."))?;
     let runtime_snapshot = if let Some(store) = runtime_tasks {
         if let Ok(guard) = store.try_lock() {
             guard.list()
@@ -278,8 +324,9 @@ pub fn render_agent_team_monitor(
         Vec::new()
     };
     let message_lines = if include_messages {
-        load_team_messages(working_dir, &team_id)
-            .unwrap_or_default()
+        snapshot
+            .messages
+            .clone()
             .into_iter()
             .rev()
             .take(6)
@@ -422,7 +469,21 @@ impl Tool for TeamCreateTool {
             .into_iter()
             .map(team_member_from_input)
             .collect::<Vec<_>>();
-        let artifacts = persist_agent_team_runtime(working_dir, goal, team_id, mode, members)?;
+        let artifacts = if let Some(manager) = ctx.team_runtime.as_ref() {
+            let state = {
+                let mut manager = manager.lock().await;
+                manager.ensure_team(goal, team_id, mode, members)
+            };
+            persist_agent_team_snapshot(
+                working_dir,
+                &AgentTeamSnapshot {
+                    state: Some(state),
+                    messages: Vec::new(),
+                },
+            )?
+        } else {
+            persist_agent_team_runtime(working_dir, goal, team_id, mode, members)?
+        };
         Ok(ToolResult::success_with_metadata(
             format!(
                 "Agent team prepared.\nSummary: {}\nState: {}\nMonitor: {}",
@@ -509,7 +570,21 @@ impl Tool for SendMessageTool {
             .get("kind")
             .and_then(|value| value.as_str())
             .unwrap_or("message");
-        let path = append_agent_team_message(working_dir, team_id, target, kind, message)?;
+        let path = if let Some(manager) = ctx.team_runtime.as_ref() {
+            let snapshot = {
+                let mut manager = manager.lock().await;
+                let _ = hydrate_agent_team_manager(working_dir, &mut manager, team_id)?;
+                manager.append_message(team_id, target, kind, message)?;
+                manager
+                    .snapshot(team_id)
+                    .ok_or_else(|| anyhow::anyhow!("Team '{}' not found.", team_id))?
+            };
+            persist_agent_team_snapshot(working_dir, &snapshot)?
+                .messages_path
+                .ok_or_else(|| anyhow::anyhow!("Team message artifact missing"))?
+        } else {
+            append_agent_team_message(working_dir, team_id, target, kind, message)?
+        };
         Ok(ToolResult::success_with_metadata(
             format!("Team message recorded: {}", path.display()),
             json!({
@@ -564,18 +639,36 @@ impl Tool for TeamMonitorTool {
             .get("include_messages")
             .and_then(|value| value.as_bool())
             .unwrap_or(false);
-        let rendered = render_agent_team_monitor(
-            working_dir,
-            team_id,
-            ctx.runtime_tasks.as_ref(),
-            include_messages,
-        )?;
-        let artifacts = if let Some(team_id) = team_id {
-            load_agent_team_state(working_dir, team_id)?
-                .map(|state| write_agent_team_state(working_dir, &state))
-                .transpose()?
+        let (rendered, artifacts) = if let (Some(team_id), Some(manager)) = (team_id, ctx.team_runtime.as_ref()) {
+            let snapshot = {
+                let mut manager = manager.lock().await;
+                hydrate_agent_team_manager(working_dir, &mut manager, team_id)?
+                    .ok_or_else(|| anyhow::anyhow!("Team '{}' not found.", team_id))?
+            };
+            (
+                render_agent_team_monitor_from_snapshot(
+                    &snapshot,
+                    ctx.runtime_tasks.as_ref(),
+                    include_messages,
+                )?,
+                Some(persist_agent_team_snapshot(working_dir, &snapshot)?),
+            )
         } else {
-            None
+            (
+                render_agent_team_monitor(
+                    working_dir,
+                    team_id,
+                    ctx.runtime_tasks.as_ref(),
+                    include_messages,
+                )?,
+                if let Some(team_id) = team_id {
+                    load_agent_team_state(working_dir, team_id)?
+                        .map(|state| write_agent_team_state(working_dir, &state))
+                        .transpose()?
+                } else {
+                    None
+                },
+            )
         };
         Ok(ToolResult::success_with_metadata(
             rendered,
@@ -792,6 +885,8 @@ fn now_string() -> String {
 
 #[cfg(test)]
 mod tests {
+    use yode_agent::AgentTeamManager;
+
     use super::{
         append_agent_team_message, latest_agent_team_file, persist_agent_team_runtime,
         render_agent_team_monitor, update_agent_team_member, AgentTeamMemberState, SendMessageTool,
@@ -982,5 +1077,47 @@ mod tests {
 
         assert!(result.is_err());
         assert!(format!("{}", result.unwrap_err()).contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn team_tools_update_live_manager_when_available() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ToolContext::empty();
+        ctx.working_dir = Some(dir.path().to_path_buf());
+        ctx.team_runtime = Some(Arc::new(Mutex::new(AgentTeamManager::new())));
+
+        TeamCreateTool
+            .execute(
+                json!({
+                    "goal": "ship feature",
+                    "team_id": "team-demo",
+                    "members": [{ "id": "review", "description": "review" }]
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+        SendMessageTool
+            .execute(
+                json!({
+                    "team_id": "team-demo",
+                    "target": "review",
+                    "message": "focus on risk"
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        let snapshot = ctx
+            .team_runtime
+            .as_ref()
+            .unwrap()
+            .lock()
+            .await
+            .snapshot("team-demo")
+            .unwrap();
+        assert_eq!(snapshot.messages.len(), 1);
+        assert_eq!(snapshot.state.as_ref().unwrap().team_id, "team-demo");
     }
 }
