@@ -9,7 +9,7 @@ fi
 bash scripts/parity-tracker-count.sh \
   docs/optimization/236-fourth-100-claude-output-parity-tracker.md 100 \
   docs/optimization/238-fifth-100-claude-output-parity-tracker.md 100 \
-  docs/optimization/240-sixth-100-claude-output-parity-tracker.md 25 >/dev/null
+  docs/optimization/240-sixth-100-claude-output-parity-tracker.md 100 >/dev/null
 bash scripts/parity-docs-ci.sh >/dev/null
 bash scripts/parity-fixture-audit.sh >/dev/null
 bash scripts/parity-command-audit.sh >/dev/null

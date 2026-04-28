@@ -2,6 +2,9 @@
 
 ## Core Jobs
 
+- `scripts/parity-baseline-refresh.sh`
+- `scripts/parity-benchmark-ci.sh`
+- `scripts/parity-golden-store-ci.sh`
 - `scripts/parity-snapshot-ci.sh`
 - `scripts/parity-replay-ci.sh`
 - `scripts/parity-visual-ci.sh`
@@ -15,6 +18,15 @@
 
 ## Supporting Audits
 
+- `scripts/parity-script-syntax-sweep.sh`
+- `scripts/parity-doc-link-audit.sh`
+- `scripts/parity-manifest-sync-report.sh`
+- `scripts/parity-failure-report-ci.sh`
+- `scripts/parity-env-report.sh`
+- `scripts/parity-job-list.sh`
+- `scripts/parity-ci-smoke.sh`
+- `scripts/parity-baseline-status.sh`
+- `scripts/parity-replay-inventory.sh`
 - `scripts/parity-tracker-count.sh`
 - `scripts/parity-fixture-audit.sh`
 - `scripts/parity-command-audit.sh`

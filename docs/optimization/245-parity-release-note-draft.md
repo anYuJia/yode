@@ -4,7 +4,7 @@
 
 - Fourth tracker: 100/100
 - Fifth tracker: 100/100
-- Sixth tracker: 25/100
+- Sixth tracker: 100/100
 
 ## Highlights
 
