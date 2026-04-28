@@ -14,7 +14,8 @@ copy_if_present() {
   if [[ -e "$src" ]]; then
     mkdir -p "$(dirname "$dest")"
     if [[ -d "$src" ]]; then
-      cp -R "$src" "$dest"
+      mkdir -p "$dest"
+      cp -R "$src"/. "$dest"/
     else
       cp "$src" "$dest"
     fi

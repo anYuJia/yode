@@ -1,0 +1,42 @@
+{
+  "version": "v1",
+  "created_at": "2026-04-28T06:20:48Z",
+  "fixtures": [
+    {
+      "version": "v1",
+      "created_at": "2026-04-28T06:20:48Z",
+      "source_generator": "parity-fixture-pack.sh",
+      "name": "e2e",
+      "kind": "operator",
+      "path": "e2e.operator.md",
+      "body": "# Operator Flow Fixture\n\n## Remote Review\n\n- /doctor remote-review\n- /inspect artifact latest-remote-live\n\n## Workflow\n\n- /workflows preview latest\n- /workflows run latest\n\n## Recovery\n\n- /permissions\n- /hooks\n- /brief\n"
+    },
+    {
+      "version": "v1",
+      "created_at": "2026-04-28T06:20:48Z",
+      "source_generator": "parity-fixture-pack.sh",
+      "name": "replay",
+      "kind": "transcript",
+      "path": "replay.transcript.md",
+      "body": "# Transcript Replay Fixture\n\n## Assistant\n\nFinal answer with structured summary.\n\n## Tool\n\nread_file -> src/main.rs\n\n## System\n\nContext compacted · auto · -4 msgs\n\n## Error\n\nProvider rejected request\n"
+    },
+    {
+      "version": "v1",
+      "created_at": "2026-04-28T06:20:48Z",
+      "source_generator": "parity-fixture-pack.sh",
+      "name": "sample",
+      "kind": "generic",
+      "path": "sample.generic.md",
+      "body": "# Parity Fixture\n\n- kind: generic\n- name: sample\n\n## Goal\n\n- Replace this scaffold with a minimal reproducible fixture.\n\n## Input\n\n```text\nTODO\n```\n\n## Expected\n\n```text\nTODO\n```\n"
+    },
+    {
+      "version": "v1",
+      "created_at": "2026-04-28T06:20:48Z",
+      "source_generator": "parity-fixture-pack.sh",
+      "name": "visual",
+      "kind": "markdown",
+      "path": "visual.markdown.md",
+      "body": "# Markdown Fixture\n\n## CJK Table\n\n| 列 | 值 |\n| --- | --- |\n| 工具 | 远程 |\n| 状态 | 正常 |\n\n## Mixed Formatting\n\n***important wrapped emphasis***\n\n> quoted line\n\n```rust\nfn main() {}\n```\n"
+    }
+  ]
+}

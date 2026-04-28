@@ -5,7 +5,8 @@ if (( $# == 0 )); then
   set -- \
     docs/optimization/236-fourth-100-claude-output-parity-tracker.md 100 \
     docs/optimization/238-fifth-100-claude-output-parity-tracker.md 100 \
-    docs/optimization/240-sixth-100-claude-output-parity-tracker.md 100
+    docs/optimization/240-sixth-100-claude-output-parity-tracker.md 100 \
+    docs/optimization/256-eighth-100-claude-output-parity-tracker.md 100
 fi
 
 if (( $# % 2 != 0 )); then
