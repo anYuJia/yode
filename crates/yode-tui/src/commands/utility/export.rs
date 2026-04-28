@@ -1018,6 +1018,28 @@ mod tests {
     }
 
     #[test]
+    fn workspace_index_groups_inspect_targets() {
+        let rendered = render_workspace_index(
+            std::path::Path::new("/tmp/bundle"),
+            std::path::Path::new("/tmp"),
+            Some(&state()),
+            &Vec::<RuntimeTask>::new(),
+            std::path::Path::new("/tmp/bundle/conversation.txt"),
+            std::path::Path::new("/tmp/bundle/runtime-summary.txt"),
+            std::path::Path::new("/tmp/bundle/runtime-timeline.txt"),
+            std::path::Path::new("/tmp/bundle/prompt-cache.txt"),
+            None,
+            "workflow",
+            "coordinate",
+            "timeline",
+        );
+        assert!(rendered.contains("- Overview: /inspect artifact summary · bundle"));
+        assert!(rendered.contains("- Flow: /inspect artifact latest-workflow · latest-coordinate · latest-orchestration"));
+        assert!(rendered.contains("- Runtime: /inspect artifact latest-runtime-timeline · latest-prompt-cache · latest-prompt-cache-state"));
+        assert!(rendered.contains("- Refs: /inspect artifact latest-provider-inventory · latest-review · latest-transcript"));
+    }
+
+    #[test]
     fn conversation_export_preserves_plain_url_text() {
         let entries = vec![
             ChatEntry::new(ChatRole::Assistant, "See https://example.com/docs".to_string()),

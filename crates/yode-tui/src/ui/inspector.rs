@@ -847,6 +847,25 @@ mod tests {
     }
 
     #[test]
+    fn inspector_search_filters_lines() {
+        let mut doc = InspectorDocument::single(
+            "demo",
+            vec![
+                "alpha".to_string(),
+                "beta match".to_string(),
+                "gamma".to_string(),
+            ],
+        );
+        doc.begin_search();
+        doc.append_search_char('m');
+        doc.append_search_char('a');
+        assert_eq!(doc.state.selected_line, 1);
+        doc.finish_search(true);
+        assert_eq!(doc.state.search_query, "ma");
+        assert!(!doc.state.search_active);
+    }
+
+    #[test]
     fn inspector_action_focus_cycles_when_actions_exist() {
         let mut doc = InspectorDocument::single("demo", vec!["a".to_string()]);
         doc.panels[0].actions.push(InspectorAction {

@@ -10,6 +10,7 @@ Fifth-round parity work is complete. This round converts the fourth-round replay
 - Diff thresholds, artifact retention, ANSI/hyperlink normalization, CJK width checks, stale artifact cleanup, and deterministic output are tracked as governance gates.
 - Catalog gates cover transcript, inspector, export, remote, benchmark, and generated docs.
 - `scripts/parity-ci-dry-run.sh` is the local CI stand-in for these gates.
+- `scripts/parity-command-audit.sh` prevents manifest entries from drifting onto nonexistent tests or missing scripts/files.
 
 ## Fixture Lifecycle
 

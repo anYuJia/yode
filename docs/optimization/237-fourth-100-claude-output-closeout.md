@@ -8,6 +8,7 @@ Executable evidence anchors:
 
 - `docs/optimization/parity-automation-manifest.tsv` maps replay, snapshot, visual, E2E, and governance items to an owner, command, and evidence label.
 - `scripts/parity-fixture-audit.sh` verifies manifest size, required categories, required surfaces, row shape, and command/evidence fields.
+- `scripts/parity-command-audit.sh` verifies that manifest commands point at real `yode-tui` tests, existing scripts, and existing handoff files.
 - `scripts/parity-owner-route.sh` maps failed snapshot/fixture sections to the responsible surface and next focused command.
 - `scripts/parity-ci-dry-run.sh` checks fourth/fifth tracker counts, manifest integrity, shell syntax, and optionally runs `cargo test -p yode-tui --quiet`.
 - Snapshot scripts already cover output capture, split catalogs, diffing, benchmark capture, and catalog generation.

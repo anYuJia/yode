@@ -191,6 +191,18 @@ mod tests {
     }
 
     #[test]
+    fn doctor_bundle_handoff_is_dense() {
+        let handoff = support_handoff_template(
+            std::path::Path::new("/tmp/bundle"),
+            &["local-doctor.txt", "runtime-timeline.md", "prompt-cache.md"],
+        );
+        assert!(handoff.contains("Support Handoff"));
+        assert!(handoff.contains("runtime-timeline.md"));
+        assert!(handoff.contains("prompt-cache-diff.md"));
+        assert!(!handoff.contains("step 1"));
+    }
+
+    #[test]
     fn overview_and_copy_paste_summary_list_files() {
         let dir = std::env::temp_dir().join(format!("yode-support-{}", uuid::Uuid::new_v4()));
         let _ = std::fs::remove_dir_all(&dir);

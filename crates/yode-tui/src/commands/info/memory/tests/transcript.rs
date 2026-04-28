@@ -214,6 +214,31 @@ fn transcript_picker_includes_folded_summary_preview() {
 }
 
 #[test]
+fn render_latest_transcript_surfaces_workspace_sections() {
+    let dir = std::env::temp_dir().join(format!("yode-memory-latest-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("bbb-compact-20250101.md");
+    std::fs::write(
+        &path,
+        "# Compaction Transcript\n\n- Mode: auto\n- Timestamp: 2026-01-01 10:00:00\n\n## Summary Anchor\n\n```text\nlatest summary\n```\n\n## Messages\n\n### User\n\n```text\nhello\n```\n",
+    )
+    .unwrap();
+
+    let output = render_latest_transcript(&path, None).unwrap();
+    match output {
+        CommandOutput::Message(body) => {
+            assert!(body.contains("Latest transcript workspace"));
+            assert!(body.contains("Metadata:"));
+            assert!(body.contains("Timeline anchors:"));
+            assert!(body.contains("Content preview:"));
+        }
+        _ => panic!("expected message"),
+    }
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn read_transcript_metadata_parses_header_fields() {
     let dir =
         std::env::temp_dir().join(format!("yode-memory-command-meta-{}", uuid::Uuid::new_v4()));

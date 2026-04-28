@@ -62,10 +62,10 @@ id	round	category	surface	owner	command	evidence
 061	fourth	e2e	task-follow	hooks-tasks	cargo test -p yode-tui follow_prompt_and_issue_template_include_task_context	task follow
 062	fourth	e2e	task-issue	hooks-tasks	cargo test -p yode-tui follow_prompt_and_issue_template_include_task_context	task issue
 063	fourth	e2e	transcript-compare	transcript-rendering	cargo test -p yode-tui build_transcript_compare_output_highlights_differences	transcript compare
-064	fourth	e2e	transcript-picker	transcript-rendering	cargo test -p yode-tui transcript_picker_summary_preview	transcript picker
-065	fourth	e2e	memory-latest	transcript-rendering	cargo test -p yode-tui render_latest_transcript	memory latest
+064	fourth	e2e	transcript-picker	transcript-rendering	cargo test -p yode-tui transcript_picker_includes_folded_summary_preview	transcript picker
+065	fourth	e2e	memory-latest	transcript-rendering	cargo test -p yode-tui render_latest_transcript_surfaces_workspace_sections	memory latest
 066	fourth	e2e	status-diagnostics	status-diagnostics	cargo test -p yode-tui status_bar_density_compacts_on_narrow_widths	status diagnostics
-067	fourth	e2e	prompt-cache	prompt-cache	cargo test -p yode-tui prompt_cache_badge_highlights_breaks	prompt cache
+067	fourth	e2e	prompt-cache	prompt-cache	cargo test -p yode-tui prompt_cache_badge_shows_read_write_totals	prompt cache
 068	fourth	e2e	restore-diff	checkpoint-restore	cargo test -p yode-tui writes_remote_execution_inventory	restore diff
 069	fourth	e2e	coordinator-timeline	coordinator	cargo test -p yode-tui orchestration_timeline_writes_markdown	coordinator timeline
 070	fourth	e2e	remote-live	remote-workflow	cargo test -p yode-tui remote_bridge_follow_up_reads_capability_artifact	remote live
