@@ -178,3 +178,77 @@ Output: Unified diff format showing added (+) and removed (-) lines."#
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tool::ToolContext;
+
+    fn ctx_with_dir(dir: &std::path::Path) -> ToolContext {
+        let mut ctx = ToolContext::empty();
+        ctx.working_dir = Some(dir.to_path_buf());
+        ctx
+    }
+
+    fn init_git_repo(dir: &std::path::Path) {
+        Command::new("git")
+            .args(["init"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn git_diff_reports_error_outside_repo() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = GitDiffTool
+            .execute(json!({}), &ctx_with_dir(dir.path()))
+            .await
+            .unwrap();
+
+        assert!(result.is_error);
+        assert!(result.content.contains("git diff failed"));
+    }
+
+    #[tokio::test]
+    async fn git_diff_reports_unstaged_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        init_git_repo(dir.path());
+        let file = dir.path().join("a.txt");
+        std::fs::write(&file, "hello\n").unwrap();
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        std::fs::write(&file, "hello\nworld\n").unwrap();
+
+        let result = GitDiffTool
+            .execute(json!({"target": "unstaged"}), &ctx_with_dir(dir.path()))
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("+world"));
+        assert_eq!(
+            result.metadata.as_ref().unwrap()["has_changes"],
+            json!(true)
+        );
+        assert_eq!(result.metadata.as_ref().unwrap()["files_changed"], json!(1));
+    }
+}
