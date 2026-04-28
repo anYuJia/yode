@@ -145,3 +145,57 @@ You can refer back to your plan if needed during implementation. Good luck!"#;
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use serde_json::json;
+    use tokio::sync::Mutex;
+
+    use super::{EnterPlanModeTool, ExitPlanModeTool, VerifyPlanExecutionTool};
+    use crate::tool::{Tool, ToolContext};
+
+    fn ctx_with_plan_mode(enabled: bool) -> ToolContext {
+        let mut ctx = ToolContext::empty();
+        ctx.plan_mode = Some(Arc::new(Mutex::new(enabled)));
+        ctx
+    }
+
+    #[tokio::test]
+    async fn enter_and_exit_plan_mode_toggles_shared_state() {
+        let ctx = ctx_with_plan_mode(false);
+
+        let entered = EnterPlanModeTool.execute(json!({}), &ctx).await.unwrap();
+        assert!(!entered.is_error);
+        assert!(entered.content.contains("Entered plan mode"));
+        assert!(*ctx.plan_mode.as_ref().unwrap().lock().await);
+
+        let entered_again = EnterPlanModeTool.execute(json!({}), &ctx).await.unwrap();
+        assert!(entered_again.is_error);
+        assert!(entered_again.content.contains("Already in plan mode"));
+
+        let exited = ExitPlanModeTool.execute(json!({}), &ctx).await.unwrap();
+        assert!(!exited.is_error);
+        assert!(exited.content.contains("approved your plan"));
+        assert!(!*ctx.plan_mode.as_ref().unwrap().lock().await);
+    }
+
+    #[tokio::test]
+    async fn verify_plan_execution_renders_status_summary() {
+        let result = VerifyPlanExecutionTool
+            .execute(
+                json!({
+                    "status": "partial",
+                    "summary": "tests pass, docs remain"
+                }),
+                &ToolContext::empty(),
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("Status: PARTIAL"));
+        assert!(result.content.contains("tests pass, docs remain"));
+    }
+}
