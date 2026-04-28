@@ -19,6 +19,7 @@ mod task_runtime_workspace;
 mod tasks;
 mod tasks_helpers;
 mod tasks_render;
+mod teams;
 mod update;
 mod version;
 
@@ -38,5 +39,6 @@ pub(crate) use memory::{
 };
 pub use status::StatusCommand;
 pub use tasks::TasksCommand;
+pub use teams::TeamsCommand;
 pub use update::UpdateCommand;
 pub use version::VersionCommand;

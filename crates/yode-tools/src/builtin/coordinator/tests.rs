@@ -188,6 +188,7 @@ async fn coordinate_agents_respects_max_parallel_batches() {
 fn coordinator_rejects_unknown_dependency() {
     let result = normalize_workstreams(vec![super::Workstream {
         id: Some("verify".to_string()),
+        name: None,
         description: "verify".to_string(),
         prompt: "run validation".to_string(),
         subagent_type: None,
@@ -197,6 +198,24 @@ fn coordinator_rejects_unknown_dependency() {
         depends_on: vec!["missing".to_string()],
     }]);
     assert!(result.is_err());
+}
+
+#[test]
+fn coordinator_accepts_workstream_name_as_member_id() {
+    let result = normalize_workstreams(vec![super::Workstream {
+        id: None,
+        name: Some("review".to_string()),
+        description: "review".to_string(),
+        prompt: "inspect".to_string(),
+        subagent_type: None,
+        model: None,
+        run_in_background: None,
+        allowed_tools: Vec::new(),
+        depends_on: Vec::new(),
+    }])
+    .unwrap();
+
+    assert_eq!(result[0].id, "review");
 }
 
 #[test]

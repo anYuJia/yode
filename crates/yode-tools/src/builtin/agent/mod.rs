@@ -69,6 +69,22 @@ impl Tool for AgentTool {
                 "cwd": {
                     "type": "string",
                     "description": "Absolute path to run the agent in. Overrides the working directory for all operations within this agent."
+                },
+                "team_id": {
+                    "type": "string",
+                    "description": "Optional team id used to attach this sub-agent to a live team runtime."
+                },
+                "team_name": {
+                    "type": "string",
+                    "description": "Alias for team_id. Use this when addressing a reusable named team."
+                },
+                "member_id": {
+                    "type": "string",
+                    "description": "Optional member id for this sub-agent inside the team runtime."
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Alias for member_id. Use this to make the team member addressable by name."
                 }
             },
             "required": ["prompt", "description"]
@@ -132,10 +148,12 @@ impl Tool for AgentTool {
             .unwrap_or_default();
         let team_id = params
             .get("team_id")
+            .or_else(|| params.get("team_name"))
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
         let member_id = params
             .get("member_id")
+            .or_else(|| params.get("name"))
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
         let allowed_tools_clone = allowed_tools.clone();
@@ -157,6 +175,41 @@ impl Tool for AgentTool {
             allowed_tools,
             team_id: team_id.clone(),
             member_id: member_id.clone(),
+        };
+        let prompt = if let (Some(team_id), Some(member_id), Some(manager)) = (
+            team_id.as_deref(),
+            member_id.as_deref(),
+            ctx.team_runtime.as_ref(),
+        ) {
+            let mailbox = {
+                let mut manager = manager.lock().await;
+                let mailbox = manager.consume_message_context(team_id, member_id, 6);
+                if !mailbox.is_empty() {
+                    if let (Some(working_dir), Some(snapshot)) =
+                        (ctx.working_dir.as_deref(), manager.snapshot(team_id))
+                    {
+                        let _ = persist_agent_team_snapshot(working_dir, &snapshot);
+                    }
+                }
+                mailbox
+            };
+            if mailbox.is_empty() {
+                prompt
+            } else {
+                let mailbox_summary = mailbox
+                    .iter()
+                    .map(|message| {
+                        format!(
+                            "{} [{}:{}] {}",
+                            message.at, message.target, message.kind, message.message
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                format!("Team mailbox:\n{}\n\nTask:\n{}", mailbox_summary, prompt)
+            }
+        } else {
+            prompt
         };
 
         match runner.run_sub_agent(prompt, options).await {
@@ -206,17 +259,20 @@ impl Tool for AgentTool {
                                             "completed".to_string()
                                         },
                                         runtime_task_id: parse_background_task_id(&result),
-                                        last_result_preview: Some(result.chars().take(240).collect()),
+                                        last_result_preview: Some(
+                                            result.chars().take(240).collect(),
+                                        ),
                                         result_artifact_path: artifact_path.clone(),
                                         last_updated_at: Some(
-                                            chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                                            chrono::Local::now()
+                                                .format("%Y-%m-%d %H:%M:%S")
+                                                .to_string(),
                                         ),
+                                        pending_message_count: 0,
+                                        last_message_at: None,
                                     }],
                                 );
-                                manager.upsert_snapshot(
-                                    state,
-                                    Vec::new(),
-                                );
+                                manager.upsert_snapshot(state, Vec::new());
                             }
                             let _ = manager.update_member(
                                 team_id,
@@ -232,9 +288,9 @@ impl Tool for AgentTool {
                             );
                             manager.snapshot(team_id)
                         };
-                        snapshot
-                            .as_ref()
-                            .and_then(|snapshot| persist_agent_team_snapshot(working_dir, snapshot).ok())
+                        snapshot.as_ref().and_then(|snapshot| {
+                            persist_agent_team_snapshot(working_dir, snapshot).ok()
+                        })
                     } else {
                         let _ = persist_agent_team_runtime(
                             working_dir,
@@ -246,7 +302,9 @@ impl Tool for AgentTool {
                                 "foreground"
                             },
                             vec![AgentTeamMemberState {
-                                member_id: member_id.clone().unwrap_or_else(|| "member-1".to_string()),
+                                member_id: member_id
+                                    .clone()
+                                    .unwrap_or_else(|| "member-1".to_string()),
                                 description: description.clone(),
                                 subagent_type: subagent_type_clone.clone(),
                                 model: model_clone.clone(),
@@ -268,6 +326,8 @@ impl Tool for AgentTool {
                                 last_updated_at: Some(
                                     chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
                                 ),
+                                pending_message_count: 0,
+                                last_message_at: None,
                             }],
                         );
                         update_agent_team_member(
@@ -359,6 +419,7 @@ mod tests {
     use serde_json::json;
     use std::pin::Pin;
     use std::sync::Arc;
+    use std::sync::Mutex as StdMutex;
 
     struct MockRunner;
 
@@ -369,6 +430,24 @@ mod tests {
             _options: SubAgentOptions,
         ) -> Pin<Box<dyn std::future::Future<Output = anyhow::Result<String>> + Send + '_>>
         {
+            Box::pin(async { Ok("sub-agent done".to_string()) })
+        }
+    }
+
+    struct CapturingRunner {
+        prompt: Arc<StdMutex<Option<String>>>,
+        options: Arc<StdMutex<Option<SubAgentOptions>>>,
+    }
+
+    impl SubAgentRunner for CapturingRunner {
+        fn run_sub_agent(
+            &self,
+            prompt: String,
+            options: SubAgentOptions,
+        ) -> Pin<Box<dyn std::future::Future<Output = anyhow::Result<String>> + Send + '_>>
+        {
+            *self.prompt.lock().unwrap() = Some(prompt);
+            *self.options.lock().unwrap() = Some(options);
             Box::pin(async { Ok("sub-agent done".to_string()) })
         }
     }
@@ -450,6 +529,75 @@ mod tests {
         assert_eq!(
             snapshot.state.as_ref().unwrap().members[0].status,
             "completed"
+        );
+    }
+
+    #[tokio::test]
+    async fn agent_tool_accepts_team_aliases_and_consumes_mailbox() {
+        let dir = tempfile::tempdir().unwrap();
+        let prompt = Arc::new(StdMutex::new(None));
+        let options = Arc::new(StdMutex::new(None));
+        let manager = Arc::new(tokio::sync::Mutex::new(AgentTeamManager::new()));
+        {
+            let mut manager = manager.lock().await;
+            manager.ensure_team(
+                "ship feature",
+                Some("team-alpha"),
+                "manual",
+                vec![crate::builtin::team_runtime::AgentTeamMemberState {
+                    member_id: "review".to_string(),
+                    description: "review".to_string(),
+                    subagent_type: None,
+                    model: None,
+                    run_in_background: false,
+                    allowed_tools: vec![],
+                    permission_inheritance: "parent_tool_pool".to_string(),
+                    status: "planned".to_string(),
+                    runtime_task_id: None,
+                    last_result_preview: None,
+                    result_artifact_path: None,
+                    last_updated_at: None,
+                    pending_message_count: 0,
+                    last_message_at: None,
+                }],
+            );
+            manager
+                .append_message("team-alpha", "review", "handoff", "focus on tests")
+                .unwrap();
+        }
+
+        let mut ctx = ToolContext::empty();
+        ctx.working_dir = Some(dir.path().to_path_buf());
+        ctx.sub_agent_runner = Some(Arc::new(CapturingRunner {
+            prompt: Arc::clone(&prompt),
+            options: Arc::clone(&options),
+        }));
+        ctx.team_runtime = Some(Arc::clone(&manager));
+
+        let result = AgentTool
+            .execute(
+                json!({
+                    "description": "inspect code",
+                    "prompt": "inspect the workspace",
+                    "team_name": "team-alpha",
+                    "name": "review"
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        let captured_prompt = prompt.lock().unwrap().clone().unwrap();
+        assert!(captured_prompt.contains("Team mailbox:"));
+        assert!(captured_prompt.contains("focus on tests"));
+        let captured_options = options.lock().unwrap().clone().unwrap();
+        assert_eq!(captured_options.team_id.as_deref(), Some("team-alpha"));
+        assert_eq!(captured_options.member_id.as_deref(), Some("review"));
+        let snapshot = manager.lock().await.snapshot("team-alpha").unwrap();
+        assert_eq!(
+            snapshot.state.as_ref().unwrap().members[0].pending_message_count,
+            0
         );
     }
 }

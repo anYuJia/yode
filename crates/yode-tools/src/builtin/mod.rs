@@ -106,6 +106,7 @@ pub fn register_builtin_tools(registry: &ToolRegistry) {
     registry.register(Arc::new(agent::AgentTool));
     registry.register(Arc::new(team_runtime::TeamCreateTool));
     registry.register(Arc::new(team_runtime::SendMessageTool));
+    registry.register(Arc::new(team_runtime::TeamReceiveTool));
     registry.register(Arc::new(team_runtime::TeamMonitorTool));
     registry.register(Arc::new(plan_mode::EnterPlanModeTool));
     registry.register(Arc::new(plan_mode::ExitPlanModeTool));

@@ -94,6 +94,36 @@ pub fn load_agent_team_state(working_dir: &Path, team_id: &str) -> Result<Option
     Ok(Some(serde_json::from_str(&std::fs::read_to_string(path)?)?))
 }
 
+pub fn load_agent_team_messages(
+    working_dir: &Path,
+    team_id: &str,
+) -> Result<Vec<AgentTeamMessage>> {
+    Ok(load_team_messages(working_dir, team_id).unwrap_or_default())
+}
+
+pub fn load_agent_team_snapshot(
+    working_dir: &Path,
+    team_id: &str,
+) -> Result<Option<AgentTeamSnapshot>> {
+    let Some(state) = load_agent_team_state(working_dir, team_id)? else {
+        return Ok(None);
+    };
+    Ok(Some(AgentTeamSnapshot {
+        state: Some(state),
+        messages: load_team_messages(working_dir, team_id).unwrap_or_default(),
+    }))
+}
+
+pub fn agent_team_artifact_paths(working_dir: &Path, team_id: &str) -> AgentTeamArtifactSet {
+    AgentTeamArtifactSet {
+        summary_path: Some(team_summary_path(working_dir, team_id)),
+        state_path: Some(team_state_path(working_dir, team_id)),
+        messages_path: Some(team_messages_path(working_dir, team_id)),
+        monitor_path: Some(team_monitor_path(working_dir, team_id)),
+        bundle_path: Some(team_bundle_path(working_dir, team_id)),
+    }
+}
+
 pub fn hydrate_agent_team_manager(
     working_dir: &Path,
     manager: &mut AgentTeamManager,
@@ -267,9 +297,48 @@ pub fn append_agent_team_message(
         state.latest_message_count = messages.len();
         state.latest_message_artifact = Some(path.display().to_string());
         state.updated_at = now_string();
+        for member in &mut state.members {
+            if target == "all" || target == member.member_id {
+                member.pending_message_count = member.pending_message_count.saturating_add(1);
+                member.last_message_at = Some(entry.at.clone());
+            }
+        }
         let _ = write_agent_team_state(working_dir, &state);
     }
     Ok(path)
+}
+
+pub fn consume_agent_team_messages(
+    working_dir: &Path,
+    team_id: &str,
+    member_id: &str,
+    max_items: usize,
+) -> Result<Vec<AgentTeamMessage>> {
+    let messages = load_team_messages(working_dir, team_id)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|message| message.target == "all" || message.target == member_id)
+        .rev()
+        .take(max_items.max(1))
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<Vec<_>>();
+    if !messages.is_empty() {
+        if let Some(mut state) = load_agent_team_state(working_dir, team_id)? {
+            if let Some(member) = state
+                .members
+                .iter_mut()
+                .find(|member| member.member_id == member_id)
+            {
+                member.pending_message_count = 0;
+                member.last_updated_at = Some(now_string());
+            }
+            state.updated_at = now_string();
+            let _ = write_agent_team_state(working_dir, &state);
+        }
+    }
+    Ok(messages)
 }
 
 pub fn render_agent_team_monitor(
@@ -362,11 +431,12 @@ pub fn render_agent_team_monitor_from_snapshot(
             .map(|task| format!("{:?}", task.status))
             .unwrap_or_else(|| "none".to_string());
         body.push(format!(
-            "- {} [{}] task={} runtime={} inheritance={}{}{}",
+            "- {} [{}] task={} runtime={} inbox={} inheritance={}{}{}",
             member.member_id,
             member.status,
             member.runtime_task_id.as_deref().unwrap_or("none"),
             runtime_status,
+            member.pending_message_count,
             member.permission_inheritance,
             member
                 .last_result_preview
@@ -394,6 +464,7 @@ pub fn render_agent_team_monitor_from_snapshot(
 
 pub struct TeamCreateTool;
 pub struct SendMessageTool;
+pub struct TeamReceiveTool;
 pub struct TeamMonitorTool;
 
 #[async_trait]
@@ -598,6 +669,121 @@ impl Tool for SendMessageTool {
 }
 
 #[async_trait]
+impl Tool for TeamReceiveTool {
+    fn name(&self) -> &str {
+        "team_receive"
+    }
+
+    fn user_facing_name(&self) -> &str {
+        "Team Inbox"
+    }
+
+    fn description(&self) -> &str {
+        "Read pending messages for a specific agent team member. Team members should call this while running to receive handoffs or user guidance sent after launch."
+    }
+
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "team_id": { "type": "string" },
+                "member_id": { "type": "string" },
+                "max_items": { "type": "integer", "minimum": 1, "default": 8 },
+                "consume": { "type": "boolean", "default": true }
+            },
+            "required": ["team_id", "member_id"]
+        })
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            requires_confirmation: false,
+            supports_auto_execution: true,
+            read_only: false,
+        }
+    }
+
+    async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
+        let working_dir = ctx
+            .working_dir
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Working directory not set"))?;
+        let team_id = params
+            .get("team_id")
+            .and_then(|value| value.as_str())
+            .ok_or_else(|| anyhow::anyhow!("'team_id' parameter is required"))?;
+        let member_id = params
+            .get("member_id")
+            .and_then(|value| value.as_str())
+            .ok_or_else(|| anyhow::anyhow!("'member_id' parameter is required"))?;
+        let max_items = params
+            .get("max_items")
+            .and_then(|value| value.as_u64())
+            .map(|value| value.max(1) as usize)
+            .unwrap_or(8);
+        let consume = params
+            .get("consume")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(true);
+
+        let messages = if let Some(manager) = ctx.team_runtime.as_ref() {
+            let snapshot = {
+                let mut manager = manager.lock().await;
+                hydrate_agent_team_manager(working_dir, &mut manager, team_id)?
+                    .ok_or_else(|| anyhow::anyhow!("Team '{}' not found.", team_id))?;
+                let messages = if consume {
+                    manager.consume_message_context(team_id, member_id, max_items)
+                } else {
+                    manager.message_context(team_id, member_id, max_items)
+                };
+                (messages, manager.snapshot(team_id))
+            };
+            if let Some(snapshot) = snapshot.1.as_ref() {
+                let _ = persist_agent_team_snapshot(working_dir, snapshot);
+            }
+            snapshot.0
+        } else if consume {
+            consume_agent_team_messages(working_dir, team_id, member_id, max_items)?
+        } else {
+            load_team_messages(working_dir, team_id)
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|message| message.target == "all" || message.target == member_id)
+                .rev()
+                .take(max_items)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect()
+        };
+
+        let content = if messages.is_empty() {
+            "No team messages.".to_string()
+        } else {
+            messages
+                .iter()
+                .map(|message| {
+                    format!(
+                        "{} [{}:{}] {}",
+                        message.at, message.target, message.kind, message.message
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        Ok(ToolResult::success_with_metadata(
+            content,
+            json!({
+                "team_id": team_id,
+                "member_id": member_id,
+                "message_count": messages.len(),
+                "consumed": consume,
+            }),
+        ))
+    }
+}
+
+#[async_trait]
 impl Tool for TeamMonitorTool {
     fn name(&self) -> &str {
         "team_monitor"
@@ -639,37 +825,38 @@ impl Tool for TeamMonitorTool {
             .get("include_messages")
             .and_then(|value| value.as_bool())
             .unwrap_or(false);
-        let (rendered, artifacts) = if let (Some(team_id), Some(manager)) = (team_id, ctx.team_runtime.as_ref()) {
-            let snapshot = {
-                let mut manager = manager.lock().await;
-                hydrate_agent_team_manager(working_dir, &mut manager, team_id)?
-                    .ok_or_else(|| anyhow::anyhow!("Team '{}' not found.", team_id))?
+        let (rendered, artifacts) =
+            if let (Some(team_id), Some(manager)) = (team_id, ctx.team_runtime.as_ref()) {
+                let snapshot = {
+                    let mut manager = manager.lock().await;
+                    hydrate_agent_team_manager(working_dir, &mut manager, team_id)?
+                        .ok_or_else(|| anyhow::anyhow!("Team '{}' not found.", team_id))?
+                };
+                (
+                    render_agent_team_monitor_from_snapshot(
+                        &snapshot,
+                        ctx.runtime_tasks.as_ref(),
+                        include_messages,
+                    )?,
+                    Some(persist_agent_team_snapshot(working_dir, &snapshot)?),
+                )
+            } else {
+                (
+                    render_agent_team_monitor(
+                        working_dir,
+                        team_id,
+                        ctx.runtime_tasks.as_ref(),
+                        include_messages,
+                    )?,
+                    if let Some(team_id) = team_id {
+                        load_agent_team_state(working_dir, team_id)?
+                            .map(|state| write_agent_team_state(working_dir, &state))
+                            .transpose()?
+                    } else {
+                        None
+                    },
+                )
             };
-            (
-                render_agent_team_monitor_from_snapshot(
-                    &snapshot,
-                    ctx.runtime_tasks.as_ref(),
-                    include_messages,
-                )?,
-                Some(persist_agent_team_snapshot(working_dir, &snapshot)?),
-            )
-        } else {
-            (
-                render_agent_team_monitor(
-                    working_dir,
-                    team_id,
-                    ctx.runtime_tasks.as_ref(),
-                    include_messages,
-                )?,
-                if let Some(team_id) = team_id {
-                    load_agent_team_state(working_dir, team_id)?
-                        .map(|state| write_agent_team_state(working_dir, &state))
-                        .transpose()?
-                } else {
-                    None
-                },
-            )
-        };
         Ok(ToolResult::success_with_metadata(
             rendered,
             json!({
@@ -763,7 +950,7 @@ fn render_team_summary(state: &AgentTeamState) -> String {
     ];
     for member in &state.members {
         lines.push(format!(
-            "- {} [{}] tools={} inheritance={}{}{}",
+            "- {} [{}] tools={} inbox={} inheritance={}{}{}",
             member.member_id,
             member.status,
             if member.allowed_tools.is_empty() {
@@ -771,6 +958,7 @@ fn render_team_summary(state: &AgentTeamState) -> String {
             } else {
                 member.allowed_tools.join(",")
             },
+            member.pending_message_count,
             member.permission_inheritance,
             member
                 .runtime_task_id
@@ -819,6 +1007,8 @@ fn team_member_from_input(input: TeamMemberInput) -> AgentTeamMemberState {
         last_result_preview: None,
         result_artifact_path: None,
         last_updated_at: Some(now_string()),
+        pending_message_count: 0,
+        last_message_at: None,
     }
 }
 
@@ -890,7 +1080,7 @@ mod tests {
     use super::{
         append_agent_team_message, latest_agent_team_file, persist_agent_team_runtime,
         render_agent_team_monitor, update_agent_team_member, AgentTeamMemberState, SendMessageTool,
-        TeamCreateTool, TeamMonitorTool,
+        TeamCreateTool, TeamMonitorTool, TeamReceiveTool,
     };
     use crate::runtime_tasks::RuntimeTaskStore;
     use crate::tool::{Tool, ToolContext};
@@ -919,6 +1109,8 @@ mod tests {
                 last_result_preview: None,
                 result_artifact_path: None,
                 last_updated_at: Some("2026-01-01 00:00:00".to_string()),
+                pending_message_count: 0,
+                last_message_at: None,
             }],
         )
         .unwrap();
@@ -948,6 +1140,8 @@ mod tests {
                 last_result_preview: None,
                 result_artifact_path: None,
                 last_updated_at: Some("2026-01-01 00:00:00".to_string()),
+                pending_message_count: 0,
+                last_message_at: None,
             }],
         )
         .unwrap();
@@ -1057,6 +1251,53 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("agent-team-messages"));
+    }
+
+    #[tokio::test]
+    async fn team_receive_consumes_member_inbox() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ToolContext::empty();
+        ctx.working_dir = Some(dir.path().to_path_buf());
+
+        TeamCreateTool
+            .execute(
+                json!({
+                    "goal": "ship feature",
+                    "team_id": "team-demo",
+                    "members": [{ "id": "review", "description": "review" }]
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+        SendMessageTool
+            .execute(
+                json!({
+                    "team_id": "team-demo",
+                    "target": "review",
+                    "message": "focus on tests"
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        let result = TeamReceiveTool
+            .execute(
+                json!({
+                    "team_id": "team-demo",
+                    "member_id": "review"
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(result.content.contains("focus on tests"));
+        let state = super::load_agent_team_state(dir.path(), "team-demo")
+            .unwrap()
+            .unwrap();
+        assert_eq!(state.members[0].pending_message_count, 0);
     }
 
     #[tokio::test]

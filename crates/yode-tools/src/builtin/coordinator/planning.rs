@@ -20,6 +20,7 @@ pub(super) fn normalize_workstreams(
     for (index, workstream) in workstreams.into_iter().enumerate() {
         let id = workstream
             .id
+            .or(workstream.name)
             .clone()
             .unwrap_or_else(|| format!("ws{}", index + 1));
         if !seen.insert(id.clone()) {

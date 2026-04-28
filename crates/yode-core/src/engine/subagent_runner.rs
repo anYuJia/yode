@@ -40,6 +40,14 @@ impl SubAgentRunner for SubAgentRunnerImpl {
         let subagent_model = options.model.clone();
 
         Box::pin(async move {
+            let prompt = inject_team_runtime_context(
+                prompt,
+                &self.team_runtime,
+                &self.context.working_dir_compat(),
+                options.team_id.as_deref(),
+                options.member_id.as_deref(),
+            )
+            .await;
             emit_subagent_hook(
                 self.hook_manager.as_ref(),
                 HookEvent::SubagentStart,
@@ -119,17 +127,12 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                     }
 
                     let sub_registry = ToolRegistry::new();
-                    if allowed_tools.is_empty() {
-                        for tool in tools.list() {
-                            sub_registry.register(tool);
-                        }
-                    } else {
-                        for name in &allowed_tools {
-                            if let Some(tool) = tools.get(name) {
-                                sub_registry.register(tool);
-                            }
-                        }
-                    }
+                    register_subagent_tools(
+                        &sub_registry,
+                        &tools,
+                        &allowed_tools,
+                        team_id.is_some() && member_id.is_some(),
+                    );
 
                     let permissions = PermissionManager::permissive();
                     let hook_context = sub_context.clone();
@@ -425,17 +428,12 @@ impl SubAgentRunner for SubAgentRunnerImpl {
             }
 
             let sub_registry = ToolRegistry::new();
-            if allowed_tools.is_empty() {
-                for tool in self.tools.list() {
-                    sub_registry.register(tool);
-                }
-            } else {
-                for name in &allowed_tools {
-                    if let Some(tool) = self.tools.get(name) {
-                        sub_registry.register(tool);
-                    }
-                }
-            }
+            register_subagent_tools(
+                &sub_registry,
+                &self.tools,
+                &allowed_tools,
+                options.team_id.is_some() && options.member_id.is_some(),
+            );
 
             let sub_registry = Arc::new(sub_registry);
             let permissions = PermissionManager::permissive();
@@ -549,6 +547,77 @@ async fn sync_team_runtime_update(
             result_preview,
             result_artifact_path,
         );
+    }
+}
+
+async fn inject_team_runtime_context(
+    prompt: String,
+    manager: &Arc<Mutex<AgentTeamManager>>,
+    working_dir: &std::path::Path,
+    team_id: Option<&str>,
+    member_id: Option<&str>,
+) -> String {
+    let (Some(team_id), Some(member_id)) = (team_id, member_id) else {
+        return prompt;
+    };
+    let messages = {
+        let mut manager = manager.lock().await;
+        let _ = hydrate_agent_team_manager(working_dir, &mut manager, team_id);
+        let messages = manager.consume_message_context(team_id, member_id, 8);
+        if !messages.is_empty() {
+            if let Some(snapshot) = manager.snapshot(team_id) {
+                let _ = persist_agent_team_snapshot(working_dir, &snapshot);
+            }
+        }
+        messages
+    };
+    let mailbox = if messages.is_empty() {
+        "No pending messages at launch.".to_string()
+    } else {
+        messages
+            .iter()
+            .map(|message| {
+                format!(
+                    "{} [{}:{}] {}",
+                    message.at, message.target, message.kind, message.message
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    format!(
+        "Team runtime:\n- team_id: {}\n- member_id: {}\n- Use `team_receive` with this team_id/member_id to check messages sent while you are running.\n\nTeam mailbox:\n{}\n\nTask:\n{}",
+        team_id, member_id, mailbox, prompt
+    )
+}
+
+fn register_subagent_tools(
+    sub_registry: &ToolRegistry,
+    tools: &ToolRegistry,
+    allowed_tools: &[String],
+    include_team_runtime_tools: bool,
+) {
+    if allowed_tools.is_empty() {
+        for tool in tools.list() {
+            sub_registry.register(tool);
+        }
+        return;
+    }
+
+    for name in allowed_tools {
+        if let Some(tool) = tools.get(name) {
+            sub_registry.register(tool);
+        }
+    }
+    if include_team_runtime_tools {
+        for name in ["team_receive", "send_message", "team_monitor"] {
+            if allowed_tools.iter().any(|allowed| allowed == name) {
+                continue;
+            }
+            if let Some(tool) = tools.get(name) {
+                sub_registry.register(tool);
+            }
+        }
     }
 }
 

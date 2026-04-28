@@ -22,6 +22,8 @@ use self::planning::{
 struct Workstream {
     #[serde(default)]
     id: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
     description: String,
     prompt: String,
     #[serde(default)]
@@ -69,6 +71,14 @@ impl Tool for CoordinateAgentsTool {
                     "type": "string",
                     "description": "Overall goal that the coordinator is trying to achieve."
                 },
+                "team_id": {
+                    "type": "string",
+                    "description": "Optional live team id to create or reuse."
+                },
+                "team_name": {
+                    "type": "string",
+                    "description": "Alias for team_id. Use this for a reusable named team."
+                },
                 "workstreams": {
                     "type": "array",
                     "description": "Independent workstreams to delegate.",
@@ -76,6 +86,10 @@ impl Tool for CoordinateAgentsTool {
                         "type": "object",
                         "properties": {
                             "id": { "type": "string" },
+                            "name": {
+                                "type": "string",
+                                "description": "Alias for id. Use this to make the member addressable by name."
+                            },
                             "description": { "type": "string" },
                             "prompt": { "type": "string" },
                             "subagent_type": { "type": "string" },
@@ -145,17 +159,25 @@ impl Tool for CoordinateAgentsTool {
             .map(|value| value.max(1) as usize)
             .unwrap_or(usize::MAX);
         let phases = build_execution_phases(&normalized)?;
-        let team_id = format!(
-            "team-{}",
-            goal.chars()
-                .map(|ch| if ch.is_ascii_alphanumeric() {
-                    ch.to_ascii_lowercase()
-                } else {
-                    '-'
-                })
-                .collect::<String>()
-                .trim_matches('-')
-        );
+        let team_id = params
+            .get("team_id")
+            .or_else(|| params.get("team_name"))
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.trim().is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| {
+                format!(
+                    "team-{}",
+                    goal.chars()
+                        .map(|ch| if ch.is_ascii_alphanumeric() {
+                            ch.to_ascii_lowercase()
+                        } else {
+                            '-'
+                        })
+                        .collect::<String>()
+                        .trim_matches('-')
+                )
+            });
         let team_members = normalized
             .iter()
             .map(|workstream| AgentTeamMemberState {
@@ -179,6 +201,8 @@ impl Tool for CoordinateAgentsTool {
                 last_result_preview: None,
                 result_artifact_path: None,
                 last_updated_at: Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()),
+                pending_message_count: 0,
+                last_message_at: None,
             })
             .collect::<Vec<_>>();
         let team_artifacts = if let (Some(dir), Some(manager)) =
@@ -286,6 +310,23 @@ impl Tool for CoordinateAgentsTool {
         for (phase_index, phase_workstreams) in phases.iter().enumerate() {
             for (batch_index, batch) in phase_workstreams.chunks(max_parallel).enumerate() {
                 let futures = batch.iter().map(|workstream| {
+                    let mailbox_context = ctx
+                        .team_runtime
+                        .as_ref()
+                        .and_then(|manager| {
+                            let mut manager = manager.try_lock().ok()?;
+                            let messages =
+                                manager.consume_message_context(&team_id, &workstream.id, 6);
+                            if !messages.is_empty() {
+                                if let (Some(dir), Some(snapshot)) =
+                                    (ctx.working_dir.as_deref(), manager.snapshot(&team_id))
+                                {
+                                    let _ = persist_agent_team_snapshot(dir, &snapshot);
+                                }
+                            }
+                            Some(messages)
+                        })
+                        .unwrap_or_default();
                     let prerequisite_summary = if workstream.depends_on.is_empty() {
                         "No prerequisite workstreams.".to_string()
                     } else {
@@ -301,12 +342,27 @@ impl Tool for CoordinateAgentsTool {
                             .collect::<Vec<_>>()
                             .join("\n")
                     };
+                    let mailbox_summary = if mailbox_context.is_empty() {
+                        "No team mailbox messages.".to_string()
+                    } else {
+                        mailbox_context
+                            .iter()
+                            .map(|message| {
+                                format!(
+                                    "{} [{}:{}] {}",
+                                    message.at, message.target, message.kind, message.message
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    };
                     let prompt = format!(
-                        "Coordinator goal:\n{}\n\nWorkstream ID: {}\nWorkstream:\n{}\n\nPrerequisite outputs:\n{}\n\nTask:\n{}",
+                        "Coordinator goal:\n{}\n\nWorkstream ID: {}\nWorkstream:\n{}\n\nPrerequisite outputs:\n{}\n\nTeam mailbox:\n{}\n\nTask:\n{}",
                         goal,
                         workstream.id,
                         workstream.description,
                         prerequisite_summary,
+                        mailbox_summary,
                         workstream.prompt
                     );
                     runner.run_sub_agent(

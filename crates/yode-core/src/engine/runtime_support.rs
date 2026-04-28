@@ -1,4 +1,5 @@
 use super::*;
+use yode_agent::AgentTeamSnapshot;
 
 impl AgentEngine {
     pub fn runtime_state(&self) -> EngineRuntimeState {
@@ -216,6 +217,28 @@ impl AgentEngine {
             .try_lock()
             .ok()
             .and_then(|store| store.get(id))
+    }
+
+    pub fn runtime_team_ids(&self) -> Vec<String> {
+        self.team_runtime_manager
+            .try_lock()
+            .ok()
+            .map(|manager| manager.list_team_ids())
+            .unwrap_or_default()
+    }
+
+    pub fn runtime_latest_team_id(&self) -> Option<String> {
+        self.team_runtime_manager
+            .try_lock()
+            .ok()
+            .and_then(|manager| manager.latest_team_id().map(str::to_string))
+    }
+
+    pub fn runtime_team_snapshot(&self, team_id: &str) -> Option<AgentTeamSnapshot> {
+        self.team_runtime_manager
+            .try_lock()
+            .ok()
+            .and_then(|manager| manager.snapshot(team_id))
     }
 
     pub fn cancel_runtime_task(&self, id: &str) -> bool {

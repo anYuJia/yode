@@ -25,6 +25,10 @@ pub struct AgentTeamMemberState {
     pub result_artifact_path: Option<String>,
     #[serde(default)]
     pub last_updated_at: Option<String>,
+    #[serde(default)]
+    pub pending_message_count: u32,
+    #[serde(default)]
+    pub last_message_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,6 +97,17 @@ impl AgentTeamManager {
             }
         }
         let snapshot = self.teams.entry(team_id.clone()).or_default();
+        let previous_members = snapshot
+            .state
+            .as_ref()
+            .map(|state| {
+                state
+                    .members
+                    .iter()
+                    .map(|member| (member.member_id.clone(), member.clone()))
+                    .collect::<BTreeMap<_, _>>()
+            })
+            .unwrap_or_default();
         let state = AgentTeamState {
             kind: "agent_team".to_string(),
             team_id: team_id.clone(),
@@ -126,7 +141,32 @@ impl AgentTeamManager {
                 .state
                 .as_ref()
                 .and_then(|state| state.latest_bundle_artifact.clone()),
-            members,
+            members: members
+                .drain(..)
+                .map(|mut member| {
+                    if let Some(previous) = previous_members.get(&member.member_id) {
+                        member.runtime_task_id = member
+                            .runtime_task_id
+                            .or_else(|| previous.runtime_task_id.clone());
+                        member.last_result_preview = member
+                            .last_result_preview
+                            .or_else(|| previous.last_result_preview.clone());
+                        member.result_artifact_path = member
+                            .result_artifact_path
+                            .or_else(|| previous.result_artifact_path.clone());
+                        if member.last_updated_at.is_none() {
+                            member.last_updated_at = previous.last_updated_at.clone();
+                        }
+                        if member.pending_message_count == 0 {
+                            member.pending_message_count = previous.pending_message_count;
+                        }
+                        if member.last_message_at.is_none() {
+                            member.last_message_at = previous.last_message_at.clone();
+                        }
+                    }
+                    member
+                })
+                .collect(),
         };
         snapshot.state = Some(state.clone());
         self.latest_team_id = Some(team_id);
@@ -207,6 +247,12 @@ impl AgentTeamManager {
         if let Some(state) = snapshot.state.as_mut() {
             state.latest_message_count = snapshot.messages.len();
             state.updated_at = now_string();
+            for member in &mut state.members {
+                if target == "all" || target == member.member_id {
+                    member.pending_message_count = member.pending_message_count.saturating_add(1);
+                    member.last_message_at = Some(entry.at.clone());
+                }
+            }
         }
         self.latest_team_id = Some(team_id.to_string());
         Ok(entry)
@@ -229,6 +275,59 @@ impl AgentTeamManager {
 
     pub fn list_team_ids(&self) -> Vec<String> {
         self.teams.keys().cloned().collect()
+    }
+
+    pub fn message_context(
+        &self,
+        team_id: &str,
+        member_id: &str,
+        max_items: usize,
+    ) -> Vec<AgentTeamMessage> {
+        self.teams
+            .get(team_id)
+            .map(|snapshot| {
+                snapshot
+                    .messages
+                    .iter()
+                    .filter(|message| message.target == "all" || message.target == member_id)
+                    .rev()
+                    .take(max_items.max(1))
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn consume_message_context(
+        &mut self,
+        team_id: &str,
+        member_id: &str,
+        max_items: usize,
+    ) -> Vec<AgentTeamMessage> {
+        let messages = self.message_context(team_id, member_id, max_items);
+        if messages.is_empty() {
+            return messages;
+        }
+        if let Some(state) = self
+            .teams
+            .get_mut(team_id)
+            .and_then(|snapshot| snapshot.state.as_mut())
+        {
+            if let Some(member) = state
+                .members
+                .iter_mut()
+                .find(|member| member.member_id == member_id)
+            {
+                member.pending_message_count = 0;
+                member.last_updated_at = Some(now_string());
+            }
+            state.updated_at = now_string();
+        }
+        self.latest_team_id = Some(team_id.to_string());
+        messages
     }
 }
 
@@ -291,11 +390,20 @@ mod tests {
                 last_result_preview: None,
                 result_artifact_path: None,
                 last_updated_at: None,
+                pending_message_count: 0,
+                last_message_at: None,
             }],
         );
         assert_eq!(state.team_id, "team-demo");
         let updated = manager
-            .update_member("team-demo", "review", "running", Some("task-1".to_string()), None, None)
+            .update_member(
+                "team-demo",
+                "review",
+                "running",
+                Some("task-1".to_string()),
+                None,
+                None,
+            )
             .unwrap();
         assert_eq!(updated.active_count, 1);
         manager
@@ -303,5 +411,57 @@ mod tests {
             .unwrap();
         assert_eq!(manager.snapshot("team-demo").unwrap().messages.len(), 1);
         assert_eq!(manager.list_team_ids(), vec!["team-demo".to_string()]);
+    }
+
+    #[test]
+    fn consuming_messages_clears_member_pending_count() {
+        let mut manager = AgentTeamManager::new();
+        manager.ensure_team(
+            "ship feature",
+            Some("team-demo"),
+            "manual",
+            vec![AgentTeamMemberState {
+                member_id: "review".to_string(),
+                description: "review".to_string(),
+                subagent_type: None,
+                model: None,
+                run_in_background: true,
+                allowed_tools: vec![],
+                permission_inheritance: "parent_tool_pool".to_string(),
+                status: "running".to_string(),
+                runtime_task_id: None,
+                last_result_preview: None,
+                result_artifact_path: None,
+                last_updated_at: None,
+                pending_message_count: 0,
+                last_message_at: None,
+            }],
+        );
+        manager
+            .append_message("team-demo", "review", "message", "check tests")
+            .unwrap();
+        assert_eq!(
+            manager
+                .snapshot("team-demo")
+                .unwrap()
+                .state
+                .unwrap()
+                .members[0]
+                .pending_message_count,
+            1
+        );
+
+        let messages = manager.consume_message_context("team-demo", "review", 10);
+        assert_eq!(messages.len(), 1);
+        assert_eq!(
+            manager
+                .snapshot("team-demo")
+                .unwrap()
+                .state
+                .unwrap()
+                .members[0]
+                .pending_message_count,
+            0
+        );
     }
 }
