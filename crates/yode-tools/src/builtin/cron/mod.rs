@@ -208,3 +208,70 @@ impl Tool for CronDeleteTool {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use serde_json::json;
+    use tokio::sync::{mpsc, Mutex};
+
+    use super::{CronCreateTool, CronDeleteTool, CronListTool};
+    use crate::cron_manager::CronManager;
+    use crate::tool::{Tool, ToolContext};
+
+    fn ctx_with_cron_manager() -> ToolContext {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let mut ctx = ToolContext::empty();
+        ctx.cron_manager = Some(Arc::new(Mutex::new(CronManager::new(tx))));
+        ctx
+    }
+
+    #[tokio::test]
+    async fn cron_tools_create_list_and_delete_job() {
+        let ctx = ctx_with_cron_manager();
+        let created = CronCreateTool
+            .execute(
+                json!({
+                    "cron": "*/5 * * * *",
+                    "prompt": "check status",
+                    "recurring": true
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+        assert!(!created.is_error);
+        assert!(created.content.contains("ID: 1"));
+
+        let listed = CronListTool.execute(json!({}), &ctx).await.unwrap();
+        assert!(!listed.is_error);
+        assert!(listed.content.contains("cron: '*/5 * * * *'"));
+
+        let deleted = CronDeleteTool
+            .execute(json!({"id": "1"}), &ctx)
+            .await
+            .unwrap();
+        assert!(!deleted.is_error);
+        assert!(deleted.content.contains("deleted"));
+
+        let listed = CronListTool.execute(json!({}), &ctx).await.unwrap();
+        assert_eq!(listed.content, "No cron jobs scheduled.");
+    }
+
+    #[tokio::test]
+    async fn cron_create_rejects_invalid_expression() {
+        let ctx = ctx_with_cron_manager();
+        let err = CronCreateTool
+            .execute(
+                json!({
+                    "cron": "not a cron",
+                    "prompt": "check status"
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("Invalid cron expression"));
+    }
+}
