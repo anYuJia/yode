@@ -487,6 +487,10 @@ impl Tool for TeamCreateTool {
             "properties": {
                 "goal": { "type": "string" },
                 "team_id": { "type": "string" },
+                "team_name": {
+                    "type": "string",
+                    "description": "Alias for team_id. Use this for a reusable named team."
+                },
                 "mode": { "type": "string", "default": "manual" },
                 "members": {
                     "type": "array",
@@ -525,7 +529,7 @@ impl Tool for TeamCreateTool {
             .get("goal")
             .and_then(|value| value.as_str())
             .ok_or_else(|| anyhow::anyhow!("'goal' parameter is required"))?;
-        let team_id = params.get("team_id").and_then(|value| value.as_str());
+        let team_id = string_param(&params, "team_id", "team_name");
         let mode = params
             .get("mode")
             .and_then(|value| value.as_str())
@@ -604,11 +608,18 @@ impl Tool for SendMessageTool {
             "type": "object",
             "properties": {
                 "team_id": { "type": "string" },
+                "team_name": {
+                    "type": "string",
+                    "description": "Alias for team_id. Use this for a reusable named team."
+                },
                 "target": { "type": "string", "default": "all" },
                 "message": { "type": "string" },
                 "kind": { "type": "string", "default": "message" }
             },
-            "required": ["team_id", "message"]
+            "required": ["message"],
+            "allOf": [
+                { "anyOf": [{ "required": ["team_id"] }, { "required": ["team_name"] }] }
+            ]
         })
     }
 
@@ -625,9 +636,7 @@ impl Tool for SendMessageTool {
             .working_dir
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Working directory not set"))?;
-        let team_id = params
-            .get("team_id")
-            .and_then(|value| value.as_str())
+        let team_id = string_param(&params, "team_id", "team_name")
             .ok_or_else(|| anyhow::anyhow!("'team_id' parameter is required"))?;
         let target = params
             .get("target")
@@ -687,11 +696,22 @@ impl Tool for TeamReceiveTool {
             "type": "object",
             "properties": {
                 "team_id": { "type": "string" },
+                "team_name": {
+                    "type": "string",
+                    "description": "Alias for team_id. Use this for a reusable named team."
+                },
                 "member_id": { "type": "string" },
+                "name": {
+                    "type": "string",
+                    "description": "Alias for member_id. Use this for the addressable member name."
+                },
                 "max_items": { "type": "integer", "minimum": 1, "default": 8 },
                 "consume": { "type": "boolean", "default": true }
             },
-            "required": ["team_id", "member_id"]
+            "allOf": [
+                { "anyOf": [{ "required": ["team_id"] }, { "required": ["team_name"] }] },
+                { "anyOf": [{ "required": ["member_id"] }, { "required": ["name"] }] }
+            ]
         })
     }
 
@@ -708,13 +728,9 @@ impl Tool for TeamReceiveTool {
             .working_dir
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Working directory not set"))?;
-        let team_id = params
-            .get("team_id")
-            .and_then(|value| value.as_str())
+        let team_id = string_param(&params, "team_id", "team_name")
             .ok_or_else(|| anyhow::anyhow!("'team_id' parameter is required"))?;
-        let member_id = params
-            .get("member_id")
-            .and_then(|value| value.as_str())
+        let member_id = string_param(&params, "member_id", "name")
             .ok_or_else(|| anyhow::anyhow!("'member_id' parameter is required"))?;
         let max_items = params
             .get("max_items")
@@ -802,6 +818,10 @@ impl Tool for TeamMonitorTool {
             "type": "object",
             "properties": {
                 "team_id": { "type": "string" },
+                "team_name": {
+                    "type": "string",
+                    "description": "Alias for team_id. Use this for a reusable named team."
+                },
                 "include_messages": { "type": "boolean", "default": false }
             }
         })
@@ -820,7 +840,7 @@ impl Tool for TeamMonitorTool {
             .working_dir
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Working directory not set"))?;
-        let team_id = params.get("team_id").and_then(|value| value.as_str());
+        let team_id = string_param(&params, "team_id", "team_name");
         let include_messages = params
             .get("include_messages")
             .and_then(|value| value.as_bool())
@@ -1010,6 +1030,13 @@ fn team_member_from_input(input: TeamMemberInput) -> AgentTeamMemberState {
         pending_message_count: 0,
         last_message_at: None,
     }
+}
+
+fn string_param<'a>(params: &'a Value, primary: &str, alias: &str) -> Option<&'a str> {
+    params
+        .get(primary)
+        .or_else(|| params.get(alias))
+        .and_then(|value| value.as_str())
 }
 
 fn load_team_messages(working_dir: &Path, team_id: &str) -> Option<Vec<AgentTeamMessage>> {
@@ -1298,6 +1325,59 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(state.members[0].pending_message_count, 0);
+    }
+
+    #[tokio::test]
+    async fn team_tools_accept_name_aliases() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ToolContext::empty();
+        ctx.working_dir = Some(dir.path().to_path_buf());
+
+        TeamCreateTool
+            .execute(
+                json!({
+                    "goal": "ship feature",
+                    "team_name": "team-demo",
+                    "members": [{ "id": "review", "description": "review" }]
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+        SendMessageTool
+            .execute(
+                json!({
+                    "team_name": "team-demo",
+                    "target": "review",
+                    "message": "focus on aliases"
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+        let receive = TeamReceiveTool
+            .execute(
+                json!({
+                    "team_name": "team-demo",
+                    "name": "review"
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+        let monitor = TeamMonitorTool
+            .execute(
+                json!({
+                    "team_name": "team-demo",
+                    "include_messages": true
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(receive.content.contains("focus on aliases"));
+        assert!(monitor.content.contains("Agent Team Monitor"));
     }
 
     #[tokio::test]
