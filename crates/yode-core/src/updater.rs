@@ -56,6 +56,7 @@ pub struct UpdateCheckResult {
     pub latest_version: String,
     pub release_notes: String,
     pub download_url: String,
+    pub checksum_url: Option<String>,
     pub published_at: String,
 }
 
@@ -136,12 +137,14 @@ impl Updater {
             );
 
             let download_url = self.find_download_url(&release.assets);
+            let checksum_url = self.find_checksum_url(&release.assets);
 
             Ok(Some(UpdateCheckResult {
                 is_newer: true,
                 latest_version,
                 release_notes: release.body,
                 download_url,
+                checksum_url,
                 published_at: release.published_at,
             }))
         } else {
@@ -162,6 +165,19 @@ impl Updater {
             .find(|a| a.name.ends_with(".tar.gz") || a.name.ends_with(".zip"))
             .map(|a| a.browser_download_url.clone())
             .unwrap_or_else(|| "https://github.com/anYuJia/yode/releases".to_string())
+    }
+
+    fn find_checksum_url(&self, assets: &[ReleaseAsset]) -> Option<String> {
+        assets
+            .iter()
+            .find(|asset| {
+                let name = asset.name.to_ascii_lowercase();
+                name == "sha256sums"
+                    || name == "sha256sum"
+                    || name.contains("sha256")
+                    || name.contains("checksum")
+            })
+            .map(|asset| asset.browser_download_url.clone())
     }
 
     pub async fn download_update(&self, update: &UpdateCheckResult) -> Result<PathBuf> {
@@ -194,6 +210,17 @@ impl Updater {
             match download::download_with_stall_detection(&update.download_url, &filepath).await {
                 Ok(size) => {
                     info!("Update downloaded successfully: {} bytes", size);
+                    if let Err(err) = verify_download_checksum(
+                        &filepath,
+                        filename,
+                        update.checksum_url.as_deref(),
+                    )
+                    .await
+                    {
+                        let _ = fs::remove_file(&filepath).await;
+                        let _ = self.release_lock().await;
+                        return Err(err);
+                    }
 
                     if let Err(e) = self.cleanup_old_versions().await {
                         warn!("Failed to cleanup old versions: {}", e);
@@ -342,6 +369,58 @@ impl Updater {
         info!("Update applied successfully. Version updated to latest.");
         Ok(true)
     }
+}
+
+async fn verify_download_checksum(
+    filepath: &PathBuf,
+    filename: &str,
+    checksum_url: Option<&str>,
+) -> Result<()> {
+    let checksum_url = checksum_url.ok_or_else(|| {
+        anyhow::anyhow!("Release is missing a sha256 checksum asset; refusing update")
+    })?;
+    let checksum_body = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .user_agent(format!("yode/{}", CURRENT_VERSION))
+        .build()
+        .context("Failed to create checksum HTTP client")?
+        .get(checksum_url)
+        .send()
+        .await
+        .context("Failed to download checksum file")?
+        .error_for_status()
+        .context("Checksum download failed")?
+        .text()
+        .await
+        .context("Failed to read checksum file")?;
+    let expected = parse_expected_sha256(&checksum_body, filename)
+        .ok_or_else(|| anyhow::anyhow!("Checksum file does not contain {}", filename))?;
+    let actual = sha256_file(filepath).await?;
+    if !expected.eq_ignore_ascii_case(&actual) {
+        return Err(UpdateError::ChecksumMismatch { expected, actual }.into());
+    }
+    info!("Verified update checksum for {}", filename);
+    Ok(())
+}
+
+async fn sha256_file(path: &PathBuf) -> Result<String> {
+    let data = fs::read(path)
+        .await
+        .with_context(|| format!("Failed to read {} for checksum", path.display()))?;
+    let mut hasher = Sha256::new();
+    hasher.update(&data);
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn parse_expected_sha256(body: &str, filename: &str) -> Option<String> {
+    body.lines()
+        .filter_map(|line| {
+            let mut parts = line.split_whitespace();
+            let hash = parts.next()?;
+            let name = parts.next()?.trim_start_matches('*');
+            (hash.len() == 64 && name.ends_with(filename)).then(|| hash.to_string())
+        })
+        .next()
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]

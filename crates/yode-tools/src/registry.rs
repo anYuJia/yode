@@ -5,16 +5,8 @@ use std::sync::{
 };
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
-use crate::tool::Tool;
-
-#[derive(Debug, Clone)]
-pub struct ToolDefinition {
-    pub name: String,
-    pub description: String,
-    pub parameters: Value,
-}
+use crate::tool::{Tool, ToolDefinition};
 
 #[derive(Debug, Clone, Default)]
 pub struct ToolInventory {
@@ -372,7 +364,7 @@ mod tests {
 
     use anyhow::Result;
     use async_trait::async_trait;
-    use serde_json::json;
+    use serde_json::{json, Value};
 
     use super::*;
 

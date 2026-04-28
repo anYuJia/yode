@@ -28,15 +28,27 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
 
       - name: Cache cargo artifacts
         uses: Swatinem/rust-cache@v2
+
+      - name: Clippy advisory
+        continue-on-error: true
+        run: cargo clippy --workspace --no-deps -- -D warnings
 
       - name: Cargo check
         run: cargo check
 
       - name: Workspace library tests
         run: cargo test --workspace --lib
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@cargo-audit
+
+      - name: Cargo audit
+        run: cargo audit
 
       - name: Provider integration tests
         run: cargo test --test anthropic_integration

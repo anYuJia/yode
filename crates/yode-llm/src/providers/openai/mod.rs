@@ -10,13 +10,15 @@ use tokio::sync::mpsc;
 use tracing::{debug, trace};
 
 use self::conversion::{
-    message_to_openai, openai_message_to_internal, openai_usage_to_usage, tool_to_openai,
+    message_to_openai, openai_content_text, openai_message_to_internal, openai_usage_to_usage,
+    tool_to_openai,
 };
 use self::types::{
     OpenAiErrorResponse, OpenAiMessage, OpenAiModelsResponse, OpenAiRequest, OpenAiResponse,
     OpenAiTool, StreamOptions,
 };
 use crate::providers::error_shared::format_api_error;
+use crate::providers::retry::send_with_retry;
 use crate::providers::streaming_shared::map_stop_reason;
 
 use crate::provider::LlmProvider;
@@ -67,7 +69,8 @@ impl OpenAiProvider {
                     message.role == "system"
                         && message
                             .content
-                            .as_deref()
+                            .as_ref()
+                            .and_then(|content| openai_content_text(&Some(content.clone())))
                             .unwrap_or_default()
                             .starts_with("[Context summary]")
                 })
@@ -85,10 +88,10 @@ impl OpenAiProvider {
                     insert_at + offset,
                     OpenAiMessage {
                         role: "system".to_string(),
-                        content: Some(format!(
+                        content: Some(serde_json::json!(format!(
                             "[Post-compact restore: {}]\n{}",
                             block.kind, block.content
-                        )),
+                        ))),
                         reasoning_content: None,
                         tool_calls: None,
                         tool_call_id: None,
@@ -123,15 +126,17 @@ impl LlmProvider for OpenAiProvider {
         debug!("Sending chat request to {}", self.chat_url());
         trace!("Request body: {:?}", body);
 
-        let resp = self
-            .client
-            .post(self.chat_url())
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .await
-            .context("Failed to send chat request")?;
+        let resp = send_with_retry(
+            || {
+                self.client
+                    .post(self.chat_url())
+                    .header("Authorization", format!("Bearer {}", self.api_key))
+                    .header("Content-Type", "application/json")
+                    .json(&body)
+            },
+            "Failed to send chat request",
+        )
+        .await?;
 
         let status = resp.status();
         if !status.is_success() {
@@ -186,13 +191,15 @@ impl LlmProvider for OpenAiProvider {
     async fn list_models(&self) -> Result<Vec<ModelInfo>> {
         debug!("Fetching models from {}", self.models_url());
 
-        let resp = self
-            .client
-            .get(self.models_url())
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .send()
-            .await
-            .context("Failed to fetch models")?;
+        let resp = send_with_retry(
+            || {
+                self.client
+                    .get(self.models_url())
+                    .header("Authorization", format!("Bearer {}", self.api_key))
+            },
+            "Failed to fetch models",
+        )
+        .await?;
 
         let status = resp.status();
         if !status.is_success() {
@@ -229,7 +236,7 @@ impl LlmProvider for OpenAiProvider {
 
 #[cfg(test)]
 mod tests {
-    use super::OpenAiProvider;
+    use super::{openai_content_text, OpenAiProvider};
     use crate::types::{ChatRequest, Message, ProviderRequestHints};
 
     #[test]
@@ -265,7 +272,13 @@ mod tests {
             .messages
             .iter()
             .filter(|message| message.role == "system")
-            .map(|message| message.content.as_deref().unwrap_or_default().to_string())
+            .map(|message| {
+                message
+                    .content
+                    .as_ref()
+                    .and_then(|content| openai_content_text(&Some(content.clone())))
+                    .unwrap_or_default()
+            })
             .collect::<Vec<_>>();
 
         assert_eq!(system_messages.len(), 4);

@@ -23,8 +23,6 @@ pub(super) struct AnthropicStreamState {
     pub(super) saw_message_stop: bool,
     pub(super) finalize_reason: &'static str,
     pub(super) event_count: u64,
-    pub(super) first_block_text: String,
-    pub(super) first_block_is_thinking: bool,
 }
 
 impl AnthropicStreamState {
@@ -39,8 +37,6 @@ impl AnthropicStreamState {
             saw_message_stop: false,
             finalize_reason: "stream_eof",
             event_count: 0,
-            first_block_text: String::new(),
-            first_block_is_thinking: false,
         }
     }
 }
@@ -67,10 +63,6 @@ pub(super) async fn handle_stream_event(
             content_block,
         } => match content_block {
             ContentBlockStart::Text { text } => {
-                if index == 0 {
-                    state.first_block_text = text.clone();
-                }
-
                 state.content_blocks.insert(
                     index,
                     crate::types::ContentBlock::Text { text: text.clone() },
@@ -83,7 +75,6 @@ pub(super) async fn handle_stream_event(
                 thinking,
                 signature,
             } => {
-                state.first_block_is_thinking = true;
                 state.content_blocks.insert(
                     index,
                     crate::types::ContentBlock::Thinking {
@@ -114,7 +105,6 @@ pub(super) async fn handle_stream_event(
                 thinking,
                 signature,
             } => {
-                state.first_block_is_thinking = true;
                 if let Some(crate::types::ContentBlock::Thinking {
                     thinking: current,
                     signature: current_signature,
@@ -124,6 +114,14 @@ pub(super) async fn handle_stream_event(
                     if signature.is_some() {
                         *current_signature = signature.clone();
                     }
+                } else {
+                    state.content_blocks.insert(
+                        index,
+                        crate::types::ContentBlock::Thinking {
+                            thinking: thinking.clone(),
+                            signature: signature.clone(),
+                        },
+                    );
                 }
                 if tx
                     .send(StreamEvent::ReasoningDelta(thinking))
@@ -189,46 +187,17 @@ async fn handle_text_delta(
     text: String,
     tx: &mpsc::Sender<StreamEvent>,
 ) -> Result<()> {
-    if index == 0 {
-        state.first_block_text.push_str(&text);
-    }
-
-    if index == 0 && !state.first_block_is_thinking {
-        let trimmed = state.first_block_text.trim();
-        let is_thinking = trimmed.starts_with("用户")
-            || trimmed.starts_with("我应该")
-            || trimmed.starts_with("Thinking")
-            || trimmed.starts_with("Let me");
-
-        if is_thinking {
-            state.first_block_is_thinking = true;
-            state.content_blocks.insert(
-                index,
-                crate::types::ContentBlock::Thinking {
-                    thinking: state.first_block_text.clone(),
-                    signature: None,
-                },
-            );
-            let _ = tx.send(StreamEvent::ReasoningDelta(text)).await;
-            return Ok(());
-        }
-    }
-
-    if state.first_block_is_thinking && index == 0 {
-        if let Some(crate::types::ContentBlock::Thinking { thinking, .. }) =
-            state.content_blocks.get_mut(&index)
-        {
-            thinking.push_str(&text);
-        }
-        let _ = tx.send(StreamEvent::ReasoningDelta(text)).await;
+    if let Some(crate::types::ContentBlock::Text { text: current }) =
+        state.content_blocks.get_mut(&index)
+    {
+        current.push_str(&text);
     } else {
-        if let Some(crate::types::ContentBlock::Text { text: current }) =
-            state.content_blocks.get_mut(&index)
-        {
-            current.push_str(&text);
-        }
-        let _ = tx.send(StreamEvent::TextDelta(text)).await;
+        state.content_blocks.insert(
+            index,
+            crate::types::ContentBlock::Text { text: text.clone() },
+        );
     }
+    let _ = tx.send(StreamEvent::TextDelta(text)).await;
     Ok(())
 }
 
@@ -273,4 +242,58 @@ pub(super) async fn finalize_stream(
     );
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio::sync::mpsc;
+
+    use crate::providers::anthropic::streaming_support::{
+        handle_stream_event, AnthropicStreamState,
+    };
+    use crate::providers::anthropic::types::{
+        AnthropicStreamEvent, ContentBlockDelta, ContentBlockStart,
+    };
+    use crate::types::{ContentBlock, StreamEvent};
+
+    #[tokio::test]
+    async fn text_delta_is_not_reclassified_as_thinking_by_prefix() {
+        let (tx, mut rx) = mpsc::channel(8);
+        let mut state = AnthropicStreamState::new("claude".to_string());
+
+        handle_stream_event(
+            &mut state,
+            AnthropicStreamEvent::ContentBlockStart {
+                index: 0,
+                content_block: ContentBlockStart::Text {
+                    text: "Thinking out loud: ".to_string(),
+                },
+            },
+            "",
+            &tx,
+        )
+        .await
+        .unwrap();
+        handle_stream_event(
+            &mut state,
+            AnthropicStreamEvent::ContentBlockDelta {
+                index: 0,
+                delta: ContentBlockDelta::TextDelta {
+                    text: "this is user-visible text".to_string(),
+                },
+            },
+            "",
+            &tx,
+        )
+        .await
+        .unwrap();
+
+        assert!(matches!(rx.recv().await, Some(StreamEvent::TextDelta(_))));
+        assert!(matches!(rx.recv().await, Some(StreamEvent::TextDelta(_))));
+        assert!(matches!(
+            state.content_blocks.get(&0),
+            Some(ContentBlock::Text { text })
+                if text == "Thinking out loud: this is user-visible text"
+        ));
+    }
 }

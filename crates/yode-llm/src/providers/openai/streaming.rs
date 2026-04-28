@@ -1,10 +1,11 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use eventsource_stream::Eventsource;
 use futures::StreamExt;
 use tokio::sync::mpsc;
 use tracing::{debug, trace, warn};
 
 use crate::providers::error_shared::format_api_error;
+use crate::providers::retry::send_with_retry;
 use crate::providers::streaming_shared::{emit_stream_error, emit_usage_update};
 use crate::types::{ChatRequest, StreamEvent, Usage};
 
@@ -38,15 +39,17 @@ impl OpenAiProvider {
 
         debug!("Sending streaming chat request to {}", self.chat_url());
 
-        let resp = self
-            .client
-            .post(self.chat_url())
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .await
-            .context("Failed to send streaming chat request")?;
+        let resp = send_with_retry(
+            || {
+                self.client
+                    .post(self.chat_url())
+                    .header("Authorization", format!("Bearer {}", self.api_key))
+                    .header("Content-Type", "application/json")
+                    .json(&body)
+            },
+            "Failed to send streaming chat request",
+        )
+        .await?;
 
         let status = resp.status();
         if !status.is_success() {

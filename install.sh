@@ -21,6 +21,36 @@ need() {
   command -v "$1" >/dev/null 2>&1 || error "'$1' is required but not found. Please install it first."
 }
 
+sha256_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  else
+    error "'sha256sum' or 'shasum' is required to verify release checksums."
+  fi
+}
+
+verify_checksum() {
+  local version="$1" archive="$2" file="$3" checksum_file="$4"
+  local checksum_url expected actual
+
+  checksum_url="https://github.com/${REPO}/releases/download/${version}/SHA256SUMS"
+  info "Checksum: ${checksum_url}"
+  if ! curl -fsSL -o "$checksum_file" "$checksum_url"; then
+    error "Checksum download failed. Refusing to install unverifiable release ${version}."
+  fi
+
+  expected=$(awk -v archive="$archive" '$2 == archive || $2 == "*" archive {print $1; exit}' "$checksum_file")
+  [ -n "$expected" ] || error "Checksum file does not contain ${archive}."
+  actual=$(sha256_file "$file")
+
+  expected=$(printf '%s' "$expected" | tr '[:upper:]' '[:lower:]')
+  actual=$(printf '%s' "$actual" | tr '[:upper:]' '[:lower:]')
+  [ "$expected" = "$actual" ] || error "Checksum verification failed for ${archive}."
+  info "Checksum verified."
+}
+
 # ── detect platform ──────────────────────────────────────────────────
 detect_platform() {
   local os arch
@@ -89,6 +119,7 @@ main() {
   if ! curl -fSL --progress-bar -o "${tmpdir}/${archive}" "$url"; then
     error "Download failed. Check that release ${version} exists and has asset ${archive}."
   fi
+  verify_checksum "$version" "$archive" "${tmpdir}/${archive}" "${tmpdir}/SHA256SUMS"
 
   # extract
   tar -xzf "${tmpdir}/${archive}" -C "$tmpdir"

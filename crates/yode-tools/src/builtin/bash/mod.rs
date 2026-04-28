@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use async_trait::async_trait;
+use regex::Regex;
 use serde_json::{json, Value};
 use tokio::process::Command;
 use tokio::sync::mpsc;
@@ -20,6 +21,17 @@ const MAX_TIMEOUT_SECS: u64 = 600;
 const STALL_CHECK_INTERVAL_MS: u64 = 5_000;
 const STALL_THRESHOLD_MS: u64 = 45_000;
 const STALL_TAIL_BYTES: usize = 1024;
+const DESTRUCTIVE_COMMAND_PATTERNS: &[&str] = &[
+    r"(?i)(^|[;&|]\s*)rm\s+(-[^\s]*r[^\s]*f|- [^\n;]*r[^\n;]*f)[^\n;]*(\s|=)/(?:\s|$|[;&|])",
+    r"(?i)(^|[;&|]\s*)rm\s+(-[^\s]*r[^\s]*f|- [^\n;]*r[^\n;]*f)[^\n;]*(/System|/Library|/usr|/bin|/sbin|/etc|/var)(?:\s|$|[;&|])",
+    r"(?i)(^|[;&|]\s*)mkfs(\.|[\s])",
+    r"(?i)(^|[;&|]\s*)dd\s+[^;&|]*(of=|if=)/dev/(sd|nvme|disk|rdisk)",
+    r"(?i)>\s*/dev/(sd|nvme|disk|rdisk)",
+    r"(?i)(^|[;&|]\s*)chmod\s+-R\s+777\s+/",
+    r"(?i)(curl|wget)\b[^;&|]*\|\s*(sudo\s+)?(sh|bash)\b",
+    r"(?i)(^|[;&|]\s*)git\s+reset\s+--hard(?:\s|$)",
+    r"(?i)(^|[;&|]\s*)git\s+clean\s+-[^\s]*[fxd]",
+];
 
 const INTERACTIVE_PROMPT_PATTERNS: &[&str] = &[
     "password:",
@@ -156,6 +168,26 @@ While the bash tool can do similar things, it's better to use the built-in tools
             .ok_or_else(|| anyhow::anyhow!("Missing required parameter: command"))?;
 
         let working_dir = ctx.working_dir.as_deref().unwrap_or_else(|| Path::new("."));
+        let dangerously_disable_sandbox = params
+            .get("dangerously_disable_sandbox")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if dangerously_disable_sandbox {
+            tracing::warn!(
+                "bash dangerously_disable_sandbox requested, but local command guard remains active"
+            );
+        }
+        if let Some(reason) = destructive_command_reason(command) {
+            return Ok(ToolResult::error_typed(
+                format!(
+                    "Refusing to run potentially destructive bash command: {}\nCommand: {}",
+                    reason, command
+                ),
+                ToolErrorType::Permission,
+                false,
+                Some("Use a narrower, reversible command or ask the user for an explicit manual recovery action.".to_string()),
+            ));
+        }
 
         let timeout_ms = params
             .get("timeout_ms")
@@ -235,6 +267,18 @@ While the bash tool can do similar things, it's better to use the built-in tools
             }
         }
     }
+}
+
+fn destructive_command_reason(command: &str) -> Option<&'static str> {
+    for pattern in DESTRUCTIVE_COMMAND_PATTERNS {
+        if Regex::new(pattern)
+            .expect("destructive bash command pattern should compile")
+            .is_match(command)
+        {
+            return Some("matches destructive command guard");
+        }
+    }
+    None
 }
 
 #[cfg(test)]

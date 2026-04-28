@@ -319,7 +319,7 @@ impl AnthropicProvider {
                 description: t.description.clone(),
                 input_schema: t.parameters.clone(),
                 cache_control: (enable_prompt_caching && index == last_index)
-                    .then(|| default_cache_control()),
+                    .then(default_cache_control),
             })
             .collect()
     }

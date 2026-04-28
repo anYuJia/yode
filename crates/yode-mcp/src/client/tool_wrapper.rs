@@ -1,8 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use rmcp::model::CallToolRequestParams;
-use rmcp::service::Peer;
-use rmcp::RoleClient;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -11,6 +9,8 @@ use std::time::Instant;
 
 use yode_tools::tool::{Tool, ToolContext, ToolResult};
 
+use super::McpConnection;
+
 /// Wraps an MCP tool as a yode Tool trait implementation.
 pub struct McpToolWrapper {
     pub tool_name: String,
@@ -18,7 +18,7 @@ pub struct McpToolWrapper {
     pub description: String,
     pub input_schema: Value,
     pub server_name: String,
-    pub peer: Peer<RoleClient>,
+    pub(crate) connection: McpConnection,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -169,7 +169,7 @@ impl Tool for McpToolWrapper {
             &self.original_name,
             params,
             |request| async move {
-                self.peer
+                self.connection
                     .call_tool(request)
                     .await
                     .map_err(|e| e.to_string())

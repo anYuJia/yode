@@ -1,6 +1,7 @@
 use tracing::warn;
 
 use crate::types::{Message, Role, ToolCall, ToolDefinition, Usage};
+use serde_json::{json, Value};
 
 use super::types::{
     OpenAiFunction, OpenAiMessage, OpenAiTool, OpenAiToolCall, OpenAiToolFunction, OpenAiUsage,
@@ -50,7 +51,7 @@ pub(super) fn message_to_openai(msg: &Message) -> OpenAiMessage {
 
     OpenAiMessage {
         role: role_to_string(&msg.role),
-        content: msg.content.clone(),
+        content: openai_content_from_message(msg),
         reasoning_content: msg.reasoning.clone(),
         tool_calls,
         tool_call_id: msg.tool_call_id.clone(),
@@ -58,6 +59,7 @@ pub(super) fn message_to_openai(msg: &Message) -> OpenAiMessage {
 }
 
 pub(super) fn openai_message_to_internal(msg: &OpenAiMessage) -> Message {
+    let content = openai_content_text(&msg.content);
     let tool_calls = msg
         .tool_calls
         .as_ref()
@@ -79,13 +81,13 @@ pub(super) fn openai_message_to_internal(msg: &OpenAiMessage) -> Message {
             signature: None,
         });
     }
-    if let Some(ref t) = msg.content {
+    if let Some(ref t) = content {
         blocks.push(crate::types::ContentBlock::Text { text: t.clone() });
     }
 
     Message {
         role: string_to_role(&msg.role),
-        content: msg.content.clone(),
+        content,
         content_blocks: blocks,
         reasoning: msg.reasoning_content.clone(),
         tool_calls,
@@ -93,6 +95,44 @@ pub(super) fn openai_message_to_internal(msg: &OpenAiMessage) -> Message {
         images: Vec::new(),
     }
     .normalized()
+}
+
+pub(super) fn openai_content_text(content: &Option<Value>) -> Option<String> {
+    match content {
+        Some(Value::String(text)) => Some(text.clone()),
+        Some(Value::Array(parts)) => {
+            let text = parts
+                .iter()
+                .filter_map(|part| part.get("text").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join("");
+            (!text.is_empty()).then_some(text)
+        }
+        _ => None,
+    }
+}
+
+fn openai_content_from_message(msg: &Message) -> Option<Value> {
+    if msg.images.is_empty() {
+        return msg.content.as_ref().map(|content| json!(content));
+    }
+
+    let mut parts = Vec::new();
+    if let Some(content) = msg.content.as_ref().filter(|content| !content.is_empty()) {
+        parts.push(json!({
+            "type": "text",
+            "text": content,
+        }));
+    }
+    for image in &msg.images {
+        parts.push(json!({
+            "type": "image_url",
+            "image_url": {
+                "url": format!("data:{};base64,{}", image.media_type, image.base64),
+            },
+        }));
+    }
+    Some(Value::Array(parts))
 }
 
 pub(super) fn tool_to_openai(tool: &ToolDefinition) -> OpenAiTool {
@@ -118,5 +158,53 @@ pub(super) fn openai_usage_to_usage(usage: &OpenAiUsage) -> Usage {
             .map(|details| details.cached_tokens)
             .unwrap_or(0),
         cache_deleted_tokens: 0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::Value;
+
+    use crate::types::{ImageData, Message};
+
+    use super::{message_to_openai, openai_content_text};
+
+    #[test]
+    fn message_to_openai_preserves_user_images_as_content_parts() {
+        let message = Message::user_with_images(
+            "inspect",
+            vec![ImageData {
+                base64: "ZmFrZQ==".to_string(),
+                media_type: "image/png".to_string(),
+            }],
+        );
+
+        let converted = message_to_openai(&message);
+        let content = converted.content.unwrap();
+        let parts = content.as_array().unwrap();
+        assert_eq!(parts[0]["type"], "text");
+        assert_eq!(parts[0]["text"], "inspect");
+        assert_eq!(parts[1]["type"], "image_url");
+        assert_eq!(
+            parts[1]["image_url"]["url"],
+            "data:image/png;base64,ZmFrZQ=="
+        );
+    }
+
+    #[test]
+    fn openai_content_text_extracts_text_parts() {
+        let content = Some(serde_json::json!([
+            {"type":"text","text":"hello"},
+            {"type":"image_url","image_url":{"url":"data:image/png;base64,xx"}},
+            {"type":"text","text":" world"}
+        ]));
+        assert_eq!(
+            openai_content_text(&content).as_deref(),
+            Some("hello world")
+        );
+        assert_eq!(
+            openai_content_text(&Some(Value::String("plain".to_string()))).as_deref(),
+            Some("plain")
+        );
     }
 }

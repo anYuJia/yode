@@ -2,7 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-use crate::tool::{Tool, ToolContext, ToolResult};
+use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
 pub mod snip;
 pub use snip::SnipTool;
@@ -64,8 +64,12 @@ Usage:
         })
     }
 
-    fn requires_confirmation(&self) -> bool {
-        true
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            requires_confirmation: true,
+            supports_auto_execution: false,
+            read_only: false,
+        }
     }
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {

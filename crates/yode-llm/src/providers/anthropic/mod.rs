@@ -15,13 +15,13 @@ use self::types::{
     ContentBlock,
 };
 use crate::providers::error_shared::format_api_error;
+use crate::providers::retry::send_with_retry;
 use crate::providers::streaming_shared::map_stop_reason;
 
 use crate::provider::LlmProvider;
 use crate::types::{ChatRequest, ChatResponse, Message, ModelInfo, StreamEvent, ToolCall};
 
-/// ── Provider implementation ─────────────────────────────────────────────────
-
+// ── Provider implementation ─────────────────────────────────────────────────
 pub struct AnthropicProvider {
     name: String,
     api_key: String,
@@ -59,7 +59,7 @@ impl AnthropicProvider {
         let tools = Self::convert_tools(&request.tools, request.provider_hints.anthropic.as_ref());
         let thinking = Some(AnthropicThinkingConfig {
             thinking_type: "enabled".to_string(),
-            budget_tokens: 1024,
+            budget_tokens: anthropic_thinking_budget_tokens(),
         });
 
         AnthropicRequest {
@@ -90,16 +90,18 @@ impl LlmProvider for AnthropicProvider {
 
         debug!("Sending Anthropic chat request to {}", self.messages_url());
 
-        let resp = self
-            .client
-            .post(self.messages_url())
-            .header("x-api-key", &self.api_key)
-            .header("anthropic-version", "2023-06-01")
-            .header("content-type", "application/json")
-            .json(&body)
-            .send()
-            .await
-            .context("Failed to send Anthropic chat request")?;
+        let resp = send_with_retry(
+            || {
+                self.client
+                    .post(self.messages_url())
+                    .header("x-api-key", &self.api_key)
+                    .header("anthropic-version", "2023-06-01")
+                    .header("content-type", "application/json")
+                    .json(&body)
+            },
+            "Failed to send Anthropic chat request",
+        )
+        .await?;
 
         let status = resp.status();
         if !status.is_success() {
@@ -188,8 +190,13 @@ impl LlmProvider for AnthropicProvider {
     async fn list_models(&self) -> Result<Vec<ModelInfo>> {
         Ok(vec![
             ModelInfo {
-                id: "claude-3-5-sonnet-20241022".to_string(),
-                name: "Claude 3.5 Sonnet".to_string(),
+                id: "claude-sonnet-4-20250514".to_string(),
+                name: "Claude Sonnet 4".to_string(),
+                provider: self.name.clone(),
+            },
+            ModelInfo {
+                id: "claude-opus-4-20250514".to_string(),
+                name: "Claude Opus 4".to_string(),
                 provider: self.name.clone(),
             },
             ModelInfo {
@@ -198,5 +205,31 @@ impl LlmProvider for AnthropicProvider {
                 provider: self.name.clone(),
             },
         ])
+    }
+}
+
+fn anthropic_thinking_budget_tokens() -> u32 {
+    std::env::var("YODE_ANTHROPIC_THINKING_BUDGET_TOKENS")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .filter(|value| *value >= 1024)
+        .unwrap_or(1024)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AnthropicProvider;
+    use crate::provider::LlmProvider;
+
+    #[tokio::test]
+    async fn anthropic_static_models_include_claude_4() {
+        let provider = AnthropicProvider::new("anthropic", "key", "https://example.test");
+        let models = provider.list_models().await.unwrap();
+        assert!(models
+            .iter()
+            .any(|model| model.id == "claude-sonnet-4-20250514"));
+        assert!(models
+            .iter()
+            .any(|model| model.id == "claude-opus-4-20250514"));
     }
 }

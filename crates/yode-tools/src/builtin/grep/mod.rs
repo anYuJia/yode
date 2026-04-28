@@ -1,8 +1,11 @@
-use std::path::Path;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::Result;
 use async_trait::async_trait;
+use globset::{Glob, GlobMatcher};
+use regex::{Regex, RegexBuilder};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 
@@ -105,6 +108,21 @@ Usage:
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
         let pattern = params.get("pattern").and_then(|v| v.as_str()).unwrap_or("");
+        let matcher = match regex_from_params(pattern, &params) {
+            Ok(matcher) => matcher,
+            Err(err) => {
+                return Ok(ToolResult::error(format!("Invalid regex pattern: {}", err)));
+            }
+        };
+        let glob_matcher = match params.get("glob").and_then(|v| v.as_str()) {
+            Some(glob) => match Glob::new(glob) {
+                Ok(glob) => Some(glob.compile_matcher()),
+                Err(err) => {
+                    return Ok(ToolResult::error(format!("Invalid glob pattern: {}", err)));
+                }
+            },
+            None => None,
+        };
         let path = params.get("path").and_then(|v| v.as_str()).unwrap_or(".");
         let output_mode = params
             .get("output_mode")
@@ -174,12 +192,24 @@ Usage:
             .output()
         {
             Ok(o) => o,
-            Err(_) => {
-                // Fallback to internal implementation if rg is not installed
-                return Ok(ToolResult::error(
-                    "ripgrep (rg) is not installed in the system path.".to_string(),
-                ));
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                let stdout = fallback_grep_stdout(
+                    &matcher,
+                    path,
+                    output_mode,
+                    working_dir,
+                    glob_matcher.as_ref(),
+                );
+                return render_grep_stdout(
+                    stdout,
+                    pattern,
+                    path,
+                    output_mode,
+                    &params,
+                    working_dir,
+                );
             }
+            Err(err) => return Ok(ToolResult::error(format!("Failed to run rg: {}", err))),
         };
 
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -189,89 +219,193 @@ Usage:
             return Ok(ToolResult::error(format!("rg error: {}", stderr)));
         }
 
-        if stdout.is_empty() {
-            return Ok(ToolResult::success_with_metadata(
-                "No matches found.".to_string(),
-                json!({
-                    "pattern": pattern,
-                    "path": path,
-                    "output_mode": output_mode,
-                    "file_count": 0,
-                    "line_count": 0,
-                    "match_count": 0,
-                    "applied_limit": serde_json::Value::Null,
-                    "applied_offset": 0,
-                }),
-            ));
-        }
+        render_grep_stdout(
+            stdout.to_string(),
+            pattern,
+            path,
+            output_mode,
+            &params,
+            working_dir,
+        )
+    }
+}
 
-        // Apply head_limit and offset
-        let head_limit = params
-            .get("head_limit")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(250) as usize;
-        let offset = params.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-
-        let lines: Vec<&str> = stdout.lines().collect();
-        let total_count = lines.len();
-
-        let start = offset.min(total_count);
-        let end = if head_limit == 0 {
-            total_count
-        } else {
-            (start + head_limit).min(total_count)
-        };
-
-        let result_lines = &lines[start..end];
-        let mut final_output = result_lines.join("\n");
-
-        if end < total_count {
-            final_output.push_str(&format!(
-                "\n\n[Showing results with pagination = limit: {}, offset: {}]",
-                head_limit, offset
-            ));
-        }
-
-        let applied_limit = if end < total_count && head_limit != 0 {
-            Some(head_limit)
-        } else {
-            None
-        };
-        let file_count = match output_mode {
-            "files_with_matches" | "count" => total_count,
-            "content" => infer_content_file_count(result_lines, path, working_dir),
-            _ => total_count,
-        };
-        let line_count = if output_mode == "content" {
-            result_lines
-                .iter()
-                .filter(|line| !line.trim().is_empty() && **line != "--")
-                .count()
-        } else {
-            0
-        };
-        let match_count = if output_mode == "count" {
-            result_lines
-                .iter()
-                .filter_map(|line| parse_count_line(line))
-                .sum()
-        } else {
-            0
-        };
-
-        Ok(ToolResult::success_with_metadata(
-            final_output,
+fn render_grep_stdout(
+    stdout: String,
+    pattern: &str,
+    path: &str,
+    output_mode: &str,
+    params: &Value,
+    working_dir: &Path,
+) -> Result<ToolResult> {
+    if stdout.is_empty() {
+        return Ok(ToolResult::success_with_metadata(
+            "No matches found.".to_string(),
             json!({
                 "pattern": pattern,
                 "path": path,
                 "output_mode": output_mode,
-                "file_count": file_count,
-                "line_count": line_count,
-                "match_count": match_count,
-                "applied_limit": applied_limit,
-                "applied_offset": offset,
+                "file_count": 0,
+                "line_count": 0,
+                "match_count": 0,
+                "applied_limit": serde_json::Value::Null,
+                "applied_offset": 0,
             }),
-        ))
+        ));
+    }
+
+    // Apply head_limit and offset
+    let head_limit = params
+        .get("head_limit")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(250) as usize;
+    let offset = params.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+
+    let lines: Vec<&str> = stdout.lines().collect();
+    let total_count = lines.len();
+
+    let start = offset.min(total_count);
+    let end = if head_limit == 0 {
+        total_count
+    } else {
+        (start + head_limit).min(total_count)
+    };
+
+    let result_lines = &lines[start..end];
+    let mut final_output = result_lines.join("\n");
+
+    if end < total_count {
+        final_output.push_str(&format!(
+            "\n\n[Showing results with pagination = limit: {}, offset: {}]",
+            head_limit, offset
+        ));
+    }
+
+    let applied_limit = if end < total_count && head_limit != 0 {
+        Some(head_limit)
+    } else {
+        None
+    };
+    let file_count = match output_mode {
+        "files_with_matches" | "count" => total_count,
+        "content" => infer_content_file_count(result_lines, path, working_dir),
+        _ => total_count,
+    };
+    let line_count = if output_mode == "content" {
+        result_lines
+            .iter()
+            .filter(|line| !line.trim().is_empty() && **line != "--")
+            .count()
+    } else {
+        0
+    };
+    let match_count = if output_mode == "count" {
+        result_lines
+            .iter()
+            .filter_map(|line| parse_count_line(line))
+            .sum()
+    } else {
+        0
+    };
+
+    Ok(ToolResult::success_with_metadata(
+        final_output,
+        json!({
+            "pattern": pattern,
+            "path": path,
+            "output_mode": output_mode,
+            "file_count": file_count,
+            "line_count": line_count,
+            "match_count": match_count,
+            "applied_limit": applied_limit,
+            "applied_offset": offset,
+        }),
+    ))
+}
+
+fn regex_from_params(pattern: &str, params: &Value) -> std::result::Result<Regex, regex::Error> {
+    RegexBuilder::new(pattern)
+        .case_insensitive(
+            params
+                .get("case_insensitive")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+        )
+        .dot_matches_new_line(
+            params
+                .get("multiline")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+        )
+        .build()
+}
+
+fn fallback_grep_stdout(
+    matcher: &Regex,
+    search_path: &str,
+    output_mode: &str,
+    working_dir: &Path,
+    glob_matcher: Option<&GlobMatcher>,
+) -> String {
+    let root = if Path::new(search_path).is_absolute() {
+        PathBuf::from(search_path)
+    } else {
+        working_dir.join(search_path)
+    };
+    let mut files = Vec::new();
+    collect_search_files(&root, working_dir, glob_matcher, &mut files);
+
+    let mut lines = Vec::new();
+    for file in files {
+        let Ok(content) = fs::read_to_string(&file) else {
+            continue;
+        };
+        let rel = file
+            .strip_prefix(working_dir)
+            .unwrap_or(&file)
+            .display()
+            .to_string();
+        let matching_lines = content
+            .lines()
+            .enumerate()
+            .filter(|(_, line)| matcher.is_match(line))
+            .collect::<Vec<_>>();
+        if matching_lines.is_empty() {
+            continue;
+        }
+        match output_mode {
+            "files_with_matches" => lines.push(rel),
+            "count" => lines.push(format!("{}:{}", rel, matching_lines.len())),
+            _ => {
+                for (index, line) in matching_lines {
+                    lines.push(format!("{}:{}:{}", rel, index + 1, line));
+                }
+            }
+        }
+    }
+    lines.join("\n")
+}
+
+fn collect_search_files(
+    path: &Path,
+    working_dir: &Path,
+    glob_matcher: Option<&GlobMatcher>,
+    output: &mut Vec<PathBuf>,
+) {
+    if path.is_file() {
+        if glob_matcher
+            .map(|glob| glob.is_match(path.strip_prefix(working_dir).unwrap_or(path)))
+            .unwrap_or(true)
+        {
+            output.push(path.to_path_buf());
+        }
+        return;
+    }
+    let Ok(entries) = fs::read_dir(path) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        collect_search_files(&entry.path(), working_dir, glob_matcher, output);
     }
 }
 
@@ -308,7 +442,12 @@ fn split_grep_content_prefix(line: &str) -> Option<(&str, &str)> {
 
 #[cfg(test)]
 mod tests {
-    use super::{infer_content_file_count, parse_count_line};
+    use super::{
+        fallback_grep_stdout, infer_content_file_count, parse_count_line, regex_from_params,
+        GrepTool,
+    };
+    use crate::tool::{Tool, ToolContext};
+    use serde_json::json;
     use std::path::Path;
 
     #[test]
@@ -325,5 +464,32 @@ mod tests {
             "src/main.rs:13:todo",
         ];
         assert_eq!(infer_content_file_count(&lines, ".", Path::new(".")), 2);
+    }
+
+    #[tokio::test]
+    async fn invalid_regex_returns_validation_error_before_rg() {
+        let result = GrepTool
+            .execute(json!({"pattern": "["}), &ToolContext::empty())
+            .await
+            .unwrap();
+        assert!(result.is_error);
+        assert!(result.content.contains("Invalid regex pattern"));
+    }
+
+    #[test]
+    fn fallback_grep_supports_content_and_count_modes() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.txt"), "alpha\nbeta\nAlpha\n").unwrap();
+        std::fs::write(dir.path().join("b.log"), "alpha\n").unwrap();
+        let matcher = regex_from_params("alpha", &json!({"case_insensitive": true})).unwrap();
+
+        let content = fallback_grep_stdout(&matcher, ".", "content", dir.path(), None);
+        assert!(content.contains("a.txt:1:alpha"));
+        assert!(content.contains("a.txt:3:Alpha"));
+        assert!(content.contains("b.log:1:alpha"));
+
+        let count = fallback_grep_stdout(&matcher, ".", "count", dir.path(), None);
+        assert!(count.contains("a.txt:2"));
+        assert!(count.contains("b.log:1"));
     }
 }

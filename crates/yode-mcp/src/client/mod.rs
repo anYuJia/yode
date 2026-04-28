@@ -10,7 +10,8 @@ use rmcp::service::{Peer, RunningService, ServiceExt};
 use rmcp::transport::{ConfigureCommandExt, TokioChildProcess};
 use rmcp::RoleClient;
 use tokio::process::Command;
-use tracing::info;
+use tokio::sync::Mutex as AsyncMutex;
+use tracing::{info, warn};
 
 use crate::config::McpServerConfig;
 use yode_tools::registry::ToolRegistry;
@@ -71,8 +72,19 @@ fn record_mcp_connect_result(server: &str, success: bool, error: Option<String>)
 /// A connected MCP client managing one external server.
 pub struct McpClient {
     pub server_name: String,
+    connection: McpConnection,
+}
+
+struct McpConnectionState {
     peer: Peer<RoleClient>,
     service: RunningService<RoleClient, ()>,
+}
+
+#[derive(Clone)]
+pub(crate) struct McpConnection {
+    server_name: String,
+    config: McpServerConfig,
+    state: Arc<AsyncMutex<McpConnectionState>>,
 }
 
 impl McpClient {
@@ -80,45 +92,9 @@ impl McpClient {
     pub async fn connect(name: &str, config: &McpServerConfig) -> Result<Self> {
         info!(server = %name, command = %config.command, "Connecting to MCP server");
 
-        let env_vars: HashMap<String, String> = config
-            .env
-            .iter()
-            .map(|(k, v)| {
-                // Expand $ENV_VAR references in values
-                let expanded = if let Some(stripped) = v.strip_prefix('$') {
-                    std::env::var(stripped).unwrap_or_default()
-                } else {
-                    v.clone()
-                };
-                (k.clone(), expanded)
-            })
-            .collect();
+        let state = start_mcp_service(name, config).await?;
 
-        let args = config.args.clone();
-        let command = config.command.clone();
-
-        let service = match ()
-            .serve(TokioChildProcess::new(Command::new(&command).configure(
-                |cmd| {
-                    cmd.args(&args);
-                    for (k, v) in &env_vars {
-                        cmd.env(k, v);
-                    }
-                },
-            ))?)
-            .await
-        {
-            Ok(service) => {
-                record_mcp_connect_result(name, true, None);
-                service
-            }
-            Err(err) => {
-                record_mcp_connect_result(name, false, Some(err.to_string()));
-                return Err(err.into());
-            }
-        };
-
-        let peer_info = service.peer_info();
+        let peer_info = state.service.peer_info();
         if let Some(info) = peer_info {
             info!(
                 server = %name,
@@ -129,12 +105,13 @@ impl McpClient {
             info!(server = %name, "MCP server connected (no peer info)");
         }
 
-        let peer = service.peer().clone();
-
         Ok(Self {
             server_name: name.to_string(),
-            peer,
-            service,
+            connection: McpConnection {
+                server_name: name.to_string(),
+                config: config.clone(),
+                state: Arc::new(AsyncMutex::new(state)),
+            },
         })
     }
 
@@ -149,7 +126,8 @@ impl McpClient {
     }
 
     pub async fn discover_wrapped_tools(&self) -> Result<Vec<Arc<dyn Tool>>> {
-        let tools_result = self.peer.list_tools(Default::default()).await?;
+        let peer = self.connection.current_peer().await;
+        let tools_result = peer.list_tools(Default::default()).await?;
         let tools = tools_result.tools;
         let count = tools.len();
 
@@ -171,7 +149,7 @@ impl McpClient {
                     .unwrap_or_default(),
                 input_schema: serde_json::to_value(&tool.input_schema).unwrap_or_default(),
                 server_name: self.server_name.clone(),
-                peer: self.peer.clone(),
+                connection: self.connection.clone(),
             };
             wrappers.push(Arc::new(wrapper));
         }
@@ -186,7 +164,7 @@ impl McpClient {
             request = request.with_arguments(obj.clone());
         }
 
-        let result = self.peer.call_tool(request).await?;
+        let result = self.connection.call_tool(request).await?;
 
         // Extract text content from the result
         let mut output = String::new();
@@ -205,13 +183,15 @@ impl McpClient {
     /// Gracefully shut down the connection.
     pub async fn shutdown(self) -> Result<()> {
         info!(server = %self.server_name, "Shutting down MCP client");
-        self.service.cancel().await?;
+        let mut state = self.connection.state.lock().await;
+        state.service.close().await?;
         Ok(())
     }
 
     /// List resources available on this MCP server.
     pub async fn list_resources(&self) -> Result<Vec<(String, String, Option<String>)>> {
-        let result = self.peer.list_resources(Default::default()).await?;
+        let peer = self.connection.current_peer().await;
+        let result = peer.list_resources(Default::default()).await?;
         let resources = result
             .resources
             .iter()
@@ -228,7 +208,8 @@ impl McpClient {
     /// Read a specific resource by URI.
     pub async fn read_resource(&self, uri: &str) -> Result<String> {
         let params = rmcp::model::ReadResourceRequestParams::new(uri);
-        let result = self.peer.read_resource(params).await?;
+        let peer = self.connection.current_peer().await;
+        let result = peer.read_resource(params).await?;
 
         let mut output = String::new();
         for content in &result.contents {
@@ -249,6 +230,84 @@ impl McpClient {
         }
         Ok(output)
     }
+}
+
+impl McpConnection {
+    async fn current_peer(&self) -> Peer<RoleClient> {
+        self.state.lock().await.peer.clone()
+    }
+
+    pub(crate) async fn call_tool(
+        &self,
+        request: CallToolRequestParams,
+    ) -> Result<rmcp::model::CallToolResult> {
+        let peer = self.current_peer().await;
+        match peer.call_tool(request.clone()).await {
+            Ok(result) => Ok(result),
+            Err(err) => {
+                warn!(
+                    server = %self.server_name,
+                    error = %err,
+                    "MCP tool call failed; reconnecting server and retrying once"
+                );
+                record_mcp_connect_result(&self.server_name, false, Some(err.to_string()));
+                let peer = self.reconnect().await?;
+                Ok(peer.call_tool(request).await?)
+            }
+        }
+    }
+
+    async fn reconnect(&self) -> Result<Peer<RoleClient>> {
+        let new_state = start_mcp_service(&self.server_name, &self.config).await?;
+        let new_peer = new_state.peer.clone();
+        let mut state = self.state.lock().await;
+        let mut old_service = std::mem::replace(&mut state.service, new_state.service);
+        state.peer = new_peer.clone();
+        drop(state);
+        let _ = old_service.close().await;
+        Ok(new_peer)
+    }
+}
+
+async fn start_mcp_service(name: &str, config: &McpServerConfig) -> Result<McpConnectionState> {
+    let env_vars: HashMap<String, String> = config
+        .env
+        .iter()
+        .map(|(k, v)| {
+            // Expand $ENV_VAR references in values.
+            let expanded = if let Some(stripped) = v.strip_prefix('$') {
+                std::env::var(stripped).unwrap_or_default()
+            } else {
+                v.clone()
+            };
+            (k.clone(), expanded)
+        })
+        .collect();
+
+    let args = config.args.clone();
+    let command = config.command.clone();
+    let service = match ()
+        .serve(TokioChildProcess::new(Command::new(&command).configure(
+            |cmd| {
+                cmd.args(&args);
+                for (k, v) in &env_vars {
+                    cmd.env(k, v);
+                }
+            },
+        ))?)
+        .await
+    {
+        Ok(service) => {
+            record_mcp_connect_result(name, true, None);
+            service
+        }
+        Err(err) => {
+            record_mcp_connect_result(name, false, Some(err.to_string()));
+            return Err(err.into());
+        }
+    };
+    let peer = service.peer().clone();
+    Ok(McpConnectionState { peer, service })
 }
 
 #[cfg(test)]

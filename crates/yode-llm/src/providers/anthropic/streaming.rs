@@ -4,13 +4,14 @@ use futures::StreamExt;
 use tokio::sync::mpsc;
 use tracing::{debug, error, warn};
 
+use crate::providers::retry::send_with_retry;
 use crate::types::{ChatRequest, StreamEvent};
 
 use super::streaming_support::{finalize_stream, handle_stream_event, AnthropicStreamState};
 use super::types::{
     AnthropicErrorResponse, AnthropicRequest, AnthropicStreamEvent, AnthropicThinkingConfig,
 };
-use super::AnthropicProvider;
+use super::{anthropic_thinking_budget_tokens, AnthropicProvider};
 
 impl AnthropicProvider {
     pub(super) async fn send_chat_stream_request(
@@ -28,7 +29,7 @@ impl AnthropicProvider {
 
         let thinking = Some(AnthropicThinkingConfig {
             thinking_type: "enabled".to_string(),
-            budget_tokens: 1024,
+            budget_tokens: anthropic_thinking_budget_tokens(),
         });
 
         let body = AnthropicRequest {
@@ -53,21 +54,18 @@ impl AnthropicProvider {
 
         let body_json = serde_json::to_string(&body).context("Failed to serialize request")?;
 
-        let resp = self
-            .client
-            .post(self.messages_url())
-            .header("x-api-key", &self.api_key)
-            .header("anthropic-version", "2023-06-01")
-            .header("content-type", "application/json")
-            .body(body_json)
-            .send()
-            .await
-            .with_context(|| {
-                format!(
-                    "Failed to send Anthropic streaming request to {}",
-                    self.messages_url()
-                )
-            })?;
+        let resp = send_with_retry(
+            || {
+                self.client
+                    .post(self.messages_url())
+                    .header("x-api-key", &self.api_key)
+                    .header("anthropic-version", "2023-06-01")
+                    .header("content-type", "application/json")
+                    .body(body_json.clone())
+            },
+            "Failed to send Anthropic streaming request",
+        )
+        .await?;
 
         let status = resp.status();
         if !status.is_success() {

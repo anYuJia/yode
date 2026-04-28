@@ -236,7 +236,7 @@ impl AgentTeamManager {
         let snapshot = self
             .teams
             .entry(team_id.to_string())
-            .or_insert_with(AgentTeamSnapshot::default);
+            .or_default();
         let entry = AgentTeamMessage {
             at: now_string(),
             target: target.to_string(),

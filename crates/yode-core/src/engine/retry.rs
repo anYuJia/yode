@@ -15,25 +15,16 @@ const MAX_RATE_LIMIT_RETRIES: u32 = 9;
 
 pub(super) fn classify_error(err: &anyhow::Error) -> ErrorKind {
     let msg = format!("{:#}", err);
-    if msg.contains("429") || msg.contains("rate_limit") || msg.contains("Too Many Requests") {
-        ErrorKind::RateLimit
-    } else if is_non_retryable_local_error(&msg) {
+    if is_non_retryable_http_error(&msg) || is_non_retryable_local_error(&msg) {
         ErrorKind::Fatal
+    } else if msg.contains("429") || msg.contains("rate_limit") || msg.contains("Too Many Requests")
+    {
+        ErrorKind::RateLimit
     } else if msg.contains("500")
         || msg.contains("502")
         || msg.contains("503")
         || msg.contains("504")
-        || msg.contains("400")
-        || msg.contains("401")
-        || msg.contains("403")
-        || msg.contains("404")
         || msg.contains("API error (")
-        || msg.contains("Forbidden")
-        || msg.contains("Unauthorized")
-        || msg.contains("Bad Request")
-        || msg.contains("Not Found")
-        || msg.contains("额度不足")
-        || msg.contains("insufficient")
         || msg.contains("timeout")
         || msg.contains("超时")
         || msg.contains("timed out")
@@ -59,6 +50,24 @@ pub(super) fn classify_error(err: &anyhow::Error) -> ErrorKind {
     } else {
         ErrorKind::Transient
     }
+}
+
+fn is_non_retryable_http_error(msg: &str) -> bool {
+    msg.contains("400 Bad Request")
+        || msg.contains("(400")
+        || msg.contains(" 400")
+        || msg.contains("401 Unauthorized")
+        || msg.contains("(401")
+        || msg.contains(" 401")
+        || msg.contains("403 Forbidden")
+        || msg.contains("(403")
+        || msg.contains(" 403")
+        || msg.contains("404 Not Found")
+        || msg.contains("(404")
+        || msg.contains(" 404")
+        || msg.contains("quota")
+        || msg.contains("额度不足")
+        || msg.contains("insufficient")
 }
 
 fn is_non_retryable_local_error(msg: &str) -> bool {
@@ -179,8 +188,20 @@ mod tests {
     }
 
     #[test]
-    fn provider_403_errors_are_retryable() {
+    fn provider_403_errors_are_fatal() {
         let err = anyhow!("Anthropic API error (403 Forbidden): 用户额度不足, 剩余额度: ＄-1.97");
+        assert_eq!(classify_error(&err), ErrorKind::Fatal);
+    }
+
+    #[test]
+    fn provider_429_errors_are_rate_limited() {
+        let err = anyhow!("OpenAI API error (429 Too Many Requests): slow down");
+        assert_eq!(classify_error(&err), ErrorKind::RateLimit);
+    }
+
+    #[test]
+    fn provider_503_errors_remain_retryable() {
+        let err = anyhow!("Gemini API error (503 Service Unavailable): overloaded");
         assert_eq!(classify_error(&err), ErrorKind::Transient);
     }
 

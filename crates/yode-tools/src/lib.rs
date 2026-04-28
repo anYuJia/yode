@@ -8,11 +8,11 @@ pub mod tool;
 pub mod validation;
 
 pub use builtin::mcp_resources::{mcp_resource_cache_stats, McpResourceCacheStats};
-pub use registry::{ToolDefinition, ToolRegistry};
+pub use registry::ToolRegistry;
 pub use runtime_tasks::{
     RuntimeTask, RuntimeTaskNotification, RuntimeTaskStatus, RuntimeTaskStore,
 };
 pub use tool::{
-    McpResource, McpResourceProvider, SubAgentRunner, Tool, ToolContext, ToolResult, UserQuery,
-    WorktreeState,
+    McpResource, McpResourceProvider, SubAgentRunner, Tool, ToolContext, ToolDefinition,
+    ToolResult, UserQuery, WorktreeState,
 };

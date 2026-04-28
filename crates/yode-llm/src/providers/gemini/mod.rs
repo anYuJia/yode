@@ -13,6 +13,7 @@ use self::conversion::{convert_messages, convert_tools, parse_response};
 use self::streaming::stream_response;
 use self::types::{GeminiError, GeminiRequest, GeminiResponse, GenerationConfig};
 use crate::providers::error_shared::format_api_error;
+use crate::providers::retry::send_with_retry;
 
 use crate::provider::LlmProvider;
 use crate::types::{ChatRequest, ChatResponse, ModelInfo, StreamEvent};
@@ -98,14 +99,16 @@ impl LlmProvider for GeminiProvider {
         let url = self.generate_url(&request.model);
         debug!("Sending Gemini request to {}", url);
 
-        let resp = self
-            .client
-            .post(&url)
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .await
-            .context("Failed to send Gemini request")?;
+        let resp = send_with_retry(
+            || {
+                self.client
+                    .post(&url)
+                    .header("Content-Type", "application/json")
+                    .json(&body)
+            },
+            "Failed to send Gemini request",
+        )
+        .await?;
 
         let status = resp.status();
         if !status.is_success() {
@@ -135,14 +138,16 @@ impl LlmProvider for GeminiProvider {
         let url = self.stream_url(&request.model);
         debug!("Sending Gemini stream request to {}", url);
 
-        let resp = self
-            .client
-            .post(&url)
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .await
-            .context("Failed to send Gemini stream request")?;
+        let resp = send_with_retry(
+            || {
+                self.client
+                    .post(&url)
+                    .header("Content-Type", "application/json")
+                    .json(&body)
+            },
+            "Failed to send Gemini stream request",
+        )
+        .await?;
 
         stream_response(resp, request.model, tx).await
     }
@@ -160,12 +165,11 @@ impl LlmProvider for GeminiProvider {
             display_name: Option<String>,
         }
 
-        let resp = self
-            .client
-            .get(self.models_url())
-            .send()
-            .await
-            .context("Failed to fetch Gemini models")?;
+        let resp = send_with_retry(
+            || self.client.get(self.models_url()),
+            "Failed to fetch Gemini models",
+        )
+        .await?;
 
         if !resp.status().is_success() {
             return Err(anyhow!("Gemini models API error: {}", resp.status()));

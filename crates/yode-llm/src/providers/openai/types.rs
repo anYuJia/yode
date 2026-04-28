@@ -27,7 +27,7 @@ pub(super) struct StreamOptions {
 pub(super) struct OpenAiMessage {
     pub(super) role: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) content: Option<String>,
+    pub(super) content: Option<serde_json::Value>,
     #[serde(
         alias = "thought",
         alias = "reasoning",
