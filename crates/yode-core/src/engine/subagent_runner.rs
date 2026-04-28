@@ -14,7 +14,7 @@ use yode_tools::registry::ToolRegistry;
 use yode_tools::runtime_tasks::{latest_transcript_artifact_path, RuntimeTaskStore};
 use yode_tools::tool::{SubAgentOptions, SubAgentRunner};
 
-use crate::context::{AgentContext, QuerySource};
+use crate::context::{AgentContext, QuerySource, SessionRuntime};
 use crate::hooks::{HookContext, HookEvent, HookManager};
 use crate::permission::PermissionManager;
 
@@ -40,14 +40,22 @@ impl SubAgentRunner for SubAgentRunnerImpl {
         let subagent_model = options.model.clone();
 
         Box::pin(async move {
+            let parent_working_dir = self.context.working_dir_compat();
+            let subagent_context = prepare_subagent_context(&self.context, &options)?;
             let prompt = inject_team_runtime_context(
                 prompt,
                 &self.team_runtime,
-                &self.context.working_dir_compat(),
+                &parent_working_dir,
                 options.team_id.as_deref(),
                 options.member_id.as_deref(),
             )
             .await;
+            let prompt = inject_workspace_context(
+                prompt,
+                &subagent_context,
+                options.isolation.as_deref(),
+                options.cwd.as_ref(),
+            );
             emit_subagent_hook(
                 self.hook_manager.as_ref(),
                 HookEvent::SubagentStart,
@@ -60,6 +68,7 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                     "isolation": options.isolation,
                     "model_override": options.model,
                     "cwd_override": options.cwd.as_ref().map(|path| path.display().to_string()),
+                    "effective_cwd": subagent_context.working_dir_compat().display().to_string(),
                     "allowed_tools_count": options.allowed_tools.len(),
                 })),
             )
@@ -103,7 +112,7 @@ impl SubAgentRunner for SubAgentRunnerImpl {
 
                 let provider = Arc::clone(&self.provider);
                 let tools = Arc::clone(&self.tools);
-                let mut sub_context = self.context.clone();
+                let mut sub_context = subagent_context.clone();
                 if let Some(m) = subagent_model.clone() {
                     sub_context.model = m;
                 }
@@ -216,7 +225,7 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                         runtime_tasks.lock().await.mark_cancelled(&task_id);
                         sync_team_runtime_update(
                             &team_runtime,
-                            &hook_context.working_dir_compat(),
+                            &parent_working_dir,
                             team_id.as_deref(),
                             member_id.as_deref(),
                             "cancelled",
@@ -262,7 +271,7 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                                 runtime_tasks.lock().await.mark_failed(&task_id, error);
                                 sync_team_runtime_update(
                                     &team_runtime,
-                                    &hook_context.working_dir_compat(),
+                                    &parent_working_dir,
                                     team_id.as_deref(),
                                     member_id.as_deref(),
                                     "failed",
@@ -297,7 +306,7 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                                 runtime_tasks.lock().await.mark_completed(&task_id);
                                 sync_team_runtime_update(
                                     &team_runtime,
-                                    &hook_context.working_dir_compat(),
+                                    &parent_working_dir,
                                     team_id.as_deref(),
                                     member_id.as_deref(),
                                     "completed",
@@ -342,7 +351,7 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                                 .mark_failed(&task_id, format!("{}", err));
                             sync_team_runtime_update(
                                 &team_runtime,
-                                &hook_context.working_dir_compat(),
+                                &parent_working_dir,
                                 team_id.as_deref(),
                                 member_id.as_deref(),
                                 "failed",
@@ -386,7 +395,7 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                                 .mark_failed(&task_id, format!("Join error: {}", err));
                             sync_team_runtime_update(
                                 &team_runtime,
-                                &hook_context.working_dir_compat(),
+                                &parent_working_dir,
                                 team_id.as_deref(),
                                 member_id.as_deref(),
                                 "failed",
@@ -438,7 +447,7 @@ impl SubAgentRunner for SubAgentRunnerImpl {
             let sub_registry = Arc::new(sub_registry);
             let permissions = PermissionManager::permissive();
 
-            let mut sub_context = self.context.clone();
+            let mut sub_context = subagent_context.clone();
             if let Some(m) = subagent_model {
                 sub_context.model = m;
             }
@@ -475,7 +484,7 @@ impl SubAgentRunner for SubAgentRunnerImpl {
 
             sync_team_runtime_update(
                 &self.team_runtime,
-                &self.context.working_dir_compat(),
+                &parent_working_dir,
                 options.team_id.as_deref(),
                 options.member_id.as_deref(),
                 "completed",
@@ -589,6 +598,126 @@ async fn inject_team_runtime_context(
         "Team runtime:\n- team_id: {}\n- member_id: {}\n- Use `team_receive` with this team_id/member_id to check messages sent while you are running.\n\nTeam mailbox:\n{}\n\nTask:\n{}",
         team_id, member_id, mailbox, prompt
     )
+}
+
+fn prepare_subagent_context(
+    context: &AgentContext,
+    options: &SubAgentOptions,
+) -> Result<AgentContext> {
+    let mut sub_context = context.clone();
+    let target_cwd = if let Some(cwd) = options.cwd.as_ref() {
+        Some(cwd.clone())
+    } else if options.isolation.as_deref() == Some("worktree") {
+        Some(create_agent_worktree(
+            &context.working_dir_compat(),
+            &options.description,
+        )?)
+    } else if let Some(isolation) = options.isolation.as_deref() {
+        return Err(anyhow::anyhow!(
+            "Unsupported sub-agent isolation mode '{}'.",
+            isolation
+        ));
+    } else {
+        None
+    };
+
+    if let Some(cwd) = target_cwd {
+        if !cwd.is_dir() {
+            return Err(anyhow::anyhow!(
+                "Sub-agent cwd '{}' is not a directory.",
+                cwd.display()
+            ));
+        }
+        sub_context.project_root = cwd.clone();
+        sub_context.runtime = Arc::new(Mutex::new(SessionRuntime::new(cwd)));
+    }
+    Ok(sub_context)
+}
+
+fn inject_workspace_context(
+    prompt: String,
+    context: &AgentContext,
+    isolation: Option<&str>,
+    cwd_override: Option<&std::path::PathBuf>,
+) -> String {
+    if isolation.is_none() && cwd_override.is_none() {
+        return prompt;
+    }
+    format!(
+        "Sub-agent workspace:\n- cwd: {}\n- isolation: {}\n\nTask:\n{}",
+        context.working_dir_compat().display(),
+        isolation.unwrap_or("cwd_override"),
+        prompt
+    )
+}
+
+fn create_agent_worktree(root: &std::path::Path, description: &str) -> Result<std::path::PathBuf> {
+    let git_root_output = std::process::Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .current_dir(root)
+        .output()
+        .map_err(|err| anyhow::anyhow!("Failed to locate git root: {}", err))?;
+    if !git_root_output.status.success() {
+        return Err(anyhow::anyhow!(
+            "Sub-agent worktree isolation requires a git repository."
+        ));
+    }
+    let git_root = std::path::PathBuf::from(
+        String::from_utf8_lossy(&git_root_output.stdout)
+            .trim()
+            .to_string(),
+    );
+    let suffix = uuid::Uuid::new_v4().to_string();
+    let short_suffix = &suffix[..8];
+    let slug = sanitize_workspace_name(description);
+    let name = if slug.is_empty() {
+        format!("agent-{}", short_suffix)
+    } else {
+        format!("agent-{}-{}", slug, short_suffix)
+    };
+    let branch = format!("yode-{}", name);
+    let worktree_dir = git_root.join(".yode").join("agent-worktrees").join(&name);
+    std::fs::create_dir_all(
+        worktree_dir
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("Invalid worktree path."))?,
+    )?;
+
+    let output = std::process::Command::new("git")
+        .args([
+            "worktree",
+            "add",
+            &worktree_dir.display().to_string(),
+            "-b",
+            &branch,
+            "HEAD",
+        ])
+        .current_dir(&git_root)
+        .output()
+        .map_err(|err| anyhow::anyhow!("Failed to create sub-agent worktree: {}", err))?;
+    if !output.status.success() {
+        return Err(anyhow::anyhow!(
+            "git worktree add failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(worktree_dir)
+}
+
+fn sanitize_workspace_name(raw: &str) -> String {
+    raw.chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('-')
+        .chars()
+        .take(32)
+        .collect()
 }
 
 fn register_subagent_tools(
@@ -706,9 +835,13 @@ fn merge_hook_metadata(
 
 #[cfg(test)]
 mod tests {
-    use super::{emit_subagent_hook, emit_task_hook};
+    use super::{
+        emit_subagent_hook, emit_task_hook, inject_workspace_context, prepare_subagent_context,
+        sanitize_workspace_name,
+    };
     use crate::context::AgentContext;
     use crate::hooks::{HookEvent, HookManager};
+    use yode_tools::tool::SubAgentOptions;
 
     #[tokio::test]
     async fn subagent_hook_emits_rich_metadata() {
@@ -791,5 +924,55 @@ mod tests {
         assert!(body.contains("\"event\":\"task_created\""));
         assert!(body.contains("\"task_id\":\"task-1\""));
         assert!(body.contains("\"run_in_background\":true"));
+    }
+
+    #[test]
+    fn subagent_context_applies_cwd_override() {
+        let dir = tempfile::tempdir().unwrap();
+        let child = dir.path().join("child");
+        std::fs::create_dir_all(&child).unwrap();
+        let context = AgentContext::new(
+            dir.path().to_path_buf(),
+            "mock".to_string(),
+            "claude-sonnet-4".to_string(),
+        );
+        let options = SubAgentOptions {
+            description: "inspect child".to_string(),
+            cwd: Some(child.clone()),
+            ..Default::default()
+        };
+
+        let sub_context = prepare_subagent_context(&context, &options).unwrap();
+
+        assert_eq!(sub_context.working_dir_compat(), child);
+        assert_eq!(context.working_dir_compat(), dir.path());
+    }
+
+    #[test]
+    fn workspace_prompt_mentions_effective_cwd() {
+        let dir = tempfile::tempdir().unwrap();
+        let context = AgentContext::new(
+            dir.path().to_path_buf(),
+            "mock".to_string(),
+            "claude-sonnet-4".to_string(),
+        );
+        let prompt = inject_workspace_context(
+            "do work".to_string(),
+            &context,
+            None,
+            Some(&dir.path().to_path_buf()),
+        );
+
+        assert!(prompt.contains("Sub-agent workspace:"));
+        assert!(prompt.contains(&dir.path().display().to_string()));
+        assert!(prompt.contains("do work"));
+    }
+
+    #[test]
+    fn workspace_name_sanitizer_keeps_branch_safe_slug() {
+        assert_eq!(
+            sanitize_workspace_name("Review API & Tests!"),
+            "review-api---tests"
+        );
     }
 }
