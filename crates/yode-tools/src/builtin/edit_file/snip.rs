@@ -102,3 +102,68 @@ impl Tool for SnipTool {
         Ok(ToolResult::success(output))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+    use std::sync::Arc;
+
+    use serde_json::json;
+    use tokio::sync::Mutex;
+
+    use super::SnipTool;
+    use crate::tool::{Tool, ToolContext};
+
+    #[tokio::test]
+    async fn snip_extracts_requested_lines_and_marks_file_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("sample.txt");
+        tokio::fs::write(&file, "one\ntwo\nthree\n").await.unwrap();
+        let mut ctx = ToolContext::empty();
+        ctx.read_file_history = Some(Arc::new(Mutex::new(HashSet::new())));
+
+        let result = SnipTool
+            .execute(
+                json!({
+                    "file_path": file.display().to_string(),
+                    "start_line": 2,
+                    "end_line": 3
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("two\nthree"));
+        assert!(ctx
+            .read_file_history
+            .as_ref()
+            .unwrap()
+            .lock()
+            .await
+            .contains(&file));
+    }
+
+    #[tokio::test]
+    async fn snip_rejects_out_of_bounds_range() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("sample.txt");
+        tokio::fs::write(&file, "one\n").await.unwrap();
+
+        let result = SnipTool
+            .execute(
+                json!({
+                    "file_path": file.display().to_string(),
+                    "start_line": 4,
+                    "end_line": 5
+                }),
+                &ToolContext::empty(),
+            )
+            .await
+            .unwrap();
+
+        assert!(result.is_error);
+        assert!(result.content.contains("out of bounds"));
+    }
+}
