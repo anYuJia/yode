@@ -821,7 +821,7 @@ mod tests {
 
     #[test]
     fn print_remote_bundle_regression_snapshot() {
-        let dir = std::env::temp_dir().join(format!("yode-remote-bundle-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join("yode-remote-bundle-regression");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         for name in [

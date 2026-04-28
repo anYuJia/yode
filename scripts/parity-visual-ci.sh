@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+tests=(
+  heading_wrap_continuations_keep_heading_style
+  nested_bullets_keep_distinct_indentation_and_markers
+  tables_wrap_to_fit_requested_width
+  code_fence_caption_stays_dense_and_labeled
+  latest_focus_mixed_tool_system_and_error_runs
+  scrollback_grouped_system_entries_name_remote_review_and_workflow_batches
+  latest_tool_entry_keeps_metadata_while_older_entries_collapse
+  renders_grouped_subagent_batch_summary
+  panel_stack_tracks_active_layer
+  confirmation_density_switches_on_narrow_widths
+  status_bar_density_compacts_on_narrow_widths
+  preview_and_timeline_panels_render_headers_and_footer
+  centered_panel_rect_respects_narrow_widths
+  hyperlink_text_keeps_underline_intensity
+  cjk_tables_render_without_losing_cells
+  confirmation_uses_user_facing_tool_name_and_risk_hint
+  tool_runtime_summary_text_is_compact
+  transcript_line_prefixes_stay_consistent_across_core_roles
+  empty_actions_and_pagination_render_fallbacks
+  inspector_action_focus_cycles_when_actions_exist
+  pager_state_clamps_selection_into_visible_range
+  streaming_boundary_advances_monotonically_from_existing_prefix
+  shell_code_blocks_render_as_generic_highlighted_code_without_transcript_gutter
+  narrow_tables_fall_back_to_vertical_key_value_layout
+  blockquote_content_is_rendered_italic_like_claude
+  inline_code_wraps_across_narrow_widths
+  latest_error_entry_keeps_detail_while_older_entries_collapse
+  latest_system_entry_keeps_detail_while_older_entries_collapse
+  older_assistant_reasoning_can_collapse_to_teaser_only
+)
+
+for test_name in "${tests[@]}"; do
+  cargo test -p yode-tui "$test_name" --quiet
+done
+
+echo "Parity visual CI ok"
