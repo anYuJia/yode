@@ -33,6 +33,10 @@ pub(super) enum GeminiPart {
         #[serde(rename = "functionResponse")]
         function_response: GeminiFunctionResponse,
     },
+    InlineData {
+        #[serde(rename = "inlineData")]
+        inline_data: GeminiInlineData,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -45,6 +49,13 @@ pub(super) struct GeminiFunctionCall {
 pub(super) struct GeminiFunctionResponse {
     pub(super) name: String,
     pub(super) response: serde_json::Value,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct GeminiInlineData {
+    pub(super) mime_type: String,
+    pub(super) data: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -82,6 +93,8 @@ pub(super) struct GeminiResponse {
 #[derive(Debug, Deserialize)]
 pub(super) struct GeminiCandidate {
     pub(super) content: Option<GeminiContent>,
+    #[serde(default, rename = "finishReason")]
+    pub(super) finish_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

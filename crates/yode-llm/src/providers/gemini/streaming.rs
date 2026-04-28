@@ -7,7 +7,9 @@ use tracing::warn;
 use crate::providers::error_shared::format_api_error;
 use crate::providers::streaming_shared::{emit_done_event, emit_stream_error};
 
-use super::conversion::{assistant_message, gemini_usage_to_usage, send_tool_call_events};
+use super::conversion::{
+    assistant_message, gemini_usage_to_usage, map_gemini_finish_reason, send_tool_call_events,
+};
 use super::types::{GeminiError, GeminiPart, GeminiResponse};
 
 use crate::types::{StreamEvent, ToolCall, Usage};
@@ -35,6 +37,7 @@ pub(super) async fn stream_response(
     let mut all_tool_calls = Vec::new();
     let mut final_usage = Usage::default();
     let mut tool_call_counter = 0u32;
+    let mut stop_reason = None;
 
     while let Some(event_result) = event_stream.next().await {
         let event = match event_result {
@@ -78,14 +81,21 @@ pub(super) async fn stream_response(
                                 all_tool_calls.push(tool_call);
                             }
                             GeminiPart::FunctionResponse { .. } => {}
+                            GeminiPart::InlineData { .. } => {}
                         }
+                    }
+                    if let Some(reason) = candidate.finish_reason.as_deref() {
+                        stop_reason = Some(map_gemini_finish_reason(reason));
                     }
                 }
             }
         }
     }
 
+    if stop_reason.is_none() && !all_tool_calls.is_empty() {
+        stop_reason = Some(crate::types::StopReason::ToolUse);
+    }
     let message = assistant_message(full_text, all_tool_calls);
-    emit_done_event(&tx, message, final_usage, model, None).await;
+    emit_done_event(&tx, message, final_usage, model, stop_reason).await;
     Ok(())
 }

@@ -123,13 +123,13 @@ impl LlmProvider for GeminiProvider {
             .json()
             .await
             .context("Failed to parse Gemini response")?;
-        let (message, usage) = parse_response(&api_resp);
+        let (message, usage, stop_reason) = parse_response(&api_resp);
 
         Ok(ChatResponse {
             message,
             usage,
             model: request.model,
-            stop_reason: None,
+            stop_reason,
         })
     }
 

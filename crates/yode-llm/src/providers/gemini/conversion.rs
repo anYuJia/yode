@@ -1,11 +1,11 @@
 use crate::providers::streaming_shared::{emit_tool_call_end, emit_tool_call_start};
 use crate::types::{
-    Message, RestoreSystemBlockHint, Role, StreamEvent, ToolCall, ToolDefinition, Usage,
+    Message, RestoreSystemBlockHint, Role, StopReason, StreamEvent, ToolCall, ToolDefinition, Usage,
 };
 
 use super::types::{
-    GeminiContent, GeminiFunctionCall, GeminiFunctionDecl, GeminiFunctionResponse, GeminiPart,
-    GeminiResponse, GeminiToolDeclaration, GeminiUsage,
+    GeminiContent, GeminiFunctionCall, GeminiFunctionDecl, GeminiFunctionResponse,
+    GeminiInlineData, GeminiPart, GeminiResponse, GeminiToolDeclaration, GeminiUsage,
 };
 
 pub(super) fn convert_messages(
@@ -25,10 +25,24 @@ pub(super) fn convert_messages(
                 }
             }
             Role::User => {
+                let mut parts = Vec::new();
                 if let Some(text) = &message.content {
+                    if !text.is_empty() {
+                        parts.push(GeminiPart::Text { text: text.clone() });
+                    }
+                }
+                for image in &message.images {
+                    parts.push(GeminiPart::InlineData {
+                        inline_data: GeminiInlineData {
+                            mime_type: image.media_type.clone(),
+                            data: image.base64.clone(),
+                        },
+                    });
+                }
+                if !parts.is_empty() {
                     contents.push(GeminiContent {
                         role: Some("user".into()),
-                        parts: vec![GeminiPart::Text { text: text.clone() }],
+                        parts,
                     });
                 }
             }
@@ -111,7 +125,7 @@ pub(super) fn convert_tools(tools: &[ToolDefinition]) -> Vec<GeminiToolDeclarati
     }]
 }
 
-pub(super) fn parse_response(resp: &GeminiResponse) -> (Message, Usage) {
+pub(super) fn parse_response(resp: &GeminiResponse) -> (Message, Usage, Option<StopReason>) {
     let mut text = String::new();
     let mut tool_calls = Vec::new();
     let mut tool_call_counter = 0u32;
@@ -131,7 +145,7 @@ pub(super) fn parse_response(resp: &GeminiResponse) -> (Message, Usage) {
                                     .unwrap_or_default(),
                             });
                         }
-                        GeminiPart::FunctionResponse { .. } => {}
+                        GeminiPart::FunctionResponse { .. } | GeminiPart::InlineData { .. } => {}
                     }
                 }
             }
@@ -144,7 +158,27 @@ pub(super) fn parse_response(resp: &GeminiResponse) -> (Message, Usage) {
         .map(gemini_usage_to_usage)
         .unwrap_or_default();
 
-    (assistant_message(text, tool_calls), usage)
+    let stop_reason = resp
+        .candidates
+        .as_ref()
+        .and_then(|candidates| candidates.first())
+        .and_then(|candidate| candidate.finish_reason.as_deref())
+        .map(map_gemini_finish_reason)
+        .or_else(|| (!tool_calls.is_empty()).then_some(StopReason::ToolUse));
+
+    (assistant_message(text, tool_calls), usage, stop_reason)
+}
+
+pub(super) fn map_gemini_finish_reason(reason: &str) -> StopReason {
+    match reason {
+        "STOP" => StopReason::EndTurn,
+        "MAX_TOKENS" => StopReason::MaxTokens,
+        "SAFETY" | "RECITATION" | "BLOCKLIST" | "PROHIBITED_CONTENT" | "SPII" => {
+            StopReason::ContentFilter
+        }
+        "MALFORMED_FUNCTION_CALL" => StopReason::ToolUse,
+        other => StopReason::Other(other.to_string()),
+    }
 }
 
 pub(super) fn gemini_usage_to_usage(usage: &GeminiUsage) -> Usage {
@@ -182,9 +216,9 @@ pub(super) fn assistant_message(text: String, tool_calls: Vec<ToolCall>) -> Mess
 
 #[cfg(test)]
 mod tests {
-    use crate::types::{Message, RestoreSystemBlockHint};
+    use crate::types::{ImageData, Message, RestoreSystemBlockHint, StopReason};
 
-    use super::{convert_messages, GeminiPart};
+    use super::{convert_messages, map_gemini_finish_reason, GeminiPart};
 
     #[test]
     fn gemini_conversion_preserves_multiple_system_messages() {
@@ -241,5 +275,44 @@ mod tests {
             &system.parts[2],
             GeminiPart::Text { text } if text.starts_with("[Post-compact restore: files]")
         ));
+    }
+
+    #[test]
+    fn gemini_conversion_preserves_user_images() {
+        let messages = vec![Message::user_with_images(
+            "look",
+            vec![ImageData {
+                base64: "ZmFrZQ==".to_string(),
+                media_type: "image/png".to_string(),
+            }],
+        )];
+        let (_system, contents) = convert_messages(&messages, &[]);
+        assert_eq!(contents.len(), 1);
+        assert!(matches!(
+            &contents[0].parts[0],
+            GeminiPart::Text { text } if text == "look"
+        ));
+        assert!(matches!(
+            &contents[0].parts[1],
+            GeminiPart::InlineData { inline_data }
+                if inline_data.mime_type == "image/png" && inline_data.data == "ZmFrZQ=="
+        ));
+    }
+
+    #[test]
+    fn gemini_finish_reason_maps_to_common_stop_reason() {
+        assert_eq!(map_gemini_finish_reason("STOP"), StopReason::EndTurn);
+        assert_eq!(
+            map_gemini_finish_reason("MAX_TOKENS"),
+            StopReason::MaxTokens
+        );
+        assert_eq!(
+            map_gemini_finish_reason("SAFETY"),
+            StopReason::ContentFilter
+        );
+        assert_eq!(
+            map_gemini_finish_reason("MALFORMED_FUNCTION_CALL"),
+            StopReason::ToolUse
+        );
     }
 }
