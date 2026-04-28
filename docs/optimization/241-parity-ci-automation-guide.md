@@ -2,6 +2,9 @@
 
 ## Core Jobs
 
+- `.github/workflows/ci.yml` parity-snapshot
+- `.github/workflows/ci.yml` parity-replay
+- `.github/workflows/ci.yml` parity-visual-docs
 - `scripts/parity-baseline-refresh.sh`
 - `scripts/parity-benchmark-ci.sh`
 - `scripts/parity-golden-store-ci.sh`
@@ -13,6 +16,23 @@
 - `scripts/parity-snapshot-retention.sh`
 - `scripts/parity-golden-snapshot-store.sh`
 - `scripts/parity-visual-diff.sh`
+- `scripts/parity-artifact-bundle.sh`
+- `scripts/parity-artifact-bundle-ci.sh`
+- `scripts/parity-replay-serialize.sh`
+- `scripts/parity-replay-storage-ci.sh`
+- `scripts/parity-replay-index-ci.sh`
+- `scripts/parity-workflow-audit.sh`
+- `scripts/parity-ci-rerun.sh`
+- `scripts/parity-artifact-retention-ci.sh`
+- `scripts/parity-failure-upload-route.sh`
+- `scripts/parity-failure-report-template.sh`
+- `scripts/parity-candidate-compare-report.sh`
+- `scripts/parity-catalog-compare-report.sh`
+- `scripts/parity-replay-normalize.sh`
+- `scripts/parity-replay-deserialize.sh`
+- `scripts/parity-replay-drift-check.sh`
+- `scripts/parity-replay-json-parity.sh`
+- `scripts/parity-replay-owner-map.sh`
 - `scripts/parity-ci-dry-run.sh`
 - `scripts/parity-ci-local.sh`
 

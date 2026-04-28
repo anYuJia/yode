@@ -6,6 +6,13 @@ on:
       - main
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -13,6 +20,7 @@ jobs:
   rust:
     name: Rust Check And Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -45,3 +53,104 @@ jobs:
         with:
           name: yode-benchmark-snapshot
           path: .yode/benchmarks/long-session-benchmark.md
+
+  parity-snapshot:
+    name: Parity Snapshot
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run parity snapshot CI
+        run: |
+          bash scripts/parity-snapshot-ci.sh
+          bash scripts/parity-snapshot-metadata-report.sh .yode/benchmarks
+          bash scripts/parity-visual-report.sh .yode/benchmarks/output-regression-snapshot.md .yode/benchmarks/output-regression-snapshot.md .yode/benchmarks/visual-diff-report.md
+          bash scripts/parity-visual-width-report.sh .yode/benchmarks/output-regression-snapshot.md .yode/benchmarks/visual-width-report.md
+
+      - name: Build parity artifact bundle
+        if: always()
+        run: bash scripts/parity-artifact-bundle.sh .yode/parity-artifacts
+
+      - name: Upload parity snapshot artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: parity-snapshot-artifacts
+          path: .yode/parity-artifacts
+
+  parity-replay:
+    name: Parity Replay
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run parity replay CI
+        run: |
+          bash scripts/parity-replay-ci.sh
+          bash scripts/parity-replay-storage-ci.sh
+          bash scripts/parity-replay-index-ci.sh
+          bash scripts/parity-failure-upload-route.sh 055 > .yode/benchmarks/failure-route-report.md
+
+      - name: Build parity artifact bundle
+        if: always()
+        run: bash scripts/parity-artifact-bundle.sh .yode/parity-artifacts
+
+      - name: Upload parity replay artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: parity-replay-artifacts
+          path: .yode/parity-artifacts
+
+  parity-visual-docs:
+    name: Parity Visual And Docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run parity visual and docs audits
+        run: |
+          bash scripts/parity-visual-hardening-audit.sh
+          bash scripts/parity-docs-ci.sh
+          bash scripts/parity-visual-report.sh .yode/benchmarks/output-regression-snapshot.md .yode/benchmarks/output-regression-snapshot.md .yode/benchmarks/visual-diff-report.md
+          bash scripts/parity-visual-width-report.sh .yode/benchmarks/output-regression-snapshot.md .yode/benchmarks/visual-width-report.md
+          bash scripts/parity-candidate-compare-report.sh .yode/benchmarks/output-regression-snapshot.md .yode/benchmarks/candidate-compare-report.md
+          bash scripts/parity-catalog-compare-report.sh .yode/benchmarks/catalogs .yode/benchmarks/catalog-compare-report.md
+
+      - name: Build parity artifact bundle
+        if: always()
+        run: bash scripts/parity-artifact-bundle.sh .yode/parity-artifacts
+
+      - name: Upload parity visual/docs artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: parity-visual-docs-artifacts
+          path: .yode/parity-artifacts
