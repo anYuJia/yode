@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::path::Path;
 
-use crate::tool::{Tool, ToolContext, ToolResult};
+use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
 pub struct ReadFileTool;
 
@@ -55,8 +55,12 @@ Usage:
         })
     }
 
-    fn requires_confirmation(&self) -> bool {
-        false
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            requires_confirmation: false,
+            supports_auto_execution: true,
+            read_only: true,
+        }
     }
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {

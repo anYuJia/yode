@@ -21,6 +21,7 @@ struct LspServer {
 pub struct LspManager {
     servers: HashMap<String, LspServer>,
     workspace_root: PathBuf,
+    extra_path: Option<std::ffi::OsString>,
 }
 
 /// Send a JSON-RPC request on the given server and read the response.
@@ -106,7 +107,14 @@ impl LspManager {
         Self {
             servers: HashMap::new(),
             workspace_root,
+            extra_path: None,
         }
+    }
+
+    #[cfg(test)]
+    pub fn with_extra_path(mut self, path: std::ffi::OsString) -> Self {
+        self.extra_path = Some(path);
+        self
     }
 
     /// Map file extension to language server command.
@@ -144,12 +152,17 @@ impl LspManager {
 
             info!(language = %lang, command = %cmd, "Starting LSP server");
 
-            let mut process = tokio::process::Command::new(cmd)
+            let mut command = tokio::process::Command::new(cmd);
+            command
                 .args(&args)
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::null())
-                .kill_on_drop(true)
+                .kill_on_drop(true);
+            if let Some(path) = &self.extra_path {
+                command.env("PATH", path);
+            }
+            let mut process = command
                 .spawn()
                 .with_context(|| format!("Failed to start LSP server: {}", cmd))?;
 

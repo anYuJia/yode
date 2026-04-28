@@ -150,13 +150,6 @@ pub fn run_setup_interactive() -> Result<()> {
 
     config.save()?;
 
-    // Set for current process session in case we need it immediately
-    if config.llm.providers[&p_name].format == "openai" {
-        std::env::set_var("OPENAI_API_KEY", &p_api_key);
-    } else {
-        std::env::set_var("ANTHROPIC_API_KEY", &p_api_key);
-    }
-
     println!("\n✓ 配置已成功保存！当前 Provider: {}", p_name);
     println!("\n按任意键继续启动 Yode...");
     wait_for_key()?;

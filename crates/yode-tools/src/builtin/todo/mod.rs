@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 
 use crate::state::TaskStatus;
-use crate::tool::{Tool, ToolContext, ToolResult};
+use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
 pub mod tasks;
 pub use tasks::{TaskCreateTool, TaskGetTool, TaskListTool, TaskStopTool, TaskUpdateTool};
@@ -63,8 +63,12 @@ impl Tool for TodoTool {
         })
     }
 
-    fn requires_confirmation(&self) -> bool {
-        false
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            requires_confirmation: false,
+            supports_auto_execution: true,
+            read_only: false,
+        }
     }
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {

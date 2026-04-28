@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use globset::{Glob as GlobPattern, GlobSetBuilder};
 use serde_json::{json, Value};
 
-use crate::tool::{Tool, ToolContext, ToolResult};
+use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
 /// Directories to skip when traversing.
 const SKIP_DIRS: &[&str] = &[
@@ -72,8 +72,12 @@ Examples:
         })
     }
 
-    fn requires_confirmation(&self) -> bool {
-        false
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            requires_confirmation: false,
+            supports_auto_execution: true,
+            read_only: true,
+        }
     }
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<ToolResult> {

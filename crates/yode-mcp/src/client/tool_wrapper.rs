@@ -7,7 +7,7 @@ use std::future::Future;
 use std::sync::{LazyLock, Mutex};
 use std::time::Instant;
 
-use yode_tools::tool::{Tool, ToolContext, ToolResult};
+use yode_tools::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
 use super::McpConnection;
 
@@ -154,8 +154,12 @@ impl Tool for McpToolWrapper {
         self.input_schema.clone()
     }
 
-    fn requires_confirmation(&self) -> bool {
-        true // All MCP tools require confirmation by default
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            requires_confirmation: true,
+            supports_auto_execution: false,
+            read_only: false,
+        }
     }
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<ToolResult> {

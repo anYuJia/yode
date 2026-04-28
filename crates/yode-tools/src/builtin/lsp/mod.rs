@@ -220,15 +220,13 @@ while True:
             ),
         )
         .unwrap();
-        std::env::set_var("PATH", &new_path);
-
         let file = dir.path().join("main.py");
         tokio::fs::write(&file, "print('hi')\n").await.unwrap();
 
         let mut ctx = ToolContext::empty();
-        ctx.lsp_manager = Some(Arc::new(Mutex::new(LspManager::new(
-            dir.path().to_path_buf(),
-        ))));
+        ctx.lsp_manager = Some(Arc::new(Mutex::new(
+            LspManager::new(dir.path().to_path_buf()).with_extra_path(new_path),
+        )));
 
         let result = LspTool
             .execute(
@@ -250,11 +248,6 @@ while True:
             json!("hover")
         );
 
-        if let Some(path) = old_path {
-            std::env::set_var("PATH", path);
-        } else {
-            std::env::remove_var("PATH");
-        }
         let _ = fake;
     }
 }

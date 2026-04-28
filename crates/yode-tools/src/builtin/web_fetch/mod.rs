@@ -2,7 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-use crate::tool::{Tool, ToolContext, ToolResult};
+use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
 pub mod browser;
 pub use browser::WebBrowserTool;
@@ -47,8 +47,12 @@ IMPORTANT: WebFetch WILL FAIL for authenticated or private URLs. Before using th
         })
     }
 
-    fn requires_confirmation(&self) -> bool {
-        true
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            requires_confirmation: true,
+            supports_auto_execution: false,
+            read_only: true,
+        }
     }
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<ToolResult> {

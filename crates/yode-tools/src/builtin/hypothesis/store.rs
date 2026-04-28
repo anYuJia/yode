@@ -3,8 +3,26 @@ use std::sync::Mutex;
 
 use super::types::{Confidence, FindingType, Hypothesis, HypothesisStatus};
 
-pub(super) static HYPOTHESIS_STORE: std::sync::LazyLock<Mutex<HypothesisStore>> =
-    std::sync::LazyLock::new(|| Mutex::new(HypothesisStore::new()));
+static HYPOTHESIS_STORES: std::sync::LazyLock<Mutex<HashMap<String, HypothesisStore>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+
+pub(super) fn hypothesis_session_key(session_id: Option<&str>) -> String {
+    session_id
+        .filter(|id| !id.trim().is_empty())
+        .unwrap_or("__default__")
+        .to_string()
+}
+
+pub(super) fn with_hypothesis_store<R>(
+    session_key: &str,
+    action: impl FnOnce(&mut HypothesisStore) -> R,
+) -> R {
+    let mut stores = HYPOTHESIS_STORES.lock().unwrap();
+    let store = stores
+        .entry(session_key.to_string())
+        .or_insert_with(HypothesisStore::new);
+    action(store)
+}
 
 #[derive(Debug, Default)]
 pub(super) struct HypothesisStore {

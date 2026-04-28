@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 #[cfg(test)]
 use std::sync::{LazyLock, Mutex};
 
-use crate::tool::{Tool, ToolContext, ToolResult};
+use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
 pub struct WebSearchTool;
 
@@ -68,8 +68,12 @@ impl Tool for WebSearchTool {
         })
     }
 
-    fn requires_confirmation(&self) -> bool {
-        true
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            requires_confirmation: true,
+            supports_auto_execution: false,
+            read_only: true,
+        }
     }
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<ToolResult> {
