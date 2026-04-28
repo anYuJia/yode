@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use eventsource_stream::Eventsource;
 use futures::StreamExt;
 use tokio::sync::mpsc;
@@ -6,7 +6,7 @@ use tracing::{debug, trace, warn};
 
 use crate::providers::error_shared::format_api_error;
 use crate::providers::retry::send_with_retry;
-use crate::providers::streaming_shared::{emit_stream_error, emit_usage_update};
+use crate::providers::streaming_shared::emit_usage_update;
 use crate::types::{ChatRequest, StreamEvent, Usage};
 
 use super::conversion::{message_to_openai, tool_to_openai};
@@ -68,7 +68,6 @@ impl OpenAiProvider {
                     }),
                 &error_text,
             );
-            emit_stream_error(&tx, err.to_string()).await;
             return Err(err);
         }
 
@@ -80,9 +79,7 @@ impl OpenAiProvider {
                 Ok(ev) => ev,
                 Err(err) => {
                     let msg = format!("SSE stream error: {}", err);
-                    emit_stream_error(&tx, msg).await;
-                    state.finalize_reason = "sse_error";
-                    break;
+                    return Err(anyhow!(msg));
                 }
             };
 

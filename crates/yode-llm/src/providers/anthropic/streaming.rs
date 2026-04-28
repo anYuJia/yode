@@ -75,11 +75,9 @@ impl AnthropicProvider {
                     "Anthropic API error ({}): {}",
                     status, err_resp.error.message
                 );
-                let _ = tx.send(StreamEvent::Error(msg.clone())).await;
                 return Err(anyhow!(msg));
             }
             let msg = format!("Anthropic API error ({}): {}", status, error_text);
-            let _ = tx.send(StreamEvent::Error(msg.clone())).await;
             return Err(anyhow!(msg));
         }
 
@@ -92,9 +90,7 @@ impl AnthropicProvider {
                 Err(e) => {
                     let msg = format!("SSE stream error: {}", e);
                     error!("{}", msg);
-                    let _ = tx.send(StreamEvent::Error(msg)).await;
-                    state.finalize_reason = "sse_error";
-                    break;
+                    return Err(anyhow!(msg));
                 }
             };
 

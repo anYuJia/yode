@@ -5,7 +5,7 @@ use tokio::sync::mpsc;
 use tracing::warn;
 
 use crate::providers::error_shared::format_api_error;
-use crate::providers::streaming_shared::{emit_done_event, emit_stream_error};
+use crate::providers::streaming_shared::emit_done_event;
 
 use super::conversion::{
     assistant_message, gemini_usage_to_usage, map_gemini_finish_reason, send_tool_call_events,
@@ -28,7 +28,6 @@ pub(super) async fn stream_response(
             }
             Err(_) => format_api_error("Gemini", status, None, &text).to_string(),
         };
-        emit_stream_error(&tx, message.clone()).await;
         return Err(anyhow!(message));
     }
 
