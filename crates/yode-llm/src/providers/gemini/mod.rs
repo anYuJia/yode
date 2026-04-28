@@ -18,6 +18,18 @@ use crate::providers::retry::send_with_retry;
 use crate::provider::LlmProvider;
 use crate::types::{ChatRequest, ChatResponse, ModelInfo, StreamEvent};
 
+#[derive(Deserialize)]
+struct ModelsResp {
+    models: Vec<ModelEntry>,
+}
+
+#[derive(Deserialize)]
+struct ModelEntry {
+    name: String,
+    #[serde(default, rename = "displayName")]
+    display_name: Option<String>,
+}
+
 pub struct GeminiProvider {
     name: String,
     api_key: String,
@@ -153,18 +165,6 @@ impl LlmProvider for GeminiProvider {
     }
 
     async fn list_models(&self) -> Result<Vec<ModelInfo>> {
-        #[derive(Deserialize)]
-        struct ModelsResp {
-            models: Vec<ModelEntry>,
-        }
-
-        #[derive(Deserialize)]
-        struct ModelEntry {
-            name: String,
-            #[serde(default, rename = "displayName")]
-            display_name: Option<String>,
-        }
-
         let resp = send_with_retry(
             || self.client.get(self.models_url()),
             "Failed to fetch Gemini models",
@@ -180,18 +180,40 @@ impl LlmProvider for GeminiProvider {
             .models
             .into_iter()
             .filter(|model| model.name.contains("gemini"))
-            .map(|model| {
-                let id = model
-                    .name
-                    .strip_prefix("models/")
-                    .unwrap_or(&model.name)
-                    .to_string();
-                ModelInfo {
-                    name: model.display_name.unwrap_or_else(|| id.clone()),
-                    id,
-                    provider: "google".into(),
-                }
-            })
+            .map(|model| gemini_model_info(model, &self.name))
             .collect())
+    }
+}
+
+fn gemini_model_info(model: ModelEntry, provider: &str) -> ModelInfo {
+    let id = model
+        .name
+        .strip_prefix("models/")
+        .unwrap_or(&model.name)
+        .to_string();
+    ModelInfo {
+        name: model.display_name.unwrap_or_else(|| id.clone()),
+        id,
+        provider: provider.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{gemini_model_info, ModelEntry};
+
+    #[test]
+    fn gemini_model_info_uses_configured_provider_name() {
+        let info = gemini_model_info(
+            ModelEntry {
+                name: "models/gemini-2.5-pro".to_string(),
+                display_name: Some("Gemini 2.5 Pro".to_string()),
+            },
+            "custom-google",
+        );
+
+        assert_eq!(info.id, "gemini-2.5-pro");
+        assert_eq!(info.name, "Gemini 2.5 Pro");
+        assert_eq!(info.provider, "custom-google");
     }
 }
