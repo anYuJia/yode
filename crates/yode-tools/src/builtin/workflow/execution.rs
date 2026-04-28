@@ -197,7 +197,7 @@ pub(super) async fn execute_workflow(
             step_outputs.push(render_approval_checkpoint(index + 1, &step.tool_name));
         }
 
-        let step_ctx = clone_step_context(ctx);
+        let step_ctx = ctx.clone();
         let result = match tool.execute(resolved_params, &step_ctx).await {
             Ok(result) => result,
             Err(err) => ToolResult::error(format!("Step {} failed: {}", index + 1, err)),
@@ -299,30 +299,6 @@ fn resolve_workflow_path(params: &Value, working_dir: &Path) -> Option<PathBuf> 
                     })
                 })
         })
-}
-
-fn clone_step_context(ctx: &ToolContext) -> ToolContext {
-    ToolContext {
-        registry: ctx.registry.clone(),
-        tasks: ctx.tasks.clone(),
-        runtime_tasks: ctx.runtime_tasks.clone(),
-        team_runtime: ctx.team_runtime.clone(),
-        user_input_tx: ctx.user_input_tx.clone(),
-        user_input_rx: ctx.user_input_rx.clone(),
-        progress_tx: ctx.progress_tx.clone(),
-        working_dir: ctx.working_dir.clone(),
-        session_id: ctx.session_id.clone(),
-        provider: ctx.provider.clone(),
-        model: ctx.model.clone(),
-        sub_agent_runner: ctx.sub_agent_runner.clone(),
-        mcp_resources: ctx.mcp_resources.clone(),
-        cron_manager: ctx.cron_manager.clone(),
-        lsp_manager: ctx.lsp_manager.clone(),
-        worktree_state: ctx.worktree_state.clone(),
-        read_file_history: ctx.read_file_history.clone(),
-        plan_mode: ctx.plan_mode.clone(),
-        tool_pool_snapshot: ctx.tool_pool_snapshot.clone(),
-    }
 }
 
 fn workflow_write_checkpoints(steps: &[WorkflowStep]) -> Vec<Value> {

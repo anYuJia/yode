@@ -101,6 +101,7 @@ pub struct ToolProgress {
 }
 
 /// Context passed to every tool execution, providing access to shared resources.
+#[derive(Clone)]
 pub struct ToolContext {
     /// Access to the full tool registry (needed by `batch`).
     pub registry: Option<Arc<ToolRegistry>>,
