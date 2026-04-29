@@ -4,9 +4,9 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 pub use yode_agent::{
-    evaluate_agent_plan, plan_agent_team, AgentPlan, AgentPlanBatch, AgentPlanMode,
-    AgentPlanProgress, AgentPlanStep, AgentTeamManager, AgentTeamMemberState, AgentTeamMessage,
-    AgentTeamSnapshot, AgentTeamState,
+    evaluate_agent_plan, plan_agent_team, sync_agent_team_plan_statuses, AgentPlan, AgentPlanBatch,
+    AgentPlanMode, AgentPlanProgress, AgentPlanStep, AgentTeamManager, AgentTeamMemberState,
+    AgentTeamMessage, AgentTeamSnapshot, AgentTeamState,
 };
 
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
@@ -160,6 +160,7 @@ pub fn persist_agent_team_snapshot(
     state.latest_message_count = snapshot.messages.len();
     state.latest_message_artifact = Some(messages_path.display().to_string());
     state.latest_bundle_artifact = Some(bundle_path.display().to_string());
+    sync_agent_team_plan_statuses(&mut state);
 
     let message_body = if snapshot.messages.is_empty() {
         "# Agent Team Messages\n\n- none\n".to_string()
@@ -264,6 +265,7 @@ pub fn update_agent_team_member(
         .iter()
         .filter(|member| member.status == "failed")
         .count();
+    sync_agent_team_plan_statuses(&mut state);
     write_agent_team_state(working_dir, &state)
 }
 
@@ -1253,6 +1255,8 @@ mod tests {
             render_agent_team_monitor(dir.path(), Some("team-demo"), None, true).unwrap();
         assert!(rendered.contains("task-1"));
         assert!(rendered.contains("check tests"));
+        assert!(rendered.contains("- Ready: none"));
+        assert!(rendered.contains("member:review"));
     }
 
     #[tokio::test]

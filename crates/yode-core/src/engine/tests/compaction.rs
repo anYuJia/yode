@@ -1,52 +1,9 @@
 use super::*;
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::Arc;
 
-use yode_llm::types::ImageData;
+use yode_llm::types::{ChatResponse, ImageData, Usage};
+use yode_llm::MockProvider;
 use yode_tools::registry::ToolRegistry;
-
-enum SummaryStep {
-    Error(&'static str),
-    Summary(&'static str),
-}
-
-struct StubSummaryProvider {
-    steps: Arc<StdMutex<Vec<SummaryStep>>>,
-}
-
-#[async_trait::async_trait]
-impl yode_llm::provider::LlmProvider for StubSummaryProvider {
-    fn name(&self) -> &str {
-        "stub-summary"
-    }
-
-    async fn chat(
-        &self,
-        req: yode_llm::types::ChatRequest,
-    ) -> anyhow::Result<yode_llm::types::ChatResponse> {
-        let step = self.steps.lock().unwrap().remove(0);
-        match step {
-            SummaryStep::Error(message) => Err(anyhow::anyhow!(message)),
-            SummaryStep::Summary(content) => Ok(yode_llm::types::ChatResponse {
-                message: Message::assistant(content),
-                usage: yode_llm::types::Usage::default(),
-                model: req.model,
-                stop_reason: None,
-            }),
-        }
-    }
-
-    async fn chat_stream(
-        &self,
-        _req: yode_llm::types::ChatRequest,
-        _tx: tokio::sync::mpsc::Sender<yode_llm::types::StreamEvent>,
-    ) -> anyhow::Result<()> {
-        unimplemented!()
-    }
-
-    async fn list_models(&self) -> anyhow::Result<Vec<yode_llm::ModelInfo>> {
-        Ok(vec![])
-    }
-}
 
 fn make_engine_with_provider(provider: Arc<dyn yode_llm::provider::LlmProvider>) -> AgentEngine {
     let registry = ToolRegistry::new();
@@ -55,6 +12,15 @@ fn make_engine_with_provider(provider: Arc<dyn yode_llm::provider::LlmProvider>)
     std::fs::create_dir_all(&workdir).unwrap();
     let context = AgentContext::new(workdir, "stub".to_string(), "claude-sonnet-4".to_string());
     AgentEngine::new(provider, Arc::new(registry), permissions, context)
+}
+
+fn summary_response(content: &str) -> ChatResponse {
+    ChatResponse {
+        message: Message::assistant(content),
+        usage: Usage::default(),
+        model: "mock-summary".to_string(),
+        stop_reason: None,
+    }
 }
 
 #[tokio::test]
@@ -435,11 +401,9 @@ async fn test_repeated_compaction_does_not_duplicate_restore_blocks() {
 #[tokio::test]
 async fn test_manual_compaction_uses_llm_structured_summary_when_available() {
     let provider: Arc<dyn yode_llm::provider::LlmProvider> =
-        Arc::new(StubSummaryProvider {
-            steps: Arc::new(StdMutex::new(vec![SummaryStep::Summary(
-                "## Goals\n- finish compaction parity\n## Current State\n- context compacted\n## Findings\n- older tool results were dominating\n## Decisions\n- use structured summary\n## Files\n- src/engine.rs\n## Tools\n- read_file\n## Constraints\n- keep it concise\n## Open Questions\n- None\n## Next Steps\n- continue with recent tail",
-            )])),
-        });
+        Arc::new(MockProvider::new("stub-summary").with_chat_response(summary_response(
+            "## Goals\n- finish compaction parity\n## Current State\n- context compacted\n## Findings\n- older tool results were dominating\n## Decisions\n- use structured summary\n## Files\n- src/engine.rs\n## Tools\n- read_file\n## Constraints\n- keep it concise\n## Open Questions\n- None\n## Next Steps\n- continue with recent tail",
+        )));
     let mut engine = make_engine_with_provider(provider);
     engine.set_model("gpt-3.5".to_string());
     let big = "x".repeat(18_000);
@@ -480,15 +444,12 @@ async fn test_manual_compaction_uses_llm_structured_summary_when_available() {
 
 #[tokio::test]
 async fn test_manual_compaction_retries_llm_summary_after_prompt_too_long() {
-    let steps = Arc::new(StdMutex::new(vec![
-        SummaryStep::Error("prompt too long"),
-        SummaryStep::Summary(
+    let mock_provider = MockProvider::new("stub-summary")
+        .with_chat_error("prompt too long")
+        .with_chat_response(summary_response(
             "## Goals\n- recover compaction summary\n## Current State\n- retry succeeded\n## Findings\n- head truncation worked\n## Decisions\n- retry once\n## Files\n- None\n## Tools\n- None\n## Constraints\n- concise\n## Open Questions\n- None\n## Next Steps\n- continue",
-        ),
-    ]));
-    let provider: Arc<dyn yode_llm::provider::LlmProvider> = Arc::new(StubSummaryProvider {
-        steps: Arc::clone(&steps),
-    });
+        ));
+    let provider: Arc<dyn yode_llm::provider::LlmProvider> = Arc::new(mock_provider.clone());
     let mut engine = make_engine_with_provider(provider);
     engine.set_model("gpt-3.5".to_string());
     let big = "x".repeat(18_000);
@@ -511,8 +472,7 @@ async fn test_manual_compaction_retries_llm_summary_after_prompt_too_long() {
     let changed = engine.force_compact_keep_last(2, tx).await;
 
     assert!(changed);
-    let remaining = steps.lock().unwrap().len();
-    assert_eq!(remaining, 0, "remaining summary steps: {}", remaining);
+    assert_eq!(mock_provider.requests().len(), 2);
     assert!(engine.messages.iter().any(|message| {
         message
             .content

@@ -16,7 +16,7 @@ pub struct MockProvider {
 
 #[derive(Debug, Default)]
 struct MockProviderState {
-    chat_responses: VecDeque<ChatResponse>,
+    chat_responses: VecDeque<Result<ChatResponse, String>>,
     stream_events: VecDeque<Vec<StreamEvent>>,
     models: Vec<ModelInfo>,
     requests: Vec<ChatRequest>,
@@ -35,7 +35,16 @@ impl MockProvider {
             .lock()
             .unwrap()
             .chat_responses
-            .push_back(response);
+            .push_back(Ok(response));
+        self
+    }
+
+    pub fn with_chat_error(self, error: impl Into<String>) -> Self {
+        self.state
+            .lock()
+            .unwrap()
+            .chat_responses
+            .push_back(Err(error.into()));
         self
     }
 
@@ -67,6 +76,7 @@ impl LlmProvider for MockProvider {
             .chat_responses
             .pop_front()
             .ok_or_else(|| anyhow!("No mock chat response available"))
+            .and_then(|result| result.map_err(|error| anyhow!(error)))
     }
 
     async fn chat_stream(&self, request: ChatRequest, tx: mpsc::Sender<StreamEvent>) -> Result<()> {
@@ -124,6 +134,16 @@ mod tests {
 
         assert_eq!(provider.name(), "mock");
         assert_eq!(result.message.content.as_deref(), Some("done"));
+        assert_eq!(provider.requests().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn mock_provider_returns_queued_chat_errors() {
+        let provider = MockProvider::new("mock").with_chat_error("rate limited");
+
+        let error = provider.chat(request()).await.unwrap_err();
+
+        assert!(error.to_string().contains("rate limited"));
         assert_eq!(provider.requests().len(), 1);
     }
 

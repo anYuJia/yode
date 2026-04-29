@@ -295,7 +295,7 @@ impl AgentTeamManager {
             .iter()
             .filter(|member| member.status == "failed")
             .count();
-        sync_agent_plan_statuses(state);
+        sync_agent_team_plan_statuses(state);
         self.latest_team_id = Some(team_id.to_string());
         Ok(state.clone())
     }
@@ -472,7 +472,7 @@ pub fn plan_agent_team(
     })
 }
 
-fn sync_agent_plan_statuses(state: &mut AgentTeamState) {
+pub fn sync_agent_team_plan_statuses(state: &mut AgentTeamState) {
     let Some(plan) = state.plan.as_mut() else {
         return;
     };

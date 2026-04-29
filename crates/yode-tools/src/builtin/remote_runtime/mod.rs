@@ -1,3 +1,5 @@
+mod status;
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -9,6 +11,11 @@ use tokio::sync::Mutex;
 
 use crate::runtime_tasks::RuntimeTaskStore;
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
+
+use status::{
+    normalize_result_status, queue_status_label, sanitize_label, summarize_queue_status,
+    transport_block_reason, truncate_preview,
+};
 
 pub struct RemoteQueueDispatchTool;
 pub struct RemoteQueueResultTool;
@@ -1548,92 +1555,12 @@ fn remote_dir(project_root: &Path) -> PathBuf {
     project_root.join(".yode").join("remote")
 }
 
-fn truncate_preview(text: &str, max_chars: usize) -> String {
-    let squashed = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    if squashed.chars().count() <= max_chars {
-        squashed
-    } else {
-        format!(
-            "{}...",
-            squashed.chars().take(max_chars).collect::<String>()
-        )
-    }
-}
-
-fn sanitize_label(raw: &str) -> String {
-    raw.chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() {
-                ch.to_ascii_lowercase()
-            } else {
-                '-'
-            }
-        })
-        .collect::<String>()
-        .trim_matches('-')
-        .to_string()
-}
-
-fn normalize_result_status(raw: &str) -> Result<&'static str> {
-    match raw.trim() {
-        "completed" | "complete" | "success" => Ok("completed"),
-        "failed" | "fail" | "error" => Ok("failed"),
-        "ack" | "acked" | "acknowledged" => Ok("acked"),
-        other => Err(anyhow!(
-            "Unsupported result status '{}'. Expected completed|failed|acknowledged.",
-            other
-        )),
-    }
-}
-
-fn queue_status_label(status: &str) -> &str {
-    match status {
-        "planned" | "queued" => "queued",
-        "dispatched" => "dispatched",
-        "running" => "running",
-        "completed" => "completed",
-        "failed" => "failed",
-        "acked" => "acknowledged",
-        "attention" => "needs-attention",
-        other => other,
-    }
-}
-
-fn summarize_queue_status(items: &[RemoteQueueItem]) -> String {
-    if items
-        .iter()
-        .any(|item| matches!(item.status.as_str(), "running" | "dispatched"))
-    {
-        "running".to_string()
-    } else if items.iter().all(|item| item.status == "acked") {
-        "acked".to_string()
-    } else if items.iter().any(|item| item.status == "failed") {
-        "attention".to_string()
-    } else if items.iter().all(|item| item.status == "completed") {
-        "completed".to_string()
-    } else {
-        "queued".to_string()
-    }
-}
-
-fn transport_block_reason(payload: &RemoteTransportPayload) -> String {
-    match payload.connection_status.as_str() {
-        "error" => format!(
-            "transport error ({})",
-            payload.last_error.as_deref().unwrap_or("unknown")
-        ),
-        "reconnecting" => "transport reconnecting".to_string(),
-        "connected" => "transport connected".to_string(),
-        status => format!("transport {}", status),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
         latest_remote_control_state_artifact, latest_remote_live_session_state_artifact,
-        latest_remote_transport_state_artifact, queue_status_label, RemoteQueueDispatchTool,
-        RemoteQueueResultTool, RemoteTransportControlTool,
+        latest_remote_transport_state_artifact, RemoteQueueDispatchTool, RemoteQueueResultTool,
+        RemoteTransportControlTool,
     };
     use crate::runtime_tasks::RuntimeTaskStore;
     use crate::tool::{Tool, ToolContext};
@@ -1734,12 +1661,5 @@ mod tests {
             std::fs::read_to_string(latest_remote_transport_state_artifact(dir.path()).unwrap())
                 .unwrap();
         assert!(state.contains("\"reconnect_attempts\": 1"));
-    }
-
-    #[test]
-    fn queue_labels_match_operator_surface() {
-        assert_eq!(queue_status_label("planned"), "queued");
-        assert_eq!(queue_status_label("acked"), "acknowledged");
-        assert_eq!(queue_status_label("attention"), "needs-attention");
     }
 }

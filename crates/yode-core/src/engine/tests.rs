@@ -10,35 +10,6 @@ mod partition;
 mod runtime;
 mod stream_recovery;
 
-/// Minimal mock LLM provider (never actually called in these tests).
-pub(super) struct MockProvider;
-
-#[async_trait::async_trait]
-impl yode_llm::provider::LlmProvider for MockProvider {
-    fn name(&self) -> &str {
-        "mock"
-    }
-
-    async fn chat(
-        &self,
-        _req: yode_llm::types::ChatRequest,
-    ) -> anyhow::Result<yode_llm::types::ChatResponse> {
-        unimplemented!("Mock provider should not be called in unit tests")
-    }
-
-    async fn chat_stream(
-        &self,
-        _req: yode_llm::types::ChatRequest,
-        _tx: tokio::sync::mpsc::Sender<yode_llm::types::StreamEvent>,
-    ) -> anyhow::Result<()> {
-        unimplemented!()
-    }
-
-    async fn list_models(&self) -> anyhow::Result<Vec<yode_llm::ModelInfo>> {
-        Ok(vec![])
-    }
-}
-
 /// A mock read-only tool for testing parallel execution.
 pub(super) struct MockReadTool {
     pub(super) name: String,
@@ -160,7 +131,8 @@ pub(super) fn make_engine(tools: Vec<Arc<dyn Tool>>, confirm_tools: Vec<String>)
     for t in tools {
         registry.register(t);
     }
-    let provider: Arc<dyn yode_llm::provider::LlmProvider> = Arc::new(MockProvider);
+    let provider: Arc<dyn yode_llm::provider::LlmProvider> =
+        Arc::new(yode_llm::MockProvider::new("mock"));
     let permissions = PermissionManager::from_confirmation_list(confirm_tools);
     let workdir = std::env::temp_dir().join(format!("yode-engine-test-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&workdir).unwrap();
