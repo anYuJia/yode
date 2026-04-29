@@ -62,9 +62,7 @@ pub struct UpdateCheckResult {
 
 pub struct Updater {
     config_dir: PathBuf,
-    #[allow(dead_code)]
     auto_check: bool,
-    #[allow(dead_code)]
     auto_download: bool,
 }
 
@@ -139,14 +137,20 @@ impl Updater {
             let download_url = self.find_download_url(&release.assets);
             let checksum_url = self.find_checksum_url(&release.assets);
 
-            Ok(Some(UpdateCheckResult {
+            let update = UpdateCheckResult {
                 is_newer: true,
                 latest_version,
                 release_notes: release.body,
                 download_url,
                 checksum_url,
                 published_at: release.published_at,
-            }))
+            };
+            if self.auto_download {
+                if let Err(err) = self.download_update(&update).await {
+                    warn!("Auto-download failed: {}", err);
+                }
+            }
+            Ok(Some(update))
         } else {
             info!("Already on latest version: {}", latest_version);
             Ok(None)

@@ -60,12 +60,10 @@ impl Updater {
         }
     }
 
-    #[allow(dead_code)]
     fn lock_path(&self) -> PathBuf {
         self.config_dir.join(".update.lock")
     }
 
-    #[allow(dead_code)]
     pub(in crate::updater) async fn acquire_lock(&self) -> Result<bool, UpdateError> {
         let lock_path = self.lock_path();
 
@@ -94,7 +92,6 @@ impl Updater {
         Ok(true)
     }
 
-    #[allow(dead_code)]
     pub(in crate::updater) async fn release_lock(&self) -> Result<()> {
         let lock_path = self.lock_path();
         if lock_path.exists() {
@@ -109,7 +106,6 @@ impl Updater {
         Ok(())
     }
 
-    #[allow(dead_code)]
     pub(in crate::updater) async fn cleanup_old_versions(&self) -> Result<()> {
         let downloads_dir = self.config_dir.join("downloads");
         if !downloads_dir.exists() {
