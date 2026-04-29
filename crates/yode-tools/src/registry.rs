@@ -264,11 +264,7 @@ impl ToolRegistry {
             .read()
             .unwrap()
             .values()
-            .map(|tool| ToolDefinition {
-                name: tool.name().to_string(),
-                description: tool.description().to_string(),
-                parameters: tool.parameters_schema(),
-            })
+            .map(|tool| tool.definition())
             .collect()
     }
 
@@ -393,6 +389,39 @@ mod tests {
         }
     }
 
+    struct CustomDefinitionTool;
+
+    #[async_trait]
+    impl Tool for CustomDefinitionTool {
+        fn name(&self) -> &str {
+            "custom_definition"
+        }
+
+        fn description(&self) -> &str {
+            "default description"
+        }
+
+        fn parameters_schema(&self) -> Value {
+            json!({"type": "object"})
+        }
+
+        fn definition(&self) -> ToolDefinition {
+            ToolDefinition {
+                name: self.name().to_string(),
+                description: "custom description".to_string(),
+                parameters: json!({"type": "object", "required": ["value"]}),
+            }
+        }
+
+        async fn execute(
+            &self,
+            _params: Value,
+            _ctx: &crate::tool::ToolContext,
+        ) -> Result<crate::tool::ToolResult> {
+            Ok(crate::tool::ToolResult::success("ok".to_string()))
+        }
+    }
+
     #[test]
     fn duplicate_registration_is_blocked_and_recorded() {
         let registry = ToolRegistry::new();
@@ -408,5 +437,19 @@ mod tests {
         let records = registry.duplicate_registrations();
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].attempts, 2);
+    }
+
+    #[test]
+    fn definitions_use_tool_definition_method() {
+        let registry = ToolRegistry::new();
+        registry.register(Arc::new(CustomDefinitionTool));
+
+        let definitions = registry.definitions();
+        assert_eq!(definitions.len(), 1);
+        assert_eq!(definitions[0].description, "custom description");
+        assert_eq!(
+            definitions[0].parameters,
+            json!({"type": "object", "required": ["value"]})
+        );
     }
 }
