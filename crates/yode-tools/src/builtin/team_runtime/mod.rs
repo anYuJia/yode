@@ -4,8 +4,9 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 pub use yode_agent::{
-    evaluate_agent_plan, plan_agent_team, sync_agent_team_plan_statuses, AgentPlan, AgentPlanBatch,
-    AgentPlanMode, AgentPlanProgress, AgentPlanStep, AgentTeamManager, AgentTeamMemberState,
+    build_agent_run_request, evaluate_agent_plan, plan_agent_team, sync_agent_team_plan_statuses,
+    AgentPlan, AgentPlanBatch, AgentPlanMode, AgentPlanProgress, AgentPlanStep, AgentRunRequest,
+    AgentRunResult, AgentRunStatus, AgentRunner, AgentTeamManager, AgentTeamMemberState,
     AgentTeamMessage, AgentTeamSnapshot, AgentTeamState,
 };
 

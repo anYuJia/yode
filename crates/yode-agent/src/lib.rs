@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{anyhow, Result};
+use async_trait::async_trait;
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 
@@ -118,6 +119,57 @@ pub struct AgentPlanProgress {
     pub failed_step_ids: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AgentRunStatus {
+    Planned,
+    Running,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+impl AgentRunStatus {
+    pub fn as_member_status(&self) -> &'static str {
+        match self {
+            Self::Planned => "planned",
+            Self::Running => "running",
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+            Self::Cancelled => "cancelled",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentRunRequest {
+    pub team_id: String,
+    pub member_id: String,
+    pub goal: String,
+    pub prompt: String,
+    #[serde(default)]
+    pub subagent_type: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub allowed_tools: Vec<String>,
+    #[serde(default)]
+    pub messages: Vec<AgentTeamMessage>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentRunResult {
+    pub member_id: String,
+    pub status: AgentRunStatus,
+    pub summary: String,
+    #[serde(default)]
+    pub artifact_path: Option<String>,
+}
+
+#[async_trait]
+pub trait AgentRunner: Send + Sync {
+    async fn run(&self, request: AgentRunRequest) -> Result<AgentRunResult>;
+}
+
 #[derive(Debug, Default)]
 pub struct AgentPlanner;
 
@@ -129,6 +181,34 @@ impl AgentPlanner {
     ) -> Result<AgentPlan> {
         plan_agent_team(goal, mode, members)
     }
+}
+
+pub fn build_agent_run_request(
+    state: &AgentTeamState,
+    member_id: &str,
+    messages: Vec<AgentTeamMessage>,
+) -> Result<AgentRunRequest> {
+    let member = state
+        .members
+        .iter()
+        .find(|member| member.member_id == member_id)
+        .ok_or_else(|| {
+            anyhow!(
+                "Member '{}' not found in team '{}'.",
+                member_id,
+                state.team_id
+            )
+        })?;
+    Ok(AgentRunRequest {
+        team_id: state.team_id.clone(),
+        member_id: member.member_id.clone(),
+        goal: state.goal.clone(),
+        prompt: member.description.clone(),
+        subagent_type: member.subagent_type.clone(),
+        model: member.model.clone(),
+        allowed_tools: member.allowed_tools.clone(),
+        messages,
+    })
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -864,5 +944,60 @@ mod tests {
         assert_eq!(progress.completed_step_ids, vec!["member:coordinator"]);
         assert_eq!(progress.ready_step_ids, vec!["member:api", "member:ui"]);
         assert_eq!(progress.blocked_step_ids, vec!["member:review"]);
+    }
+
+    struct EchoRunner;
+
+    #[async_trait]
+    impl AgentRunner for EchoRunner {
+        async fn run(&self, request: AgentRunRequest) -> Result<AgentRunResult> {
+            Ok(AgentRunResult {
+                member_id: request.member_id,
+                status: AgentRunStatus::Completed,
+                summary: format!("{} messages", request.messages.len()),
+                artifact_path: None,
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn agent_runner_boundary_uses_team_member_context() {
+        let state = AgentTeamState {
+            kind: "agent_team".to_string(),
+            team_id: "team-demo".to_string(),
+            goal: "ship feature".to_string(),
+            mode: "parallel".to_string(),
+            created_at: "now".to_string(),
+            updated_at: "now".to_string(),
+            member_count: 1,
+            active_count: 1,
+            completed_count: 0,
+            failed_count: 0,
+            latest_message_count: 1,
+            latest_message_artifact: None,
+            latest_bundle_artifact: None,
+            plan: None,
+            members: vec![member("api", Some("worker"))],
+        };
+        let request = build_agent_run_request(
+            &state,
+            "api",
+            vec![AgentTeamMessage {
+                at: "now".to_string(),
+                target: "api".to_string(),
+                kind: "handoff".to_string(),
+                message: "check API".to_string(),
+            }],
+        )
+        .unwrap();
+
+        assert_eq!(request.goal, "ship feature");
+        assert_eq!(request.prompt, "api work");
+        assert_eq!(request.subagent_type.as_deref(), Some("worker"));
+
+        let result = EchoRunner.run(request).await.unwrap();
+        assert_eq!(result.member_id, "api");
+        assert_eq!(result.status.as_member_status(), "completed");
+        assert_eq!(result.summary, "1 messages");
     }
 }

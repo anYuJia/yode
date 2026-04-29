@@ -13,3 +13,7 @@ categories.workspace = true
 serde = { workspace = true }
 anyhow = { workspace = true }
 chrono = { workspace = true }
+async-trait = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
