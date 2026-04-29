@@ -14,10 +14,9 @@ use tokio::process::Command;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
+use crate::builtin::shell_runtime::{command_timeout_secs, timeout_ms_description};
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolErrorType, ToolProgress, ToolResult};
 
-const DEFAULT_TIMEOUT_SECS: u64 = 120;
-const MAX_TIMEOUT_SECS: u64 = 600;
 const STALL_CHECK_INTERVAL_MS: u64 = 5_000;
 const STALL_THRESHOLD_MS: u64 = 45_000;
 const STALL_TAIL_BYTES: usize = 1024;
@@ -141,7 +140,7 @@ While the bash tool can do similar things, it's better to use the built-in tools
                 },
                 "timeout_ms": {
                     "type": "integer",
-                    "description": format!("Optional timeout in milliseconds (max {}ms). Default: {}ms.", MAX_TIMEOUT_SECS * 1000, DEFAULT_TIMEOUT_SECS * 1000)
+                    "description": timeout_ms_description()
                 },
                 "dangerously_disable_sandbox": {
                     "type": "boolean",
@@ -189,16 +188,7 @@ While the bash tool can do similar things, it's better to use the built-in tools
             ));
         }
 
-        let timeout_ms = params
-            .get("timeout_ms")
-            .and_then(|v| v.as_u64())
-            .or_else(|| params.get("timeout").and_then(|v| v.as_u64()));
-
-        let timeout_secs = match timeout_ms {
-            Some(t) if t >= 1000 => (t / 1000).min(MAX_TIMEOUT_SECS),
-            Some(t) => t.min(MAX_TIMEOUT_SECS),
-            None => DEFAULT_TIMEOUT_SECS,
-        };
+        let timeout_secs = command_timeout_secs(&params);
 
         let run_in_background = params
             .get("run_in_background")

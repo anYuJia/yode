@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{anyhow, Result};
 use chrono::Local;
@@ -56,7 +56,70 @@ pub struct AgentTeamState {
     pub latest_message_artifact: Option<String>,
     #[serde(default)]
     pub latest_bundle_artifact: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan: Option<AgentPlan>,
     pub members: Vec<AgentTeamMemberState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AgentPlanMode {
+    Manual,
+    Parallel,
+    Sequential,
+    ReviewGate,
+}
+
+impl AgentPlanMode {
+    pub fn from_mode(mode: &str) -> Self {
+        match mode.trim().to_ascii_lowercase().as_str() {
+            "parallel" | "fanout" | "fan-out" => Self::Parallel,
+            "sequential" | "serial" => Self::Sequential,
+            "review" | "review_gate" | "review-gate" => Self::ReviewGate,
+            _ => Self::Manual,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentPlanBatch {
+    pub batch_id: String,
+    pub step_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentPlanStep {
+    pub step_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub member_id: Option<String>,
+    pub title: String,
+    pub description: String,
+    pub phase: String,
+    pub depends_on: Vec<String>,
+    pub run_in_background: bool,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentPlan {
+    pub goal: String,
+    pub mode: AgentPlanMode,
+    pub step_count: usize,
+    pub parallel_batch_count: usize,
+    pub steps: Vec<AgentPlanStep>,
+    pub batches: Vec<AgentPlanBatch>,
+}
+
+#[derive(Debug, Default)]
+pub struct AgentPlanner;
+
+impl AgentPlanner {
+    pub fn plan_team(
+        goal: &str,
+        mode: &str,
+        members: &[AgentTeamMemberState],
+    ) -> Result<AgentPlan> {
+        plan_agent_team(goal, mode, members)
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -141,6 +204,7 @@ impl AgentTeamManager {
                 .state
                 .as_ref()
                 .and_then(|state| state.latest_bundle_artifact.clone()),
+            plan: plan_agent_team(goal, mode, &members).ok(),
             members: members
                 .drain(..)
                 .map(|mut member| {
@@ -233,10 +297,7 @@ impl AgentTeamManager {
         kind: &str,
         message: &str,
     ) -> Result<AgentTeamMessage> {
-        let snapshot = self
-            .teams
-            .entry(team_id.to_string())
-            .or_default();
+        let snapshot = self.teams.entry(team_id.to_string()).or_default();
         let entry = AgentTeamMessage {
             at: now_string(),
             target: target.to_string(),
@@ -331,6 +392,173 @@ impl AgentTeamManager {
     }
 }
 
+pub fn plan_agent_team(
+    goal: &str,
+    mode: &str,
+    members: &[AgentTeamMemberState],
+) -> Result<AgentPlan> {
+    if members.is_empty() {
+        return Err(anyhow!("Agent team planning requires at least one member."));
+    }
+    let mut seen = BTreeSet::new();
+    for member in members {
+        let member_id = member.member_id.trim();
+        if member_id.is_empty() {
+            return Err(anyhow!("Agent team member id cannot be empty."));
+        }
+        if !seen.insert(member_id.to_string()) {
+            return Err(anyhow!("Duplicate agent team member id '{}'.", member_id));
+        }
+    }
+
+    let plan_mode = AgentPlanMode::from_mode(mode);
+    let steps = match plan_mode {
+        AgentPlanMode::Sequential => sequential_steps(members),
+        AgentPlanMode::Manual | AgentPlanMode::Parallel | AgentPlanMode::ReviewGate => {
+            dependency_grouped_steps(members)
+        }
+    };
+    let batches = build_batches(&steps);
+    Ok(AgentPlan {
+        goal: goal.to_string(),
+        mode: plan_mode,
+        step_count: steps.len(),
+        parallel_batch_count: batches.len(),
+        steps,
+        batches,
+    })
+}
+
+fn sequential_steps(members: &[AgentTeamMemberState]) -> Vec<AgentPlanStep> {
+    let mut steps = Vec::with_capacity(members.len());
+    let mut previous_step_id = None;
+    for member in members {
+        let step_id = member_step_id(&member.member_id);
+        let depends_on = previous_step_id.into_iter().collect::<Vec<_>>();
+        steps.push(member_plan_step(member, "sequential", depends_on));
+        previous_step_id = Some(step_id);
+    }
+    steps
+}
+
+fn dependency_grouped_steps(members: &[AgentTeamMemberState]) -> Vec<AgentPlanStep> {
+    let coordinators = members
+        .iter()
+        .filter(|member| member_phase(member) == "coordinate")
+        .collect::<Vec<_>>();
+    let reviewers = members
+        .iter()
+        .filter(|member| member_phase(member) == "review")
+        .collect::<Vec<_>>();
+    let workers = members
+        .iter()
+        .filter(|member| member_phase(member) == "execute")
+        .collect::<Vec<_>>();
+
+    let coordinator_ids = coordinators
+        .iter()
+        .map(|member| member_step_id(&member.member_id))
+        .collect::<Vec<_>>();
+    let worker_ids = workers
+        .iter()
+        .map(|member| member_step_id(&member.member_id))
+        .collect::<Vec<_>>();
+
+    let mut steps = Vec::with_capacity(members.len());
+    for member in coordinators {
+        steps.push(member_plan_step(member, "coordinate", Vec::new()));
+    }
+    for member in workers {
+        steps.push(member_plan_step(member, "execute", coordinator_ids.clone()));
+    }
+    for member in reviewers {
+        let depends_on = if worker_ids.is_empty() {
+            coordinator_ids.clone()
+        } else {
+            worker_ids.clone()
+        };
+        steps.push(member_plan_step(member, "review", depends_on));
+    }
+    steps
+}
+
+fn member_plan_step(
+    member: &AgentTeamMemberState,
+    phase: &str,
+    depends_on: Vec<String>,
+) -> AgentPlanStep {
+    AgentPlanStep {
+        step_id: member_step_id(&member.member_id),
+        member_id: Some(member.member_id.clone()),
+        title: member.member_id.clone(),
+        description: member.description.clone(),
+        phase: phase.to_string(),
+        depends_on,
+        run_in_background: member.run_in_background,
+        status: member.status.clone(),
+    }
+}
+
+fn build_batches(steps: &[AgentPlanStep]) -> Vec<AgentPlanBatch> {
+    let mut remaining = steps
+        .iter()
+        .map(|step| (step.step_id.clone(), step))
+        .collect::<BTreeMap<_, _>>();
+    let mut completed = BTreeSet::new();
+    let mut batches = Vec::new();
+
+    while !remaining.is_empty() {
+        let ready = remaining
+            .iter()
+            .filter(|(_, step)| step.depends_on.iter().all(|id| completed.contains(id)))
+            .map(|(step_id, _)| step_id.clone())
+            .collect::<Vec<_>>();
+        if ready.is_empty() {
+            let blocked = remaining.keys().cloned().collect::<Vec<_>>();
+            batches.push(AgentPlanBatch {
+                batch_id: format!("batch-{}", batches.len() + 1),
+                step_ids: blocked,
+            });
+            break;
+        }
+        for step_id in &ready {
+            remaining.remove(step_id);
+            completed.insert(step_id.clone());
+        }
+        batches.push(AgentPlanBatch {
+            batch_id: format!("batch-{}", batches.len() + 1),
+            step_ids: ready,
+        });
+    }
+
+    batches
+}
+
+fn member_phase(member: &AgentTeamMemberState) -> &'static str {
+    let joined = format!(
+        "{} {}",
+        member.member_id,
+        member.subagent_type.as_deref().unwrap_or_default()
+    )
+    .to_ascii_lowercase();
+    if joined.contains("coordinator") || joined.contains("coordinate") || joined.contains("plan") {
+        "coordinate"
+    } else if joined.contains("review")
+        || joined.contains("verify")
+        || joined.contains("verification")
+        || joined.contains("qa")
+        || joined.contains("test")
+    {
+        "review"
+    } else {
+        "execute"
+    }
+}
+
+fn member_step_id(member_id: &str) -> String {
+    format!("member:{}", sanitize_id(member_id))
+}
+
 fn default_team_id(goal: &str) -> String {
     let slug = sanitize_id(goal);
     if slug.is_empty() {
@@ -370,6 +598,25 @@ fn truncate_preview(text: &str, max_chars: usize) -> String {
 mod tests {
     use super::*;
 
+    fn member(id: &str, subagent_type: Option<&str>) -> AgentTeamMemberState {
+        AgentTeamMemberState {
+            member_id: id.to_string(),
+            description: format!("{} work", id),
+            subagent_type: subagent_type.map(str::to_string),
+            model: None,
+            run_in_background: true,
+            allowed_tools: Vec::new(),
+            permission_inheritance: "parent_tool_pool".to_string(),
+            status: "planned".to_string(),
+            runtime_task_id: None,
+            last_result_preview: None,
+            result_artifact_path: None,
+            last_updated_at: None,
+            pending_message_count: 0,
+            last_message_at: None,
+        }
+    }
+
     #[test]
     fn manager_creates_updates_and_messages() {
         let mut manager = AgentTeamManager::new();
@@ -395,6 +642,7 @@ mod tests {
             }],
         );
         assert_eq!(state.team_id, "team-demo");
+        assert_eq!(state.plan.as_ref().unwrap().parallel_batch_count, 1);
         let updated = manager
             .update_member(
                 "team-demo",
@@ -463,5 +711,64 @@ mod tests {
                 .pending_message_count,
             0
         );
+    }
+
+    #[test]
+    fn planner_batches_parallel_members_behind_coordinator() {
+        let plan = plan_agent_team(
+            "ship feature",
+            "parallel",
+            &[
+                member("coordinator", Some("coordinator")),
+                member("api", Some("worker")),
+                member("ui", Some("worker")),
+                member("review", Some("review")),
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(plan.mode, AgentPlanMode::Parallel);
+        assert_eq!(plan.step_count, 4);
+        assert_eq!(plan.batches.len(), 3);
+        assert_eq!(plan.batches[0].step_ids, vec!["member:coordinator"]);
+        assert_eq!(plan.batches[1].step_ids, vec!["member:api", "member:ui"]);
+        assert_eq!(plan.batches[2].step_ids, vec!["member:review"]);
+        let review = plan
+            .steps
+            .iter()
+            .find(|step| step.step_id == "member:review")
+            .unwrap();
+        assert_eq!(review.depends_on, vec!["member:api", "member:ui"]);
+    }
+
+    #[test]
+    fn planner_serializes_sequential_members() {
+        let plan = AgentPlanner::plan_team(
+            "migrate storage",
+            "sequential",
+            &[
+                member("discover", None),
+                member("patch", None),
+                member("verify", None),
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(plan.mode, AgentPlanMode::Sequential);
+        assert_eq!(plan.batches.len(), 3);
+        assert_eq!(plan.steps[0].depends_on, Vec::<String>::new());
+        assert_eq!(plan.steps[1].depends_on, vec!["member:discover"]);
+        assert_eq!(plan.steps[2].depends_on, vec!["member:patch"]);
+    }
+
+    #[test]
+    fn planner_rejects_empty_or_duplicate_members() {
+        assert!(plan_agent_team("empty", "parallel", &[]).is_err());
+        assert!(plan_agent_team(
+            "duplicate",
+            "parallel",
+            &[member("worker", None), member("worker", Some("review"))],
+        )
+        .is_err());
     }
 }

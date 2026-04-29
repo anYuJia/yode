@@ -49,26 +49,26 @@ impl SkillRegistry {
             return;
         }
 
-        let entries = match std::fs::read_dir(dir) {
+        let mut entries = match std::fs::read_dir(dir) {
             Ok(e) => e,
             Err(_) => return,
-        };
+        }
+        .flatten()
+        .map(|entry| entry.path())
+        .collect::<Vec<_>>();
+        entries.sort();
 
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_file() {
-                let name = path.file_name().unwrap_or_default().to_string_lossy();
-                if name.ends_with(".md") || name.ends_with(".MD") {
-                    if let Some(skill) = Self::parse_skill_file(&path) {
-                        // Avoid duplicates (project-level overrides global)
-                        if !self.skills.iter().any(|s| s.name == skill.name) {
-                            tracing::debug!(
-                                name = %skill.name,
-                                path = %path.display(),
-                                "Discovered skill"
-                            );
-                            self.skills.push(skill);
-                        }
+        for path in entries {
+            for skill_path in candidate_skill_files(&path) {
+                if let Some(skill) = Self::parse_skill_file(&skill_path) {
+                    // Avoid duplicates (project-level overrides global).
+                    if !self.skills.iter().any(|s| s.name == skill.name) {
+                        tracing::debug!(
+                            name = %skill.name,
+                            path = %skill_path.display(),
+                            "Discovered skill"
+                        );
+                        self.skills.push(skill);
                     }
                 }
             }
@@ -123,5 +123,92 @@ impl SkillRegistry {
         }
 
         paths
+    }
+}
+
+fn candidate_skill_files(path: &Path) -> Vec<PathBuf> {
+    if path.is_file() {
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        if name.ends_with(".md") || name.ends_with(".MD") {
+            return vec![path.to_path_buf()];
+        }
+        return Vec::new();
+    }
+
+    if path.is_dir() {
+        let skill_md = path.join("SKILL.md");
+        if skill_md.is_file() {
+            return vec![skill_md];
+        }
+        let skill_md_lower = path.join("skill.md");
+        if skill_md_lower.is_file() {
+            return vec![skill_md_lower];
+        }
+    }
+
+    Vec::new()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write_skill(path: &Path, name: &str, description: &str, body: &str) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            path,
+            format!(
+                "---\nname: {}\ndescription: {}\n---\n{}",
+                name, description, body
+            ),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn discovers_markdown_and_directory_skills_deterministically() {
+        let dir = tempfile::tempdir().unwrap();
+        write_skill(&dir.path().join("zeta.md"), "zeta", "Z skill", "zeta body");
+        write_skill(
+            &dir.path().join("alpha").join("SKILL.md"),
+            "alpha",
+            "A skill",
+            "alpha body",
+        );
+
+        let registry = SkillRegistry::discover(&[dir.path().to_path_buf()]);
+        let names = registry
+            .list()
+            .iter()
+            .map(|skill| skill.name.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(names, vec!["alpha", "zeta"]);
+        assert_eq!(registry.get("alpha").unwrap().content, "alpha body");
+    }
+
+    #[test]
+    fn earlier_paths_override_duplicate_skill_names() {
+        let project = tempfile::tempdir().unwrap();
+        let global = tempfile::tempdir().unwrap();
+        write_skill(
+            &project.path().join("review").join("SKILL.md"),
+            "review",
+            "project",
+            "project body",
+        );
+        write_skill(
+            &global.path().join("review.md"),
+            "review",
+            "global",
+            "global body",
+        );
+
+        let registry =
+            SkillRegistry::discover(&[project.path().to_path_buf(), global.path().to_path_buf()]);
+
+        assert_eq!(registry.list().len(), 1);
+        assert_eq!(registry.get("review").unwrap().description, "project");
+        assert_eq!(registry.get("review").unwrap().content, "project body");
     }
 }

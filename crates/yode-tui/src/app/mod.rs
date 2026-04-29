@@ -69,10 +69,6 @@ impl crate::commands::Command for SkillCommandWrapper {
     }
 }
 
-// SAFETY: SkillCommandWrapper holds only static references and is safe to share.
-unsafe impl Send for SkillCommandWrapper {}
-unsafe impl Sync for SkillCommandWrapper {}
-
 /// Find substring case-insensitively, return byte offset
 fn find_case_insensitive(haystack: &str, needle: &str) -> Option<usize> {
     haystack.to_lowercase().find(&needle.to_lowercase())

@@ -85,9 +85,8 @@ pub(super) struct GeminiFunctionDecl {
 pub(super) struct GeminiResponse {
     pub(super) candidates: Option<Vec<GeminiCandidate>>,
     pub(super) usage_metadata: Option<GeminiUsage>,
-    #[serde(default)]
-    #[allow(dead_code)]
-    pub(super) model_version: Option<String>,
+    #[serde(default, rename = "modelVersion")]
+    pub(super) _model_version: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -118,7 +117,6 @@ pub(super) struct GeminiError {
 #[derive(Debug, Deserialize)]
 pub(super) struct GeminiErrorDetail {
     pub(super) message: String,
-    #[serde(default)]
-    #[allow(dead_code)]
-    pub(super) code: Option<i32>,
+    #[serde(default, rename = "code")]
+    pub(super) _code: Option<i32>,
 }

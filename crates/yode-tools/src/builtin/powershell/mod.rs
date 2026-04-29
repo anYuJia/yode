@@ -12,10 +12,8 @@ use serde_json::{json, Value};
 use tokio::process::Command;
 use uuid::Uuid;
 
+use crate::builtin::shell_runtime::{command_timeout_secs, timeout_ms_description};
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolErrorType, ToolResult};
-
-const DEFAULT_TIMEOUT_SECS: u64 = 120;
-const MAX_TIMEOUT_SECS: u64 = 600;
 
 static PS_SEARCH_COMMANDS: &[&str] = &["select-string", "findstr", "where.exe"];
 static PS_READ_COMMANDS: &[&str] = &[
@@ -131,7 +129,7 @@ This tool supports `run_in_background` and `timeout_ms` like the bash tool."#
                 },
                 "timeout_ms": {
                     "type": "integer",
-                    "description": format!("Optional timeout in milliseconds (max {}ms). Default: {}ms.", MAX_TIMEOUT_SECS * 1000, DEFAULT_TIMEOUT_SECS * 1000)
+                    "description": timeout_ms_description()
                 }
             },
             "required": ["command"]
@@ -153,15 +151,7 @@ This tool supports `run_in_background` and `timeout_ms` like the bash tool."#
             .ok_or_else(|| anyhow::anyhow!("Missing required parameter: command"))?;
 
         let working_dir = ctx.working_dir.as_deref().unwrap_or_else(|| Path::new("."));
-        let timeout_ms = params
-            .get("timeout_ms")
-            .and_then(|v| v.as_u64())
-            .or_else(|| params.get("timeout").and_then(|v| v.as_u64()));
-        let timeout_secs = match timeout_ms {
-            Some(t) if t >= 1000 => (t / 1000).min(MAX_TIMEOUT_SECS),
-            Some(t) => t.min(MAX_TIMEOUT_SECS),
-            None => DEFAULT_TIMEOUT_SECS,
-        };
+        let timeout_secs = command_timeout_secs(&params);
         let run_in_background = params
             .get("run_in_background")
             .and_then(|v| v.as_bool())

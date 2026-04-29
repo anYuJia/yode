@@ -137,9 +137,8 @@ pub(super) struct OpenAiStreamChoice {
 
 #[derive(Debug, Deserialize)]
 pub(super) struct OpenAiStreamDelta {
-    #[serde(default)]
-    #[allow(dead_code)]
-    pub(super) role: Option<String>,
+    #[serde(default, rename = "role")]
+    pub(super) _role: Option<String>,
     #[serde(default)]
     pub(super) content: Option<String>,
     #[serde(alias = "thought", alias = "reasoning", default)]

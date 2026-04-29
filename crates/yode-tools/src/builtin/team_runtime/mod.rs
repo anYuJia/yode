@@ -4,7 +4,8 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 pub use yode_agent::{
-    AgentTeamManager, AgentTeamMemberState, AgentTeamMessage, AgentTeamSnapshot, AgentTeamState,
+    plan_agent_team, AgentPlan, AgentPlanBatch, AgentPlanMode, AgentPlanStep, AgentTeamManager,
+    AgentTeamMemberState, AgentTeamMessage, AgentTeamSnapshot, AgentTeamState,
 };
 
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
@@ -81,6 +82,7 @@ pub fn persist_agent_team_runtime(
                 .display()
                 .to_string(),
         ),
+        plan: plan_agent_team(goal, mode, &members).ok(),
         members,
     };
     write_agent_team_state(working_dir, &state)
@@ -421,8 +423,23 @@ pub fn render_agent_team_monitor_from_snapshot(
         ),
         format!("- Updated at: {}", state.updated_at),
         String::new(),
-        "Members:".to_string(),
     ];
+    if let Some(plan) = &state.plan {
+        body.push("Plan:".to_string());
+        body.push(format!(
+            "- {:?}: {} steps across {} batches",
+            plan.mode, plan.step_count, plan.parallel_batch_count
+        ));
+        for batch in &plan.batches {
+            body.push(format!(
+                "- {}: {}",
+                batch.batch_id,
+                batch.step_ids.join(", ")
+            ));
+        }
+        body.push(String::new());
+    }
+    body.push("Members:".to_string());
     for member in &state.members {
         let runtime_status = member
             .runtime_task_id
@@ -966,8 +983,23 @@ fn render_team_summary(state: &AgentTeamState) -> String {
         format!("- Updated at: {}", state.updated_at),
         format!("- Messages: {}", state.latest_message_count),
         String::new(),
-        "Members:".to_string(),
     ];
+    if let Some(plan) = &state.plan {
+        lines.push("Plan:".to_string());
+        lines.push(format!(
+            "- Mode: {:?} / {} steps / {} batches",
+            plan.mode, plan.step_count, plan.parallel_batch_count
+        ));
+        for batch in &plan.batches {
+            lines.push(format!(
+                "- {}: {}",
+                batch.batch_id,
+                batch.step_ids.join(", ")
+            ));
+        }
+        lines.push(String::new());
+    }
+    lines.push("Members:".to_string());
     for member in &state.members {
         lines.push(format!(
             "- {} [{}] tools={} inbox={} inheritance={}{}{}",
@@ -1141,7 +1173,11 @@ mod tests {
             }],
         )
         .unwrap();
-        assert!(artifacts.summary_path.unwrap().exists());
+        let summary_path = artifacts.summary_path.unwrap();
+        assert!(summary_path.exists());
+        assert!(std::fs::read_to_string(summary_path)
+            .unwrap()
+            .contains("Plan:"));
         assert!(artifacts.state_path.unwrap().exists());
         assert!(latest_agent_team_file(dir.path(), "agent-team-state.json").is_some());
     }

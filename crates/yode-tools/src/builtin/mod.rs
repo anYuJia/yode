@@ -30,6 +30,7 @@ pub mod review_changes;
 pub mod review_common;
 pub mod review_pipeline;
 pub mod review_then_commit;
+pub(crate) mod shell_runtime;
 pub mod skill;
 pub mod task_output;
 pub mod team_runtime;

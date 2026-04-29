@@ -125,13 +125,12 @@ pub(super) struct AnthropicTool {
 
 #[derive(Debug, Deserialize)]
 pub(super) struct AnthropicResponse {
-    #[allow(dead_code)]
-    pub(super) id: String,
+    #[serde(rename = "id")]
+    pub(super) _id: String,
     pub(super) content: Vec<ContentBlock>,
     pub(super) model: String,
     #[serde(default)]
     pub(super) usage: Option<AnthropicUsage>,
-    #[allow(dead_code)]
     pub(super) stop_reason: Option<String>,
 }
 
@@ -158,21 +157,18 @@ pub(super) enum AnthropicStreamEvent {
     MessageStart { message: AnthropicMessageStart },
     #[serde(rename = "content_block_start")]
     ContentBlockStart {
-        #[allow(dead_code)]
         #[serde(default)]
         index: u32,
         content_block: ContentBlockStart,
     },
     #[serde(rename = "content_block_delta")]
     ContentBlockDelta {
-        #[allow(dead_code)]
         #[serde(default)]
         index: u32,
         delta: ContentBlockDelta,
     },
     #[serde(rename = "content_block_stop")]
     ContentBlockStop {
-        #[allow(dead_code)]
         #[serde(default)]
         index: u32,
     },
@@ -209,10 +205,9 @@ impl AnthropicStreamEvent {
 
 #[derive(Debug, Deserialize)]
 pub(super) struct AnthropicMessageDelta {
-    #[allow(dead_code)]
     pub(super) stop_reason: Option<String>,
-    #[allow(dead_code)]
-    pub(super) stop_sequence: Option<String>,
+    #[serde(rename = "stop_sequence")]
+    pub(super) _stop_sequence: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -220,8 +215,8 @@ pub(super) struct AnthropicMessageStart {
     pub(super) model: String,
     #[serde(default)]
     pub(super) usage: Option<AnthropicUsage>,
-    #[allow(dead_code)]
-    pub(super) id: Option<String>,
+    #[serde(default, rename = "id")]
+    pub(super) _id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -272,7 +267,6 @@ pub(super) struct AnthropicErrorResponse {
 #[derive(Debug, Deserialize)]
 pub(super) struct AnthropicErrorDetail {
     pub(super) message: String,
-    #[serde(default)]
-    #[allow(dead_code)]
-    pub(super) r#type: Option<String>,
+    #[serde(default, rename = "type")]
+    pub(super) _type: Option<String>,
 }
