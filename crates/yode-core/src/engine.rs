@@ -36,9 +36,9 @@ use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
+use yode_agent::AgentTeamManager;
 use yode_llm::provider::LlmProvider;
 use yode_llm::types::{ChatRequest, ChatResponse, Message, Role, StreamEvent, ToolCall};
-use yode_agent::AgentTeamManager;
 use yode_tools::registry::ToolRegistry;
 use yode_tools::runtime_tasks::{RuntimeTask, RuntimeTaskNotification, RuntimeTaskStore};
 use yode_tools::state::TaskStore;
@@ -104,7 +104,6 @@ pub struct AgentEngine {
     permissions: PermissionManager,
     context: AgentContext,
     messages: Vec<Message>,
-    #[allow(dead_code)]
     system_prompt: String,
     db: Option<Database>,
     /// Shared task store for the todo tool.

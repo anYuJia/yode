@@ -16,14 +16,12 @@ impl AgentEngine {
 
     /// Restore messages from database for a resumed session.
     pub fn restore_messages(&mut self, messages: Vec<Message>) {
-        let system_msg = self.messages.first().cloned();
         self.messages.clear();
         self.failed_tool_call_ids.clear();
         self.clear_cache_edit_tracking();
         self.post_compact_restore_blocks.clear();
-        if let Some(system_msg) = system_msg {
-            self.messages.push(system_msg);
-        }
+        self.messages
+            .push(Message::system(self.system_prompt.clone()));
         self.messages.extend(messages);
         self.rehydrate_post_compact_restore_messages();
         self.set_expected_prompt_cache_drop_reason("restore_messages");
@@ -45,12 +43,10 @@ impl AgentEngine {
     /// Clear conversation history, keeping only the system prompt.
     pub fn clear_conversation(&mut self) {
         if self.messages.len() > 1 {
-            let system_msg = self.messages.first().cloned();
             self.messages.clear();
             self.failed_tool_call_ids.clear();
-            if let Some(system_msg) = system_msg {
-                self.messages.push(system_msg);
-            }
+            self.messages
+                .push(Message::system(self.system_prompt.clone()));
             info!("Cleared conversation, kept system prompt");
         }
         self.clear_cache_edit_tracking();
