@@ -80,7 +80,7 @@ use tool_result::{
     set_tool_runtime_truncation_metadata, truncate_tool_result,
 };
 use types::{
-    latest_transcript_runtime_state, ProjectKind, RecoveryState, SharedMemoryStatus,
+    latest_transcript_runtime_state, CostRuntimeState, ProjectKind, RecoveryState, SharedMemoryStatus,
     SystemPromptBuild, ToolExecutionOutcome, ToolExecutionTrace,
 };
 pub use types::{

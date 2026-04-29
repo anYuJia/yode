@@ -108,6 +108,7 @@ impl AgentEngine {
                 name: tc.name.clone(),
                 arguments: effective_arguments,
             });
+            self.cost_tracker.record_tool_call();
 
             info!(
                 "Executing tool in parallel: {} (auto-allowed, read-only)",
@@ -190,6 +191,10 @@ impl AgentEngine {
         }
 
         let outcomes = join_all(futures).await;
+        for outcome in &outcomes {
+            self.cost_tracker
+                .record_tool_duration(std::time::Duration::from_millis(outcome.duration_ms));
+        }
         for outcome in &outcomes {
             self.record_tool_progress_summary(
                 &outcome.tool_call.name,

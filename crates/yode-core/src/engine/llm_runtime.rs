@@ -52,13 +52,16 @@ impl AgentEngine {
     }
 
     /// Call LLM with retry logic (non-streaming). Classifies errors and uses appropriate backoff.
-    pub(super) async fn call_llm_with_retry(&self, request: ChatRequest) -> Result<ChatResponse> {
+    pub(super) async fn call_llm_with_retry(
+        &mut self,
+        request: ChatRequest,
+    ) -> Result<ChatResponse> {
         self.call_llm_with_retry_notify(request, None).await
     }
 
     /// Call LLM with retry logic, optionally notifying the UI about retries.
     pub(super) async fn call_llm_with_retry_notify(
-        &self,
+        &mut self,
         request: ChatRequest,
         event_tx: Option<&mpsc::UnboundedSender<EngineEvent>>,
     ) -> Result<ChatResponse> {
@@ -97,11 +100,13 @@ impl AgentEngine {
                 break;
             }
 
+            let api_start = std::time::Instant::now();
             let result = tokio::time::timeout(
                 std::time::Duration::from_secs(LLM_TIMEOUT_SECS),
                 self.provider.chat(request.clone()),
             )
             .await;
+            self.cost_tracker.record_api_duration(api_start.elapsed());
 
             match result {
                 Ok(Ok(response)) => return Ok(response),

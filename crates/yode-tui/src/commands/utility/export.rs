@@ -768,6 +768,7 @@ mod tests {
                 reported_turns: 4,
                 ..PromptCacheRuntimeState::default()
             },
+            cost: Default::default(),
             last_turn_duration_ms: None,
             last_turn_stop_reason: None,
             last_turn_artifact_path: None,
@@ -868,7 +869,9 @@ mod tests {
             None,
         );
         assert!(rendered.contains("Diagnostics bundle written:"));
-        assert!(rendered.contains("Core: conversation.txt, runtime-summary.txt, workspace-index.md, prompt-cache.txt"));
+        assert!(rendered.contains(
+            "Core: conversation.txt, runtime-summary.txt, workspace-index.md, prompt-cache.txt"
+        ));
         assert!(rendered.contains("Extras: 2 copied · doctor none"));
         assert!(rendered.contains("/diagnostics"));
     }
@@ -1034,7 +1037,9 @@ mod tests {
             "timeline",
         );
         assert!(rendered.contains("- Overview: /inspect artifact summary · bundle"));
-        assert!(rendered.contains("- Flow: /inspect artifact latest-workflow · latest-coordinate · latest-orchestration"));
+        assert!(rendered.contains(
+            "- Flow: /inspect artifact latest-workflow · latest-coordinate · latest-orchestration"
+        ));
         assert!(rendered.contains("- Runtime: /inspect artifact latest-runtime-timeline · latest-prompt-cache · latest-prompt-cache-state"));
         assert!(rendered.contains("- Refs: /inspect artifact latest-provider-inventory · latest-review · latest-transcript"));
     }
@@ -1042,7 +1047,10 @@ mod tests {
     #[test]
     fn conversation_export_preserves_plain_url_text() {
         let entries = vec![
-            ChatEntry::new(ChatRole::Assistant, "See https://example.com/docs".to_string()),
+            ChatEntry::new(
+                ChatRole::Assistant,
+                "See https://example.com/docs".to_string(),
+            ),
             ChatEntry::new(
                 ChatRole::System,
                 "Session memory updated · ref · https://docs.rs".to_string(),

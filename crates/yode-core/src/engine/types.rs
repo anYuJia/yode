@@ -157,6 +157,7 @@ pub struct EngineRuntimeState {
     pub system_prompt_estimated_tokens: usize,
     pub system_prompt_segments: Vec<SystemPromptSegmentRuntimeState>,
     pub prompt_cache: PromptCacheRuntimeState,
+    pub cost: CostRuntimeState,
     pub last_turn_duration_ms: Option<u64>,
     pub last_turn_stop_reason: Option<String>,
     pub last_turn_artifact_path: Option<String>,
@@ -204,6 +205,21 @@ pub struct EngineRuntimeState {
     pub tool_error_type_counts: BTreeMap<String, u32>,
     pub tool_trace_scope: String,
     pub tool_traces: Vec<ToolRuntimeCallView>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct CostRuntimeState {
+    pub model: String,
+    pub estimated_cost: f64,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cache_write_tokens: u64,
+    pub cache_read_tokens: u64,
+    pub api_calls: u64,
+    pub tool_calls: u64,
+    pub session_duration_ms: u64,
+    pub api_duration_ms: u64,
+    pub tool_duration_ms: u64,
 }
 
 #[derive(Debug, Clone, Default)]

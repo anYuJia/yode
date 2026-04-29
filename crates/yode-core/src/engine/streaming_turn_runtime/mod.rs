@@ -42,6 +42,7 @@ impl AgentEngine {
             self.record_prompt_cache_request_state(&request);
             let provider = self.provider.clone();
             let (stream_tx, mut stream_rx) = mpsc::channel::<StreamEvent>(256);
+            let api_start = std::time::Instant::now();
             let stream_handle = tokio::spawn(async move {
                 let result = tokio::time::timeout(
                     std::time::Duration::from_secs(STREAMING_TURN_HARD_SECS),
@@ -92,10 +93,13 @@ impl AgentEngine {
                     )
                     .await?
                 {
+                    self.cost_tracker.record_api_duration(api_start.elapsed());
                     match action {
                         StreamRetryAction::Continue => {}
                         StreamRetryAction::ReturnOk => return Ok(()),
                     }
+                } else {
+                    self.cost_tracker.record_api_duration(api_start.elapsed());
                 }
             }
 

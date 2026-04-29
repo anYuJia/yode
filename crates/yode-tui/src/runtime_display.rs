@@ -286,6 +286,7 @@ mod tests {
             system_prompt_estimated_tokens: 0,
             system_prompt_segments: Vec::new(),
             prompt_cache: PromptCacheRuntimeState::default(),
+            cost: Default::default(),
             last_turn_duration_ms: None,
             last_turn_stop_reason: None,
             last_turn_artifact_path: None,
@@ -426,6 +427,7 @@ mod tests {
                 last_turn_cache_read_tokens: Some(200),
                 ..Default::default()
             },
+            cost: Default::default(),
             last_turn_stop_reason: Some("Stop".to_string()),
             last_turn_artifact_path: Some("/tmp/turn.md".to_string()),
             ..runtime_state()

@@ -113,6 +113,8 @@ pub struct CostTracker {
     costs: ModelCosts,
     usage: UsageData,
     session_start: Instant,
+    total_api_duration_ms: u64,
+    total_tool_duration_ms: u64,
     /// Optional budget limit in USD
     budget_limit: Option<f64>,
 }
@@ -124,6 +126,8 @@ impl CostTracker {
             costs: ModelCosts::for_model(model),
             usage: UsageData::default(),
             session_start: Instant::now(),
+            total_api_duration_ms: 0,
+            total_tool_duration_ms: 0,
             budget_limit: None,
         }
     }
@@ -154,6 +158,18 @@ impl CostTracker {
     /// Record a tool call.
     pub fn record_tool_call(&mut self) {
         self.usage.tool_calls += 1;
+    }
+
+    pub fn record_api_duration(&mut self, duration: std::time::Duration) {
+        self.total_api_duration_ms = self
+            .total_api_duration_ms
+            .saturating_add(duration.as_millis() as u64);
+    }
+
+    pub fn record_tool_duration(&mut self, duration: std::time::Duration) {
+        self.total_tool_duration_ms = self
+            .total_tool_duration_ms
+            .saturating_add(duration.as_millis() as u64);
     }
 
     /// Get the estimated total cost in USD.
@@ -194,6 +210,14 @@ impl CostTracker {
 
     pub fn session_duration(&self) -> std::time::Duration {
         self.session_start.elapsed()
+    }
+
+    pub fn total_api_duration_ms(&self) -> u64 {
+        self.total_api_duration_ms
+    }
+
+    pub fn total_tool_duration_ms(&self) -> u64 {
+        self.total_tool_duration_ms
     }
 
     /// Format a human-readable cost summary.
@@ -278,12 +302,16 @@ mod tests {
         tracker.record_usage(200, 100);
         tracker.record_tool_call();
         tracker.record_tool_call();
+        tracker.record_api_duration(std::time::Duration::from_millis(120));
+        tracker.record_tool_duration(std::time::Duration::from_millis(80));
 
         let usage = tracker.usage();
         assert_eq!(usage.input_tokens, 300);
         assert_eq!(usage.output_tokens, 150);
         assert_eq!(usage.api_calls, 2);
         assert_eq!(usage.tool_calls, 2);
+        assert_eq!(tracker.total_api_duration_ms(), 120);
+        assert_eq!(tracker.total_tool_duration_ms(), 80);
     }
 
     #[test]

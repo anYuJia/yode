@@ -206,6 +206,28 @@ pub(crate) fn prompt_cache_badge(
     prompt_cache_badge_from_state(cache, density)
 }
 
+pub(crate) fn cost_badge(
+    state: Option<&EngineRuntimeState>,
+    density: Density,
+) -> Option<StatusBadge> {
+    let cost = state?;
+    if cost.cost.estimated_cost <= 0.0 && cost.cost.api_calls == 0 {
+        return None;
+    }
+    let text = match density {
+        Density::Wide => format!(
+            "cost ${:.4} api {}ms ",
+            cost.cost.estimated_cost, cost.cost.api_duration_ms
+        ),
+        Density::Medium => format!("${:.4} ", cost.cost.estimated_cost),
+        Density::Narrow => format!("${:.3} ", cost.cost.estimated_cost),
+    };
+    Some(StatusBadge {
+        text,
+        color: INFO_COLOR,
+    })
+}
+
 pub(crate) fn turn_tool_badge(
     state: Option<&EngineRuntimeState>,
     fallback_turn_tool_count: u32,
@@ -495,7 +517,7 @@ fn compact_badge_text(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        compaction_badge, context_window_summary_text, percentage_label,
+        compaction_badge, context_window_summary_text, cost_badge, percentage_label,
         prompt_cache_badge_from_state, runtime_status_snapshot_from_parts,
         session_runtime_summary_text, short_tokens, tool_runtime_summary_text, truncate_text,
     };
@@ -546,6 +568,7 @@ mod tests {
             system_prompt_estimated_tokens: 0,
             system_prompt_segments: Vec::new(),
             prompt_cache: PromptCacheRuntimeState::default(),
+            cost: Default::default(),
             last_turn_duration_ms: None,
             last_turn_stop_reason: None,
             last_turn_artifact_path: None,
@@ -614,6 +637,17 @@ mod tests {
         )
         .unwrap();
         assert_eq!(badge.text, "cache r12.5k/w1.2k ");
+        assert_eq!(badge.color, super::INFO_COLOR);
+    }
+
+    #[test]
+    fn cost_badge_surfaces_session_cost_and_api_time() {
+        let mut state = test_runtime_state();
+        state.cost.estimated_cost = 0.0123;
+        state.cost.api_calls = 2;
+        state.cost.api_duration_ms = 345;
+        let badge = cost_badge(Some(&state), Density::Wide).unwrap();
+        assert_eq!(badge.text, "cost $0.0123 api 345ms ");
         assert_eq!(badge.color, super::INFO_COLOR);
     }
 

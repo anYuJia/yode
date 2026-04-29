@@ -1562,6 +1562,7 @@ mod tests {
             system_prompt_estimated_tokens: 0,
             system_prompt_segments: Vec::new(),
             prompt_cache: yode_core::engine::PromptCacheRuntimeState::default(),
+            cost: Default::default(),
             last_turn_duration_ms: None,
             last_turn_stop_reason: None,
             last_turn_artifact_path: None,

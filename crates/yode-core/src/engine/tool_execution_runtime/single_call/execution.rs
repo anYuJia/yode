@@ -131,6 +131,7 @@ impl AgentEngine {
             ),
         };
         let elapsed = start_time.elapsed();
+        self.cost_tracker.record_tool_duration(elapsed);
         debug!(
             tool = %tool_call.name,
             elapsed_ms = elapsed.as_millis() as u64,

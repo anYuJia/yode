@@ -11,7 +11,7 @@ use super::badges::{
 use super::palette::{LIGHT, MUTED, SEP};
 use super::responsive::{density_from_width, status_section_mode, Density, StatusSectionMode};
 use super::status_summary::{
-    compaction_badge, context_badge, memory_badge, prompt_cache_badge, push_badge,
+    compaction_badge, context_badge, cost_badge, memory_badge, prompt_cache_badge, push_badge,
     runtime_family_badges, runtime_status_snapshot,
 };
 use crate::app::App;
@@ -106,6 +106,9 @@ pub fn render_info_line(frame: &mut Frame, area: Rect, app: &App) {
             push_badge(&mut parts, badge);
         }
         if let Some(badge) = prompt_cache_badge(snapshot.state.as_ref(), density) {
+            push_badge(&mut parts, badge);
+        }
+        if let Some(badge) = cost_badge(snapshot.state.as_ref(), density) {
             push_badge(&mut parts, badge);
         }
     }
