@@ -68,6 +68,12 @@ cargo install --path .
 
 Download `yode-x86_64-pc-windows-msvc.zip` from [Releases](https://github.com/anYuJia/yode/releases).
 
+Or install with PowerShell:
+
+```powershell
+iwr -useb https://raw.githubusercontent.com/anYuJia/yode/main/install.ps1 | iex
+```
+
 ## Quick Start
 
 ```bash
