@@ -33,6 +33,55 @@ impl MenuOption {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProviderSetupDefaults {
+    format: &'static str,
+    base_url: &'static str,
+    name: &'static str,
+    model: &'static str,
+}
+
+fn provider_setup_defaults(provider: &str) -> ProviderSetupDefaults {
+    match provider {
+        "anthropic" => ProviderSetupDefaults {
+            format: "anthropic",
+            base_url: "https://api.anthropic.com",
+            name: "anthropic",
+            model: "claude-3-5-sonnet-20241022",
+        },
+        "openai" => ProviderSetupDefaults {
+            format: "openai",
+            base_url: "https://api.openai.com/v1",
+            name: "openai",
+            model: "gpt-4o",
+        },
+        "kimi" => ProviderSetupDefaults {
+            format: "openai",
+            base_url: "https://api.moonshot.cn/v1",
+            name: "kimi",
+            model: "moonshot-v1-auto",
+        },
+        "deepseek" => ProviderSetupDefaults {
+            format: "openai",
+            base_url: "https://api.deepseek.com",
+            name: "deepseek",
+            model: "deepseek-chat",
+        },
+        "gemini" => ProviderSetupDefaults {
+            format: "openai",
+            base_url: "https://generativelanguage.googleapis.com/v1beta/openai/",
+            name: "gemini",
+            model: "gemini-2.5-flash",
+        },
+        _ => ProviderSetupDefaults {
+            format: "custom",
+            base_url: "",
+            name: "custom",
+            model: "gpt-4o",
+        },
+    }
+}
+
 pub fn run_setup_interactive() -> Result<()> {
     let options = vec![
         MenuOption::new("anthropic", "Anthropic (Claude) - 推荐"),
@@ -52,22 +101,11 @@ pub fn run_setup_interactive() -> Result<()> {
         toml::from_str(default_str).unwrap()
     });
 
-    let (format, default_base_url, name_suggestion) = match option.value {
-        "anthropic" => ("anthropic", "https://api.anthropic.com", "anthropic"),
-        "openai" => ("openai", "https://api.openai.com/v1", "openai"),
-        "kimi" => ("openai", "https://api.moonshot.cn/v1", "kimi"),
-        "deepseek" => ("openai", "https://api.deepseek.com", "deepseek"),
-        "gemini" => (
-            "openai",
-            "https://generativelanguage.googleapis.com/v1beta/openai/",
-            "gemini",
-        ),
-        _ => ("custom", "", "custom"),
-    };
+    let defaults = provider_setup_defaults(option.value);
 
     println!("\n正在配置 [{}]...", option.title);
 
-    let format_val = if format == "custom" {
+    let format_val = if defaults.format == "custom" {
         let fmt_options = vec![
             MenuOption::new("openai", "OpenAI 兼容格式 (绝大部分自建或平台适用)"),
             MenuOption::new("anthropic", "Anthropic 兼容格式"),
@@ -75,10 +113,10 @@ pub fn run_setup_interactive() -> Result<()> {
         let idx = select_menu(None, "\n请选择接口格式的兼容标准", &fmt_options)?;
         fmt_options[idx].value.to_string()
     } else {
-        format.to_string()
+        defaults.format.to_string()
     };
 
-    let p_base_url = if format == "custom" {
+    let p_base_url = if defaults.format == "custom" {
         let prompt = "请输入 Base URL (例如 https://api.openai.com/v1): ";
         let mut u = read_input(prompt)?;
         while u.is_empty() {
@@ -89,11 +127,11 @@ pub fn run_setup_interactive() -> Result<()> {
     } else {
         let prompt = format!(
             "请输入 Base URL (直接回车使用官方默认 {}): ",
-            default_base_url
+            defaults.base_url
         );
         let u = read_input(&prompt)?;
         if u.is_empty() {
-            default_base_url.to_string()
+            defaults.base_url.to_string()
         } else {
             u
         }
@@ -110,11 +148,11 @@ pub fn run_setup_interactive() -> Result<()> {
 
     let prompt = format!(
         "请为该 Provider 起个名字 (直接回车使用默认 '{}'): ",
-        name_suggestion
+        defaults.name
     );
     let mut p_name = read_input(&prompt)?;
     if p_name.is_empty() {
-        p_name = name_suggestion.to_string();
+        p_name = defaults.name.to_string();
     }
 
     config.llm.providers.insert(
@@ -129,22 +167,13 @@ pub fn run_setup_interactive() -> Result<()> {
 
     config.llm.default_provider = p_name.clone();
 
-    let default_model_suggestion = match name_suggestion {
-        "anthropic" => "claude-3-5-sonnet-20241022",
-        "openai" => "gpt-4o",
-        "kimi" => "moonshot-v1-auto",
-        "deepseek" => "deepseek-chat",
-        "gemini" => "gemini-2.5-flash",
-        _ => "gpt-4o",
-    };
-
     let prompt = format!(
         "请输入此 Provider 默认使用的模型名称 (直接回车推荐 '{}'): ",
-        default_model_suggestion
+        defaults.model
     );
     let mut m_name = read_input(&prompt)?;
     if m_name.is_empty() {
-        m_name = default_model_suggestion.to_string();
+        m_name = defaults.model.to_string();
     }
     config.llm.default_model = m_name;
 
@@ -246,4 +275,33 @@ fn wait_for_key() -> Result<()> {
     }
     disable_raw_mode()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::provider_setup_defaults;
+
+    #[test]
+    fn provider_setup_defaults_cover_builtin_providers() {
+        let anthropic = provider_setup_defaults("anthropic");
+        assert_eq!(anthropic.format, "anthropic");
+        assert_eq!(anthropic.base_url, "https://api.anthropic.com");
+        assert!(anthropic.model.starts_with("claude-"));
+
+        let gemini = provider_setup_defaults("gemini");
+        assert_eq!(gemini.format, "openai");
+        assert!(gemini
+            .base_url
+            .contains("generativelanguage.googleapis.com"));
+        assert_eq!(gemini.model, "gemini-2.5-flash");
+    }
+
+    #[test]
+    fn provider_setup_defaults_fall_back_to_custom() {
+        let custom = provider_setup_defaults("local");
+        assert_eq!(custom.format, "custom");
+        assert_eq!(custom.base_url, "");
+        assert_eq!(custom.name, "custom");
+        assert_eq!(custom.model, "gpt-4o");
+    }
 }
