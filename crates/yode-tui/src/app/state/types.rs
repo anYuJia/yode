@@ -146,6 +146,25 @@ pub struct UpdateState {
     pub downloaded: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct PromptSuggestionState {
+    pub value: Option<String>,
+    pub enabled: bool,
+    pub generating: bool,
+    pub last_generated_at: Instant,
+}
+
+impl Default for PromptSuggestionState {
+    fn default() -> Self {
+        Self {
+            value: None,
+            enabled: true,
+            generating: false,
+            last_generated_at: Instant::now(),
+        }
+    }
+}
+
 /// Unified status: Idle -> Working -> Done (or Retrying -> Working -> Done)
 #[derive(Debug, Clone)]
 pub enum TurnStatus {
@@ -306,6 +325,14 @@ mod tests {
         assert_eq!(state.available, None);
         assert!(!state.downloading);
         assert_eq!(state.downloaded, None);
+    }
+
+    #[test]
+    fn prompt_suggestion_state_defaults_to_enabled_idle() {
+        let state = super::PromptSuggestionState::default();
+        assert_eq!(state.value, None);
+        assert!(state.enabled);
+        assert!(!state.generating);
     }
 
     #[test]

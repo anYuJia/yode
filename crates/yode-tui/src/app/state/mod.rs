@@ -22,7 +22,7 @@ use super::wizard;
 pub(crate) use self::types::SPINNER_VERBS;
 pub use self::types::{
     ChatEntry, ChatRole, InspectorRuntime, InspectorView, PendingConfirmation, PermissionMode,
-    SessionState, ThinkingState, TurnStatus, UpdateState,
+    PromptSuggestionState, SessionState, ThinkingState, TurnStatus, UpdateState,
 };
 
 /// Main application state.
@@ -73,10 +73,7 @@ pub struct App {
     pub wizard: Option<wizard::Wizard>,
     pub inspector: InspectorRuntime,
     pub update: UpdateState,
-    pub prompt_suggestion: Option<String>,
-    pub prompt_suggestion_enabled: bool,
-    pub suggestion_generating: bool,
-    pub last_suggestion_time: Instant,
+    pub prompt_suggestion: PromptSuggestionState,
     pub last_task_brief_time: Instant,
     pub last_turn_completion_message: Option<String>,
     pub last_session_memory_update_message: Option<String>,
@@ -156,10 +153,7 @@ impl App {
             wizard: None,
             inspector: InspectorRuntime::default(),
             update: UpdateState::default(),
-            prompt_suggestion: None,
-            prompt_suggestion_enabled: true,
-            suggestion_generating: false,
-            last_suggestion_time: Instant::now(),
+            prompt_suggestion: PromptSuggestionState::default(),
             last_task_brief_time: Instant::now(),
             last_turn_completion_message: None,
             last_session_memory_update_message: None,

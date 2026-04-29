@@ -6,7 +6,7 @@ use super::App;
 pub(super) fn handle_char(app: &mut App, key: KeyEvent, c: char) {
     // Clear suggestion when user starts typing
     app.input.clear_ghost_text();
-    app.suggestion_generating = false;
+    app.prompt_suggestion.generating = false;
 
     if key.modifiers.contains(KeyModifiers::CONTROL) {
         match c {
@@ -97,7 +97,7 @@ pub(super) fn browse_history_next(app: &mut App) {
 }
 
 pub(super) fn handle_tab(app: &mut App) {
-    if let Some(suggestion) = app.prompt_suggestion.take() {
+    if let Some(suggestion) = app.prompt_suggestion.value.take() {
         app.input.set_text(&suggestion);
         app.input.clear_ghost_text();
         return;

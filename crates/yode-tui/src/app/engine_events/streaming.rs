@@ -187,12 +187,12 @@ pub(super) fn handle_done(
     app.is_processing = false;
     try_process_next(app, engine, engine_event_tx);
 
-    if app.prompt_suggestion_enabled
+    if app.prompt_suggestion.enabled
         && app.input.is_empty()
-        && !app.suggestion_generating
-        && app.last_suggestion_time.elapsed() >= Duration::from_secs(30)
+        && !app.prompt_suggestion.generating
+        && app.prompt_suggestion.last_generated_at.elapsed() >= Duration::from_secs(30)
     {
-        app.suggestion_generating = true;
+        app.prompt_suggestion.generating = true;
 
         let messages: Vec<yode_llm::types::Message> = app
             .chat_entries
@@ -225,12 +225,13 @@ pub(super) fn handle_done(
 }
 
 pub(super) fn handle_suggestion_ready(app: &mut App, suggestion: String) {
-    app.suggestion_generating = false;
-    app.last_suggestion_time = Instant::now();
+    app.prompt_suggestion.generating = false;
+    app.prompt_suggestion.last_generated_at = Instant::now();
     tracing::debug!("Suggestion received: {}", suggestion);
-    if app.prompt_suggestion_enabled && app.input.is_empty() {
-        app.prompt_suggestion = Some(suggestion);
-        app.input.set_ghost_text(app.prompt_suggestion.clone());
+    if app.prompt_suggestion.enabled && app.input.is_empty() {
+        app.prompt_suggestion.value = Some(suggestion);
+        app.input
+            .set_ghost_text(app.prompt_suggestion.value.clone());
     }
 }
 
