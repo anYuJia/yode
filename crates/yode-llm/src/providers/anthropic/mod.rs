@@ -19,6 +19,7 @@ use crate::providers::retry::send_with_retry;
 use crate::providers::streaming_shared::map_stop_reason;
 
 use crate::provider::LlmProvider;
+use crate::registry::KNOWN_PROVIDERS;
 use crate::types::{ChatRequest, ChatResponse, Message, ModelInfo, StreamEvent, ToolCall};
 
 // ── Provider implementation ─────────────────────────────────────────────────
@@ -188,23 +189,32 @@ impl LlmProvider for AnthropicProvider {
     }
 
     async fn list_models(&self) -> Result<Vec<ModelInfo>> {
-        Ok(vec![
-            ModelInfo {
-                id: "claude-sonnet-4-20250514".to_string(),
-                name: "Claude Sonnet 4".to_string(),
+        let models = KNOWN_PROVIDERS
+            .iter()
+            .find(|provider| provider.name == "anthropic")
+            .map(|provider| provider.default_models)
+            .unwrap_or(&[]);
+
+        Ok(models
+            .iter()
+            .map(|model| ModelInfo {
+                id: (*model).to_string(),
+                name: anthropic_model_display_name(model),
                 provider: self.name.clone(),
-            },
-            ModelInfo {
-                id: "claude-opus-4-20250514".to_string(),
-                name: "Claude Opus 4".to_string(),
-                provider: self.name.clone(),
-            },
-            ModelInfo {
-                id: "claude-3-5-haiku-20241022".to_string(),
-                name: "Claude 3.5 Haiku".to_string(),
-                provider: self.name.clone(),
-            },
-        ])
+            })
+            .collect())
+    }
+}
+
+fn anthropic_model_display_name(model: &str) -> String {
+    if model.contains("opus") {
+        "Claude Opus 4".to_string()
+    } else if model.contains("sonnet") {
+        "Claude Sonnet 4".to_string()
+    } else if model.contains("haiku") {
+        "Claude Haiku 4".to_string()
+    } else {
+        model.to_string()
     }
 }
 
@@ -220,6 +230,7 @@ fn anthropic_thinking_budget_tokens() -> u32 {
 mod tests {
     use super::AnthropicProvider;
     use crate::provider::LlmProvider;
+    use crate::registry::KNOWN_PROVIDERS;
 
     #[tokio::test]
     async fn anthropic_static_models_include_claude_4() {
@@ -231,5 +242,22 @@ mod tests {
         assert!(models
             .iter()
             .any(|model| model.id == "claude-opus-4-20250514"));
+    }
+
+    #[tokio::test]
+    async fn anthropic_static_models_match_provider_catalog() {
+        let provider = AnthropicProvider::new("anthropic", "key", "https://example.test");
+        let models = provider.list_models().await.unwrap();
+        let listed_ids = models
+            .iter()
+            .map(|model| model.id.as_str())
+            .collect::<Vec<_>>();
+        let catalog_ids = KNOWN_PROVIDERS
+            .iter()
+            .find(|provider| provider.name == "anthropic")
+            .unwrap()
+            .default_models;
+
+        assert_eq!(listed_ids, catalog_ids);
     }
 }
