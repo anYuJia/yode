@@ -54,7 +54,8 @@ use crate::constants::thresholds::{
 };
 use crate::constants::timeouts::{
     LLM_REQUEST_SECS as LLM_TIMEOUT_SECS, PARALLEL_TOOL_SECS as PARALLEL_TOOL_TIMEOUT_SECS,
-    STREAMING_TURN_HARD_SECS,
+    STREAMING_HEARTBEAT_SECS, STREAMING_STALL_SECS, STREAMING_TURN_HARD_SECS,
+    TOOL_EXECUTION_SECS as TOOL_EXECUTION_TIMEOUT_SECS,
 };
 use crate::context::{AgentContext, EffortLevel, QuerySource};
 use crate::context_manager::{CompressionReport, ContextManager};
@@ -80,8 +81,8 @@ use tool_result::{
     set_tool_runtime_truncation_metadata, truncate_tool_result,
 };
 use types::{
-    latest_transcript_runtime_state, CostRuntimeState, ProjectKind, RecoveryState, SharedMemoryStatus,
-    SystemPromptBuild, ToolExecutionOutcome, ToolExecutionTrace,
+    latest_transcript_runtime_state, CostRuntimeState, ProjectKind, RecoveryState,
+    SharedMemoryStatus, SystemPromptBuild, ToolExecutionOutcome, ToolExecutionTrace,
 };
 pub use types::{
     ConfirmResponse, EngineEvent, EngineRuntimeState, PromptCacheRuntimeState,

@@ -113,7 +113,7 @@ impl AgentEngine {
         }
 
         let mut result = match tokio::time::timeout(
-            std::time::Duration::from_secs(120),
+            std::time::Duration::from_secs(TOOL_EXECUTION_TIMEOUT_SECS),
             tool.execute(prepared.params, &ctx),
         )
         .await
@@ -124,7 +124,10 @@ impl AgentEngine {
                 ToolResult::error(format!("Tool execution failed: {}", err))
             }
             Err(_) => ToolResult::error_typed(
-                format!("Tool execution timed out after 120s: {}", tool_call.name),
+                format!(
+                    "Tool execution timed out after {}s: {}",
+                    TOOL_EXECUTION_TIMEOUT_SECS, tool_call.name
+                ),
                 ToolErrorType::Timeout,
                 true,
                 Some("Narrow the command scope or run a lighter probe first.".to_string()),

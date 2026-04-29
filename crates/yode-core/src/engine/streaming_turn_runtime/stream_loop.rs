@@ -16,8 +16,9 @@ impl AgentEngine {
         cancel_token: Option<&CancellationToken>,
         buffers: &mut StreamTurnBuffers,
     ) -> StreamLoopState {
-        let hard_turn_timeout = std::time::Duration::from_secs(600);
-        let stall_timeout = std::time::Duration::from_secs(120);
+        let hard_turn_timeout = std::time::Duration::from_secs(STREAMING_TURN_HARD_SECS);
+        let stall_timeout = std::time::Duration::from_secs(STREAMING_STALL_SECS);
+        let heartbeat_interval = std::time::Duration::from_secs(STREAMING_HEARTBEAT_SECS);
         let mut cancelled = false;
         let mut stalled = false;
         let mut last_progress_at = std::time::Instant::now();
@@ -72,14 +73,12 @@ impl AgentEngine {
                         stream_handle.abort();
                         break;
                     }
-                    _ = tokio::time::sleep(std::time::Duration::from_secs(2)) => {
+                    _ = tokio::time::sleep(heartbeat_interval) => {
                         let _ = event_tx.send(EngineEvent::Thinking);
                     }
                 }
             } else {
-                match tokio::time::timeout(std::time::Duration::from_secs(2), stream_rx.recv())
-                    .await
-                {
+                match tokio::time::timeout(heartbeat_interval, stream_rx.recv()).await {
                     Ok(Some(stream_event)) => {
                         last_progress_at = std::time::Instant::now();
                         let is_done = matches!(stream_event, StreamEvent::Done(_));
