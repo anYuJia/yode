@@ -261,7 +261,37 @@ impl ThinkingState {
 
 #[cfg(test)]
 mod tests {
-    use super::ThinkingState;
+    use super::{PermissionMode, ThinkingState};
+    use tokio_util::sync::CancellationToken;
+
+    #[test]
+    fn permission_mode_cycles_through_operator_modes() {
+        assert_eq!(PermissionMode::Normal.label(), "Default");
+        assert_eq!(PermissionMode::Normal.next(), PermissionMode::AutoAccept);
+        assert_eq!(PermissionMode::AutoAccept.next(), PermissionMode::Plan);
+        assert_eq!(PermissionMode::Plan.next(), PermissionMode::Normal);
+    }
+
+    #[test]
+    fn thinking_state_tracks_spinner_and_cancellation() {
+        let token = CancellationToken::new();
+        let mut thinking = ThinkingState::new();
+
+        thinking.start(token.clone());
+        assert!(thinking.active);
+        assert_eq!(thinking.elapsed_secs(), 0);
+        assert_eq!(thinking.spinner_char(), '⠋');
+        assert!(!thinking.advance_spinner());
+        assert!(!thinking.advance_spinner());
+        assert!(!thinking.advance_spinner());
+        assert!(thinking.advance_spinner());
+        assert_eq!(thinking.spinner_char(), '⠙');
+
+        thinking.cancel();
+        assert!(token.is_cancelled());
+        assert!(!thinking.active);
+        assert!(thinking.cancel_token.is_none());
+    }
 
     #[test]
     fn advance_spinner_only_reports_true_on_visible_frame_change() {
