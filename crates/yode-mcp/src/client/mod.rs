@@ -5,7 +5,10 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, LazyLock, Mutex};
 
 use anyhow::Result;
-use rmcp::model::CallToolRequestParams;
+use rmcp::model::{
+    CallToolRequestParams, ListResourcesResult, ListToolsResult, ReadResourceRequestParams,
+    ReadResourceResult,
+};
 use rmcp::service::{Peer, RunningService, ServiceExt};
 use rmcp::transport::{ConfigureCommandExt, TokioChildProcess};
 use rmcp::RoleClient;
@@ -126,8 +129,7 @@ impl McpClient {
     }
 
     pub async fn discover_wrapped_tools(&self) -> Result<Vec<Arc<dyn Tool>>> {
-        let peer = self.connection.current_peer().await;
-        let tools_result = peer.list_tools(Default::default()).await?;
+        let tools_result = self.connection.list_tools().await?;
         let tools = tools_result.tools;
         let count = tools.len();
 
@@ -190,8 +192,7 @@ impl McpClient {
 
     /// List resources available on this MCP server.
     pub async fn list_resources(&self) -> Result<Vec<(String, String, Option<String>)>> {
-        let peer = self.connection.current_peer().await;
-        let result = peer.list_resources(Default::default()).await?;
+        let result = self.connection.list_resources().await?;
         let resources = result
             .resources
             .iter()
@@ -207,9 +208,8 @@ impl McpClient {
 
     /// Read a specific resource by URI.
     pub async fn read_resource(&self, uri: &str) -> Result<String> {
-        let params = rmcp::model::ReadResourceRequestParams::new(uri);
-        let peer = self.connection.current_peer().await;
-        let result = peer.read_resource(params).await?;
+        let params = ReadResourceRequestParams::new(uri);
+        let result = self.connection.read_resource(params).await?;
 
         let mut output = String::new();
         for content in &result.contents {
@@ -237,6 +237,23 @@ impl McpConnection {
         self.state.lock().await.peer.clone()
     }
 
+    pub(crate) async fn list_tools(&self) -> Result<ListToolsResult> {
+        let peer = self.current_peer().await;
+        match peer.list_tools(Default::default()).await {
+            Ok(result) => Ok(result),
+            Err(err) => {
+                warn!(
+                    server = %self.server_name,
+                    error = %err,
+                    "MCP tool discovery failed; reconnecting server and retrying once"
+                );
+                record_mcp_connect_result(&self.server_name, false, Some(err.to_string()));
+                let peer = self.reconnect().await?;
+                Ok(peer.list_tools(Default::default()).await?)
+            }
+        }
+    }
+
     pub(crate) async fn call_tool(
         &self,
         request: CallToolRequestParams,
@@ -253,6 +270,43 @@ impl McpConnection {
                 record_mcp_connect_result(&self.server_name, false, Some(err.to_string()));
                 let peer = self.reconnect().await?;
                 Ok(peer.call_tool(request).await?)
+            }
+        }
+    }
+
+    pub(crate) async fn list_resources(&self) -> Result<ListResourcesResult> {
+        let peer = self.current_peer().await;
+        match peer.list_resources(Default::default()).await {
+            Ok(result) => Ok(result),
+            Err(err) => {
+                warn!(
+                    server = %self.server_name,
+                    error = %err,
+                    "MCP resource discovery failed; reconnecting server and retrying once"
+                );
+                record_mcp_connect_result(&self.server_name, false, Some(err.to_string()));
+                let peer = self.reconnect().await?;
+                Ok(peer.list_resources(Default::default()).await?)
+            }
+        }
+    }
+
+    pub(crate) async fn read_resource(
+        &self,
+        request: ReadResourceRequestParams,
+    ) -> Result<ReadResourceResult> {
+        let peer = self.current_peer().await;
+        match peer.read_resource(request.clone()).await {
+            Ok(result) => Ok(result),
+            Err(err) => {
+                warn!(
+                    server = %self.server_name,
+                    error = %err,
+                    "MCP resource read failed; reconnecting server and retrying once"
+                );
+                record_mcp_connect_result(&self.server_name, false, Some(err.to_string()));
+                let peer = self.reconnect().await?;
+                Ok(peer.read_resource(request).await?)
             }
         }
     }
