@@ -32,12 +32,12 @@ pub(super) async fn execute_task_output(params: Value, ctx: &ToolContext) -> Res
     let follow = params
         .get("follow")
         .and_then(|value| value.as_bool())
-        .unwrap_or(false);
-    let timeout_secs = params
-        .get("timeout_secs")
-        .and_then(|value| value.as_u64())
-        .unwrap_or(60)
-        .min(600);
+        .unwrap_or(false)
+        || params
+            .get("block")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
+    let timeout_secs = task_output_timeout_secs(&params);
     let mut follow_timed_out = false;
     if follow && is_unfinished_task(&task.status) {
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
@@ -116,6 +116,8 @@ pub(super) async fn execute_task_output(params: Value, ctx: &ToolContext) -> Res
             "last_progress_at": task.last_progress_at,
             "progress_history": task.progress_history,
             "follow": follow,
+            "block": params.get("block").and_then(|value| value.as_bool()).unwrap_or(false),
+            "retrieval_status": if follow_timed_out { "timeout" } else { "success" },
             "follow_timed_out": follow_timed_out,
             "total_lines": total_lines,
             "start_line": start_line,
@@ -124,6 +126,18 @@ pub(super) async fn execute_task_output(params: Value, ctx: &ToolContext) -> Res
             "folded_agent_output": folded_agent_output,
         }),
     ))
+}
+
+pub(super) fn task_output_timeout_secs(params: &Value) -> u64 {
+    if let Some(timeout_secs) = params.get("timeout_secs").and_then(|value| value.as_u64()) {
+        return timeout_secs.min(600);
+    }
+    params
+        .get("timeout")
+        .and_then(|value| value.as_u64())
+        .map(|millis| millis.div_ceil(1000))
+        .unwrap_or(60)
+        .min(600)
 }
 
 fn is_unfinished_task(status: &crate::runtime_tasks::RuntimeTaskStatus) -> bool {

@@ -19,6 +19,14 @@ impl Tool for TaskOutputTool {
         "task_output"
     }
 
+    fn aliases(&self) -> Vec<String> {
+        vec![
+            "TaskOutput".to_string(),
+            "AgentOutputTool".to_string(),
+            "BashOutputTool".to_string(),
+        ]
+    }
+
     fn user_facing_name(&self) -> &str {
         "Task Output"
     }
@@ -56,10 +64,20 @@ impl Tool for TaskOutputTool {
                     "default": false,
                     "description": "If true and the task is still running, wait until it finishes or timeout_secs elapses before reading output."
                 },
+                "block": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Claude-compatible alias for follow. If true, wait for task completion before reading output."
+                },
                 "timeout_secs": {
                     "type": "integer",
                     "default": 60,
                     "description": "Maximum seconds to wait when follow=true."
+                },
+                "timeout": {
+                    "type": "integer",
+                    "default": 30000,
+                    "description": "Claude-compatible timeout in milliseconds when block=true."
                 }
             }
         })

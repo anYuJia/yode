@@ -3,7 +3,7 @@ use std::sync::Arc;
 use serde_json::json;
 use tokio::sync::Mutex;
 
-use super::execution::select_task_output_lines;
+use super::execution::{select_task_output_lines, task_output_timeout_secs};
 use super::rendering::render_follow_mode_summary;
 use super::TaskOutputTool;
 use crate::runtime_tasks::RuntimeTaskStatus;
@@ -94,6 +94,42 @@ async fn follows_running_task_until_completion() {
 }
 
 #[tokio::test]
+async fn accepts_claude_block_and_timeout_aliases() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = dir.path().join("task.log");
+    tokio::fs::write(&output, "line1\n").await.unwrap();
+
+    let store = Arc::new(Mutex::new(RuntimeTaskStore::new()));
+    let task_id = {
+        let mut guard = store.lock().await;
+        let (task, _cancel_rx) = guard.create(
+            "bash".to_string(),
+            "bash".to_string(),
+            "demo task".to_string(),
+            output.display().to_string(),
+        );
+        guard.mark_running(&task.id);
+        task.id
+    };
+
+    let mut ctx = ToolContext::empty();
+    ctx.runtime_tasks = Some(store);
+
+    let tool = TaskOutputTool;
+    let result = tool
+        .execute(
+            json!({ "task_id": task_id, "block": true, "timeout": 1 }),
+            &ctx,
+        )
+        .await
+        .unwrap();
+    assert!(!result.is_error);
+    assert_eq!(result.metadata.as_ref().unwrap()["block"], true);
+    assert_eq!(result.metadata.as_ref().unwrap()["retrieval_status"], "timeout");
+    assert_eq!(result.metadata.as_ref().unwrap()["follow_timed_out"], true);
+}
+
+#[tokio::test]
 async fn includes_transcript_backlink_in_output_and_metadata() {
     let dir = tempfile::tempdir().unwrap();
     let output = dir.path().join("task.log");
@@ -149,5 +185,15 @@ fn follow_mode_summary_surfaces_timeout_state() {
     assert_eq!(
         render_follow_mode_summary(&RuntimeTaskStatus::Running, 30, true),
         "timed out after 30s with status Running"
+    );
+}
+
+#[test]
+fn timeout_alias_converts_milliseconds_to_seconds() {
+    assert_eq!(task_output_timeout_secs(&json!({ "timeout": 1 })), 1);
+    assert_eq!(task_output_timeout_secs(&json!({ "timeout": 1500 })), 2);
+    assert_eq!(
+        task_output_timeout_secs(&json!({ "timeout": 1500, "timeout_secs": 9 })),
+        9
     );
 }
