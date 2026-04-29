@@ -4,13 +4,15 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 pub use yode_agent::{
-    build_agent_run_request, evaluate_agent_plan, plan_agent_team, sync_agent_team_plan_statuses,
-    AgentPlan, AgentPlanBatch, AgentPlanMode, AgentPlanProgress, AgentPlanStep, AgentRunRequest,
-    AgentRunResult, AgentRunStatus, AgentRunner, AgentTeamManager, AgentTeamMemberState,
-    AgentTeamMessage, AgentTeamSnapshot, AgentTeamState,
+    build_agent_run_request, evaluate_agent_plan, plan_agent_team, run_ready_agent_steps,
+    sync_agent_team_plan_statuses, AgentPlan, AgentPlanBatch, AgentPlanMode, AgentPlanProgress,
+    AgentPlanStep, AgentRunRequest, AgentRunResult, AgentRunStatus, AgentRunner, AgentTeamManager,
+    AgentTeamMemberState, AgentTeamMessage, AgentTeamSnapshot, AgentTeamState,
 };
 
-use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
+use crate::tool::{
+    SubAgentOptions, SubAgentRunner, Tool, ToolCapabilities, ToolContext, ToolResult,
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct AgentTeamArtifactSet {
@@ -497,6 +499,7 @@ pub struct TeamCreateTool;
 pub struct SendMessageTool;
 pub struct TeamReceiveTool;
 pub struct TeamMonitorTool;
+pub struct TeamRunReadyTool;
 
 #[async_trait]
 impl Tool for TeamCreateTool {
@@ -825,6 +828,174 @@ impl Tool for TeamReceiveTool {
                 "member_id": member_id,
                 "message_count": messages.len(),
                 "consumed": consume,
+            }),
+        ))
+    }
+}
+
+struct ToolSubAgentRunnerAdapter {
+    inner: Arc<dyn SubAgentRunner>,
+    working_dir: PathBuf,
+}
+
+#[async_trait]
+impl AgentRunner for ToolSubAgentRunnerAdapter {
+    async fn run(&self, request: AgentRunRequest) -> Result<AgentRunResult> {
+        let prompt = format_agent_run_prompt(&request);
+        let options = SubAgentOptions {
+            description: request.member_id.clone(),
+            subagent_type: request.subagent_type.clone(),
+            model: request.model.clone(),
+            run_in_background: request.run_in_background,
+            isolation: None,
+            cwd: Some(self.working_dir.clone()),
+            allowed_tools: request.allowed_tools.clone(),
+            team_id: Some(request.team_id.clone()),
+            member_id: Some(request.member_id.clone()),
+        };
+        let summary = self.inner.run_sub_agent(prompt, options).await?;
+        Ok(AgentRunResult {
+            member_id: request.member_id,
+            status: AgentRunStatus::Completed,
+            summary,
+            artifact_path: None,
+        })
+    }
+}
+
+fn format_agent_run_prompt(request: &AgentRunRequest) -> String {
+    let mut lines = vec![
+        format!("Team goal: {}", request.goal),
+        format!("Member: {}", request.member_id),
+        String::new(),
+        request.prompt.clone(),
+    ];
+    if !request.messages.is_empty() {
+        lines.push(String::new());
+        lines.push("Team messages:".to_string());
+        lines.extend(request.messages.iter().map(|message| {
+            format!(
+                "- {} [{}:{}] {}",
+                message.at, message.target, message.kind, message.message
+            )
+        }));
+    }
+    lines.join("\n")
+}
+
+#[async_trait]
+impl Tool for TeamRunReadyTool {
+    fn name(&self) -> &str {
+        "team_run_ready"
+    }
+
+    fn user_facing_name(&self) -> &str {
+        "Team Run Ready"
+    }
+
+    fn description(&self) -> &str {
+        "Run ready agent-team plan steps through the configured sub-agent runner and persist the updated team state."
+    }
+
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "team_id": { "type": "string" },
+                "team_name": {
+                    "type": "string",
+                    "description": "Alias for team_id. Use this for a reusable named team."
+                },
+                "max_steps": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "default": 1,
+                    "description": "Maximum ready members to run in this call."
+                }
+            },
+            "allOf": [
+                { "anyOf": [{ "required": ["team_id"] }, { "required": ["team_name"] }] }
+            ]
+        })
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            requires_confirmation: true,
+            supports_auto_execution: false,
+            read_only: false,
+        }
+    }
+
+    async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
+        let working_dir = ctx
+            .working_dir
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Working directory not set"))?;
+        let team_id = string_param(&params, "team_id", "team_name")
+            .ok_or_else(|| anyhow::anyhow!("'team_id' parameter is required"))?;
+        let max_steps = params
+            .get("max_steps")
+            .and_then(|value| value.as_u64())
+            .map(|value| value.max(1) as usize)
+            .unwrap_or(1);
+        let sub_agent_runner = ctx
+            .sub_agent_runner
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("sub_agent_runner not available"))?;
+
+        let manager = ctx
+            .team_runtime
+            .clone()
+            .unwrap_or_else(|| Arc::new(tokio::sync::Mutex::new(AgentTeamManager::new())));
+        let adapter = ToolSubAgentRunnerAdapter {
+            inner: Arc::clone(sub_agent_runner),
+            working_dir: working_dir.clone(),
+        };
+        let (report, snapshot) = {
+            let mut manager = manager.lock().await;
+            hydrate_agent_team_manager(working_dir, &mut manager, team_id)?
+                .ok_or_else(|| anyhow::anyhow!("Team '{}' not found.", team_id))?;
+            let report = run_ready_agent_steps(&mut manager, team_id, &adapter, max_steps).await?;
+            let snapshot = manager
+                .snapshot(team_id)
+                .ok_or_else(|| anyhow::anyhow!("Team '{}' not found.", team_id))?;
+            (report, snapshot)
+        };
+        let artifacts = persist_agent_team_snapshot(working_dir, &snapshot)?;
+        Ok(ToolResult::success_with_metadata(
+            format!(
+                "Ready team steps processed.\nLaunched: {}\nReady: {}\nBlocked: {}\nMonitor: {}",
+                if report.launched_member_ids.is_empty() {
+                    "none".to_string()
+                } else {
+                    report.launched_member_ids.join(", ")
+                },
+                if report.ready_step_ids.is_empty() {
+                    "none".to_string()
+                } else {
+                    report.ready_step_ids.join(", ")
+                },
+                if report.blocked_step_ids.is_empty() {
+                    "none".to_string()
+                } else {
+                    report.blocked_step_ids.join(", ")
+                },
+                artifacts
+                    .monitor_path
+                    .as_ref()
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_else(|| "none".to_string()),
+            ),
+            json!({
+                "team_id": team_id,
+                "ready_step_ids": report.ready_step_ids,
+                "launched_member_ids": report.launched_member_ids,
+                "blocked_step_ids": report.blocked_step_ids,
+                "result_count": report.results.len(),
+                "team_state_artifact": artifacts.state_path.as_ref().map(|path| path.display().to_string()),
+                "team_monitor_artifact": artifacts.monitor_path.as_ref().map(|path| path.display().to_string()),
+                "team_bundle_artifact": artifacts.bundle_path.as_ref().map(|path| path.display().to_string()),
             }),
         ))
     }
@@ -1171,13 +1342,33 @@ mod tests {
     use super::{
         append_agent_team_message, latest_agent_team_file, persist_agent_team_runtime,
         render_agent_team_monitor, update_agent_team_member, AgentTeamMemberState, SendMessageTool,
-        TeamCreateTool, TeamMonitorTool, TeamReceiveTool,
+        TeamCreateTool, TeamMonitorTool, TeamReceiveTool, TeamRunReadyTool,
     };
     use crate::runtime_tasks::RuntimeTaskStore;
-    use crate::tool::{Tool, ToolContext};
+    use crate::tool::{SubAgentOptions, SubAgentRunner, Tool, ToolContext};
     use serde_json::json;
+    use std::future::Future;
+    use std::pin::Pin;
     use std::sync::Arc;
     use tokio::sync::Mutex;
+
+    struct TeamMockSubAgentRunner;
+
+    impl SubAgentRunner for TeamMockSubAgentRunner {
+        fn run_sub_agent(
+            &self,
+            prompt: String,
+            options: SubAgentOptions,
+        ) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send + '_>> {
+            Box::pin(async move {
+                Ok(format!(
+                    "{} ran; messages={}",
+                    options.member_id.as_deref().unwrap_or("unknown"),
+                    prompt.contains("Team messages:")
+                ))
+            })
+        }
+    }
 
     #[test]
     fn persist_team_runtime_writes_summary_and_state() {
@@ -1510,5 +1701,68 @@ mod tests {
             .unwrap();
         assert_eq!(snapshot.messages.len(), 1);
         assert_eq!(snapshot.state.as_ref().unwrap().team_id, "team-demo");
+    }
+
+    #[tokio::test]
+    async fn team_run_ready_executes_ready_member_and_persists_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ToolContext::empty();
+        ctx.working_dir = Some(dir.path().to_path_buf());
+        ctx.team_runtime = Some(Arc::new(Mutex::new(AgentTeamManager::new())));
+        ctx.sub_agent_runner = Some(Arc::new(TeamMockSubAgentRunner));
+
+        TeamCreateTool
+            .execute(
+                json!({
+                    "goal": "ship feature",
+                    "team_id": "team-demo",
+                    "mode": "parallel",
+                    "members": [
+                        { "id": "coordinator", "description": "plan work", "subagent_type": "coordinator" },
+                        { "id": "api", "description": "api work", "subagent_type": "worker" }
+                    ]
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+        SendMessageTool
+            .execute(
+                json!({
+                    "team_id": "team-demo",
+                    "target": "coordinator",
+                    "message": "plan first"
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        let result = TeamRunReadyTool
+            .execute(
+                json!({
+                    "team_id": "team-demo",
+                    "max_steps": 2
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(result.content.contains("Launched: coordinator"));
+        let state = super::load_agent_team_state(dir.path(), "team-demo")
+            .unwrap()
+            .unwrap();
+        let coordinator = state
+            .members
+            .iter()
+            .find(|member| member.member_id == "coordinator")
+            .unwrap();
+        assert_eq!(coordinator.status, "completed");
+        assert!(coordinator
+            .last_result_preview
+            .as_deref()
+            .unwrap()
+            .contains("messages=true"));
     }
 }

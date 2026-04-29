@@ -150,6 +150,7 @@ pub struct AgentRunRequest {
     pub subagent_type: Option<String>,
     #[serde(default)]
     pub model: Option<String>,
+    pub run_in_background: bool,
     #[serde(default)]
     pub allowed_tools: Vec<String>,
     #[serde(default)]
@@ -215,6 +216,7 @@ pub fn build_agent_run_request(
         prompt: member.description.clone(),
         subagent_type: member.subagent_type.clone(),
         model: member.model.clone(),
+        run_in_background: member.run_in_background,
         allowed_tools: member.allowed_tools.clone(),
         messages,
     })
@@ -1096,6 +1098,7 @@ mod tests {
         assert_eq!(request.goal, "ship feature");
         assert_eq!(request.prompt, "api work");
         assert_eq!(request.subagent_type.as_deref(), Some("worker"));
+        assert!(request.run_in_background);
 
         let result = EchoRunner.run(request).await.unwrap();
         assert_eq!(result.member_id, "api");
