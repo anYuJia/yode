@@ -919,9 +919,7 @@ fn start_runtime_task(
     Box<dyn std::future::Future<Output = Option<crate::runtime_tasks::RuntimeTask>> + Send + '_>,
 > {
     Box::pin(async move {
-        let Some(store) = runtime_tasks else {
-            return None;
-        };
+        let store = runtime_tasks?;
         let output_path =
             std::env::temp_dir().join(format!("yode-remote-{}.log", uuid::Uuid::new_v4()));
         let mut store = store.lock().await;

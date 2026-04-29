@@ -138,44 +138,42 @@ impl Tool for ToolSearchTool {
                     }
                 }
             }
+        } else if let Some(snapshot) = tool_pool {
+            for entry in &snapshot.entries {
+                if !entry.visible_to_model {
+                    continue;
+                }
+                let Some(tool) = registry.get(&entry.name) else {
+                    continue;
+                };
+                let name = entry.name.to_lowercase();
+                let desc = tool.description().to_lowercase();
+                if name.contains(&query_lower) || desc.contains(&query_lower) {
+                    matches.push(match entry.phase {
+                        ToolPoolPhase::Active => {
+                            format!("- **{}**: {}", tool.name(), tool.description())
+                        }
+                        ToolPoolPhase::Deferred => {
+                            format!("- **{}** (deferred): {}", entry.name, tool.description())
+                        }
+                    });
+                }
+            }
         } else {
-            if let Some(snapshot) = tool_pool {
-                for entry in &snapshot.entries {
-                    if !entry.visible_to_model {
-                        continue;
-                    }
-                    let Some(tool) = registry.get(&entry.name) else {
-                        continue;
-                    };
-                    let name = entry.name.to_lowercase();
-                    let desc = tool.description().to_lowercase();
-                    if name.contains(&query_lower) || desc.contains(&query_lower) {
-                        matches.push(match entry.phase {
-                            ToolPoolPhase::Active => {
-                                format!("- **{}**: {}", tool.name(), tool.description())
-                            }
-                            ToolPoolPhase::Deferred => {
-                                format!("- **{}** (deferred): {}", entry.name, tool.description())
-                            }
-                        });
-                    }
+            // Keyword search
+            for tool in registry.list() {
+                let name = tool.name().to_lowercase();
+                let desc = tool.description().to_lowercase();
+                if name.contains(&query_lower) || desc.contains(&query_lower) {
+                    matches.push(format!("- **{}**: {}", tool.name(), tool.description()));
                 }
-            } else {
-                // Keyword search
-                for tool in registry.list() {
-                    let name = tool.name().to_lowercase();
-                    let desc = tool.description().to_lowercase();
-                    if name.contains(&query_lower) || desc.contains(&query_lower) {
-                        matches.push(format!("- **{}**: {}", tool.name(), tool.description()));
-                    }
-                }
+            }
 
-                for (name, tool) in registry.list_deferred() {
-                    let name_lower = name.to_lowercase();
-                    let desc = tool.description().to_lowercase();
-                    if name_lower.contains(&query_lower) || desc.contains(&query_lower) {
-                        matches.push(format!("- **{}** (deferred): {}", name, tool.description()));
-                    }
+            for (name, tool) in registry.list_deferred() {
+                let name_lower = name.to_lowercase();
+                let desc = tool.description().to_lowercase();
+                if name_lower.contains(&query_lower) || desc.contains(&query_lower) {
+                    matches.push(format!("- **{}** (deferred): {}", name, tool.description()));
                 }
             }
         }

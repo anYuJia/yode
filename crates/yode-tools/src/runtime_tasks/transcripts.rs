@@ -8,7 +8,7 @@ pub fn latest_transcript_artifact_path(project_root: &Path) -> Option<String> {
         .map(|entry| entry.path())
         .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("md"))
         .collect::<Vec<_>>();
-    entries.sort_by(|a, b| transcript_sort_key(b).cmp(&transcript_sort_key(a)));
+    entries.sort_by_key(|path| std::cmp::Reverse(transcript_sort_key(path)));
     entries
         .into_iter()
         .next()

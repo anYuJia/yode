@@ -700,7 +700,7 @@ fn read_only_config(command: &str) -> Option<ReadOnlyCommandConfig> {
 
 fn split_powershell_segments(command: &str) -> Vec<String> {
     command
-        .split(|ch| matches!(ch, ';' | '\n' | '\r' | '|'))
+        .split([';', '\n', '\r', '|'])
         .map(str::trim)
         .filter(|segment| !segment.is_empty())
         .map(ToString::to_string)

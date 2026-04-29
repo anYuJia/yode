@@ -90,7 +90,7 @@ pub(super) async fn execute_review_pipeline(
                         json!({
                             "message": message,
                             "files": params.get("files").cloned().unwrap_or_else(|| Value::Array(Vec::new())),
-                            "all": params.get("all").cloned().unwrap_or_else(|| Value::Bool(false)),
+                            "all": params.get("all").cloned().unwrap_or(Value::Bool(false)),
                         }),
                         ctx,
                     )

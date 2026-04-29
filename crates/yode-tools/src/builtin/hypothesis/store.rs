@@ -18,9 +18,7 @@ pub(super) fn with_hypothesis_store<R>(
     action: impl FnOnce(&mut HypothesisStore) -> R,
 ) -> R {
     let mut stores = HYPOTHESIS_STORES.lock().unwrap();
-    let store = stores
-        .entry(session_key.to_string())
-        .or_insert_with(HypothesisStore::new);
+    let store = stores.entry(session_key.to_string()).or_default();
     action(store)
 }
 
@@ -31,13 +29,6 @@ pub(super) struct HypothesisStore {
 }
 
 impl HypothesisStore {
-    pub(super) fn new() -> Self {
-        Self {
-            hypotheses: HashMap::new(),
-            next_id: 1,
-        }
-    }
-
     pub(super) fn create(
         &mut self,
         hypothesis: String,

@@ -9,6 +9,7 @@ pub struct OrchestrationArtifactSet {
     pub timeline_path: Option<PathBuf>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn persist_workflow_runtime_artifacts(
     working_dir: &Path,
     workflow_path: &Path,
@@ -83,6 +84,7 @@ pub fn persist_workflow_runtime_artifacts(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn persist_coordinator_runtime_artifacts(
     working_dir: &Path,
     goal: &str,
@@ -190,6 +192,7 @@ fn slugify(raw: &str) -> String {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_workflow_summary(
     workflow_path: &Path,
     workflow_name: &str,
@@ -246,6 +249,7 @@ fn render_workflow_summary(
     lines.join("\n")
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_coordinator_summary(
     goal: &str,
     dry_run: bool,
