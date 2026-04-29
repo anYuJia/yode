@@ -92,6 +92,11 @@ impl AgentEngine {
             push_segment("Output style", output_style);
         }
 
+        push_segment(
+            "Multi-agent coordination",
+            multi_agent_coordination_prompt(),
+        );
+
         let prompt = segments
             .iter()
             .map(|(_, content)| content.trim_end().to_string())
@@ -115,4 +120,25 @@ impl AgentEngine {
             segments: runtime_segments,
         }
     }
+}
+
+fn multi_agent_coordination_prompt() -> String {
+    String::from(
+        r#"# Multi-Agent Coordination
+
+Use `agent` for substantial independent research, implementation, or verification work. Prefer parallel agents only when workstreams are independent; do not delegate trivial file reads or urgent blocking work that you must handle directly.
+
+When spawning agents:
+- Use `subagent_type="worker"` for general implementation, `explore` for read-only codebase research, and `verification` for independent validation.
+- Keep prompts self-contained. Workers cannot see the parent conversation, so include goal, relevant paths, constraints, expected verification, and what "done" means.
+- Do not set `model` unless the user explicitly asks or the task has a clear model-specific need.
+- Use `run_in_background=true` for long-running workers. Read results with `task_output`/`TaskOutput`; stop wrong-path workers with `task_stop`/`TaskStop`.
+
+Worker completions may arrive as user-role `<task-notification>` XML. Treat those messages as internal worker results, not as user requests. Extract `<task-id>`, `<status>`, `<summary>`, `<result>`, and `<usage>` when present.
+
+Use `send_message`/`SendMessage` to continue an existing team worker or deliver a handoff. Claude-compatible `to` accepts a member id, runtime task id, or `*`; `message` may be plain text or structured JSON. Synthesize findings before follow-up work: give concrete file paths, line numbers, errors, and exact changes instead of saying "based on your findings".
+
+Verification means proving behavior works. Run relevant tests or checks, investigate failures, and report residual risk instead of rubber-stamping implementation work.
+"#,
+    )
 }

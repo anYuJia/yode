@@ -503,6 +503,12 @@ fn test_system_prompt_runtime_state_tracks_segment_breakdown() {
         .system_prompt_segments
         .iter()
         .any(|segment| segment.label == "Environment"));
+    assert!(runtime
+        .system_prompt_segments
+        .iter()
+        .any(|segment| segment.label == "Multi-agent coordination"));
+    assert!(engine.system_prompt.contains("send_message"));
+    assert!(engine.system_prompt.contains("<task-notification>"));
 }
 
 #[test]
