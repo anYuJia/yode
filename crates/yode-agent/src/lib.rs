@@ -170,6 +170,15 @@ pub trait AgentRunner: Send + Sync {
     async fn run(&self, request: AgentRunRequest) -> Result<AgentRunResult>;
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AgentOrchestrationReport {
+    pub team_id: String,
+    pub ready_step_ids: Vec<String>,
+    pub launched_member_ids: Vec<String>,
+    pub blocked_step_ids: Vec<String>,
+    pub results: Vec<AgentRunResult>,
+}
+
 #[derive(Debug, Default)]
 pub struct AgentPlanner;
 
@@ -513,6 +522,99 @@ pub fn evaluate_agent_plan(state: &AgentTeamState) -> Option<AgentPlanProgress> 
         }
     }
     Some(progress)
+}
+
+pub async fn run_ready_agent_steps<R: AgentRunner>(
+    manager: &mut AgentTeamManager,
+    team_id: &str,
+    runner: &R,
+    max_steps: usize,
+) -> Result<AgentOrchestrationReport> {
+    let snapshot = manager
+        .snapshot(team_id)
+        .ok_or_else(|| anyhow!("Team '{}' not found.", team_id))?;
+    let state = snapshot
+        .state
+        .as_ref()
+        .ok_or_else(|| anyhow!("Team '{}' state missing.", team_id))?;
+    let progress = evaluate_agent_plan(state).unwrap_or_default();
+    let ready_members = ready_members_for_progress(state, &progress)
+        .into_iter()
+        .take(max_steps)
+        .collect::<Vec<_>>();
+
+    let mut report = AgentOrchestrationReport {
+        team_id: team_id.to_string(),
+        ready_step_ids: progress.ready_step_ids,
+        launched_member_ids: Vec::new(),
+        blocked_step_ids: progress.blocked_step_ids,
+        results: Vec::new(),
+    };
+
+    for member_id in ready_members {
+        manager.update_member(team_id, &member_id, "running", None, None, None)?;
+        let messages = manager.consume_message_context(team_id, &member_id, 8);
+        let state = manager
+            .snapshot(team_id)
+            .and_then(|snapshot| snapshot.state)
+            .ok_or_else(|| anyhow!("Team '{}' state missing.", team_id))?;
+        let request = build_agent_run_request(&state, &member_id, messages)?;
+        report.launched_member_ids.push(member_id.clone());
+
+        let result = match runner.run(request).await {
+            Ok(result) => result,
+            Err(error) => AgentRunResult {
+                member_id: member_id.clone(),
+                status: AgentRunStatus::Failed,
+                summary: error.to_string(),
+                artifact_path: None,
+            },
+        };
+
+        manager.update_member(
+            team_id,
+            &result.member_id,
+            result.status.as_member_status(),
+            None,
+            Some(result.summary.clone()),
+            result.artifact_path.clone(),
+        )?;
+        report.results.push(result);
+    }
+
+    Ok(report)
+}
+
+fn ready_members_for_progress(state: &AgentTeamState, progress: &AgentPlanProgress) -> Vec<String> {
+    let member_statuses = state
+        .members
+        .iter()
+        .map(|member| (member.member_id.as_str(), member.status.as_str()))
+        .collect::<BTreeMap<_, _>>();
+    let steps = state
+        .plan
+        .as_ref()
+        .map(|plan| {
+            plan.steps
+                .iter()
+                .map(|step| (step.step_id.as_str(), step))
+                .collect::<BTreeMap<_, _>>()
+        })
+        .unwrap_or_default();
+
+    progress
+        .ready_step_ids
+        .iter()
+        .filter_map(|step_id| steps.get(step_id.as_str()))
+        .filter_map(|step| step.member_id.as_deref())
+        .filter(|member_id| {
+            matches!(
+                member_statuses.get(member_id).copied(),
+                Some("planned") | Some("queued")
+            )
+        })
+        .map(str::to_string)
+        .collect()
 }
 
 pub fn plan_agent_team(
@@ -999,5 +1101,49 @@ mod tests {
         assert_eq!(result.member_id, "api");
         assert_eq!(result.status.as_member_status(), "completed");
         assert_eq!(result.summary, "1 messages");
+    }
+
+    #[tokio::test]
+    async fn orchestrator_runs_ready_members_and_updates_plan() {
+        let mut manager = AgentTeamManager::new();
+        manager.ensure_team(
+            "ship feature",
+            Some("team-demo"),
+            "parallel",
+            vec![
+                member("coordinator", Some("coordinator")),
+                member("api", Some("worker")),
+                member("ui", Some("worker")),
+            ],
+        );
+        manager
+            .append_message("team-demo", "coordinator", "handoff", "plan first")
+            .unwrap();
+
+        let report = run_ready_agent_steps(&mut manager, "team-demo", &EchoRunner, 4)
+            .await
+            .unwrap();
+        assert_eq!(report.launched_member_ids, vec!["coordinator"]);
+        assert_eq!(report.results[0].summary, "1 messages");
+
+        let state = manager.snapshot("team-demo").unwrap().state.unwrap();
+        assert_eq!(
+            state
+                .members
+                .iter()
+                .find(|member| member.member_id == "coordinator")
+                .unwrap()
+                .status,
+            "completed"
+        );
+        let progress = evaluate_agent_plan(&state).unwrap();
+        assert_eq!(progress.ready_step_ids, vec!["member:api", "member:ui"]);
+
+        let report = run_ready_agent_steps(&mut manager, "team-demo", &EchoRunner, 4)
+            .await
+            .unwrap();
+        assert_eq!(report.launched_member_ids, vec!["api", "ui"]);
+        let state = manager.snapshot("team-demo").unwrap().state.unwrap();
+        assert_eq!(state.completed_count, 3);
     }
 }
