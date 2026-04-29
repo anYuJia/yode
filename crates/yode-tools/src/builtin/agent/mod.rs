@@ -18,6 +18,10 @@ impl Tool for AgentTool {
         "agent"
     }
 
+    fn aliases(&self) -> Vec<String> {
+        vec!["Agent".to_string(), "Task".to_string()]
+    }
+
     fn user_facing_name(&self) -> &str {
         "Sub-Agent"
     }
@@ -450,6 +454,13 @@ mod tests {
             *self.options.lock().unwrap() = Some(options);
             Box::pin(async { Ok("sub-agent done".to_string()) })
         }
+    }
+
+    #[test]
+    fn agent_tool_accepts_claude_aliases() {
+        let aliases = AgentTool.aliases();
+        assert!(aliases.iter().any(|alias| alias == "Agent"));
+        assert!(aliases.iter().any(|alias| alias == "Task"));
     }
 
     #[tokio::test]
