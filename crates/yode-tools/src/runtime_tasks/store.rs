@@ -40,8 +40,24 @@ pub struct RuntimeTask {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeTaskNotification {
     pub task_id: String,
+    #[serde(default)]
+    pub task_kind: String,
+    #[serde(default = "default_notification_status")]
+    pub status: RuntimeTaskStatus,
     pub severity: RuntimeTaskNotificationSeverity,
     pub message: String,
+    #[serde(default)]
+    pub summary: String,
+    #[serde(default)]
+    pub result_preview: Option<String>,
+    #[serde(default)]
+    pub output_path: Option<String>,
+    #[serde(default)]
+    pub transcript_path: Option<String>,
+    #[serde(default)]
+    pub duration_ms: Option<u64>,
+    #[serde(default)]
+    pub tool_uses: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -185,8 +201,16 @@ impl RuntimeTaskStore {
             task.completed_at = Some(now_string());
             self.notifications.push(RuntimeTaskNotification {
                 task_id: id.to_string(),
+                task_kind: task.kind.clone(),
+                status: RuntimeTaskStatus::Completed,
                 severity: RuntimeTaskNotificationSeverity::Success,
                 message: format!("Task {} completed: {}", id, task.description),
+                summary: format!("completed: {}", task.description),
+                result_preview: read_task_result_preview(&task.output_path),
+                output_path: Some(task.output_path.clone()),
+                transcript_path: task.transcript_path.clone(),
+                duration_ms: task_duration_ms(task),
+                tool_uses: None,
             });
         }
         self.controls.remove(id);
@@ -200,8 +224,16 @@ impl RuntimeTaskStore {
             task.error = Some(error.clone());
             self.notifications.push(RuntimeTaskNotification {
                 task_id: id.to_string(),
+                task_kind: task.kind.clone(),
+                status: RuntimeTaskStatus::Failed,
                 severity: RuntimeTaskNotificationSeverity::Error,
                 message: format!("Task {} failed: {}", id, error),
+                summary: format!("failed: {}", error),
+                result_preview: read_task_result_preview(&task.output_path),
+                output_path: Some(task.output_path.clone()),
+                transcript_path: task.transcript_path.clone(),
+                duration_ms: task_duration_ms(task),
+                tool_uses: None,
             });
         }
         self.controls.remove(id);
@@ -214,8 +246,16 @@ impl RuntimeTaskStore {
             task.completed_at = Some(now_string());
             self.notifications.push(RuntimeTaskNotification {
                 task_id: id.to_string(),
+                task_kind: task.kind.clone(),
+                status: RuntimeTaskStatus::Cancelled,
                 severity: RuntimeTaskNotificationSeverity::Warning,
                 message: format!("Task {} cancelled.", id),
+                summary: "was stopped".to_string(),
+                result_preview: read_task_result_preview(&task.output_path),
+                output_path: Some(task.output_path.clone()),
+                transcript_path: task.transcript_path.clone(),
+                duration_ms: task_duration_ms(task),
+                tool_uses: None,
             });
         }
         self.controls.remove(id);
@@ -269,6 +309,39 @@ impl RuntimeTaskStore {
 
 fn now_string() -> String {
     chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
+}
+
+fn default_notification_status() -> RuntimeTaskStatus {
+    RuntimeTaskStatus::Completed
+}
+
+fn task_duration_ms(task: &RuntimeTask) -> Option<u64> {
+    let started = task.started_at.as_deref()?;
+    let completed = task.completed_at.as_deref()?;
+    let started = chrono::NaiveDateTime::parse_from_str(started, "%Y-%m-%d %H:%M:%S").ok()?;
+    let completed = chrono::NaiveDateTime::parse_from_str(completed, "%Y-%m-%d %H:%M:%S").ok()?;
+    completed
+        .signed_duration_since(started)
+        .num_milliseconds()
+        .try_into()
+        .ok()
+}
+
+fn read_task_result_preview(path: &str) -> Option<String> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let preview = content
+        .lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or_else(|| content.trim())
+        .trim();
+    if preview.is_empty() {
+        None
+    } else if preview.chars().count() > 800 {
+        Some(format!("{}...", preview.chars().take(800).collect::<String>()))
+    } else {
+        Some(preview.to_string())
+    }
 }
 
 fn max_completed_task_retention() -> usize {

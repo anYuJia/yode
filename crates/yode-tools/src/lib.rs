@@ -10,7 +10,8 @@ pub mod validation;
 pub use builtin::mcp_resources::{mcp_resource_cache_stats, McpResourceCacheStats};
 pub use registry::ToolRegistry;
 pub use runtime_tasks::{
-    RuntimeTask, RuntimeTaskNotification, RuntimeTaskStatus, RuntimeTaskStore,
+    RuntimeTask, RuntimeTaskNotification, RuntimeTaskNotificationSeverity, RuntimeTaskStatus,
+    RuntimeTaskStore,
 };
 pub use tool::{
     McpResource, McpResourceProvider, SubAgentRunner, Tool, ToolContext, ToolDefinition,

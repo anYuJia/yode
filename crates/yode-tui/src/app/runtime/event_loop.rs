@@ -8,6 +8,7 @@ use ratatui::Terminal;
 use tokio::sync::{mpsc, Mutex};
 
 use yode_core::engine::{AgentEngine, EngineEvent};
+use yode_tools::RuntimeTaskNotification;
 use yode_tools::registry::ToolRegistry;
 
 use crate::event::{self, AppEvent};
@@ -113,14 +114,7 @@ fn maybe_surface_runtime_task_notifications(
     let mut changed = false;
     if let Ok(engine_guard) = engine.try_lock() {
         for notification in engine_guard.drain_runtime_task_notifications() {
-            push_system_entry(
-                app,
-                format!(
-                    "[Task:{}] {}",
-                    notification.severity.label(),
-                    notification.message
-                ),
-            );
+            push_system_entry(app, render_task_notification_xml(&notification));
             changed = true;
         }
 
@@ -141,8 +135,73 @@ fn maybe_surface_runtime_task_notifications(
     changed
 }
 
+fn render_task_notification_xml(notification: &RuntimeTaskNotification) -> String {
+    let status = match notification.status {
+        yode_tools::RuntimeTaskStatus::Completed => "completed",
+        yode_tools::RuntimeTaskStatus::Failed => "failed",
+        yode_tools::RuntimeTaskStatus::Cancelled => "killed",
+        yode_tools::RuntimeTaskStatus::Pending => "pending",
+        yode_tools::RuntimeTaskStatus::Running => "running",
+    };
+    let mut output = String::new();
+    output.push_str("<task-notification>\n");
+    output.push_str(&format!(
+        "<task-id>{}</task-id>\n",
+        xml_escape(&notification.task_id)
+    ));
+    output.push_str(&format!("<status>{}</status>\n", status));
+    output.push_str(&format!(
+        "<summary>{}</summary>\n",
+        xml_escape(notification_summary(notification))
+    ));
+    if let Some(path) = notification.output_path.as_deref() {
+        output.push_str(&format!("<output-path>{}</output-path>\n", xml_escape(path)));
+    }
+    if let Some(path) = notification.transcript_path.as_deref() {
+        output.push_str(&format!(
+            "<transcript-path>{}</transcript-path>\n",
+            xml_escape(path)
+        ));
+    }
+    if let Some(result) = notification.result_preview.as_deref() {
+        output.push_str("<result>");
+        output.push_str(&xml_escape(result));
+        output.push_str("</result>\n");
+    }
+    if notification.duration_ms.is_some() || notification.tool_uses.is_some() {
+        output.push_str("<usage>\n");
+        if let Some(duration_ms) = notification.duration_ms {
+            output.push_str(&format!("  <duration_ms>{}</duration_ms>\n", duration_ms));
+        }
+        if let Some(tool_uses) = notification.tool_uses {
+            output.push_str(&format!("  <tool_uses>{}</tool_uses>\n", tool_uses));
+        }
+        output.push_str("</usage>\n");
+    }
+    output.push_str("</task-notification>");
+    output
+}
+
+fn notification_summary(notification: &RuntimeTaskNotification) -> &str {
+    if notification.summary.trim().is_empty() {
+        &notification.message
+    } else {
+        &notification.summary
+    }
+}
+
+fn xml_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
 fn background_task_brief_lines(tasks: &[yode_tools::RuntimeTask]) -> Vec<String> {
-    let mut lines = vec![format!("Background tasks still running · {} active", tasks.len())];
+    let mut lines = vec![format!(
+        "Background tasks still running · {} active",
+        tasks.len()
+    )];
     for task in tasks.iter().take(2) {
         lines.push(format!(
             "  - {} [{}] {}{}",
@@ -163,7 +222,7 @@ fn background_task_brief_lines(tasks: &[yode_tools::RuntimeTask]) -> Vec<String>
 
 #[cfg(test)]
 mod tests {
-    use super::background_task_brief_lines;
+    use super::{background_task_brief_lines, render_task_notification_xml};
 
     #[test]
     fn background_task_brief_lines_are_compact() {
@@ -192,6 +251,31 @@ mod tests {
         assert!(lines[0].contains("3 active"));
         assert!(lines[1].contains("task-0 [agent] desc 0"));
         assert!(lines[3].contains("+1 more tasks"));
+    }
+
+    #[test]
+    fn task_notification_renders_claude_compatible_xml() {
+        let notification = yode_tools::RuntimeTaskNotification {
+            task_id: "task-1".to_string(),
+            task_kind: "agent".to_string(),
+            status: yode_tools::RuntimeTaskStatus::Completed,
+            severity: yode_tools::RuntimeTaskNotificationSeverity::Success,
+            message: "Task task-1 completed".to_string(),
+            summary: "completed".to_string(),
+            result_preview: Some("fixed <bug>".to_string()),
+            output_path: Some("/tmp/out".to_string()),
+            transcript_path: Some("/tmp/transcript".to_string()),
+            duration_ms: Some(12),
+            tool_uses: Some(3),
+        };
+
+        let rendered = render_task_notification_xml(&notification);
+        assert!(rendered.contains("<task-notification>"));
+        assert!(rendered.contains("<task-id>task-1</task-id>"));
+        assert!(rendered.contains("<status>completed</status>"));
+        assert!(rendered.contains("<result>fixed &lt;bug&gt;</result>"));
+        assert!(rendered.contains("<duration_ms>12</duration_ms>"));
+        assert!(rendered.contains("<tool_uses>3</tool_uses>"));
     }
 }
 

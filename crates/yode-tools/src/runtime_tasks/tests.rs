@@ -6,12 +6,16 @@ use super::{
 
 #[test]
 fn runtime_task_store_tracks_lifecycle_and_notifications() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = dir.path().join("task.log");
+    std::fs::write(&output, "line 1\nfinal line\n").unwrap();
+
     let mut store = RuntimeTaskStore::new();
     let (task, _cancel_rx) = store.create(
         "bash".to_string(),
         "bash".to_string(),
         "background build".to_string(),
-        "/tmp/task.log".to_string(),
+        output.display().to_string(),
     );
 
     assert_eq!(task.status, RuntimeTaskStatus::Pending);
@@ -33,6 +37,17 @@ fn runtime_task_store_tracks_lifecycle_and_notifications() {
         RuntimeTaskNotificationSeverity::Success
     );
     assert!(notifications[0].message.contains("completed"));
+    assert_eq!(notifications[0].task_kind, "bash");
+    assert_eq!(notifications[0].status, RuntimeTaskStatus::Completed);
+    assert_eq!(notifications[0].summary, "completed: background build");
+    assert_eq!(
+        notifications[0].result_preview.as_deref(),
+        Some("final line")
+    );
+    assert_eq!(
+        notifications[0].output_path.as_deref(),
+        Some(output.to_str().unwrap())
+    );
 }
 
 #[test]
