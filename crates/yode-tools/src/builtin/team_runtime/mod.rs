@@ -629,12 +629,16 @@ impl Tool for SendMessageTool {
         "send_message"
     }
 
+    fn aliases(&self) -> Vec<String> {
+        vec!["SendMessage".to_string(), "SendMessageTool".to_string()]
+    }
+
     fn user_facing_name(&self) -> &str {
         "Team Message"
     }
 
     fn description(&self) -> &str {
-        "Append a message or handoff note into an agent team runtime thread."
+        "Send a message or handoff note to an agent team member. Claude-compatible `to` can target a member id or runtime task id."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -646,13 +650,21 @@ impl Tool for SendMessageTool {
                     "type": "string",
                     "description": "Alias for team_id. Use this for a reusable named team."
                 },
+                "to": {
+                    "type": "string",
+                    "description": "Claude-compatible recipient alias. Can be a team member id, runtime task id, or * for all in the latest team."
+                },
                 "target": { "type": "string", "default": "all" },
+                "summary": {
+                    "type": "string",
+                    "description": "Optional short routing summary for UI/tool metadata."
+                },
                 "message": { "type": "string" },
                 "kind": { "type": "string", "default": "message" }
             },
             "required": ["message"],
             "allOf": [
-                { "anyOf": [{ "required": ["team_id"] }, { "required": ["team_name"] }] }
+                { "anyOf": [{ "required": ["team_id"] }, { "required": ["team_name"] }, { "required": ["to"] }] }
             ]
         })
     }
@@ -670,16 +682,8 @@ impl Tool for SendMessageTool {
             .working_dir
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Working directory not set"))?;
-        let team_id = string_param(&params, "team_id", "team_name")
-            .ok_or_else(|| anyhow::anyhow!("'team_id' parameter is required"))?;
-        let target = params
-            .get("target")
-            .and_then(|value| value.as_str())
-            .unwrap_or("all");
-        let message = params
-            .get("message")
-            .and_then(|value| value.as_str())
-            .ok_or_else(|| anyhow::anyhow!("'message' parameter is required"))?;
+        let (team_id, target) = resolve_send_message_route(&params, working_dir)?;
+        let message = message_param(&params)?;
         let kind = params
             .get("kind")
             .and_then(|value| value.as_str())
@@ -687,17 +691,17 @@ impl Tool for SendMessageTool {
         let path = if let Some(manager) = ctx.team_runtime.as_ref() {
             let snapshot = {
                 let mut manager = manager.lock().await;
-                let _ = hydrate_agent_team_manager(working_dir, &mut manager, team_id)?;
-                manager.append_message(team_id, target, kind, message)?;
+                let _ = hydrate_agent_team_manager(working_dir, &mut manager, &team_id)?;
+                manager.append_message(&team_id, &target, kind, &message)?;
                 manager
-                    .snapshot(team_id)
+                    .snapshot(&team_id)
                     .ok_or_else(|| anyhow::anyhow!("Team '{}' not found.", team_id))?
             };
             persist_agent_team_snapshot(working_dir, &snapshot)?
                 .messages_path
                 .ok_or_else(|| anyhow::anyhow!("Team message artifact missing"))?
         } else {
-            append_agent_team_message(working_dir, team_id, target, kind, message)?
+            append_agent_team_message(working_dir, &team_id, &target, kind, &message)?
         };
         Ok(ToolResult::success_with_metadata(
             format!("Team message recorded: {}", path.display()),
@@ -705,6 +709,7 @@ impl Tool for SendMessageTool {
                 "team_id": team_id,
                 "target": target,
                 "kind": kind,
+                "summary": params.get("summary").and_then(|value| value.as_str()),
                 "message_artifact": path.display().to_string(),
             }),
         ))
@@ -1266,6 +1271,78 @@ fn string_param<'a>(params: &'a Value, primary: &str, alias: &str) -> Option<&'a
         .and_then(|value| value.as_str())
 }
 
+fn message_param(params: &Value) -> Result<String> {
+    let value = params
+        .get("message")
+        .ok_or_else(|| anyhow::anyhow!("'message' parameter is required"))?;
+    if let Some(message) = value.as_str() {
+        Ok(message.to_string())
+    } else {
+        Ok(serde_json::to_string(value)?)
+    }
+}
+
+fn resolve_send_message_route(params: &Value, working_dir: &Path) -> Result<(String, String)> {
+    let target = params
+        .get("target")
+        .or_else(|| params.get("to"))
+        .and_then(|value| value.as_str())
+        .unwrap_or("all")
+        .to_string();
+    if let Some(team_id) = string_param(params, "team_id", "team_name") {
+        return Ok((team_id.to_string(), target));
+    }
+    let to = params
+        .get("to")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| anyhow::anyhow!("'team_id' or 'to' parameter is required"))?;
+    find_team_route_for_recipient(working_dir, to).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Could not resolve recipient '{}' to an agent team member or runtime task id.",
+            to
+        )
+    })
+}
+
+fn find_team_route_for_recipient(working_dir: &Path, recipient: &str) -> Option<(String, String)> {
+    let recipient = recipient.trim();
+    if recipient.is_empty() {
+        return None;
+    }
+    let mut states = std::fs::read_dir(teams_dir(working_dir))
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.ends_with("-agent-team-state.json"))
+        })
+        .collect::<Vec<_>>();
+    states.sort_by(|left, right| right.file_name().cmp(&left.file_name()));
+
+    if recipient == "*" || recipient.eq_ignore_ascii_case("all") {
+        let state = states
+            .first()
+            .and_then(|path| std::fs::read_to_string(path).ok())
+            .and_then(|body| serde_json::from_str::<AgentTeamState>(&body).ok())?;
+        return Some((state.team_id, "all".to_string()));
+    }
+
+    for path in states {
+        let state = std::fs::read_to_string(path)
+            .ok()
+            .and_then(|body| serde_json::from_str::<AgentTeamState>(&body).ok())?;
+        if let Some(member) = state.members.iter().find(|member| {
+            member.member_id == recipient
+                || member.runtime_task_id.as_deref() == Some(recipient)
+        }) {
+            return Some((state.team_id, member.member_id.clone()));
+        }
+    }
+    None
+}
+
 fn load_team_messages(working_dir: &Path, team_id: &str) -> Option<Vec<AgentTeamMessage>> {
     let path = team_messages_path(working_dir, team_id);
     let body = std::fs::read_to_string(path).ok()?;
@@ -1539,6 +1616,68 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("agent-team-messages"));
+    }
+
+    #[tokio::test]
+    async fn send_message_accepts_claude_to_alias_for_member_or_task() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ToolContext::empty();
+        ctx.working_dir = Some(dir.path().to_path_buf());
+
+        TeamCreateTool
+            .execute(
+                json!({
+                    "goal": "ship feature",
+                    "team_id": "team-demo",
+                    "members": [{ "id": "review", "description": "review" }]
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+        update_agent_team_member(
+            dir.path(),
+            "team-demo",
+            "review",
+            "running",
+            Some("task-7".to_string()),
+            Some("started".to_string()),
+            None,
+        )
+        .unwrap();
+
+        let by_member = SendMessageTool
+            .execute(
+                json!({
+                    "to": "review",
+                    "summary": "check tests",
+                    "message": "focus on tests"
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+        let by_task = SendMessageTool
+            .execute(
+                json!({
+                    "to": "task-7",
+                    "message": { "type": "plan_approval_response", "request_id": "r1", "approve": true }
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(by_member.metadata.as_ref().unwrap()["team_id"], "team-demo");
+        assert_eq!(by_member.metadata.as_ref().unwrap()["target"], "review");
+        assert_eq!(by_member.metadata.as_ref().unwrap()["summary"], "check tests");
+        assert_eq!(by_task.metadata.as_ref().unwrap()["target"], "review");
+
+        let messages = super::load_agent_team_messages(dir.path(), "team-demo").unwrap();
+        assert!(messages.iter().any(|message| message.message == "focus on tests"));
+        assert!(messages
+            .iter()
+            .any(|message| message.message.contains("plan_approval_response")));
     }
 
     #[tokio::test]
