@@ -8,7 +8,7 @@ use serde_json::Value;
 use tracing::info;
 
 use yode_tools::registry::ToolRegistry;
-use yode_tools::tool::ToolContext;
+use yode_tools::tool::{ToolContext, ToolDefinition, ToolResult};
 
 /// MCP Server that exposes yode's built-in tools.
 #[derive(Clone)]
@@ -35,17 +35,9 @@ impl ServerHandler for YodeMcpServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, McpError> {
-        let definitions = self.registry.definitions();
-        let tools: Vec<rmcp::model::Tool> = definitions
-            .into_iter()
-            .map(|td| {
-                let input_schema: Arc<JsonObject> =
-                    serde_json::from_value(td.parameters).unwrap_or_default();
-                rmcp::model::Tool::new(td.name, td.description, input_schema)
-            })
-            .collect();
-
-        Ok(ListToolsResult::with_all_items(tools))
+        Ok(ListToolsResult::with_all_items(definitions_to_mcp_tools(
+            self.registry.definitions(),
+        )))
     }
 
     async fn call_tool(
@@ -66,18 +58,31 @@ impl ServerHandler for YodeMcpServer {
 
         let ctx = ToolContext::empty();
         match tool.execute(params, &ctx).await {
-            Ok(result) => {
-                if result.is_error {
-                    Ok(CallToolResult::error(vec![Content::text(result.content)]))
-                } else {
-                    Ok(CallToolResult::success(vec![Content::text(result.content)]))
-                }
-            }
+            Ok(result) => Ok(tool_result_to_call_result(result)),
             Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
                 "Tool execution error: {}",
                 e
             ))])),
         }
+    }
+}
+
+fn definitions_to_mcp_tools(definitions: Vec<ToolDefinition>) -> Vec<rmcp::model::Tool> {
+    definitions
+        .into_iter()
+        .map(|td| {
+            let input_schema: Arc<JsonObject> =
+                serde_json::from_value(td.parameters).unwrap_or_default();
+            rmcp::model::Tool::new(td.name, td.description, input_schema)
+        })
+        .collect()
+}
+
+fn tool_result_to_call_result(result: ToolResult) -> CallToolResult {
+    if result.is_error {
+        CallToolResult::error(vec![Content::text(result.content)])
+    } else {
+        CallToolResult::success(vec![Content::text(result.content)])
     }
 }
 
@@ -92,4 +97,38 @@ pub async fn run_mcp_server(registry: Arc<ToolRegistry>) -> anyhow::Result<()> {
     let service = server.serve(transport).await?;
     service.waiting().await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{definitions_to_mcp_tools, tool_result_to_call_result};
+    use yode_tools::tool::{ToolDefinition, ToolResult};
+
+    #[test]
+    fn maps_tool_definitions_to_mcp_tools() {
+        let tools = definitions_to_mcp_tools(vec![ToolDefinition {
+            name: "read_file".to_string(),
+            description: "Read a file".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "file_path": { "type": "string" }
+                }
+            }),
+        }]);
+
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].name.as_ref(), "read_file");
+        assert_eq!(tools[0].description.as_deref(), Some("Read a file"));
+        assert!(tools[0].input_schema.contains_key("properties"));
+    }
+
+    #[test]
+    fn maps_tool_results_to_mcp_success_or_error() {
+        let success = tool_result_to_call_result(ToolResult::success("ok".to_string()));
+        assert_eq!(success.is_error, Some(false));
+
+        let failure = tool_result_to_call_result(ToolResult::error("bad".to_string()));
+        assert_eq!(failure.is_error, Some(true));
+    }
 }
