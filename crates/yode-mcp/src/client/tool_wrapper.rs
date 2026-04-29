@@ -32,9 +32,15 @@ pub struct McpToolLatencyEntry {
     pub last_ms: u64,
 }
 
+#[derive(Debug, Clone, Default)]
+struct McpToolLatencyAccumulator {
+    entry: McpToolLatencyEntry,
+    total_ms: u128,
+}
+
 #[derive(Debug, Default)]
 struct McpToolLatencyState {
-    entries: BTreeMap<(String, String), McpToolLatencyEntry>,
+    entries: BTreeMap<(String, String), McpToolLatencyAccumulator>,
 }
 
 static MCP_TOOL_LATENCY: LazyLock<Mutex<McpToolLatencyState>> =
@@ -45,32 +51,40 @@ static MCP_TOOL_TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(())
 pub fn mcp_tool_latency_stats() -> Vec<McpToolLatencyEntry> {
     MCP_TOOL_LATENCY
         .lock()
-        .map(|state| state.entries.values().cloned().collect())
+        .map(|state| {
+            state
+                .entries
+                .values()
+                .map(|accumulator| accumulator.entry.clone())
+                .collect()
+        })
         .unwrap_or_default()
 }
 
 fn record_mcp_tool_latency(server: &str, tool: &str, duration_ms: u64, is_error: bool) {
     if let Ok(mut state) = MCP_TOOL_LATENCY.lock() {
         let key = (server.to_string(), tool.to_string());
-        let entry = state
-            .entries
-            .entry(key.clone())
-            .or_insert_with(|| McpToolLatencyEntry {
-                server: key.0.clone(),
-                tool: key.1.clone(),
-                ..McpToolLatencyEntry::default()
-            });
-        let total_before = entry.avg_ms.saturating_mul(entry.calls as u64);
+        let accumulator =
+            state
+                .entries
+                .entry(key.clone())
+                .or_insert_with(|| McpToolLatencyAccumulator {
+                    entry: McpToolLatencyEntry {
+                        server: key.0.clone(),
+                        tool: key.1.clone(),
+                        ..McpToolLatencyEntry::default()
+                    },
+                    total_ms: 0,
+                });
+        let entry = &mut accumulator.entry;
         entry.calls = entry.calls.saturating_add(1);
         if is_error {
             entry.errors = entry.errors.saturating_add(1);
         }
         entry.last_ms = duration_ms;
         entry.max_ms = entry.max_ms.max(duration_ms);
-        entry.avg_ms = total_before
-            .saturating_add(duration_ms)
-            .checked_div(entry.calls)
-            .unwrap_or(duration_ms);
+        accumulator.total_ms = accumulator.total_ms.saturating_add(duration_ms as u128);
+        entry.avg_ms = (accumulator.total_ms / entry.calls as u128).min(u64::MAX as u128) as u64;
     }
 }
 
@@ -213,6 +227,20 @@ mod tests {
         assert_eq!(stats[0].errors, 1);
         assert_eq!(stats[0].max_ms, 30);
         assert_eq!(stats[0].last_ms, 30);
+    }
+
+    #[test]
+    fn latency_average_uses_wide_accumulator() {
+        let _guard = MCP_TOOL_TEST_LOCK.lock().unwrap();
+        reset_mcp_tool_latency_stats();
+        record_mcp_tool_latency("github", "slow", u64::MAX - 10, false);
+        record_mcp_tool_latency("github", "slow", u64::MAX - 8, false);
+
+        let stats = mcp_tool_latency_stats();
+        assert_eq!(stats.len(), 1);
+        assert_eq!(stats[0].calls, 2);
+        assert_eq!(stats[0].avg_ms, u64::MAX - 9);
+        assert_eq!(stats[0].max_ms, u64::MAX - 8);
     }
 
     #[test]
