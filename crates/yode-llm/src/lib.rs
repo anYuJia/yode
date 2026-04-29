@@ -1,8 +1,10 @@
+pub mod mock;
 pub mod provider;
 pub mod providers;
 pub mod registry;
 pub mod types;
 
+pub use mock::MockProvider;
 pub use provider::LlmProvider;
 pub use providers::openai_compat;
 pub use providers::{AnthropicProvider, GeminiProvider, OpenAiProvider};

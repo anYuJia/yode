@@ -44,7 +44,7 @@ impl AgentEngine {
             let (stream_tx, mut stream_rx) = mpsc::channel::<StreamEvent>(256);
             let stream_handle = tokio::spawn(async move {
                 let result = tokio::time::timeout(
-                    std::time::Duration::from_secs(LLM_TIMEOUT_SECS.max(600)),
+                    std::time::Duration::from_secs(STREAMING_TURN_HARD_SECS),
                     provider.chat_stream(request, stream_tx),
                 )
                 .await;
@@ -52,7 +52,7 @@ impl AgentEngine {
                     Ok(inner) => inner,
                     Err(_) => Err(anyhow::anyhow!(
                         "LLM 调用超时 ({}秒)",
-                        LLM_TIMEOUT_SECS.max(600)
+                        STREAMING_TURN_HARD_SECS
                     )),
                 }
             });

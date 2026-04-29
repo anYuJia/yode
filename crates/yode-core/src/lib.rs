@@ -1,9 +1,11 @@
 pub mod config;
+mod constants;
 pub mod context;
 pub mod context_manager;
 pub mod cost_tracker;
 pub mod db;
 pub mod engine;
+pub mod error;
 pub mod hooks;
 pub mod instructions;
 pub mod permission;

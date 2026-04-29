@@ -10,17 +10,12 @@ impl AgentEngine {
         params: &mut Value,
     ) -> Option<ToolResult> {
         let hook_mgr = self.hook_manager.as_ref()?;
-        let hook_ctx = HookContext {
-            event: HookEvent::PreToolUse.to_string(),
-            session_id: self.context.session_id.clone(),
-            working_dir: working_dir.to_string(),
-            tool_name: Some(tool_name.to_string()),
-            tool_input: Some(params.clone()),
-            tool_output: None,
-            error: None,
-            user_prompt: None,
-            metadata: None,
-        };
+        let hook_ctx = HookContext::new(
+            HookEvent::PreToolUse,
+            self.context.session_id.clone(),
+            working_dir,
+        )
+        .with_tool(tool_name, Some(params.clone()));
         let results = hook_mgr.execute(HookEvent::PreToolUse, &hook_ctx).await;
         let mut hook_outputs = Vec::new();
 

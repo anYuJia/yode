@@ -45,10 +45,22 @@ use yode_tools::state::TaskStore;
 use yode_tools::tool::{ToolContext, ToolErrorType, ToolResult, UserQuery, WorktreeState};
 use yode_tools::validation;
 
+use crate::constants::thresholds::{
+    MAX_CONSECUTIVE_COMPACTION_FAILURES,
+    SESSION_MEMORY_CHAR_DELTA as SESSION_MEMORY_CHAR_DELTA_THRESHOLD,
+    SESSION_MEMORY_INIT_CHARS as SESSION_MEMORY_INIT_CHAR_THRESHOLD,
+    SESSION_MEMORY_TOOL_DELTA as SESSION_MEMORY_TOOL_DELTA_THRESHOLD, TOOL_BUDGET_NOTICE,
+    TOOL_BUDGET_WARNING, TOOL_GOAL_REMINDER, TOOL_REFLECT_INTERVAL,
+};
+use crate::constants::timeouts::{
+    LLM_REQUEST_SECS as LLM_TIMEOUT_SECS, PARALLEL_TOOL_SECS as PARALLEL_TOOL_TIMEOUT_SECS,
+    STREAMING_TURN_HARD_SECS,
+};
 use crate::context::{AgentContext, EffortLevel, QuerySource};
 use crate::context_manager::{CompressionReport, ContextManager};
 use crate::cost_tracker::CostTracker;
 use crate::db::{Database, SessionArtifacts};
+use crate::error::EngineError;
 use crate::hooks::{HookContext, HookEvent, HookManager};
 use crate::instructions::{load_instruction_context, load_memory_context};
 use crate::permission::{CommandClassifier, CommandRiskLevel, PermissionAction, PermissionManager};
@@ -78,24 +90,6 @@ pub use types::{
 
 /// Maximum total size for all tool results in a single turn (200KB)
 const MAX_TOTAL_TOOL_RESULTS_SIZE: usize = 200 * 1024;
-
-/// LLM call timeout in seconds
-const LLM_TIMEOUT_SECS: u64 = 120;
-
-/// Per-tool timeout for parallel execution (30 seconds)
-const PARALLEL_TOOL_TIMEOUT_SECS: u64 = 30;
-/// Tool call budget thresholds for analysis guidance.
-const TOOL_BUDGET_NOTICE: u32 = 15;
-const TOOL_BUDGET_WARNING: u32 = 25;
-/// Self-reflection injection point.
-const TOOL_REFLECT_INTERVAL: u32 = 10;
-/// Goal reminder injection point.
-const TOOL_GOAL_REMINDER: u32 = 5;
-/// Stop retrying auto-compaction after repeated failures.
-const MAX_CONSECUTIVE_COMPACTION_FAILURES: u32 = 3;
-const SESSION_MEMORY_INIT_CHAR_THRESHOLD: usize = 8_000;
-const SESSION_MEMORY_CHAR_DELTA_THRESHOLD: usize = 4_000;
-const SESSION_MEMORY_TOOL_DELTA_THRESHOLD: u32 = 3;
 
 /// The core agent engine that drives the conversation loop.
 pub struct AgentEngine {

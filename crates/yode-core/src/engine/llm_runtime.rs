@@ -120,7 +120,9 @@ impl AgentEngine {
                     last_err = Some(e);
                 }
                 Err(_) => {
-                    let err = anyhow::anyhow!("LLM 调用超时 ({}秒)", LLM_TIMEOUT_SECS);
+                    let err = anyhow::anyhow!(EngineError::LlmTimeout {
+                        timeout_secs: LLM_TIMEOUT_SECS,
+                    });
                     max_attempts = max_retries_for(ErrorKind::Transient);
                     warn!(
                         "LLM call timed out (attempt {}/{})",
@@ -136,11 +138,10 @@ impl AgentEngine {
         let final_err = last_err.unwrap_or_else(|| anyhow::anyhow!("LLM call failed"));
         let kind = classify_error(&final_err);
         let total_attempts = total_attempts_for(kind);
-        Err(anyhow::anyhow!(
-            "Request failed after {} attempts: {}",
-            total_attempts,
-            summarize_retry_error(&final_err)
-        ))
+        Err(anyhow::anyhow!(EngineError::LlmRetryExhausted {
+            attempts: total_attempts,
+            message: summarize_retry_error(&final_err),
+        }))
         .context("LLM chat request failed")
     }
 }

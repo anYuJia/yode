@@ -4,8 +4,9 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 pub use yode_agent::{
-    plan_agent_team, AgentPlan, AgentPlanBatch, AgentPlanMode, AgentPlanStep, AgentTeamManager,
-    AgentTeamMemberState, AgentTeamMessage, AgentTeamSnapshot, AgentTeamState,
+    evaluate_agent_plan, plan_agent_team, AgentPlan, AgentPlanBatch, AgentPlanMode,
+    AgentPlanProgress, AgentPlanStep, AgentTeamManager, AgentTeamMemberState, AgentTeamMessage,
+    AgentTeamSnapshot, AgentTeamState,
 };
 
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
@@ -435,6 +436,16 @@ pub fn render_agent_team_monitor_from_snapshot(
                 "- {}: {}",
                 batch.batch_id,
                 batch.step_ids.join(", ")
+            ));
+        }
+        if let Some(progress) = evaluate_agent_plan(state) {
+            body.push(format!(
+                "- Ready: {}",
+                format_step_list(&progress.ready_step_ids)
+            ));
+            body.push(format!(
+                "- Blocked: {}",
+                format_step_list(&progress.blocked_step_ids)
             ));
         }
         body.push(String::new());
@@ -997,6 +1008,16 @@ fn render_team_summary(state: &AgentTeamState) -> String {
                 batch.step_ids.join(", ")
             ));
         }
+        if let Some(progress) = evaluate_agent_plan(state) {
+            lines.push(format!(
+                "- Ready: {}",
+                format_step_list(&progress.ready_step_ids)
+            ));
+            lines.push(format!(
+                "- Blocked: {}",
+                format_step_list(&progress.blocked_step_ids)
+            ));
+        }
         lines.push(String::new());
     }
     lines.push("Members:".to_string());
@@ -1125,6 +1146,14 @@ fn truncate_preview(text: &str, max_chars: usize) -> String {
         text.to_string()
     } else {
         format!("{}...", text.chars().take(max_chars).collect::<String>())
+    }
+}
+
+fn format_step_list(step_ids: &[String]) -> String {
+    if step_ids.is_empty() {
+        "none".to_string()
+    } else {
+        step_ids.join(", ")
     }
 }
 

@@ -74,6 +74,52 @@ pub struct HookContext {
     pub metadata: Option<Value>,
 }
 
+impl HookContext {
+    pub fn new(
+        event: HookEvent,
+        session_id: impl Into<String>,
+        working_dir: impl Into<String>,
+    ) -> Self {
+        Self {
+            event: event.to_string(),
+            session_id: session_id.into(),
+            working_dir: working_dir.into(),
+            tool_name: None,
+            tool_input: None,
+            tool_output: None,
+            error: None,
+            user_prompt: None,
+            metadata: None,
+        }
+    }
+
+    pub fn with_tool(mut self, tool_name: impl Into<String>, input: Option<Value>) -> Self {
+        self.tool_name = Some(tool_name.into());
+        self.tool_input = input;
+        self
+    }
+
+    pub fn with_tool_output(mut self, output: Option<String>) -> Self {
+        self.tool_output = output;
+        self
+    }
+
+    pub fn with_error(mut self, error: Option<String>) -> Self {
+        self.error = error;
+        self
+    }
+
+    pub fn with_user_prompt(mut self, user_prompt: Option<String>) -> Self {
+        self.user_prompt = user_prompt;
+        self
+    }
+
+    pub fn with_metadata(mut self, metadata: Option<Value>) -> Self {
+        self.metadata = metadata;
+        self
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct HookResult {
     pub blocked: bool,

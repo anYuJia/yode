@@ -82,7 +82,9 @@ impl AgentEngine {
                 .await;
                 match result {
                     Ok(inner) => inner,
-                    Err(_) => Err(anyhow::anyhow!("LLM 调用超时 ({}秒)", LLM_TIMEOUT_SECS)),
+                    Err(_) => Err(anyhow::anyhow!(EngineError::LlmTimeout {
+                        timeout_secs: LLM_TIMEOUT_SECS,
+                    })),
                 }
             });
 

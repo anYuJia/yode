@@ -109,6 +109,15 @@ pub struct AgentPlan {
     pub batches: Vec<AgentPlanBatch>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentPlanProgress {
+    pub ready_step_ids: Vec<String>,
+    pub blocked_step_ids: Vec<String>,
+    pub running_step_ids: Vec<String>,
+    pub completed_step_ids: Vec<String>,
+    pub failed_step_ids: Vec<String>,
+}
+
 #[derive(Debug, Default)]
 pub struct AgentPlanner;
 
@@ -286,6 +295,7 @@ impl AgentTeamManager {
             .iter()
             .filter(|member| member.status == "failed")
             .count();
+        sync_agent_plan_statuses(state);
         self.latest_team_id = Some(team_id.to_string());
         Ok(state.clone())
     }
@@ -392,6 +402,39 @@ impl AgentTeamManager {
     }
 }
 
+pub fn evaluate_agent_plan(state: &AgentTeamState) -> Option<AgentPlanProgress> {
+    let plan = state.plan.as_ref()?;
+    let member_statuses = state
+        .members
+        .iter()
+        .map(|member| (member.member_id.as_str(), member.status.as_str()))
+        .collect::<BTreeMap<_, _>>();
+    let completed_steps = plan
+        .steps
+        .iter()
+        .filter(|step| step_status(step, &member_statuses) == "completed")
+        .map(|step| step.step_id.as_str())
+        .collect::<BTreeSet<_>>();
+
+    let mut progress = AgentPlanProgress::default();
+    for step in &plan.steps {
+        match step_status(step, &member_statuses) {
+            "completed" => progress.completed_step_ids.push(step.step_id.clone()),
+            "failed" => progress.failed_step_ids.push(step.step_id.clone()),
+            "running" => progress.running_step_ids.push(step.step_id.clone()),
+            _ if step
+                .depends_on
+                .iter()
+                .all(|dependency| completed_steps.contains(dependency.as_str())) =>
+            {
+                progress.ready_step_ids.push(step.step_id.clone());
+            }
+            _ => progress.blocked_step_ids.push(step.step_id.clone()),
+        }
+    }
+    Some(progress)
+}
+
 pub fn plan_agent_team(
     goal: &str,
     mode: &str,
@@ -427,6 +470,27 @@ pub fn plan_agent_team(
         steps,
         batches,
     })
+}
+
+fn sync_agent_plan_statuses(state: &mut AgentTeamState) {
+    let Some(plan) = state.plan.as_mut() else {
+        return;
+    };
+    let member_statuses = state
+        .members
+        .iter()
+        .map(|member| (member.member_id.as_str(), member.status.as_str()))
+        .collect::<BTreeMap<_, _>>();
+    for step in &mut plan.steps {
+        step.status = step_status(step, &member_statuses).to_string();
+    }
+}
+
+fn step_status<'a>(step: &'a AgentPlanStep, member_statuses: &BTreeMap<&str, &'a str>) -> &'a str {
+    step.member_id
+        .as_deref()
+        .and_then(|member_id| member_statuses.get(member_id).copied())
+        .unwrap_or(step.status.as_str())
 }
 
 fn sequential_steps(members: &[AgentTeamMemberState]) -> Vec<AgentPlanStep> {
@@ -770,5 +834,35 @@ mod tests {
             &[member("worker", None), member("worker", Some("review"))],
         )
         .is_err());
+    }
+
+    #[test]
+    fn plan_progress_marks_ready_and_blocked_steps() {
+        let mut manager = AgentTeamManager::new();
+        let state = manager.ensure_team(
+            "ship feature",
+            Some("team-demo"),
+            "parallel",
+            vec![
+                member("coordinator", Some("coordinator")),
+                member("api", Some("worker")),
+                member("ui", Some("worker")),
+                member("review", Some("review")),
+            ],
+        );
+        let progress = evaluate_agent_plan(&state).unwrap();
+        assert_eq!(progress.ready_step_ids, vec!["member:coordinator"]);
+        assert_eq!(
+            progress.blocked_step_ids,
+            vec!["member:api", "member:ui", "member:review"]
+        );
+
+        let state = manager
+            .update_member("team-demo", "coordinator", "completed", None, None, None)
+            .unwrap();
+        let progress = evaluate_agent_plan(&state).unwrap();
+        assert_eq!(progress.completed_step_ids, vec!["member:coordinator"]);
+        assert_eq!(progress.ready_step_ids, vec!["member:api", "member:ui"]);
+        assert_eq!(progress.blocked_step_ids, vec!["member:review"]);
     }
 }

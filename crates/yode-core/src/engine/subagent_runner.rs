@@ -762,25 +762,25 @@ async fn emit_subagent_hook(
     let Some(hook_manager) = hook_manager else {
         return;
     };
-    let hook_context = HookContext {
-        event: event.to_string(),
-        session_id: context.session_id.clone(),
-        working_dir: context.working_dir_compat().display().to_string(),
-        tool_name: Some("agent".to_string()),
-        tool_input: None,
-        tool_output: summary.map(str::to_string),
-        error: status
+    let hook_context = HookContext::new(
+        event.clone(),
+        context.session_id.clone(),
+        context.working_dir_compat().display().to_string(),
+    )
+    .with_tool("agent", None)
+    .with_tool_output(summary.map(str::to_string))
+    .with_error(
+        status
             .filter(|status| *status == "failed" || *status == "cancelled")
             .and(summary.map(str::to_string)),
-        user_prompt: None,
-        metadata: Some(merge_hook_metadata(
-            serde_json::json!({
-            "description": description,
-            "status": status,
-            }),
-            extra_metadata,
-        )),
-    };
+    )
+    .with_metadata(Some(merge_hook_metadata(
+        serde_json::json!({
+        "description": description,
+        "status": status,
+        }),
+        extra_metadata,
+    )));
     let _ = hook_manager.execute(event, &hook_context).await;
 }
 
@@ -798,25 +798,23 @@ async fn emit_task_hook(
     let Some(hook_manager) = hook_manager else {
         return;
     };
-    let hook_context = HookContext {
-        event: event.to_string(),
-        session_id: context.session_id.clone(),
-        working_dir: context.working_dir_compat().display().to_string(),
-        tool_name: Some("runtime_task".to_string()),
-        tool_input: None,
-        tool_output: status.map(str::to_string),
-        error: error.map(str::to_string),
-        user_prompt: None,
-        metadata: Some(merge_hook_metadata(
-            serde_json::json!({
-            "task_id": task_id,
-            "description": description,
-            "kind": kind,
-            "status": status,
-            }),
-            extra_metadata,
-        )),
-    };
+    let hook_context = HookContext::new(
+        event.clone(),
+        context.session_id.clone(),
+        context.working_dir_compat().display().to_string(),
+    )
+    .with_tool("runtime_task", None)
+    .with_tool_output(status.map(str::to_string))
+    .with_error(error.map(str::to_string))
+    .with_metadata(Some(merge_hook_metadata(
+        serde_json::json!({
+        "task_id": task_id,
+        "description": description,
+        "kind": kind,
+        "status": status,
+        }),
+        extra_metadata,
+    )));
     let _ = hook_manager.execute(event, &hook_context).await;
 }
 
