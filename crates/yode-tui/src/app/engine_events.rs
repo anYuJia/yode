@@ -251,15 +251,15 @@ pub(super) fn handle_engine_event(
             ));
         }
         EngineEvent::UpdateAvailable(version) => {
-            app.update_available = Some(version);
+            app.update.available = Some(version);
         }
         EngineEvent::UpdateDownloading => {
-            app.update_downloading = true;
+            app.update.downloading = true;
         }
         EngineEvent::UpdateDownloaded(version) => {
-            app.update_downloading = false;
-            app.update_downloaded = Some(version);
-            app.update_available = None;
+            app.update.downloading = false;
+            app.update.downloaded = Some(version);
+            app.update.available = None;
         }
         EngineEvent::SubAgentStart { description } => {
             finalize_streaming(app);

@@ -139,6 +139,13 @@ pub struct SessionState {
     pub(crate) resume_cache_warmup: Option<crate::commands::info::ResumeTranscriptCacheWarmupStats>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct UpdateState {
+    pub available: Option<String>,
+    pub downloading: bool,
+    pub downloaded: Option<String>,
+}
+
 /// Unified status: Idle -> Working -> Done (or Retrying -> Working -> Done)
 #[derive(Debug, Clone)]
 pub enum TurnStatus {
@@ -291,6 +298,14 @@ mod tests {
         assert!(token.is_cancelled());
         assert!(!thinking.active);
         assert!(thinking.cancel_token.is_none());
+    }
+
+    #[test]
+    fn update_state_defaults_to_idle() {
+        let state = super::UpdateState::default();
+        assert_eq!(state.available, None);
+        assert!(!state.downloading);
+        assert_eq!(state.downloaded, None);
     }
 
     #[test]

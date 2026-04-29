@@ -163,13 +163,13 @@ pub fn render_blank_line(frame: &mut Frame, area: Rect, app: &App) {
     let mut update_text = String::new();
     let mut update_style = Style::default();
 
-    if let Some(ref version) = app.update_available {
+    if let Some(ref version) = app.update.available {
         update_text = format!(" ✨ Update available: {} (restart to apply) ", version);
         update_style = Style::default().fg(Color::LightCyan);
-    } else if app.update_downloading {
+    } else if app.update.downloading {
         update_text = " ⏳ Downloading update... ".to_string();
         update_style = Style::default().fg(Color::Yellow);
-    } else if let Some(ref version) = app.update_downloaded {
+    } else if let Some(ref version) = app.update.downloaded {
         update_text = format!(" ✅ Update v{} ready (restart to apply) ", version);
         update_style = Style::default().fg(Color::LightGreen);
     }
