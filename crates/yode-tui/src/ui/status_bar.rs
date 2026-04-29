@@ -136,12 +136,12 @@ pub fn render_info_line(frame: &mut Frame, area: Rect, app: &App) {
     // Shortcuts hint
     match density {
         Density::Wide => {
-            parts.push(Span::styled("shift+tab mode", Style::default().fg(MUTED)));
+            parts.push(Span::styled("Shift+Tab", Style::default().fg(MUTED)));
             parts.push(Span::styled(" · ", Style::default().fg(SEP)));
             parts.push(Span::styled("/help", Style::default().fg(MUTED)));
         }
         Density::Medium => {
-            parts.push(Span::styled("tab mode", Style::default().fg(MUTED)));
+            parts.push(Span::styled("S-Tab", Style::default().fg(MUTED)));
             parts.push(Span::styled(" · ", Style::default().fg(SEP)));
             parts.push(Span::styled("/help", Style::default().fg(MUTED)));
         }
@@ -153,8 +153,6 @@ pub fn render_info_line(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(Paragraph::new(Line::from(parts)), area);
 }
 
-/// Bottom blank line: renders a row of space characters
-/// This keeps the line visually present (not collapsed) while appearing empty.
 pub fn render_blank_line(frame: &mut Frame, area: Rect, app: &App) {
     if area.height == 0 || area.width == 0 {
         return;
@@ -174,26 +172,30 @@ pub fn render_blank_line(frame: &mut Frame, area: Rect, app: &App) {
         update_style = Style::default().fg(Color::LightGreen);
     }
 
-    let update_len = update_text.chars().count();
-    let left_dots_len = area.width.saturating_sub(update_len as u16) as usize;
+    let line = blank_line_parts(area.width, update_text, update_style);
 
-    let mut parts = vec![Span::styled(
-        "·".repeat(left_dots_len),
-        Style::default().fg(SEP),
-    )];
+    frame.render_widget(Paragraph::new(line), area);
+}
 
-    if update_len > 0 {
-        parts.push(Span::styled(update_text, update_style));
+fn blank_line_parts(width: u16, update_text: String, update_style: Style) -> Line<'static> {
+    if update_text.is_empty() {
+        return Line::from(Span::raw(" ".repeat(width as usize)));
     }
 
-    frame.render_widget(Paragraph::new(Line::from(parts)), area);
+    let update_len = update_text.chars().count();
+    let left_padding = width.saturating_sub(update_len as u16) as usize;
+    Line::from(vec![
+        Span::raw(" ".repeat(left_padding)),
+        Span::styled(update_text, update_style),
+    ])
 }
 
 #[cfg(test)]
 mod tests {
-    use super::Density;
+    use super::{blank_line_parts, Density};
     use crate::ui::badges::task_badge_label;
     use crate::ui::responsive::density_from_width;
+    use ratatui::style::Style;
 
     #[test]
     fn status_bar_density_compacts_on_narrow_widths() {
@@ -207,5 +209,20 @@ mod tests {
         assert_eq!(task_badge_label(3, Density::Wide), "3 jobs ");
         assert_eq!(task_badge_label(3, Density::Medium), "j3 ");
         assert_eq!(task_badge_label(3, Density::Narrow), "3j ");
+    }
+
+    #[test]
+    fn bottom_blank_line_is_blank_without_update() {
+        let line = blank_line_parts(12, String::new(), Style::default());
+        assert_eq!(line.spans.len(), 1);
+        assert_eq!(line.spans[0].content.as_ref(), "            ");
+    }
+
+    #[test]
+    fn bottom_blank_line_right_aligns_update_without_dot_fill() {
+        let line = blank_line_parts(10, " update ".to_string(), Style::default());
+        assert_eq!(line.spans.len(), 2);
+        assert_eq!(line.spans[0].content.as_ref(), "  ");
+        assert_eq!(line.spans[1].content.as_ref(), " update ");
     }
 }
