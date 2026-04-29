@@ -3,6 +3,7 @@ use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
+use std::time::Duration;
 
 use super::badges::{
     budget_badge_label, permission_mode_badge, queue_badge_label, task_badge_label,
@@ -51,6 +52,11 @@ pub fn render_info_line(frame: &mut Frame, area: Rect, app: &App) {
 
     // Token count (input↑ output↓)
     let input_prefix = if app.session.input_estimated { "~" } else { "" };
+    parts.push(Span::styled(
+        session_elapsed_label(app.session_start.elapsed(), density),
+        Style::default().fg(LIGHT),
+    ));
+    parts.push(Span::styled("· ", Style::default().fg(SEP)));
     parts.push(Span::styled(
         match density {
             Density::Wide => format!(
@@ -153,6 +159,43 @@ pub fn render_info_line(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(Paragraph::new(Line::from(parts)), area);
 }
 
+fn session_elapsed_label(elapsed: Duration, density: Density) -> String {
+    let secs = elapsed.as_secs();
+    let hours = secs / 3600;
+    let mins = (secs % 3600) / 60;
+    let rem_secs = secs % 60;
+
+    match density {
+        Density::Wide => {
+            if hours > 0 {
+                format!("time {}h{:02}m", hours, mins)
+            } else if mins > 0 {
+                format!("time {}m{:02}s", mins, rem_secs)
+            } else {
+                format!("time {}s", rem_secs)
+            }
+        }
+        Density::Medium => {
+            if hours > 0 {
+                format!("{}h{:02}m", hours, mins)
+            } else if mins > 0 {
+                format!("{}m{:02}s", mins, rem_secs)
+            } else {
+                format!("{}s", rem_secs)
+            }
+        }
+        Density::Narrow => {
+            if hours > 0 {
+                format!("{}h", hours)
+            } else if mins > 0 {
+                format!("{}m", mins)
+            } else {
+                format!("{}s", rem_secs)
+            }
+        }
+    }
+}
+
 pub fn render_blank_line(frame: &mut Frame, area: Rect, app: &App) {
     if area.height == 0 || area.width == 0 {
         return;
@@ -192,10 +235,11 @@ fn blank_line_parts(width: u16, update_text: String, update_style: Style) -> Lin
 
 #[cfg(test)]
 mod tests {
-    use super::{blank_line_parts, Density};
+    use super::{blank_line_parts, session_elapsed_label, Density};
     use crate::ui::badges::task_badge_label;
     use crate::ui::responsive::density_from_width;
     use ratatui::style::Style;
+    use std::time::Duration;
 
     #[test]
     fn status_bar_density_compacts_on_narrow_widths() {
@@ -224,5 +268,13 @@ mod tests {
         assert_eq!(line.spans.len(), 2);
         assert_eq!(line.spans[0].content.as_ref(), "  ");
         assert_eq!(line.spans[1].content.as_ref(), " update ");
+    }
+
+    #[test]
+    fn session_elapsed_label_compacts_by_density() {
+        let elapsed = Duration::from_secs(65);
+        assert_eq!(session_elapsed_label(elapsed, Density::Wide), "time 1m05s");
+        assert_eq!(session_elapsed_label(elapsed, Density::Medium), "1m05s");
+        assert_eq!(session_elapsed_label(elapsed, Density::Narrow), "1m");
     }
 }

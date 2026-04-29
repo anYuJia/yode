@@ -43,8 +43,8 @@ pub fn build_main_layout(area: Rect, app: &App) -> MainLayoutPlan {
             Constraint::Length(completion_height),
             Constraint::Length(pending_height),
             Constraint::Length(1),
-            Constraint::Length(input_height),
             Constraint::Length(1),
+            Constraint::Length(input_height),
             Constraint::Length(1),
             Constraint::Length(1),
         ]
@@ -53,8 +53,8 @@ pub fn build_main_layout(area: Rect, app: &App) -> MainLayoutPlan {
             Constraint::Length(status_area_height),
             Constraint::Length(pending_height),
             Constraint::Length(1),
-            Constraint::Length(input_height),
             Constraint::Length(1),
+            Constraint::Length(input_height),
             Constraint::Length(1),
             Constraint::Length(1),
         ]
@@ -127,5 +127,18 @@ mod tests {
         let plan = build_main_layout(ratatui::layout::Rect::new(0, 0, 80, 20), &app);
         assert_eq!(plan.areas[0].height, 3);
         assert!(plan.show_turn_status);
+    }
+
+    #[test]
+    fn info_line_sits_above_input_area() {
+        let mut app = test_app();
+        app.input.lines = vec!["line 1".to_string(), "line 2".to_string()];
+
+        let plan = build_main_layout(ratatui::layout::Rect::new(0, 0, 80, 20), &app);
+
+        assert_eq!(plan.areas[2].height, 1);
+        assert_eq!(plan.areas[3].height, 1);
+        assert_eq!(plan.areas[4].height, 2);
+        assert!(plan.areas[2].y < plan.areas[4].y);
     }
 }
