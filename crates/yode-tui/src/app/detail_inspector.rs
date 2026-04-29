@@ -1,12 +1,14 @@
 use crate::app::{App, ChatEntry, ChatRole, InspectorView, PendingConfirmation};
 use crate::display_text::{compact_path_tail as compact_path, human_tool_display_name};
+use crate::system_message::{
+    format_system_detail_line, parse_system_message, system_message_summary,
+};
 use crate::tool_grouping::{
     describe_tool_call, detect_groupable_system_batch, detect_groupable_tool_batch,
     tool_batch_hint_text, tool_batch_progress_text, tool_batch_summary_text, SystemBatch,
     ToolBatch,
 };
 use crate::tool_output_summary::{parse_shell_output_sections, summarize_tool_result};
-use crate::system_message::{format_system_detail_line, parse_system_message, system_message_summary};
 use crate::ui::chat::{
     render_markdown_ansi_dim_with_options, render_markdown_ansi_white_with_options,
 };
@@ -132,7 +134,9 @@ fn build_latest_tool_document(app: &App) -> Option<InspectorDocument> {
                     &entries[index].content,
                     result,
                 ));
-                index = result_index.map(|entry_index| entry_index + 1).unwrap_or(index + 1);
+                index = result_index
+                    .map(|entry_index| entry_index + 1)
+                    .unwrap_or(index + 1);
             }
             ChatRole::ToolResult { id, .. } => {
                 let has_preceding = index > 0
@@ -171,7 +175,8 @@ fn build_assistant_entry_document(entry: &ChatEntry) -> InspectorDocument {
             format!("Content lines: {}", entry.content.lines().count()),
             format!(
                 "Reasoning: {}",
-                entry.reasoning
+                entry
+                    .reasoning
                     .as_deref()
                     .map(|reasoning| {
                         if reasoning.trim().is_empty() {
@@ -179,7 +184,7 @@ fn build_assistant_entry_document(entry: &ChatEntry) -> InspectorDocument {
                         } else {
                             format!("{} lines", reasoning.lines().count())
                         }
-                })
+                    })
                     .unwrap_or_else(|| "none".to_string())
             ),
         ],
@@ -200,7 +205,11 @@ fn build_assistant_entry_document(entry: &ChatEntry) -> InspectorDocument {
         panels.push(panel);
     }
 
-    if let Some(reasoning) = entry.reasoning.as_deref().filter(|value| !value.trim().is_empty()) {
+    if let Some(reasoning) = entry
+        .reasoning
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
         if let Some(panel) = dim_markdown_panel(
             "Reasoning",
             reasoning,
@@ -305,7 +314,11 @@ fn build_tool_batch_document(
         format!("Items: {}", batch.items.len()),
         format!(
             "State: {}",
-            if batch.is_active { "active" } else { "completed" }
+            if batch.is_active {
+                "active"
+            } else {
+                "completed"
+            }
         ),
     ];
     if let Some(progress) = tool_batch_progress_text(entries, batch) {
@@ -489,11 +502,9 @@ fn build_tool_entry_document(
         format!("State: {}", if is_active { "running" } else { "completed" }),
     ];
     if is_active {
-        if let Some(progress) = parse_progress_summary(
-            app.chat_entries.iter().rev().find(|entry| {
-                matches!(&entry.role, ChatRole::ToolCall { name, .. } if name == tool_name)
-            }),
-        ) {
+        if let Some(progress) = parse_progress_summary(app.chat_entries.iter().rev().find(
+            |entry| matches!(&entry.role, ChatRole::ToolCall { name, .. } if name == tool_name),
+        )) {
             summary.push(format!("Progress: {}", progress));
         }
     }
@@ -751,7 +762,11 @@ fn assistant_overview_badges(entry: &ChatEntry) -> Vec<(String, String)> {
         "content".to_string(),
         format!("{} lines", entry.content.lines().count()),
     )];
-    if let Some(reasoning) = entry.reasoning.as_deref().filter(|value| !value.trim().is_empty()) {
+    if let Some(reasoning) = entry
+        .reasoning
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
         badges.push((
             "reasoning".to_string(),
             format!("{} lines", reasoning.lines().count()),
@@ -792,7 +807,11 @@ fn system_raw_panel_lines(
         .map(|line| line.to_string())
         .collect::<Vec<_>>();
     let has_structured_split = !view.detail_lines.is_empty();
-    let has_multiline_raw = raw_lines.iter().filter(|line| !line.trim().is_empty()).count() > 1;
+    let has_multiline_raw = raw_lines
+        .iter()
+        .filter(|line| !line.trim().is_empty())
+        .count()
+        > 1;
     (has_structured_split || has_multiline_raw).then_some(raw_lines)
 }
 
@@ -931,6 +950,7 @@ fn error_recovery_actions(view: &ErrorView) -> Vec<InspectorAction> {
         ErrorKind::Authentication => vec![provider_action(), model_action(), doctor_action()],
         ErrorKind::RateLimit => vec![model_action(), provider_action(), status_action()],
         ErrorKind::ProviderRejected => vec![provider_action(), doctor_action(), status_action()],
+        ErrorKind::ProviderTransport => vec![provider_action(), model_action(), status_action()],
         ErrorKind::Timeout => vec![model_action(), compact_action(), status_action()],
         ErrorKind::Generic => vec![status_action(), doctor_action()],
     }
@@ -1093,7 +1113,10 @@ fn tool_batch_badges(entries: &[ChatEntry], batch: &ToolBatch) -> Vec<(String, S
 
 fn system_entry_badges(view: &crate::system_message::SystemMessageView) -> Vec<(String, String)> {
     vec![
-        ("kind".to_string(), system_kind_badge_value(view.kind).to_string()),
+        (
+            "kind".to_string(),
+            system_kind_badge_value(view.kind).to_string(),
+        ),
         (
             "severity".to_string(),
             system_severity_badge_value(view).to_string(),
@@ -1162,7 +1185,10 @@ fn system_severity_badge_value(view: &crate::system_message::SystemMessageView) 
 
 fn error_severity_badge_value(view: &ErrorView) -> &'static str {
     match view.kind {
-        ErrorKind::ContextLimit | ErrorKind::RateLimit | ErrorKind::Timeout => "warning",
+        ErrorKind::ContextLimit
+        | ErrorKind::RateLimit
+        | ErrorKind::ProviderTransport
+        | ErrorKind::Timeout => "warning",
         ErrorKind::Authentication | ErrorKind::ProviderRejected | ErrorKind::Generic => "error",
     }
 }
@@ -1170,7 +1196,10 @@ fn error_severity_badge_value(view: &ErrorView) -> &'static str {
 fn tool_metadata_badges(metadata: &serde_json::Value) -> Vec<(String, String)> {
     let mut badges = Vec::new();
 
-    if metadata.get("read_only_reason").and_then(|value| value.as_str()).is_some()
+    if metadata
+        .get("read_only_reason")
+        .and_then(|value| value.as_str())
+        .is_some()
         || metadata
             .get("read_only")
             .and_then(|value| value.as_bool())
@@ -1521,10 +1550,10 @@ mod tests {
         assert!(doc.panels[0]
             .badges
             .contains(&("state".to_string(), "active".to_string())));
-        assert!(doc
-            .panels
-            .first()
-            .is_some_and(|panel| panel.lines.iter().any(|line| line.contains("Progress: chunk 2/4 50%"))));
+        assert!(doc.panels.first().is_some_and(|panel| panel
+            .lines
+            .iter()
+            .any(|line| line.contains("Progress: chunk 2/4 50%"))));
     }
 
     #[test]
@@ -1571,7 +1600,10 @@ mod tests {
             .contains(&("state".to_string(), "completed".to_string())));
         assert!(doc.panels.iter().any(|panel| panel.tab.label == "Item 1"));
         assert!(doc.panels.iter().any(|panel| panel.tab.label == "Item 2"));
-        assert!(doc.panels[0].lines.iter().any(|line| line.contains("Items: 2")));
+        assert!(doc.panels[0]
+            .lines
+            .iter()
+            .any(|line| line.contains("Items: 2")));
     }
 
     #[test]
@@ -1658,7 +1690,10 @@ mod tests {
         assert!(doc.panels[0]
             .badges
             .contains(&("reasoning".to_string(), "3 lines".to_string())));
-        assert!(doc.panels.iter().any(|panel| panel.tab.label == "Reasoning"));
+        assert!(doc
+            .panels
+            .iter()
+            .any(|panel| panel.tab.label == "Reasoning"));
         assert!(doc
             .panels
             .iter()
@@ -1836,10 +1871,10 @@ mod tests {
             .actions
             .iter()
             .any(|action| action.label == "run /clear"));
-        assert!(doc
-            .panels
+        assert!(doc.panels.iter().any(|panel| panel
+            .lines
             .iter()
-            .any(|panel| panel.lines.iter().any(|line| line.contains("Context limit reached"))));
+            .any(|line| line.contains("Context limit reached"))));
     }
 
     #[test]

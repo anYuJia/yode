@@ -4,6 +4,7 @@ pub(crate) enum ErrorKind {
     Authentication,
     RateLimit,
     ProviderRejected,
+    ProviderTransport,
     Timeout,
     Generic,
 }
@@ -17,7 +18,7 @@ pub(crate) struct ErrorView {
 
 pub(crate) fn parse_error_view(content: &str) -> ErrorView {
     let summary = first_nonempty_line(content).unwrap_or("Unknown error");
-    let normalized = summary.to_ascii_lowercase();
+    let normalized = content.to_ascii_lowercase();
 
     if normalized.contains("prompt too long")
         || normalized.contains("maximum context")
@@ -69,6 +70,8 @@ pub(crate) fn parse_error_view(content: &str) -> ErrorView {
         || normalized.contains("billing")
         || normalized.contains("quota")
         || normalized.contains("额度不足")
+        || normalized.contains("余额")
+        || normalized.contains("subscription")
         || normalized.contains("403")
     {
         return ErrorView {
@@ -77,6 +80,25 @@ pub(crate) fn parse_error_view(content: &str) -> ErrorView {
             detail_lines: vec![
                 "Billing, quota, or org permissions blocked the request.".to_string(),
                 "Check credits, billing, quota, or org access.".to_string(),
+            ],
+        };
+    }
+
+    if normalized.contains("llm chat request failed")
+        || normalized.contains("llm request failed")
+        || normalized.contains("provider http request")
+        || normalized.contains("connection reset")
+        || normalized.contains("connection refused")
+        || normalized.contains("dns")
+        || normalized.contains("network")
+    {
+        return ErrorView {
+            kind: ErrorKind::ProviderTransport,
+            title: "Model request failed".to_string(),
+            detail_lines: vec![
+                "The provider/API request failed before the turn could continue.".to_string(),
+                "Retry the turn, check network/proxy/provider status, or switch provider."
+                    .to_string(),
             ],
         };
     }
@@ -93,9 +115,15 @@ pub(crate) fn parse_error_view(content: &str) -> ErrorView {
     }
 
     let mut details = vec![truncate_error_summary(summary, 140)];
-    let extra_lines = content.lines().filter(|line| !line.trim().is_empty()).count();
+    let extra_lines = content
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .count();
     if extra_lines > 1 {
-        details.push(format!("{} more lines in full error output.", extra_lines - 1));
+        details.push(format!(
+            "{} more lines in full error output.",
+            extra_lines - 1
+        ));
     }
     ErrorView {
         kind: ErrorKind::Generic,
@@ -147,10 +175,7 @@ mod tests {
 
     #[test]
     fn generic_error_summary_truncates_long_api_lines() {
-        let content = format!(
-            "provider returned: {}",
-            "x".repeat(200)
-        );
+        let content = format!("provider returned: {}", "x".repeat(200));
         let view = parse_error_view(&content);
         assert_eq!(view.kind, super::ErrorKind::Generic);
         assert!(view.detail_lines[0].ends_with("..."));
@@ -168,5 +193,23 @@ mod tests {
             "Rate limited"
         );
         assert_eq!(parse_error_view("something odd happened").title, "Error");
+    }
+
+    #[test]
+    fn scans_full_engine_error_for_provider_rejection() {
+        let view = parse_error_view(
+            "Engine error: LLM chat request failed\nunexpected status 403 Forbidden: 余额和订阅额度均不足",
+        );
+        assert_eq!(view.kind, super::ErrorKind::ProviderRejected);
+        assert_eq!(view.title, "Provider rejected request");
+        assert!(view.detail_lines[1].contains("credits"));
+    }
+
+    #[test]
+    fn parses_llm_request_failures_as_recoverable_provider_errors() {
+        let view = parse_error_view("Engine error: LLM chat request failed");
+        assert_eq!(view.kind, super::ErrorKind::ProviderTransport);
+        assert_eq!(view.title, "Model request failed");
+        assert!(view.detail_lines[1].contains("Retry"));
     }
 }
