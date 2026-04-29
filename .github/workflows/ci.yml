@@ -39,7 +39,7 @@ jobs:
         run: cargo clippy --workspace --no-deps -- -D warnings
 
       - name: Cargo check
-        run: cargo check
+        run: cargo check --workspace
 
       - name: Workspace library tests
         run: cargo test --workspace --lib
