@@ -165,7 +165,7 @@ pub(super) fn handle_done(
     if let Some(started) = app.turn_started_at.take() {
         let elapsed = started.elapsed();
         let tools = app.turn_tool_count;
-        app.last_turn_completion_message = Some(format_turn_completed_message(
+        app.turn_completion.last_turn_message = Some(format_turn_completed_message(
             elapsed,
             tools,
             app.session.turn_input_tokens,

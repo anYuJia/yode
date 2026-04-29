@@ -165,6 +165,18 @@ impl Default for PromptSuggestionState {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TurnCompletionState {
+    pub last_turn_message: Option<String>,
+    pub last_session_memory_update_message: Option<String>,
+}
+
+impl TurnCompletionState {
+    pub fn is_empty(&self) -> bool {
+        self.last_turn_message.is_none() && self.last_session_memory_update_message.is_none()
+    }
+}
+
 /// Unified status: Idle -> Working -> Done (or Retrying -> Working -> Done)
 #[derive(Debug, Clone)]
 pub enum TurnStatus {
@@ -333,6 +345,15 @@ mod tests {
         assert_eq!(state.value, None);
         assert!(state.enabled);
         assert!(!state.generating);
+    }
+
+    #[test]
+    fn turn_completion_state_tracks_empty_messages() {
+        let mut state = super::TurnCompletionState::default();
+        assert!(state.is_empty());
+
+        state.last_turn_message = Some("done".to_string());
+        assert!(!state.is_empty());
     }
 
     #[test]

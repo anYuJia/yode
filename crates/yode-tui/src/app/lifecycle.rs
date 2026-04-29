@@ -8,10 +8,7 @@ pub(super) fn print_exit_summary(app: &App) {
 }
 
 fn render_exit_summary(app: &App) -> Option<String> {
-    if app.session.total_tokens == 0
-        && app.last_turn_completion_message.is_none()
-        && app.last_session_memory_update_message.is_none()
-    {
+    if app.session.total_tokens == 0 && app.turn_completion.is_empty() {
         return None;
     }
 
@@ -55,13 +52,17 @@ fn render_exit_summary(app: &App) -> Option<String> {
         format!("  Est. cost:     ${:.4}", cost),
     ];
 
-    if let Some(turn_message) = app.last_turn_completion_message.as_deref() {
+    if let Some(turn_message) = app.turn_completion.last_turn_message.as_deref() {
         lines.push(String::new());
         lines.push("Latest turn".to_string());
         lines.extend(turn_message.lines().map(|line| format!("  {}", line)));
     }
 
-    if let Some(memory_message) = app.last_session_memory_update_message.as_deref() {
+    if let Some(memory_message) = app
+        .turn_completion
+        .last_session_memory_update_message
+        .as_deref()
+    {
         lines.push(String::new());
         lines.push("Session memory".to_string());
         lines.extend(memory_message.lines().map(|line| format!("  {}", line)));
@@ -120,11 +121,11 @@ mod tests {
         app.session.output_tokens = 180;
         app.session.total_tokens = 1_380;
         app.session.tool_call_count = 3;
-        app.last_turn_completion_message = Some(
+        app.turn_completion.last_turn_message = Some(
             "Turn completed · 1.4s · 3 tools · 1.2k↑ 180↓ tok\nsession · 1.4k total tok · 3 tools"
                 .to_string(),
         );
-        app.last_session_memory_update_message =
+        app.turn_completion.last_session_memory_update_message =
             Some("Session memory updated · summary · /tmp/live.md".to_string());
 
         let summary = render_exit_summary(&app).unwrap();

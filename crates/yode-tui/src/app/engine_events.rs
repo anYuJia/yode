@@ -245,10 +245,9 @@ pub(super) fn handle_engine_event(
             path,
             generated_summary,
         } => {
-            app.last_session_memory_update_message = Some(format_session_memory_update_message(
-                &path,
-                generated_summary,
-            ));
+            app.turn_completion.last_session_memory_update_message = Some(
+                format_session_memory_update_message(&path, generated_summary),
+            );
         }
         EngineEvent::UpdateAvailable(version) => {
             app.update.available = Some(version);
