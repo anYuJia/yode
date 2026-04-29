@@ -1441,8 +1441,7 @@ fn find_team_route_for_recipient(working_dir: &Path, recipient: &str) -> Option<
             .ok()
             .and_then(|body| serde_json::from_str::<AgentTeamState>(&body).ok())?;
         if let Some(member) = state.members.iter().find(|member| {
-            member.member_id == recipient
-                || member.runtime_task_id.as_deref() == Some(recipient)
+            member.member_id == recipient || member.runtime_task_id.as_deref() == Some(recipient)
         }) {
             return Some((state.team_id, member.member_id.clone()));
         }
@@ -1821,11 +1820,16 @@ mod tests {
 
         assert_eq!(by_member.metadata.as_ref().unwrap()["team_id"], "team-demo");
         assert_eq!(by_member.metadata.as_ref().unwrap()["target"], "review");
-        assert_eq!(by_member.metadata.as_ref().unwrap()["summary"], "check tests");
+        assert_eq!(
+            by_member.metadata.as_ref().unwrap()["summary"],
+            "check tests"
+        );
         assert_eq!(by_task.metadata.as_ref().unwrap()["target"], "review");
 
         let messages = super::load_agent_team_messages(dir.path(), "team-demo").unwrap();
-        assert!(messages.iter().any(|message| message.message == "focus on tests"));
+        assert!(messages
+            .iter()
+            .any(|message| message.message == "focus on tests"));
         assert!(messages
             .iter()
             .any(|message| message.message.contains("plan_approval_response")));

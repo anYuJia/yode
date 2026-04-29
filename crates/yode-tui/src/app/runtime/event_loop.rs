@@ -8,8 +8,8 @@ use ratatui::Terminal;
 use tokio::sync::{mpsc, Mutex};
 
 use yode_core::engine::{AgentEngine, EngineEvent};
-use yode_tools::RuntimeTaskNotification;
 use yode_tools::registry::ToolRegistry;
+use yode_tools::RuntimeTaskNotification;
 
 use crate::event::{self, AppEvent};
 use crate::ui;
@@ -155,7 +155,10 @@ fn render_task_notification_xml(notification: &RuntimeTaskNotification) -> Strin
         xml_escape(notification_summary(notification))
     ));
     if let Some(path) = notification.output_path.as_deref() {
-        output.push_str(&format!("<output-path>{}</output-path>\n", xml_escape(path)));
+        output.push_str(&format!(
+            "<output-path>{}</output-path>\n",
+            xml_escape(path)
+        ));
     }
     if let Some(path) = notification.transcript_path.as_deref() {
         output.push_str(&format!(

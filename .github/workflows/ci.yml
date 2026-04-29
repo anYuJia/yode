@@ -34,6 +34,9 @@ jobs:
       - name: Cache cargo artifacts
         uses: Swatinem/rust-cache@v2
 
+      - name: Format check
+        run: cargo fmt -p yode -p yode-core -p yode-llm -p yode-tools -p yode-tui -p yode-mcp -p yode-agent -- --check
+
       - name: Clippy advisory
         continue-on-error: true
         run: cargo clippy --workspace --no-deps -- -D warnings

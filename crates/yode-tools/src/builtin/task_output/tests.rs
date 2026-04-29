@@ -125,7 +125,10 @@ async fn accepts_claude_block_and_timeout_aliases() {
         .unwrap();
     assert!(!result.is_error);
     assert_eq!(result.metadata.as_ref().unwrap()["block"], true);
-    assert_eq!(result.metadata.as_ref().unwrap()["retrieval_status"], "timeout");
+    assert_eq!(
+        result.metadata.as_ref().unwrap()["retrieval_status"],
+        "timeout"
+    );
     assert_eq!(result.metadata.as_ref().unwrap()["follow_timed_out"], true);
 }
 

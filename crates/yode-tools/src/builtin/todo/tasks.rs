@@ -413,10 +413,16 @@ impl Tool for TaskStopTool {
         }
         if !store.request_cancel(task_id) {
             return Ok(ToolResult::error_typed(
-                format!("Runtime task {} has no active cancellation handle.", task.id),
+                format!(
+                    "Runtime task {} has no active cancellation handle.",
+                    task.id
+                ),
                 crate::tool::ToolErrorType::Execution,
                 true,
-                Some("Refresh /tasks; the task may have completed while cancellation was requested.".to_string()),
+                Some(
+                    "Refresh /tasks; the task may have completed while cancellation was requested."
+                        .to_string(),
+                ),
             ));
         }
 

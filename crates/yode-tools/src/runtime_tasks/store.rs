@@ -338,7 +338,10 @@ fn read_task_result_preview(path: &str) -> Option<String> {
     if preview.is_empty() {
         None
     } else if preview.chars().count() > 800 {
-        Some(format!("{}...", preview.chars().take(800).collect::<String>()))
+        Some(format!(
+            "{}...",
+            preview.chars().take(800).collect::<String>()
+        ))
     } else {
         Some(preview.to_string())
     }
