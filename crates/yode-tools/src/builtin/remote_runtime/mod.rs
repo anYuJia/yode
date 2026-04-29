@@ -1,11 +1,12 @@
 mod status;
+mod types;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
 
@@ -16,111 +17,15 @@ use status::{
     normalize_result_status, queue_status_label, sanitize_label, summarize_queue_status,
     transport_block_reason, truncate_preview,
 };
+use types::{
+    RemoteControlArtifactSet, RemoteControlPayload, RemoteLiveSessionArtifactSet,
+    RemoteLiveSessionPayload, RemoteQueueItem, RemoteSessionEndpoint, RemoteTransportArtifactSet,
+    RemoteTransportPayload,
+};
 
 pub struct RemoteQueueDispatchTool;
 pub struct RemoteQueueResultTool;
 pub struct RemoteTransportControlTool;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct RemoteQueueItem {
-    id: String,
-    command: String,
-    status: String,
-    attempts: u32,
-    runtime_task_id: Option<String>,
-    transcript_path: Option<String>,
-    last_run_at: Option<String>,
-    last_result_preview: Option<String>,
-    execution_artifact: Option<String>,
-    acknowledged_at: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct RemoteControlPayload {
-    kind: String,
-    goal: String,
-    session_id: String,
-    provider: String,
-    model: String,
-    working_dir: String,
-    remote_dir: String,
-    created_at: String,
-    status: String,
-    command_queue: Vec<RemoteQueueItem>,
-    latest_remote_capability: Option<String>,
-    latest_remote_execution: Option<String>,
-    latest_checkpoint: Option<String>,
-    latest_orchestration: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct RemoteTransportPayload {
-    kind: String,
-    session_id: String,
-    remote_dir: String,
-    created_at: String,
-    handshake_status: String,
-    handshake_summary: String,
-    retry_backoff_secs: Vec<u64>,
-    connection_status: String,
-    connection_id: Option<String>,
-    connected_at: Option<String>,
-    disconnected_at: Option<String>,
-    reconnect_attempts: u32,
-    last_error: Option<String>,
-    last_command: Option<String>,
-    queue_gate: Option<String>,
-    last_transition_at: Option<String>,
-    latest_transport_task_id: Option<String>,
-    latest_event: Option<String>,
-    latest_event_at: Option<String>,
-    latest_event_artifact: Option<String>,
-    live_session_status: Option<String>,
-    continuity_id: Option<String>,
-    active_endpoint_id: Option<String>,
-    resume_cursor: Option<u64>,
-    latest_remote_control: Option<String>,
-    latest_remote_execution: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct RemoteSessionEndpoint {
-    endpoint_id: String,
-    device_kind: String,
-    device_label: String,
-    status: String,
-    connection_id: Option<String>,
-    last_seen_at: String,
-    last_result_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct RemoteLiveSessionPayload {
-    kind: String,
-    session_id: String,
-    continuity_id: String,
-    created_at: String,
-    updated_at: String,
-    session_status: String,
-    transport_status: String,
-    active_endpoint_id: Option<String>,
-    resume_count: u32,
-    last_resumed_at: Option<String>,
-    latest_queue_item_id: Option<String>,
-    latest_result_id: Option<String>,
-    latest_result_status: Option<String>,
-    latest_result_summary: Option<String>,
-    result_cursor: u64,
-    resume_cursor: u64,
-    latest_remote_control: Option<String>,
-    latest_transport_state: Option<String>,
-    latest_transport_events: Option<String>,
-    latest_transcript_path: Option<String>,
-    transcript_sync_status: String,
-    last_transcript_sync_at: Option<String>,
-    transcript_sync_artifact: Option<String>,
-    endpoints: Vec<RemoteSessionEndpoint>,
-}
 
 #[derive(Debug, Deserialize)]
 struct RemoteQueueDispatchParams {
@@ -159,25 +64,6 @@ struct RemoteTransportControlParams {
     action: String,
     #[serde(default)]
     detail: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-struct RemoteControlArtifactSet {
-    summary_path: PathBuf,
-    state_path: PathBuf,
-    queue_path: PathBuf,
-}
-
-#[derive(Debug, Clone)]
-struct RemoteTransportArtifactSet {
-    summary_path: PathBuf,
-    state_path: PathBuf,
-}
-
-#[derive(Debug, Clone)]
-struct RemoteLiveSessionArtifactSet {
-    summary_path: PathBuf,
-    state_path: PathBuf,
 }
 
 #[async_trait]
