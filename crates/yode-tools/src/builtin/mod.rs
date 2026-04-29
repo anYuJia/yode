@@ -106,6 +106,7 @@ pub fn register_builtin_tools(registry: &ToolRegistry) {
     registry.register(Arc::new(lsp::LspTool));
     registry.register(Arc::new(agent::AgentTool));
     registry.register(Arc::new(team_runtime::TeamCreateTool));
+    registry.register(Arc::new(team_runtime::TeamDeleteTool));
     registry.register(Arc::new(team_runtime::SendMessageTool));
     registry.register(Arc::new(team_runtime::TeamReceiveTool));
     registry.register(Arc::new(team_runtime::TeamRunReadyTool));

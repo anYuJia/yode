@@ -130,6 +130,24 @@ pub fn agent_team_artifact_paths(working_dir: &Path, team_id: &str) -> AgentTeam
     }
 }
 
+pub fn delete_agent_team_runtime(working_dir: &Path, team_id: &str) -> Result<Vec<PathBuf>> {
+    let paths = [
+        team_summary_path(working_dir, team_id),
+        team_state_path(working_dir, team_id),
+        team_messages_path(working_dir, team_id),
+        team_monitor_path(working_dir, team_id),
+        team_bundle_path(working_dir, team_id),
+    ];
+    let mut removed = Vec::new();
+    for path in paths {
+        if path.exists() {
+            std::fs::remove_file(&path)?;
+            removed.push(path);
+        }
+    }
+    Ok(removed)
+}
+
 pub fn hydrate_agent_team_manager(
     working_dir: &Path,
     manager: &mut AgentTeamManager,
@@ -216,6 +234,13 @@ pub fn latest_agent_team_file(working_dir: &Path, suffix: &str) -> Option<PathBu
         .collect::<Vec<_>>();
     entries.sort_by(|left, right| right.file_name().cmp(&left.file_name()));
     entries.into_iter().next()
+}
+
+fn latest_team_id_from_disk(working_dir: &Path) -> Option<String> {
+    latest_agent_team_file(working_dir, "agent-team-state.json")
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .and_then(|body| serde_json::from_str::<AgentTeamState>(&body).ok())
+        .map(|state| state.team_id)
 }
 
 pub fn update_agent_team_member(
@@ -496,6 +521,7 @@ pub fn render_agent_team_monitor_from_snapshot(
 }
 
 pub struct TeamCreateTool;
+pub struct TeamDeleteTool;
 pub struct SendMessageTool;
 pub struct TeamReceiveTool;
 pub struct TeamMonitorTool;
@@ -505,6 +531,10 @@ pub struct TeamRunReadyTool;
 impl Tool for TeamCreateTool {
     fn name(&self) -> &str {
         "team_create"
+    }
+
+    fn aliases(&self) -> Vec<String> {
+        vec!["TeamCreate".to_string()]
     }
 
     fn user_facing_name(&self) -> &str {
@@ -618,6 +648,83 @@ impl Tool for TeamCreateTool {
                 "team_messages_artifact": artifacts.messages_path.as_ref().map(|path| path.display().to_string()),
                 "team_monitor_artifact": artifacts.monitor_path.as_ref().map(|path| path.display().to_string()),
                 "team_bundle_artifact": artifacts.bundle_path.as_ref().map(|path| path.display().to_string()),
+            }),
+        ))
+    }
+}
+
+#[async_trait]
+impl Tool for TeamDeleteTool {
+    fn name(&self) -> &str {
+        "team_delete"
+    }
+
+    fn aliases(&self) -> Vec<String> {
+        vec!["TeamDelete".to_string()]
+    }
+
+    fn user_facing_name(&self) -> &str {
+        "Agent Team Cleanup"
+    }
+
+    fn description(&self) -> &str {
+        "Delete an agent team runtime from memory and remove its scoped .yode/teams artifacts."
+    }
+
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "team_id": { "type": "string" },
+                "team_name": {
+                    "type": "string",
+                    "description": "Alias for team_id. If omitted, deletes the latest team runtime."
+                }
+            }
+        })
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            requires_confirmation: false,
+            supports_auto_execution: true,
+            read_only: false,
+        }
+    }
+
+    async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
+        let working_dir = ctx
+            .working_dir
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Working directory not set"))?;
+        let mut team_id = string_param(&params, "team_id", "team_name").map(str::to_string);
+
+        if let Some(manager) = ctx.team_runtime.as_ref() {
+            let mut manager = manager.lock().await;
+            if team_id.is_none() {
+                team_id = manager.latest_team_id().map(str::to_string);
+            }
+            if let Some(team_id) = team_id.as_deref() {
+                let _ = manager.delete_team(team_id);
+            }
+        }
+
+        let team_id = team_id
+            .or_else(|| latest_team_id_from_disk(working_dir))
+            .ok_or_else(|| anyhow::anyhow!("No agent team runtime found to delete."))?;
+        let removed_paths = delete_agent_team_runtime(working_dir, &team_id)?;
+        Ok(ToolResult::success_with_metadata(
+            format!(
+                "Agent team deleted: {} ({} artifacts removed)",
+                team_id,
+                removed_paths.len()
+            ),
+            json!({
+                "team_id": team_id,
+                "removed_artifacts": removed_paths
+                    .iter()
+                    .map(|path| path.display().to_string())
+                    .collect::<Vec<_>>(),
             }),
         ))
     }
@@ -1419,7 +1526,7 @@ mod tests {
     use super::{
         append_agent_team_message, latest_agent_team_file, persist_agent_team_runtime,
         render_agent_team_monitor, update_agent_team_member, AgentTeamMemberState, SendMessageTool,
-        TeamCreateTool, TeamMonitorTool, TeamReceiveTool, TeamRunReadyTool,
+        TeamCreateTool, TeamDeleteTool, TeamMonitorTool, TeamReceiveTool, TeamRunReadyTool,
     };
     use crate::runtime_tasks::RuntimeTaskStore;
     use crate::tool::{SubAgentOptions, SubAgentRunner, Tool, ToolContext};
@@ -1616,6 +1723,50 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("agent-team-messages"));
+    }
+
+    #[tokio::test]
+    async fn team_create_and_delete_accept_claude_names() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ToolContext::empty();
+        ctx.working_dir = Some(dir.path().to_path_buf());
+        ctx.team_runtime = Some(Arc::new(Mutex::new(AgentTeamManager::new())));
+
+        assert!(TeamCreateTool
+            .aliases()
+            .iter()
+            .any(|alias| alias == "TeamCreate"));
+        assert!(TeamDeleteTool
+            .aliases()
+            .iter()
+            .any(|alias| alias == "TeamDelete"));
+
+        TeamCreateTool
+            .execute(
+                json!({
+                    "goal": "ship feature",
+                    "team_name": "team-demo",
+                    "members": [{ "id": "review", "description": "review" }]
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+        assert!(latest_agent_team_file(dir.path(), "agent-team-state.json").is_some());
+
+        let result = TeamDeleteTool.execute(json!({}), &ctx).await.unwrap();
+
+        assert!(!result.is_error);
+        assert_eq!(result.metadata.as_ref().unwrap()["team_id"], "team-demo");
+        assert!(latest_agent_team_file(dir.path(), "agent-team-state.json").is_none());
+        assert!(ctx
+            .team_runtime
+            .as_ref()
+            .unwrap()
+            .lock()
+            .await
+            .snapshot("team-demo")
+            .is_none());
     }
 
     #[tokio::test]

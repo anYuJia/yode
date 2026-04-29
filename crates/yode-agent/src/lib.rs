@@ -424,6 +424,14 @@ impl AgentTeamManager {
         self.teams.get(team_id).cloned()
     }
 
+    pub fn delete_team(&mut self, team_id: &str) -> Option<AgentTeamSnapshot> {
+        let removed = self.teams.remove(team_id);
+        if self.latest_team_id.as_deref() == Some(team_id) {
+            self.latest_team_id = self.teams.keys().next_back().cloned();
+        }
+        removed
+    }
+
     pub fn upsert_snapshot(&mut self, state: AgentTeamState, messages: Vec<AgentTeamMessage>) {
         self.latest_team_id = Some(state.team_id.clone());
         self.teams.insert(
@@ -907,6 +915,9 @@ mod tests {
             .unwrap();
         assert_eq!(manager.snapshot("team-demo").unwrap().messages.len(), 1);
         assert_eq!(manager.list_team_ids(), vec!["team-demo".to_string()]);
+        assert!(manager.delete_team("team-demo").is_some());
+        assert!(manager.snapshot("team-demo").is_none());
+        assert_eq!(manager.latest_team_id(), None);
     }
 
     #[test]
