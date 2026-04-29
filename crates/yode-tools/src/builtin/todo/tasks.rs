@@ -322,7 +322,7 @@ impl Tool for TaskStopTool {
     }
 
     fn aliases(&self) -> Vec<String> {
-        vec!["TaskStop".to_string()]
+        vec!["TaskStop".to_string(), "KillShell".to_string()]
     }
 
     fn user_facing_name(&self) -> &str {
@@ -348,9 +348,12 @@ impl Tool for TaskStopTool {
                 "task_id": {
                     "type": "string",
                     "description": "The runtime task ID to stop"
+                },
+                "shell_id": {
+                    "type": "string",
+                    "description": "Deprecated alias for task_id, kept for compatibility with older transcripts"
                 }
-            },
-            "required": ["task_id"]
+            }
         })
     }
 
@@ -363,27 +366,75 @@ impl Tool for TaskStopTool {
     }
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
-        let runtime_tasks = ctx
-            .runtime_tasks
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Runtime task store not available"))?;
+        let Some(runtime_tasks) = ctx.runtime_tasks.as_ref() else {
+            return Ok(ToolResult::error_typed(
+                "Runtime task store not available.".to_string(),
+                crate::tool::ToolErrorType::Execution,
+                true,
+                Some("Run /tasks after starting a background bash or agent task.".to_string()),
+            ));
+        };
         let task_id = params
             .get("task_id")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("Missing task_id"))?;
+            .or_else(|| params.get("shell_id").and_then(|v| v.as_str()));
+        let Some(task_id) = task_id.filter(|id| !id.trim().is_empty()) else {
+            return Ok(ToolResult::error_typed(
+                "Missing required parameter: task_id".to_string(),
+                crate::tool::ToolErrorType::Validation,
+                true,
+                Some("Pass the runtime task ID from /tasks or prior tool metadata.".to_string()),
+            ));
+        };
 
         let mut store = runtime_tasks.lock().await;
-        if store.request_cancel(task_id) {
-            Ok(ToolResult::success(format!(
-                "Cancellation requested for runtime task '{}'.",
-                task_id
-            )))
-        } else {
-            Ok(ToolResult::error(format!(
-                "Runtime task '{}' is not running or was not found.",
-                task_id
-            )))
+        let Some(task) = store.get(task_id) else {
+            return Ok(ToolResult::error_typed(
+                format!("No runtime task found with ID: {}", task_id),
+                crate::tool::ToolErrorType::NotFound,
+                true,
+                Some("Run /tasks to inspect available task IDs first.".to_string()),
+            ));
+        };
+        if !matches!(
+            task.status,
+            crate::runtime_tasks::RuntimeTaskStatus::Pending
+                | crate::runtime_tasks::RuntimeTaskStatus::Running
+        ) {
+            return Ok(ToolResult::error_typed(
+                format!(
+                    "Runtime task {} is not running (status: {:?}).",
+                    task.id, task.status
+                ),
+                crate::tool::ToolErrorType::Validation,
+                false,
+                Some("Use task_output to read the final task result.".to_string()),
+            ));
         }
+        if !store.request_cancel(task_id) {
+            return Ok(ToolResult::error_typed(
+                format!("Runtime task {} has no active cancellation handle.", task.id),
+                crate::tool::ToolErrorType::Execution,
+                true,
+                Some("Refresh /tasks; the task may have completed while cancellation was requested.".to_string()),
+            ));
+        }
+
+        Ok(ToolResult::success_with_metadata(
+            format!(
+                "Cancellation requested for runtime task {} ({}).",
+                task.id, task.description
+            ),
+            json!({
+                "task_id": task.id,
+                "task_kind": task.kind,
+                "task_type": task.source_tool,
+                "description": task.description,
+                "output_path": task.output_path,
+                "transcript_path": task.transcript_path,
+                "requested_cancel": true,
+            }),
+        ))
     }
 }
 
@@ -456,8 +507,68 @@ mod tests {
             .unwrap();
 
         assert!(!result.is_error);
+        assert_eq!(
+            result.metadata.as_ref().unwrap()["task_kind"],
+            json!("bash")
+        );
         cancel_rx.changed().await.unwrap();
         assert!(*cancel_rx.borrow());
+    }
+
+    #[tokio::test]
+    async fn task_stop_accepts_legacy_shell_id_alias() {
+        let runtime_tasks = Arc::new(Mutex::new(RuntimeTaskStore::new()));
+        let mut store = runtime_tasks.lock().await;
+        let (task, mut cancel_rx) = store.create(
+            "bash".to_string(),
+            "bash".to_string(),
+            "legacy shell".to_string(),
+            "/tmp/task.log".to_string(),
+        );
+        drop(store);
+
+        let mut ctx = ToolContext::empty();
+        ctx.runtime_tasks = Some(runtime_tasks);
+
+        let result = TaskStopTool
+            .execute(json!({ "shell_id": task.id }), &ctx)
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        cancel_rx.changed().await.unwrap();
+        assert!(*cancel_rx.borrow());
+    }
+
+    #[tokio::test]
+    async fn task_stop_rejects_completed_runtime_task() {
+        let runtime_tasks = Arc::new(Mutex::new(RuntimeTaskStore::new()));
+        let task_id = {
+            let mut store = runtime_tasks.lock().await;
+            let (task, _cancel_rx) = store.create(
+                "bash".to_string(),
+                "bash".to_string(),
+                "finished".to_string(),
+                "/tmp/task.log".to_string(),
+            );
+            store.mark_completed(&task.id);
+            task.id
+        };
+
+        let mut ctx = ToolContext::empty();
+        ctx.runtime_tasks = Some(runtime_tasks);
+
+        let result = TaskStopTool
+            .execute(json!({ "task_id": task_id }), &ctx)
+            .await
+            .unwrap();
+
+        assert!(result.is_error);
+        assert!(result.content.contains("not running"));
+        assert_eq!(
+            result.error_type,
+            Some(crate::tool::ToolErrorType::Validation)
+        );
     }
 
     #[tokio::test]
