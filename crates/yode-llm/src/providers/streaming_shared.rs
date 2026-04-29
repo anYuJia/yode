@@ -13,10 +13,6 @@ pub(crate) fn map_stop_reason(reason: &str) -> StopReason {
     }
 }
 
-pub(crate) async fn emit_stream_error(tx: &mpsc::Sender<StreamEvent>, message: impl Into<String>) {
-    let _ = tx.send(StreamEvent::Error(message.into())).await;
-}
-
 pub(crate) async fn emit_usage_update(tx: &mpsc::Sender<StreamEvent>, usage: &Usage) {
     let _ = tx.send(StreamEvent::UsageUpdate(usage.clone())).await;
 }

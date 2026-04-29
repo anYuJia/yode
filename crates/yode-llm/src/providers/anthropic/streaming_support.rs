@@ -1,12 +1,12 @@
 use std::collections::{BTreeMap, HashMap};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use tokio::sync::mpsc;
 use tracing::{debug, error, warn};
 
 use crate::providers::streaming_shared::{
-    append_tool_call_delta, emit_done_event, emit_stream_error, emit_tool_call_end,
-    emit_tool_call_start, emit_usage_update, map_stop_reason,
+    append_tool_call_delta, emit_done_event, emit_tool_call_end, emit_tool_call_start,
+    emit_usage_update, map_stop_reason,
 };
 use crate::types::{Message, StopReason, StreamEvent, ToolCall, Usage};
 
@@ -169,9 +169,8 @@ pub(super) async fn handle_stream_event(
         AnthropicStreamEvent::Error { error: err } => {
             let msg = format!("Anthropic stream error: {}", err.message);
             error!("{}", msg);
-            emit_stream_error(tx, msg).await;
             state.finalize_reason = "stream_error_event";
-            return Ok(true);
+            return Err(anyhow!(msg));
         }
         AnthropicStreamEvent::Unknown => {
             tracing::debug!("Received unknown SSE event type from API - data: {}", data);
@@ -249,10 +248,10 @@ mod tests {
     use tokio::sync::mpsc;
 
     use crate::providers::anthropic::streaming_support::{
-        handle_stream_event, AnthropicStreamState,
+        finalize_stream, handle_stream_event, AnthropicStreamState,
     };
     use crate::providers::anthropic::types::{
-        AnthropicStreamEvent, ContentBlockDelta, ContentBlockStart,
+        AnthropicErrorDetail, AnthropicStreamEvent, ContentBlockDelta, ContentBlockStart,
     };
     use crate::types::{ContentBlock, StreamEvent};
 
@@ -295,5 +294,38 @@ mod tests {
             Some(ContentBlock::Text { text })
                 if text == "Thinking out loud: this is user-visible text"
         ));
+    }
+
+    #[tokio::test]
+    async fn stream_error_event_returns_error_without_done_event() {
+        let (tx, mut rx) = mpsc::channel(8);
+        let mut state = AnthropicStreamState::new("claude".to_string());
+
+        let err = handle_stream_event(
+            &mut state,
+            AnthropicStreamEvent::Error {
+                error: AnthropicErrorDetail {
+                    message: "overloaded".to_string(),
+                    _type: Some("overloaded_error".to_string()),
+                },
+            },
+            "",
+            &tx,
+        )
+        .await
+        .unwrap_err();
+
+        assert!(err.to_string().contains("overloaded"));
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn finalize_stream_still_emits_done_for_clean_partial_eof() {
+        let (tx, mut rx) = mpsc::channel(8);
+        let state = AnthropicStreamState::new("claude".to_string());
+
+        finalize_stream(state, &tx).await.unwrap();
+
+        assert!(matches!(rx.recv().await, Some(StreamEvent::Done(_))));
     }
 }
