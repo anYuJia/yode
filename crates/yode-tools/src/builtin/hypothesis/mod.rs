@@ -289,4 +289,108 @@ mod tests {
         assert!(list_a.content.contains("session A only"));
         assert_eq!(list_b.content, "No hypotheses recorded.");
     }
+
+    #[tokio::test]
+    async fn hypothesis_lifecycle_reports_verified_refuted_and_pending_items() {
+        let tool = HypothesisTool;
+        let session = ctx("hypothesis-lifecycle");
+        tool.execute(json!({"action": "clear"}), &session)
+            .await
+            .unwrap();
+
+        tool.execute(
+            json!({
+                "action": "create",
+                "hypothesis": "parser drops final line",
+                "evidence_needed": "fixture with unterminated line",
+                "type": "BUG"
+            }),
+            &session,
+        )
+        .await
+        .unwrap();
+        tool.execute(
+            json!({
+                "action": "create",
+                "hypothesis": "cache invalidation is stale",
+                "evidence_needed": "mtime comparison",
+                "type": "RISK"
+            }),
+            &session,
+        )
+        .await
+        .unwrap();
+        tool.execute(
+            json!({
+                "action": "create",
+                "hypothesis": "rendering can skip full redraw",
+                "evidence_needed": "dirty-region profile",
+                "type": "OPTIMIZATION"
+            }),
+            &session,
+        )
+        .await
+        .unwrap();
+
+        let verified = tool
+            .execute(
+                json!({
+                    "action": "verify",
+                    "id": "h1",
+                    "evidence": "unit fixture reproduces the dropped line",
+                    "confidence": "HIGH"
+                }),
+                &session,
+            )
+            .await
+            .unwrap();
+        assert!(verified.content.contains("Verified [h1]"));
+
+        let refuted = tool
+            .execute(
+                json!({
+                    "action": "refute",
+                    "id": "h2",
+                    "evidence": "mtime is refreshed on write"
+                }),
+                &session,
+            )
+            .await
+            .unwrap();
+        assert!(refuted.content.contains("Refuted [h2]"));
+
+        let missing = tool
+            .execute(
+                json!({
+                    "action": "verify",
+                    "id": "missing",
+                    "evidence": "none"
+                }),
+                &session,
+            )
+            .await
+            .unwrap();
+        assert!(missing.is_error);
+        assert!(missing.content.contains("not found"));
+
+        let report = tool
+            .execute(json!({"action": "report"}), &session)
+            .await
+            .unwrap();
+        assert!(report.content.contains("## Verified Findings"));
+        assert!(report.content.contains("parser drops final line"));
+        assert!(report.content.contains("## Excluded (Refuted)"));
+        assert!(report.content.contains("cache invalidation is stale"));
+        assert!(report.content.contains("## Pending (Not Yet Verified)"));
+        assert!(report.content.contains("rendering can skip full redraw"));
+
+        tool.execute(json!({"action": "clear"}), &session)
+            .await
+            .unwrap();
+        let list = tool
+            .execute(json!({"action": "list"}), &session)
+            .await
+            .unwrap();
+        assert_eq!(list.content, "No hypotheses recorded.");
+    }
 }
