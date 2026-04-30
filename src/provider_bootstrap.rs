@@ -253,7 +253,9 @@ pub(crate) fn bootstrap_provider_registry(
     let provider = provider_registry.get(&provider_name).context(format!(
         "Provider '{}' not available. Set the appropriate API key environment variable.\n\
          - OpenAI: OPENAI_API_KEY\n\
-         - Anthropic: ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN",
+         - Anthropic: ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN\n\
+         - Gemini: GOOGLE_API_KEY or GEMINI_API_KEY\n\
+         Or configure a provider with `yode setup`.",
         provider_name
     ))?;
 
