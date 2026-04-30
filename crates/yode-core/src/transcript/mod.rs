@@ -14,6 +14,10 @@ use crate::context_manager::CompressionReport;
 
 const TRANSCRIPTS_DIR: &str = ".yode/transcripts";
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "transcript writer passes the full compaction context through to the renderer"
+)]
 pub fn write_compaction_transcript(
     project_root: &Path,
     session_id: &str,

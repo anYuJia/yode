@@ -20,33 +20,6 @@ pub(super) fn classify_error(err: &anyhow::Error) -> ErrorKind {
     } else if msg.contains("429") || msg.contains("rate_limit") || msg.contains("Too Many Requests")
     {
         ErrorKind::RateLimit
-    } else if msg.contains("500")
-        || msg.contains("502")
-        || msg.contains("503")
-        || msg.contains("504")
-        || msg.contains("API error (")
-        || msg.contains("timeout")
-        || msg.contains("超时")
-        || msg.contains("timed out")
-        || msg.contains("connection")
-        || msg.contains("Connection")
-        || msg.contains("ECONNRESET")
-        || msg.contains("ECONNREFUSED")
-        || msg.contains("Broken pipe")
-        || msg.contains("reset by peer")
-        || msg.contains("Failed to send")
-        || msg.contains("failed to send")
-        || msg.contains("dns error")
-        || msg.contains("DNS error")
-        || msg.contains("hyper")
-        || msg.contains("reqwest")
-        || msg.contains("network")
-        || msg.contains("Network")
-        || msg.contains("temporarily unavailable")
-        || msg.contains("connect error")
-        || msg.contains("Connect error")
-    {
-        ErrorKind::Transient
     } else {
         ErrorKind::Transient
     }

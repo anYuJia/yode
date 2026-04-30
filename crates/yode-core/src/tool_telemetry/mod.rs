@@ -24,6 +24,10 @@ fn hash_string(value: &str) -> String {
     format!("{:016x}", hasher.finish())
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "prompt cache comparison intentionally compares four previous/current cache prefixes"
+)]
 fn prompt_cache_change_summary(
     previous_system: Option<&str>,
     previous_restore: Option<&str>,
@@ -75,6 +79,10 @@ fn truncate_cache_text(text: &str, max_chars: usize) -> String {
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "prompt cache diff artifact records all previous/current hashes and excerpts in one snapshot"
+)]
 fn write_prompt_cache_diff_artifact(
     project_root: &std::path::Path,
     session_id: &str,
@@ -619,6 +627,10 @@ impl AgentEngine {
         self.last_tool_truncation_reason = Some(truncation.reason.clone());
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "tool execution trace records execution timing, batching, progress, and input size together"
+    )]
     pub(super) fn record_tool_execution_trace(
         &mut self,
         tool_call: &ToolCall,

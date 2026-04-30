@@ -224,7 +224,7 @@ impl AgentEngine {
                 .unwrap_or(Value::Null),
         );
 
-        if let Some(shared) = self.shared_memory_status.try_lock().ok() {
+        if let Ok(shared) = self.shared_memory_status.try_lock() {
             metadata.insert(
                 "last_session_memory_update_at".to_string(),
                 shared
@@ -255,7 +255,7 @@ impl AgentEngine {
     }
 
     pub(super) fn session_end_memory_flush_metadata(&self) -> Value {
-        if let Some(shared) = self.shared_memory_status.try_lock().ok() {
+        if let Ok(shared) = self.shared_memory_status.try_lock() {
             json!({
                 "path": shared.last_session_memory_update_path,
                 "updated_at": shared.last_session_memory_update_at,

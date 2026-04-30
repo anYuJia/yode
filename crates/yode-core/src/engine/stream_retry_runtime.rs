@@ -7,6 +7,10 @@ pub(super) enum StreamRetryAction {
 }
 
 impl AgentEngine {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "stream retry mutates the in-flight stream buffers and event channels atomically"
+    )]
     pub(super) async fn retry_stream_after_error(
         &mut self,
         err: anyhow::Error,

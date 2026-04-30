@@ -111,6 +111,10 @@ impl AgentEngine {
         }
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "permission artifacts persist both original and hook-mutated inputs for recovery auditability"
+    )]
     pub(super) fn write_permission_artifact(
         &mut self,
         source: &str,

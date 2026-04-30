@@ -1,6 +1,10 @@
 use super::*;
 
 impl AgentEngine {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "permission handling coordinates prepared tool state, confirmation IO, and cancellation"
+    )]
     pub(super) async fn handle_permission_action(
         &mut self,
         action: PermissionAction,

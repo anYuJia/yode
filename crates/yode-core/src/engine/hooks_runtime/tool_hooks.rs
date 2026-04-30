@@ -101,6 +101,10 @@ impl AgentEngine {
         None
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "hook defer artifacts intentionally capture original/effective input snapshots and hook provenance"
+    )]
     fn write_hook_defer_artifact(
         &self,
         tool_name: &str,

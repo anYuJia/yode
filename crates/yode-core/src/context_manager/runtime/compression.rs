@@ -95,7 +95,7 @@ impl ContextManager {
         report
     }
 
-    pub fn microcompact(&self, messages: &mut Vec<Message>) -> MicrocompactReport {
+    pub fn microcompact(&self, messages: &mut [Message]) -> MicrocompactReport {
         let mut report = MicrocompactReport::default();
         if messages.len() <= MICROCOMPACT_PRESERVE_RECENT + 1 {
             return report;

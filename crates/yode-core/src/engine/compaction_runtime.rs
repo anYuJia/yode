@@ -995,7 +995,7 @@ impl AgentEngine {
         let read_files = self.files_read.keys().cloned().collect::<Vec<_>>();
         let modified_files = self.files_modified.clone();
 
-        let runtime_lines = vec![
+        let runtime_lines = [
             format!(
                 "{} Re-injected runtime context after {} compaction.",
                 POST_COMPACT_RUNTIME_PREFIX,
@@ -1610,7 +1610,8 @@ impl AgentEngine {
             let summarized_tool_results = collect_tool_result_ids(range);
             let mut changed = false;
 
-            for idx in 1..start {
+            let mut idx = 1;
+            while idx < start {
                 let message = &self.messages[idx];
                 if matches!(message.role, Role::Assistant)
                     && message
@@ -1622,9 +1623,11 @@ impl AgentEngine {
                     changed = true;
                     break;
                 }
+                idx += 1;
             }
 
-            for idx in end..self.messages.len() {
+            let mut idx = end;
+            while idx < self.messages.len() {
                 let message = &self.messages[idx];
                 if matches!(message.role, Role::Tool)
                     && message
@@ -1635,6 +1638,7 @@ impl AgentEngine {
                     end = idx + 1;
                     changed = true;
                 }
+                idx += 1;
             }
 
             if !changed {

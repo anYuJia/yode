@@ -8,6 +8,10 @@ use super::summary::{
 };
 use crate::context_manager::CompressionReport;
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "compaction transcript output needs session, summary, memory, and file-context dimensions"
+)]
 pub(super) fn render_compaction_transcript(
     project_root: &Path,
     session_id: &str,

@@ -516,6 +516,10 @@ impl SubAgentRunner for SubAgentRunnerImpl {
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "team runtime sync writes a complete member status/result tuple to persisted state"
+)]
 async fn sync_team_runtime_update(
     manager: &Arc<Mutex<AgentTeamManager>>,
     working_dir: &std::path::Path,
@@ -784,6 +788,10 @@ async fn emit_subagent_hook(
     let _ = hook_manager.execute(event, &hook_context).await;
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "task hook emission mirrors hook protocol fields and metadata in one boundary"
+)]
 async fn emit_task_hook(
     hook_manager: Option<&Arc<HookManager>>,
     event: HookEvent,

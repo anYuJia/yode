@@ -116,16 +116,16 @@ impl AgentEngine {
             }
         }
 
-        if tool_name == "bash" && result.is_error {
-            if result.content.contains("error[E") {
-                if let Some(line) = result.content.lines().find(|l| l.contains("error[E")) {
-                    result.content.push_str(&format!(
-                        "\n\n[Build error detected. Focus on the first error: `{}`\n\
-                         Read the file at the indicated line to understand the issue before attempting a fix.]",
-                        line.trim().chars().take(200).collect::<String>()
-                    ));
-                }
-            }
+        if let Some(line) =
+            (tool_name == "bash" && result.is_error && result.content.contains("error[E"))
+                .then(|| result.content.lines().find(|l| l.contains("error[E")))
+                .flatten()
+        {
+            result.content.push_str(&format!(
+                "\n\n[Build error detected. Focus on the first error: `{}`\n\
+                 Read the file at the indicated line to understand the issue before attempting a fix.]",
+                line.trim().chars().take(200).collect::<String>()
+            ));
         }
 
         if self.consecutive_failures == 2 {

@@ -97,11 +97,7 @@ impl DenialTracker {
     }
 
     pub fn recent_entries(&self, limit: usize) -> Vec<DenialRecordView> {
-        let mut entries = self
-            .states
-            .iter()
-            .map(|(tool_name, state)| (tool_name, state))
-            .collect::<Vec<_>>();
+        let mut entries = self.states.iter().collect::<Vec<_>>();
         entries.sort_by(|a, b| b.1.last_time.cmp(&a.1.last_time));
         entries
             .into_iter()
@@ -116,11 +112,7 @@ impl DenialTracker {
     }
 
     pub fn recent_shell_prefix_entries(&self, limit: usize) -> Vec<DenialClusterView> {
-        let mut entries = self
-            .shell_prefix_states
-            .iter()
-            .map(|(prefix, state)| (prefix, state))
-            .collect::<Vec<_>>();
+        let mut entries = self.shell_prefix_states.iter().collect::<Vec<_>>();
         entries.sort_by(|a, b| b.1.last_time.cmp(&a.1.last_time));
         entries
             .into_iter()

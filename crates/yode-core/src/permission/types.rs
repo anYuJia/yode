@@ -112,11 +112,10 @@ pub struct PermissionRule {
 impl PermissionRule {
     /// Check if this rule matches a given tool name and optional command content.
     pub(crate) fn matches(&self, tool_name: &str, content: Option<&str>) -> bool {
-        let category_match = self.category.as_deref().is_some_and(|category| {
-            tool_categories(tool_name)
-                .iter()
-                .any(|item| *item == category)
-        });
+        let category_match = self
+            .category
+            .as_deref()
+            .is_some_and(|category| tool_categories(tool_name).contains(&category));
         let tool_match = if self.tool_name == "*" {
             self.category.is_none()
         } else {
