@@ -130,6 +130,14 @@ Output: Unified diff format showing added (+) and removed (-) lines."#
         }
 
         if let Some(p) = path {
+            if let Err(message) = validate_path_filter(p) {
+                return Ok(ToolResult::error_typed(
+                    message,
+                    ToolErrorType::Validation,
+                    true,
+                    Some("Use a workspace-relative path without '..' segments.".to_string()),
+                ));
+            }
             cmd.args(["--", p]);
         }
 
@@ -177,6 +185,27 @@ Output: Unified diff format showing added (+) and removed (-) lines."#
             ))
         }
     }
+}
+
+fn validate_path_filter(path: &str) -> std::result::Result<(), String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("Path filter cannot be empty.".to_string());
+    }
+    let path = std::path::Path::new(trimmed);
+    if path.is_absolute() {
+        return Err(format!(
+            "Path filter must be workspace-relative: {}",
+            trimmed
+        ));
+    }
+    if path
+        .components()
+        .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return Err(format!("Path filter escapes workspace: {}", trimmed));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -250,5 +279,19 @@ mod tests {
             json!(true)
         );
         assert_eq!(result.metadata.as_ref().unwrap()["files_changed"], json!(1));
+    }
+
+    #[test]
+    fn git_diff_path_filter_rejects_workspace_escape() {
+        assert!(validate_path_filter("src/lib.rs").is_ok());
+        assert!(validate_path_filter("../secret.txt")
+            .unwrap_err()
+            .contains("escapes workspace"));
+        assert!(validate_path_filter("/tmp/secret.txt")
+            .unwrap_err()
+            .contains("workspace-relative"));
+        assert!(validate_path_filter("  ")
+            .unwrap_err()
+            .contains("cannot be empty"));
     }
 }
