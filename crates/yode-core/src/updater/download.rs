@@ -45,7 +45,12 @@ pub(in crate::updater) async fn download_with_stall_detection(
         downloaded += chunk.len() as u64;
 
         let now = SystemTime::now();
-        if now.duration_since(last_progress).unwrap().as_millis() > STALL_TIMEOUT_MS as u128 {
+        if now
+            .duration_since(last_progress)
+            .unwrap_or_default()
+            .as_millis()
+            > STALL_TIMEOUT_MS as u128
+        {
             anyhow::bail!(
                 "Download stalled: no data received for {}ms",
                 STALL_TIMEOUT_MS

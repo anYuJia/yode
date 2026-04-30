@@ -166,8 +166,16 @@ impl LspManager {
                 .spawn()
                 .with_context(|| format!("Failed to start LSP server: {}", cmd))?;
 
-            let stdin = process.stdin.take().unwrap();
-            let stdout = BufReader::new(process.stdout.take().unwrap());
+            let stdin = process
+                .stdin
+                .take()
+                .ok_or_else(|| anyhow::anyhow!("LSP server stdin was not available"))?;
+            let stdout = BufReader::new(
+                process
+                    .stdout
+                    .take()
+                    .ok_or_else(|| anyhow::anyhow!("LSP server stdout was not available"))?,
+            );
 
             let mut server = LspServer {
                 _process: process,

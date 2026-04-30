@@ -303,7 +303,9 @@ fn write_string_with_retry(path: &Path, content: &str) -> Result<()> {
             }
         }
     }
-    Err(last_err.unwrap().into())
+    Err(last_err
+        .map(Into::into)
+        .unwrap_or_else(|| anyhow::anyhow!("session memory write failed without an I/O error")))
 }
 
 fn load_memory_excerpt(path: &Path, max_chars: usize) -> Option<String> {

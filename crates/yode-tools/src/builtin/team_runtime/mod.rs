@@ -305,7 +305,7 @@ pub fn append_agent_team_message(
     message: &str,
 ) -> Result<PathBuf> {
     let path = team_messages_path(working_dir, team_id);
-    std::fs::create_dir_all(path.parent().unwrap())?;
+    std::fs::create_dir_all(teams_dir(working_dir))?;
     let entry = AgentTeamMessage {
         at: now_string(),
         target: target.to_string(),

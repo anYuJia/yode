@@ -17,5 +17,7 @@ pub(super) fn write_string_with_retry(path: &Path, content: &str) -> Result<()> 
             }
         }
     }
-    Err(last_error.unwrap().into())
+    Err(last_error
+        .map(Into::into)
+        .unwrap_or_else(|| anyhow::anyhow!("transcript write failed without an I/O error")))
 }

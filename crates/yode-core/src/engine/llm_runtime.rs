@@ -79,9 +79,13 @@ impl AgentEngine {
                 let delay = retry_delay(kind, attempt - 1);
                 let total_secs = delay.as_secs();
                 if let Some(tx) = event_tx {
+                    let retry_message = last_err
+                        .as_ref()
+                        .map(summarize_retry_error)
+                        .unwrap_or_else(|| "LLM request failed before retry".to_string());
                     for remaining in (0..=total_secs).rev() {
                         let _ = tx.send(EngineEvent::Retrying {
-                            error_message: summarize_retry_error(last_err.as_ref().unwrap()),
+                            error_message: retry_message.clone(),
                             attempt: attempt + 1,
                             max_attempts: total_attempts,
                             delay_secs: remaining,
