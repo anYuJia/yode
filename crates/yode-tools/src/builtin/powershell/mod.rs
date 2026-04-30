@@ -1,21 +1,19 @@
 mod analysis;
+mod execution;
 
-use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::path::Path;
+#[cfg(test)]
+use std::path::PathBuf;
 #[cfg(test)]
 use std::sync::{LazyLock, Mutex};
-use std::time::Duration;
 
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use tokio::process::Command;
 
-use crate::builtin::shell_runtime::{
-    command_timeout_secs, execute_background_shell, timeout_ms_description, BackgroundShellSpec,
-};
-use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolErrorType, ToolResult};
-use analysis::analyze_powershell_command;
+use crate::builtin::shell_runtime::timeout_ms_description;
+use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
+use execution::execute_powershell_command;
 
 #[cfg(test)]
 static POWERSHELL_TEST_OVERRIDE: LazyLock<Mutex<Option<PathBuf>>> =
@@ -97,184 +95,8 @@ This tool supports `run_in_background` and `timeout_ms` like the bash tool."#
             .ok_or_else(|| anyhow::anyhow!("Missing required parameter: command"))?;
 
         let working_dir = ctx.working_dir.as_deref().unwrap_or_else(|| Path::new("."));
-        let timeout_secs = command_timeout_secs(&params);
-        let run_in_background = params
-            .get("run_in_background")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-
-        let executable = match resolve_powershell_executable() {
-            Ok(executable) => executable,
-            Err(err) => return Ok(ToolResult::error(err.to_string())),
-        };
-
-        if run_in_background {
-            return execute_background(&executable, command, working_dir, ctx).await;
-        }
-
-        let child = Command::new(&executable)
-            .arg("-NoProfile")
-            .arg("-Command")
-            .arg(command)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .current_dir(working_dir)
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|e| anyhow::anyhow!("Failed to spawn PowerShell: {}", e))?;
-
-        let output =
-            match tokio::time::timeout(Duration::from_secs(timeout_secs), child.wait_with_output())
-                .await
-            {
-                Ok(Ok(output)) => output,
-                Ok(Err(e)) => {
-                    return Ok(ToolResult::error(format!(
-                        "Failed to execute PowerShell command: {}",
-                        e
-                    )))
-                }
-                Err(_) => {
-                    return Ok(ToolResult::error_typed(
-                        format!("Command timed out after {} seconds", timeout_secs),
-                        ToolErrorType::Timeout,
-                        true,
-                        Some("Increase timeout or reduce scope.".to_string()),
-                    ));
-                }
-            };
-
-        format_output(&executable, command, working_dir, output)
+        execute_powershell_command(command, &params, working_dir, ctx).await
     }
-}
-
-fn format_output(
-    executable: &Path,
-    command: &str,
-    working_dir: &Path,
-    output: std::process::Output,
-) -> Result<ToolResult> {
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let exit_code = output.status.code().unwrap_or(-1);
-
-    let mut combined = String::new();
-    if !stdout.is_empty() {
-        combined.push_str(&stdout);
-    }
-    if !stderr.is_empty() {
-        if !combined.is_empty() {
-            combined.push('\n');
-        }
-        combined.push_str("[stderr]\n");
-        combined.push_str(&stderr);
-    }
-
-    if !output.status.success() {
-        if !combined.is_empty() {
-            combined.push('\n');
-        }
-        combined.push_str(&format!("[exit code: {}]", exit_code));
-        return Ok(ToolResult::error(combined));
-    }
-
-    let analysis = analyze_powershell_command(command);
-    let mut metadata = json!({
-        "command": command,
-        "cwd": working_dir.display().to_string(),
-        "shell": executable.display().to_string(),
-        "command_type": analysis.command_type,
-        "read_only": analysis.read_only,
-    });
-    if let Some(reason) = &analysis.read_only_reason {
-        metadata["read_only_reason"] = json!(reason);
-    }
-
-    if let Some(warning) = analysis.destructive_warning {
-        metadata["destructive_warning"] = json!(warning);
-    }
-
-    let suggestion = analysis.suggestion;
-    if let Some(rewrite) = suggestion.as_deref() {
-        metadata["rewrite_suggestion"] = json!(rewrite);
-    }
-    Ok(ToolResult {
-        content: combined,
-        is_error: false,
-        error_type: None,
-        recoverable: false,
-        suggestion,
-        metadata: Some(metadata),
-    })
-}
-
-async fn execute_background(
-    executable: &Path,
-    command: &str,
-    working_dir: &Path,
-    ctx: &ToolContext,
-) -> Result<ToolResult> {
-    execute_background_shell(
-        BackgroundShellSpec {
-            executable,
-            args: vec![
-                "-NoProfile".to_string(),
-                "-Command".to_string(),
-                command.to_string(),
-            ],
-            command_display: command,
-            task_kind: "powershell",
-            description_prefix: "Background powershell",
-            start_message: "PowerShell command started in background",
-        },
-        working_dir,
-        ctx,
-    )
-    .await
-}
-
-fn resolve_powershell_executable() -> Result<PathBuf> {
-    #[cfg(test)]
-    if let Some(path) = POWERSHELL_TEST_OVERRIDE.lock().unwrap().clone() {
-        return Ok(path);
-    }
-
-    if let Ok(path) = std::env::var("YODE_POWERSHELL_PATH") {
-        let path = PathBuf::from(path);
-        if path.exists() {
-            return Ok(path);
-        }
-    }
-
-    for candidate in ["pwsh", "powershell"] {
-        if let Some(path) = find_in_path(candidate) {
-            return Ok(path);
-        }
-    }
-
-    Err(anyhow::anyhow!(
-        "PowerShell executable not found. Install 'pwsh' or set YODE_POWERSHELL_PATH."
-    ))
-}
-
-fn find_in_path(command: &str) -> Option<PathBuf> {
-    let path_var = std::env::var_os("PATH")?;
-    let paths = std::env::split_paths(&path_var);
-
-    #[cfg(windows)]
-    let candidates = [format!("{}.exe", command), command.to_string()];
-    #[cfg(not(windows))]
-    let candidates = [command.to_string()];
-
-    for dir in paths {
-        for candidate in &candidates {
-            let full = dir.join(candidate);
-            if full.is_file() {
-                return Some(full);
-            }
-        }
-    }
-    None
 }
 
 #[cfg(test)]
