@@ -1,5 +1,6 @@
 mod params;
 mod paths;
+mod queue;
 mod render;
 mod status;
 mod types;
@@ -22,6 +23,7 @@ use paths::{
     latest_remote_transport_state_artifact, latest_transcript_artifact, load_json, now_string,
     remote_dir, short_session, timestamp_slug,
 };
+use queue::{default_queue_items, insert_queue_item, resolve_queue_index};
 use render::{
     render_remote_control_queue, render_remote_control_summary, render_remote_live_session_summary,
     render_remote_transport_summary,
@@ -946,78 +948,6 @@ fn sync_live_session_with_transport(
     if payload.session_id != session_id {
         payload.session_id = session_id.to_string();
     }
-}
-
-fn insert_queue_item(payload: &mut RemoteControlPayload, command: &str) {
-    let next_id = next_queue_id(payload);
-    payload.command_queue.insert(
-        0,
-        RemoteQueueItem {
-            id: next_id,
-            command: command.to_string(),
-            status: "queued".to_string(),
-            attempts: 0,
-            runtime_task_id: None,
-            transcript_path: None,
-            last_run_at: None,
-            last_result_preview: None,
-            execution_artifact: None,
-            acknowledged_at: None,
-        },
-    );
-}
-
-fn resolve_queue_index(payload: &RemoteControlPayload, target: &str) -> Option<usize> {
-    let trimmed = target.trim();
-    if trimmed.is_empty() || trimmed == "latest" {
-        return (!payload.command_queue.is_empty()).then_some(0);
-    }
-    if let Ok(index) = trimmed.parse::<usize>() {
-        return index
-            .checked_sub(1)
-            .filter(|index| *index < payload.command_queue.len());
-    }
-    payload
-        .command_queue
-        .iter()
-        .position(|item| item.id == trimmed || item.command == trimmed)
-}
-
-fn next_queue_id(payload: &RemoteControlPayload) -> String {
-    let max = payload
-        .command_queue
-        .iter()
-        .filter_map(|item| item.id.strip_prefix("q-"))
-        .filter_map(|value| value.parse::<u64>().ok())
-        .max()
-        .unwrap_or(0);
-    format!("q-{}", max + 1)
-}
-
-fn default_queue_items() -> Vec<RemoteQueueItem> {
-    [
-        "/doctor remote",
-        "/doctor remote-review",
-        "/inspect artifact latest-remote-capability",
-        "/inspect artifact latest-remote-execution",
-        "/inspect artifact latest-checkpoint",
-        "/inspect artifact latest-orchestration",
-    ]
-    .into_iter()
-    .enumerate()
-    .map(|(index, command)| RemoteQueueItem {
-        id: format!("q-{}", index + 1),
-        command: command.to_string(),
-        status: "queued".to_string(),
-        attempts: 0,
-        runtime_task_id: None,
-        transcript_path: None,
-        last_run_at: None,
-        last_result_preview: None,
-        execution_artifact: None,
-        acknowledged_at: None,
-    })
-    .collect()
 }
 
 fn write_remote_queue_execution_artifact(
