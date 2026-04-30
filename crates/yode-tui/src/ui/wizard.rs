@@ -7,7 +7,6 @@ use ratatui::Frame;
 use super::palette::{ERROR_COLOR, INPUT_BG, LIGHT, MUTED, PANEL_ACCENT, SELECT_ACCENT, SELECT_BG};
 use super::panels::{
     keyhint_bar_line, leading_panel_rect_for_density, search_prompt_label, section_title_line,
-    PanelFocusState,
 };
 use super::responsive::density_from_width;
 use crate::app::wizard::{Wizard, WizardStep};
@@ -111,12 +110,7 @@ pub fn render_wizard(frame: &mut Frame, area: Rect, wizard: &Wizard) {
         WizardStep::Select { .. } => "↑↓ select · Enter confirm · Esc cancel",
         WizardStep::Input { .. } => "Enter confirm · Esc cancel",
     };
-    lines.push(keyhint_bar_line(
-        &[hint],
-        PanelFocusState::Primary,
-        PANEL_ACCENT,
-        Color::DarkGray,
-    ));
+    lines.push(keyhint_bar_line(&[hint], PANEL_ACCENT, Color::DarkGray));
 
     frame.render_widget(Paragraph::new(lines), area);
 }
