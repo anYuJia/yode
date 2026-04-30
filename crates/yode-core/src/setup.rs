@@ -33,6 +33,21 @@ impl MenuOption {
     }
 }
 
+struct RawModeGuard;
+
+impl RawModeGuard {
+    fn enable() -> Result<Self> {
+        enable_raw_mode()?;
+        Ok(Self)
+    }
+}
+
+impl Drop for RawModeGuard {
+    fn drop(&mut self) {
+        let _ = disable_raw_mode();
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ProviderSetupDefaults {
     format: &'static str,
@@ -194,7 +209,7 @@ fn select_menu(header: Option<&str>, prompt: &str, options: &[MenuOption]) -> Re
     }
     println!("{} (使用 ↑↓ 切换，回车确认):\n", prompt);
 
-    enable_raw_mode()?;
+    let raw_mode = RawModeGuard::enable()?;
 
     let result = loop {
         for (i, option) in options.iter().enumerate() {
@@ -217,7 +232,7 @@ fn select_menu(header: Option<&str>, prompt: &str, options: &[MenuOption]) -> Re
         {
             if kind == KeyEventKind::Press {
                 if modifiers.contains(KeyModifiers::CONTROL) && code == KeyCode::Char('c') {
-                    disable_raw_mode()?;
+                    drop(raw_mode);
                     std::process::exit(0);
                 }
                 match code {
@@ -233,7 +248,7 @@ fn select_menu(header: Option<&str>, prompt: &str, options: &[MenuOption]) -> Re
                         break Ok(selected);
                     }
                     KeyCode::Esc => {
-                        disable_raw_mode()?;
+                        drop(raw_mode);
                         std::process::exit(0);
                     }
                     _ => {}
@@ -242,7 +257,7 @@ fn select_menu(header: Option<&str>, prompt: &str, options: &[MenuOption]) -> Re
         }
     };
 
-    disable_raw_mode()?;
+    drop(raw_mode);
 
     println!("\x1B[{}B", options.len());
     io::stdout().flush()?;
@@ -260,20 +275,20 @@ fn read_input(prompt: &str) -> Result<String> {
 }
 
 fn wait_for_key() -> Result<()> {
-    enable_raw_mode()?;
+    let raw_mode = RawModeGuard::enable()?;
     loop {
         if let Event::Key(KeyEvent {
             code, modifiers, ..
         }) = event::read()?
         {
             if modifiers.contains(KeyModifiers::CONTROL) && code == KeyCode::Char('c') {
-                disable_raw_mode()?;
+                drop(raw_mode);
                 std::process::exit(0);
             }
             break;
         }
     }
-    disable_raw_mode()?;
+    drop(raw_mode);
     Ok(())
 }
 
