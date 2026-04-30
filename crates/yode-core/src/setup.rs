@@ -47,7 +47,7 @@ fn provider_setup_defaults(provider: &str) -> ProviderSetupDefaults {
             format: "anthropic",
             base_url: "https://api.anthropic.com",
             name: "anthropic",
-            model: "claude-3-5-sonnet-20241022",
+            model: "claude-sonnet-4-20250514",
         },
         "openai" => ProviderSetupDefaults {
             format: "openai",
@@ -286,7 +286,7 @@ mod tests {
         let anthropic = provider_setup_defaults("anthropic");
         assert_eq!(anthropic.format, "anthropic");
         assert_eq!(anthropic.base_url, "https://api.anthropic.com");
-        assert!(anthropic.model.starts_with("claude-"));
+        assert_eq!(anthropic.model, "claude-sonnet-4-20250514");
 
         let gemini = provider_setup_defaults("gemini");
         assert_eq!(gemini.format, "openai");
