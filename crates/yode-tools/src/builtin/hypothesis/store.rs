@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+use anyhow::Result;
+
 use super::types::{Confidence, FindingType, Hypothesis, HypothesisStatus};
 
 static HYPOTHESIS_STORES: std::sync::LazyLock<Mutex<HashMap<String, HypothesisStore>>> =
@@ -16,10 +18,12 @@ pub(super) fn hypothesis_session_key(session_id: Option<&str>) -> String {
 pub(super) fn with_hypothesis_store<R>(
     session_key: &str,
     action: impl FnOnce(&mut HypothesisStore) -> R,
-) -> R {
-    let mut stores = HYPOTHESIS_STORES.lock().unwrap();
+) -> Result<R> {
+    let mut stores = HYPOTHESIS_STORES
+        .lock()
+        .map_err(|_| anyhow::anyhow!("hypothesis store lock poisoned"))?;
     let store = stores.entry(session_key.to_string()).or_default();
-    action(store)
+    Ok(action(store))
 }
 
 #[derive(Debug, Default)]

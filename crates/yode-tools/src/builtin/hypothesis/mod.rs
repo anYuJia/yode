@@ -131,7 +131,7 @@ impl HypothesisTool {
                 evidence_needed.to_string(),
                 finding_type,
             )
-        });
+        })?;
 
         Ok(ToolResult::success(format!(
             "Created hypothesis [{}]: {}\nNeeds: {}",
@@ -165,7 +165,7 @@ impl HypothesisTool {
                 ))),
                 None => Ok(ToolResult::error(format!("Hypothesis '{}' not found.", id))),
             }
-        })
+        })?
     }
 
     fn refute_hypothesis(&self, session_key: &str, params: &Value) -> Result<ToolResult> {
@@ -188,7 +188,7 @@ impl HypothesisTool {
                 ))),
                 None => Ok(ToolResult::error(format!("Hypothesis '{}' not found.", id))),
             }
-        })
+        })?
     }
 
     fn list_hypotheses(&self, session_key: &str) -> Result<ToolResult> {
@@ -214,18 +214,18 @@ impl HypothesisTool {
                 ));
             }
             Ok(ToolResult::success(output))
-        })
+        })?
     }
 
     fn generate_report(&self, session_key: &str) -> Result<ToolResult> {
         Ok(ToolResult::success(with_hypothesis_store(
             session_key,
             |store| store.generate_report(),
-        )))
+        )?))
     }
 
     fn clear_hypotheses(&self, session_key: &str) -> Result<ToolResult> {
-        with_hypothesis_store(session_key, |store| store.clear());
+        with_hypothesis_store(session_key, |store| store.clear())?;
         Ok(ToolResult::success("All hypotheses cleared.".to_string()))
     }
 }
