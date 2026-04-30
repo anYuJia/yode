@@ -218,7 +218,11 @@ pub(super) fn assistant_message(text: String, tool_calls: Vec<ToolCall>) -> Mess
 mod tests {
     use crate::types::{ImageData, Message, RestoreSystemBlockHint, StopReason};
 
-    use super::{convert_messages, map_gemini_finish_reason, GeminiPart};
+    use super::{
+        convert_messages, map_gemini_finish_reason, parse_response, GeminiContent,
+        GeminiFunctionCall, GeminiPart, GeminiResponse, GeminiUsage,
+    };
+    use crate::providers::gemini::types::GeminiCandidate;
 
     #[test]
     fn gemini_conversion_preserves_multiple_system_messages() {
@@ -314,5 +318,50 @@ mod tests {
             map_gemini_finish_reason("MALFORMED_FUNCTION_CALL"),
             StopReason::ToolUse
         );
+    }
+
+    #[test]
+    fn gemini_response_parsing_extracts_text_tool_calls_usage_and_stop_reason() {
+        let response = GeminiResponse {
+            candidates: Some(vec![GeminiCandidate {
+                content: Some(GeminiContent {
+                    role: Some("model".to_string()),
+                    parts: vec![
+                        GeminiPart::Text {
+                            text: "use tool".to_string(),
+                        },
+                        GeminiPart::FunctionCall {
+                            function_call: GeminiFunctionCall {
+                                name: "read_file".to_string(),
+                                args: serde_json::json!({"file_path": "src/lib.rs"}),
+                            },
+                        },
+                    ],
+                }),
+                finish_reason: Some("MALFORMED_FUNCTION_CALL".to_string()),
+            }]),
+            usage_metadata: Some(GeminiUsage {
+                prompt_token_count: 10,
+                candidates_token_count: 4,
+                total_token_count: 14,
+                cached_content_token_count: 3,
+            }),
+            _model_version: None,
+        };
+
+        let (message, usage, stop_reason) = parse_response(&response);
+
+        assert_eq!(message.content.as_deref(), Some("use tool"));
+        assert_eq!(message.tool_calls.len(), 1);
+        assert_eq!(message.tool_calls[0].name, "read_file");
+        assert_eq!(
+            message.tool_calls[0].arguments,
+            r#"{"file_path":"src/lib.rs"}"#
+        );
+        assert_eq!(usage.prompt_tokens, 10);
+        assert_eq!(usage.completion_tokens, 4);
+        assert_eq!(usage.total_tokens, 14);
+        assert_eq!(usage.cache_read_tokens, 3);
+        assert_eq!(stop_reason, Some(StopReason::ToolUse));
     }
 }
