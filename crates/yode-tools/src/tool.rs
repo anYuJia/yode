@@ -101,7 +101,7 @@ pub struct ToolProgress {
 }
 
 /// Context passed to every tool execution, providing access to shared resources.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct ToolContext {
     /// Access to the full tool registry (needed by `batch`).
     pub registry: Option<Arc<ToolRegistry>>,
@@ -146,27 +146,7 @@ pub struct ToolContext {
 impl ToolContext {
     /// Create an empty context (no shared resources).
     pub fn empty() -> Self {
-        Self {
-            registry: None,
-            tasks: None,
-            runtime_tasks: None,
-            team_runtime: None,
-            user_input_tx: None,
-            user_input_rx: None,
-            progress_tx: None,
-            working_dir: None,
-            session_id: None,
-            provider: None,
-            model: None,
-            sub_agent_runner: None,
-            mcp_resources: None,
-            cron_manager: None,
-            lsp_manager: None,
-            worktree_state: None,
-            read_file_history: None,
-            plan_mode: None,
-            tool_pool_snapshot: None,
-        }
+        Self::default()
     }
 }
 
