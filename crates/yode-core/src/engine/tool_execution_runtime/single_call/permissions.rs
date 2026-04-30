@@ -81,7 +81,8 @@ impl AgentEngine {
 
         debug!("Waiting for user confirmation: tool={}", tool_call.name);
         let confirm_start = std::time::Instant::now();
-        let confirm_timeout = std::time::Duration::from_secs(90);
+        let confirm_timeout =
+            std::time::Duration::from_secs(crate::constants::timeouts::TOOL_CONFIRMATION_SECS);
         loop {
             if confirm_start.elapsed() > confirm_timeout {
                 return Ok(Some(Self::immediate_tool_outcome(
@@ -92,8 +93,10 @@ impl AgentEngine {
                         ToolErrorType::Timeout,
                         true,
                         Some(
-                            "No confirmation was received within 90s. Re-run or switch to a read-only alternative."
-                                .to_string(),
+                            format!(
+                                "No confirmation was received within {}s. Re-run or switch to a read-only alternative.",
+                                crate::constants::timeouts::TOOL_CONFIRMATION_SECS
+                            ),
                         ),
                     ),
                 )));
@@ -114,8 +117,13 @@ impl AgentEngine {
                 }
             }
 
-            match tokio::time::timeout(std::time::Duration::from_millis(500), confirm_rx.recv())
-                .await
+            match tokio::time::timeout(
+                std::time::Duration::from_millis(
+                    crate::constants::timeouts::TOOL_CONFIRMATION_POLL_MS,
+                ),
+                confirm_rx.recv(),
+            )
+            .await
             {
                 Ok(Some(ConfirmResponse::Allow)) => {
                     info!("Tool {} confirmed by user", tool_call.name);

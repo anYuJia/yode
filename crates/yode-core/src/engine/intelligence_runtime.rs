@@ -1,3 +1,5 @@
+use crate::constants::timeouts::PROMPT_SUGGESTION_SECS;
+
 use super::*;
 
 impl AgentEngine {
@@ -217,7 +219,11 @@ Reply with ONLY the suggestion, no quotes or explanation."#;
 
         let provider = Arc::clone(&self.provider);
 
-        match tokio::time::timeout(std::time::Duration::from_secs(5), provider.chat(request)).await
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(PROMPT_SUGGESTION_SECS),
+            provider.chat(request),
+        )
+        .await
         {
             Ok(Ok(response)) => {
                 if let Some(content) = response.message.content {

@@ -897,7 +897,9 @@ impl AgentEngine {
             };
 
             match tokio::time::timeout(
-                std::time::Duration::from_secs(30),
+                std::time::Duration::from_secs(
+                    crate::constants::timeouts::LLM_COMPACTION_SUMMARY_SECS,
+                ),
                 self.provider.chat(request),
             )
             .await
