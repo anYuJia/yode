@@ -1,3 +1,4 @@
+mod params;
 mod render;
 mod status;
 mod types;
@@ -14,6 +15,7 @@ use tokio::sync::Mutex;
 use crate::runtime_tasks::RuntimeTaskStore;
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
+use params::{RemoteQueueDispatchParams, RemoteQueueResultParams, RemoteTransportControlParams};
 use render::{
     render_remote_control_queue, render_remote_control_summary, render_remote_live_session_summary,
     render_remote_transport_summary,
@@ -31,45 +33,6 @@ use types::{
 pub struct RemoteQueueDispatchTool;
 pub struct RemoteQueueResultTool;
 pub struct RemoteTransportControlTool;
-
-#[derive(Debug, Deserialize)]
-struct RemoteQueueDispatchParams {
-    #[serde(default)]
-    target: Option<String>,
-    #[serde(default)]
-    command: Option<String>,
-    #[serde(default)]
-    transcript_path: Option<String>,
-    #[serde(default)]
-    summary: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct RemoteQueueResultParams {
-    #[serde(default)]
-    target: Option<String>,
-    status: String,
-    summary: String,
-    #[serde(default)]
-    transcript_path: Option<String>,
-    #[serde(default)]
-    result_id: Option<String>,
-    #[serde(default)]
-    endpoint_id: Option<String>,
-    #[serde(default)]
-    device_kind: Option<String>,
-    #[serde(default)]
-    device_label: Option<String>,
-    #[serde(default)]
-    source: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct RemoteTransportControlParams {
-    action: String,
-    #[serde(default)]
-    detail: Option<String>,
-}
 
 #[async_trait]
 impl Tool for RemoteQueueDispatchTool {
