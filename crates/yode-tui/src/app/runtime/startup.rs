@@ -19,6 +19,7 @@ use yode_tools::registry::ToolRegistry;
 
 use super::super::scrollback::{print_entries_to_stdout, print_header_to_stdout};
 use super::super::{push_system_entry, App, ChatEntry, ChatRole, SkillCommandWrapper};
+use crate::commands::info::ResumeTranscriptCacheWarmupStats;
 
 pub(super) struct RuntimeStartup {
     pub(super) app: App,
@@ -93,17 +94,8 @@ pub(super) async fn prepare_runtime(
     if let Some(task) = resume_warmup_task {
         let stats = task.await?;
         if let Some(profile) = app.session.startup_profile.as_mut() {
-            profile.push_str(&format!(
-                " resume_warmup[transcripts={} metadata={} latest={} duration={}ms]",
-                stats.transcript_count,
-                stats.metadata_entries_warmed,
-                if stats.latest_lookup_cached {
-                    "yes"
-                } else {
-                    "no"
-                },
-                stats.duration_ms
-            ));
+            profile.push(' ');
+            profile.push_str(&build_resume_warmup_segment(&stats));
         }
         let _ = write_resume_warmup_artifact(
             &PathBuf::from(&app.session.working_dir),
@@ -124,7 +116,7 @@ pub(super) async fn prepare_runtime(
 fn write_resume_warmup_artifact(
     project_root: &Path,
     session_id: &str,
-    stats: &crate::commands::info::ResumeTranscriptCacheWarmupStats,
+    stats: &ResumeTranscriptCacheWarmupStats,
 ) -> Option<String> {
     let dir = project_root.join(".yode").join("startup");
     fs::create_dir_all(&dir).ok()?;
@@ -138,6 +130,20 @@ fn write_resume_warmup_artifact(
     });
     fs::write(&path, serde_json::to_string_pretty(&payload).ok()?).ok()?;
     Some(path.display().to_string())
+}
+
+fn build_resume_warmup_segment(stats: &ResumeTranscriptCacheWarmupStats) -> String {
+    format!(
+        "resume_warmup[transcripts={} metadata={} latest={} duration={}ms]",
+        stats.transcript_count,
+        stats.metadata_entries_warmed,
+        if stats.latest_lookup_cached {
+            "yes"
+        } else {
+            "no"
+        },
+        stats.duration_ms,
+    )
 }
 
 fn register_skill_commands(app: &mut App, skill_commands: &[(String, String)]) {
@@ -247,4 +253,24 @@ fn spawn_update_checker(update_event_tx: mpsc::UnboundedSender<EngineEvent>) {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builds_resume_warmup_segment() {
+        let stats = ResumeTranscriptCacheWarmupStats {
+            transcript_count: 3,
+            metadata_entries_warmed: 7,
+            latest_lookup_cached: true,
+            duration_ms: 42,
+        };
+
+        assert_eq!(
+            build_resume_warmup_segment(&stats),
+            "resume_warmup[transcripts=3 metadata=7 latest=yes duration=42ms]"
+        );
+    }
 }

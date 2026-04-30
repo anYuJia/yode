@@ -37,22 +37,6 @@ pub(crate) fn build_startup_resume_segment(
     )
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
-pub(crate) fn build_resume_warmup_segment(
-    transcript_count: usize,
-    metadata_entries_warmed: usize,
-    latest_lookup_cached: bool,
-    duration_ms: u64,
-) -> String {
-    format!(
-        "resume_warmup[transcripts={} metadata={} latest={} duration={}ms]",
-        transcript_count,
-        metadata_entries_warmed,
-        if latest_lookup_cached { "yes" } else { "no" },
-        duration_ms,
-    )
-}
-
 pub(crate) fn parse_startup_summary_segment(summary: &str, key: &str) -> Option<String> {
     let needle = format!("{}[", key);
     let start = summary.find(&needle)?;
@@ -84,14 +68,6 @@ mod tests {
         assert_eq!(
             parse_startup_summary_segment(&summary, "resume").as_deref(),
             Some("resume[db_open=1ms]")
-        );
-    }
-
-    #[test]
-    fn builds_resume_warmup_segment() {
-        assert_eq!(
-            build_resume_warmup_segment(3, 7, true, 42),
-            "resume_warmup[transcripts=3 metadata=7 latest=yes duration=42ms]"
         );
     }
 }
