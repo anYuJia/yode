@@ -57,10 +57,7 @@ impl Tool for FileDiffTool {
             .get("file_b")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing required parameter: file_b"))?;
-        let context_lines = params
-            .get("context_lines")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(3);
+        let context_lines = normalized_context_lines(params.get("context_lines"));
         let working_dir = ctx.working_dir.as_deref().unwrap_or_else(|| Path::new("."));
         let file_a_path = match resolve_workspace_file(working_dir, file_a) {
             Ok(path) => path,
@@ -109,7 +106,7 @@ impl Tool for FileDiffTool {
                 &format!("--label={}", file_a),
                 &format!("--label={}", file_b),
                 "-U",
-                &context_lines.to_string(),
+                &context_lines,
                 &file_a_path.display().to_string(),
                 &file_b_path.display().to_string(),
             ])
@@ -149,9 +146,17 @@ fn resolve_workspace_file(working_dir: &Path, raw: &str) -> std::result::Result<
     Ok(resolved)
 }
 
+fn normalized_context_lines(value: Option<&Value>) -> String {
+    value
+        .and_then(|value| value.as_i64())
+        .unwrap_or(3)
+        .clamp(0, 100)
+        .to_string()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{resolve_workspace_file, FileDiffTool};
+    use super::{normalized_context_lines, resolve_workspace_file, FileDiffTool};
     use crate::tool::{Tool, ToolContext};
     use serde_json::json;
 
@@ -187,5 +192,55 @@ mod tests {
 
         assert!(result.is_error);
         assert!(result.content.contains("escapes workspace"));
+    }
+
+    #[test]
+    fn context_lines_are_clamped_for_diff_argument() {
+        assert_eq!(normalized_context_lines(None), "3");
+        assert_eq!(normalized_context_lines(Some(&json!(-5))), "0");
+        assert_eq!(normalized_context_lines(Some(&json!(250))), "100");
+    }
+
+    #[tokio::test]
+    async fn file_diff_reports_identical_and_changed_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_a = dir.path().join("a.txt");
+        let file_b = dir.path().join("b.txt");
+        std::fs::write(&file_a, "one\ntwo\n").unwrap();
+        std::fs::write(&file_b, "one\ntwo\n").unwrap();
+        let mut ctx = ToolContext::empty();
+        ctx.working_dir = Some(dir.path().to_path_buf());
+
+        let identical = FileDiffTool
+            .execute(
+                json!({
+                    "file_a": "a.txt",
+                    "file_b": "b.txt",
+                    "context_lines": -5,
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+        assert_eq!(identical.content, "Files are identical.");
+
+        std::fs::write(&file_b, "one\nthree\n").unwrap();
+        let changed = FileDiffTool
+            .execute(
+                json!({
+                    "file_a": "a.txt",
+                    "file_b": "b.txt",
+                    "context_lines": 1,
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(!changed.is_error);
+        assert!(changed.content.contains("--- a.txt"));
+        assert!(changed.content.contains("+++ b.txt"));
+        assert!(changed.content.contains("-two"));
+        assert!(changed.content.contains("+three"));
     }
 }
