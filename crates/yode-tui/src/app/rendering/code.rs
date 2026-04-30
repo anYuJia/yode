@@ -43,6 +43,94 @@ pub(crate) struct CodeToken {
     pub kind: CodeTokenKind,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct AnsiTheme {
+    base: &'static str,
+    reset: &'static str,
+    string: &'static str,
+    number: &'static str,
+    keyword: &'static str,
+    comment: &'static str,
+    decorator: &'static str,
+    operator: &'static str,
+    property: &'static str,
+    variable: &'static str,
+    diff_add: &'static str,
+    diff_remove: &'static str,
+    diff_hunk: &'static str,
+    diff_meta: &'static str,
+    diff_file: &'static str,
+    diff_line_number: &'static str,
+    shell_prompt: &'static str,
+    shell_command: &'static str,
+    shell_flag: &'static str,
+    shell_path: &'static str,
+    shell_info: &'static str,
+    shell_success: &'static str,
+    shell_warning: &'static str,
+    shell_output: &'static str,
+    shell_error: &'static str,
+}
+
+const ANSI_THEME: AnsiTheme = AnsiTheme {
+    reset: "\x1b[0m",
+    base: "\x1b[38;2;220;220;220m",
+    string: "\x1b[38;2;206;145;120m",
+    number: "\x1b[38;2;181;206;168m",
+    keyword: "\x1b[38;2;86;156;214m",
+    comment: "\x1b[38;2;106;153;85m",
+    decorator: "\x1b[38;2;78;201;176m",
+    operator: "\x1b[38;2;212;212;212m",
+    property: "\x1b[38;2;156;220;254m",
+    variable: "\x1b[38;2;255;203;107m",
+    diff_add: "\x1b[38;2;106;171;115m",
+    diff_remove: "\x1b[38;2;206;102;102m",
+    diff_hunk: "\x1b[38;2;97;175;239m",
+    diff_meta: "\x1b[38;2;181;140;96m",
+    diff_file: "\x1b[38;2;214;214;170m",
+    diff_line_number: "\x1b[38;2;156;220;254m",
+    shell_prompt: "\x1b[38;2;110;180;160m",
+    shell_command: "\x1b[38;2;245;214;150m",
+    shell_flag: "\x1b[38;2;137;196;244m",
+    shell_path: "\x1b[38;2;156;220;254m",
+    shell_info: "\x1b[38;2;120;170;220m",
+    shell_success: "\x1b[38;2;120;190;130m",
+    shell_warning: "\x1b[38;2;224;193;108m",
+    shell_output: "\x1b[38;2;170;170;170m",
+    shell_error: "\x1b[38;2;214;116;116m",
+};
+
+impl AnsiTheme {
+    fn color_for(&self, kind: CodeTokenKind) -> Option<&'static str> {
+        match kind {
+            CodeTokenKind::Plain => None,
+            CodeTokenKind::String => Some(self.string),
+            CodeTokenKind::Number => Some(self.number),
+            CodeTokenKind::Keyword => Some(self.keyword),
+            CodeTokenKind::Comment => Some(self.comment),
+            CodeTokenKind::Decorator => Some(self.decorator),
+            CodeTokenKind::Operator => Some(self.operator),
+            CodeTokenKind::Property => Some(self.property),
+            CodeTokenKind::Variable => Some(self.variable),
+            CodeTokenKind::DiffAdded => Some(self.diff_add),
+            CodeTokenKind::DiffRemoved => Some(self.diff_remove),
+            CodeTokenKind::DiffHunk => Some(self.diff_hunk),
+            CodeTokenKind::DiffMeta => Some(self.diff_meta),
+            CodeTokenKind::DiffFile => Some(self.diff_file),
+            CodeTokenKind::DiffLineNumber => Some(self.diff_line_number),
+            CodeTokenKind::ShellPrompt => Some(self.shell_prompt),
+            CodeTokenKind::ShellCommand => Some(self.shell_command),
+            CodeTokenKind::ShellFlag => Some(self.shell_flag),
+            CodeTokenKind::ShellPath => Some(self.shell_path),
+            CodeTokenKind::ShellInfo => Some(self.shell_info),
+            CodeTokenKind::ShellSuccess => Some(self.shell_success),
+            CodeTokenKind::ShellWarning => Some(self.shell_warning),
+            CodeTokenKind::ShellOutput => Some(self.shell_output),
+            CodeTokenKind::ShellError => Some(self.shell_error),
+        }
+    }
+}
+
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ShellLineKind {
@@ -236,80 +324,29 @@ pub(crate) fn code_block_header_language(line: &str) -> Option<CodeLanguage> {
 }
 
 pub(super) fn highlight_code_line(line: &str, language: Option<CodeLanguage>) -> String {
-    const RESET: &str = "\x1b[0m";
-    const BASE: &str = "\x1b[38;2;220;220;220m";
-    const STRC: &str = "\x1b[38;2;206;145;120m";
-    const NUM: &str = "\x1b[38;2;181;206;168m";
-    const KW: &str = "\x1b[38;2;86;156;214m";
-    const CMT: &str = "\x1b[38;2;106;153;85m";
-    const DEC: &str = "\x1b[38;2;78;201;176m";
-    const OP: &str = "\x1b[38;2;212;212;212m";
-    const PROP: &str = "\x1b[38;2;156;220;254m";
-    const VAR: &str = "\x1b[38;2;255;203;107m";
-    const DIFF_ADD: &str = "\x1b[38;2;106;171;115m";
-    const DIFF_REMOVE: &str = "\x1b[38;2;206;102;102m";
-    const DIFF_HUNK: &str = "\x1b[38;2;97;175;239m";
-    const DIFF_META: &str = "\x1b[38;2;181;140;96m";
-    const DIFF_FILE: &str = "\x1b[38;2;214;214;170m";
-    const DIFF_LINE_NO: &str = "\x1b[38;2;156;220;254m";
-    const SH_PROMPT: &str = "\x1b[38;2;110;180;160m";
-    const SH_CMD: &str = "\x1b[38;2;245;214;150m";
-    const SH_FLAG: &str = "\x1b[38;2;137;196;244m";
-    const SH_PATH: &str = "\x1b[38;2;156;220;254m";
-    const SH_INFO: &str = "\x1b[38;2;120;170;220m";
-    const SH_SUCCESS: &str = "\x1b[38;2;120;190;130m";
-    const SH_WARN: &str = "\x1b[38;2;224;193;108m";
-    const SH_OUT: &str = "\x1b[38;2;170;170;170m";
-    const SH_ERR: &str = "\x1b[38;2;214;116;116m";
-
     if let Some(header_lang) = code_block_header_language(line) {
         let label = code_block_header_label(line).unwrap_or("code");
         let accent = match header_lang {
-            CodeLanguage::Diff => DIFF_HUNK,
-            CodeLanguage::Shell => DEC,
-            CodeLanguage::Json => PROP,
-            CodeLanguage::Rust => DIFF_META,
-            CodeLanguage::Python => KW,
-            CodeLanguage::Plain => KW,
+            CodeLanguage::Diff => ANSI_THEME.diff_hunk,
+            CodeLanguage::Shell => ANSI_THEME.decorator,
+            CodeLanguage::Json => ANSI_THEME.property,
+            CodeLanguage::Rust => ANSI_THEME.diff_meta,
+            CodeLanguage::Python => ANSI_THEME.keyword,
+            CodeLanguage::Plain => ANSI_THEME.keyword,
         };
-        return format!("{BASE}─── {RESET}{accent}{label}{RESET}{BASE} ───{RESET}");
-    }
-
-    let mut result = String::new();
-    result.push_str(BASE);
-    for token in tokenize_code_line_with_language(line, language.unwrap_or(CodeLanguage::Plain)) {
-        append_ansi_token(
-            &mut result,
-            &token,
-            BASE,
-            RESET,
-            STRC,
-            NUM,
-            KW,
-            CMT,
-            DEC,
-            OP,
-            PROP,
-            VAR,
-            DIFF_ADD,
-            DIFF_REMOVE,
-            DIFF_HUNK,
-            DIFF_META,
-            DIFF_FILE,
-            DIFF_LINE_NO,
-            SH_PROMPT,
-            SH_CMD,
-            SH_FLAG,
-            SH_PATH,
-            SH_INFO,
-            SH_SUCCESS,
-            SH_WARN,
-            SH_OUT,
-            SH_ERR,
+        return format!(
+            "{}─── {}{}{}{} ───{}",
+            ANSI_THEME.base, ANSI_THEME.reset, accent, label, ANSI_THEME.base, ANSI_THEME.reset
         );
     }
 
-    result.push_str(RESET);
+    let mut result = String::new();
+    result.push_str(ANSI_THEME.base);
+    for token in tokenize_code_line_with_language(line, language.unwrap_or(CodeLanguage::Plain)) {
+        append_ansi_token(&mut result, &token, &ANSI_THEME);
+    }
+
+    result.push_str(ANSI_THEME.reset);
     result
 }
 
@@ -318,67 +355,13 @@ pub(crate) fn highlight_shell_session_line(
     line: &str,
     session_state: ShellSessionState,
 ) -> (String, ShellLineKind, ShellSessionState) {
-    const RESET: &str = "\x1b[0m";
-    const BASE: &str = "\x1b[38;2;220;220;220m";
-    const STRC: &str = "\x1b[38;2;206;145;120m";
-    const NUM: &str = "\x1b[38;2;181;206;168m";
-    const KW: &str = "\x1b[38;2;86;156;214m";
-    const CMT: &str = "\x1b[38;2;106;153;85m";
-    const DEC: &str = "\x1b[38;2;78;201;176m";
-    const OP: &str = "\x1b[38;2;212;212;212m";
-    const PROP: &str = "\x1b[38;2;156;220;254m";
-    const VAR: &str = "\x1b[38;2;255;203;107m";
-    const DIFF_ADD: &str = "\x1b[38;2;106;171;115m";
-    const DIFF_REMOVE: &str = "\x1b[38;2;206;102;102m";
-    const DIFF_HUNK: &str = "\x1b[38;2;97;175;239m";
-    const DIFF_META: &str = "\x1b[38;2;181;140;96m";
-    const DIFF_FILE: &str = "\x1b[38;2;214;214;170m";
-    const DIFF_LINE_NO: &str = "\x1b[38;2;156;220;254m";
-    const SH_PROMPT: &str = "\x1b[38;2;110;180;160m";
-    const SH_CMD: &str = "\x1b[38;2;245;214;150m";
-    const SH_FLAG: &str = "\x1b[38;2;137;196;244m";
-    const SH_PATH: &str = "\x1b[38;2;156;220;254m";
-    const SH_INFO: &str = "\x1b[38;2;120;170;220m";
-    const SH_SUCCESS: &str = "\x1b[38;2;120;190;130m";
-    const SH_WARN: &str = "\x1b[38;2;224;193;108m";
-    const SH_OUT: &str = "\x1b[38;2;170;170;170m";
-    const SH_ERR: &str = "\x1b[38;2;214;116;116m";
-
     let (kind, tokens, next_session_state) = tokenize_shell_session_line(line, session_state);
     let mut result = String::new();
-    result.push_str(BASE);
+    result.push_str(ANSI_THEME.base);
     for token in tokens {
-        append_ansi_token(
-            &mut result,
-            &token,
-            BASE,
-            RESET,
-            STRC,
-            NUM,
-            KW,
-            CMT,
-            DEC,
-            OP,
-            PROP,
-            VAR,
-            DIFF_ADD,
-            DIFF_REMOVE,
-            DIFF_HUNK,
-            DIFF_META,
-            DIFF_FILE,
-            DIFF_LINE_NO,
-            SH_PROMPT,
-            SH_CMD,
-            SH_FLAG,
-            SH_PATH,
-            SH_INFO,
-            SH_SUCCESS,
-            SH_WARN,
-            SH_OUT,
-            SH_ERR,
-        );
+        append_ansi_token(&mut result, &token, &ANSI_THEME);
     }
-    result.push_str(RESET);
+    result.push_str(ANSI_THEME.reset);
     (result, kind, next_session_state)
 }
 
@@ -1838,70 +1821,16 @@ fn is_known_shell_command(command: &str) -> bool {
     )
 }
 
-#[allow(clippy::too_many_arguments)]
-fn append_ansi_token(
-    result: &mut String,
-    token: &CodeToken,
-    base: &str,
-    reset: &str,
-    string_color: &str,
-    number_color: &str,
-    keyword_color: &str,
-    comment_color: &str,
-    decorator_color: &str,
-    operator_color: &str,
-    property_color: &str,
-    variable_color: &str,
-    diff_add_color: &str,
-    diff_remove_color: &str,
-    diff_hunk_color: &str,
-    diff_meta_color: &str,
-    diff_file_color: &str,
-    diff_line_number_color: &str,
-    shell_prompt_color: &str,
-    shell_command_color: &str,
-    shell_flag_color: &str,
-    shell_path_color: &str,
-    shell_info_color: &str,
-    shell_success_color: &str,
-    shell_warning_color: &str,
-    shell_output_color: &str,
-    shell_error_color: &str,
-) {
-    let color = match token.kind {
-        CodeTokenKind::Plain => {
-            result.push_str(&token.text);
-            return;
-        }
-        CodeTokenKind::String => string_color,
-        CodeTokenKind::Number => number_color,
-        CodeTokenKind::Keyword => keyword_color,
-        CodeTokenKind::Comment => comment_color,
-        CodeTokenKind::Decorator => decorator_color,
-        CodeTokenKind::Operator => operator_color,
-        CodeTokenKind::Property => property_color,
-        CodeTokenKind::Variable => variable_color,
-        CodeTokenKind::DiffAdded => diff_add_color,
-        CodeTokenKind::DiffRemoved => diff_remove_color,
-        CodeTokenKind::DiffHunk => diff_hunk_color,
-        CodeTokenKind::DiffMeta => diff_meta_color,
-        CodeTokenKind::DiffFile => diff_file_color,
-        CodeTokenKind::DiffLineNumber => diff_line_number_color,
-        CodeTokenKind::ShellPrompt => shell_prompt_color,
-        CodeTokenKind::ShellCommand => shell_command_color,
-        CodeTokenKind::ShellFlag => shell_flag_color,
-        CodeTokenKind::ShellPath => shell_path_color,
-        CodeTokenKind::ShellInfo => shell_info_color,
-        CodeTokenKind::ShellSuccess => shell_success_color,
-        CodeTokenKind::ShellWarning => shell_warning_color,
-        CodeTokenKind::ShellOutput => shell_output_color,
-        CodeTokenKind::ShellError => shell_error_color,
+fn append_ansi_token(result: &mut String, token: &CodeToken, theme: &AnsiTheme) {
+    let Some(color) = theme.color_for(token.kind) else {
+        result.push_str(&token.text);
+        return;
     };
 
     result.push_str(color);
     result.push_str(&token.text);
-    result.push_str(reset);
-    result.push_str(base);
+    result.push_str(theme.reset);
+    result.push_str(theme.base);
 }
 
 fn is_word_start(ch: char) -> bool {
