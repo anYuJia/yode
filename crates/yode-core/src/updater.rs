@@ -81,13 +81,11 @@ impl Updater {
         }
 
         if let Some(last_checked) = self.get_last_checked() {
-            if SystemTime::now()
+            let current_secs = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs()
-                - last_checked
-                < 3600
-            {
+                .map(|duration| duration.as_secs())
+                .unwrap_or(0);
+            if current_secs.saturating_sub(last_checked) < 3600 {
                 info!("Update check skipped (checked within 1 hour)");
                 return Ok(None);
             }
@@ -259,7 +257,10 @@ impl Updater {
                 for entry in entries.flatten() {
                     if let Ok(metadata) = entry.metadata() {
                         if let Ok(modified) = metadata.modified() {
-                            if latest.is_none() || modified > latest.as_ref().unwrap().0 {
+                            if latest
+                                .as_ref()
+                                .is_none_or(|(latest_modified, _)| modified > *latest_modified)
+                            {
                                 latest = Some((modified, entry.path()));
                             }
                         }

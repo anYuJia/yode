@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
-    Arc, RwLock,
+    Arc, RwLock, RwLockReadGuard, RwLockWriteGuard,
 };
 
 use serde::{Deserialize, Serialize};
@@ -191,7 +191,7 @@ impl ToolRegistry {
             return;
         }
         tracing::debug!(tool_name = %name, "Registering tool");
-        self.tools.write().unwrap().insert(name, tool);
+        write_lock(&self.tools, "tools").insert(name, tool);
     }
 
     /// Register a tool as deferred (will not be sent to LLM until activated).
@@ -201,16 +201,16 @@ impl ToolRegistry {
             return;
         }
         tracing::debug!(tool_name = %name, "Registering deferred tool");
-        self.deferred.write().unwrap().insert(name, tool);
+        write_lock(&self.deferred, "deferred").insert(name, tool);
     }
 
     /// Move a deferred tool to the active set.
     pub fn activate_tool(&self, name: &str) -> bool {
-        let tool = self.deferred.write().unwrap().remove(name);
+        let tool = write_lock(&self.deferred, "deferred").remove(name);
         if let Some(tool) = tool {
-            self.tools.write().unwrap().insert(name.to_string(), tool);
+            write_lock(&self.tools, "tools").insert(name.to_string(), tool);
             self.activation_count.fetch_add(1, Ordering::Relaxed);
-            *self.last_activated_tool.write().unwrap() = Some(name.to_string());
+            *write_lock(&self.last_activated_tool, "last_activated_tool") = Some(name.to_string());
             true
         } else {
             false
@@ -224,7 +224,7 @@ impl ToolRegistry {
 
     pub fn set_tool_search_state(&self, enabled: bool, reason: impl Into<String>) {
         self.tool_search_enabled.store(enabled, Ordering::Relaxed);
-        *self.tool_search_reason.write().unwrap() = Some(reason.into());
+        *write_lock(&self.tool_search_reason, "tool_search_reason") = Some(reason.into());
     }
 
     /// Check if tool search mode should be auto-enabled based on tool count.
@@ -237,23 +237,24 @@ impl ToolRegistry {
     }
 
     pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
-        self.tools
-            .read()
-            .unwrap()
+        read_lock(&self.tools, "tools")
             .get(name)
             .cloned()
-            .or_else(|| self.deferred.read().unwrap().get(name).cloned())
+            .or_else(|| read_lock(&self.deferred, "deferred").get(name).cloned())
     }
 
     pub fn list(&self) -> Vec<Arc<dyn Tool>> {
-        self.tools.read().unwrap().values().cloned().collect()
+        read_lock(&self.tools, "tools").values().cloned().collect()
     }
 
     /// List deferred tools (name, tool).
     pub fn list_deferred(&self) -> Vec<(String, Arc<dyn Tool>)> {
         self.deferred
             .read()
-            .unwrap()
+            .unwrap_or_else(|poisoned| {
+                tracing::warn!(lock = "deferred", "Recovering poisoned tool registry lock");
+                poisoned.into_inner()
+            })
             .iter()
             .map(|(name, tool)| (name.clone(), Arc::clone(tool)))
             .collect()
@@ -262,7 +263,10 @@ impl ToolRegistry {
     pub fn definitions(&self) -> Vec<ToolDefinition> {
         self.tools
             .read()
-            .unwrap()
+            .unwrap_or_else(|poisoned| {
+                tracing::warn!(lock = "tools", "Recovering poisoned tool registry lock");
+                poisoned.into_inner()
+            })
             .values()
             .map(|tool| tool.definition())
             .collect()
@@ -270,13 +274,13 @@ impl ToolRegistry {
 
     /// Total number of tools (active + deferred).
     pub fn total_count(&self) -> usize {
-        self.tools.read().unwrap().len() + self.deferred.read().unwrap().len()
+        read_lock(&self.tools, "tools").len() + read_lock(&self.deferred, "deferred").len()
     }
 
     pub fn inventory(&self) -> ToolInventory {
-        let tools = self.tools.read().unwrap();
-        let deferred = self.deferred.read().unwrap();
-        let duplicates = self.duplicate_registrations.read().unwrap();
+        let tools = read_lock(&self.tools, "tools");
+        let deferred = read_lock(&self.deferred, "deferred");
+        let duplicates = read_lock(&self.duplicate_registrations, "duplicate_registrations");
         let mut duplicate_tool_names = duplicates.keys().cloned().collect::<Vec<_>>();
         duplicate_tool_names.sort();
         ToolInventory {
@@ -292,11 +296,12 @@ impl ToolRegistry {
                 .filter(|name| name.starts_with("mcp__"))
                 .count(),
             tool_search_enabled: self.tool_search_enabled.load(Ordering::Relaxed),
-            tool_search_reason: self.tool_search_reason.read().unwrap().clone(),
+            tool_search_reason: read_lock(&self.tool_search_reason, "tool_search_reason").clone(),
             duplicate_registration_count: duplicates.len(),
             duplicate_tool_names,
             activation_count: self.activation_count.load(Ordering::Relaxed),
-            last_activated_tool: self.last_activated_tool.read().unwrap().clone(),
+            last_activated_tool: read_lock(&self.last_activated_tool, "last_activated_tool")
+                .clone(),
         }
     }
 
@@ -304,7 +309,13 @@ impl ToolRegistry {
         let mut items = self
             .duplicate_registrations
             .read()
-            .unwrap()
+            .unwrap_or_else(|poisoned| {
+                tracing::warn!(
+                    lock = "duplicate_registrations",
+                    "Recovering poisoned tool registry lock"
+                );
+                poisoned.into_inner()
+            })
             .values()
             .cloned()
             .collect::<Vec<_>>();
@@ -313,9 +324,9 @@ impl ToolRegistry {
     }
 
     fn record_duplicate_if_present(&self, name: &str, incoming_phase: ToolPoolPhase) -> bool {
-        let original_phase = if self.tools.read().unwrap().contains_key(name) {
+        let original_phase = if read_lock(&self.tools, "tools").contains_key(name) {
             Some(ToolPoolPhase::Active)
-        } else if self.deferred.read().unwrap().contains_key(name) {
+        } else if read_lock(&self.deferred, "deferred").contains_key(name) {
             Some(ToolPoolPhase::Deferred)
         } else {
             None
@@ -325,7 +336,7 @@ impl ToolRegistry {
             return false;
         };
 
-        let mut duplicates = self.duplicate_registrations.write().unwrap();
+        let mut duplicates = write_lock(&self.duplicate_registrations, "duplicate_registrations");
         let record =
             duplicates
                 .entry(name.to_string())
@@ -354,8 +365,23 @@ impl Default for ToolRegistry {
     }
 }
 
+fn read_lock<'a, T>(lock: &'a RwLock<T>, name: &'static str) -> RwLockReadGuard<'a, T> {
+    lock.read().unwrap_or_else(|poisoned| {
+        tracing::warn!(lock = name, "Recovering poisoned tool registry lock");
+        poisoned.into_inner()
+    })
+}
+
+fn write_lock<'a, T>(lock: &'a RwLock<T>, name: &'static str) -> RwLockWriteGuard<'a, T> {
+    lock.write().unwrap_or_else(|poisoned| {
+        tracing::warn!(lock = name, "Recovering poisoned tool registry lock");
+        poisoned.into_inner()
+    })
+}
+
 #[cfg(test)]
 mod tests {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::Arc;
 
     use anyhow::Result;
@@ -451,5 +477,19 @@ mod tests {
             definitions[0].parameters,
             json!({"type": "object", "required": ["value"]})
         );
+    }
+
+    #[test]
+    fn registry_recovers_poisoned_locks() {
+        let registry = ToolRegistry::new();
+        let _ = catch_unwind(AssertUnwindSafe(|| {
+            let _guard = registry.tools.write().expect("lock tools");
+            panic!("poison registry tools lock");
+        }));
+
+        registry.register(Arc::new(DummyTool("after_poison")));
+
+        assert!(registry.get("after_poison").is_some());
+        assert_eq!(registry.total_count(), 1);
     }
 }

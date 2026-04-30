@@ -8,7 +8,7 @@ impl Updater {
     pub(in crate::updater) async fn update_last_checked(&self) {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs();
 
         let config_path = self.config_path();
@@ -77,7 +77,7 @@ impl Updater {
                         if let Ok(modified) = metadata.modified() {
                             let age_ms = SystemTime::now()
                                 .duration_since(modified)
-                                .unwrap()
+                                .unwrap_or_default()
                                 .as_millis();
                             if age_ms < LOCK_TIMEOUT_MS as u128 {
                                 return Err(UpdateError::LockHeld(pid));

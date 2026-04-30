@@ -66,7 +66,7 @@ pub(super) fn retry_delay(kind: ErrorKind, attempt: u32) -> std::time::Duration 
             let base_secs = 2u64.pow(attempt.min(4) + 1);
             let jitter = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_default()
                 .as_millis()
                 % 1000;
             std::time::Duration::from_millis((base_secs * 1000) + jitter as u64)

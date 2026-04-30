@@ -12,7 +12,9 @@ pub fn validate_and_coerce(schema: &Value, params: &mut Value) -> Result<(), Str
         *params = Value::Object(serde_json::Map::new());
     }
 
-    let params_obj = params.as_object_mut().unwrap();
+    let Some(params_obj) = params.as_object_mut() else {
+        return Err("Tool parameters must be an object".to_string());
+    };
 
     // Get properties and required fields from schema
     let properties = schema_obj.get("properties").and_then(|v| v.as_object());

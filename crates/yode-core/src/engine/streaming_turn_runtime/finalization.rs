@@ -66,8 +66,9 @@ impl AgentEngine {
 
         if let Some(text) = assistant_msg.content.as_ref() {
             if self.is_protocol_violation(text) {
-                assistant_msg.content = Some(self.clean_assistant_response(text));
-                buffers.full_text = assistant_msg.content.as_ref().unwrap().clone();
+                let cleaned = self.clean_assistant_response(text);
+                buffers.full_text = cleaned.clone();
+                assistant_msg.content = Some(cleaned);
             }
         }
 

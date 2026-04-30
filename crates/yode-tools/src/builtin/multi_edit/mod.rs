@@ -113,7 +113,8 @@ impl Tool for MultiEditTool {
             }
         };
 
-        // Validate all edits first
+        // Validate all edits first, then apply the parsed list to avoid re-reading unchecked JSON.
+        let mut parsed_edits = Vec::with_capacity(edits.len());
         for (i, edit) in edits.iter().enumerate() {
             let old_string = edit
                 .get("old_string")
@@ -145,15 +146,15 @@ impl Tool for MultiEditTool {
                     i, count, file_path
                 )));
             }
+
+            parsed_edits.push((old_string, new_string));
         }
 
         // Apply all edits sequentially
         let mut applied: usize = 0;
         let mut removed_preview = Vec::new();
         let mut added_preview = Vec::new();
-        for edit in edits {
-            let old_string = edit.get("old_string").unwrap().as_str().unwrap();
-            let new_string = edit.get("new_string").unwrap().as_str().unwrap();
+        for (old_string, new_string) in parsed_edits {
             if removed_preview.len() < 5 {
                 removed_preview.push(old_string.lines().next().unwrap_or("").to_string());
             }

@@ -111,9 +111,23 @@ impl Tool for BatchTool {
         let mut handles = Vec::new();
 
         for (i, inv) in invocations.iter().enumerate() {
-            let tool_name = inv.get("tool_name").unwrap().as_str().unwrap().to_string();
+            let Some(tool_name) = inv
+                .get("tool_name")
+                .and_then(|value| value.as_str())
+                .map(str::to_string)
+            else {
+                return Ok(ToolResult::error(format!(
+                    "Invocation {} missing tool_name",
+                    i
+                )));
+            };
             let tool_params = inv.get("params").cloned().unwrap_or_else(|| json!({}));
-            let tool = registry.get(&tool_name).unwrap();
+            let Some(tool) = registry.get(&tool_name) else {
+                return Ok(ToolResult::error(format!(
+                    "Tool '{}' disappeared before batch execution.",
+                    tool_name
+                )));
+            };
 
             handles.push(tokio::spawn(async move {
                 let ctx = ToolContext::empty();
@@ -152,7 +166,7 @@ impl Tool for BatchTool {
         });
 
         Ok(ToolResult::success_with_metadata(
-            serde_json::to_string_pretty(&results).unwrap(),
+            serde_json::to_string_pretty(&results).unwrap_or_else(|_| "[]".to_string()),
             metadata,
         ))
     }
