@@ -9,21 +9,40 @@ pub struct OrchestrationArtifactSet {
     pub timeline_path: Option<PathBuf>,
 }
 
-#[allow(clippy::too_many_arguments)]
+#[derive(Debug, Clone, Copy)]
+pub struct WorkflowRuntimeArtifactRequest<'a> {
+    pub working_dir: &'a Path,
+    pub workflow_path: &'a Path,
+    pub workflow_name: Option<&'a str>,
+    pub description: Option<&'a str>,
+    pub mode: &'a str,
+    pub dry_run: bool,
+    pub variables: &'a serde_json::Map<String, Value>,
+    pub steps: &'a [Value],
+    pub write_steps: &'a [Value],
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CoordinatorRuntimeArtifactRequest<'a> {
+    pub working_dir: &'a Path,
+    pub goal: &'a str,
+    pub dry_run: bool,
+    pub max_parallel: &'a str,
+    pub phase_count: usize,
+    pub workstream_count: usize,
+    pub timeline: &'a str,
+    pub plan: &'a [Value],
+    pub results: &'a [Value],
+}
+
 pub fn persist_workflow_runtime_artifacts(
-    working_dir: &Path,
-    workflow_path: &Path,
-    workflow_name: Option<&str>,
-    description: Option<&str>,
-    mode: &str,
-    dry_run: bool,
-    variables: &serde_json::Map<String, Value>,
-    steps: &[Value],
-    write_steps: &[Value],
+    request: WorkflowRuntimeArtifactRequest<'_>,
 ) -> anyhow::Result<OrchestrationArtifactSet> {
-    let dir = ensure_status_dir(working_dir)?;
+    let dir = ensure_status_dir(request.working_dir)?;
     let stamp = timestamp_stamp();
-    let slug = slugify(workflow_name.unwrap_or("workflow"));
+    let workflow_name = request.workflow_name.unwrap_or("workflow");
+    let description = request.description.unwrap_or("none");
+    let slug = slugify(workflow_name);
     let summary_path = dir.join(format!("{}-{}-workflow-execution.md", stamp, slug));
     let state_path = dir.join(format!("{}-{}-workflow-runtime-state.json", stamp, slug));
     let timeline_path = dir.join(format!(
@@ -33,47 +52,36 @@ pub fn persist_workflow_runtime_artifacts(
 
     let state = json!({
         "kind": "workflow",
-        "name": workflow_name.unwrap_or("workflow"),
-        "description": description.unwrap_or("none"),
-        "workflow_path": workflow_path.display().to_string(),
-        "mode": mode,
-        "dry_run": dry_run,
-        "step_count": steps.len(),
-        "write_steps": write_steps,
-        "variables": variables,
-        "steps": steps,
+        "name": workflow_name,
+        "description": description,
+        "workflow_path": request.workflow_path.display().to_string(),
+        "mode": request.mode,
+        "dry_run": request.dry_run,
+        "step_count": request.steps.len(),
+        "write_steps": request.write_steps,
+        "variables": request.variables,
+        "steps": request.steps,
         "summary_artifact": summary_path.display().to_string(),
         "timeline_artifact": timeline_path.display().to_string(),
         "timestamp": chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
     });
     std::fs::write(&state_path, serde_json::to_string_pretty(&state)?)?;
 
-    let summary = render_workflow_summary(
-        workflow_path,
-        workflow_name.unwrap_or("workflow"),
-        description.unwrap_or("none"),
-        mode,
-        dry_run,
-        variables,
-        steps,
-        write_steps,
-        &state_path,
-        &timeline_path,
-    );
+    let summary = render_workflow_summary(&request, &state_path, &timeline_path);
     std::fs::write(&summary_path, summary)?;
 
     let timeline = render_orchestration_timeline(
         "workflow",
-        workflow_name.unwrap_or("workflow"),
-        if dry_run {
+        workflow_name,
+        if request.dry_run {
             "dry-run planned"
-        } else if steps.iter().any(step_is_error) {
+        } else if request.steps.iter().any(step_is_error) {
             "execution finished with errors"
         } else {
             "execution finished"
         },
         &[("summary", &summary_path), ("state", &state_path)],
-        steps,
+        request.steps,
     );
     std::fs::write(&timeline_path, timeline)?;
 
@@ -84,22 +92,13 @@ pub fn persist_workflow_runtime_artifacts(
     })
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn persist_coordinator_runtime_artifacts(
-    working_dir: &Path,
-    goal: &str,
-    dry_run: bool,
-    max_parallel: &str,
-    phase_count: usize,
-    workstream_count: usize,
-    timeline: &str,
-    plan: &[Value],
-    results: &[Value],
+    request: CoordinatorRuntimeArtifactRequest<'_>,
 ) -> anyhow::Result<OrchestrationArtifactSet> {
-    let dir = ensure_status_dir(working_dir)?;
+    let dir = ensure_status_dir(request.working_dir)?;
     let stamp = timestamp_stamp();
-    let slug = slugify(goal);
-    let summary_suffix = if dry_run {
+    let slug = slugify(request.goal);
+    let summary_suffix = if request.dry_run {
         "coordinate-dry-run.md"
     } else {
         "coordinate-summary.md"
@@ -113,46 +112,39 @@ pub fn persist_coordinator_runtime_artifacts(
 
     let state = json!({
         "kind": "coordinator",
-        "goal": goal,
-        "dry_run": dry_run,
-        "phase_count": phase_count,
-        "workstream_count": workstream_count,
-        "max_parallel": max_parallel,
-        "timeline": timeline,
-        "plan": plan,
-        "results": results,
+        "goal": request.goal,
+        "dry_run": request.dry_run,
+        "phase_count": request.phase_count,
+        "workstream_count": request.workstream_count,
+        "max_parallel": request.max_parallel,
+        "timeline": request.timeline,
+        "plan": request.plan,
+        "results": request.results,
         "summary_artifact": summary_path.display().to_string(),
         "timeline_artifact": timeline_path.display().to_string(),
         "timestamp": chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
     });
     std::fs::write(&state_path, serde_json::to_string_pretty(&state)?)?;
 
-    let summary = render_coordinator_summary(
-        goal,
-        dry_run,
-        max_parallel,
-        phase_count,
-        workstream_count,
-        timeline,
-        plan,
-        results,
-        &state_path,
-        &timeline_path,
-    );
+    let summary = render_coordinator_summary(&request, &state_path, &timeline_path);
     std::fs::write(&summary_path, summary)?;
 
     let timeline_body = render_orchestration_timeline(
         "coordinator",
-        goal,
-        if dry_run {
+        request.goal,
+        if request.dry_run {
             "dry-run planned"
-        } else if results.iter().any(step_is_error) {
+        } else if request.results.iter().any(step_is_error) {
             "execution finished with errors"
         } else {
             "execution finished"
         },
         &[("summary", &summary_path), ("state", &state_path)],
-        if dry_run { plan } else { results },
+        if request.dry_run {
+            request.plan
+        } else {
+            request.results
+        },
     );
     std::fs::write(&timeline_path, timeline_body)?;
 
@@ -192,28 +184,22 @@ fn slugify(raw: &str) -> String {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn render_workflow_summary(
-    workflow_path: &Path,
-    workflow_name: &str,
-    description: &str,
-    mode: &str,
-    dry_run: bool,
-    variables: &serde_json::Map<String, Value>,
-    steps: &[Value],
-    write_steps: &[Value],
+    request: &WorkflowRuntimeArtifactRequest<'_>,
     state_path: &Path,
     timeline_path: &Path,
 ) -> String {
+    let workflow_name = request.workflow_name.unwrap_or("workflow");
+    let description = request.description.unwrap_or("none");
     let mut lines = vec![
         "# Workflow Execution".to_string(),
         String::new(),
         format!("- Name: {}", workflow_name),
-        format!("- Path: {}", workflow_path.display()),
+        format!("- Path: {}", request.workflow_path.display()),
         format!("- Description: {}", description),
-        format!("- Mode: {}", mode),
-        format!("- Dry run: {}", dry_run),
-        format!("- Step count: {}", steps.len()),
+        format!("- Mode: {}", request.mode),
+        format!("- Dry run: {}", request.dry_run),
+        format!("- Step count: {}", request.steps.len()),
         format!("- State artifact: {}", state_path.display()),
         format!("- Timeline artifact: {}", timeline_path.display()),
         format!(
@@ -223,57 +209,49 @@ fn render_workflow_summary(
         String::new(),
     ];
 
-    if variables.is_empty() {
+    if request.variables.is_empty() {
         lines.push("Variables: none".to_string());
     } else {
         lines.push("Variables:".to_string());
-        for (key, value) in variables {
+        for (key, value) in request.variables {
             lines.push(format!("- {}={}", key, compact_json(value)));
         }
     }
 
-    if write_steps.is_empty() {
+    if request.write_steps.is_empty() {
         lines.push("Write checkpoints: none".to_string());
     } else {
         lines.push("Write checkpoints:".to_string());
-        for checkpoint in write_steps {
+        for checkpoint in request.write_steps {
             lines.push(format!("- {}", step_outline(checkpoint)));
         }
     }
 
     lines.push(String::new());
     lines.push("Steps:".to_string());
-    for step in steps {
+    for step in request.steps {
         lines.push(format!("- {}", step_outline(step)));
     }
     lines.join("\n")
 }
 
-#[allow(clippy::too_many_arguments)]
 fn render_coordinator_summary(
-    goal: &str,
-    dry_run: bool,
-    max_parallel: &str,
-    phase_count: usize,
-    workstream_count: usize,
-    timeline: &str,
-    plan: &[Value],
-    results: &[Value],
+    request: &CoordinatorRuntimeArtifactRequest<'_>,
     state_path: &Path,
     timeline_path: &Path,
 ) -> String {
     let mut lines = vec![
-        if dry_run {
+        if request.dry_run {
             "# Coordinator Dry Run".to_string()
         } else {
             "# Coordinator Summary".to_string()
         },
         String::new(),
-        format!("- Goal: {}", goal),
-        format!("- Dry run: {}", dry_run),
-        format!("- Max parallel: {}", max_parallel),
-        format!("- Phase count: {}", phase_count),
-        format!("- Workstream count: {}", workstream_count),
+        format!("- Goal: {}", request.goal),
+        format!("- Dry run: {}", request.dry_run),
+        format!("- Max parallel: {}", request.max_parallel),
+        format!("- Phase count: {}", request.phase_count),
+        format!("- Workstream count: {}", request.workstream_count),
         format!("- State artifact: {}", state_path.display()),
         format!("- Timeline artifact: {}", timeline_path.display()),
         format!(
@@ -283,20 +261,24 @@ fn render_coordinator_summary(
         String::new(),
         "Timeline:".to_string(),
     ];
-    for line in timeline.lines().filter(|line| !line.trim().is_empty()) {
+    for line in request
+        .timeline
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+    {
         lines.push(format!("- {}", line.trim()));
     }
 
     lines.push(String::new());
     lines.push("Plan:".to_string());
-    for item in plan {
+    for item in request.plan {
         lines.push(format!("- {}", step_outline(item)));
     }
 
-    if !results.is_empty() {
+    if !request.results.is_empty() {
         lines.push(String::new());
         lines.push("Results:".to_string());
-        for item in results {
+        for item in request.results {
             lines.push(format!("- {}", step_outline(item)));
         }
     }
@@ -445,7 +427,10 @@ fn truncate_preview(text: &str, max_chars: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{persist_coordinator_runtime_artifacts, persist_workflow_runtime_artifacts};
+    use super::{
+        persist_coordinator_runtime_artifacts, persist_workflow_runtime_artifacts,
+        CoordinatorRuntimeArtifactRequest, WorkflowRuntimeArtifactRequest,
+    };
     use serde_json::json;
 
     fn artifact_display_name(path: &std::path::Path) -> String {
@@ -460,17 +445,20 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let workflow = dir.path().join("demo.json");
         std::fs::write(&workflow, "{}").unwrap();
-        let artifacts = persist_workflow_runtime_artifacts(
-            dir.path(),
-            &workflow,
-            Some("demo"),
-            Some("demo workflow"),
-            "safe_read_only",
-            true,
-            &serde_json::Map::new(),
-            &[json!({"index":1,"tool":"read_file","write_capable":false,"params":{"path":"a"}})],
-            &[],
-        )
+        let variables = serde_json::Map::new();
+        let steps =
+            vec![json!({"index":1,"tool":"read_file","write_capable":false,"params":{"path":"a"}})];
+        let artifacts = persist_workflow_runtime_artifacts(WorkflowRuntimeArtifactRequest {
+            working_dir: dir.path(),
+            workflow_path: &workflow,
+            workflow_name: Some("demo"),
+            description: Some("demo workflow"),
+            mode: "safe_read_only",
+            dry_run: true,
+            variables: &variables,
+            steps: &steps,
+            write_steps: &[],
+        })
         .unwrap();
         assert!(
             artifact_display_name(artifacts.summary_path.as_ref().unwrap())
@@ -489,17 +477,23 @@ mod tests {
     #[test]
     fn coordinator_runtime_artifacts_write_summary_and_state() {
         let dir = tempfile::tempdir().unwrap();
-        let artifacts = persist_coordinator_runtime_artifacts(
-            dir.path(),
-            "ship feature",
-            false,
-            "2",
-            2,
-            3,
-            "Phase 1\nPhase 2",
-            &[json!({"phase":1,"batch":1,"id":"review","description":"review","status":"planned"})],
-            &[json!({"phase":1,"batch":1,"id":"review","description":"review","status":"ok","output":"done"})],
-        )
+        let plan = vec![
+            json!({"phase":1,"batch":1,"id":"review","description":"review","status":"planned"}),
+        ];
+        let results = vec![
+            json!({"phase":1,"batch":1,"id":"review","description":"review","status":"ok","output":"done"}),
+        ];
+        let artifacts = persist_coordinator_runtime_artifacts(CoordinatorRuntimeArtifactRequest {
+            working_dir: dir.path(),
+            goal: "ship feature",
+            dry_run: false,
+            max_parallel: "2",
+            phase_count: 2,
+            workstream_count: 3,
+            timeline: "Phase 1\nPhase 2",
+            plan: &plan,
+            results: &results,
+        })
         .unwrap();
         let summary = std::fs::read_to_string(artifacts.summary_path.unwrap()).unwrap();
         assert!(summary.contains("# Coordinator Summary"));

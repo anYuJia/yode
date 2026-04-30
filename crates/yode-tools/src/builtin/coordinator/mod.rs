@@ -6,7 +6,9 @@ use futures::future::join_all;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::builtin::orchestration_common::persist_coordinator_runtime_artifacts;
+use crate::builtin::orchestration_common::{
+    persist_coordinator_runtime_artifacts, CoordinatorRuntimeArtifactRequest,
+};
 use crate::builtin::team_runtime::{
     hydrate_agent_team_manager, persist_agent_team_runtime, persist_agent_team_snapshot,
     update_agent_team_member, AgentTeamMemberState,
@@ -242,17 +244,18 @@ impl Tool for CoordinateAgentsTool {
             let plan = render_phase_plan(&phases, max_parallel);
             let timeline = render_phase_timeline(&phases, max_parallel);
             let artifacts = ctx.working_dir.as_deref().and_then(|dir| {
-                persist_coordinator_runtime_artifacts(
-                    dir,
-                    &goal,
-                    true,
-                    &max_parallel_label(max_parallel).to_string(),
-                    phases.len(),
-                    normalized.len(),
-                    &timeline,
-                    &plan,
-                    &[],
-                )
+                let max_parallel = max_parallel_label(max_parallel).to_string();
+                persist_coordinator_runtime_artifacts(CoordinatorRuntimeArtifactRequest {
+                    working_dir: dir,
+                    goal: &goal,
+                    dry_run: true,
+                    max_parallel: &max_parallel,
+                    phase_count: phases.len(),
+                    workstream_count: normalized.len(),
+                    timeline: &timeline,
+                    plan: &plan,
+                    results: &[],
+                })
                 .ok()
             });
             return Ok(ToolResult::success_with_metadata(
@@ -482,17 +485,18 @@ impl Tool for CoordinateAgentsTool {
         let timeline = render_phase_timeline(&phases, max_parallel);
         let plan = render_phase_plan(&phases, max_parallel);
         let artifacts = ctx.working_dir.as_deref().and_then(|dir| {
-            persist_coordinator_runtime_artifacts(
-                dir,
-                &goal,
-                false,
-                &max_parallel_label(max_parallel).to_string(),
-                phases.len(),
-                normalized.len(),
-                &timeline,
-                &plan,
-                &rendered,
-            )
+            let max_parallel = max_parallel_label(max_parallel).to_string();
+            persist_coordinator_runtime_artifacts(CoordinatorRuntimeArtifactRequest {
+                working_dir: dir,
+                goal: &goal,
+                dry_run: false,
+                max_parallel: &max_parallel,
+                phase_count: phases.len(),
+                workstream_count: normalized.len(),
+                timeline: &timeline,
+                plan: &plan,
+                results: &rendered,
+            })
             .ok()
         });
 

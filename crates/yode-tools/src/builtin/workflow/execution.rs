@@ -8,7 +8,9 @@ use serde_json::{json, Value};
 use super::rendering::{render_approval_checkpoint, render_workflow_dry_run, workflow_mode_label};
 use super::variables::{apply_variables, workflow_variables_from_params};
 use super::WorkflowExecutionMode;
-use crate::builtin::orchestration_common::persist_workflow_runtime_artifacts;
+use crate::builtin::orchestration_common::{
+    persist_workflow_runtime_artifacts, WorkflowRuntimeArtifactRequest,
+};
 use crate::tool::{ToolCapabilities, ToolContext, ToolResult};
 
 #[derive(Debug, Deserialize)]
@@ -114,17 +116,17 @@ pub(super) async fn execute_workflow(
             })
             .collect::<Vec<_>>();
         let artifacts = ctx.working_dir.as_deref().and_then(|dir| {
-            persist_workflow_runtime_artifacts(
-                dir,
-                &workflow_path,
-                workflow.name.as_deref(),
-                workflow.description.as_deref(),
-                workflow_mode_label(mode),
-                true,
-                &variables,
-                &plan,
-                &write_steps,
-            )
+            persist_workflow_runtime_artifacts(WorkflowRuntimeArtifactRequest {
+                working_dir: dir,
+                workflow_path: &workflow_path,
+                workflow_name: workflow.name.as_deref(),
+                description: workflow.description.as_deref(),
+                mode: workflow_mode_label(mode),
+                dry_run: true,
+                variables: &variables,
+                steps: &plan,
+                write_steps: &write_steps,
+            })
             .ok()
         });
         return Ok(ToolResult::success_with_metadata(
@@ -216,17 +218,18 @@ pub(super) async fn execute_workflow(
     }
 
     let artifacts = ctx.working_dir.as_deref().and_then(|dir| {
-        persist_workflow_runtime_artifacts(
-            dir,
-            &workflow_path,
-            workflow.name.as_deref(),
-            workflow.description.as_deref(),
-            workflow_mode_label(mode),
-            false,
-            &variables,
-            &step_outputs,
-            &workflow_write_checkpoints(&workflow.steps),
-        )
+        let write_steps = workflow_write_checkpoints(&workflow.steps);
+        persist_workflow_runtime_artifacts(WorkflowRuntimeArtifactRequest {
+            working_dir: dir,
+            workflow_path: &workflow_path,
+            workflow_name: workflow.name.as_deref(),
+            description: workflow.description.as_deref(),
+            mode: workflow_mode_label(mode),
+            dry_run: false,
+            variables: &variables,
+            steps: &step_outputs,
+            write_steps: &write_steps,
+        })
         .ok()
     });
 
