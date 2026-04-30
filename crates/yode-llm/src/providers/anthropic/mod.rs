@@ -58,10 +58,7 @@ impl AnthropicProvider {
             &request.provider_hints.restore_system_blocks,
         );
         let tools = Self::convert_tools(&request.tools, request.provider_hints.anthropic.as_ref());
-        let thinking = Some(AnthropicThinkingConfig {
-            thinking_type: "enabled".to_string(),
-            budget_tokens: anthropic_thinking_budget_tokens(),
-        });
+        let thinking = Some(anthropic_thinking_config());
 
         AnthropicRequest {
             model: request.model.clone(),
@@ -218,10 +215,23 @@ fn anthropic_model_display_name(model: &str) -> String {
     }
 }
 
+fn anthropic_thinking_config() -> AnthropicThinkingConfig {
+    AnthropicThinkingConfig {
+        thinking_type: "enabled".to_string(),
+        budget_tokens: anthropic_thinking_budget_tokens(),
+    }
+}
+
 fn anthropic_thinking_budget_tokens() -> u32 {
-    std::env::var("YODE_ANTHROPIC_THINKING_BUDGET_TOKENS")
-        .ok()
-        .and_then(|value| value.parse::<u32>().ok())
+    parse_anthropic_thinking_budget_tokens(
+        std::env::var("YODE_ANTHROPIC_THINKING_BUDGET_TOKENS")
+            .ok()
+            .as_deref(),
+    )
+}
+
+fn parse_anthropic_thinking_budget_tokens(raw: Option<&str>) -> u32 {
+    raw.and_then(|value| value.parse::<u32>().ok())
         .filter(|value| *value >= 1024)
         .unwrap_or(1024)
 }
@@ -259,5 +269,22 @@ mod tests {
             .default_models;
 
         assert_eq!(listed_ids, catalog_ids);
+    }
+
+    #[test]
+    fn thinking_budget_parser_uses_safe_minimum_default() {
+        assert_eq!(super::parse_anthropic_thinking_budget_tokens(None), 1024);
+        assert_eq!(
+            super::parse_anthropic_thinking_budget_tokens(Some("not-a-number")),
+            1024
+        );
+        assert_eq!(
+            super::parse_anthropic_thinking_budget_tokens(Some("512")),
+            1024
+        );
+        assert_eq!(
+            super::parse_anthropic_thinking_budget_tokens(Some("4096")),
+            4096
+        );
     }
 }

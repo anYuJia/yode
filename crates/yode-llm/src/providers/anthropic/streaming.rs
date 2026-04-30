@@ -8,10 +8,8 @@ use crate::providers::retry::send_with_retry;
 use crate::types::{ChatRequest, StreamEvent};
 
 use super::streaming_support::{finalize_stream, handle_stream_event, AnthropicStreamState};
-use super::types::{
-    AnthropicErrorResponse, AnthropicRequest, AnthropicStreamEvent, AnthropicThinkingConfig,
-};
-use super::{anthropic_thinking_budget_tokens, AnthropicProvider};
+use super::types::{AnthropicErrorResponse, AnthropicRequest, AnthropicStreamEvent};
+use super::{anthropic_thinking_config, AnthropicProvider};
 
 impl AnthropicProvider {
     pub(super) async fn send_chat_stream_request(
@@ -27,10 +25,7 @@ impl AnthropicProvider {
         let tools = Self::convert_tools(&request.tools, request.provider_hints.anthropic.as_ref());
         let max_tokens = request.max_tokens.unwrap_or(4096);
 
-        let thinking = Some(AnthropicThinkingConfig {
-            thinking_type: "enabled".to_string(),
-            budget_tokens: anthropic_thinking_budget_tokens(),
-        });
+        let thinking = Some(anthropic_thinking_config());
 
         let body = AnthropicRequest {
             model: request.model.clone(),
