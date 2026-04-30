@@ -3,10 +3,12 @@ mod summary;
 
 use super::*;
 
-#[allow(unused_imports)]
-pub(crate) use compression::{is_context_summary, message_priority};
-#[allow(unused_imports)]
-pub(crate) use summary::{calibration_token_estimate, context_summary_lines, messages_char_count};
+pub(crate) use compression::is_context_summary;
+#[cfg(test)]
+pub(crate) use compression::message_priority;
+#[cfg(test)]
+pub(crate) use summary::context_summary_lines;
+pub(crate) use summary::{calibration_token_estimate, messages_char_count};
 
 impl ModelLimits {
     /// Look up known model limits by model name.

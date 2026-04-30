@@ -5,7 +5,6 @@ mod versioning;
 use anyhow::{Context, Result};
 use flate2;
 use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
