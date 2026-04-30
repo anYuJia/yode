@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -221,40 +222,23 @@ impl SubAgentRunner for SubAgentRunnerImpl {
 
                     let engine_result = engine_handle.await;
                     if cancelled {
-                        let _ = tokio::fs::write(&output_path, "Sub-agent task cancelled.\n").await;
-                        runtime_tasks.lock().await.mark_cancelled(&task_id);
-                        sync_team_runtime_update(
-                            &team_runtime,
-                            &parent_working_dir,
-                            team_id.as_deref(),
-                            member_id.as_deref(),
-                            "cancelled",
-                            Some(task_id.clone()),
-                            Some("Sub-agent task cancelled.".to_string()),
-                            None,
-                        )
-                        .await;
-                        emit_task_hook(
-                            hook_manager.as_ref(),
-                            HookEvent::TaskCompleted,
-                            &hook_context,
-                            &task_id,
-                            &subagent_description,
-                            "agent",
-                            Some("cancelled"),
-                            Some("Sub-agent task cancelled."),
-                            None,
-                        )
-                        .await;
-                        emit_subagent_hook(
-                            hook_manager.as_ref(),
-                            HookEvent::SubagentStop,
-                            &hook_context,
-                            &subagent_description,
-                            Some("cancelled"),
-                            Some("Sub-agent task cancelled."),
-                            None,
-                        )
+                        complete_background_subagent(BackgroundSubagentCompletion {
+                            runtime_tasks,
+                            team_runtime,
+                            hook_manager,
+                            hook_context,
+                            parent_working_dir,
+                            task_id,
+                            description: subagent_description,
+                            output_path,
+                            team_id,
+                            member_id,
+                            status: BackgroundSubagentStatus::Cancelled,
+                            output: "Sub-agent task cancelled.\n".to_string(),
+                            task_error: None,
+                            team_summary: "Sub-agent task cancelled.".to_string(),
+                            hook_summary: "Sub-agent task cancelled.".to_string(),
+                        })
                         .await;
                         return;
                     }
@@ -266,165 +250,86 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                             } else {
                                 result_text
                             };
-                            let _ = tokio::fs::write(&output_path, content).await;
                             if let Some(error) = error_text {
-                                runtime_tasks.lock().await.mark_failed(&task_id, error);
-                                sync_team_runtime_update(
-                                    &team_runtime,
-                                    &parent_working_dir,
-                                    team_id.as_deref(),
-                                    member_id.as_deref(),
-                                    "failed",
-                                    Some(task_id.clone()),
-                                    Some("Sub-agent finished with error text.".to_string()),
-                                    None,
-                                )
-                                .await;
-                                emit_task_hook(
-                                    hook_manager.as_ref(),
-                                    HookEvent::TaskCompleted,
-                                    &hook_context,
-                                    &task_id,
-                                    &subagent_description,
-                                    "agent",
-                                    Some("failed"),
-                                    Some("Sub-agent finished with error text."),
-                                    None,
-                                )
-                                .await;
-                                emit_subagent_hook(
-                                    hook_manager.as_ref(),
-                                    HookEvent::SubagentStop,
-                                    &hook_context,
-                                    &subagent_description,
-                                    Some("failed"),
-                                    Some("Sub-agent finished with error text."),
-                                    None,
-                                )
+                                complete_background_subagent(BackgroundSubagentCompletion {
+                                    runtime_tasks,
+                                    team_runtime,
+                                    hook_manager,
+                                    hook_context,
+                                    parent_working_dir,
+                                    task_id,
+                                    description: subagent_description,
+                                    output_path,
+                                    team_id,
+                                    member_id,
+                                    status: BackgroundSubagentStatus::Failed,
+                                    output: content,
+                                    task_error: Some(error),
+                                    team_summary: "Sub-agent finished with error text.".to_string(),
+                                    hook_summary: "Sub-agent finished with error text.".to_string(),
+                                })
                                 .await;
                             } else {
-                                runtime_tasks.lock().await.mark_completed(&task_id);
-                                sync_team_runtime_update(
-                                    &team_runtime,
-                                    &parent_working_dir,
-                                    team_id.as_deref(),
-                                    member_id.as_deref(),
-                                    "completed",
-                                    Some(task_id.clone()),
-                                    Some("Sub-agent completed successfully.".to_string()),
-                                    None,
-                                )
-                                .await;
-                                emit_task_hook(
-                                    hook_manager.as_ref(),
-                                    HookEvent::TaskCompleted,
-                                    &hook_context,
-                                    &task_id,
-                                    &subagent_description,
-                                    "agent",
-                                    Some("completed"),
-                                    Some("Sub-agent completed successfully."),
-                                    None,
-                                )
-                                .await;
-                                emit_subagent_hook(
-                                    hook_manager.as_ref(),
-                                    HookEvent::SubagentStop,
-                                    &hook_context,
-                                    &subagent_description,
-                                    Some("completed"),
-                                    Some("Sub-agent completed successfully."),
-                                    None,
-                                )
+                                complete_background_subagent(BackgroundSubagentCompletion {
+                                    runtime_tasks,
+                                    team_runtime,
+                                    hook_manager,
+                                    hook_context,
+                                    parent_working_dir,
+                                    task_id,
+                                    description: subagent_description,
+                                    output_path,
+                                    team_id,
+                                    member_id,
+                                    status: BackgroundSubagentStatus::Completed,
+                                    output: content,
+                                    task_error: None,
+                                    team_summary: "Sub-agent completed successfully.".to_string(),
+                                    hook_summary: "Sub-agent completed successfully.".to_string(),
+                                })
                                 .await;
                             }
                         }
                         Ok(Err(err)) => {
-                            let _ = tokio::fs::write(
-                                &output_path,
-                                format!("Sub-agent failed: {}", err),
-                            )
-                            .await;
-                            runtime_tasks
-                                .lock()
-                                .await
-                                .mark_failed(&task_id, format!("{}", err));
-                            sync_team_runtime_update(
-                                &team_runtime,
-                                &parent_working_dir,
-                                team_id.as_deref(),
-                                member_id.as_deref(),
-                                "failed",
-                                Some(task_id.clone()),
-                                Some(format!("{}", err)),
-                                None,
-                            )
-                            .await;
-                            emit_task_hook(
-                                hook_manager.as_ref(),
-                                HookEvent::TaskCompleted,
-                                &hook_context,
-                                &task_id,
-                                &subagent_description,
-                                "agent",
-                                Some("failed"),
-                                Some(&format!("{}", err)),
-                                None,
-                            )
-                            .await;
-                            emit_subagent_hook(
-                                hook_manager.as_ref(),
-                                HookEvent::SubagentStop,
-                                &hook_context,
-                                &subagent_description,
-                                Some("failed"),
-                                Some(&format!("{}", err)),
-                                None,
-                            )
+                            let error = format!("{}", err);
+                            complete_background_subagent(BackgroundSubagentCompletion {
+                                runtime_tasks,
+                                team_runtime,
+                                hook_manager,
+                                hook_context,
+                                parent_working_dir,
+                                task_id,
+                                description: subagent_description,
+                                output_path,
+                                team_id,
+                                member_id,
+                                status: BackgroundSubagentStatus::Failed,
+                                output: format!("Sub-agent failed: {}", error),
+                                task_error: Some(error.clone()),
+                                team_summary: error.clone(),
+                                hook_summary: error,
+                            })
                             .await;
                         }
                         Err(err) => {
-                            let _ = tokio::fs::write(
-                                &output_path,
-                                format!("Sub-agent task join failure: {}", err),
-                            )
-                            .await;
-                            runtime_tasks
-                                .lock()
-                                .await
-                                .mark_failed(&task_id, format!("Join error: {}", err));
-                            sync_team_runtime_update(
-                                &team_runtime,
-                                &parent_working_dir,
-                                team_id.as_deref(),
-                                member_id.as_deref(),
-                                "failed",
-                                Some(task_id.clone()),
-                                Some(format!("Join error: {}", err)),
-                                None,
-                            )
-                            .await;
-                            emit_task_hook(
-                                hook_manager.as_ref(),
-                                HookEvent::TaskCompleted,
-                                &hook_context,
-                                &task_id,
-                                &subagent_description,
-                                "agent",
-                                Some("failed"),
-                                Some(&format!("Join error: {}", err)),
-                                None,
-                            )
-                            .await;
-                            emit_subagent_hook(
-                                hook_manager.as_ref(),
-                                HookEvent::SubagentStop,
-                                &hook_context,
-                                &subagent_description,
-                                Some("failed"),
-                                Some(&format!("Join error: {}", err)),
-                                None,
-                            )
+                            let error = format!("Join error: {}", err);
+                            complete_background_subagent(BackgroundSubagentCompletion {
+                                runtime_tasks,
+                                team_runtime,
+                                hook_manager,
+                                hook_context,
+                                parent_working_dir,
+                                task_id,
+                                description: subagent_description,
+                                output_path,
+                                team_id,
+                                member_id,
+                                status: BackgroundSubagentStatus::Failed,
+                                output: format!("Sub-agent task join failure: {}", err),
+                                task_error: Some(error.clone()),
+                                team_summary: error.clone(),
+                                hook_summary: error,
+                            })
                             .await;
                         }
                     }
@@ -514,6 +419,93 @@ impl SubAgentRunner for SubAgentRunnerImpl {
             Ok(result_text)
         })
     }
+}
+
+enum BackgroundSubagentStatus {
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+impl BackgroundSubagentStatus {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+            Self::Cancelled => "cancelled",
+        }
+    }
+}
+
+struct BackgroundSubagentCompletion {
+    runtime_tasks: Arc<Mutex<RuntimeTaskStore>>,
+    team_runtime: Arc<Mutex<AgentTeamManager>>,
+    hook_manager: Option<Arc<HookManager>>,
+    hook_context: AgentContext,
+    parent_working_dir: PathBuf,
+    task_id: String,
+    description: String,
+    output_path: PathBuf,
+    team_id: Option<String>,
+    member_id: Option<String>,
+    status: BackgroundSubagentStatus,
+    output: String,
+    task_error: Option<String>,
+    team_summary: String,
+    hook_summary: String,
+}
+
+async fn complete_background_subagent(completion: BackgroundSubagentCompletion) {
+    let _ = tokio::fs::write(&completion.output_path, &completion.output).await;
+    {
+        let mut store = completion.runtime_tasks.lock().await;
+        match completion.status {
+            BackgroundSubagentStatus::Completed => store.mark_completed(&completion.task_id),
+            BackgroundSubagentStatus::Failed => store.mark_failed(
+                &completion.task_id,
+                completion
+                    .task_error
+                    .clone()
+                    .unwrap_or_else(|| completion.hook_summary.clone()),
+            ),
+            BackgroundSubagentStatus::Cancelled => store.mark_cancelled(&completion.task_id),
+        }
+    }
+
+    let status = completion.status.as_str();
+    sync_team_runtime_update(
+        &completion.team_runtime,
+        &completion.parent_working_dir,
+        completion.team_id.as_deref(),
+        completion.member_id.as_deref(),
+        status,
+        Some(completion.task_id.clone()),
+        Some(completion.team_summary.clone()),
+        None,
+    )
+    .await;
+    emit_task_hook(
+        completion.hook_manager.as_ref(),
+        HookEvent::TaskCompleted,
+        &completion.hook_context,
+        &completion.task_id,
+        &completion.description,
+        "agent",
+        Some(status),
+        Some(&completion.hook_summary),
+        None,
+    )
+    .await;
+    emit_subagent_hook(
+        completion.hook_manager.as_ref(),
+        HookEvent::SubagentStop,
+        &completion.hook_context,
+        &completion.description,
+        Some(status),
+        Some(&completion.hook_summary),
+        None,
+    )
+    .await;
 }
 
 #[expect(
@@ -842,11 +834,16 @@ fn merge_hook_metadata(
 #[cfg(test)]
 mod tests {
     use super::{
-        emit_subagent_hook, emit_task_hook, inject_workspace_context, prepare_subagent_context,
-        sanitize_workspace_name,
+        complete_background_subagent, emit_subagent_hook, emit_task_hook, inject_workspace_context,
+        prepare_subagent_context, sanitize_workspace_name, BackgroundSubagentCompletion,
+        BackgroundSubagentStatus,
     };
     use crate::context::AgentContext;
     use crate::hooks::{HookEvent, HookManager};
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+    use yode_agent::{AgentTeamManager, AgentTeamMemberState};
+    use yode_tools::runtime_tasks::{RuntimeTaskStatus, RuntimeTaskStore};
     use yode_tools::tool::SubAgentOptions;
 
     #[tokio::test]
@@ -930,6 +927,82 @@ mod tests {
         assert!(body.contains("\"event\":\"task_created\""));
         assert!(body.contains("\"task_id\":\"task-1\""));
         assert!(body.contains("\"run_in_background\":true"));
+    }
+
+    #[tokio::test]
+    async fn background_subagent_completion_updates_task_and_team() {
+        let dir = tempfile::tempdir().unwrap();
+        let output_path = dir.path().join("agent.log");
+        let runtime_tasks = Arc::new(Mutex::new(RuntimeTaskStore::new()));
+        let (task, _cancel_rx) = runtime_tasks.lock().await.create(
+            "agent".to_string(),
+            "agent".to_string(),
+            "implement worker".to_string(),
+            output_path.display().to_string(),
+        );
+
+        let mut team = AgentTeamManager::new();
+        team.ensure_team(
+            "ship feature",
+            Some("team-1"),
+            "parallel",
+            vec![AgentTeamMemberState {
+                member_id: "worker-1".to_string(),
+                description: "implement worker".to_string(),
+                subagent_type: None,
+                model: None,
+                run_in_background: true,
+                allowed_tools: Vec::new(),
+                permission_inheritance: "permissive".to_string(),
+                status: "running".to_string(),
+                runtime_task_id: None,
+                last_result_preview: None,
+                result_artifact_path: None,
+                last_updated_at: None,
+                pending_message_count: 0,
+                last_message_at: None,
+            }],
+        );
+        let team_runtime = Arc::new(Mutex::new(team));
+        let context = AgentContext::new(
+            dir.path().to_path_buf(),
+            "mock".to_string(),
+            "claude-sonnet-4".to_string(),
+        );
+
+        complete_background_subagent(BackgroundSubagentCompletion {
+            runtime_tasks: Arc::clone(&runtime_tasks),
+            team_runtime: Arc::clone(&team_runtime),
+            hook_manager: None,
+            hook_context: context,
+            parent_working_dir: dir.path().to_path_buf(),
+            task_id: task.id.clone(),
+            description: "implement worker".to_string(),
+            output_path: output_path.clone(),
+            team_id: Some("team-1".to_string()),
+            member_id: Some("worker-1".to_string()),
+            status: BackgroundSubagentStatus::Completed,
+            output: "done".to_string(),
+            task_error: None,
+            team_summary: "Sub-agent completed successfully.".to_string(),
+            hook_summary: "Sub-agent completed successfully.".to_string(),
+        })
+        .await;
+
+        assert_eq!(
+            runtime_tasks.lock().await.get(&task.id).unwrap().status,
+            RuntimeTaskStatus::Completed
+        );
+        assert_eq!(std::fs::read_to_string(output_path).unwrap(), "done");
+        let snapshot = team_runtime.lock().await.snapshot("team-1").unwrap();
+        let state = snapshot.state.unwrap();
+        let member = state
+            .members
+            .iter()
+            .find(|member| member.member_id == "worker-1")
+            .unwrap();
+        assert_eq!(member.status, "completed");
+        assert_eq!(member.runtime_task_id.as_deref(), Some(task.id.as_str()));
     }
 
     #[test]
