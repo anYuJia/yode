@@ -571,7 +571,7 @@ pub async fn run_ready_agent_steps<R: AgentRunner>(
         let request = build_agent_run_request(&state, &member_id, messages)?;
         report.launched_member_ids.push(member_id.clone());
 
-        let result = match runner.run(request).await {
+        let mut result = match runner.run(request).await {
             Ok(result) => result,
             Err(error) => AgentRunResult {
                 member_id: member_id.clone(),
@@ -580,6 +580,9 @@ pub async fn run_ready_agent_steps<R: AgentRunner>(
                 artifact_path: None,
             },
         };
+        if result.member_id != member_id {
+            result.member_id = member_id.clone();
+        }
 
         manager.update_member(
             team_id,
@@ -1075,6 +1078,29 @@ mod tests {
         }
     }
 
+    struct WrongMemberRunner;
+
+    #[async_trait]
+    impl AgentRunner for WrongMemberRunner {
+        async fn run(&self, _request: AgentRunRequest) -> Result<AgentRunResult> {
+            Ok(AgentRunResult {
+                member_id: "wrong-member".to_string(),
+                status: AgentRunStatus::Completed,
+                summary: "done".to_string(),
+                artifact_path: None,
+            })
+        }
+    }
+
+    struct FailingRunner;
+
+    #[async_trait]
+    impl AgentRunner for FailingRunner {
+        async fn run(&self, _request: AgentRunRequest) -> Result<AgentRunResult> {
+            Err(anyhow!("runner failed"))
+        }
+    }
+
     #[tokio::test]
     async fn agent_runner_boundary_uses_team_member_context() {
         let state = AgentTeamState {
@@ -1159,5 +1185,45 @@ mod tests {
         assert_eq!(report.launched_member_ids, vec!["api", "ui"]);
         let state = manager.snapshot("team-demo").unwrap().state.unwrap();
         assert_eq!(state.completed_count, 3);
+    }
+
+    #[tokio::test]
+    async fn orchestrator_normalizes_runner_member_id() {
+        let mut manager = AgentTeamManager::new();
+        manager.ensure_team(
+            "ship feature",
+            Some("team-demo"),
+            "parallel",
+            vec![member("api", Some("worker"))],
+        );
+
+        let report = run_ready_agent_steps(&mut manager, "team-demo", &WrongMemberRunner, 1)
+            .await
+            .unwrap();
+        assert_eq!(report.results[0].member_id, "api");
+        let state = manager.snapshot("team-demo").unwrap().state.unwrap();
+        assert_eq!(state.members[0].member_id, "api");
+        assert_eq!(state.members[0].status, "completed");
+    }
+
+    #[tokio::test]
+    async fn orchestrator_marks_runner_errors_as_failed_results() {
+        let mut manager = AgentTeamManager::new();
+        manager.ensure_team(
+            "ship feature",
+            Some("team-demo"),
+            "parallel",
+            vec![member("api", Some("worker"))],
+        );
+
+        let report = run_ready_agent_steps(&mut manager, "team-demo", &FailingRunner, 1)
+            .await
+            .unwrap();
+        assert_eq!(report.results[0].member_id, "api");
+        assert_eq!(report.results[0].status, AgentRunStatus::Failed);
+        assert_eq!(report.results[0].summary, "runner failed");
+        let state = manager.snapshot("team-demo").unwrap().state.unwrap();
+        assert_eq!(state.members[0].status, "failed");
+        assert_eq!(state.failed_count, 1);
     }
 }
