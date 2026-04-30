@@ -29,15 +29,6 @@ struct RuntimeTimelineEntry {
     detail: String,
 }
 
-#[allow(dead_code)]
-pub(crate) fn build_runtime_timeline_lines(
-    state: &EngineRuntimeState,
-    tasks: &[RuntimeTask],
-    max_items: usize,
-) -> Vec<String> {
-    build_runtime_timeline_lines_with_project_root(None, state, tasks, max_items)
-}
-
 pub(crate) fn build_runtime_timeline_lines_with_project_root(
     project_root: Option<&Path>,
     state: &EngineRuntimeState,
@@ -258,24 +249,6 @@ pub(crate) fn build_runtime_timeline_lines_with_project_root(
     }
 
     render_runtime_timeline_entries(entries, max_items)
-}
-
-#[allow(dead_code)]
-pub(crate) fn render_runtime_timeline_markdown(
-    state: &EngineRuntimeState,
-    tasks: &[RuntimeTask],
-    max_items: usize,
-) -> String {
-    let lines = build_runtime_timeline_lines(state, tasks, max_items)
-        .into_iter()
-        .map(|line| format!("- {}", line))
-        .collect::<Vec<_>>()
-        .join("\n");
-    format!(
-        "# Runtime Timeline\n\n{}## Timeline\n\n{}\n",
-        timeline_summary_markdown(None, state, tasks),
-        lines
-    )
 }
 
 pub(crate) fn render_runtime_timeline_markdown_with_project_root(
@@ -556,8 +529,8 @@ mod tests {
     use yode_tools::{registry::ToolPoolSnapshot, RuntimeTask, RuntimeTaskStatus};
 
     use super::{
-        build_runtime_timeline_lines, build_runtime_timeline_lines_with_project_root,
-        render_runtime_timeline_entries, task_timeline_entry, RuntimeTimelineEntry,
+        build_runtime_timeline_lines_with_project_root, render_runtime_timeline_entries,
+        task_timeline_entry, RuntimeTimelineEntry,
     };
 
     fn test_runtime_state() -> EngineRuntimeState {
@@ -770,7 +743,7 @@ mod tests {
         state.last_turn_stop_reason = Some("Stop".to_string());
         state.last_turn_artifact_path = Some(turn.display().to_string());
 
-        let lines = build_runtime_timeline_lines(&state, &[], 8);
+        let lines = build_runtime_timeline_lines_with_project_root(None, &state, &[], 8);
         assert!(lines
             .iter()
             .any(|line| line.contains("context compacted: auto")));
