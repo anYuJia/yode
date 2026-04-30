@@ -83,7 +83,7 @@ impl InspectorState {
 }
 
 impl InspectorDocument {
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(crate) fn single(title: impl Into<String>, lines: Vec<String>) -> Self {
         let title = title.into();
         let tab = InspectorTab {
@@ -654,24 +654,6 @@ impl PanelStackCoordinator {
     pub(crate) fn pop(&mut self) -> Option<String> {
         self.layers.pop()
     }
-
-    #[allow(dead_code)]
-    pub(crate) fn active(&self) -> Option<&str> {
-        self.layers.last().map(String::as_str)
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn depth_label(&self) -> String {
-        format!("stack depth {}", self.layers.len().min(99))
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn breadcrumb_label(&self) -> String {
-        if self.layers.is_empty() {
-            return "latest: none".to_string();
-        }
-        format!("latest: {}", self.layers.join(" > "))
-    }
 }
 
 fn extract_command_target(text: &str) -> Option<String> {
@@ -800,11 +782,9 @@ mod tests {
         let mut stack = PanelStackCoordinator::default();
         stack.push("task");
         stack.push("transcript");
-        assert_eq!(stack.active(), Some("transcript"));
-        assert_eq!(stack.depth_label(), "stack depth 2");
-        assert_eq!(stack.breadcrumb_label(), "latest: task > transcript");
+        assert_eq!(stack.layers.last().map(String::as_str), Some("transcript"));
         assert_eq!(stack.pop().as_deref(), Some("transcript"));
-        assert_eq!(stack.active(), Some("task"));
+        assert_eq!(stack.layers.last().map(String::as_str), Some("task"));
     }
 
     #[test]

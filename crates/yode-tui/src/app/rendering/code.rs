@@ -8,7 +8,6 @@ pub enum CodeLanguage {
     Python,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CodeTokenKind {
     Plain,
@@ -33,7 +32,6 @@ pub(crate) enum CodeTokenKind {
     ShellInfo,
     ShellSuccess,
     ShellWarning,
-    ShellOutput,
     ShellError,
 }
 
@@ -68,7 +66,6 @@ struct AnsiTheme {
     shell_info: &'static str,
     shell_success: &'static str,
     shell_warning: &'static str,
-    shell_output: &'static str,
     shell_error: &'static str,
 }
 
@@ -96,7 +93,6 @@ const ANSI_THEME: AnsiTheme = AnsiTheme {
     shell_info: "\x1b[38;2;120;170;220m",
     shell_success: "\x1b[38;2;120;190;130m",
     shell_warning: "\x1b[38;2;224;193;108m",
-    shell_output: "\x1b[38;2;170;170;170m",
     shell_error: "\x1b[38;2;214;116;116m",
 };
 
@@ -125,13 +121,12 @@ impl AnsiTheme {
             CodeTokenKind::ShellInfo => Some(self.shell_info),
             CodeTokenKind::ShellSuccess => Some(self.shell_success),
             CodeTokenKind::ShellWarning => Some(self.shell_warning),
-            CodeTokenKind::ShellOutput => Some(self.shell_output),
             CodeTokenKind::ShellError => Some(self.shell_error),
         }
     }
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ShellLineKind {
     Blank,
@@ -146,7 +141,7 @@ pub(crate) enum ShellLineKind {
     Comment,
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ShellSessionState {
     #[default]
@@ -155,21 +150,19 @@ pub enum ShellSessionState {
     InOutput,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ShellPromptKind {
     Primary,
     Continuation,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ShellPromptMatch {
     prefix_len: usize,
     kind: ShellPromptKind,
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ShellOutputStyle {
     Info,
@@ -350,21 +343,6 @@ pub(super) fn highlight_code_line(line: &str, language: Option<CodeLanguage>) ->
     result
 }
 
-#[allow(dead_code)]
-pub(crate) fn highlight_shell_session_line(
-    line: &str,
-    session_state: ShellSessionState,
-) -> (String, ShellLineKind, ShellSessionState) {
-    let (kind, tokens, next_session_state) = tokenize_shell_session_line(line, session_state);
-    let mut result = String::new();
-    result.push_str(ANSI_THEME.base);
-    for token in tokens {
-        append_ansi_token(&mut result, &token, &ANSI_THEME);
-    }
-    result.push_str(ANSI_THEME.reset);
-    (result, kind, next_session_state)
-}
-
 pub(crate) fn tokenize_code_line_with_language(
     line: &str,
     language: CodeLanguage,
@@ -409,7 +387,7 @@ pub(crate) fn tokenize_code_line_with_language(
     }
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) fn tokenize_shell_session_line(
     line: &str,
     session_state: ShellSessionState,
@@ -687,7 +665,7 @@ fn tokenize_json_line(line: &str) -> Vec<CodeToken> {
     tokens
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 fn classify_shell_line(line: &str, session_state: ShellSessionState) -> ShellLineKind {
     if line.trim().is_empty() {
         return ShellLineKind::Blank;
@@ -914,12 +892,12 @@ fn tokenize_shell_command_line(line: &str, prompt_prefix_len: Option<usize>) -> 
     tokens
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 fn tokenize_shell_output_line(line: &str, kind: ShellLineKind) -> Vec<CodeToken> {
     let mut tokens = Vec::new();
     let mut content = line;
     let default_kind = match kind {
-        ShellLineKind::Output => CodeTokenKind::ShellOutput,
+        ShellLineKind::Output => CodeTokenKind::Plain,
         _ => CodeTokenKind::Plain,
     };
 
@@ -929,7 +907,7 @@ fn tokenize_shell_output_line(line: &str, kind: ShellLineKind) -> Vec<CodeToken>
             ShellLineKind::Success => CodeTokenKind::ShellSuccess,
             ShellLineKind::Warning => CodeTokenKind::ShellWarning,
             ShellLineKind::Error => CodeTokenKind::ShellError,
-            ShellLineKind::Output => CodeTokenKind::ShellOutput,
+            ShellLineKind::Output => CodeTokenKind::Plain,
             _ => CodeTokenKind::Plain,
         };
         tokens.push(CodeToken {
@@ -1027,7 +1005,7 @@ fn tokenize_shell_output_line(line: &str, kind: ShellLineKind) -> Vec<CodeToken>
             tokens.push(CodeToken {
                 text: chars[index].to_string(),
                 kind: if matches!(kind, ShellLineKind::Output) {
-                    CodeTokenKind::ShellOutput
+                    CodeTokenKind::Plain
                 } else {
                     CodeTokenKind::Operator
                 },
@@ -1274,7 +1252,6 @@ fn starts_comment(chars: &[char], index: usize, style: CommentStyle) -> bool {
     }
 }
 
-#[allow(dead_code)]
 fn shell_prompt_prefix(line: &str) -> Option<ShellPromptMatch> {
     let trimmed = line.trim_start();
     let leading_whitespace = line.len().saturating_sub(trimmed.len());
@@ -1325,7 +1302,6 @@ fn shell_prompt_prefix(line: &str) -> Option<ShellPromptMatch> {
     None
 }
 
-#[allow(dead_code)]
 fn prefixed_shell_prompt_prefix_len(line: &str) -> Option<usize> {
     let mut best: Option<usize> = None;
 
@@ -1345,7 +1321,6 @@ fn prefixed_shell_prompt_prefix_len(line: &str) -> Option<usize> {
     best
 }
 
-#[allow(dead_code)]
 fn powershell_prompt_prefix_len(line: &str) -> Option<usize> {
     for prefix in ["PS> ", "pwsh> ", "powershell> "] {
         if line.starts_with(prefix) && line.len() > prefix.len() {
@@ -1364,7 +1339,6 @@ fn powershell_prompt_prefix_len(line: &str) -> Option<usize> {
     None
 }
 
-#[allow(dead_code)]
 fn rooted_shell_prompt_prefix_len(line: &str) -> Option<usize> {
     let index = line.find("# ")?;
     let end = index + 2;
@@ -1391,7 +1365,6 @@ fn rooted_shell_prompt_prefix_len(line: &str) -> Option<usize> {
     None
 }
 
-#[allow(dead_code)]
 fn looks_like_shell_prompt_prefix(prefix: &str) -> bool {
     let trimmed = prefix.trim_end();
     if trimmed.is_empty() {
@@ -1411,7 +1384,7 @@ fn looks_like_shell_prompt_prefix(prefix: &str) -> bool {
         || trimmed.split_whitespace().count() > 1
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 fn is_likely_shell_error_output(line: &str) -> bool {
     let trimmed = line.trim_start();
     let lowered = trimmed.to_ascii_lowercase();
@@ -1437,7 +1410,7 @@ fn is_likely_shell_error_output(line: &str) -> bool {
         || lowered.contains("no such file or directory")
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 fn is_likely_shell_warning_output(line: &str) -> bool {
     let trimmed = line.trim_start();
     let lowered = trimmed.to_ascii_lowercase();
@@ -1452,7 +1425,7 @@ fn is_likely_shell_warning_output(line: &str) -> bool {
         || lowered.contains("deprecated")
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 fn is_likely_shell_success_output(line: &str) -> bool {
     let trimmed = line.trim_start();
     let lowered = trimmed.to_ascii_lowercase();
@@ -1470,7 +1443,7 @@ fn is_likely_shell_success_output(line: &str) -> bool {
         || trimmed.starts_with("✔ ")
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 fn is_likely_shell_info_output(line: &str) -> bool {
     let first = line.split_whitespace().next().unwrap_or("");
     matches!(
@@ -1502,7 +1475,7 @@ fn is_likely_shell_info_output(line: &str) -> bool {
     )
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 fn shell_output_style(line: &str) -> Option<ShellOutputStyle> {
     if is_likely_shell_error_output(line) {
         return Some(ShellOutputStyle::Error);
@@ -1519,7 +1492,7 @@ fn shell_output_style(line: &str) -> Option<ShellOutputStyle> {
     None
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 fn shell_output_prefix_len(line: &str, kind: ShellLineKind) -> Option<usize> {
     let trimmed = line.trim_start();
     let leading_whitespace = line.len().saturating_sub(trimmed.len());
@@ -1654,7 +1627,7 @@ fn looks_like_shell_output_path(atom: &str) -> bool {
         || atom.ends_with(".log")
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 fn looks_like_new_shell_command(line: &str) -> bool {
     let trimmed = line.trim_start();
     if trimmed.is_empty() || shell_output_style(trimmed).is_some() {
@@ -1748,7 +1721,7 @@ fn looks_like_shell_assignment(atom: &str) -> bool {
             .unwrap_or(false)
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 fn is_known_shell_command(command: &str) -> bool {
     matches!(
         command,
@@ -2166,7 +2139,7 @@ mod tests {
         assert_eq!(kind, ShellLineKind::Output);
         assert!(tokens
             .iter()
-            .any(|token| token.kind == CodeTokenKind::ShellOutput));
+            .any(|token| token.text.contains("running") && token.kind == CodeTokenKind::Plain));
         assert_eq!(next_session_state, ShellSessionState::InOutput);
     }
 

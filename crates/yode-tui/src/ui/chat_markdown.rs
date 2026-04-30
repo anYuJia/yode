@@ -2053,7 +2053,6 @@ fn code_token_color(kind: CodeTokenKind, language: CodeLanguage) -> Color {
         CodeTokenKind::ShellInfo => Color::Indexed(153),
         CodeTokenKind::ShellSuccess => Color::Indexed(114),
         CodeTokenKind::ShellWarning => Color::Indexed(179),
-        CodeTokenKind::ShellOutput => Color::Indexed(246),
         CodeTokenKind::ShellError => Color::Indexed(210),
     }
 }

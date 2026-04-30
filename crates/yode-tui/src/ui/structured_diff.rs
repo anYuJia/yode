@@ -452,7 +452,6 @@ fn structured_diff_token_color(
         CodeTokenKind::ShellInfo => Color::Indexed(153),
         CodeTokenKind::ShellSuccess => Color::Indexed(114),
         CodeTokenKind::ShellWarning => Color::Indexed(179),
-        CodeTokenKind::ShellOutput => Color::Indexed(246),
         CodeTokenKind::ShellError => Color::Indexed(210),
     }
 }
