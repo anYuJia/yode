@@ -198,4 +198,25 @@ mod tests {
         assert!(result.content.contains("Status: PARTIAL"));
         assert!(result.content.contains("tests pass, docs remain"));
     }
+
+    #[tokio::test]
+    async fn verify_plan_execution_rejects_invalid_status() {
+        let result = VerifyPlanExecutionTool
+            .execute(
+                json!({
+                    "status": "done",
+                    "summary": "all good"
+                }),
+                &ToolContext::empty(),
+            )
+            .await
+            .unwrap();
+
+        assert!(result.is_error);
+        assert_eq!(
+            result.error_type,
+            Some(crate::tool::ToolErrorType::Validation)
+        );
+        assert!(result.content.contains("Invalid status"));
+    }
 }

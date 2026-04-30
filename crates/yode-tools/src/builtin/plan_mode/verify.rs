@@ -2,7 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
+use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolErrorType, ToolResult};
 
 pub struct VerifyPlanExecutionTool;
 
@@ -59,11 +59,36 @@ impl Tool for VerifyPlanExecutionTool {
     }
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<ToolResult> {
-        let summary = params.get("summary").and_then(|v| v.as_str()).unwrap_or("");
+        let summary = params
+            .get("summary")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
         let status = params
             .get("status")
             .and_then(|v| v.as_str())
-            .unwrap_or("success");
+            .unwrap_or("success")
+            .trim();
+
+        if summary.is_empty() {
+            return Ok(ToolResult::error_typed(
+                "Missing required parameter: summary".to_string(),
+                ToolErrorType::Validation,
+                true,
+                Some("Summarize what was verified and any remaining work.".to_string()),
+            ));
+        }
+        if !matches!(status, "success" | "failed" | "partial") {
+            return Ok(ToolResult::error_typed(
+                format!(
+                    "Invalid status: '{}'. Use success, failed, or partial.",
+                    status
+                ),
+                ToolErrorType::Validation,
+                true,
+                Some("Set status to one of: success, failed, partial.".to_string()),
+            ));
+        }
 
         let output = format!(
             "Plan Verification (Status: {}):\n\n{}",
