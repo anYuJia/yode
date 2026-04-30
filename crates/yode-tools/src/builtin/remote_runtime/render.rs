@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use super::status::queue_status_label;
-use super::{RemoteControlPayload, RemoteLiveSessionPayload, RemoteTransportPayload};
+use super::types::{RemoteControlPayload, RemoteLiveSessionPayload, RemoteTransportPayload};
 
 pub(super) fn render_remote_control_summary(
     payload: &RemoteControlPayload,

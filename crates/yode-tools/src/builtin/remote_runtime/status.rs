@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 
-use super::{RemoteQueueItem, RemoteTransportPayload};
+use super::types::{RemoteQueueItem, RemoteTransportPayload};
 
 pub(super) fn truncate_preview(text: &str, max_chars: usize) -> String {
     let squashed = text.split_whitespace().collect::<Vec<_>>().join(" ");
