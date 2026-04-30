@@ -2,7 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
+use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolErrorType, ToolResult};
 
 pub struct CronCreateTool;
 pub struct CronListTool;
@@ -68,15 +68,49 @@ impl Tool for CronCreateTool {
             .cron_manager
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Cron manager not available"))?;
-        let cron_expr = params.get("cron").and_then(|v| v.as_str()).unwrap_or("");
-        let prompt = params.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
+        let cron_expr = params
+            .get("cron")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        let prompt = params
+            .get("prompt")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        if cron_expr.is_empty() {
+            return Ok(ToolResult::error_typed(
+                "Missing required parameter: cron".to_string(),
+                ToolErrorType::Validation,
+                true,
+                Some("Provide a 5-field cron expression such as '*/5 * * * *'.".to_string()),
+            ));
+        }
+        if prompt.is_empty() {
+            return Ok(ToolResult::error_typed(
+                "Missing required parameter: prompt".to_string(),
+                ToolErrorType::Validation,
+                true,
+                Some("Provide the prompt to run when the cron job fires.".to_string()),
+            ));
+        }
         let recurring = params
             .get("recurring")
             .and_then(|v| v.as_bool())
             .unwrap_or(true);
 
         let mut mgr = cron_mgr.lock().await;
-        let id = mgr.create(cron_expr.to_string(), prompt.to_string(), recurring)?;
+        let id = match mgr.create(cron_expr.to_string(), prompt.to_string(), recurring) {
+            Ok(id) => id,
+            Err(error) => {
+                return Ok(ToolResult::error_typed(
+                    error.to_string(),
+                    ToolErrorType::Validation,
+                    true,
+                    Some("Use standard 5-field cron syntax, e.g. '*/5 * * * *'.".to_string()),
+                ));
+            }
+        };
         Ok(ToolResult::success(format!(
             "Cron job created with ID: {}. Note: recurring jobs expire after 3 days.",
             id
@@ -262,7 +296,7 @@ mod tests {
     #[tokio::test]
     async fn cron_create_rejects_invalid_expression() {
         let ctx = ctx_with_cron_manager();
-        let err = CronCreateTool
+        let result = CronCreateTool
             .execute(
                 json!({
                     "cron": "not a cron",
@@ -271,7 +305,29 @@ mod tests {
                 &ctx,
             )
             .await
-            .unwrap_err();
-        assert!(err.to_string().contains("Invalid cron expression"));
+            .unwrap();
+        assert!(result.is_error);
+        assert_eq!(
+            result.error_type,
+            Some(crate::tool::ToolErrorType::Validation)
+        );
+        assert!(result.content.contains("Invalid cron expression"));
+    }
+
+    #[tokio::test]
+    async fn cron_create_rejects_missing_prompt_as_validation_result() {
+        let ctx = ctx_with_cron_manager();
+        let result = CronCreateTool
+            .execute(json!({"cron": "*/5 * * * *"}), &ctx)
+            .await
+            .unwrap();
+
+        assert!(result.is_error);
+        assert_eq!(
+            result.error_type,
+            Some(crate::tool::ToolErrorType::Validation)
+        );
+        assert!(result.content.contains("prompt"));
+        assert!(result.recoverable);
     }
 }
