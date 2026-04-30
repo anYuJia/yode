@@ -103,6 +103,9 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install parity audit tools
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
       - name: Cache cargo artifacts
         uses: Swatinem/rust-cache@v2
 
@@ -168,6 +171,9 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install parity audit tools
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
 
       - name: Cache cargo artifacts
         uses: Swatinem/rust-cache@v2

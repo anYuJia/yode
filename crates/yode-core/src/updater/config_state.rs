@@ -125,7 +125,7 @@ impl Updater {
             }
         }
 
-        versions.sort_by(|a, b| b.0.cmp(&a.0));
+        versions.sort_by_key(|b| std::cmp::Reverse(b.0));
 
         if versions.len() > VERSION_RETENTION_COUNT {
             for (_, path) in versions.iter().skip(VERSION_RETENTION_COUNT) {

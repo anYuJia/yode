@@ -10,5 +10,5 @@ bash scripts/parity-visual-diff.sh \
   "$baseline" \
   "$baseline" >/dev/null
 
-rg -q '## CJK Width Report' "$out_file"
+grep -q '## CJK Width Report' "$out_file"
 echo "Parity visual width report ok: $out_file"

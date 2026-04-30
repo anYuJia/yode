@@ -266,50 +266,49 @@ impl HookManager {
         context_json: &str,
         event: &str,
     ) -> std::io::Result<std::process::Output> {
-        let result = self
-            .build_hook_command(command, context_json, event)
-            .output()
-            .await;
-
         #[cfg(windows)]
-        if matches!(
-            result.as_ref().map_err(std::io::Error::kind),
-            Err(std::io::ErrorKind::NotFound)
-        ) {
-            let mut fallback = tokio::process::Command::new("cmd.exe");
-            fallback
-                .arg("/C")
-                .arg(command)
-                .env("YODE_HOOK_CONTEXT", context_json)
-                .env("YODE_HOOK_EVENT", event)
-                .current_dir(&self.working_dir);
-            return fallback.output().await;
+        {
+            for program in [
+                "bash",
+                r"C:\Program Files\Git\bin\bash.exe",
+                r"C:\Program Files\Git\usr\bin\bash.exe",
+            ] {
+                match self
+                    .build_hook_command(program, &["-lc"], command, context_json, event)
+                    .output()
+                    .await
+                {
+                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
+                    result => return result,
+                }
+            }
+
+            return self
+                .build_hook_command("cmd.exe", &["/C"], command, context_json, event)
+                .output()
+                .await;
         }
 
+        #[cfg(not(windows))]
+        let result = self
+            .build_hook_command("sh", &["-c"], command, context_json, event)
+            .output()
+            .await;
         result
     }
 
     fn build_hook_command(
         &self,
+        program: &str,
+        shell_args: &[&str],
         command: &str,
         context_json: &str,
         event: &str,
     ) -> tokio::process::Command {
-        #[cfg(windows)]
-        let mut process = {
-            let mut process = tokio::process::Command::new("bash");
-            process.arg("-lc").arg(command);
-            process
-        };
-
-        #[cfg(not(windows))]
-        let mut process = {
-            let mut process = tokio::process::Command::new("sh");
-            process.arg("-c").arg(command);
-            process
-        };
-
+        let mut process = tokio::process::Command::new(program);
         process
+            .args(shell_args)
+            .arg(command)
             .env("YODE_HOOK_CONTEXT", context_json)
             .env("YODE_HOOK_EVENT", event)
             .current_dir(&self.working_dir);

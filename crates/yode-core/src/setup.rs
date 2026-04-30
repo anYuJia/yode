@@ -236,10 +236,8 @@ fn select_menu(header: Option<&str>, prompt: &str, options: &[MenuOption]) -> Re
                     KeyCode::Up => {
                         selected = selected.saturating_sub(1);
                     }
-                    KeyCode::Down => {
-                        if selected < options.len() - 1 {
-                            selected += 1;
-                        }
+                    KeyCode::Down if selected < options.len() - 1 => {
+                        selected += 1;
                     }
                     KeyCode::Enter => {
                         break Ok(selected);

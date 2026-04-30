@@ -9,8 +9,8 @@ bash scripts/parity-baseline-refresh.sh "$tmp_src" "$tmp_golden/current" >/dev/n
 manifest="$tmp_golden/current/MANIFEST.md"
 
 [[ -f "$manifest" ]] || { echo "Golden manifest missing" >&2; exit 1; }
-rg -q '^# Golden Snapshot Manifest' "$manifest"
-rg -q 'output-regression-snapshot.md' "$manifest"
-rg -q 'long-session-benchmark.md' "$manifest"
+grep -q '^# Golden Snapshot Manifest' "$manifest"
+grep -q 'output-regression-snapshot.md' "$manifest"
+grep -q 'long-session-benchmark.md' "$manifest"
 
 echo "Parity golden manifest CI ok"

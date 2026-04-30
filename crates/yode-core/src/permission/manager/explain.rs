@@ -152,7 +152,7 @@ impl PermissionManager {
             .iter()
             .filter(|rule| rule.matches(tool_name, content))
             .collect();
-        matching_rules.sort_by(|a, b| b.source.cmp(&a.source));
+        matching_rules.sort_by_key(|b| std::cmp::Reverse(b.source));
         let precedence_chain = matching_rules
             .iter()
             .map(|rule| format_permission_rule(rule, tool_name))
