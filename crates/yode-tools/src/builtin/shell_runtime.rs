@@ -1,4 +1,13 @@
+use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use std::time::Duration;
+
+use anyhow::Result;
 use serde_json::Value;
+use tokio::process::Command;
+use uuid::Uuid;
+
+use crate::tool::{ToolContext, ToolResult};
 
 pub(crate) const DEFAULT_COMMAND_TIMEOUT_SECS: u64 = 120;
 pub(crate) const MAX_COMMAND_TIMEOUT_SECS: u64 = 600;
@@ -21,6 +30,203 @@ pub(crate) fn timeout_ms_description() -> String {
         MAX_COMMAND_TIMEOUT_SECS * 1000,
         DEFAULT_COMMAND_TIMEOUT_SECS * 1000
     )
+}
+
+pub(crate) struct BackgroundShellSpec<'a> {
+    pub executable: &'a Path,
+    pub args: Vec<String>,
+    pub command_display: &'a str,
+    pub task_kind: &'static str,
+    pub description_prefix: &'static str,
+    pub start_message: &'static str,
+}
+
+pub(crate) async fn execute_background_shell(
+    spec: BackgroundShellSpec<'_>,
+    working_dir: &Path,
+    ctx: &ToolContext,
+) -> Result<ToolResult> {
+    let Some(runtime_tasks) = &ctx.runtime_tasks else {
+        let _child = Command::new(spec.executable)
+            .args(&spec.args)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()?;
+        return Ok(ToolResult::success(format!(
+            "{}: {}",
+            spec.start_message, spec.command_display
+        )));
+    };
+
+    let tasks_dir = working_dir.join(".yode").join("tasks");
+    tokio::fs::create_dir_all(&tasks_dir).await?;
+    let output_path = tasks_dir.join(format!("{}-{}.log", spec.task_kind, Uuid::new_v4()));
+    let output_path_str = output_path.display().to_string();
+    let transcript_path = crate::runtime_tasks::latest_transcript_artifact_path(working_dir);
+    let description = format!(
+        "{}: {}",
+        spec.description_prefix,
+        spec.command_display.chars().take(60).collect::<String>()
+    );
+    let (task, mut cancel_rx) = {
+        let mut store = runtime_tasks.lock().await;
+        store.create_with_transcript(
+            spec.task_kind.to_string(),
+            spec.task_kind.to_string(),
+            description,
+            output_path_str.clone(),
+            transcript_path.clone(),
+        )
+    };
+
+    let task_id = task.id.clone();
+    let runtime_tasks = runtime_tasks.clone();
+    let working_dir = PathBuf::from(working_dir);
+    let executable = spec.executable.to_path_buf();
+    let args = spec.args;
+    let command_display = spec.command_display.to_string();
+    let launch_command = command_display.clone();
+    let output_path_spawn = output_path.clone();
+    tokio::spawn(async move {
+        {
+            let mut store = runtime_tasks.lock().await;
+            store.mark_running(&task_id);
+            store.update_progress(&task_id, format!("Running {}", command_display));
+        }
+
+        let stdout_file = match std::fs::File::create(&output_path_spawn) {
+            Ok(file) => file,
+            Err(err) => {
+                runtime_tasks
+                    .lock()
+                    .await
+                    .mark_failed(&task_id, format!("Failed to create output file: {}", err));
+                return;
+            }
+        };
+        let stderr_file = match stdout_file.try_clone() {
+            Ok(file) => file,
+            Err(err) => {
+                runtime_tasks.lock().await.mark_failed(
+                    &task_id,
+                    format!("Failed to clone output file handle: {}", err),
+                );
+                return;
+            }
+        };
+
+        let mut child = match Command::new(&executable)
+            .args(&args)
+            .stdout(Stdio::from(stdout_file))
+            .stderr(Stdio::from(stderr_file))
+            .current_dir(&working_dir)
+            .spawn()
+        {
+            Ok(child) => child,
+            Err(err) => {
+                runtime_tasks.lock().await.mark_failed(
+                    &task_id,
+                    format!("Failed to spawn background command: {}", err),
+                );
+                return;
+            }
+        };
+
+        let (done_tx, done_rx) = tokio::sync::watch::channel(false);
+        spawn_output_progress_monitor(
+            runtime_tasks.clone(),
+            task_id.clone(),
+            output_path_spawn.clone(),
+            done_rx,
+        );
+
+        tokio::select! {
+            wait_result = child.wait() => {
+                let _ = done_tx.send(true);
+                match wait_result {
+                    Ok(status) if status.success() => {
+                        runtime_tasks.lock().await.mark_completed(&task_id);
+                    }
+                    Ok(status) => {
+                        runtime_tasks.lock().await.mark_failed(
+                            &task_id,
+                            format!("Background command exited with status {}", status),
+                        );
+                    }
+                    Err(err) => {
+                        runtime_tasks
+                            .lock()
+                            .await
+                            .mark_failed(&task_id, format!("Failed to wait for command: {}", err));
+                    }
+                }
+            }
+            changed = cancel_rx.changed() => {
+                if changed.is_ok() && *cancel_rx.borrow() {
+                    let _ = child.kill().await;
+                    let _ = done_tx.send(true);
+                    runtime_tasks.lock().await.mark_cancelled(&task_id);
+                }
+            }
+        }
+    });
+
+    Ok(ToolResult::success_with_metadata(
+        format!(
+            "{} task started: {} ({})",
+            spec.description_prefix, task.id, launch_command
+        ),
+        serde_json::json!({
+            "task_id": task.id,
+            "task_kind": spec.task_kind,
+            "output_path": output_path_str,
+            "transcript_path": transcript_path,
+            "run_in_background": true,
+        }),
+    ))
+}
+
+fn spawn_output_progress_monitor(
+    runtime_tasks: std::sync::Arc<tokio::sync::Mutex<crate::runtime_tasks::RuntimeTaskStore>>,
+    task_id: String,
+    output_path: PathBuf,
+    mut done_rx: tokio::sync::watch::Receiver<bool>,
+) {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(3));
+        let mut last_preview = String::new();
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    if let Ok(content) = tokio::fs::read_to_string(&output_path).await {
+                        if let Some(line) = content.lines().rev().find(|line| !line.trim().is_empty()) {
+                            let preview = truncate_progress_line(line, 120);
+                            if preview != last_preview {
+                                runtime_tasks
+                                    .lock()
+                                    .await
+                                    .update_progress(&task_id, preview.clone());
+                                last_preview = preview;
+                            }
+                        }
+                    }
+                }
+                changed = done_rx.changed() => {
+                    if changed.is_ok() && *done_rx.borrow() {
+                        break;
+                    }
+                }
+            }
+        }
+    });
+}
+
+fn truncate_progress_line(line: &str, max_chars: usize) -> String {
+    if line.chars().count() > max_chars {
+        format!("{}...", line.chars().take(max_chars).collect::<String>())
+    } else {
+        line.to_string()
+    }
 }
 
 #[cfg(test)]

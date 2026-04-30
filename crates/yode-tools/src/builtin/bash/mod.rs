@@ -2,7 +2,7 @@ mod background;
 mod output;
 mod watchdog;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
 
@@ -12,7 +12,6 @@ use regex::Regex;
 use serde_json::{json, Value};
 use tokio::process::Command;
 use tokio::sync::mpsc;
-use uuid::Uuid;
 
 use crate::builtin::shell_runtime::{command_timeout_secs, timeout_ms_description};
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolErrorType, ToolProgress, ToolResult};
