@@ -3,6 +3,9 @@ use yode_core::permission::{
     PermissionMode, PermissionRule, PermissionSourceView, RuleBehavior, RuleSource,
 };
 
+use crate::commands::info::runtime_inspectors::{
+    hook_failure_summary, permission_rule_diff_summary, repeated_denial_recovery_hint,
+};
 use crate::commands::workspace_nav::{runtime_operator_jump_targets, workspace_jump_inventory};
 use crate::commands::workspace_text::{workspace_artifact_lines, workspace_bullets, WorkspaceText};
 use crate::runtime_display::format_permission_decision_summary;
@@ -160,6 +163,11 @@ pub(crate) fn render_permission_workspace(
             ),
         )
         .field("Recovery state", runtime.recovery_state.clone())
+        .field("Rule summary", permission_rule_diff_summary(rules))
+        .field(
+            "Denial recovery",
+            repeated_denial_recovery_hint(denial_prefixes, confirmation_suggestions),
+        )
         .field("Safe bash", safe_prefixes.to_string())
         .section(
             "Confirmable tools",
@@ -229,6 +237,7 @@ pub(crate) fn render_hook_workspace(
             "Failed at",
             state.last_hook_failure_at.as_deref().unwrap_or("none"),
         )
+        .field("Summary", hook_failure_summary(state))
         .field("Inspector", hook_artifact.unwrap_or("none").to_string())
         .section(
             "Timeline",

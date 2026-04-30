@@ -5,7 +5,6 @@ use yode_core::permission::{PermissionRule, RuleBehavior, RuleSource};
 
 use super::artifact_preview::preview_markdown;
 
-#[allow(dead_code)]
 pub(crate) fn hook_failure_summary(state: &EngineRuntimeState) -> String {
     format!(
         "hook fail: {} · {} · {} / timeout={} ({})",
@@ -38,7 +37,6 @@ pub(crate) fn preview_runtime_artifact(path: Option<&str>, section_hint: &str) -
     })
 }
 
-#[allow(dead_code)]
 pub(crate) fn permission_rule_diff_summary(rules: &[PermissionRule]) -> String {
     if rules.is_empty() {
         return "none".to_string();
@@ -76,7 +74,6 @@ pub(crate) fn permission_rule_diff_summary(rules: &[PermissionRule]) -> String {
     )
 }
 
-#[allow(dead_code)]
 pub(crate) fn repeated_denial_recovery_hint(
     denial_prefixes: &[String],
     suggestions: &[String],
