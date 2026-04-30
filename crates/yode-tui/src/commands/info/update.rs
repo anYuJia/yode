@@ -49,7 +49,7 @@ impl Command for UpdateCommand {
     }
 
     fn execute(&self, args: &str, _ctx: &mut CommandContext) -> CommandResult {
-        let parts: Vec<&str> = args.trim().split_whitespace().collect();
+        let parts: Vec<&str> = args.split_whitespace().collect();
 
         match parts.as_slice() {
             // /update — check for updates

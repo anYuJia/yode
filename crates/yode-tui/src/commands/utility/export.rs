@@ -91,7 +91,7 @@ impl Command for ExportCommand {
                     sanitize_filename(&truncate_preview_line(text, 80))
                 })
                 .filter(|s| !s.is_empty())
-                .unwrap_or_else(|| timestamp_filename());
+                .unwrap_or_else(timestamp_filename);
 
             format!("{}.txt", first_prompt)
         } else {

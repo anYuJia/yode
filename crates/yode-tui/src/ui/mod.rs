@@ -27,10 +27,9 @@ use crate::app::App;
 /// Viewport is dynamically resized to exactly fit content.
 /// Long lines wrap automatically; input height adapts to visual line count.
 pub fn render(frame: &mut Frame, app: &mut App) {
-    if app.wizard.is_some() {
+    if let Some(wiz) = app.wizard.as_ref() {
         use ratatui::layout::{Constraint, Direction, Layout};
         // Wizard mode: dedicated UI
-        let wiz = app.wizard.as_ref().unwrap();
         let wiz_height = wiz.viewport_height();
         let chunks = Layout::default()
             .direction(Direction::Vertical)

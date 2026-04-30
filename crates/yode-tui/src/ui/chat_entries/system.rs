@@ -22,7 +22,8 @@ pub(crate) fn render_system_entry(lines: &mut Vec<Line<'static>>, entry: &ChatEn
     ]));
 
     for detail in view.detail_lines {
-        for line in render_markdown_white_with_options(&format_system_detail_line(&detail), None, true)
+        for line in
+            render_markdown_white_with_options(&format_system_detail_line(&detail), None, true)
         {
             let mut spans = vec![Span::styled("    ".to_string(), Style::default().fg(MUTED))];
             spans.extend(line.spans);
@@ -49,7 +50,11 @@ pub(crate) fn render_grouped_system_entries(
             Style::default().fg(INFO_COLOR).add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            format!("{}({})", grouped_batch_title(all_entries, batch), batch.items.len()),
+            format!(
+                "{}({})",
+                grouped_batch_title(all_entries, batch),
+                batch.items.len()
+            ),
             Style::default().fg(LIGHT).add_modifier(Modifier::BOLD),
         ),
         Span::styled(
@@ -224,9 +229,9 @@ mod tests {
         );
         let mut lines = Vec::new();
         render_system_entry(&mut lines, &entry);
-        assert!(lines
-            .iter()
-            .any(|line| line.to_string().contains("\u{1b}]8;;https://example.com/docs")));
+        assert!(lines.iter().any(|line| line
+            .to_string()
+            .contains("\u{1b}]8;;https://example.com/docs")));
     }
 
     #[test]
@@ -291,8 +296,14 @@ mod tests {
     #[test]
     fn render_grouped_system_entries_uses_hook_batch_title() {
         let entries = vec![
-            ChatEntry::new(ChatRole::System, "[Task:warn] hook timeout: scripts/pre-tool".to_string()),
-            ChatEntry::new(ChatRole::System, "[Task:info] hook deferred: preview".to_string()),
+            ChatEntry::new(
+                ChatRole::System,
+                "[Task:warn] hook timeout: scripts/pre-tool".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::System,
+                "[Task:info] hook deferred: preview".to_string(),
+            ),
         ];
         let batch = SystemBatch {
             start_index: 0,
@@ -317,9 +328,18 @@ mod tests {
     fn render_grouped_system_entries_prefers_latest_items_when_trimming() {
         let entries = vec![
             ChatEntry::new(ChatRole::System, "Session resumed.".to_string()),
-            ChatEntry::new(ChatRole::System, "Context compacted · auto · -4 msgs".to_string()),
-            ChatEntry::new(ChatRole::System, "Session memory updated · summary · /tmp/live.md".to_string()),
-            ChatEntry::new(ChatRole::System, "Diagnostics bundle exported to: /tmp/bundle".to_string()),
+            ChatEntry::new(
+                ChatRole::System,
+                "Context compacted · auto · -4 msgs".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::System,
+                "Session memory updated · summary · /tmp/live.md".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::System,
+                "Diagnostics bundle exported to: /tmp/bundle".to_string(),
+            ),
         ];
         let batch = SystemBatch {
             start_index: 0,
@@ -345,8 +365,13 @@ mod tests {
         };
         let mut lines = Vec::new();
         render_grouped_system_entries(&mut lines, &entries, &batch);
-        let rendered = lines.iter().map(|line| line.to_string()).collect::<Vec<_>>();
-        assert!(rendered.iter().any(|line| line.contains("Context compacted")));
+        let rendered = lines
+            .iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>();
+        assert!(rendered
+            .iter()
+            .any(|line| line.contains("Context compacted")));
         assert!(rendered
             .iter()
             .any(|line| line.contains("Session memory updated")));

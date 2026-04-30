@@ -23,7 +23,10 @@ pub(super) fn render_system_entry(entry: &ChatEntry, show_detail: bool) -> Vec<(
         }
         if view.detail_lines.len() > 1 {
             result.push((
-                format!("    … +{} more lines (ctrl+o to inspect)", view.detail_lines.len() - 1),
+                format!(
+                    "    … +{} more lines (ctrl+o to inspect)",
+                    view.detail_lines.len() - 1
+                ),
                 Style::default().fg(Color::Gray),
             ));
         }
@@ -266,8 +269,14 @@ mod tests {
     #[test]
     fn scrollback_grouped_system_entries_use_hook_batch_title() {
         let entries = vec![
-            ChatEntry::new(ChatRole::System, "[Task:warn] hook timeout: scripts/pre-tool".to_string()),
-            ChatEntry::new(ChatRole::System, "[Task:info] hook deferred: preview".to_string()),
+            ChatEntry::new(
+                ChatRole::System,
+                "[Task:warn] hook timeout: scripts/pre-tool".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::System,
+                "[Task:info] hook deferred: preview".to_string(),
+            ),
         ];
         let batch = SystemBatch {
             start_index: 0,
@@ -291,9 +300,18 @@ mod tests {
     fn scrollback_grouped_system_entries_prefer_latest_items_when_trimming() {
         let entries = vec![
             ChatEntry::new(ChatRole::System, "Session resumed.".to_string()),
-            ChatEntry::new(ChatRole::System, "Context compacted · auto · -4 msgs".to_string()),
-            ChatEntry::new(ChatRole::System, "Session memory updated · summary · /tmp/live.md".to_string()),
-            ChatEntry::new(ChatRole::System, "Diagnostics bundle exported to: /tmp/bundle".to_string()),
+            ChatEntry::new(
+                ChatRole::System,
+                "Context compacted · auto · -4 msgs".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::System,
+                "Session memory updated · summary · /tmp/live.md".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::System,
+                "Diagnostics bundle exported to: /tmp/bundle".to_string(),
+            ),
         ];
         let batch = SystemBatch {
             start_index: 0,
@@ -318,8 +336,13 @@ mod tests {
             ],
         };
         let lines = render_grouped_system_entries(&entries, &batch);
-        let rendered = lines.iter().map(|(line, _)| line.clone()).collect::<Vec<_>>();
-        assert!(rendered.iter().any(|line| line.contains("Context compacted")));
+        let rendered = lines
+            .iter()
+            .map(|(line, _)| line.clone())
+            .collect::<Vec<_>>();
+        assert!(rendered
+            .iter()
+            .any(|line| line.contains("Context compacted")));
         assert!(rendered
             .iter()
             .any(|line| line.contains("Session memory updated")));

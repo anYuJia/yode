@@ -13,17 +13,30 @@ use yode_llm::provider::LlmProvider;
 use yode_llm::types::Message;
 use yode_tools::registry::ToolRegistry;
 
-pub(crate) async fn run_noninteractive_chat(
-    chat_message: &str,
-    provider: Arc<dyn LlmProvider>,
-    tool_registry: Arc<ToolRegistry>,
-    permissions: PermissionManager,
-    context: AgentContext,
-    db: Database,
-    restored_messages: Option<Vec<Message>>,
-    config: &Config,
-    mcp_clients: Vec<yode_mcp::McpClient>,
-) -> Result<()> {
+pub(crate) struct NoninteractiveChatRun<'a> {
+    pub(crate) chat_message: &'a str,
+    pub(crate) provider: Arc<dyn LlmProvider>,
+    pub(crate) tool_registry: Arc<ToolRegistry>,
+    pub(crate) permissions: PermissionManager,
+    pub(crate) context: AgentContext,
+    pub(crate) db: Database,
+    pub(crate) restored_messages: Option<Vec<Message>>,
+    pub(crate) config: &'a Config,
+    pub(crate) mcp_clients: Vec<yode_mcp::McpClient>,
+}
+
+pub(crate) async fn run_noninteractive_chat(run: NoninteractiveChatRun<'_>) -> Result<()> {
+    let NoninteractiveChatRun {
+        chat_message,
+        provider,
+        tool_registry,
+        permissions,
+        context,
+        db,
+        restored_messages,
+        config,
+        mcp_clients,
+    } = run;
     let mut engine = AgentEngine::new(provider, tool_registry, permissions, context);
     engine.set_database(db);
 

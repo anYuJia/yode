@@ -113,7 +113,13 @@ mod tests {
                 .to_string(),
         );
         let mut result = Vec::new();
-        render_assistant(&entry, &mut result, Style::default(), Style::default(), true);
+        render_assistant(
+            &entry,
+            &mut result,
+            Style::default(),
+            Style::default(),
+            true,
+        );
 
         let basic_index = result
             .iter()
@@ -138,7 +144,13 @@ mod tests {
                 .to_string(),
         );
         let mut result = Vec::new();
-        render_assistant(&entry, &mut result, Style::default(), Style::default(), true);
+        render_assistant(
+            &entry,
+            &mut result,
+            Style::default(),
+            Style::default(),
+            true,
+        );
 
         let rendered = result
             .iter()
@@ -158,7 +170,13 @@ mod tests {
                 .to_string(),
         );
         let mut result = Vec::new();
-        render_assistant(&entry, &mut result, Style::default(), Style::default(), true);
+        render_assistant(
+            &entry,
+            &mut result,
+            Style::default(),
+            Style::default(),
+            true,
+        );
 
         let rendered = result
             .iter()
@@ -180,7 +198,13 @@ mod tests {
             Some("## Plan\n- inspect\n- patch".to_string()),
         );
         let mut result = Vec::new();
-        render_assistant(&entry, &mut result, Style::default(), Style::default(), true);
+        render_assistant(
+            &entry,
+            &mut result,
+            Style::default(),
+            Style::default(),
+            true,
+        );
 
         let rendered = result
             .iter()
@@ -200,7 +224,13 @@ mod tests {
     fn scrollback_assistant_content_advertises_detail_inspection() {
         let entry = ChatEntry::new(ChatRole::Assistant, "Final answer".to_string());
         let mut result = Vec::new();
-        render_assistant(&entry, &mut result, Style::default(), Style::default(), false);
+        render_assistant(
+            &entry,
+            &mut result,
+            Style::default(),
+            Style::default(),
+            false,
+        );
 
         let rendered = result
             .iter()
@@ -219,7 +249,13 @@ mod tests {
             Some("## Plan\n- inspect\n- patch".to_string()),
         );
         let mut result = Vec::new();
-        render_assistant(&entry, &mut result, Style::default(), Style::default(), false);
+        render_assistant(
+            &entry,
+            &mut result,
+            Style::default(),
+            Style::default(),
+            false,
+        );
 
         let rendered = result
             .iter()

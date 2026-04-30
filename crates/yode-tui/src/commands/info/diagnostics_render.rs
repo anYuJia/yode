@@ -96,6 +96,10 @@ pub(crate) fn render_diagnostics_overview(
         crate::commands::artifact_nav::latest_hook_deferred_state_artifact(project_root)
             .map(|path| path.display().to_string())
             .unwrap_or_else(|| "none".to_string());
+    let progress_line = format!(
+        "{} ({})",
+        state.tool_progress_event_count, tool_progress_summary
+    );
 
     format!(
         "Diagnostics overview:\n  Runtime summary: {}\n  Context summary: {}\n  Tool summary:    {}\n\nContext:\n  Query source:   {}\n  Compact count:  {} (auto {}, manual {})\n  Breaker reason: {}\n  Compact tokens: {}\n\nMemory:\n  Live memory:    {}{}\n  Memory updates: {}\n  Last memory:    {}\n\nRecovery:\n  State:          {}\n  Last signature: {}\n  Permission:     {}\n  Denials:        {}\n\nTools:\n  Session calls:  {}\n  Progress:       {}\n  Parallel:       {} batches / {} calls\n  Truncations:    {}\n  Errors:         {}\n  Last artifact:  {}\n\nObservability:\n  Hook defer:     {}\n  Agent team:     {}\n  Remote live:    {}\n  Settings:       {}\n  Managed MCP:    {}\n\nTasks:\n  Total:          {}\n  Running:        {}\n\nHooks:\n  Total runs:     {}\n  Timeouts:       {}\n  Wake notices:   {}\n\nTimeline:\n{}",
@@ -134,11 +138,7 @@ pub(crate) fn render_diagnostics_overview(
         permission_summary,
         recent_denials,
         state.session_tool_calls_total,
-        format!(
-            "{} ({})",
-            state.tool_progress_event_count,
-            tool_progress_summary
-        ),
+        progress_line,
         state.parallel_tool_batch_count,
         state.parallel_tool_call_count,
         state.tool_truncation_count,

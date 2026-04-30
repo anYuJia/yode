@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use anyhow::Result;
 use tokio::sync::{mpsc, Mutex};
@@ -119,7 +122,7 @@ pub(super) async fn prepare_runtime(
 }
 
 fn write_resume_warmup_artifact(
-    project_root: &PathBuf,
+    project_root: &Path,
     session_id: &str,
     stats: &crate::commands::info::ResumeTranscriptCacheWarmupStats,
 ) -> Option<String> {

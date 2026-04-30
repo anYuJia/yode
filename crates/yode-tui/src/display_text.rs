@@ -40,10 +40,7 @@ mod tests {
 
     #[test]
     fn compact_path_tail_keeps_last_two_segments() {
-        assert_eq!(
-            compact_path_tail("/tmp/src/main.rs"),
-            ".../src/main.rs"
-        );
+        assert_eq!(compact_path_tail("/tmp/src/main.rs"), ".../src/main.rs");
         assert_eq!(compact_path_tail("main.rs"), "main.rs");
     }
 

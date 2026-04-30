@@ -26,10 +26,8 @@ pub(crate) fn render_tool_call(
     timestamp: std::time::Instant,
 ) {
     let args: serde_json::Value = serde_json::from_str(args_json).unwrap_or_default();
-    let is_error = result.map_or(
-        false,
-        |r| matches!(r.role, ChatRole::ToolResult { is_error, .. } if is_error),
-    );
+    let is_error =
+        result.is_some_and(|r| matches!(r.role, ChatRole::ToolResult { is_error, .. } if is_error));
     let result_content = result.map(|r| r.content.as_str()).unwrap_or("");
     let duration = result.and_then(|r| r.duration);
     let summary_result = summarize_tool_result(
@@ -191,7 +189,9 @@ pub(crate) fn render_grouped_tool_call(
             Span::styled("  ⎿ ", Style::default().fg(INFO_COLOR)),
             Span::styled(
                 truncate_ellipsis(&progress, 84),
-                Style::default().fg(INFO_COLOR).add_modifier(Modifier::ITALIC),
+                Style::default()
+                    .fg(INFO_COLOR)
+                    .add_modifier(Modifier::ITALIC),
             ),
         ]));
     } else if let Some(hint) = tool_batch_hint_text(all_entries, batch) {
@@ -199,7 +199,9 @@ pub(crate) fn render_grouped_tool_call(
             Span::styled("  ⎿ ", Style::default().fg(INFO_COLOR)),
             Span::styled(
                 truncate_ellipsis(&hint, 84),
-                Style::default().fg(INFO_COLOR).add_modifier(Modifier::ITALIC),
+                Style::default()
+                    .fg(INFO_COLOR)
+                    .add_modifier(Modifier::ITALIC),
             ),
         ]));
     }

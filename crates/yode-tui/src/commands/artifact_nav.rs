@@ -844,9 +844,9 @@ mod tests {
         artifact_display_line, artifact_freshness_badge,
         build_runtime_orchestration_timeline_lines, export_bundle_root, latest_artifact_by_suffix,
         latest_bundle_workspace_index, open_artifact_inspector, preview_artifact,
-        recent_artifacts_by_suffix, recent_bundle_workspace_indexes, resolve_artifact_basename,
-        render_timeline_entries, stale_artifact_actions, write_runtime_orchestration_timeline_artifact,
-        ArtifactTimelineEntry,
+        recent_artifacts_by_suffix, recent_bundle_workspace_indexes, render_timeline_entries,
+        resolve_artifact_basename, stale_artifact_actions,
+        write_runtime_orchestration_timeline_artifact, ArtifactTimelineEntry,
     };
 
     #[test]
@@ -868,13 +868,17 @@ mod tests {
 
     #[test]
     fn artifact_freshness_badge_reports_recent_for_mid_age_files() {
-        let dir = std::env::temp_dir().join(format!("yode-artifact-recent-{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("yode-artifact-recent-{}", uuid::Uuid::new_v4()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("recent.md");
         std::fs::write(&path, "recent").unwrap();
         // We cannot set mtime portably here, so just assert fresh files remain in the accepted set.
-        assert!(matches!(artifact_freshness_badge(&path), "fresh" | "recent"));
+        assert!(matches!(
+            artifact_freshness_badge(&path),
+            "fresh" | "recent"
+        ));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -939,7 +943,11 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("demo.md");
-        std::fs::write(&path, "# Demo\n\nSummary:\n- value\n- https://example.com\n").unwrap();
+        std::fs::write(
+            &path,
+            "# Demo\n\nSummary:\n- value\n- https://example.com\n",
+        )
+        .unwrap();
         let doc =
             open_artifact_inspector("Demo", &path, None, vec![("kind".into(), "demo".into())])
                 .unwrap();
@@ -959,19 +967,26 @@ mod tests {
 
     #[test]
     fn stale_artifact_actions_use_compact_refresh_copy() {
-        let dir = std::env::temp_dir().join(format!("yode-stale-artifact-{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("yode-stale-artifact-{}", uuid::Uuid::new_v4()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("artifact.md");
         std::fs::write(&path, "x").unwrap();
         let text = stale_artifact_actions(&path, &["/inspect artifact latest".to_string()]);
-        assert!(text.is_none() || text.as_deref().is_some_and(|line: &str| line.contains("refresh")));
+        assert!(
+            text.is_none()
+                || text
+                    .as_deref()
+                    .is_some_and(|line: &str| line.contains("refresh"))
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn artifact_preview_truncates_and_reports_hidden_lines() {
-        let dir = std::env::temp_dir().join(format!("yode-artifact-preview-{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("yode-artifact-preview-{}", uuid::Uuid::new_v4()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("preview.md");

@@ -1,7 +1,7 @@
-/// Terminal capability detection.
-///
-/// Detects terminal type, color support, and environment (tmux, SSH)
-/// to adjust rendering behavior accordingly.
+//! Terminal capability detection.
+//!
+//! Detects terminal type, color support, and environment (tmux, SSH)
+//! to adjust rendering behavior accordingly.
 
 /// Detected terminal capabilities.
 #[derive(Debug, Clone)]

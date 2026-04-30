@@ -53,12 +53,9 @@ pub(crate) fn format_entry_as_strings(
         .rev()
         .find(|(idx, item)| match &item.role {
             ChatRole::ToolCall { .. } => true,
-            ChatRole::ToolResult { id, .. } => {
-                !all_entries[..*idx]
-                    .iter()
-                    .rev()
-                    .any(|entry| matches!(&entry.role, ChatRole::ToolCall { id: tid, .. } if tid == id))
-            }
+            ChatRole::ToolResult { id, .. } => !all_entries[..*idx].iter().rev().any(
+                |entry| matches!(&entry.role, ChatRole::ToolCall { id: tid, .. } if tid == id),
+            ),
             _ => false,
         })
         .map(|(idx, _)| idx);
@@ -127,7 +124,10 @@ pub(crate) fn format_entry_as_strings(
                 }
                 if view.detail_lines.len() > 1 {
                     result.push((
-                        format!("    … +{} more lines (ctrl+o to inspect)", view.detail_lines.len() - 1),
+                        format!(
+                            "    … +{} more lines (ctrl+o to inspect)",
+                            view.detail_lines.len() - 1
+                        ),
                         ratatui::style::Style::default().fg(Color::Gray),
                     ));
                 }
@@ -140,7 +140,10 @@ pub(crate) fn format_entry_as_strings(
             ));
         }
         ChatRole::System => {
-            result.extend(render_system_entry(entry, latest_system_index == Some(index)));
+            result.extend(render_system_entry(
+                entry,
+                latest_system_index == Some(index),
+            ));
         }
         ChatRole::SubAgentCall { description } => {
             render_subagent_call(

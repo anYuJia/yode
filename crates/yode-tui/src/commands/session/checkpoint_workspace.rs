@@ -1135,7 +1135,7 @@ pub(crate) fn checkpoint_restore_messages(payload: &SessionCheckpointPayload) ->
     payload
         .messages
         .iter()
-        .filter_map(|message| checkpoint_message_to_engine_message(message))
+        .filter_map(checkpoint_message_to_engine_message)
         .collect()
 }
 

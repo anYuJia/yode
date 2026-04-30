@@ -54,7 +54,7 @@ pub(crate) fn latest_runtime_artifact_links(
 
 pub(crate) fn latest_artifact_candidates_from_links(links: &RuntimeArtifactLinks) -> Vec<PathBuf> {
     let mut paths = Vec::new();
-    for maybe_path in [
+    for path in [
         links.tool.as_deref(),
         links.transcript.as_deref(),
         links.session_memory.as_deref(),
@@ -67,10 +67,11 @@ pub(crate) fn latest_artifact_candidates_from_links(links: &RuntimeArtifactLinks
         links.prompt_cache_state.as_deref(),
         links.post_compact_restore.as_deref(),
         links.post_compact_restore_state.as_deref(),
-    ] {
-        if let Some(path) = maybe_path {
-            paths.push(PathBuf::from(path));
-        }
+    ]
+    .into_iter()
+    .flatten()
+    {
+        paths.push(PathBuf::from(path));
     }
     paths
 }

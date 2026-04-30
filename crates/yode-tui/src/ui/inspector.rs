@@ -429,10 +429,7 @@ pub(crate) fn inspector_empty_state_actions(actions: &[&str]) -> Vec<String> {
     if actions.is_empty() {
         return vec!["no visible lines".to_string()];
     }
-    actions
-        .iter()
-        .map(|action| action.to_string())
-        .collect()
+    actions.iter().map(|action| action.to_string()).collect()
 }
 
 pub(crate) fn inspector_pagination_footer(selected: usize, total: usize) -> String {
@@ -604,7 +601,7 @@ pub(crate) fn render_inspector(frame: &mut Frame, area: Rect, document: &Inspect
             lines.push(Line::from(format!("  {}", action)));
         }
     } else {
-        for (_index, actual_index) in filtered[start..end].iter().enumerate() {
+        for actual_index in filtered[start..end].iter() {
             let line = panel.lines.get(*actual_index).cloned().unwrap_or_default();
             let selected = *actual_index == document.state.selected_line;
             lines.push(Line::from(vec![
@@ -719,7 +716,11 @@ mod tests {
         let badges = inspector_status_badge_row(&[("status", "running")], Color::Yellow);
         assert!(badges.to_string().contains("status=running"));
         let ordered = inspector_status_badge_row(
-            &[("hint", "rewrite"), ("state", "running"), ("severity", "warn")],
+            &[
+                ("hint", "rewrite"),
+                ("state", "running"),
+                ("severity", "warn"),
+            ],
             Color::Yellow,
         )
         .to_string();

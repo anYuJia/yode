@@ -33,9 +33,12 @@ use super::{
     MAX_DISPLAY_CHARS, TRANSCRIPT_PREVIEW_MESSAGE_HEAD_LINES, TRANSCRIPT_PREVIEW_TAIL_LINES,
 };
 
-static TRANSCRIPT_META_CACHE: LazyLock<Mutex<HashMap<PathBuf, (u64, TranscriptMetadata)>>> =
+type TranscriptMetaCache = HashMap<PathBuf, (u64, TranscriptMetadata)>;
+type LatestTranscriptCache = HashMap<PathBuf, (u64, Option<PathBuf>)>;
+
+static TRANSCRIPT_META_CACHE: LazyLock<Mutex<TranscriptMetaCache>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
-static LATEST_TRANSCRIPT_CACHE: LazyLock<Mutex<HashMap<PathBuf, (u64, Option<PathBuf>)>>> =
+static LATEST_TRANSCRIPT_CACHE: LazyLock<Mutex<LatestTranscriptCache>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 static TRANSCRIPT_CACHE_STATS: LazyLock<Mutex<TranscriptCacheStats>> =
     LazyLock::new(|| Mutex::new(TranscriptCacheStats::default()));

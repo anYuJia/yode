@@ -262,10 +262,7 @@ mod tests {
         );
         task.attempt = 3;
         task.retry_of = Some("task-0".to_string());
-        assert_eq!(
-            task_retry_chain_summary(&task),
-            "try 3 ← task-0"
-        );
+        assert_eq!(task_retry_chain_summary(&task), "try 3 ← task-0");
     }
 
     #[test]
@@ -345,7 +342,10 @@ mod tests {
         let (preview, start, end) = super::task_output_preview(&task, 2);
         assert_eq!(start, 1);
         assert_eq!(end, 2);
-        assert!(preview.lines().next().is_some_and(|line| line.ends_with("...")));
+        assert!(preview
+            .lines()
+            .next()
+            .is_some_and(|line| line.ends_with("...")));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

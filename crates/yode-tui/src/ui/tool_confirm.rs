@@ -6,10 +6,10 @@ use ratatui::Frame;
 
 use super::palette::{BORDER_MUTED, ERROR_COLOR, LIGHT, MUTED, PANEL_ACCENT, SELECT_BG};
 use super::panels::preview_empty_state;
-use crate::ui::chat::render_markdown_white_with_options;
 use crate::app::App;
 use crate::display_text::{compact_path_tail as compact_path, human_tool_display_name};
 use crate::tool_grouping::describe_groupable_tool_call;
+use crate::ui::chat::render_markdown_white_with_options;
 
 /// Render inline confirmation selector in a bottom-anchored panel.
 pub const INLINE_CONFIRM_HEIGHT: u16 = 14;
@@ -133,7 +133,9 @@ pub fn render_inline_confirm(frame: &mut Frame, area: Rect, app: &App) {
     lines.extend(option_list_lines(&options, app.confirm_selected));
     lines.push(Line::from(vec![Span::styled(
         match density {
-            ConfirmDensity::Default => " Esc cancel · Ctrl+O inspect · y/a/n decide · Ctrl+E explain cmd",
+            ConfirmDensity::Default => {
+                " Esc cancel · Ctrl+O inspect · y/a/n decide · Ctrl+E explain cmd"
+            }
             ConfirmDensity::Narrow => " Esc cancel · ^O inspect · Tab amend · ^E explain",
         },
         Style::default().fg(MUTED),
@@ -331,7 +333,9 @@ fn risk_style(level: ConfirmRiskLevel) -> Style {
     match level {
         ConfirmRiskLevel::Low => Style::default().fg(MUTED),
         ConfirmRiskLevel::Medium => Style::default().fg(Color::Yellow),
-        ConfirmRiskLevel::High => Style::default().fg(ERROR_COLOR).add_modifier(Modifier::BOLD),
+        ConfirmRiskLevel::High => Style::default()
+            .fg(ERROR_COLOR)
+            .add_modifier(Modifier::BOLD),
     }
 }
 
@@ -449,7 +453,12 @@ fn tool_preview_line(tool_name: &str, args_json: &str) -> String {
                         "name",
                     ]
                     .iter()
-                    .find_map(|key| object.get(*key).and_then(|value| value.as_str()).map(|value| (*key, value)))
+                    .find_map(|key| {
+                        object
+                            .get(*key)
+                            .and_then(|value| value.as_str())
+                            .map(|value| (*key, value))
+                    })
                     .map(|(key, value)| {
                         let value = if matches!(key, "path" | "file_path") {
                             compact_path(value)
@@ -482,7 +491,12 @@ fn confirm_full_url_preview(tool_name: &str, args_json: &str) -> Option<String> 
     }
     serde_json::from_str::<serde_json::Value>(args_json)
         .ok()
-        .and_then(|parsed| parsed.get("url").and_then(|value| value.as_str()).map(str::to_string))
+        .and_then(|parsed| {
+            parsed
+                .get("url")
+                .and_then(|value| value.as_str())
+                .map(str::to_string)
+        })
 }
 
 fn prefixed_markdown_lines(prefix: &str, text: &str, max_width: usize) -> Vec<Line<'static>> {
@@ -490,7 +504,10 @@ fn prefixed_markdown_lines(prefix: &str, text: &str, max_width: usize) -> Vec<Li
     let mut lines = Vec::new();
     for (index, line) in rendered.into_iter().enumerate() {
         let prefix_text = if index == 0 { prefix } else { "         " };
-        let mut spans = vec![Span::styled(prefix_text.to_string(), Style::default().fg(MUTED))];
+        let mut spans = vec![Span::styled(
+            prefix_text.to_string(),
+            Style::default().fg(MUTED),
+        )];
         spans.extend(line.spans);
         lines.push(Line::from(spans));
     }
@@ -511,7 +528,11 @@ fn shell_command_activity_summary(command: &str) -> String {
     let lines = command.lines().collect::<Vec<_>>();
     let head = lines.first().copied().unwrap_or("command");
     if lines.len() > 1 {
-        format!("Run · {} ↳ +{} more lines", truncate_str(head, 60), lines.len() - 1)
+        format!(
+            "Run · {} ↳ +{} more lines",
+            truncate_str(head, 60),
+            lines.len() - 1
+        )
     } else {
         format!("Run · {}", truncate_str(head, 60))
     }
@@ -531,8 +552,8 @@ mod tests {
     use crate::app::App;
 
     use super::{
-        confirmation_primary_value, confirmation_section_title, confirmation_title,
-        confirm_density, inline_confirm_height, option_list_lines, tool_activity_summary,
+        confirm_density, confirmation_primary_value, confirmation_section_title,
+        confirmation_title, inline_confirm_height, option_list_lines, tool_activity_summary,
         tool_allow_option_label, tool_display_name, tool_preview_line, tool_risk_hint,
         ConfirmDensity, ConfirmRiskLevel,
     };
@@ -577,8 +598,7 @@ mod tests {
         let app = test_app();
         assert_eq!(tool_display_name(&app, "web_search"), "Web Search");
         assert_eq!(
-            tool_risk_hint(&app, "edit_file")
-                .map(|risk| (risk.level, risk.label)),
+            tool_risk_hint(&app, "edit_file").map(|risk| (risk.level, risk.label)),
             Some((ConfirmRiskLevel::High, "high · file edits".to_string()))
         );
     }
@@ -612,10 +632,7 @@ mod tests {
 
     #[test]
     fn confirmation_primary_value_handles_delegated_actions() {
-        let value = confirmation_primary_value(
-            "agent",
-            r#"{"description":"review current diff"}"#,
-        );
+        let value = confirmation_primary_value("agent", r#"{"description":"review current diff"}"#);
         assert_eq!(value, "review current diff");
         assert_eq!(confirmation_section_title("agent", "Agent"), "Delegation");
     }
@@ -630,7 +647,10 @@ mod tests {
             ],
             0,
         );
-        let rendered = lines.iter().map(|line| line.to_string()).collect::<Vec<_>>();
+        let rendered = lines
+            .iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>();
         assert!(rendered[0].contains("Allow once"));
         assert!(rendered[1].contains("Always allow"));
         assert!(rendered[2].contains("Deny"));
@@ -652,9 +672,9 @@ mod tests {
             "https://docs.rs/ratatui/latest/ratatui/widgets/struct.Paragraph.html",
             96,
         );
-        assert!(lines
-            .iter()
-            .any(|line| line.to_string().contains("\u{1b}]8;;https://docs.rs/ratatui/latest/ratatui/widgets/struct.Paragraph.html")));
+        assert!(lines.iter().any(|line| line.to_string().contains(
+            "\u{1b}]8;;https://docs.rs/ratatui/latest/ratatui/widgets/struct.Paragraph.html"
+        )));
     }
 
     #[test]
@@ -708,8 +728,16 @@ mod tests {
         println!("# Confirm Regression Snapshot\n");
 
         for (label, tool_name, args) in [
-            ("Shell", "bash", r#"{"command":"python main.py\npytest -q\ncargo test"}"#),
-            ("Network", "web_fetch", r#"{"url":"https://docs.rs/ratatui/latest/ratatui/widgets/struct.Paragraph.html"}"#),
+            (
+                "Shell",
+                "bash",
+                r#"{"command":"python main.py\npytest -q\ncargo test"}"#,
+            ),
+            (
+                "Network",
+                "web_fetch",
+                r#"{"url":"https://docs.rs/ratatui/latest/ratatui/widgets/struct.Paragraph.html"}"#,
+            ),
             ("Write", "edit_file", r#"{"file_path":"/tmp/src/main.rs"}"#),
         ] {
             println!("## {}\n", label);

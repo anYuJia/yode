@@ -147,7 +147,12 @@ pub(super) fn doctor_copy_paste_summary(
         .iter()
         .filter_map(|path| path.file_name().and_then(|name| name.to_str()))
         .collect::<Vec<_>>();
-    let preview = file_names.iter().take(4).copied().collect::<Vec<_>>().join(", ");
+    let preview = file_names
+        .iter()
+        .take(4)
+        .copied()
+        .collect::<Vec<_>>()
+        .join(", ");
     let extra = file_names.len().saturating_sub(4);
     format!(
         "Doctor bundle written: {}\n  Files: {}{}",
@@ -228,10 +233,7 @@ mod tests {
             &[],
         );
         assert!(overview.contains("Support bundle overview"));
-        let summary = doctor_copy_paste_summary(
-            &dir,
-            &[file.clone(), file2, file3, file4, file5],
-        );
+        let summary = doctor_copy_paste_summary(&dir, &[file.clone(), file2, file3, file4, file5]);
         assert!(summary.contains("Doctor bundle written:"));
         assert!(summary.contains("local-doctor.txt"));
         assert!(summary.contains("+1 more"));

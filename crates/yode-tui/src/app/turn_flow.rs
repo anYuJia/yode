@@ -127,7 +127,7 @@ pub(super) fn handle_enter(
                 session: &mut app.session,
                 input: &mut app.input,
                 terminal_caps: &app.terminal_caps,
-                input_history: &app.history.entries(),
+                input_history: app.history.entries(),
                 should_quit: &mut app.should_quit,
                 session_start: app.session_start,
                 turn_started_at: app.turn_started_at,

@@ -464,14 +464,8 @@ mod tests {
             }],
         )
         .unwrap();
-        append_agent_team_message(
-            &dir,
-            "team-demo",
-            "review",
-            "handoff",
-            "focus on tests",
-        )
-        .unwrap();
+        append_agent_team_message(&dir, "team-demo", "review", "handoff", "focus on tests")
+            .unwrap();
 
         assert!(run_teams_command(&dir, "list").contains("Agent teams (1)"));
         assert!(run_teams_command(&dir, "latest").contains("Team workspace"));

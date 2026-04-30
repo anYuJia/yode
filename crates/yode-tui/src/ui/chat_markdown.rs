@@ -41,8 +41,7 @@ static MD_SYNTAX_RE: LazyLock<Regex> = LazyLock::new(|| {
 static ISSUE_REF_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(^|[^\w./-])([A-Za-z0-9][\w-]*/[A-Za-z0-9][\w.-]*)#(\d+)\b").unwrap()
 });
-static URL_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"https?://[^\s<>"']+"#).unwrap());
+static URL_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"https?://[^\s<>"']+"#).unwrap());
 
 const TABLE_SAFETY_MARGIN: usize = 4;
 const TABLE_MAX_ROW_LINES: usize = 4;
@@ -519,8 +518,7 @@ fn normalize_unicode_table_separator(trimmed: &str) -> Option<String> {
     let cols = trimmed.split('┼').count().max(2);
     Some(format!(
         "| {} |",
-        std::iter::repeat("---")
-            .take(cols)
+        std::iter::repeat_n("---", cols)
             .collect::<Vec<_>>()
             .join(" | ")
     ))
@@ -634,8 +632,7 @@ fn markdown_table_separator_for_row(line: &str) -> String {
         .max(2);
     format!(
         "| {} |",
-        std::iter::repeat("---")
-            .take(cols)
+        std::iter::repeat_n("---", cols)
             .collect::<Vec<_>>()
             .join(" | ")
     )
@@ -1302,12 +1299,8 @@ fn render_markdown_block(
                     .add_modifier(Modifier::BOLD),
             };
             let rendered = render_inline_nodes_as_lines_with_style(content, style, options);
-            for (index, line) in rendered.into_iter().enumerate() {
-                if index == 0 {
-                    lines.push(prepend_prefix(line, String::new(), style));
-                } else {
-                    lines.push(prepend_prefix(line, String::new(), style));
-                }
+            for line in rendered {
+                lines.push(prepend_prefix(line, String::new(), style));
             }
         }
         MarkdownBlock::Rule => {
@@ -1650,7 +1643,9 @@ fn append_text_with_links(spans: &mut Vec<Span<'static>>, text: &str, style: Sty
             let whole = captures.get(0)?;
             Some((captures, last + whole.start(), last + whole.end()))
         });
-        let url_match = URL_RE.find(&text[last..]).map(|m| (last + m.start(), last + m.end()));
+        let url_match = URL_RE
+            .find(&text[last..])
+            .map(|m| (last + m.start(), last + m.end()));
 
         let next_kind = match (issue_match, url_match) {
             (Some((captures, start, end)), Some((url_start, url_end))) => {
@@ -2070,8 +2065,8 @@ mod tests {
         render_markdown_with_options, streaming_markdown_advance_stable_boundary,
         MarkdownRenderOptions,
     };
-    use ratatui::style::{Color, Modifier};
     use crate::ui::chat::WHITE;
+    use ratatui::style::{Color, Modifier};
 
     #[test]
     fn fenced_code_blocks_render_header_and_highlighted_tokens() {
@@ -2336,12 +2331,12 @@ mod tests {
         )
         .join("\n");
         assert!(rendered.contains("anthropics/claude-code#24180"));
-        assert!(rendered.contains(
-            "\u{1b}]8;;https://github.com/anthropics/claude-code/issues/24180"
-        ));
-        assert!(!rendered.contains(
-            "\u{1b}]8;;https://github.com/anthropics/claude-code/issues/24180,"
-        ));
+        assert!(
+            rendered.contains("\u{1b}]8;;https://github.com/anthropics/claude-code/issues/24180")
+        );
+        assert!(
+            !rendered.contains("\u{1b}]8;;https://github.com/anthropics/claude-code/issues/24180,")
+        );
     }
 
     #[test]
@@ -2368,7 +2363,9 @@ mod tests {
         .map(|line| line.to_string())
         .collect::<Vec<_>>();
         assert!(rendered.len() >= 2);
-        assert!(rendered.iter().any(|line| line.contains("This is a very long")));
+        assert!(rendered
+            .iter()
+            .any(|line| line.contains("This is a very long")));
     }
 
     #[test]
@@ -2447,13 +2444,18 @@ mod tests {
 
     #[test]
     fn cjk_tables_render_without_losing_cells() {
-        let lines = render_markdown_impl("| 列 | 值 |\n| --- | --- |\n| 工具 | 远程 |\n| 状态 | 正常 |", None)
-            .into_iter()
-            .map(|line| line.to_string())
-            .collect::<Vec<_>>();
+        let lines = render_markdown_impl(
+            "| 列 | 值 |\n| --- | --- |\n| 工具 | 远程 |\n| 状态 | 正常 |",
+            None,
+        )
+        .into_iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>();
         assert!(lines.iter().any(|line| line.contains("工具")));
         assert!(lines.iter().any(|line| line.contains("状态")));
-        assert!(lines.iter().any(|line| line.starts_with('┌') || line.contains("Column")));
+        assert!(lines
+            .iter()
+            .any(|line| line.starts_with('┌') || line.contains("Column")));
     }
 
     #[test]
@@ -3065,12 +3067,21 @@ fn render_table_row(
     }
 }
 
-fn render_table_border_line(widths: &[usize], left: char, middle: char, right: char) -> Line<'static> {
+fn render_table_border_line(
+    widths: &[usize],
+    left: char,
+    middle: char,
+    right: char,
+) -> Line<'static> {
     let mut content = String::new();
     content.push(left);
     for (index, width) in widths.iter().enumerate() {
         content.push_str(&"─".repeat(*width + 2));
-        content.push(if index + 1 < widths.len() { middle } else { right });
+        content.push(if index + 1 < widths.len() {
+            middle
+        } else {
+            right
+        });
     }
     Line::from(Span::styled(content, Style::default().fg(DIM)))
 }
@@ -3088,7 +3099,8 @@ fn should_render_table_vertically(
         .flat_map(|row| row.iter().enumerate())
         .map(|(index, cell)| {
             let base_style = Style::default().fg(WHITE);
-            let rendered = render_inline_nodes_as_lines_with_style(&cell.content, base_style, options);
+            let rendered =
+                render_inline_nodes_as_lines_with_style(&cell.content, base_style, options);
             wrap_cell_lines(rendered, widths.get(index).copied().unwrap_or(10)).len()
         })
         .max()
@@ -3096,7 +3108,11 @@ fn should_render_table_vertically(
         > TABLE_MAX_ROW_LINES
 }
 
-fn render_vertical_table(lines: &mut Vec<Line<'static>>, rows: &[Vec<TableCell>], max_width: usize) {
+fn render_vertical_table(
+    lines: &mut Vec<Line<'static>>,
+    rows: &[Vec<TableCell>],
+    max_width: usize,
+) {
     if rows.is_empty() {
         return;
     }
@@ -3115,15 +3131,13 @@ fn render_vertical_table(lines: &mut Vec<Line<'static>>, rows: &[Vec<TableCell>]
             }
         })
         .collect::<Vec<_>>();
-    let separator_width = max_width.saturating_sub(1).min(40).max(3);
+    let separator_width = max_width.saturating_sub(1).clamp(3, 40);
     let separator = Line::from(Span::styled(
         "─".repeat(separator_width),
         Style::default().fg(DIM),
     ));
     let continuation_prefix = "  ";
-    let continuation_width = max_width
-        .saturating_sub(continuation_prefix.len())
-        .max(10);
+    let continuation_width = max_width.saturating_sub(continuation_prefix.len()).max(10);
 
     for (row_index, row) in rows.iter().enumerate().skip(1) {
         if row_index > 1 {

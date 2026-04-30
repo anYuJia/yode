@@ -207,15 +207,9 @@ fn split_task_line(line: &str) -> Option<(String, Option<String>)> {
                 .or_else(|| Some(detail.clone())),
         )
     } else if lowered.contains("hook") {
-        (
-            format!("Hook {}", severity.0.trim()),
-            Some(detail.clone()),
-        )
+        (format!("Hook {}", severity.0.trim()), Some(detail.clone()))
     } else {
-        (
-            format!("Task {}", severity.0.trim()),
-            Some(detail.clone()),
-        )
+        (format!("Task {}", severity.0.trim()), Some(detail.clone()))
     };
     Some((title, detail.filter(|detail| !detail.is_empty())))
 }
@@ -263,29 +257,43 @@ fn compact_path_token(token: &str) -> String {
         return token.to_string();
     }
 
-    let (core, trailing) = token.trim_end_matches([')', ']', ',', '.', ';', ':', '!']).split_at(
-        token
-            .trim_end_matches([')', ']', ',', '.', ';', ':', '!'])
-            .len(),
-    );
-    if !(core.starts_with('/') || core.starts_with("./") || core.starts_with("../") || core.starts_with(".yode/")) {
+    let (core, trailing) = token
+        .trim_end_matches([')', ']', ',', '.', ';', ':', '!'])
+        .split_at(
+            token
+                .trim_end_matches([')', ']', ',', '.', ';', ':', '!'])
+                .len(),
+        );
+    if !(core.starts_with('/')
+        || core.starts_with("./")
+        || core.starts_with("../")
+        || core.starts_with(".yode/"))
+    {
         return token.to_string();
     }
 
     let trimmed = core.trim_matches('/');
-    let parts = trimmed.split('/').filter(|part| !part.is_empty()).collect::<Vec<_>>();
+    let parts = trimmed
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
     if parts.len() < 3 {
         return token.to_string();
     }
 
-    format!(".../{}/{}{}", parts[parts.len() - 2], parts[parts.len() - 1], trailing)
+    format!(
+        ".../{}/{}{}",
+        parts[parts.len() - 2],
+        parts[parts.len() - 1],
+        trailing
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        append_grouped_system_entry, format_system_detail_line, parse_system_message, system_message_summary,
-        SystemMessageKind,
+        append_grouped_system_entry, format_system_detail_line, parse_system_message,
+        system_message_summary, SystemMessageKind,
     };
     use crate::app::{ChatEntry, ChatRole};
 

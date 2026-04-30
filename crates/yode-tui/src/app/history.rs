@@ -34,7 +34,7 @@ impl HistoryState {
 
     /// Add an entry to history (deduplicates consecutive).
     pub fn push(&mut self, entry: String) {
-        if self.entries.last().map_or(true, |last| last != &entry) {
+        if self.entries.last() != Some(&entry) {
             self.entries.push(entry);
             if self.entries.len() > self.max_size {
                 self.entries.remove(0);

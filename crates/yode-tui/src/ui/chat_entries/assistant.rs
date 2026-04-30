@@ -51,16 +51,12 @@ pub(crate) fn render_assistant(
                         "  ",
                         Style::default().fg(INFO_COLOR).add_modifier(Modifier::DIM),
                     )];
-                    spans.extend(
-                        line.spans
-                            .into_iter()
-                            .map(|span| {
-                                Span::styled(
-                                    span.content,
-                                    span.style.fg(DIM).add_modifier(Modifier::ITALIC),
-                                )
-                            }),
-                    );
+                    spans.extend(line.spans.into_iter().map(|span| {
+                        Span::styled(
+                            span.content,
+                            span.style.fg(DIM).add_modifier(Modifier::ITALIC),
+                        )
+                    }));
                     lines.push(Line::from(spans));
                 }
                 lines.push(Line::from(""));
@@ -206,7 +202,9 @@ mod tests {
             .iter()
             .any(|line| line.to_string().contains("∴ Thinking… (ctrl+o to inspect)")));
         assert!(lines.iter().any(|line| line.to_string().contains("Plan")));
-        assert!(lines.iter().any(|line| line.to_string().contains("• inspect")));
+        assert!(lines
+            .iter()
+            .any(|line| line.to_string().contains("• inspect")));
         assert!(lines.iter().any(|line| {
             line.spans.iter().any(|span| {
                 span.content.contains("Plan")
@@ -232,7 +230,10 @@ mod tests {
         );
         render_assistant(&mut lines, &entry, 120, false, false);
 
-        let rendered = lines.iter().map(|line| line.to_string()).collect::<Vec<_>>();
+        let rendered = lines
+            .iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>();
         assert!(rendered
             .iter()
             .any(|line| line.contains("Thinking hidden (ctrl+o to inspect)")));

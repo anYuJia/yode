@@ -155,7 +155,9 @@ mod tests {
         assert!(lines[0]
             .to_string()
             .contains("read-only: validated git status"));
-        assert!(lines[0].to_string().contains("warning: may discard changes"));
+        assert!(lines[0]
+            .to_string()
+            .contains("warning: may discard changes"));
         assert!(lines[0].to_string().contains("hint: Prefer read_file"));
     }
 

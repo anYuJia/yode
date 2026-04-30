@@ -187,12 +187,10 @@ fn ordered_list_prefix(text: &str) -> Option<&str> {
 }
 
 fn marker_prefix(text: &str) -> Option<&str> {
-    for marker in ["• ", "◦ ", "▪ ", "- ", "* ", "▎ ", "│ "] {
-        if text.starts_with(marker) {
-            return Some(marker);
-        }
-    }
-    None
+    ["• ", "◦ ", "▪ ", "- ", "* ", "▎ ", "│ "]
+        .into_iter()
+        .find(|&marker| text.starts_with(marker))
+        .map(|v| v as _)
 }
 
 #[derive(Debug, Clone)]

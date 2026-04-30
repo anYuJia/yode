@@ -141,9 +141,7 @@ pub(super) fn strip_ansi(text: &str) -> String {
                         index += 1;
                         break;
                     }
-                    if bytes[index] == 0x1b
-                        && index + 1 < bytes.len()
-                        && bytes[index + 1] == b'\\'
+                    if bytes[index] == 0x1b && index + 1 < bytes.len() && bytes[index + 1] == b'\\'
                     {
                         index += 2;
                         break;

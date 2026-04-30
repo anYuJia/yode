@@ -1305,7 +1305,6 @@ fn artifact_history_family_lines(
             "post-compact-restore-diff.md",
             12,
         ))
-        .into_iter()
         .chain(recent_artifacts_by_suffix(
             &project_root.join(".yode").join("transcripts"),
             ".md",
@@ -1357,17 +1356,18 @@ fn artifact_history_family_lines(
                 4,
             ));
             if let Some(state) = runtime {
-                for candidate in [
+                for path in [
                     state.last_tool_turn_artifact_path.as_deref(),
                     state.last_recovery_artifact_path.as_deref(),
                     state.last_permission_artifact_path.as_deref(),
                     state.last_compaction_session_memory_path.as_deref(),
-                ] {
-                    if let Some(path) = candidate {
-                        let path = PathBuf::from(path);
-                        if path.exists() {
-                            paths.push(path);
-                        }
+                ]
+                .into_iter()
+                .flatten()
+                {
+                    let path = PathBuf::from(path);
+                    if path.exists() {
+                        paths.push(path);
                     }
                 }
             }

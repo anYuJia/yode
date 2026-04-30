@@ -87,8 +87,7 @@ impl Command for TasksCommand {
             sort_tasks_by_latest_activity(&mut tasks);
             tasks
                 .into_iter()
-                .filter(|task| task_matches_filter(task, &filter))
-                .next()
+                .find(|task| task_matches_filter(task, &filter))
                 .map(|task| task.id)
         };
 

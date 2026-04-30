@@ -3,9 +3,9 @@ use super::chat_entries::{
     render_grouped_tool_call, render_standalone_result, render_subagent_call, render_system_entry,
     render_tool_call, render_user,
 };
-use super::error_format::parse_error_view;
 use super::chat_layout::{manual_wrap, render_header};
 use super::chat_markdown::render_markdown_impl;
+use super::error_format::parse_error_view;
 use super::palette::{
     ERROR_COLOR, INFO_COLOR, LIGHT, MUTED, PANEL_ACCENT, SUCCESS_COLOR, SURFACE_BG_ALT,
     TOOL_ACCENT, USER_COLOR, WARNING_COLOR,
@@ -290,16 +290,16 @@ fn streaming_reasoning_teaser(reasoning: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::time::Instant;
     use std::sync::Arc;
+    use std::time::Instant;
 
     use ratatui::text::Line;
     use yode_llm::registry::ProviderRegistry;
     use yode_tools::registry::ToolRegistry;
 
     use crate::app::{App, ChatEntry, ChatRole, TurnStatus};
-    use crate::tool_grouping::{detect_groupable_tool_batch, SystemBatch};
     use crate::tool_grouping::SystemBatchItem;
+    use crate::tool_grouping::{detect_groupable_tool_batch, SystemBatch};
     use crate::ui::chat_entries::{
         render_assistant, render_grouped_system_entries, render_grouped_tool_call, render_tool_call,
     };
@@ -362,9 +362,18 @@ mod tests {
 
         let system_entries = vec![
             ChatEntry::new(ChatRole::System, "Session resumed.".to_string()),
-            ChatEntry::new(ChatRole::System, "Context compacted · auto · -4 msgs".to_string()),
-            ChatEntry::new(ChatRole::System, "Session memory updated · summary · /tmp/live.md".to_string()),
-            ChatEntry::new(ChatRole::System, "Diagnostics bundle exported to: /tmp/bundle".to_string()),
+            ChatEntry::new(
+                ChatRole::System,
+                "Context compacted · auto · -4 msgs".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::System,
+                "Session memory updated · summary · /tmp/live.md".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::System,
+                "Diagnostics bundle exported to: /tmp/bundle".to_string(),
+            ),
         ];
         let mut system_lines = Vec::new();
         render_grouped_system_entries(

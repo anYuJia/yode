@@ -340,7 +340,7 @@ pub(super) fn handle_engine_event(
 
 fn retry_verb(status: &TurnStatus) -> &'static str {
     match status {
-        TurnStatus::Working { verb } | TurnStatus::Retrying { verb, .. } => *verb,
+        TurnStatus::Working { verb } | TurnStatus::Retrying { verb, .. } => verb,
         _ => "Working",
     }
 }

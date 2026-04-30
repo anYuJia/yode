@@ -31,12 +31,10 @@ const DANGEROUS_PATTERNS: &[&str] = &[
 /// Check if a command is potentially dangerous.
 pub fn is_dangerous_command(cmd: &str) -> Option<&'static str> {
     let lower = cmd.to_lowercase();
-    for pattern in DANGEROUS_PATTERNS {
-        if lower.contains(&pattern.to_lowercase()) {
-            return Some(pattern);
-        }
-    }
-    None
+    DANGEROUS_PATTERNS
+        .iter()
+        .find(|&pattern| lower.contains(&pattern.to_lowercase()))
+        .map(|v| v as _)
 }
 
 impl App {

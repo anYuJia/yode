@@ -89,9 +89,7 @@ pub(crate) fn detect_groupable_tool_batch(
         return None;
     };
     let args: Value = serde_json::from_str(&entry.content).unwrap_or(Value::Null);
-    if classify_groupable_tool(name, &args).is_none() {
-        return None;
-    }
+    classify_groupable_tool(name, &args)?;
 
     let mut index = start_index;
     let mut items = Vec::new();
@@ -285,19 +283,21 @@ pub(crate) fn describe_tool_call(tool_name: &str, args: &Value, is_active: bool)
                 72,
             )
         )),
-        "batch" => Some(format!(
-            "{}",
+        "batch" => Some(
             summarize_batch_invocations(args, is_active)
                 .map(|(summary, _)| summary)
-                .unwrap_or_else(|| format!(
-                    "{} {} tools in parallel",
-                    if is_active { "Running" } else { "Ran" },
-                    args.get("invocations")
-                        .and_then(Value::as_array)
-                        .map(|items| items.len())
-                        .unwrap_or(0)
-                ))
-        )),
+                .unwrap_or_else(|| {
+                    format!(
+                        "{} {} tools in parallel",
+                        if is_active { "Running" } else { "Ran" },
+                        args.get("invocations")
+                            .and_then(Value::as_array)
+                            .map(|items| items.len())
+                            .unwrap_or(0)
+                    )
+                })
+                .to_string(),
+        ),
         "notebook_edit" => Some(format!(
             "{} notebook {}",
             if is_active { "Editing" } else { "Edited" },
@@ -816,8 +816,8 @@ mod tests {
     use super::{
         describe_groupable_tool_call, describe_tool_call, detect_groupable_subagent_batch,
         detect_groupable_system_batch, detect_groupable_tool_batch, summarize_batch_invocations,
-        tool_batch_hint_text, tool_batch_progress_text, tool_batch_summary_text,
-        ToolBatchItemKind, ToolBatchKind,
+        tool_batch_hint_text, tool_batch_progress_text, tool_batch_summary_text, ToolBatchItemKind,
+        ToolBatchKind,
     };
 
     #[test]

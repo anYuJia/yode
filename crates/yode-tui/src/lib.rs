@@ -1,3 +1,9 @@
+#![allow(
+    clippy::module_inception,
+    clippy::new_without_default,
+    clippy::too_many_arguments
+)]
+
 pub mod app;
 pub mod commands;
 mod display_text;

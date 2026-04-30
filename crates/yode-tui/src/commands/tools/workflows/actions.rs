@@ -48,7 +48,10 @@ pub(super) fn execute_workflows_command(
                     "preview workflow".to_string(),
                     "/workflows preview latest".to_string(),
                 ),
-                ("run workflow".to_string(), "/workflows run latest".to_string()),
+                (
+                    "run workflow".to_string(),
+                    "/workflows run latest".to_string(),
+                ),
                 (
                     "run with writes".to_string(),
                     "/workflows run-write latest".to_string(),
@@ -76,7 +79,10 @@ pub(super) fn execute_workflows_command(
                     "open workflow".to_string(),
                     "/inspect workflows latest".to_string(),
                 ),
-                ("open coordinator".to_string(), "/coordinate latest".to_string()),
+                (
+                    "open coordinator".to_string(),
+                    "/coordinate latest".to_string(),
+                ),
             ],
         );
         return Ok(CommandOutput::OpenInspector(doc));

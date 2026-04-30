@@ -109,7 +109,7 @@ pub(super) fn export_doctor_bundle(ctx: &mut CommandContext) -> Result<String, S
             copied_files.push(dest);
         }
         if let Some(path) =
-            write_hook_failure_artifact(&working_dir, &ctx.session.session_id, &state)
+            write_hook_failure_artifact(&working_dir, &ctx.session.session_id, state)
         {
             let dest = bundle_dir.join("hook-failures.md");
             std::fs::copy(&path, &dest)
@@ -117,7 +117,7 @@ pub(super) fn export_doctor_bundle(ctx: &mut CommandContext) -> Result<String, S
             copied_files.push(dest);
         }
         if let Some(path) =
-            write_prompt_cache_artifact(&working_dir, &ctx.session.session_id, &state)
+            write_prompt_cache_artifact(&working_dir, &ctx.session.session_id, state)
         {
             let dest = bundle_dir.join("prompt-cache.md");
             std::fs::copy(&path, &dest)
@@ -125,7 +125,7 @@ pub(super) fn export_doctor_bundle(ctx: &mut CommandContext) -> Result<String, S
             copied_files.push(dest);
         }
         if let Some(path) =
-            write_prompt_cache_state_artifact(&working_dir, &ctx.session.session_id, &state)
+            write_prompt_cache_state_artifact(&working_dir, &ctx.session.session_id, state)
         {
             let dest = bundle_dir.join("prompt-cache-state.json");
             std::fs::copy(&path, &dest)
@@ -133,7 +133,7 @@ pub(super) fn export_doctor_bundle(ctx: &mut CommandContext) -> Result<String, S
             copied_files.push(dest);
         }
         if let Some(path) =
-            write_prompt_cache_event_artifact(&working_dir, &ctx.session.session_id, &state)
+            write_prompt_cache_event_artifact(&working_dir, &ctx.session.session_id, state)
         {
             let dest = bundle_dir.join("prompt-cache-events.md");
             std::fs::copy(&path, &dest)
@@ -141,7 +141,7 @@ pub(super) fn export_doctor_bundle(ctx: &mut CommandContext) -> Result<String, S
             copied_files.push(dest);
         }
         if let Some(path) =
-            write_prompt_cache_break_artifact(&working_dir, &ctx.session.session_id, &state)
+            write_prompt_cache_break_artifact(&working_dir, &ctx.session.session_id, state)
         {
             let dest = bundle_dir.join("prompt-cache-break.json");
             std::fs::copy(&path, &dest)

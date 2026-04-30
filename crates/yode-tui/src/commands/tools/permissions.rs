@@ -70,7 +70,7 @@ impl Command for PermissionsCommand {
     }
 
     fn execute(&self, args: &str, ctx: &mut CommandContext<'_>) -> CommandResult {
-        let parts: Vec<&str> = args.trim().split_whitespace().collect();
+        let parts: Vec<&str> = args.split_whitespace().collect();
 
         let Ok(mut engine) = ctx.engine.try_lock() else {
             return Err("Engine is busy, try again.".into());

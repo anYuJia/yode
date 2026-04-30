@@ -35,7 +35,7 @@ pub(super) fn grouped_task_runtime_summary(tasks: &[RuntimeTask]) -> Vec<String>
 
 pub(super) fn task_notification_summary(tasks: &[RuntimeTask]) -> Vec<String> {
     let mut tasks = tasks.to_vec();
-    tasks.sort_by(|left, right| latest_activity(right).cmp(&latest_activity(left)));
+    tasks.sort_by(|left, right| latest_activity(right).cmp(latest_activity(left)));
     let lines = tasks
         .into_iter()
         .filter(|task| {

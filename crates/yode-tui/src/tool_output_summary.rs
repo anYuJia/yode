@@ -354,9 +354,9 @@ fn summarize_ls(args: &Value, metadata: Option<&Value>, result_content: &str) ->
 
     let primary = match (file_count, dir_count) {
         (0, 0) => "listed empty directory".to_string(),
-        (files, 0) if files == 1 => "listed 1 file".to_string(),
+        (1, 0) => "listed 1 file".to_string(),
         (files, 0) => format!("listed {} files", files),
-        (0, dirs) if dirs == 1 => "listed 1 directory".to_string(),
+        (0, 1) => "listed 1 directory".to_string(),
         (0, dirs) => format!("listed {} directories", dirs),
         (files, dirs) => format!("listed {} files and {} directories", files, dirs),
     };

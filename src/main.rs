@@ -238,17 +238,17 @@ async fn main() -> Result<()> {
     if let Some(chat_message) = cli.chat_message.as_deref() {
         startup_profiler.checkpoint("ready_chat");
         startup_profiler.log_summary("chat", &tooling.metrics);
-        return chat_mode::run_noninteractive_chat(
+        return chat_mode::run_noninteractive_chat(chat_mode::NoninteractiveChatRun {
             chat_message,
             provider,
-            Arc::clone(&tooling.tool_registry),
+            tool_registry: Arc::clone(&tooling.tool_registry),
             permissions,
             context,
             db,
             restored_messages,
-            &config,
-            tooling.mcp_clients,
-        )
+            config: &config,
+            mcp_clients: tooling.mcp_clients,
+        })
         .await;
     }
 

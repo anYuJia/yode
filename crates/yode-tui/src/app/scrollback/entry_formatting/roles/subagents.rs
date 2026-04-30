@@ -73,11 +73,7 @@ pub(super) fn render_grouped_subagent_batch(
 ) {
     let noun = grouped_subagent_title(batch);
     result.push((
-        format!(
-            "⏺ {} {} done (ctrl+o to expand)",
-            batch.items.len(),
-            noun
-        ),
+        format!("⏺ {} {} done (ctrl+o to expand)", batch.items.len(), noun),
         accent,
     ));
 
@@ -104,13 +100,7 @@ pub(super) fn render_grouped_subagent_batch(
         ));
         let done_line = all_entries
             .get(item.result_index)
-            .map(|entry| {
-                if entry.content.trim().is_empty() {
-                    "Done".to_string()
-                } else {
-                    "Done".to_string()
-                }
-            })
+            .map(|_entry| "Done".to_string())
             .unwrap_or_else(|| "Done".to_string());
         result.push((format!("{}⎿  {}", child_prefix, done_line), dim));
     }

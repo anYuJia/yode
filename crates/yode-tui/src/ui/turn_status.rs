@@ -63,7 +63,11 @@ pub fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &
                 ),
                 Span::styled(working_label, Style::default().fg(Color::LightMagenta)),
                 Span::styled(
-                    format!(" ({} · {})", elapsed, compact_output_token_phrase(output_tok)),
+                    format!(
+                        " ({} · {})",
+                        elapsed,
+                        compact_output_token_phrase(output_tok)
+                    ),
                     Style::default().fg(Color::DarkGray),
                 ),
             ];
@@ -95,9 +99,7 @@ pub fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &
                     Style::default().fg(Color::DarkGray),
                 ));
             }
-            if *tools > 0 && !indicator_spans.is_empty() {
-                spans.push(Span::styled(" · ", Style::default().fg(Color::DarkGray)));
-            } else if *tools == 0 && !indicator_spans.is_empty() {
+            if !indicator_spans.is_empty() {
                 spans.push(Span::styled(" · ", Style::default().fg(Color::DarkGray)));
             }
             spans.extend(indicator_spans.clone());
@@ -142,7 +144,12 @@ pub fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &
     if let Some(hint) = working_hint {
         lines.push(Line::from(vec![
             Span::styled("  ⎿ ", Style::default().fg(Color::DarkGray)),
-            Span::styled(hint, Style::default().fg(Color::Gray).add_modifier(Modifier::ITALIC)),
+            Span::styled(
+                hint,
+                Style::default()
+                    .fg(Color::Gray)
+                    .add_modifier(Modifier::ITALIC),
+            ),
         ]));
     } else if area.height >= 3 {
         lines.push(Line::from(""));
@@ -269,7 +276,9 @@ mod tests {
 
     use crate::app::{App, ChatEntry, ChatRole};
 
-    use super::{active_working_hint, active_working_label, compact_output_token_phrase, format_tok};
+    use super::{
+        active_working_hint, active_working_label, compact_output_token_phrase, format_tok,
+    };
 
     fn test_app() -> App {
         App::new(
@@ -401,5 +410,4 @@ mod tests {
             Some("Reading .../src/main.rs")
         );
     }
-
 }

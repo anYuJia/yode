@@ -42,7 +42,7 @@ impl FileCompletion {
                             } else {
                                 format!("{}{}", dir, name)
                             };
-                            let display = if entry.file_type().map_or(false, |kind| kind.is_dir()) {
+                            let display = if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
                                 format!("{}/", full)
                             } else {
                                 full
@@ -121,20 +121,16 @@ fn cycle_file_selection(
         if current + 1 >= total {
             *window_start = 0;
             *selected = Some(0);
-        } else if selected.map_or(false, |index| index >= visible_end - 1) && visible_end < total {
+        } else if selected.is_some_and(|index| index >= visible_end - 1) && visible_end < total {
             *window_start += 1;
             *selected = Some(current + 1);
         } else {
             *selected = Some(current + 1);
         }
     } else if current == 0 {
-        *window_start = if total > max_visible {
-            total - max_visible
-        } else {
-            0
-        };
+        *window_start = total.saturating_sub(max_visible);
         *selected = Some(total - 1);
-    } else if selected.map_or(false, |index| index == *window_start) && *window_start > 0 {
+    } else if selected.is_some_and(|index| index == *window_start) && *window_start > 0 {
         *window_start -= 1;
         *selected = Some(current - 1);
     } else {

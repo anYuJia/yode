@@ -582,7 +582,9 @@ pub(crate) fn render_remote_task_inventory(tasks: &[RuntimeTask]) -> String {
             task.output_path
         ));
     }
-    lines.push("  next: /remote-control follow latest | /tasks monitor | /tasks follow latest".to_string());
+    lines.push(
+        "  next: /remote-control follow latest | /tasks monitor | /tasks follow latest".to_string(),
+    );
     lines.join("\n")
 }
 
@@ -1814,12 +1816,13 @@ mod tests {
         load_remote_transport_payload, mark_remote_queue_item, mark_remote_transport_connected,
         mark_remote_transport_disconnected, mark_remote_transport_failed,
         mark_remote_transport_reconnecting, note_remote_transport_dispatch, queue_item_target,
-        record_remote_transport_event, remote_queue_status_label, remote_transport_handshake_summary,
-        render_remote_control_doctor, render_remote_retry_summary, render_remote_task_inventory,
-        write_remote_queue_execution_artifact, RemoteQueueItem, RemoteTransportPayload,
+        record_remote_transport_event, remote_queue_status_label,
+        remote_transport_handshake_summary, render_remote_control_doctor,
+        render_remote_retry_summary, render_remote_task_inventory,
         sync_remote_live_session_transport, write_remote_control_artifacts,
-        write_remote_live_session_artifacts, write_remote_task_handoff_artifact,
-        write_remote_transport_artifacts,
+        write_remote_live_session_artifacts, write_remote_queue_execution_artifact,
+        write_remote_task_handoff_artifact, write_remote_transport_artifacts, RemoteQueueItem,
+        RemoteTransportPayload,
     };
 
     #[test]

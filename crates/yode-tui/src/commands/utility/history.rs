@@ -148,7 +148,7 @@ fn history_preview(entry: &str, query: Option<&str>, max_chars: usize) -> String
             let end = char_positions
                 .get(end_char)
                 .copied()
-                .unwrap_or_else(|| squashed.len());
+                .unwrap_or(squashed.len());
             let snippet = squashed[start..end].to_string();
             let prefix = if start > 0 { "..." } else { "" };
             let suffix = if end < squashed.len() { "..." } else { "" };

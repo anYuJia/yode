@@ -111,10 +111,11 @@ impl CommandCompletion {
 
         for (name, description) in &self.dynamic_commands {
             let full_name = format!("/{}", name);
-            if full_name.starts_with(input_text) && full_name != input_text {
-                if !matches.iter().any(|(existing, _)| existing == &full_name) {
-                    matches.push((full_name, description.clone()));
-                }
+            if full_name.starts_with(input_text)
+                && full_name != input_text
+                && !matches.iter().any(|(existing, _)| existing == &full_name)
+            {
+                matches.push((full_name, description.clone()));
             }
         }
 
@@ -125,7 +126,7 @@ impl CommandCompletion {
             self.selected = None;
         } else if self
             .selected
-            .map_or(true, |index| index >= self.candidates.len())
+            .is_none_or(|index| index >= self.candidates.len())
         {
             self.selected = Some(0);
         }
@@ -201,20 +202,16 @@ fn cycle_selection<T>(
         if current + 1 >= total {
             *window_start = 0;
             *selected = Some(0);
-        } else if selected.map_or(false, |index| index >= visible_end - 1) && visible_end < total {
+        } else if selected.is_some_and(|index| index >= visible_end - 1) && visible_end < total {
             *window_start += 1;
             *selected = Some(current + 1);
         } else {
             *selected = Some(current + 1);
         }
     } else if current == 0 {
-        *window_start = if total > max_visible {
-            total - max_visible
-        } else {
-            0
-        };
+        *window_start = total.saturating_sub(max_visible);
         *selected = Some(total - 1);
-    } else if selected.map_or(false, |index| index == *window_start) && *window_start > 0 {
+    } else if selected.is_some_and(|index| index == *window_start) && *window_start > 0 {
         *window_start -= 1;
         *selected = Some(current - 1);
     } else {

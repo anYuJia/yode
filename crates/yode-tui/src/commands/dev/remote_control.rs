@@ -533,7 +533,7 @@ impl Command for RemoteControlCommand {
                     .engine
                     .try_lock()
                     .map_err(|_| "Engine is busy, try again.".to_string())?;
-                engine.mark_runtime_task_failed(&task_id, "re-queued for retry");
+                engine.mark_runtime_task_failed(task_id, "re-queued for retry");
             }
             let _ = record_remote_transport_event(
                 &project_root,
@@ -1004,8 +1004,9 @@ fn start_remote_queue_task(
             queue_item_target(project_root, target)
                 .ok()
                 .flatten()
-                .map(|_| yode_tools::runtime_tasks::latest_transcript_artifact_path(project_root))
-                .flatten()
+                .and_then(|_| {
+                    yode_tools::runtime_tasks::latest_transcript_artifact_path(project_root)
+                })
         });
         engine.create_runtime_task(
             "remote-control",
