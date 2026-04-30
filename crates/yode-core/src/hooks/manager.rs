@@ -290,11 +290,11 @@ impl HookManager {
         }
 
         #[cfg(not(windows))]
-        let result = self
-            .build_hook_command("sh", &["-c"], command, context_json, event)
-            .output()
-            .await;
-        result
+        {
+            self.build_hook_command("sh", &["-c"], command, context_json, event)
+                .output()
+                .await
+        }
     }
 
     fn build_hook_command(

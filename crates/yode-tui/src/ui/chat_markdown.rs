@@ -2965,11 +2965,10 @@ fn render_table(
             let overflow_total = total_ideal - total_min;
             for index in 0..widths.len() {
                 let overflow = widths[index].saturating_sub(min_widths[index]);
-                let share = if overflow_total == 0 {
-                    0
-                } else {
-                    overflow * extra / overflow_total
-                };
+                let share = overflow
+                    .saturating_mul(extra)
+                    .checked_div(overflow_total)
+                    .unwrap_or(0);
                 widths[index] = min_widths[index] + share;
             }
         } else if total_min > 0 {

@@ -253,7 +253,7 @@ fn server_latency_summary(stats: &[yode_mcp::McpToolLatencyEntry], server: &str)
         return "no-calls".to_string();
     }
 
-    matching.sort_by(|a, b| b.last_ms.cmp(&a.last_ms));
+    matching.sort_by_key(|b| std::cmp::Reverse(b.last_ms));
     let total_calls = matching.iter().map(|entry| entry.calls).sum::<u64>();
     let avg_ms = matching
         .iter()

@@ -329,15 +329,11 @@ pub(super) fn handle_key_event(
                 }
                 app.pending_confirmation = None;
             }
-            KeyCode::Up | KeyCode::Char('k') => {
-                if app.confirm_selected > 0 {
-                    app.confirm_selected -= 1;
-                }
+            KeyCode::Up | KeyCode::Char('k') if app.confirm_selected > 0 => {
+                app.confirm_selected -= 1;
             }
-            KeyCode::Down | KeyCode::Char('j') => {
-                if app.confirm_selected < 2 {
-                    app.confirm_selected += 1;
-                }
+            KeyCode::Down | KeyCode::Char('j') if app.confirm_selected < 2 => {
+                app.confirm_selected += 1;
             }
             KeyCode::Enter => {
                 match app.confirm_selected {
