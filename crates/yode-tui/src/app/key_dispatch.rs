@@ -69,7 +69,10 @@ pub(super) fn handle_key_event(
                 }
             }
             KeyCode::Enter => {
-                let result = app.wizard.as_mut().unwrap().submit();
+                let Some(wizard) = app.wizard.as_mut() else {
+                    return;
+                };
+                let result = wizard.submit();
                 match result {
                     Ok(None) => {}
                     Ok(Some(messages)) => {

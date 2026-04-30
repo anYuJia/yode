@@ -25,12 +25,12 @@ impl FileCompletion {
             let after_at = &full_text[at_pos + 1..];
             if !after_at.contains(' ') && after_at.len() < 200 {
                 let prefix = after_at;
-                let (dir, file_prefix) = if prefix.contains('/') {
-                    let last_slash = prefix.rfind('/').unwrap();
-                    (&prefix[..=last_slash], &prefix[last_slash + 1..])
-                } else {
-                    (".", prefix)
-                };
+                let (dir, file_prefix) =
+                    if let Some((dir_prefix, file_prefix)) = prefix.rsplit_once('/') {
+                        (&prefix[..dir_prefix.len() + 1], file_prefix)
+                    } else {
+                        (".", prefix)
+                    };
 
                 self.candidates.clear();
                 if let Ok(entries) = std::fs::read_dir(dir) {
@@ -135,5 +135,33 @@ fn cycle_file_selection(
         *selected = Some(current - 1);
     } else {
         *selected = Some(current - 1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{LazyLock, Mutex};
+
+    use super::FileCompletion;
+
+    static CWD_TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+    #[test]
+    fn file_completion_handles_nested_prefix_without_panicking() {
+        let _guard = CWD_TEST_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!("yode-file-completion-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(dir.join("src").join("main.rs"), "fn main() {}\n").unwrap();
+        let current = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&dir).unwrap();
+
+        let mut completion = FileCompletion::new();
+        completion.update("@src/ma");
+
+        std::env::set_current_dir(current).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(completion.candidates, vec!["src/main.rs".to_string()]);
+        assert_eq!(completion.selected, Some(0));
     }
 }
