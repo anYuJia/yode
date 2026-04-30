@@ -4,6 +4,7 @@ mod watchdog;
 
 use std::path::Path;
 use std::process::Stdio;
+use std::sync::LazyLock;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -56,6 +57,15 @@ const INTERACTIVE_PROMPT_PATTERNS: &[&str] = &[
     "$ ",
     "# ",
 ];
+
+static DESTRUCTIVE_COMMAND_REGEXES: LazyLock<Vec<Regex>> = LazyLock::new(|| {
+    DESTRUCTIVE_COMMAND_PATTERNS
+        .iter()
+        .map(|pattern| {
+            Regex::new(pattern).expect("destructive bash command pattern should compile")
+        })
+        .collect()
+});
 
 pub struct BashTool;
 
@@ -259,11 +269,8 @@ While the bash tool can do similar things, it's better to use the built-in tools
 }
 
 fn destructive_command_reason(command: &str) -> Option<&'static str> {
-    for pattern in DESTRUCTIVE_COMMAND_PATTERNS {
-        if Regex::new(pattern)
-            .expect("destructive bash command pattern should compile")
-            .is_match(command)
-        {
+    for pattern in DESTRUCTIVE_COMMAND_REGEXES.iter() {
+        if pattern.is_match(command) {
             return Some("matches destructive command guard");
         }
     }

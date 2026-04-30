@@ -80,6 +80,18 @@ async fn test_bash_blocks_destructive_command() {
     assert!(result.content.contains("Refusing to run"));
 }
 
+#[tokio::test]
+async fn test_bash_disable_sandbox_does_not_bypass_destructive_guard() {
+    let tool = BashTool;
+    let params = json!({
+        "command": "git reset --hard HEAD",
+        "dangerously_disable_sandbox": true
+    });
+    let result = tool.execute(params, &ToolContext::empty()).await.unwrap();
+    assert!(result.is_error);
+    assert!(result.content.contains("Refusing to run"));
+}
+
 #[test]
 fn destructive_guard_allows_scoped_cleanup() {
     assert!(super::destructive_command_reason("rm -rf target/tmp").is_none());
