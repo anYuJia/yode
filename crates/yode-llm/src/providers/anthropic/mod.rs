@@ -15,6 +15,7 @@ use self::types::{
     ContentBlock,
 };
 use crate::providers::error_shared::format_api_error;
+use crate::providers::http_client::provider_http_client;
 use crate::providers::retry::send_with_retry;
 use crate::providers::streaming_shared::map_stop_reason;
 
@@ -40,10 +41,7 @@ impl AnthropicProvider {
             name: name.into(),
             api_key: api_key.into(),
             base_url: base_url.into(),
-            client: Client::builder()
-                .user_agent(format!("Yode/{}", env!("CARGO_PKG_VERSION")))
-                .build()
-                .expect("Failed to build HTTP client"),
+            client: provider_http_client("anthropic"),
         }
     }
 

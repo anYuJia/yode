@@ -13,6 +13,7 @@ use self::conversion::{convert_messages, convert_tools, parse_response};
 use self::streaming::stream_response;
 use self::types::{GeminiError, GeminiRequest, GeminiResponse, GenerationConfig};
 use crate::providers::error_shared::format_api_error;
+use crate::providers::http_client::provider_http_client;
 use crate::providers::retry::send_with_retry;
 
 use crate::provider::LlmProvider;
@@ -43,10 +44,7 @@ impl GeminiProvider {
             name: "google".to_string(),
             api_key: api_key.into(),
             base_url: "https://generativelanguage.googleapis.com/v1beta".to_string(),
-            client: Client::builder()
-                .user_agent(format!("Yode/{}", env!("CARGO_PKG_VERSION")))
-                .build()
-                .expect("Failed to build HTTP client"),
+            client: provider_http_client("gemini"),
         }
     }
 

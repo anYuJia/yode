@@ -1,6 +1,7 @@
 pub mod anthropic;
 pub(crate) mod error_shared;
 pub mod gemini;
+pub(crate) mod http_client;
 pub mod openai;
 pub mod openai_compat;
 pub(crate) mod retry;
