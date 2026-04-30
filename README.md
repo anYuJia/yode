@@ -53,7 +53,7 @@ curl -fsSL https://raw.githubusercontent.com/anYuJia/yode/main/install.sh | bash
 ### Cargo
 
 ```bash
-cargo install --git https://github.com/anYuJia/yode.git --tag v0.0.14
+cargo install --git https://github.com/anYuJia/yode.git --tag v0.0.15
 ```
 
 ### From source
@@ -254,16 +254,16 @@ crates/
 └── yode-agent    # agent/runtime helpers
 ```
 
-## What 0.0.14 Adds
+## What 0.0.15 Adds
 
-The `0.0.14` release completes the Claude Code-style output and tool-interaction pass:
+The `0.0.15` release focuses on runtime hardening, multi-agent/tool maintainability, and release reliability:
 
-- exploration-style tool calls now group across `read/search/list/web/lsp/memory/skill` flows with summary-first rendering
-- main chat, scrollback, and exported transcripts now share one display language for tool activity, tool results, and turn summaries
-- shell and powershell results now surface structured `stdout/stderr/exit code`, rewrite hints, and read-only/destructive metadata
-- confirmation prompts and `Ctrl+O` inspectors now form a closed loop with actionable detail views and direct approval actions
+- tool registry, batch, multi-edit, updater, retry, and streaming finalization paths now avoid avoidable runtime panics
+- PowerShell command analysis/execution and remote runtime artifact handling are split into focused modules
+- remote control, live-session, and transport artifacts keep the same behavior with a smaller core runtime surface
+- full workspace formatting, clippy, and test coverage were verified before release
 
-Release: [v0.0.14](https://github.com/anYuJia/yode/releases/tag/v0.0.14)
+Release: [v0.0.15](https://github.com/anYuJia/yode/releases/tag/v0.0.15)
 
 ## Contributing
 
