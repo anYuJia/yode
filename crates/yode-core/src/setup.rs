@@ -111,10 +111,7 @@ pub fn run_setup_interactive() -> Result<()> {
     let selected = select_menu(Some(header), "\n请选择要添加的 LLM 提供商", &options)?;
     let option = &options[selected];
 
-    let mut config = Config::load().unwrap_or_else(|_| {
-        let default_str = include_str!("../../../config/default.toml");
-        toml::from_str(default_str).unwrap()
-    });
+    let mut config = Config::load().or_else(|_| load_default_config())?;
 
     let defaults = provider_setup_defaults(option.value);
 
@@ -274,6 +271,11 @@ fn read_input(prompt: &str) -> Result<String> {
     Ok(input.trim().to_string())
 }
 
+fn load_default_config() -> Result<Config> {
+    let default_str = include_str!("../../../config/default.toml");
+    Ok(toml::from_str(default_str)?)
+}
+
 fn wait_for_key() -> Result<()> {
     let raw_mode = RawModeGuard::enable()?;
     loop {
@@ -294,7 +296,7 @@ fn wait_for_key() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::provider_setup_defaults;
+    use super::{load_default_config, provider_setup_defaults};
 
     #[test]
     fn provider_setup_defaults_cover_builtin_providers() {
@@ -318,5 +320,12 @@ mod tests {
         assert_eq!(custom.base_url, "");
         assert_eq!(custom.name, "custom");
         assert_eq!(custom.model, "gpt-4o");
+    }
+
+    #[test]
+    fn default_setup_config_parses_without_panicking() {
+        let config = load_default_config().unwrap();
+        assert!(!config.llm.default_provider.is_empty());
+        assert!(!config.llm.default_model.is_empty());
     }
 }
