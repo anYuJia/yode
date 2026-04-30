@@ -13,7 +13,7 @@ impl Database {
         tool_calls_json: Option<&str>,
         tool_call_id: Option<&str>,
     ) -> Result<i64> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_connection()?;
         let now = Utc::now().to_rfc3339();
         conn.execute(
             "INSERT INTO messages (session_id, role, content, reasoning, tool_calls_json, tool_call_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -23,7 +23,7 @@ impl Database {
     }
 
     pub fn load_messages(&self, session_id: &str) -> Result<Vec<StoredMessage>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_connection()?;
         let mut stmt = conn.prepare(
             "SELECT id, session_id, role, content, reasoning, tool_calls_json, tool_call_id, created_at FROM messages WHERE session_id = ?1 ORDER BY id ASC",
         )?;
@@ -47,7 +47,7 @@ impl Database {
     }
 
     pub fn replace_messages(&self, session_id: &str, messages: &[Message]) -> Result<()> {
-        let mut conn = self.conn.lock().unwrap();
+        let mut conn = self.lock_connection()?;
         let tx = conn.transaction()?;
         tx.execute(
             "DELETE FROM messages WHERE session_id = ?1",

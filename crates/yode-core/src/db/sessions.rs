@@ -5,7 +5,7 @@ use crate::session::Session;
 
 impl Database {
     pub fn create_session(&self, session: &Session) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_connection()?;
         conn.execute(
             "INSERT INTO sessions (id, name, provider, model, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
@@ -21,7 +21,7 @@ impl Database {
     }
 
     pub fn touch_session(&self, session_id: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_connection()?;
         let now = Utc::now().to_rfc3339();
         conn.execute(
             "UPDATE sessions SET updated_at = ?1 WHERE id = ?2",
@@ -31,7 +31,7 @@ impl Database {
     }
 
     pub fn get_session(&self, session_id: &str) -> Result<Option<Session>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_connection()?;
         let mut stmt = conn.prepare(
             "SELECT id, name, provider, model, created_at, updated_at FROM sessions WHERE id = ?1",
         )?;
@@ -52,7 +52,7 @@ impl Database {
     }
 
     pub fn list_sessions(&self, limit: usize) -> Result<Vec<Session>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_connection()?;
         let mut stmt = conn.prepare(
             "SELECT id, name, provider, model, created_at, updated_at FROM sessions ORDER BY updated_at DESC LIMIT ?1",
         )?;
@@ -74,7 +74,7 @@ impl Database {
     }
 
     pub fn list_sessions_with_artifacts(&self, limit: usize) -> Result<Vec<SessionListEntry>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_connection()?;
         let mut stmt = conn.prepare(
             "SELECT
                 s.id, s.name, s.provider, s.model, s.created_at, s.updated_at,
@@ -128,7 +128,7 @@ impl Database {
         session_id: &str,
         artifacts: &SessionArtifacts,
     ) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_connection()?;
         conn.execute(
             "INSERT INTO session_artifacts (
                 session_id,
@@ -174,7 +174,7 @@ impl Database {
 
     /// Update session name
     pub fn update_session_name(&self, session_id: &str, name: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_connection()?;
         conn.execute(
             "UPDATE sessions SET name = ?1, updated_at = ?2 WHERE id = ?3",
             params![name, Utc::now().to_rfc3339(), session_id],

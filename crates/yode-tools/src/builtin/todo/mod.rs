@@ -97,9 +97,7 @@ impl Tool for TodoTool {
 
                 let mut store = tasks.lock().await;
                 let task = store.create(subject.to_string(), description.to_string());
-                Ok(ToolResult::success(
-                    serde_json::to_string_pretty(&task).unwrap(),
-                ))
+                Ok(ToolResult::success(serde_json::to_string_pretty(&task)?))
             }
             "update" => {
                 let id = params
@@ -126,9 +124,7 @@ impl Tool for TodoTool {
 
                 let mut store = tasks.lock().await;
                 match store.update(id, subject, description, status) {
-                    Some(task) => Ok(ToolResult::success(
-                        serde_json::to_string_pretty(task).unwrap(),
-                    )),
+                    Some(task) => Ok(ToolResult::success(serde_json::to_string_pretty(task)?)),
                     None => Ok(ToolResult::error(format!("Task '{}' not found.", id))),
                 }
             }
@@ -137,11 +133,9 @@ impl Tool for TodoTool {
                 let all = store.list();
                 let output: Vec<Value> = all
                     .iter()
-                    .map(|t| serde_json::to_value(t).unwrap())
-                    .collect();
-                Ok(ToolResult::success(
-                    serde_json::to_string_pretty(&output).unwrap(),
-                ))
+                    .map(serde_json::to_value)
+                    .collect::<std::result::Result<Vec<_>, _>>()?;
+                Ok(ToolResult::success(serde_json::to_string_pretty(&output)?))
             }
             "get" => {
                 let id = params
@@ -151,9 +145,7 @@ impl Tool for TodoTool {
 
                 let store = tasks.lock().await;
                 match store.get(id) {
-                    Some(task) => Ok(ToolResult::success(
-                        serde_json::to_string_pretty(task).unwrap(),
-                    )),
+                    Some(task) => Ok(ToolResult::success(serde_json::to_string_pretty(task)?)),
                     None => Ok(ToolResult::error(format!("Task '{}' not found.", id))),
                 }
             }

@@ -5,7 +5,7 @@ mod sessions;
 mod tests;
 
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
@@ -36,7 +36,7 @@ impl Database {
     }
 
     fn init_tables(&self) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.lock_connection()?;
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS sessions (
                 id TEXT PRIMARY KEY,
@@ -75,6 +75,12 @@ impl Database {
 
         let _ = conn.execute("ALTER TABLE messages ADD COLUMN reasoning TEXT", []);
         Ok(())
+    }
+
+    pub(super) fn lock_connection(&self) -> Result<MutexGuard<'_, Connection>> {
+        self.conn
+            .lock()
+            .map_err(|_| anyhow::anyhow!("database connection lock poisoned"))
     }
 }
 
