@@ -385,7 +385,7 @@ impl Tool for CoordinateAgentsTool {
                 });
 
                 let results = join_all(futures).await;
-                for (workstream, result) in batch.iter().zip(results.into_iter()) {
+                for (workstream, result) in batch.iter().zip(results) {
                     match result {
                         Ok(output) => {
                             completed_outputs.insert(workstream.id.clone(), output.clone());

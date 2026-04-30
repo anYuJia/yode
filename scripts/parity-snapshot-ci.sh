@@ -31,4 +31,12 @@ else
   echo "Snapshot baseline not found, skipped diff: $baseline"
 fi
 
+baseline_dir="$(dirname "$baseline")"
+mkdir -p "$baseline_dir"
+cp "$tmp_dir/output-regression-snapshot.md" "$baseline"
+rm -rf "$baseline_dir/output-regression-sections" "$baseline_dir/catalogs"
+cp -R "$tmp_dir/output-regression-sections" "$baseline_dir/output-regression-sections"
+cp -R "$tmp_dir/catalogs" "$baseline_dir/catalogs"
+cp "$tmp_dir/long-session-benchmark.md" "$baseline_dir/long-session-benchmark.md"
+
 echo "Parity snapshot CI ok"

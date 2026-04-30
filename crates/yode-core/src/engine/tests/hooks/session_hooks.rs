@@ -1,5 +1,21 @@
 use super::*;
 
+fn hook_dump_context_command(path: &std::path::Path) -> String {
+    format!(
+        "printf '%s' \"$YODE_HOOK_CONTEXT\" > {}",
+        shell_quote_path(path)
+    )
+}
+
+fn shell_quote_path(path: &std::path::Path) -> String {
+    #[cfg(windows)]
+    let rendered = path.display().to_string().replace('\\', "/");
+    #[cfg(not(windows))]
+    let rendered = path.display().to_string();
+
+    format!("'{}'", rendered.replace('\'', "'\\''"))
+}
+
 #[tokio::test]
 async fn test_initialize_session_hooks_injects_system_context() {
     let mut engine = make_engine(vec![], vec![]);
@@ -77,10 +93,7 @@ async fn test_pre_compact_hook_context_includes_runtime_metadata() {
     let dump_path = hook_dir.join("pre-compact-context.json");
     let mut hook_mgr = crate::hooks::HookManager::new(hook_dir.clone());
     hook_mgr.register(crate::hooks::HookDefinition {
-        command: format!(
-            "printf '%s' \"$YODE_HOOK_CONTEXT\" > {}",
-            dump_path.display()
-        ),
+        command: hook_dump_context_command(&dump_path),
         events: vec!["pre_compact".into()],
         tool_filter: None,
         timeout_secs: 5,
@@ -187,10 +200,7 @@ async fn test_session_end_hook_context_includes_runtime_metadata() {
     let dump_path = hook_dir.join("session-end-context.json");
     let mut hook_mgr = crate::hooks::HookManager::new(hook_dir.clone());
     hook_mgr.register(crate::hooks::HookDefinition {
-        command: format!(
-            "printf '%s' \"$YODE_HOOK_CONTEXT\" > {}",
-            dump_path.display()
-        ),
+        command: hook_dump_context_command(&dump_path),
         events: vec!["session_end".into()],
         tool_filter: None,
         timeout_secs: 5,

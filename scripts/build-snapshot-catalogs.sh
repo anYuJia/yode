@@ -11,7 +11,7 @@ if [ ! -f "$snapshot_file" ]; then
   exit 1
 fi
 
-mtime_epoch="$(stat -f %m "$snapshot_file" 2>/dev/null || stat -c %Y "$snapshot_file")"
+mtime_epoch="$(stat -c %Y "$snapshot_file" 2>/dev/null || stat -f %m "$snapshot_file")"
 now_epoch="$(date +%s)"
 age_minutes="$(( (now_epoch - mtime_epoch) / 60 ))"
 if [ "$age_minutes" -le 10 ]; then

@@ -2,6 +2,22 @@ use super::*;
 
 use yode_llm::types::ToolCall;
 
+fn hook_dump_context_command(path: &std::path::Path) -> String {
+    format!(
+        "printf '%s' \"$YODE_HOOK_CONTEXT\" > {}",
+        shell_quote_path(path)
+    )
+}
+
+fn shell_quote_path(path: &std::path::Path) -> String {
+    #[cfg(windows)]
+    let rendered = path.display().to_string().replace('\\', "/");
+    #[cfg(not(windows))]
+    let rendered = path.display().to_string();
+
+    format!("'{}'", rendered.replace('\'', "'\\''"))
+}
+
 #[tokio::test]
 async fn test_pre_tool_use_hook_can_modify_input() {
     let mut engine = make_engine(vec![Arc::new(MockPathTool)], vec![]);
@@ -45,10 +61,7 @@ async fn test_permission_hook_metadata_uses_effective_input_snapshot() {
     let dump_path = hook_dir.join("permission-context.json");
     let mut hook_mgr = crate::hooks::HookManager::new(hook_dir.clone());
     hook_mgr.register(crate::hooks::HookDefinition {
-        command: format!(
-            "printf '%s' \"$YODE_HOOK_CONTEXT\" > {}",
-            dump_path.display()
-        ),
+        command: hook_dump_context_command(&dump_path),
         events: vec!["permission_request".into()],
         tool_filter: Some(vec!["mock_path".into()]),
         timeout_secs: 5,
@@ -188,10 +201,7 @@ async fn test_finalize_tool_result_emits_worktree_create_hook() {
     let dump_path = hook_dir.join("worktree-create-context.json");
     let mut hook_mgr = crate::hooks::HookManager::new(hook_dir.clone());
     hook_mgr.register(crate::hooks::HookDefinition {
-        command: format!(
-            "printf '%s' \"$YODE_HOOK_CONTEXT\" > {}",
-            dump_path.display()
-        ),
+        command: hook_dump_context_command(&dump_path),
         events: vec!["worktree_create".into()],
         tool_filter: Some(vec!["enter_worktree".into()]),
         timeout_secs: 5,

@@ -106,21 +106,15 @@ impl HookManager {
         let started_at = Instant::now();
 
         let result = tokio::time::timeout(timeout, async {
-            tokio::process::Command::new("sh")
-                .arg("-c")
-                .arg(&hook.command)
-                .env("YODE_HOOK_CONTEXT", &context_json)
-                .env("YODE_HOOK_EVENT", &context.event)
-                .current_dir(&self.working_dir)
-                .output()
+            self.run_hook_command(&hook.command, &context_json, &context.event)
                 .await
         })
         .await;
 
         match result {
             Ok(Ok(output)) => {
-                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                let stdout = normalize_hook_output(&output.stdout);
+                let stderr = normalize_hook_output(&output.stderr);
                 let mut structured = parse_structured_hook_output(&stdout);
                 if let Some(ref mut parsed) = structured {
                     if parsed.blocked && !hook.can_block {
@@ -266,6 +260,62 @@ impl HookManager {
         }
     }
 
+    async fn run_hook_command(
+        &self,
+        command: &str,
+        context_json: &str,
+        event: &str,
+    ) -> std::io::Result<std::process::Output> {
+        let result = self
+            .build_hook_command(command, context_json, event)
+            .output()
+            .await;
+
+        #[cfg(windows)]
+        if matches!(
+            result.as_ref().map_err(std::io::Error::kind),
+            Err(std::io::ErrorKind::NotFound)
+        ) {
+            let mut fallback = tokio::process::Command::new("cmd.exe");
+            fallback
+                .arg("/C")
+                .arg(command)
+                .env("YODE_HOOK_CONTEXT", context_json)
+                .env("YODE_HOOK_EVENT", event)
+                .current_dir(&self.working_dir);
+            return fallback.output().await;
+        }
+
+        result
+    }
+
+    fn build_hook_command(
+        &self,
+        command: &str,
+        context_json: &str,
+        event: &str,
+    ) -> tokio::process::Command {
+        #[cfg(windows)]
+        let mut process = {
+            let mut process = tokio::process::Command::new("bash");
+            process.arg("-lc").arg(command);
+            process
+        };
+
+        #[cfg(not(windows))]
+        let mut process = {
+            let mut process = tokio::process::Command::new("sh");
+            process.arg("-c").arg(command);
+            process
+        };
+
+        process
+            .env("YODE_HOOK_CONTEXT", context_json)
+            .env("YODE_HOOK_EVENT", event)
+            .current_dir(&self.working_dir);
+        process
+    }
+
     fn record_hook_attempt(&self) {
         if let Ok(mut stats) = self.stats.lock() {
             stats.total_executions = stats.total_executions.saturating_add(1);
@@ -314,4 +364,8 @@ impl HookManager {
                 Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
         }
     }
+}
+
+fn normalize_hook_output(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes).replace("\r\n", "\n")
 }

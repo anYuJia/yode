@@ -58,7 +58,7 @@ pub(in crate::builtin::project_map) fn scan_project_stats(dir: &Path) -> Project
     });
 
     let mut lines_by_language: Vec<(String, usize)> = lang_lines.into_iter().collect();
-    lines_by_language.sort_by(|a, b| b.1.cmp(&a.1));
+    lines_by_language.sort_by_key(|b| std::cmp::Reverse(b.1));
 
     ProjectStats {
         file_count,

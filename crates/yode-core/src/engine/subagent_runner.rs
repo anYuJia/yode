@@ -846,16 +846,29 @@ mod tests {
     use yode_tools::runtime_tasks::{RuntimeTaskStatus, RuntimeTaskStore};
     use yode_tools::tool::SubAgentOptions;
 
+    fn hook_dump_context_command(path: &std::path::Path) -> String {
+        format!(
+            "printf '%s' \"$YODE_HOOK_CONTEXT\" > {}",
+            shell_quote_path(path)
+        )
+    }
+
+    fn shell_quote_path(path: &std::path::Path) -> String {
+        #[cfg(windows)]
+        let rendered = path.display().to_string().replace('\\', "/");
+        #[cfg(not(windows))]
+        let rendered = path.display().to_string();
+
+        format!("'{}'", rendered.replace('\'', "'\\''"))
+    }
+
     #[tokio::test]
     async fn subagent_hook_emits_rich_metadata() {
         let dir = tempfile::tempdir().unwrap();
         let dump_path = dir.path().join("subagent-start.json");
         let mut hook_mgr = HookManager::new(dir.path().to_path_buf());
         hook_mgr.register(crate::hooks::HookDefinition {
-            command: format!(
-                "printf '%s' \"$YODE_HOOK_CONTEXT\" > {}",
-                dump_path.display()
-            ),
+            command: hook_dump_context_command(&dump_path),
             events: vec!["subagent_start".into()],
             tool_filter: Some(vec!["agent".into()]),
             timeout_secs: 5,
@@ -893,10 +906,7 @@ mod tests {
         let dump_path = dir.path().join("task-created.json");
         let mut hook_mgr = HookManager::new(dir.path().to_path_buf());
         hook_mgr.register(crate::hooks::HookDefinition {
-            command: format!(
-                "printf '%s' \"$YODE_HOOK_CONTEXT\" > {}",
-                dump_path.display()
-            ),
+            command: hook_dump_context_command(&dump_path),
             events: vec!["task_created".into()],
             tool_filter: Some(vec!["runtime_task".into()]),
             timeout_secs: 5,
