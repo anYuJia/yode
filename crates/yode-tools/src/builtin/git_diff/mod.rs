@@ -193,7 +193,11 @@ fn validate_path_filter(path: &str) -> std::result::Result<(), String> {
         return Err("Path filter cannot be empty.".to_string());
     }
     let path = std::path::Path::new(trimmed);
-    if path.is_absolute() {
+    if path.is_absolute()
+        || path
+            .components()
+            .any(|component| matches!(component, std::path::Component::RootDir))
+    {
         return Err(format!(
             "Path filter must be workspace-relative: {}",
             trimmed

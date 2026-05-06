@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use super::walk_files;
+use crate::path_format::relative_display_slash;
 
 pub(in crate::builtin::project_map) fn build_module_tree(dir: &Path, max_depth: usize) -> String {
     let mut output = String::new();
@@ -41,17 +42,12 @@ fn build_tree_recursive(
 
         if path.is_dir() {
             let indent = "  ".repeat(depth);
-            let rel = path.strip_prefix(root).unwrap_or(&path);
+            let rel = relative_display_slash(&path, root);
             let file_count = count_code_files(&path);
             if file_count > 0 {
-                output.push_str(&format!(
-                    "{}├── {} ({} files)\n",
-                    indent,
-                    rel.display(),
-                    file_count
-                ));
+                output.push_str(&format!("{}├── {} ({} files)\n", indent, rel, file_count));
             } else {
-                output.push_str(&format!("{}├── {}\n", indent, rel.display()));
+                output.push_str(&format!("{}├── {}\n", indent, rel));
             }
 
             build_tree_recursive(root, &path, depth + 1, max_depth, output);

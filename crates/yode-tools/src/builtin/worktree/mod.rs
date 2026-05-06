@@ -2,6 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
+use crate::path_format::display_slash;
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
 pub struct EnterWorktreeTool;
@@ -87,14 +88,12 @@ impl Tool for EnterWorktreeTool {
         std::fs::create_dir_all(working_dir.join(".yode").join("worktrees"))?;
 
         let output = std::process::Command::new("git")
-            .args([
-                "worktree",
-                "add",
-                &worktree_dir.display().to_string(),
-                "-b",
-                &branch_name,
-                "HEAD",
-            ])
+            .arg("worktree")
+            .arg("add")
+            .arg(&worktree_dir)
+            .arg("-b")
+            .arg(&branch_name)
+            .arg("HEAD")
             .current_dir(working_dir)
             .output()
             .map_err(|e| anyhow::anyhow!("Failed to run git worktree add: {}", e))?;
@@ -125,10 +124,10 @@ impl Tool for EnterWorktreeTool {
         Ok(ToolResult::success_with_metadata(
             msg,
             json!({
-                "worktree_dir": worktree_dir.display().to_string(),
+                "worktree_dir": display_slash(&worktree_dir),
                 "branch_name": branch_name,
                 "action": "create",
-                "original_dir": working_dir.display().to_string(),
+                "original_dir": display_slash(working_dir),
             }),
         ))
     }
@@ -268,8 +267,8 @@ impl Tool for ExitWorktreeTool {
         Ok(ToolResult::success_with_metadata(
             msg,
             json!({
-                "original_dir": original_dir.display().to_string(),
-                "worktree_dir": worktree_dir.display().to_string(),
+                "original_dir": display_slash(&original_dir),
+                "worktree_dir": display_slash(&worktree_dir),
                 "branch_name": branch_name,
                 "action": action,
                 "discard_changes": discard_changes,

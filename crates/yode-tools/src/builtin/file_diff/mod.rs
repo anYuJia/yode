@@ -100,16 +100,19 @@ impl Tool for FileDiffTool {
             ));
         }
 
+        let base = working_dir
+            .canonicalize()
+            .map_err(|err| anyhow::anyhow!("Failed to resolve workspace: {}", err))?;
+        let file_a_arg = diff_arg_path(&base, &file_a_path);
+        let file_b_arg = diff_arg_path(&base, &file_b_path);
         let output = Command::new("diff")
-            .args([
-                "-u",
-                &format!("--label={}", file_a),
-                &format!("--label={}", file_b),
-                "-U",
-                &context_lines,
-                &file_a_path.display().to_string(),
-                &file_b_path.display().to_string(),
-            ])
+            .arg("-u")
+            .arg(format!("--label={}", file_a))
+            .arg(format!("--label={}", file_b))
+            .arg("-U")
+            .arg(&context_lines)
+            .arg(&file_a_arg)
+            .arg(&file_b_arg)
             .current_dir(working_dir)
             .output()
             .map_err(|e| anyhow::anyhow!("Failed to run diff: {}", e))?;
@@ -144,6 +147,13 @@ fn resolve_workspace_file(working_dir: &Path, raw: &str) -> std::result::Result<
         return Err(format!("Path escapes workspace: {}", raw));
     }
     Ok(resolved)
+}
+
+fn diff_arg_path(base: &Path, resolved: &Path) -> PathBuf {
+    resolved
+        .strip_prefix(base)
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|_| resolved.to_path_buf())
 }
 
 fn normalized_context_lines(value: Option<&Value>) -> String {

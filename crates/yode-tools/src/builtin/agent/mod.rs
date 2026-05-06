@@ -8,6 +8,7 @@ use crate::builtin::team_runtime::{
     hydrate_agent_team_manager, persist_agent_team_runtime, persist_agent_team_snapshot,
     update_agent_team_member, AgentTeamMemberState,
 };
+use crate::path_format::display_slash;
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
 pub struct AgentTool;
@@ -222,7 +223,7 @@ impl Tool for AgentTool {
                     ctx.working_dir
                         .as_deref()
                         .and_then(|dir| persist_sub_agent_artifact(dir, &description, &result).ok())
-                        .map(|path| path.display().to_string())
+                        .map(|path| display_slash(&path))
                 } else {
                     None
                 };
@@ -366,15 +367,15 @@ impl Tool for AgentTool {
                         "team_summary_artifact": team_artifacts
                             .as_ref()
                             .and_then(|set| set.summary_path.as_ref())
-                            .map(|path| path.display().to_string()),
+                            .map(|path| display_slash(path)),
                         "team_state_artifact": team_artifacts
                             .as_ref()
                             .and_then(|set| set.state_path.as_ref())
-                            .map(|path| path.display().to_string()),
+                            .map(|path| display_slash(path)),
                         "team_monitor_artifact": team_artifacts
                             .as_ref()
                             .and_then(|set| set.monitor_path.as_ref())
-                            .map(|path| path.display().to_string()),
+                            .map(|path| display_slash(path)),
                         "team_id": team_id,
                         "member_id": member_id,
                     }),

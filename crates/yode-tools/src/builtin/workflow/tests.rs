@@ -23,8 +23,8 @@ async fn workflow_runs_read_only_steps() {
     .await
     .unwrap();
 
-    let mut registry = ToolRegistry::new();
-    crate::builtin::register_builtin_tools(&mut registry);
+    let registry = ToolRegistry::new();
+    crate::builtin::register_builtin_tools(&registry);
 
     let mut ctx = ToolContext::empty();
     ctx.registry = Some(Arc::new(registry));
@@ -57,8 +57,8 @@ async fn workflow_dry_run_returns_plan_without_execution() {
     .await
     .unwrap();
 
-    let mut registry = ToolRegistry::new();
-    crate::builtin::register_builtin_tools(&mut registry);
+    let registry = ToolRegistry::new();
+    crate::builtin::register_builtin_tools(&registry);
 
     let mut ctx = ToolContext::empty();
     ctx.registry = Some(Arc::new(registry));
@@ -109,27 +109,23 @@ async fn safe_workflow_blocks_mutating_tools() {
     tokio::fs::create_dir_all(&workflow_dir).await.unwrap();
     tokio::fs::write(
         workflow_dir.join("write.json"),
-        format!(
-            r#"{{
-                "name": "write",
-                "steps": [
-                    {{
-                        "tool_name": "write_file",
-                        "params": {{
-                            "file_path": "{}",
-                            "content": "hello"
-                        }}
-                    }}
-                ]
-            }}"#,
-            output_path.display()
-        ),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "name": "write",
+            "steps": [{
+                "tool_name": "write_file",
+                "params": {
+                    "file_path": output_path,
+                    "content": "hello"
+                }
+            }]
+        }))
+        .unwrap(),
     )
     .await
     .unwrap();
 
-    let mut registry = ToolRegistry::new();
-    crate::builtin::register_builtin_tools(&mut registry);
+    let registry = ToolRegistry::new();
+    crate::builtin::register_builtin_tools(&registry);
 
     let mut ctx = ToolContext::empty();
     ctx.registry = Some(Arc::new(registry));
@@ -154,27 +150,23 @@ async fn write_enabled_workflow_can_run_mutating_steps() {
     tokio::fs::create_dir_all(&workflow_dir).await.unwrap();
     tokio::fs::write(
         workflow_dir.join("write.json"),
-        format!(
-            r#"{{
-                "name": "write",
-                "steps": [
-                    {{
-                        "tool_name": "write_file",
-                        "params": {{
-                            "file_path": "{}",
-                            "content": "hello"
-                        }}
-                    }}
-                ]
-            }}"#,
-            output_path.display()
-        ),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "name": "write",
+            "steps": [{
+                "tool_name": "write_file",
+                "params": {
+                    "file_path": output_path,
+                    "content": "hello"
+                }
+            }]
+        }))
+        .unwrap(),
     )
     .await
     .unwrap();
 
-    let mut registry = ToolRegistry::new();
-    crate::builtin::register_builtin_tools(&mut registry);
+    let registry = ToolRegistry::new();
+    crate::builtin::register_builtin_tools(&registry);
 
     let mut ctx = ToolContext::empty();
     ctx.registry = Some(Arc::new(registry));
@@ -217,8 +209,8 @@ async fn workflow_blocks_recursive_execution() {
     .await
     .unwrap();
 
-    let mut registry = ToolRegistry::new();
-    crate::builtin::register_builtin_tools(&mut registry);
+    let registry = ToolRegistry::new();
+    crate::builtin::register_builtin_tools(&registry);
 
     let mut ctx = ToolContext::empty();
     ctx.registry = Some(Arc::new(registry));

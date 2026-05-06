@@ -4,6 +4,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
+use crate::path_format::relative_display_slash;
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
 pub struct LsTool;
@@ -153,8 +154,7 @@ fn list_dir_with_counts(
         }
 
         let path = entry.path();
-        let rel = path.strip_prefix(base).unwrap_or(&path);
-        let rel_str = rel.to_string_lossy();
+        let rel_str = relative_display_slash(&path, base);
 
         if path.is_dir() {
             counts.1 += 1;
@@ -165,7 +165,7 @@ fn list_dir_with_counts(
             }
         } else {
             counts.0 += 1;
-            entries.push(rel_str.to_string());
+            entries.push(rel_str);
         }
     }
 }

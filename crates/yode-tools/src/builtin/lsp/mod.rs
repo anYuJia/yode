@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 #[cfg(test)]
-use std::sync::{LazyLock, Mutex};
+use std::sync::LazyLock;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -11,7 +11,8 @@ use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 pub struct LspTool;
 
 #[cfg(test)]
-static LSP_TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+static LSP_TEST_LOCK: LazyLock<tokio::sync::Mutex<()>> =
+    LazyLock::new(|| tokio::sync::Mutex::new(()));
 
 #[async_trait]
 impl Tool for LspTool {
@@ -135,9 +136,16 @@ mod tests {
     use super::{LspTool, LSP_TEST_LOCK};
 
     fn write_fake_pyright(dir: &tempfile::TempDir) -> std::path::PathBuf {
+        #[cfg(windows)]
+        let path = dir.path().join("pyright-langserver.cmd");
+        #[cfg(not(windows))]
         let path = dir.path().join("pyright-langserver");
+        #[cfg(windows)]
+        let script_path = dir.path().join("pyright-langserver.py");
+        #[cfg(not(windows))]
+        let script_path = path.clone();
         fs::write(
-            &path,
+            &script_path,
             r#"#!/usr/bin/env python3
 import json, sys
 
@@ -176,6 +184,12 @@ while True:
 "#,
         )
         .unwrap();
+        #[cfg(windows)]
+        fs::write(
+            &path,
+            format!("@echo off\r\npython \"{}\"\r\n", script_path.display()),
+        )
+        .unwrap();
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -206,7 +220,7 @@ while True:
 
     #[tokio::test]
     async fn lsp_tool_executes_hover_against_fake_server() {
-        let _guard = LSP_TEST_LOCK.lock().unwrap();
+        let _guard = LSP_TEST_LOCK.lock().await;
         let dir = tempfile::tempdir().unwrap();
         let fake = write_fake_pyright(&dir);
         let old_path = std::env::var_os("PATH");

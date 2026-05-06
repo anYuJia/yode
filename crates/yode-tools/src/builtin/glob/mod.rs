@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use globset::{Glob as GlobPattern, GlobSetBuilder};
 use serde_json::{json, Value};
 
+use crate::path_format::relative_display_slash;
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
 /// Directories to skip when traversing.
@@ -170,15 +171,13 @@ fn walk_dir(
             }
             walk_dir(base, &path, glob_set, matches);
         } else {
-            // Get relative path from base
-            let rel = path.strip_prefix(base).unwrap_or(&path);
-            let rel_str = rel.to_string_lossy();
-            if glob_set.is_match(rel_str.as_ref()) {
+            let rel_str = relative_display_slash(&path, base);
+            if glob_set.is_match(Path::new(&rel_str)) {
                 let mtime = entry
                     .metadata()
                     .and_then(|m| m.modified())
                     .unwrap_or(SystemTime::UNIX_EPOCH);
-                matches.push((rel_str.to_string(), mtime));
+                matches.push((rel_str, mtime));
             }
         }
     }

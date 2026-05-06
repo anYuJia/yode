@@ -156,7 +156,11 @@ async fn execute_background(
 
 fn resolve_powershell_executable() -> Result<PathBuf> {
     #[cfg(test)]
-    if let Some(path) = super::POWERSHELL_TEST_OVERRIDE.lock().unwrap().clone() {
+    if let Some(path) = super::POWERSHELL_TEST_OVERRIDE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone()
+    {
         return Ok(path);
     }
 

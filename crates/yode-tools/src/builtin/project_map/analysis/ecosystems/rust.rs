@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use super::super::walk_files;
+use crate::path_format::relative_display_slash;
 
 pub(in crate::builtin::project_map) fn is_workspace(dir: &Path) -> bool {
     dir.join("Cargo.toml").exists()
@@ -56,11 +57,7 @@ pub(in crate::builtin::project_map) fn analyze_dependencies(
     for cargo_path in cargo_files {
         if let Ok(content) = std::fs::read_to_string(&cargo_path) {
             let crate_dir = cargo_path.parent().unwrap_or(dir);
-            let crate_name = crate_dir
-                .strip_prefix(dir)
-                .unwrap_or(crate_dir)
-                .display()
-                .to_string();
+            let crate_name = relative_display_slash(crate_dir, dir);
             if crate_name.is_empty() {
                 continue;
             }

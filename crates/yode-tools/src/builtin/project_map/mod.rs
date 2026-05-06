@@ -4,6 +4,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
+use crate::path_format::relative_display_slash;
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
 use self::analysis::{
@@ -91,7 +92,7 @@ impl Tool for ProjectMapTool {
         if !entries.is_empty() {
             output.push_str("\n## Entry Points\n");
             for entry in &entries {
-                let rel = entry.strip_prefix(working_dir).unwrap_or(entry).display();
+                let rel = relative_display_slash(entry, working_dir);
                 output.push_str(&format!("- {}\n", rel));
             }
         }
@@ -120,7 +121,7 @@ impl Tool for ProjectMapTool {
         if !configs.is_empty() {
             output.push_str("\n## Config Files\n");
             for cfg in &configs {
-                let rel = cfg.strip_prefix(working_dir).unwrap_or(cfg).display();
+                let rel = relative_display_slash(cfg, working_dir);
                 output.push_str(&format!("- {}\n", rel));
             }
         }

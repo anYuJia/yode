@@ -19,7 +19,8 @@ use execution::execute_powershell_command;
 static POWERSHELL_TEST_OVERRIDE: LazyLock<Mutex<Option<PathBuf>>> =
     LazyLock::new(|| Mutex::new(None));
 #[cfg(test)]
-static POWERSHELL_TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+static POWERSHELL_TEST_LOCK: LazyLock<tokio::sync::Mutex<()>> =
+    LazyLock::new(|| tokio::sync::Mutex::new(()));
 
 pub struct PowerShellTool;
 
@@ -101,7 +102,9 @@ This tool supports `run_in_background` and `timeout_ms` like the bash tool."#
 
 #[cfg(test)]
 fn set_powershell_test_override(path: Option<PathBuf>) {
-    *POWERSHELL_TEST_OVERRIDE.lock().unwrap() = path;
+    *POWERSHELL_TEST_OVERRIDE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = path;
 }
 
 #[cfg(test)]
@@ -121,6 +124,19 @@ mod tests {
         suggest_safe_rewrite,
     };
     use super::{set_powershell_test_override, PowerShellTool, POWERSHELL_TEST_LOCK};
+
+    struct PowerShellOverrideReset;
+
+    impl Drop for PowerShellOverrideReset {
+        fn drop(&mut self) {
+            set_powershell_test_override(None);
+        }
+    }
+
+    fn install_powershell_test_override(path: std::path::PathBuf) -> PowerShellOverrideReset {
+        set_powershell_test_override(Some(path));
+        PowerShellOverrideReset
+    }
 
     fn write_shim(dir: &tempfile::TempDir) -> std::path::PathBuf {
         #[cfg(windows)]
@@ -153,10 +169,10 @@ mod tests {
 
     #[tokio::test]
     async fn powershell_runs_simple_command_via_override() {
-        let _guard = POWERSHELL_TEST_LOCK.lock().unwrap();
+        let _guard = POWERSHELL_TEST_LOCK.lock().await;
         let dir = tempfile::tempdir().unwrap();
         let shim = write_shim(&dir);
-        set_powershell_test_override(Some(shim));
+        let _reset = install_powershell_test_override(shim);
 
         let result = PowerShellTool
             .execute(json!({"command": "echo hello"}), &ToolContext::empty())
@@ -164,15 +180,14 @@ mod tests {
             .unwrap();
         assert!(!result.is_error);
         assert!(result.content.contains("hello"));
-        set_powershell_test_override(None);
     }
 
     #[tokio::test]
     async fn powershell_reports_non_zero_exit_code() {
-        let _guard = POWERSHELL_TEST_LOCK.lock().unwrap();
+        let _guard = POWERSHELL_TEST_LOCK.lock().await;
         let dir = tempfile::tempdir().unwrap();
         let shim = write_shim(&dir);
-        set_powershell_test_override(Some(shim));
+        let _reset = install_powershell_test_override(shim);
 
         let result = PowerShellTool
             .execute(json!({"command": "exit 3"}), &ToolContext::empty())
@@ -180,15 +195,14 @@ mod tests {
             .unwrap();
         assert!(result.is_error);
         assert!(result.content.contains("exit code: 3"));
-        set_powershell_test_override(None);
     }
 
     #[tokio::test]
     async fn powershell_timeout_is_reported() {
-        let _guard = POWERSHELL_TEST_LOCK.lock().unwrap();
+        let _guard = POWERSHELL_TEST_LOCK.lock().await;
         let dir = tempfile::tempdir().unwrap();
         let shim = write_shim(&dir);
-        set_powershell_test_override(Some(shim));
+        let _reset = install_powershell_test_override(shim);
 
         let result = PowerShellTool
             .execute(
@@ -199,15 +213,14 @@ mod tests {
             .unwrap();
         assert!(result.is_error);
         assert!(result.content.contains("timed out"));
-        set_powershell_test_override(None);
     }
 
     #[tokio::test]
     async fn powershell_background_registers_runtime_task() {
-        let _guard = POWERSHELL_TEST_LOCK.lock().unwrap();
+        let _guard = POWERSHELL_TEST_LOCK.lock().await;
         let dir = tempfile::tempdir().unwrap();
         let shim = write_shim(&dir);
-        set_powershell_test_override(Some(shim));
+        let _reset = install_powershell_test_override(shim);
 
         let mut ctx = ToolContext::empty();
         ctx.working_dir = Some(dir.path().to_path_buf());
@@ -229,7 +242,6 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
         let tasks = ctx.runtime_tasks.as_ref().unwrap().lock().await.list();
         assert!(tasks.iter().any(|task| task.id == task_id));
-        set_powershell_test_override(None);
     }
 
     #[test]

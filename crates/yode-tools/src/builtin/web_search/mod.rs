@@ -20,7 +20,8 @@ struct WebSearchTestOverrides {
 static WEB_SEARCH_TEST_OVERRIDES: LazyLock<Mutex<WebSearchTestOverrides>> =
     LazyLock::new(|| Mutex::new(WebSearchTestOverrides::default()));
 #[cfg(test)]
-static WEB_SEARCH_TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+static WEB_SEARCH_TEST_LOCK: LazyLock<tokio::sync::Mutex<()>> =
+    LazyLock::new(|| tokio::sync::Mutex::new(()));
 
 #[async_trait]
 impl Tool for WebSearchTool {
@@ -293,7 +294,7 @@ mod tests {
 
     #[tokio::test]
     async fn returns_error_when_api_key_is_missing() {
-        let _guard = WEB_SEARCH_TEST_LOCK.lock().unwrap();
+        let _guard = WEB_SEARCH_TEST_LOCK.lock().await;
         set_web_search_test_overrides(None, None);
 
         let result = WebSearchTool
@@ -313,7 +314,7 @@ mod tests {
 
     #[tokio::test]
     async fn sends_domain_filters_and_formats_results() {
-        let _guard = WEB_SEARCH_TEST_LOCK.lock().unwrap();
+        let _guard = WEB_SEARCH_TEST_LOCK.lock().await;
         let (url, body_rx) = spawn_tavily_server(
             "200 OK",
             r#"{"results":[{"title":"Rust","url":"https://www.rust-lang.org","content":"systems language"}]}"#,

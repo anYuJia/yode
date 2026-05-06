@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
+use crate::path_format::display_slash;
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
 pub struct MemoryTool;
@@ -232,7 +233,7 @@ fn collect_memory_files(dir: &Path, base: &Path, entries: &mut Vec<String>) -> R
             collect_memory_files(&path, base, entries)?;
         } else if path.extension().and_then(|e| e.to_str()) == Some("md") {
             if let Ok(rel) = path.strip_prefix(base) {
-                let name = rel.with_extension("").display().to_string();
+                let name = display_slash(&rel.with_extension(""));
                 entries.push(name);
             }
         }
