@@ -21,6 +21,14 @@ impl SubAgentRunner for MockRunner {
     }
 }
 
+#[test]
+fn coordinate_agents_requires_confirmation_like_agent_tool() {
+    let caps = CoordinateAgentsTool.capabilities();
+    assert!(caps.requires_confirmation);
+    assert!(!caps.supports_auto_execution);
+    assert!(!caps.read_only);
+}
+
 #[tokio::test]
 async fn coordinate_agents_runs_multiple_workstreams() {
     let seen = Arc::new(Mutex::new(Vec::new()));
