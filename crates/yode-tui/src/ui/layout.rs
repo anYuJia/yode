@@ -1,6 +1,7 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 
 use crate::app::App;
+use crate::ui::pending::MAX_PENDING_INPUT_LINES;
 
 pub struct MainLayoutPlan {
     pub areas: Vec<Rect>,
@@ -22,7 +23,7 @@ pub fn build_main_layout(area: Rect, app: &App) -> MainLayoutPlan {
     let term_width = area.width;
     let visual_lines = app.input.visual_line_count(term_width) as u16;
     let input_height = visual_lines.clamp(1, 5);
-    let pending_height = app.pending_inputs.len() as u16;
+    let pending_height = (app.pending_inputs.len() as u16).min(MAX_PENDING_INPUT_LINES);
 
     let completion_height = if app.cmd_completion.is_active() {
         if app.cmd_completion.args_hint.is_some() {
@@ -140,5 +141,22 @@ mod tests {
         assert_eq!(plan.areas[3].height, 1);
         assert_eq!(plan.areas[4].height, 2);
         assert!(plan.areas[2].y < plan.areas[4].y);
+    }
+
+    #[test]
+    fn pending_queue_height_is_capped() {
+        let mut app = test_app();
+        app.pending_inputs = vec![
+            ("one".to_string(), "one".to_string()),
+            ("two".to_string(), "two".to_string()),
+            ("three".to_string(), "three".to_string()),
+            ("four".to_string(), "four".to_string()),
+        ];
+
+        let plan = build_main_layout(ratatui::layout::Rect::new(0, 0, 80, 20), &app);
+
+        assert_eq!(plan.areas[1].height, 3);
+        assert_eq!(plan.areas[2].height, 1);
+        assert_eq!(plan.areas[4].height, 1);
     }
 }
