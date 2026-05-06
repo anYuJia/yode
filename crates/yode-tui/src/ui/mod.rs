@@ -32,6 +32,8 @@ enum RenderMode {
     Main,
 }
 
+pub(crate) const INSPECTOR_STATUS_HEIGHT: u16 = 1;
+
 /// Viewport is dynamically resized to exactly fit content.
 /// Long lines wrap automatically; input height adapts to visual line count.
 pub fn render(frame: &mut Frame, app: &mut App) {
@@ -72,7 +74,17 @@ fn render_wizard_mode(frame: &mut Frame, app: &mut App) {
 
 fn render_inspector_mode(frame: &mut Frame, app: &mut App) {
     if let Some(inspector) = app.inspector.views.last() {
-        inspector::render_inspector(frame, frame.area(), &inspector.document);
+        use ratatui::layout::{Constraint, Direction, Layout};
+
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(0),
+                Constraint::Length(INSPECTOR_STATUS_HEIGHT),
+            ])
+            .split(frame.area());
+        inspector::render_inspector(frame, chunks[0], &inspector.document);
+        status_bar::render_info_line(frame, chunks[1], app);
     }
 }
 

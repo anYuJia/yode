@@ -225,7 +225,31 @@ fn background_task_brief_lines(tasks: &[yode_tools::RuntimeTask]) -> Vec<String>
 
 #[cfg(test)]
 mod tests {
-    use super::{background_task_brief_lines, render_task_notification_xml};
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use yode_llm::registry::ProviderRegistry;
+    use yode_tools::registry::ToolRegistry;
+
+    use crate::app::{App, InspectorView};
+    use crate::ui::inspector::InspectorDocument;
+
+    use super::{
+        background_task_brief_lines, inspector_viewport_height, render_task_notification_xml,
+    };
+
+    fn test_app() -> App {
+        App::new(
+            "test-model".to_string(),
+            "session-1234".to_string(),
+            "/tmp".to_string(),
+            "test".to_string(),
+            Vec::new(),
+            HashMap::new(),
+            Arc::new(ProviderRegistry::new()),
+            Arc::new(ToolRegistry::new()),
+        )
+    }
 
     #[test]
     fn background_task_brief_lines_are_compact() {
@@ -279,6 +303,19 @@ mod tests {
         assert!(rendered.contains("<result>fixed &lt;bug&gt;</result>"));
         assert!(rendered.contains("<duration_ms>12</duration_ms>"));
         assert!(rendered.contains("<tool_uses>3</tool_uses>"));
+    }
+
+    #[test]
+    fn inspector_viewport_reserves_status_line() {
+        let mut app = test_app();
+        app.inspector.views.push(InspectorView {
+            document: InspectorDocument::single(
+                "Tool",
+                (0..20).map(|index| format!("line {}", index)).collect(),
+            ),
+        });
+
+        assert_eq!(inspector_viewport_height(&app), Some(17));
     }
 }
 
@@ -338,13 +375,8 @@ fn resize_inline_viewport(
 }
 
 fn viewport_height(app: &App, terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> u16 {
-    if let Some(inspector) = app.inspector.views.last() {
-        let total = inspector
-            .document
-            .active_panel()
-            .map(|panel| panel.lines.len() as u16)
-            .unwrap_or(1);
-        return total.clamp(6, 16);
+    if let Some(height) = inspector_viewport_height(app) {
+        return height;
     }
     if let Some(wizard) = app.wizard.as_ref() {
         return wizard.viewport_height() + 1;
@@ -369,6 +401,16 @@ fn viewport_height(app: &App, terminal: &mut Terminal<CrosstermBackend<io::Stdou
     let thinking_line = status_area_height(app, completion_lines);
     let pending_line = app.pending_inputs.len() as u16;
     visual_lines.clamp(1, 5) + completion_lines + thinking_line + pending_line + 4
+}
+
+fn inspector_viewport_height(app: &App) -> Option<u16> {
+    let inspector = app.inspector.views.last()?;
+    let total = inspector
+        .document
+        .active_panel()
+        .map(|panel| panel.lines.len() as u16)
+        .unwrap_or(1);
+    Some(total.clamp(6, 16) + crate::ui::INSPECTOR_STATUS_HEIGHT)
 }
 
 fn handle_paste_event(app: &mut App, text: String) {
