@@ -62,7 +62,7 @@ impl Tool for BatchTool {
         ToolCapabilities {
             requires_confirmation: false,
             supports_auto_execution: true,
-            read_only: false,
+            read_only: true,
         }
     }
 
@@ -284,5 +284,13 @@ mod tests {
 
         assert!(result.is_error);
         assert!(result.content.contains("not allowed in batch mode"));
+    }
+
+    #[test]
+    fn batch_capabilities_match_readonly_allowlist() {
+        let caps = BatchTool.capabilities();
+        assert!(!caps.requires_confirmation);
+        assert!(caps.supports_auto_execution);
+        assert!(caps.read_only);
     }
 }

@@ -70,8 +70,8 @@ impl Tool for WebBrowserTool {
 
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities {
-            requires_confirmation: false,
-            supports_auto_execution: true,
+            requires_confirmation: true,
+            supports_auto_execution: false,
             read_only: false,
         }
     }
@@ -154,5 +154,13 @@ mod tests {
         assert!(evaluate
             .content
             .contains("Performed browser action: evaluate"));
+    }
+
+    #[test]
+    fn web_browser_requires_confirmation_for_external_actions() {
+        let caps = WebBrowserTool.capabilities();
+        assert!(caps.requires_confirmation);
+        assert!(!caps.supports_auto_execution);
+        assert!(!caps.read_only);
     }
 }

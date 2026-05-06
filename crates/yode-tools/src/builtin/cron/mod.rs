@@ -57,8 +57,8 @@ impl Tool for CronCreateTool {
 
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities {
-            requires_confirmation: false,
-            supports_auto_execution: true,
+            requires_confirmation: true,
+            supports_auto_execution: false,
             read_only: false,
         }
     }
@@ -218,8 +218,8 @@ impl Tool for CronDeleteTool {
 
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities {
-            requires_confirmation: false,
-            supports_auto_execution: true,
+            requires_confirmation: true,
+            supports_auto_execution: false,
             read_only: false,
         }
     }
@@ -329,5 +329,21 @@ mod tests {
         );
         assert!(result.content.contains("prompt"));
         assert!(result.recoverable);
+    }
+
+    #[test]
+    fn cron_create_and_delete_require_confirmation() {
+        let create_caps = CronCreateTool.capabilities();
+        let delete_caps = CronDeleteTool.capabilities();
+        let list_caps = CronListTool.capabilities();
+        assert!(create_caps.requires_confirmation);
+        assert!(!create_caps.supports_auto_execution);
+        assert!(!create_caps.read_only);
+        assert!(delete_caps.requires_confirmation);
+        assert!(!delete_caps.supports_auto_execution);
+        assert!(!delete_caps.read_only);
+        assert!(!list_caps.requires_confirmation);
+        assert!(list_caps.supports_auto_execution);
+        assert!(list_caps.read_only);
     }
 }

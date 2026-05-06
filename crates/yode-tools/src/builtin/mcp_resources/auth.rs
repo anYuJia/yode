@@ -48,8 +48,8 @@ impl Tool for McpAuthTool {
 
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities {
-            requires_confirmation: false,
-            supports_auto_execution: true,
+            requires_confirmation: true,
+            supports_auto_execution: false,
             read_only: false,
         }
     }
@@ -66,5 +66,20 @@ impl Tool for McpAuthTool {
         );
 
         Ok(ToolResult::success(msg))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tool::Tool;
+
+    use super::McpAuthTool;
+
+    #[test]
+    fn mcp_auth_requires_confirmation_for_external_auth_flow() {
+        let caps = McpAuthTool.capabilities();
+        assert!(caps.requires_confirmation);
+        assert!(!caps.supports_auto_execution);
+        assert!(!caps.read_only);
     }
 }
