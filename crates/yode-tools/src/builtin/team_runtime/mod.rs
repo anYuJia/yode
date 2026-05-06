@@ -578,8 +578,8 @@ impl Tool for TeamDeleteTool {
 
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities {
-            requires_confirmation: false,
-            supports_auto_execution: true,
+            requires_confirmation: true,
+            supports_auto_execution: false,
             read_only: false,
         }
     }
@@ -1568,6 +1568,14 @@ mod tests {
             .await
             .snapshot("team-demo")
             .is_none());
+    }
+
+    #[test]
+    fn team_delete_requires_confirmation_for_artifact_removal() {
+        let caps = TeamDeleteTool.capabilities();
+        assert!(caps.requires_confirmation);
+        assert!(!caps.supports_auto_execution);
+        assert!(!caps.read_only);
     }
 
     #[tokio::test]
