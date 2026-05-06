@@ -25,11 +25,11 @@ use crate::ui::status_summary::{
 use self::helpers::latest_review_summary;
 use self::render::{build_provider_section, build_runtime_sections, build_status_message};
 use self::sections::StatusArtifactLinks;
-use super::cost::estimate_cost;
 use super::startup_artifacts::{
     latest_mcp_startup_failures, latest_provider_inventory, latest_startup_artifact_link,
     latest_startup_manifest,
 };
+use yode_core::cost_tracker::estimate_token_cost;
 
 pub struct StatusCommand {
     meta: CommandMeta,
@@ -61,10 +61,10 @@ impl Command for StatusCommand {
         } else {
             ctx.session.always_allow_tools.join(", ")
         };
-        let cost = estimate_cost(
+        let cost = estimate_token_cost(
             &ctx.session.model,
-            ctx.session.input_tokens,
-            ctx.session.output_tokens,
+            ctx.session.input_tokens.into(),
+            ctx.session.output_tokens.into(),
         );
         let working_dir = std::path::PathBuf::from(&ctx.session.working_dir);
         let latest_review = latest_review_summary(&working_dir.join(".yode").join("reviews"));

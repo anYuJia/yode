@@ -14,8 +14,8 @@ use super::status_summary::{
     compaction_badge, context_badge, cost_badge, memory_badge, prompt_cache_badge, push_badge,
     runtime_family_badges, runtime_status_snapshot,
 };
-use crate::app::commands::estimate_cost;
 use crate::app::{App, TurnStatus};
+use yode_core::cost_tracker::estimate_token_cost;
 
 /// Top separator line: ────────────────────────────
 pub fn render_separator(frame: &mut Frame, area: Rect) {
@@ -339,10 +339,10 @@ fn session_estimated_cost_label(app: &App, density: Density) -> Option<String> {
         return None;
     }
 
-    let cost = estimate_cost(
+    let cost = estimate_token_cost(
         &app.session.model,
-        app.session.input_tokens,
-        app.session.output_tokens,
+        app.session.input_tokens.into(),
+        app.session.output_tokens.into(),
     );
     if cost <= 0.0 {
         return None;

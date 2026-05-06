@@ -1,4 +1,5 @@
 use crate::app::App;
+use yode_core::cost_tracker::estimate_token_cost;
 
 pub(super) fn print_exit_summary(app: &App) {
     if let Some(summary) = render_exit_summary(app) {
@@ -21,10 +22,10 @@ fn render_exit_summary(app: &App) -> Option<String> {
         format!("{}s", secs)
     };
 
-    let cost = super::commands::estimate_cost(
+    let cost = estimate_token_cost(
         &app.session.model,
-        app.session.input_tokens,
-        app.session.output_tokens,
+        app.session.input_tokens.into(),
+        app.session.output_tokens.into(),
     );
 
     let session_short = &app.session.session_id[..app.session.session_id.len().min(8)];

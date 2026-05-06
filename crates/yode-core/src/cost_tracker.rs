@@ -87,6 +87,13 @@ impl ModelCosts {
     }
 }
 
+/// Estimate input/output token cost for a model using the same table as `CostTracker`.
+pub fn estimate_token_cost(model: &str, input_tokens: u64, output_tokens: u64) -> f64 {
+    let costs = ModelCosts::for_model(model);
+    (input_tokens as f64 * costs.input_per_million / 1_000_000.0)
+        + (output_tokens as f64 * costs.output_per_million / 1_000_000.0)
+}
+
 // ─── Usage Data ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -174,15 +181,16 @@ impl CostTracker {
 
     /// Get the estimated total cost in USD.
     pub fn estimated_cost(&self) -> f64 {
-        let input_cost =
-            self.usage.input_tokens as f64 * self.costs.input_per_million / 1_000_000.0;
-        let output_cost =
-            self.usage.output_tokens as f64 * self.costs.output_per_million / 1_000_000.0;
+        let input_output_cost = estimate_token_cost(
+            &self.model,
+            self.usage.input_tokens,
+            self.usage.output_tokens,
+        );
         let cache_write_cost =
             self.usage.cache_write_tokens as f64 * self.costs.cache_write_per_million / 1_000_000.0;
         let cache_read_cost =
             self.usage.cache_read_tokens as f64 * self.costs.cache_read_per_million / 1_000_000.0;
-        input_cost + output_cost + cache_write_cost + cache_read_cost
+        input_output_cost + cache_write_cost + cache_read_cost
     }
 
     /// Check if budget limit has been exceeded.
@@ -282,6 +290,12 @@ mod tests {
         let cost = tracker.estimated_cost();
         // 1M * 3.0/1M + 100K * 15.0/1M = 3.0 + 1.5 = 4.5
         assert!((cost - 4.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn estimate_token_cost_matches_tracker_input_output_cost() {
+        let cost = estimate_token_cost("claude-sonnet-4", 10_000, 1_000);
+        assert!((cost - 0.045).abs() < 0.0001);
     }
 
     #[test]
