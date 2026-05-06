@@ -232,6 +232,14 @@ fn session_elapsed_label(elapsed: Duration, density: Density) -> String {
 }
 
 fn turn_state_label(app: &App, density: Density) -> String {
+    if app.pending_confirmation.is_some() {
+        return match density {
+            Density::Wide => "permission ".to_string(),
+            Density::Medium => "perm ".to_string(),
+            Density::Narrow => "ask ".to_string(),
+        };
+    }
+
     match &app.turn_status {
         TurnStatus::Working { .. } => match density {
             Density::Wide => format!("working {} ", compact_duration_label(turn_elapsed(app))),
@@ -269,6 +277,10 @@ fn turn_state_label(app: &App, density: Density) -> String {
 }
 
 fn turn_state_style(app: &App) -> Style {
+    if app.pending_confirmation.is_some() {
+        return Style::default().fg(Color::Yellow);
+    }
+
     match app.turn_status {
         TurnStatus::Working { .. } => Style::default().fg(Color::LightMagenta),
         TurnStatus::Retrying { .. } => Style::default().fg(Color::Yellow),
@@ -400,7 +412,7 @@ mod tests {
     use super::{
         blank_line_parts, compact_model_name, composer_status_spans, session_elapsed_label, Density,
     };
-    use crate::app::{App, TurnStatus};
+    use crate::app::{App, PendingConfirmation, TurnStatus};
     use crate::ui::badges::task_badge_label;
     use crate::ui::responsive::density_from_width;
     use ratatui::style::Style;
@@ -504,6 +516,20 @@ mod tests {
 
         assert!(line.contains("done"));
         assert!(line.contains("t 10↑ 20↓"));
+    }
+
+    #[test]
+    fn composer_status_line_surfaces_pending_permission() {
+        let mut app = test_app();
+        app.pending_confirmation = Some(PendingConfirmation {
+            id: "call-1".to_string(),
+            name: "bash".to_string(),
+            arguments: r#"{"command":"cargo test"}"#.to_string(),
+        });
+
+        let line = spans_to_text(&composer_status_spans(&app, 120));
+
+        assert!(line.contains("permission"));
     }
 
     #[test]
