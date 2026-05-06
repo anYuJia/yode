@@ -53,7 +53,7 @@ curl -fsSL https://raw.githubusercontent.com/anYuJia/yode/main/install.sh | bash
 ### Cargo
 
 ```bash
-cargo install --git https://github.com/anYuJia/yode.git --tag v0.0.15
+cargo install --git https://github.com/anYuJia/yode.git --tag v0.0.16
 ```
 
 ### From source
@@ -254,16 +254,16 @@ crates/
 └── yode-agent    # agent/runtime helpers
 ```
 
-## What 0.0.15 Adds
+## What 0.0.16 Adds
 
-The `0.0.15` release focuses on runtime hardening, multi-agent/tool maintainability, and release reliability:
+The `0.0.16` release focuses on CI portability, Windows hook/tool reliability, and release hardening:
 
-- tool registry, batch, multi-edit, updater, retry, and streaming finalization paths now avoid avoidable runtime panics
-- PowerShell command analysis/execution and remote runtime artifact handling are split into focused modules
-- remote control, live-session, and transport artifacts keep the same behavior with a smaller core runtime surface
-- full workspace formatting, clippy, and test coverage were verified before release
+- hook execution and hook metadata tests now run correctly across Windows, macOS, and Linux
+- file, glob, ls, memory, project map, agent artifact, workflow, PowerShell, LSP, and worktree paths are normalized for cross-platform behavior
+- release CI now verifies workspace tests on all three supported runner families before publishing
+- full workspace formatting, clippy, audit, parity, smoke, and benchmark checks were verified before release
 
-Release: [v0.0.15](https://github.com/anYuJia/yode/releases/tag/v0.0.15)
+Release: [v0.0.16](https://github.com/anYuJia/yode/releases/tag/v0.0.16)
 
 ## Contributing
 
