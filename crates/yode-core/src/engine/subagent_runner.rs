@@ -867,10 +867,8 @@ mod tests {
         path.display().to_string().replace('\'', "''")
     }
 
+    #[cfg(not(windows))]
     fn shell_quote_path(path: &std::path::Path) -> String {
-        #[cfg(windows)]
-        let rendered = path.display().to_string().replace('\\', "/");
-        #[cfg(not(windows))]
         let rendered = path.display().to_string();
 
         format!("'{}'", rendered.replace('\'', "'\\''"))

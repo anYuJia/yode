@@ -109,6 +109,7 @@ fn set_powershell_test_override(path: Option<PathBuf>) {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(windows))]
     use std::fs;
     use std::sync::Arc;
     use std::time::Duration;
@@ -138,23 +139,20 @@ mod tests {
         PowerShellOverrideReset
     }
 
-    fn write_shim(dir: &tempfile::TempDir) -> std::path::PathBuf {
-        #[cfg(windows)]
-        {
-            let _ = dir;
-            return std::path::PathBuf::from("powershell");
-        }
+    #[cfg(windows)]
+    fn write_shim(_dir: &tempfile::TempDir) -> std::path::PathBuf {
+        std::path::PathBuf::from("powershell")
+    }
 
-        #[cfg(not(windows))]
+    #[cfg(not(windows))]
+    fn write_shim(dir: &tempfile::TempDir) -> std::path::PathBuf {
         let path = dir.path().join("pwsh-shim");
 
-        #[cfg(not(windows))]
         fs::write(
             &path,
             "#!/bin/sh\ncmd=\"\"\nwhile [ $# -gt 0 ]; do\n  if [ \"$1\" = \"-Command\" ]; then\n    shift\n    cmd=\"$1\"\n    break\n  fi\n  shift\ndone\n[ -z \"$cmd\" ] && exit 2\nsh -c \"$cmd\"\n",
         )
         .unwrap();
-        #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
 
