@@ -107,7 +107,10 @@ fn composer_status_spans(app: &App, width: u16) -> Vec<Span<'static>> {
     let runtime_cost_badge = cost_badge(snapshot.state.as_ref(), density);
     if runtime_cost_badge.is_none() {
         if let Some(cost_label) = session_estimated_cost_label(app, density) {
-            parts.push(Span::styled(cost_label, Style::default().fg(Color::LightCyan)));
+            parts.push(Span::styled(
+                cost_label,
+                Style::default().fg(Color::LightCyan),
+            ));
             parts.push(Span::styled("· ", Style::default().fg(SEP)));
         }
     }

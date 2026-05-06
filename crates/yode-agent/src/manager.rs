@@ -64,7 +64,7 @@ impl AgentTeamManager {
             member_count: members.len(),
             active_count: members
                 .iter()
-                .filter(|member| matches!(member.status.as_str(), "planned" | "running"))
+                .filter(|member| matches!(member.status.as_str(), "planned" | "queued" | "running"))
                 .count(),
             completed_count: members
                 .iter()
@@ -153,7 +153,7 @@ impl AgentTeamManager {
         state.active_count = state
             .members
             .iter()
-            .filter(|member| matches!(member.status.as_str(), "planned" | "running"))
+            .filter(|member| matches!(member.status.as_str(), "planned" | "queued" | "running"))
             .count();
         state.completed_count = state
             .members

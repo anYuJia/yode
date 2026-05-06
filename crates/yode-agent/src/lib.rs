@@ -441,6 +441,40 @@ mod tests {
         assert_eq!(progress.blocked_step_ids, vec!["member:review"]);
     }
 
+    #[test]
+    fn manager_counts_queued_members_as_active() {
+        let mut manager = AgentTeamManager::new();
+        let state = manager.ensure_team(
+            "ship feature",
+            Some("team-demo"),
+            "manual",
+            vec![AgentTeamMemberState {
+                status: "queued".to_string(),
+                ..member("api", Some("worker"))
+            }],
+        );
+
+        assert_eq!(state.active_count, 1);
+    }
+
+    #[test]
+    fn cancelled_plan_steps_are_terminal_not_ready() {
+        let mut manager = AgentTeamManager::new();
+        let state = manager.ensure_team(
+            "ship feature",
+            Some("team-demo"),
+            "parallel",
+            vec![AgentTeamMemberState {
+                status: "cancelled".to_string(),
+                ..member("api", Some("worker"))
+            }],
+        );
+        let progress = evaluate_agent_plan(&state).unwrap();
+
+        assert_eq!(progress.failed_step_ids, vec!["member:api"]);
+        assert!(progress.ready_step_ids.is_empty());
+    }
+
     struct EchoRunner;
 
     #[async_trait]

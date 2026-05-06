@@ -38,7 +38,7 @@ pub fn evaluate_agent_plan(state: &AgentTeamState) -> Option<AgentPlanProgress> 
     for step in &plan.steps {
         match step_status(step, &member_statuses) {
             "completed" => progress.completed_step_ids.push(step.step_id.clone()),
-            "failed" => progress.failed_step_ids.push(step.step_id.clone()),
+            "failed" | "cancelled" => progress.failed_step_ids.push(step.step_id.clone()),
             "running" => progress.running_step_ids.push(step.step_id.clone()),
             _ if step
                 .depends_on
