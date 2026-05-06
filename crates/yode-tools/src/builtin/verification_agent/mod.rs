@@ -59,8 +59,8 @@ impl Tool for VerificationAgentTool {
 
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities {
-            requires_confirmation: false,
-            supports_auto_execution: true,
+            requires_confirmation: true,
+            supports_auto_execution: false,
             read_only: false,
         }
     }
@@ -177,6 +177,14 @@ mod tests {
             self.seen.lock().unwrap().push((prompt, options));
             Box::pin(async { Ok("verification ok".to_string()) })
         }
+    }
+
+    #[test]
+    fn verification_agent_requires_confirmation_like_agent_tool() {
+        let caps = VerificationAgentTool.capabilities();
+        assert!(caps.requires_confirmation);
+        assert!(!caps.supports_auto_execution);
+        assert!(!caps.read_only);
     }
 
     #[tokio::test]

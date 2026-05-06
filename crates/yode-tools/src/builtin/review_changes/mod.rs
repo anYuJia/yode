@@ -54,8 +54,8 @@ impl Tool for ReviewChangesTool {
 
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities {
-            requires_confirmation: false,
-            supports_auto_execution: true,
+            requires_confirmation: true,
+            supports_auto_execution: false,
             read_only: false,
         }
     }
@@ -166,6 +166,14 @@ mod tests {
             self.seen.lock().unwrap().push((prompt, options));
             Box::pin(async { Ok("review ok".to_string()) })
         }
+    }
+
+    #[test]
+    fn review_changes_requires_confirmation_like_agent_tool() {
+        let caps = ReviewChangesTool.capabilities();
+        assert!(caps.requires_confirmation);
+        assert!(!caps.supports_auto_execution);
+        assert!(!caps.read_only);
     }
 
     #[tokio::test]
