@@ -22,6 +22,8 @@ pub struct LspManager {
     servers: HashMap<String, LspServer>,
     workspace_root: PathBuf,
     extra_path: Option<std::ffi::OsString>,
+    #[cfg(test)]
+    server_command_override: Option<(String, Vec<String>)>,
 }
 
 /// Send a JSON-RPC request on the given server and read the response.
@@ -108,12 +110,20 @@ impl LspManager {
             servers: HashMap::new(),
             workspace_root,
             extra_path: None,
+            #[cfg(test)]
+            server_command_override: None,
         }
     }
 
     #[cfg(test)]
     pub fn with_extra_path(mut self, path: std::ffi::OsString) -> Self {
         self.extra_path = Some(path);
+        self
+    }
+
+    #[cfg(test)]
+    pub fn with_server_command(mut self, command: impl Into<String>, args: Vec<String>) -> Self {
+        self.server_command_override = Some((command.into(), args));
         self
     }
 
@@ -147,14 +157,37 @@ impl LspManager {
         let lang = Self::lang_key(ext).to_string();
 
         if !self.servers.contains_key(&lang) {
-            let (cmd, args) = Self::server_command(ext)
-                .ok_or_else(|| anyhow::anyhow!("No LSP server configured for .{} files", ext))?;
+            let (cmd, args): (String, Vec<String>) = {
+                #[cfg(test)]
+                if let Some((cmd, args)) = &self.server_command_override {
+                    (cmd.clone(), args.clone())
+                } else {
+                    let (cmd, args) = Self::server_command(ext).ok_or_else(|| {
+                        anyhow::anyhow!("No LSP server configured for .{} files", ext)
+                    })?;
+                    (
+                        cmd.to_string(),
+                        args.iter().map(|arg| arg.to_string()).collect(),
+                    )
+                }
+
+                #[cfg(not(test))]
+                {
+                    let (cmd, args) = Self::server_command(ext).ok_or_else(|| {
+                        anyhow::anyhow!("No LSP server configured for .{} files", ext)
+                    })?;
+                    (
+                        cmd.to_string(),
+                        args.iter().map(|arg| arg.to_string()).collect(),
+                    )
+                }
+            };
 
             info!(language = %lang, command = %cmd, "Starting LSP server");
 
-            let mut command = tokio::process::Command::new(cmd);
+            let mut command = tokio::process::Command::new(&cmd);
             command
-                .args(&args)
+                .args(args.iter())
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::null())

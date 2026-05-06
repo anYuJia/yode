@@ -140,16 +140,14 @@ mod tests {
 
     fn write_shim(dir: &tempfile::TempDir) -> std::path::PathBuf {
         #[cfg(windows)]
-        let path = dir.path().join("pwsh-shim.cmd");
+        {
+            let _ = dir;
+            return std::path::PathBuf::from("powershell");
+        }
+
         #[cfg(not(windows))]
         let path = dir.path().join("pwsh-shim");
 
-        #[cfg(windows)]
-        fs::write(
-            &path,
-            "@echo off\r\nsetlocal\r\nset \"cmd=\"\r\n:loop\r\nif \"%~1\"==\"\" goto end\r\nif /I \"%~1\"==\"-Command\" (\r\n  shift\r\n  set \"cmd=%~1\"\r\n  goto end\r\n)\r\nshift\r\ngoto loop\r\n:end\r\nif \"%cmd%\"==\"\" exit /b 2\r\npowershell -NoProfile -Command \"%cmd%\"\r\n",
-        )
-        .unwrap();
         #[cfg(not(windows))]
         fs::write(
             &path,

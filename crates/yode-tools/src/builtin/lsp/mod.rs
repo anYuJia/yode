@@ -237,10 +237,22 @@ while True:
         let file = dir.path().join("main.py");
         tokio::fs::write(&file, "print('hi')\n").await.unwrap();
 
+        #[cfg(windows)]
+        let manager = LspManager::new(dir.path().to_path_buf())
+            .with_extra_path(new_path)
+            .with_server_command(
+                "python",
+                vec![dir
+                    .path()
+                    .join("pyright-langserver.py")
+                    .display()
+                    .to_string()],
+            );
+        #[cfg(not(windows))]
+        let manager = LspManager::new(dir.path().to_path_buf()).with_extra_path(new_path);
+
         let mut ctx = ToolContext::empty();
-        ctx.lsp_manager = Some(Arc::new(Mutex::new(
-            LspManager::new(dir.path().to_path_buf()).with_extra_path(new_path),
-        )));
+        ctx.lsp_manager = Some(Arc::new(Mutex::new(manager)));
 
         let result = LspTool
             .execute(
