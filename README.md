@@ -53,7 +53,7 @@ curl -fsSL https://raw.githubusercontent.com/anYuJia/yode/main/install.sh | bash
 ### Cargo
 
 ```bash
-cargo install --git https://github.com/anYuJia/yode.git --tag v0.0.16
+cargo install --git https://github.com/anYuJia/yode.git --tag v0.0.17
 ```
 
 ### From source
@@ -254,16 +254,16 @@ crates/
 └── yode-agent    # agent/runtime helpers
 ```
 
-## What 0.0.16 Adds
+## What 0.0.17 Adds
 
-The `0.0.16` release focuses on CI portability, Windows hook/tool reliability, and release hardening:
+The `0.0.17` release focuses on Claude Code parity polish, composer status visibility, and multi-agent runtime correctness:
 
-- hook execution and hook metadata tests now run correctly across Windows, macOS, and Linux
-- file, glob, ls, memory, project map, agent artifact, workflow, PowerShell, LSP, and worktree paths are normalized for cross-platform behavior
-- release CI now verifies workspace tests on all three supported runner families before publishing
-- full workspace formatting, clippy, audit, parity, smoke, and benchmark checks were verified before release
+- composer status stays visible above the input during normal, inspector, and permission confirmation flows
+- status now surfaces elapsed time, model, session and turn tokens, estimated session cost, tools, permission waits, runtime badges, and queued work
+- queued follow-up input now has capped footer height plus explicit queueing placeholder text while the model is working
+- agent team planning now treats queued members as active and cancelled members as terminal, preventing stale ready-step scheduling
 
-Release: [v0.0.16](https://github.com/anYuJia/yode/releases/tag/v0.0.16)
+Release: [v0.0.17](https://github.com/anYuJia/yode/releases/tag/v0.0.17)
 
 ## Contributing
 
