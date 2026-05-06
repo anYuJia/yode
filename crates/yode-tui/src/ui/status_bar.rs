@@ -14,6 +14,7 @@ use super::status_summary::{
     compaction_badge, context_badge, cost_badge, memory_badge, prompt_cache_badge, push_badge,
     runtime_family_badges, runtime_status_snapshot,
 };
+use crate::app::commands::estimate_cost;
 use crate::app::{App, TurnStatus};
 
 /// Top separator line: ────────────────────────────
@@ -103,6 +104,14 @@ fn composer_status_spans(app: &App, width: u16) -> Vec<Span<'static>> {
     ));
     parts.push(Span::styled("· ", Style::default().fg(SEP)));
 
+    let runtime_cost_badge = cost_badge(snapshot.state.as_ref(), density);
+    if runtime_cost_badge.is_none() {
+        if let Some(cost_label) = session_estimated_cost_label(app, density) {
+            parts.push(Span::styled(cost_label, Style::default().fg(Color::LightCyan)));
+            parts.push(Span::styled("· ", Style::default().fg(SEP)));
+        }
+    }
+
     if let Some(turn_tokens) = turn_token_label(app, density) {
         parts.push(Span::styled(turn_tokens, Style::default().fg(MUTED)));
         parts.push(Span::styled("· ", Style::default().fg(SEP)));
@@ -140,7 +149,7 @@ fn composer_status_spans(app: &App, width: u16) -> Vec<Span<'static>> {
         if let Some(badge) = prompt_cache_badge(snapshot.state.as_ref(), density) {
             push_badge(&mut parts, badge);
         }
-        if let Some(badge) = cost_badge(snapshot.state.as_ref(), density) {
+        if let Some(badge) = runtime_cost_badge {
             push_badge(&mut parts, badge);
         }
     }
@@ -319,6 +328,27 @@ fn turn_token_label(app: &App, density: Density) -> Option<String> {
             format_token_count(app.session.turn_input_tokens),
             format_token_count(app.session.turn_output_tokens)
         ),
+    })
+}
+
+fn session_estimated_cost_label(app: &App, density: Density) -> Option<String> {
+    if app.session.input_tokens == 0 && app.session.output_tokens == 0 {
+        return None;
+    }
+
+    let cost = estimate_cost(
+        &app.session.model,
+        app.session.input_tokens,
+        app.session.output_tokens,
+    );
+    if cost <= 0.0 {
+        return None;
+    }
+
+    Some(match density {
+        Density::Wide => format!("cost ${:.4} ", cost),
+        Density::Medium => format!("${:.4} ", cost),
+        Density::Narrow => format!("${:.3} ", cost),
     })
 }
 
@@ -530,6 +560,18 @@ mod tests {
         let line = spans_to_text(&composer_status_spans(&app, 120));
 
         assert!(line.contains("permission"));
+    }
+
+    #[test]
+    fn composer_status_line_surfaces_estimated_session_cost() {
+        let mut app = test_app();
+        app.session.input_tokens = 10_000;
+        app.session.output_tokens = 1_000;
+        app.session.total_tokens = 11_000;
+
+        let line = spans_to_text(&composer_status_spans(&app, 120));
+
+        assert!(line.contains("cost $0.0450"));
     }
 
     #[test]
