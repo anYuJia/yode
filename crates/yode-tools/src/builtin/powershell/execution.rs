@@ -11,7 +11,7 @@ use crate::builtin::shell_runtime::{
 };
 use crate::tool::{ToolContext, ToolErrorType, ToolResult};
 
-use super::analysis::analyze_powershell_command;
+use super::analysis::{analyze_powershell_command, get_destructive_command_warning};
 
 pub(super) async fn execute_powershell_command(
     command: &str,
@@ -24,6 +24,21 @@ pub(super) async fn execute_powershell_command(
         .get("run_in_background")
         .and_then(|value| value.as_bool())
         .unwrap_or(false);
+
+    if let Some(warning) = get_destructive_command_warning(command) {
+        return Ok(ToolResult::error_typed(
+            format!(
+                "Refusing to run potentially destructive PowerShell command: {}\nCommand: {}",
+                warning, command
+            ),
+            ToolErrorType::Permission,
+            false,
+            Some(
+                "Use a narrower, reversible command or ask the user for an explicit manual recovery action."
+                    .to_string(),
+            ),
+        ));
+    }
 
     let executable = match resolve_powershell_executable() {
         Ok(executable) => executable,

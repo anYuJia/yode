@@ -194,6 +194,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn powershell_blocks_destructive_command_before_spawn() {
+        let result = PowerShellTool
+            .execute(
+                json!({"command": "Remove-Item -Recurse -Force C:\\tmp"}),
+                &ToolContext::empty(),
+            )
+            .await
+            .unwrap();
+
+        assert!(result.is_error);
+        assert!(result.content.contains("Refusing to run"));
+        assert_eq!(
+            result.error_type,
+            Some(crate::tool::ToolErrorType::Permission)
+        );
+    }
+
+    #[tokio::test]
     async fn powershell_timeout_is_reported() {
         let _guard = POWERSHELL_TEST_LOCK.lock().await;
         let dir = tempfile::tempdir().unwrap();
