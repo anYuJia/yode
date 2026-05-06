@@ -140,25 +140,25 @@ fn test_message_priority() {
 #[test]
 fn test_estimate_tokens_without_cache() {
     let cm = ContextManager::new("claude-sonnet-4");
-    let messages = vec![Message::user(&"x".repeat(400))];
+    let messages = vec![Message::user("x".repeat(400))];
     assert_eq!(cm.estimate_tokens(&messages), 100);
 }
 
 #[test]
 fn test_estimate_tokens_with_cache_scales() {
     let mut cm = ContextManager::new("claude-sonnet-4");
-    let baseline = vec![Message::user(&"x".repeat(1000))];
+    let baseline = vec![Message::user("x".repeat(1000))];
     cm.should_compress(10_000, &baseline);
 
-    let messages = vec![Message::user(&"x".repeat(1000))];
+    let messages = vec![Message::user("x".repeat(1000))];
     let est = cm.estimate_tokens(&messages);
     assert_eq!(est, 10_000);
 
-    let messages = vec![Message::user(&"x".repeat(500))];
+    let messages = vec![Message::user("x".repeat(500))];
     let est = cm.estimate_tokens(&messages);
     assert_eq!(est, 5_000);
 
-    let messages = vec![Message::user(&"x".repeat(2000))];
+    let messages = vec![Message::user("x".repeat(2000))];
     let est = cm.estimate_tokens(&messages);
     assert_eq!(est, 20_000);
 }
@@ -249,15 +249,15 @@ fn test_compress_removes_low_priority_first() {
 fn test_compression_stress_realistic_conversation() {
     let mut cm = ContextManager::new("gpt-3.5");
 
-    let mut messages = vec![Message::system(&"You are a coding assistant. ".repeat(100))];
+    let mut messages = vec![Message::system("You are a coding assistant. ".repeat(100))];
 
     for i in 0..15 {
-        messages.push(Message::user(&format!(
+        messages.push(Message::user(format!(
             "Please read file{}.rs and explain it",
             i
         )));
 
-        let mut assistant = Message::assistant(&format!("Let me read file{}.rs for you.", i));
+        let mut assistant = Message::assistant(format!("Let me read file{}.rs for you.", i));
         assistant.tool_calls.push(yode_llm::types::ToolCall {
             id: format!("tc_{}", i),
             name: "read_file".to_string(),
@@ -266,15 +266,15 @@ fn test_compression_stress_realistic_conversation() {
         messages.push(assistant);
 
         messages.push(Message::tool_result(
-            &format!("tc_{}", i),
-            &format!(
+            format!("tc_{}", i),
+            format!(
                 "// file{}.rs\n{}",
                 i,
                 "fn example() { /* lots of code here */ }\n".repeat(100)
             ),
         ));
 
-        messages.push(Message::assistant(&format!(
+        messages.push(Message::assistant(format!(
             "File{}.rs contains an example function that {}. The implementation is straightforward.",
             i, "x".repeat(200)
         )));
@@ -325,13 +325,13 @@ fn test_compression_preserves_message_integrity() {
     let cm = ContextManager::new("gpt-3.5");
     let mut messages = vec![
         Message::system("SYSTEM_MARKER"),
-        Message::user(&"u".repeat(10_000)),
-        Message::assistant(&"a".repeat(10_000)),
-        Message::tool_result("t1", &"r".repeat(10_000)),
-        Message::user(&"u2".repeat(5_000)),
-        Message::assistant(&"a2".repeat(5_000)),
-        Message::user(&"u3".repeat(5_000)),
-        Message::assistant(&"a3".repeat(5_000)),
+        Message::user("u".repeat(10_000)),
+        Message::assistant("a".repeat(10_000)),
+        Message::tool_result("t1", "r".repeat(10_000)),
+        Message::user("u2".repeat(5_000)),
+        Message::assistant("a2".repeat(5_000)),
+        Message::user("u3".repeat(5_000)),
+        Message::assistant("a3".repeat(5_000)),
         Message::user("final_user"),
         Message::assistant("final_assistant"),
         Message::user("last1"),
@@ -438,8 +438,8 @@ fn test_manual_compact_can_keep_larger_recent_tail() {
     let cm = ContextManager::new("gpt-3.5");
     let mut messages = vec![Message::system("system")];
     for idx in 0..12 {
-        messages.push(Message::user(&format!("user-{idx}")));
-        messages.push(Message::assistant(&format!("assistant-{idx}")));
+        messages.push(Message::user(format!("user-{idx}")));
+        messages.push(Message::assistant(format!("assistant-{idx}")));
     }
 
     let report = cm.compress_with_keep_last(&mut messages, 10, Some("/tmp/turn.json"));
@@ -452,11 +452,11 @@ fn test_manual_compact_can_keep_larger_recent_tail() {
 #[test]
 fn test_exceeds_threshold_estimate_uses_cached_ratio() {
     let mut cm = ContextManager::new("claude-sonnet-4");
-    let baseline = vec![Message::user(&"x".repeat(1000))];
+    let baseline = vec![Message::user("x".repeat(1000))];
     cm.should_compress(190_000, &baseline);
 
     assert!(cm.exceeds_threshold_estimate(&baseline));
 
-    let smaller = vec![Message::user(&"x".repeat(100))];
+    let smaller = vec![Message::user("x".repeat(100))];
     assert!(!cm.exceeds_threshold_estimate(&smaller));
 }

@@ -21,7 +21,10 @@ fn hook_command(command: &str) -> String {
 
 #[cfg(windows)]
 fn hook_json_command(json: &str) -> String {
-    format!("powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"Write-Output '{}'\"", powershell_quote(json))
+    crate::test_support::powershell_encoded_command(&format!(
+        "Write-Output '{}'",
+        powershell_quote(json)
+    ))
 }
 
 #[cfg(not(windows))]
@@ -31,7 +34,10 @@ fn hook_json_command(json: &str) -> String {
 
 #[cfg(windows)]
 fn hook_wake_command(json: &str) -> String {
-    format!("powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"Write-Output '{}'; exit 2\"", powershell_quote(json))
+    crate::test_support::powershell_encoded_command(&format!(
+        "Write-Output '{}'; exit 2",
+        powershell_quote(json)
+    ))
 }
 
 #[cfg(not(windows))]

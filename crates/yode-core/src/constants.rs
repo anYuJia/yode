@@ -22,22 +22,16 @@ pub(crate) mod thresholds {
     pub(crate) const SESSION_MEMORY_TOOL_DELTA: u32 = 3;
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{thresholds, timeouts};
-
-    #[test]
-    fn engine_runtime_constants_match_expected_bounds() {
-        assert!(timeouts::STREAMING_TURN_HARD_SECS >= timeouts::LLM_REQUEST_SECS);
-        assert!(timeouts::STREAMING_STALL_SECS <= timeouts::STREAMING_TURN_HARD_SECS);
-        assert!(timeouts::STREAMING_HEARTBEAT_SECS < timeouts::STREAMING_STALL_SECS);
-        assert!(timeouts::PARALLEL_TOOL_SECS < timeouts::LLM_REQUEST_SECS);
-        assert!(timeouts::PARALLEL_TOOL_SECS < timeouts::TOOL_EXECUTION_SECS);
-        assert!(timeouts::PROMPT_SUGGESTION_SECS < timeouts::LLM_REQUEST_SECS);
-        assert!(timeouts::LLM_COMPACTION_SUMMARY_SECS < timeouts::LLM_REQUEST_SECS);
-        assert!(timeouts::TOOL_CONFIRMATION_SECS < timeouts::TOOL_EXECUTION_SECS);
-        assert!(timeouts::TOOL_CONFIRMATION_POLL_MS < 1_000);
-        assert!(thresholds::TOOL_BUDGET_NOTICE < thresholds::TOOL_BUDGET_WARNING);
-        assert!(thresholds::SESSION_MEMORY_CHAR_DELTA < thresholds::SESSION_MEMORY_INIT_CHARS);
-    }
-}
+const _: () = {
+    assert!(timeouts::STREAMING_TURN_HARD_SECS >= timeouts::LLM_REQUEST_SECS);
+    assert!(timeouts::STREAMING_STALL_SECS <= timeouts::STREAMING_TURN_HARD_SECS);
+    assert!(timeouts::STREAMING_HEARTBEAT_SECS < timeouts::STREAMING_STALL_SECS);
+    assert!(timeouts::PARALLEL_TOOL_SECS < timeouts::LLM_REQUEST_SECS);
+    assert!(timeouts::PARALLEL_TOOL_SECS < timeouts::TOOL_EXECUTION_SECS);
+    assert!(timeouts::PROMPT_SUGGESTION_SECS < timeouts::LLM_REQUEST_SECS);
+    assert!(timeouts::LLM_COMPACTION_SUMMARY_SECS < timeouts::LLM_REQUEST_SECS);
+    assert!(timeouts::TOOL_CONFIRMATION_SECS < timeouts::TOOL_EXECUTION_SECS);
+    assert!(timeouts::TOOL_CONFIRMATION_POLL_MS < 1_000);
+    assert!(thresholds::TOOL_BUDGET_NOTICE < thresholds::TOOL_BUDGET_WARNING);
+    assert!(thresholds::SESSION_MEMORY_CHAR_DELTA < thresholds::SESSION_MEMORY_INIT_CHARS);
+};

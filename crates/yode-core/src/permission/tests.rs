@@ -260,10 +260,7 @@ fn test_bash_denial_prefixes_are_clustered() {
 #[test]
 fn test_safe_readonly_shell_prefixes_include_git_status() {
     let pm = PermissionManager::new(PermissionMode::Default);
-    assert!(pm
-        .safe_readonly_shell_prefixes()
-        .iter()
-        .any(|prefix| *prefix == "git status"));
+    assert!(pm.safe_readonly_shell_prefixes().contains(&"git status"));
 }
 
 #[test]

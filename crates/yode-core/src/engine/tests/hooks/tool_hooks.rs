@@ -5,10 +5,10 @@ use yode_llm::types::ToolCall;
 fn hook_dump_context_command(path: &std::path::Path) -> String {
     #[cfg(windows)]
     {
-        return format!(
-            "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"[System.IO.File]::WriteAllText('{}', $env:YODE_HOOK_CONTEXT)\"",
+        return crate::test_support::powershell_encoded_command(&format!(
+            "[System.IO.File]::WriteAllText('{}', $env:YODE_HOOK_CONTEXT)",
             powershell_quote_path(path)
-        );
+        ));
     }
 
     #[cfg(not(windows))]
@@ -20,10 +20,10 @@ fn hook_dump_context_command(path: &std::path::Path) -> String {
 
 #[cfg(windows)]
 fn hook_json_command(json: &str) -> String {
-    format!(
-        "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"Write-Output '{}'\"",
+    crate::test_support::powershell_encoded_command(&format!(
+        "Write-Output '{}'",
         powershell_quote(json)
-    )
+    ))
 }
 
 #[cfg(not(windows))]

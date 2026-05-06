@@ -849,10 +849,10 @@ mod tests {
     fn hook_dump_context_command(path: &std::path::Path) -> String {
         #[cfg(windows)]
         {
-            return format!(
-                "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"[System.IO.File]::WriteAllText('{}', $env:YODE_HOOK_CONTEXT)\"",
+            return crate::test_support::powershell_encoded_command(&format!(
+                "[System.IO.File]::WriteAllText('{}', $env:YODE_HOOK_CONTEXT)",
                 powershell_quote_path(path)
-            );
+            ));
         }
 
         #[cfg(not(windows))]

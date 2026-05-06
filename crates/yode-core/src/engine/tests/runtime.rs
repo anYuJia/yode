@@ -697,8 +697,7 @@ fn test_runtime_state_exposes_tool_pool_gating() {
     assert!(runtime
         .tool_pool
         .hidden_tool_names()
-        .iter()
-        .any(|name| *name == "mcp__demo__search"));
+        .contains(&"mcp__demo__search"));
 }
 
 #[test]
