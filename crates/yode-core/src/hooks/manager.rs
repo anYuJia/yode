@@ -268,6 +268,15 @@ impl HookManager {
     ) -> std::io::Result<std::process::Output> {
         #[cfg(windows)]
         {
+            match self
+                .build_hook_command("cmd.exe", &["/C"], command, context_json, event)
+                .output()
+                .await
+            {
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                result => return result,
+            }
+
             for program in [
                 "bash",
                 r"C:\Program Files\Git\bin\bash.exe",
@@ -283,10 +292,10 @@ impl HookManager {
                 }
             }
 
-            return self
-                .build_hook_command("cmd.exe", &["/C"], command, context_json, event)
-                .output()
-                .await;
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "no supported hook shell found",
+            ));
         }
 
         #[cfg(not(windows))]

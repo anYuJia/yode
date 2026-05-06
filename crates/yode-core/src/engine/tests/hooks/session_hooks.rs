@@ -1,10 +1,44 @@
 use super::*;
 
 fn hook_dump_context_command(path: &std::path::Path) -> String {
+    #[cfg(windows)]
+    {
+        return format!(
+            "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"[System.IO.File]::WriteAllText('{}', $env:YODE_HOOK_CONTEXT)\"",
+            powershell_quote_path(path)
+        );
+    }
+
+    #[cfg(not(windows))]
     format!(
         "printf '%s' \"$YODE_HOOK_CONTEXT\" > {}",
         shell_quote_path(path)
     )
+}
+
+#[cfg(windows)]
+fn hook_echo_command(text: &str) -> String {
+    format!("echo {}", text)
+}
+
+#[cfg(not(windows))]
+fn hook_echo_command(text: &str) -> String {
+    format!("echo {}", text)
+}
+
+#[cfg(windows)]
+fn hook_wake_command(json: &str) -> String {
+    format!("echo {} && exit /b 2", json)
+}
+
+#[cfg(not(windows))]
+fn hook_wake_command(json: &str) -> String {
+    format!("printf '%s' '{}' && exit 2", json)
+}
+
+#[cfg(windows)]
+fn powershell_quote_path(path: &std::path::Path) -> String {
+    path.display().to_string().replace('\'', "''")
 }
 
 fn shell_quote_path(path: &std::path::Path) -> String {
@@ -24,7 +58,7 @@ async fn test_initialize_session_hooks_injects_system_context() {
     std::fs::create_dir_all(&hook_dir).unwrap();
     let mut hook_mgr = crate::hooks::HookManager::new(hook_dir);
     hook_mgr.register(crate::hooks::HookDefinition {
-        command: "echo session context".into(),
+        command: hook_echo_command("session context"),
         events: vec!["session_start".into()],
         tool_filter: None,
         timeout_secs: 5,
@@ -58,9 +92,9 @@ async fn test_session_start_hook_wake_notification_is_injected() {
     std::fs::create_dir_all(&hook_dir).unwrap();
     let mut hook_mgr = crate::hooks::HookManager::new(hook_dir);
     hook_mgr.register(crate::hooks::HookDefinition {
-        command:
-            "printf '%s' '{\"hookSpecificOutput\":{\"wakeNotification\":\"background hook finished\"}}' && exit 2"
-                .into(),
+        command: hook_wake_command(
+            "{\"hookSpecificOutput\":{\"wakeNotification\":\"background hook finished\"}}",
+        ),
         events: vec!["session_start".into()],
         tool_filter: None,
         timeout_secs: 5,
@@ -154,7 +188,7 @@ async fn test_append_hook_outputs_as_system_message_injects_context() {
     std::fs::create_dir_all(&hook_dir).unwrap();
     let mut hook_mgr = crate::hooks::HookManager::new(hook_dir);
     hook_mgr.register(crate::hooks::HookDefinition {
-        command: "echo prompt context".into(),
+        command: hook_echo_command("prompt context"),
         events: vec!["user_prompt_submit".into()],
         tool_filter: None,
         timeout_secs: 5,

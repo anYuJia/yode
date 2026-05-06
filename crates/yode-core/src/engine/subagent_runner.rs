@@ -847,10 +847,24 @@ mod tests {
     use yode_tools::tool::SubAgentOptions;
 
     fn hook_dump_context_command(path: &std::path::Path) -> String {
+        #[cfg(windows)]
+        {
+            return format!(
+                "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"[System.IO.File]::WriteAllText('{}', $env:YODE_HOOK_CONTEXT)\"",
+                powershell_quote_path(path)
+            );
+        }
+
+        #[cfg(not(windows))]
         format!(
             "printf '%s' \"$YODE_HOOK_CONTEXT\" > {}",
             shell_quote_path(path)
         )
+    }
+
+    #[cfg(windows)]
+    fn powershell_quote_path(path: &std::path::Path) -> String {
+        path.display().to_string().replace('\'', "''")
     }
 
     fn shell_quote_path(path: &std::path::Path) -> String {

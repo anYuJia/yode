@@ -3,10 +3,42 @@ use super::*;
 use yode_llm::types::ToolCall;
 
 fn hook_dump_context_command(path: &std::path::Path) -> String {
+    #[cfg(windows)]
+    {
+        return format!(
+            "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"[System.IO.File]::WriteAllText('{}', $env:YODE_HOOK_CONTEXT)\"",
+            powershell_quote_path(path)
+        );
+    }
+
+    #[cfg(not(windows))]
     format!(
         "printf '%s' \"$YODE_HOOK_CONTEXT\" > {}",
         shell_quote_path(path)
     )
+}
+
+#[cfg(windows)]
+fn hook_json_command(json: &str) -> String {
+    format!(
+        "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"Write-Output '{}'\"",
+        powershell_quote(json)
+    )
+}
+
+#[cfg(not(windows))]
+fn hook_json_command(json: &str) -> String {
+    format!("printf '%s' '{}'", json)
+}
+
+#[cfg(windows)]
+fn powershell_quote(value: &str) -> String {
+    value.replace('\'', "''")
+}
+
+#[cfg(windows)]
+fn powershell_quote_path(path: &std::path::Path) -> String {
+    path.display().to_string().replace('\'', "''")
 }
 
 fn shell_quote_path(path: &std::path::Path) -> String {
@@ -26,7 +58,7 @@ async fn test_pre_tool_use_hook_can_modify_input() {
     std::fs::create_dir_all(&hook_dir).unwrap();
     let mut hook_mgr = crate::hooks::HookManager::new(hook_dir);
     hook_mgr.register(crate::hooks::HookDefinition {
-        command: "printf '%s' '{\"updatedInput\":{\"path\":\"new.txt\"}}'".into(),
+        command: hook_json_command("{\"updatedInput\":{\"path\":\"new.txt\"}}"),
         events: vec!["pre_tool_use".into()],
         tool_filter: Some(vec!["mock_path".into()]),
         timeout_secs: 5,
@@ -116,9 +148,9 @@ async fn test_pre_tool_use_hook_can_defer_call_with_artifact() {
     std::fs::create_dir_all(&hook_dir).unwrap();
     let mut hook_mgr = crate::hooks::HookManager::new(hook_dir);
     hook_mgr.register(crate::hooks::HookDefinition {
-        command:
-            "printf '%s' '{\"decision\":\"defer\",\"deferReason\":\"await external approval\"}'"
-                .into(),
+        command: hook_json_command(
+            "{\"decision\":\"defer\",\"deferReason\":\"await external approval\"}",
+        ),
         events: vec!["pre_tool_use".into()],
         tool_filter: Some(vec!["mock_path".into()]),
         timeout_secs: 5,
@@ -159,9 +191,9 @@ async fn test_pre_tool_use_hook_can_defer_tool_call() {
     std::fs::create_dir_all(&hook_dir).unwrap();
     let mut hook_mgr = crate::hooks::HookManager::new(hook_dir);
     hook_mgr.register(crate::hooks::HookDefinition {
-        command:
-            "printf '%s' '{\"decision\":\"defer\",\"deferReason\":\"wait for remote approval\"}'"
-                .into(),
+        command: hook_json_command(
+            "{\"decision\":\"defer\",\"deferReason\":\"wait for remote approval\"}",
+        ),
         events: vec!["pre_tool_use".into()],
         tool_filter: Some(vec!["mock_path".into()]),
         timeout_secs: 5,
