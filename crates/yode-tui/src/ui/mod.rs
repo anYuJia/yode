@@ -79,14 +79,16 @@ fn render_inspector_mode(frame: &mut Frame, app: &mut App) {
 fn render_confirmation_mode(frame: &mut Frame, app: &mut App) {
     use ratatui::layout::{Constraint, Direction, Layout};
 
-    let panel_area = Layout::default()
+    let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Min(0),
+            Constraint::Length(1),
             Constraint::Length(tool_confirm::INLINE_CONFIRM_HEIGHT),
         ])
-        .split(frame.area())[1];
-    tool_confirm::render_inline_confirm(frame, panel_area, app);
+        .split(frame.area());
+    status_bar::render_info_line(frame, chunks[1], app);
+    tool_confirm::render_inline_confirm(frame, chunks[2], app);
 }
 
 fn render_main_mode(frame: &mut Frame, app: &mut App) {

@@ -13,6 +13,7 @@ use crate::ui::chat::render_markdown_white_with_options;
 
 /// Render inline confirmation selector in a bottom-anchored panel.
 pub const INLINE_CONFIRM_HEIGHT: u16 = 14;
+pub const INLINE_CONFIRM_VIEWPORT_HEIGHT: u16 = INLINE_CONFIRM_HEIGHT + 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ConfirmDensity {
@@ -555,7 +556,7 @@ mod tests {
         confirm_density, confirmation_primary_value, confirmation_section_title,
         confirmation_title, inline_confirm_height, option_list_lines, tool_activity_summary,
         tool_allow_option_label, tool_display_name, tool_preview_line, tool_risk_hint,
-        ConfirmDensity, ConfirmRiskLevel,
+        ConfirmDensity, ConfirmRiskLevel, INLINE_CONFIRM_HEIGHT, INLINE_CONFIRM_VIEWPORT_HEIGHT,
     };
 
     fn test_app() -> App {
@@ -720,6 +721,11 @@ mod tests {
         assert_eq!(confirm_density(80), ConfirmDensity::Default);
         assert_eq!(confirm_density(60), ConfirmDensity::Narrow);
         assert_eq!(inline_confirm_height(ConfirmDensity::Narrow), 12);
+    }
+
+    #[test]
+    fn confirmation_viewport_reserves_status_line() {
+        assert_eq!(INLINE_CONFIRM_VIEWPORT_HEIGHT, INLINE_CONFIRM_HEIGHT + 1);
     }
 
     #[test]

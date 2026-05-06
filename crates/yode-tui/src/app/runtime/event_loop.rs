@@ -350,7 +350,7 @@ fn viewport_height(app: &App, terminal: &mut Terminal<CrosstermBackend<io::Stdou
         return wizard.viewport_height() + 1;
     }
     if app.pending_confirmation.is_some() {
-        return crate::ui::tool_confirm::INLINE_CONFIRM_HEIGHT;
+        return crate::ui::tool_confirm::INLINE_CONFIRM_VIEWPORT_HEIGHT;
     }
 
     let term_width = terminal.get_frame().area().width;
