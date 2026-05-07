@@ -1,6 +1,6 @@
 use super::*;
 
-use yode_llm::types::Message;
+use yode_llm::types::{ImageData, Message};
 
 #[test]
 fn test_model_limits_lookup() {
@@ -142,6 +142,23 @@ fn test_estimate_tokens_without_cache() {
     let cm = ContextManager::new("claude-sonnet-4");
     let messages = vec![Message::user("x".repeat(400))];
     assert_eq!(cm.estimate_tokens(&messages), 100);
+}
+
+#[test]
+fn test_estimate_tokens_includes_image_payloads() {
+    let cm = ContextManager::new("claude-sonnet-4");
+    let message = Message::user_with_images(
+        "look",
+        vec![ImageData {
+            base64: "x".repeat(396),
+            media_type: "image/png".to_string(),
+        }],
+    );
+
+    assert_eq!(
+        cm.estimate_tokens(&[message]),
+        ("look".len() + 396 + "image/png".len()) / 4
+    );
 }
 
 #[test]

@@ -300,7 +300,12 @@ impl Message {
             .iter()
             .map(ToolCall::estimated_char_count)
             .sum();
-        content_len + reasoning_len + tool_calls_len
+        let image_len: usize = self
+            .images
+            .iter()
+            .map(|image| image.base64.len() + image.media_type.len())
+            .sum();
+        content_len + reasoning_len + tool_calls_len + image_len
     }
 }
 
@@ -381,6 +386,22 @@ mod tests {
                 + "tc1".len()
                 + "read_file".len()
                 + "{\"file_path\":\"src/main.rs\"}".len()
+        );
+    }
+
+    #[test]
+    fn estimated_char_count_includes_images() {
+        let message = Message::user_with_images(
+            "describe this",
+            vec![super::ImageData {
+                base64: "ZmFrZV9pbWFnZV9ieXRlcw==".to_string(),
+                media_type: "image/png".to_string(),
+            }],
+        );
+
+        assert_eq!(
+            message.estimated_char_count(),
+            "describe this".len() + "ZmFrZV9pbWFnZV9ieXRlcw==".len() + "image/png".len()
         );
     }
 }
