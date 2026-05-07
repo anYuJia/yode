@@ -43,8 +43,7 @@ static ISSUE_REF_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 static URL_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"https?://[^\s<>"']+"#).unwrap());
 
-const TABLE_SAFETY_MARGIN: usize = 4;
-const TABLE_MAX_ROW_LINES: usize = 1;
+const TABLE_MAX_ROW_LINES: usize = 4;
 
 pub(super) fn render_markdown_with_options(
     text: &str,
@@ -2521,7 +2520,7 @@ mod tests {
     }
 
     #[test]
-    fn wrapped_tables_fall_back_to_vertical_layout_to_avoid_empty_padding() {
+    fn wrapped_tables_under_row_threshold_stay_boxed() {
         let lines = render_markdown_with_options(
             "| 优化项 | 说明 | 工作量 |\n| --- | --- | --- |\n| hooks | 缺少 notification hooks, permission hooks, lifecycle hooks，需要补齐事件通知、权限拦截、生命周期回调 | 中 |",
             None,
@@ -2534,9 +2533,45 @@ mod tests {
         .map(|line| line.to_string())
         .collect::<Vec<_>>();
 
-        assert!(lines.iter().any(|line| line.contains("优化项:")));
-        assert!(lines.iter().any(|line| line.contains("说明:")));
-        assert!(!lines.iter().any(|line| line.contains("┼")));
+        assert!(lines.iter().any(|line| line.starts_with('┌')));
+        assert!(!lines.iter().any(|line| line.contains("优化项:")));
+    }
+
+    #[test]
+    fn moderately_wrapped_tables_stay_boxed_like_claude() {
+        let lines = render_markdown_with_options(
+            "| Metric | Value |\n| --- | --- |\n| Runtime | concise wrapped explanation with useful detail |\n| Status | Healthy |",
+            None,
+            MarkdownRenderOptions {
+                max_width: Some(44),
+                enable_hyperlinks: false,
+            },
+        )
+        .into_iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>();
+
+        assert!(lines.iter().any(|line| line.starts_with('┌')));
+        assert!(lines.iter().any(|line| line.starts_with('│')));
+        assert!(!lines.iter().any(|line| line.contains("Metric:")));
+    }
+
+    #[test]
+    fn vertical_table_cells_collapse_internal_whitespace() {
+        let lines = render_markdown_with_options(
+            "| Metric | Value |\n| --- | --- |\n| Runtime | alpha     beta      gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau |",
+            None,
+            MarkdownRenderOptions {
+                max_width: Some(24),
+                enable_hyperlinks: false,
+            },
+        )
+        .into_iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>();
+
+        assert!(lines.iter().any(|line| line.contains("Value: alpha beta")));
+        assert!(lines.iter().all(|line| !line.contains("     ")));
     }
 
     #[test]
@@ -3101,7 +3136,7 @@ fn render_table(
 
     if rendered_table
         .iter()
-        .any(|line| line_display_width(line) > available_width.saturating_sub(TABLE_SAFETY_MARGIN))
+        .any(|line| line_display_width(line) > available_width)
     {
         render_vertical_table(lines, rows, available_width);
         return;
@@ -3242,15 +3277,9 @@ fn render_vertical_table(
                 .unwrap_or_else(|| format!("Column {}", col_index + 1));
             let label_width = UnicodeWidthStr::width(label.as_str());
             let first_line_width = max_width.saturating_sub(label_width + 2).max(10);
+            let value = compact_table_cell_text(&cell.content);
             let value_lines = wrap_cell_lines(
-                render_inline_nodes_as_lines_with_style(
-                    &cell.content,
-                    Style::default().fg(WHITE),
-                    &MarkdownRenderOptions {
-                        max_width: Some(first_line_width),
-                        enable_hyperlinks: false,
-                    },
-                ),
+                render_plain_table_value(&value, first_line_width),
                 first_line_width,
             );
 
@@ -3276,6 +3305,24 @@ fn render_vertical_table(
             }
         }
     }
+}
+
+fn render_plain_table_value(value: &str, max_width: usize) -> Vec<Line<'static>> {
+    render_plain_text_lines(
+        value,
+        Some(WHITE),
+        MarkdownRenderOptions {
+            max_width: Some(max_width),
+            enable_hyperlinks: false,
+        },
+    )
+}
+
+fn compact_table_cell_text(nodes: &[InlineNode]) -> String {
+    inline_nodes_to_plain_text(nodes)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn min_cell_width(nodes: &[InlineNode]) -> usize {

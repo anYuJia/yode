@@ -85,11 +85,7 @@ pub(super) fn render_assistant(
         }
         let prefix = if first_content { "⏺ " } else { "  " };
         result.push((
-            if first_content {
-                format!("{}{} (ctrl+o to inspect)", prefix, line)
-            } else {
-                format!("{}{}", prefix, line)
-            },
+            format!("{}{}", prefix, line),
             ratatui::style::Style::default().fg(WHITE),
         ));
         first_content = false;
@@ -213,15 +209,13 @@ mod tests {
         assert!(rendered
             .iter()
             .any(|line| line.contains("∴ Thinking… (ctrl+o to inspect)")));
-        assert!(rendered
-            .iter()
-            .any(|line| line.contains("final answer (ctrl+o to inspect)")));
+        assert!(rendered.iter().any(|line| line.contains("final answer")));
         assert!(rendered.iter().any(|line| line.contains("Plan")));
         assert!(rendered.iter().any(|line| line.contains("• inspect")));
     }
 
     #[test]
-    fn scrollback_assistant_content_advertises_detail_inspection() {
+    fn scrollback_assistant_content_does_not_append_inspection_hint() {
         let entry = ChatEntry::new(ChatRole::Assistant, "Final answer".to_string());
         let mut result = Vec::new();
         render_assistant(
@@ -236,9 +230,7 @@ mod tests {
             .iter()
             .map(|(line, _)| strip_ansi(line))
             .collect::<Vec<_>>();
-        assert!(rendered
-            .iter()
-            .any(|line| line.contains("Final answer (ctrl+o to inspect)")));
+        assert!(rendered.iter().any(|line| line == "⏺ Final answer"));
     }
 
     #[test]

@@ -10,10 +10,12 @@ pub struct MainLayoutPlan {
 }
 
 pub(crate) fn status_area_height(app: &App, completion_height: u16) -> u16 {
-    if completion_height > 0 {
-        0
-    } else if app.turn_status.is_visible() {
-        3
+    if app.turn_status.is_visible() {
+        if completion_height > 0 {
+            1
+        } else {
+            3
+        }
     } else if app.turn_completion.last_turn_message.is_some() {
         1
     } else {
@@ -44,6 +46,7 @@ pub fn build_main_layout(area: Rect, app: &App) -> MainLayoutPlan {
     let constraints = if completion_height > 0 {
         vec![
             Constraint::Length(completion_height),
+            Constraint::Length(status_area_height),
             Constraint::Length(pending_height),
             Constraint::Length(1),
             Constraint::Length(1),
@@ -174,5 +177,24 @@ mod tests {
         assert_eq!(plan.areas[1].height, 3);
         assert_eq!(plan.areas[2].height, 1);
         assert_eq!(plan.areas[4].height, 1);
+    }
+
+    #[test]
+    fn completion_keeps_compact_turn_status_above_composer_status() {
+        let mut app = test_app();
+        app.turn_status = crate::app::TurnStatus::Done {
+            elapsed: std::time::Duration::from_secs(2),
+            tools: 1,
+        };
+        app.cmd_completion.candidates = vec![("/help".to_string(), "Show help".to_string())];
+
+        let plan = build_main_layout(ratatui::layout::Rect::new(0, 0, 80, 20), &app);
+
+        assert!(plan.show_completion);
+        assert!(plan.show_turn_status);
+        assert_eq!(plan.areas[0].height, 5);
+        assert_eq!(plan.areas[1].height, 1);
+        assert_eq!(plan.areas[3].height, 1);
+        assert!(plan.areas[3].y < plan.areas[5].y);
     }
 }
