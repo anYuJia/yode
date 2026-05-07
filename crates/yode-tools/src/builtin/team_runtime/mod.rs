@@ -501,17 +501,17 @@ impl Tool for TeamCreateTool {
             .map(team_member_from_input)
             .collect::<Vec<_>>();
         let artifacts = if let Some(manager) = ctx.team_runtime.as_ref() {
-            let state = {
+            let snapshot = {
                 let mut manager = manager.lock().await;
-                manager.ensure_team(goal, team_id, mode, members)
+                let state = manager.ensure_team(goal, team_id, mode, members);
+                manager
+                    .snapshot(&state.team_id)
+                    .unwrap_or(AgentTeamSnapshot {
+                        state: Some(state),
+                        messages: Vec::new(),
+                    })
             };
-            persist_agent_team_snapshot(
-                working_dir,
-                &AgentTeamSnapshot {
-                    state: Some(state),
-                    messages: Vec::new(),
-                },
-            )?
+            persist_agent_team_snapshot(working_dir, &snapshot)?
         } else {
             persist_agent_team_runtime(working_dir, goal, team_id, mode, members)?
         };
@@ -1805,6 +1805,69 @@ mod tests {
             .unwrap();
         assert_eq!(snapshot.messages.len(), 1);
         assert_eq!(snapshot.state.as_ref().unwrap().team_id, "team-demo");
+    }
+
+    #[tokio::test]
+    async fn team_create_refresh_preserves_live_manager_messages_on_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ToolContext::empty();
+        ctx.working_dir = Some(dir.path().to_path_buf());
+        ctx.team_runtime = Some(Arc::new(Mutex::new(AgentTeamManager::new())));
+
+        TeamCreateTool
+            .execute(
+                json!({
+                    "goal": "ship feature",
+                    "team_id": "team-demo",
+                    "members": [{ "id": "review", "description": "review" }]
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+        SendMessageTool
+            .execute(
+                json!({
+                    "team_id": "team-demo",
+                    "target": "review",
+                    "message": "preserve this handoff"
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        TeamCreateTool
+            .execute(
+                json!({
+                    "goal": "ship feature",
+                    "team_id": "team-demo",
+                    "members": [
+                        { "id": "review", "description": "review refreshed" },
+                        { "id": "worker", "description": "worker" }
+                    ]
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        let messages = super::load_agent_team_messages(dir.path(), "team-demo").unwrap();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].message, "preserve this handoff");
+
+        let monitor = TeamMonitorTool
+            .execute(
+                json!({
+                    "team_id": "team-demo",
+                    "include_messages": true
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+        assert!(monitor.content.contains("preserve this handoff"));
+        assert!(monitor.content.contains("worker"));
     }
 
     #[tokio::test]
