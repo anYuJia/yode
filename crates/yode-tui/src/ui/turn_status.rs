@@ -49,7 +49,18 @@ pub fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &
         indicator_spans.pop();
     }
     let status_line = match &app.turn_status {
-        TurnStatus::Idle => return,
+        TurnStatus::Idle => {
+            let Some(last_turn) = app.turn_completion.last_turn_message.as_deref() else {
+                return;
+            };
+            Line::from(vec![
+                Span::styled("  ⚡ ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    compact_last_turn_status(last_turn),
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ])
+        }
         TurnStatus::Working { verb } => {
             let spinner = app.spinner_char();
             let elapsed = app.thinking_elapsed_str();
@@ -265,6 +276,15 @@ fn compact_output_token_phrase(n: u32) -> String {
     format!("↓{} tok", format_tok(n))
 }
 
+fn compact_last_turn_status(message: &str) -> String {
+    message
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or("Turn completed")
+        .trim()
+        .replacen("Turn completed", "Completed", 1)
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -277,7 +297,8 @@ mod tests {
     use crate::app::{App, ChatEntry, ChatRole};
 
     use super::{
-        active_working_hint, active_working_label, compact_output_token_phrase, format_tok,
+        active_working_hint, active_working_label, compact_last_turn_status,
+        compact_output_token_phrase, format_tok,
     };
 
     fn test_app() -> App {
@@ -329,6 +350,15 @@ mod tests {
     fn working_and_done_status_use_compact_tok_suffix() {
         assert_eq!(format_tok(1200), "1.2k");
         assert_eq!(compact_output_token_phrase(1200), "↓1.2k tok");
+    }
+
+    #[test]
+    fn compact_last_turn_status_keeps_time_tools_and_tokens() {
+        let status = compact_last_turn_status(
+            "Turn completed · 2.0s · 3 tools · 10↑ 20↓ tok\nsession · 30 total tok · 3 tools",
+        );
+
+        assert_eq!(status, "Completed · 2.0s · 3 tools · 10↑ 20↓ tok");
     }
 
     #[test]
