@@ -86,23 +86,13 @@ impl UpdateCommand {
         // Load config directly
         let config = Config::load().map_err(|e| e.to_string())?;
 
-        if !config.update.auto_check {
-            return Ok(CommandOutput::Message(
-                "Automatic update check is disabled. Enable with: /update set auto_check true"
-                    .into(),
-            ));
-        }
-
         // Get config directory
         let config_dir = dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join(".yode");
 
-        let updater = Updater::new(
-            config_dir,
-            config.update.auto_check,
-            config.update.auto_download,
-        );
+        let (check_enabled, auto_download) = manual_update_check_flags(&config);
+        let updater = Updater::new(config_dir, check_enabled, auto_download);
 
         // Run update check synchronously (blocking for simplicity in command)
         let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
@@ -209,5 +199,62 @@ impl UpdateCommand {
             "✓ Set update.{} = {}",
             option, bool_value
         )))
+    }
+}
+
+fn manual_update_check_flags(config: &Config) -> (bool, bool) {
+    (true, config.update.auto_download)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::manual_update_check_flags;
+    use yode_core::config::{
+        Config, CostConfig, HooksConfig, LlmConfig, McpConfig, PermissionsConfig, SessionConfig,
+        ToolsConfig, UiConfig, UpdateConfig,
+    };
+
+    fn config_with_update(auto_check: bool, auto_download: bool) -> Config {
+        Config {
+            llm: LlmConfig {
+                default_provider: "openai".to_string(),
+                default_model: "gpt-4o".to_string(),
+                providers: Default::default(),
+            },
+            tools: ToolsConfig {
+                bash_timeout: 120,
+                require_confirmation: Vec::new(),
+            },
+            session: SessionConfig {
+                db_path: String::new(),
+            },
+            ui: UiConfig {
+                language: "zh-CN".to_string(),
+                theme: "dark".to_string(),
+                output_style: "default".to_string(),
+            },
+            mcp: McpConfig::default(),
+            permissions: PermissionsConfig::default(),
+            hooks: HooksConfig::default(),
+            cost: CostConfig::default(),
+            update: UpdateConfig {
+                auto_check,
+                auto_download,
+                last_checked: None,
+                last_downloaded_version: None,
+            },
+        }
+    }
+
+    #[test]
+    fn manual_update_check_ignores_auto_check_but_preserves_auto_download() {
+        assert_eq!(
+            manual_update_check_flags(&config_with_update(false, false)),
+            (true, false)
+        );
+        assert_eq!(
+            manual_update_check_flags(&config_with_update(false, true)),
+            (true, true)
+        );
     }
 }
