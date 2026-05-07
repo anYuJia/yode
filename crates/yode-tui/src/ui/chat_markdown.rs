@@ -134,7 +134,7 @@ fn render_plain_text_lines(
     } else {
         text.split('\n')
             .map(|line| {
-                if line.is_empty() {
+                if line.trim().is_empty() {
                     Line::from("")
                 } else {
                     let mut spans = Vec::new();
@@ -148,7 +148,7 @@ fn render_plain_text_lines(
             })
             .collect::<Vec<_>>()
     };
-    trim_trailing_blank_line(&mut lines);
+    normalize_blank_lines(&mut lines);
     if let Some(max_width) = options.max_width {
         manual_wrap(lines, max_width as u16)
     } else {
@@ -361,6 +361,11 @@ fn normalize_structural_lines(text: &str) -> Vec<String> {
     let mut in_code_fence = false;
 
     for raw_line in text.lines() {
+        if raw_line.trim().is_empty() {
+            lines.push(String::new());
+            continue;
+        }
+
         let line = strip_structural_indent(raw_line);
         let trimmed = line.trim().to_string();
         if trimmed.starts_with("```") {
@@ -1275,7 +1280,7 @@ fn render_block_sequence(
             ensure_blank_line(lines);
         }
     }
-    trim_trailing_blank_line(lines);
+    normalize_blank_lines(lines);
 }
 
 fn render_markdown_block(
@@ -1363,19 +1368,30 @@ fn ensure_blank_line(lines: &mut Vec<Line<'static>>) {
     }
 }
 
-fn trim_trailing_blank_line(lines: &mut Vec<Line<'static>>) {
-    if lines.last().is_some_and(is_blank_line) {
-        lines.pop();
+fn normalize_blank_lines(lines: &mut Vec<Line<'static>>) {
+    let mut normalized = Vec::with_capacity(lines.len());
+    let mut previous_blank = true;
+
+    for line in lines.drain(..) {
+        let blank = is_blank_line(&line);
+        if blank {
+            if !previous_blank {
+                normalized.push(Line::from(""));
+            }
+        } else {
+            normalized.push(line);
+        }
+        previous_blank = blank;
     }
+
+    while normalized.last().is_some_and(is_blank_line) {
+        normalized.pop();
+    }
+    *lines = normalized;
 }
 
 fn is_blank_line(line: &Line<'static>) -> bool {
-    line.spans.is_empty()
-        || (line.spans.len() == 1
-            && line
-                .spans
-                .first()
-                .is_some_and(|span| span.content.is_empty()))
+    line.spans.is_empty() || line.spans.iter().all(|span| span.content.trim().is_empty())
 }
 
 #[derive(Clone, Copy)]
@@ -2876,6 +2892,40 @@ mod tests {
             .unwrap();
         assert!(lines[text_index - 1].to_string().is_empty());
         assert!(!lines.last().unwrap().to_string().is_empty());
+    }
+
+    #[test]
+    fn whitespace_only_lines_do_not_create_large_vertical_gaps() {
+        let lines = render_markdown_impl(
+            "10. MCP 多配置源\n11. MCP OAuth 认证\n   \n      \n\n\n21. Auto Dream - 后台思考能力",
+            None,
+        )
+        .into_iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>();
+
+        assert!(lines.iter().any(|line| line.contains("10. MCP 多配置源")));
+        assert!(lines.iter().any(|line| line.contains("21. Auto Dream")));
+        assert!(!lines
+            .windows(2)
+            .any(|window| window[0].is_empty() && window[1].is_empty()));
+    }
+
+    #[test]
+    fn plain_text_fast_path_treats_whitespace_only_lines_as_blank() {
+        let lines = render_markdown_with_options(
+            "alpha\n   \n\nbeta",
+            None,
+            MarkdownRenderOptions {
+                max_width: Some(80),
+                enable_hyperlinks: false,
+            },
+        )
+        .into_iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>();
+
+        assert_eq!(lines, vec!["alpha", "", "beta"]);
     }
 
     #[test]
