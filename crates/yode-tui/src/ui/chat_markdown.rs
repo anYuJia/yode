@@ -1272,7 +1272,14 @@ fn render_block_sequence(
 ) {
     for (index, block) in blocks.iter().enumerate() {
         let spacing = block_spacing(block);
-        if with_gap && index > 0 && spacing.before {
+        let previous = index
+            .checked_sub(1)
+            .and_then(|previous| blocks.get(previous));
+        if with_gap
+            && index > 0
+            && spacing.before
+            && !previous.is_some_and(|previous| keeps_following_block_tight(previous, block))
+        {
             ensure_blank_line(lines);
         }
         render_markdown_block(lines, block, default_fg, list_depth, options);
@@ -1402,9 +1409,9 @@ struct BlockSpacing {
 
 fn block_spacing(block: &MarkdownBlock) -> BlockSpacing {
     match block {
-        MarkdownBlock::Heading { .. } => BlockSpacing {
+        MarkdownBlock::Heading { level, .. } => BlockSpacing {
             before: true,
-            after: true,
+            after: *level <= 1,
         },
         MarkdownBlock::Rule => BlockSpacing {
             before: true,
@@ -1422,6 +1429,11 @@ fn block_spacing(block: &MarkdownBlock) -> BlockSpacing {
             after: false,
         },
     }
+}
+
+fn keeps_following_block_tight(previous: &MarkdownBlock, current: &MarkdownBlock) -> bool {
+    matches!(previous, MarkdownBlock::Heading { level, .. } if *level > 1)
+        && !matches!(current, MarkdownBlock::Heading { .. })
 }
 
 fn render_list_block(
@@ -2880,6 +2892,18 @@ mod tests {
         assert_eq!(title_index, 0);
         assert!(lines[title_index + 1].to_string().is_empty());
         assert!(lines[code_index - 1].to_string().is_empty());
+    }
+
+    #[test]
+    fn secondary_headings_stay_tight_with_following_content() {
+        let lines = render_markdown_impl("## Section\nparagraph\n- item", None);
+        let section_index = lines
+            .iter()
+            .position(|line| line.to_string().contains("Section"))
+            .unwrap();
+        assert_eq!(section_index, 0);
+        assert_eq!(lines[section_index + 1].to_string(), "paragraph");
+        assert!(lines.iter().any(|line| line.to_string().contains("• item")));
     }
 
     #[test]
