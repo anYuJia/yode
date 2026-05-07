@@ -266,7 +266,7 @@ pub(super) fn flush_entries_to_scrollback(
 
     if let Some((remainder, is_first)) = app.streaming_markdown_remainder.take() {
         let mut first_done = !is_first;
-        push_streaming_rendered_lines(&mut all_output, remainder, false, &mut first_done);
+        push_streaming_rendered_lines(&mut all_output, remainder, is_first, &mut first_done);
     }
 
     while app.printed_count < app.chat_entries.len() {
@@ -425,6 +425,21 @@ mod tests {
         assert_eq!(output[1].0, "⏺ Heading");
         assert_eq!(output[2].0, String::new());
         assert_eq!(output[3].0, "  Body");
+    }
+
+    #[test]
+    fn push_streaming_rendered_lines_separates_final_first_chunk_from_prompt() {
+        let mut output = Vec::new();
+        let mut first_printed = false;
+        push_streaming_rendered_lines(
+            &mut output,
+            vec!["你好！我是 claude-opus-4-7".to_string()],
+            true,
+            &mut first_printed,
+        );
+
+        assert_eq!(output[0].0, String::new());
+        assert_eq!(output[1].0, "⏺ 你好！我是 claude-opus-4-7");
     }
 
     #[test]
