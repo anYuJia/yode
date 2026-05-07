@@ -53,10 +53,8 @@ fn composer_status_spans(app: &App, width: u16) -> Vec<Span<'static>> {
 
     // Permission mode badge
     let (mode_text, mode_color) = permission_mode_badge(app.session.permission_mode, density);
-    if !matches!(section_mode, StatusSectionMode::Collapsed) {
-        parts.push(Span::styled(mode_text, Style::default().fg(mode_color)));
-        parts.push(Span::styled("· ", Style::default().fg(SEP)));
-    }
+    parts.push(Span::styled(mode_text, Style::default().fg(mode_color)));
+    parts.push(Span::styled("· ", Style::default().fg(SEP)));
 
     parts.push(Span::styled(
         turn_state_label(app, density),
@@ -534,6 +532,18 @@ mod tests {
         assert!(line.contains("24.0k↑ 74↓ tok"));
         assert!(line.contains("turn 1.2k↑ 180↓"));
         assert!(line.contains("7 tools"));
+    }
+
+    #[test]
+    fn composer_status_line_keeps_permission_mode_when_collapsed() {
+        let mut app = test_app();
+        app.session.permission_mode = crate::app::PermissionMode::AutoAccept;
+
+        let line = spans_to_text(&composer_status_spans(&app, 50));
+
+        assert!(line.contains("⚡A"));
+        assert!(line.contains("idle"));
+        assert!(line.contains("0↑0↓"));
     }
 
     #[test]
