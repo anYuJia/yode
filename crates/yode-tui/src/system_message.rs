@@ -36,6 +36,10 @@ pub(crate) fn parse_system_message(content: &str) -> SystemMessageView {
         };
     };
 
+    if first_line == "<task-notification>" {
+        return parse_task_notification_xml(content);
+    }
+
     let (kind, title, first_detail) = if let Some(detail) =
         strip_title_suffix(first_line, "Context compacted")
             .or_else(|| strip_title_suffix(first_line, "Context compressed"))
@@ -100,6 +104,62 @@ pub(crate) fn parse_system_message(content: &str) -> SystemMessageView {
         title,
         detail_lines,
     }
+}
+
+fn parse_task_notification_xml(content: &str) -> SystemMessageView {
+    let task_id = extract_xml_tag(content, "task-id").unwrap_or_else(|| "task".to_string());
+    let status = extract_xml_tag(content, "status").unwrap_or_else(|| "updated".to_string());
+    let summary = extract_xml_tag(content, "summary");
+    let result = extract_xml_tag(content, "result");
+    let output_path = extract_xml_tag(content, "output-path");
+    let transcript_path = extract_xml_tag(content, "transcript-path");
+    let duration_ms = extract_xml_tag(content, "duration_ms");
+    let tool_uses = extract_xml_tag(content, "tool_uses");
+
+    let mut detail_lines = Vec::new();
+    if let Some(summary) = summary.filter(|summary| !summary.trim().is_empty()) {
+        detail_lines.push(summary);
+    }
+    if let Some(result) = result.filter(|result| !result.trim().is_empty()) {
+        detail_lines.push(format!("result · {}", result));
+    }
+    if let Some(output_path) = output_path {
+        detail_lines.push(format!("output · {}", output_path));
+    }
+    if let Some(transcript_path) = transcript_path {
+        detail_lines.push(format!("transcript · {}", transcript_path));
+    }
+    if duration_ms.is_some() || tool_uses.is_some() {
+        let mut usage = Vec::new();
+        if let Some(duration_ms) = duration_ms {
+            usage.push(format!("{}ms", duration_ms));
+        }
+        if let Some(tool_uses) = tool_uses {
+            usage.push(format!("{} tools", tool_uses));
+        }
+        detail_lines.push(format!("usage · {}", usage.join(" · ")));
+    }
+
+    SystemMessageView {
+        kind: SystemMessageKind::Task,
+        title: format!("Task {} {}", task_id, status),
+        detail_lines,
+    }
+}
+
+fn extract_xml_tag(content: &str, tag: &str) -> Option<String> {
+    let open = format!("<{}>", tag);
+    let close = format!("</{}>", tag);
+    let start = content.find(&open)? + open.len();
+    let end = content[start..].find(&close)? + start;
+    Some(xml_unescape(content[start..end].trim()))
+}
+
+fn xml_unescape(value: &str) -> String {
+    value
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
 }
 
 pub(crate) fn system_message_summary(view: &SystemMessageView) -> String {
@@ -341,6 +401,25 @@ mod tests {
         assert_eq!(view.kind, SystemMessageKind::Task);
         assert_eq!(view.title, "Task warn");
         assert_eq!(view.detail_lines, vec!["agent stalled".to_string()]);
+    }
+
+    #[test]
+    fn parses_xml_task_notifications_into_compact_ui_summary() {
+        let view = parse_system_message(
+            "<task-notification>\n<task-id>task-5</task-id>\n<status>completed</status>\n<summary>done</summary>\n<output-path>/tmp/out</output-path>\n<result>fixed &lt;bug&gt;</result>\n<usage>\n  <duration_ms>12</duration_ms>\n  <tool_uses>3</tool_uses>\n</usage>\n</task-notification>",
+        );
+
+        assert_eq!(view.kind, SystemMessageKind::Task);
+        assert_eq!(view.title, "Task task-5 completed");
+        assert!(view.detail_lines.contains(&"done".to_string()));
+        assert!(view
+            .detail_lines
+            .contains(&"result · fixed <bug>".to_string()));
+        assert!(view.detail_lines.iter().all(|line| !line.contains("<task")));
+        assert_eq!(
+            system_message_summary(&view),
+            "Task task-5 completed · done · +3 more"
+        );
     }
 
     #[test]

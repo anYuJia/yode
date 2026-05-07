@@ -44,7 +44,7 @@ static ISSUE_REF_RE: LazyLock<Regex> = LazyLock::new(|| {
 static URL_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"https?://[^\s<>"']+"#).unwrap());
 
 const TABLE_SAFETY_MARGIN: usize = 4;
-const TABLE_MAX_ROW_LINES: usize = 4;
+const TABLE_MAX_ROW_LINES: usize = 1;
 
 pub(super) fn render_markdown_with_options(
     text: &str,
@@ -2489,6 +2489,25 @@ mod tests {
         .collect::<Vec<_>>();
         assert!(lines.iter().any(|line| line.contains("Metric:")));
         assert!(lines.iter().any(|line| line.contains("Value:")));
+        assert!(!lines.iter().any(|line| line.contains("┼")));
+    }
+
+    #[test]
+    fn wrapped_tables_fall_back_to_vertical_layout_to_avoid_empty_padding() {
+        let lines = render_markdown_with_options(
+            "| 优化项 | 说明 | 工作量 |\n| --- | --- | --- |\n| hooks | 缺少 notification hooks, permission hooks, lifecycle hooks，需要补齐事件通知、权限拦截、生命周期回调 | 中 |",
+            None,
+            MarkdownRenderOptions {
+                max_width: Some(64),
+                enable_hyperlinks: false,
+            },
+        )
+        .into_iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>();
+
+        assert!(lines.iter().any(|line| line.contains("优化项:")));
+        assert!(lines.iter().any(|line| line.contains("说明:")));
         assert!(!lines.iter().any(|line| line.contains("┼")));
     }
 

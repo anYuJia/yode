@@ -111,6 +111,10 @@ fn maybe_surface_runtime_task_notifications(
     app: &mut App,
     engine: &Arc<Mutex<AgentEngine>>,
 ) -> bool {
+    if should_defer_runtime_task_notifications(app) {
+        return false;
+    }
+
     let mut changed = false;
     if let Ok(engine_guard) = engine.try_lock() {
         for notification in engine_guard.drain_runtime_task_notifications() {
@@ -133,6 +137,10 @@ fn maybe_surface_runtime_task_notifications(
         }
     }
     changed
+}
+
+fn should_defer_runtime_task_notifications(app: &App) -> bool {
+    app.is_processing || !app.streaming_buf.is_empty() || !app.streaming_markdown_preview.is_empty()
 }
 
 fn render_task_notification_xml(notification: &RuntimeTaskNotification) -> String {
@@ -236,6 +244,7 @@ mod tests {
 
     use super::{
         background_task_brief_lines, inspector_viewport_height, render_task_notification_xml,
+        should_defer_runtime_task_notifications,
     };
 
     fn test_app() -> App {
@@ -303,6 +312,23 @@ mod tests {
         assert!(rendered.contains("<result>fixed &lt;bug&gt;</result>"));
         assert!(rendered.contains("<duration_ms>12</duration_ms>"));
         assert!(rendered.contains("<tool_uses>3</tool_uses>"));
+    }
+
+    #[test]
+    fn runtime_task_notifications_wait_until_turn_finishes() {
+        let mut app = test_app();
+        assert!(!should_defer_runtime_task_notifications(&app));
+
+        app.is_processing = true;
+        assert!(should_defer_runtime_task_notifications(&app));
+
+        app.is_processing = false;
+        app.streaming_buf = "partial response".to_string();
+        assert!(should_defer_runtime_task_notifications(&app));
+
+        app.streaming_buf.clear();
+        app.streaming_markdown_preview = vec![ratatui::text::Line::from("preview")];
+        assert!(should_defer_runtime_task_notifications(&app));
     }
 
     #[test]
