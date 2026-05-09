@@ -180,27 +180,28 @@ fn render_conversation_body(entries: &[crate::app::ChatEntry]) -> String {
             }
             _ => {}
         }
-        let (lines, next_index) = if let Some(batch) = detect_groupable_tool_batch(entries, index) {
-            (
-                format_scrollback_grouped_tool_batch(entries, &batch),
-                batch.next_index,
-            )
-        } else if let Some(batch) = detect_groupable_subagent_batch(entries, index) {
-            (
-                format_scrollback_grouped_subagent_batch(entries, &batch),
-                batch.next_index,
-            )
-        } else if let Some(batch) = detect_groupable_system_batch(entries, index) {
-            (
-                format_scrollback_grouped_system_batch(entries, &batch),
-                batch.next_index,
-            )
-        } else {
-            (
-                format_scrollback_entry_as_strings(&entries[index], entries, index),
-                index + 1,
-            )
-        };
+        let (lines, next_index) =
+            if let Some(batch) = detect_groupable_subagent_batch(entries, index) {
+                (
+                    format_scrollback_grouped_subagent_batch(entries, &batch),
+                    batch.next_index,
+                )
+            } else if let Some(batch) = detect_groupable_tool_batch(entries, index) {
+                (
+                    format_scrollback_grouped_tool_batch(entries, &batch),
+                    batch.next_index,
+                )
+            } else if let Some(batch) = detect_groupable_system_batch(entries, index) {
+                (
+                    format_scrollback_grouped_system_batch(entries, &batch),
+                    batch.next_index,
+                )
+            } else {
+                (
+                    format_scrollback_entry_as_strings(&entries[index], entries, index),
+                    index + 1,
+                )
+            };
 
         if let Some(heading) = conversation_block_heading(entries, index, next_index) {
             output.push_str(&format!("### {}\n\n", heading));

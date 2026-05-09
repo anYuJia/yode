@@ -184,26 +184,28 @@ pub(crate) fn render_grouped_tool_call(
             Style::default().fg(DIM).add_modifier(Modifier::ITALIC),
         ),
     ]));
-    if let Some(progress) = tool_batch_progress_text(all_entries, batch) {
-        lines.push(Line::from(vec![
-            Span::styled("  ⎿ ", Style::default().fg(INFO_COLOR)),
-            Span::styled(
-                truncate_ellipsis(&progress, 84),
-                Style::default()
-                    .fg(INFO_COLOR)
-                    .add_modifier(Modifier::ITALIC),
-            ),
-        ]));
-    } else if let Some(hint) = tool_batch_hint_text(all_entries, batch) {
-        lines.push(Line::from(vec![
-            Span::styled("  ⎿ ", Style::default().fg(INFO_COLOR)),
-            Span::styled(
-                truncate_ellipsis(&hint, 84),
-                Style::default()
-                    .fg(INFO_COLOR)
-                    .add_modifier(Modifier::ITALIC),
-            ),
-        ]));
+    if batch.is_active {
+        if let Some(progress) = tool_batch_progress_text(all_entries, batch) {
+            lines.push(Line::from(vec![
+                Span::styled("  ⎿ ", Style::default().fg(INFO_COLOR)),
+                Span::styled(
+                    truncate_ellipsis(&progress, 84),
+                    Style::default()
+                        .fg(INFO_COLOR)
+                        .add_modifier(Modifier::ITALIC),
+                ),
+            ]));
+        } else if let Some(hint) = tool_batch_hint_text(all_entries, batch) {
+            lines.push(Line::from(vec![
+                Span::styled("  ⎿ ", Style::default().fg(INFO_COLOR)),
+                Span::styled(
+                    truncate_ellipsis(&hint, 84),
+                    Style::default()
+                        .fg(INFO_COLOR)
+                        .add_modifier(Modifier::ITALIC),
+                ),
+            ]));
+        }
     }
 }
 
@@ -375,7 +377,7 @@ mod tests {
             .to_string()
             .contains("Searched for 1 pattern, read 1 file, listed 1 directory"));
         assert!(lines[0].to_string().contains("ctrl+o to expand"));
-        assert!(lines[1].to_string().contains("Listed"));
+        assert_eq!(lines.len(), 1);
     }
 
     #[test]
@@ -432,7 +434,7 @@ mod tests {
             .to_string()
             .contains("Searched the web for 1 query, inspected 1 symbol"));
         assert!(lines[0].to_string().contains("ctrl+o to expand"));
-        assert!(lines[1].to_string().contains("Inspected"));
+        assert_eq!(lines.len(), 1);
     }
 
     #[test]

@@ -13,7 +13,35 @@ pub(super) fn render_system_entry(entry: &ChatEntry, show_detail: bool) -> Vec<(
     }
 
     let (prefix, title_style, detail_style) = system_styles(view.kind);
-    let mut result = vec![(format!("{}{}", prefix, view.title), title_style)];
+    let compact_kind = matches!(
+        view.kind,
+        SystemMessageKind::Context
+            | SystemMessageKind::Memory
+            | SystemMessageKind::Export
+            | SystemMessageKind::Lifecycle
+            | SystemMessageKind::Plan
+            | SystemMessageKind::Update
+            | SystemMessageKind::Turn
+            | SystemMessageKind::Task
+    );
+    let mut result = vec![(
+        format!(
+            "{}{}",
+            prefix,
+            if compact_kind {
+                system_message_summary(&view)
+            } else {
+                view.title.clone()
+            }
+        ),
+        title_style,
+    )];
+    if compact_kind && !show_detail {
+        return result;
+    }
+    if compact_kind && matches!(view.kind, SystemMessageKind::Task | SystemMessageKind::Turn) {
+        return result;
+    }
     if show_detail {
         if let Some(first_detail) = view.detail_lines.first() {
             result.push((
@@ -30,13 +58,13 @@ pub(super) fn render_system_entry(entry: &ChatEntry, show_detail: bool) -> Vec<(
                 Style::default().fg(Color::Gray),
             ));
         }
+        result.push((
+            "    ctrl+o to inspect".to_string(),
+            Style::default()
+                .fg(Color::Gray)
+                .add_modifier(ratatui::style::Modifier::ITALIC),
+        ));
     }
-    result.push((
-        "    ctrl+o to inspect".to_string(),
-        Style::default()
-            .fg(Color::Gray)
-            .add_modifier(ratatui::style::Modifier::ITALIC),
-    ));
     result
 }
 
@@ -395,8 +423,22 @@ mod tests {
                 .to_string(),
         );
         let lines = render_system_entry(&entry, true);
-        assert!(lines[0].0.contains("Turn completed"));
-        assert!(lines[1].0.contains("1.4s · 3 tools"));
-        assert!(lines[2].0.contains("+1 more lines"));
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].0.contains("Turn completed · 1.4s · 3 tools"));
+    }
+
+    #[test]
+    fn scrollback_task_notification_is_single_line_summary() {
+        let entry = ChatEntry::new(
+            ChatRole::System,
+            "<task-notification>\n<task-id>task-5</task-id>\n<status>completed</status>\n<summary>completed: Explore Yode project deeply</summary>\n<output-path>/tmp/out</output-path>\n<result>mapped rust workspace project</result>\n</task-notification>"
+                .to_string(),
+        );
+        let lines = render_system_entry(&entry, true);
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0]
+            .0
+            .contains("Task task-5 completed · Explore Yode project deeply"));
+        assert!(!lines[0].0.contains("/tmp/out"));
     }
 }

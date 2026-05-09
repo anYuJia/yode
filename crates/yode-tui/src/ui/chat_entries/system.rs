@@ -15,10 +15,53 @@ pub(crate) fn render_system_entry(lines: &mut Vec<Line<'static>>, entry: &ChatEn
         return;
     }
 
+    let compact_kind = matches!(
+        view.kind,
+        SystemMessageKind::Context
+            | SystemMessageKind::Memory
+            | SystemMessageKind::Export
+            | SystemMessageKind::Lifecycle
+            | SystemMessageKind::Plan
+            | SystemMessageKind::Update
+            | SystemMessageKind::Turn
+    );
     let (prefix, title_style, _detail_style) = system_styles(view.kind);
+    let title = if compact_kind {
+        system_message_summary(&view)
+    } else {
+        view.title.clone()
+    };
+    if compact_kind {
+        if matches!(view.kind, SystemMessageKind::Turn) {
+            lines.push(Line::from(""));
+        }
+        let rendered = render_markdown_white_with_options(&title, None, true);
+        for (index, line) in rendered.into_iter().enumerate() {
+            let mut spans = vec![Span::styled(
+                if index == 0 {
+                    prefix.to_string()
+                } else {
+                    "    ".to_string()
+                },
+                title_style,
+            )];
+            spans.extend(line.spans.into_iter().map(|span| {
+                Span::styled(
+                    span.content,
+                    span.style.patch(title_style.add_modifier(Modifier::BOLD)),
+                )
+            }));
+            lines.push(Line::from(spans));
+        }
+        if matches!(view.kind, SystemMessageKind::Turn) {
+            lines.push(Line::from(""));
+        }
+        return;
+    }
+
     lines.push(Line::from(vec![
         Span::styled(prefix.to_string(), title_style),
-        Span::styled(view.title, title_style.add_modifier(Modifier::BOLD)),
+        Span::styled(title, title_style.add_modifier(Modifier::BOLD)),
     ]));
 
     for detail in view.detail_lines {
@@ -44,6 +87,18 @@ pub(crate) fn render_grouped_system_entries(
     all_entries: &[ChatEntry],
     batch: &SystemBatch,
 ) {
+    let compact_batch = batch.items.iter().all(|item| {
+        matches!(
+            item.kind,
+            SystemMessageKind::Context
+                | SystemMessageKind::Memory
+                | SystemMessageKind::Export
+                | SystemMessageKind::Lifecycle
+                | SystemMessageKind::Plan
+                | SystemMessageKind::Update
+                | SystemMessageKind::Turn
+        )
+    });
     lines.push(Line::from(vec![
         Span::styled(
             "  ≡ ".to_string(),
@@ -62,6 +117,10 @@ pub(crate) fn render_grouped_system_entries(
             Style::default().fg(MUTED).add_modifier(Modifier::ITALIC),
         ),
     ]));
+
+    if compact_batch {
+        return;
+    }
 
     let max_items = 3;
     let visible_items = batch
@@ -214,11 +273,10 @@ mod tests {
         );
         let mut lines = Vec::new();
         render_system_entry(&mut lines, &entry);
-        assert_eq!(lines.len(), 4);
+        assert_eq!(lines.len(), 1);
         assert!(lines[0].to_string().contains("Context compacted"));
-        assert!(lines[1].to_string().contains("auto · -4 msgs"));
-        assert!(lines[2].to_string().contains("summary · older turns"));
-        assert!(lines[3].to_string().contains("ctrl+o to inspect"));
+        assert!(lines[0].to_string().contains("auto · -4 msgs"));
+        assert!(lines[0].to_string().contains("+1 more"));
     }
 
     #[test]
@@ -264,7 +322,7 @@ mod tests {
         render_grouped_system_entries(&mut lines, &entries, &batch);
         assert!(lines[0].to_string().contains("Status updates(2)"));
         assert!(lines[0].to_string().contains("ctrl+o to inspect"));
-        assert!(lines[1].to_string().contains("Context compacted"));
+        assert_eq!(lines.len(), 1);
     }
 
     #[test]
@@ -369,21 +427,8 @@ mod tests {
             .iter()
             .map(|line| line.to_string())
             .collect::<Vec<_>>();
-        assert!(rendered
-            .iter()
-            .any(|line| line.contains("Context compacted")));
-        assert!(rendered
-            .iter()
-            .any(|line| line.contains("Session memory updated")));
-        assert!(rendered
-            .iter()
-            .any(|line| line.contains("Diagnostics bundle exported")));
-        assert!(rendered
-            .iter()
-            .all(|line| !line.contains("Session resumed.")));
-        assert!(rendered
-            .iter()
-            .any(|line| line.contains("+1 earlier events")));
+        assert_eq!(rendered.len(), 1);
+        assert!(rendered[0].contains("Status updates(4)"));
     }
 
     #[test]
@@ -395,9 +440,11 @@ mod tests {
         );
         let mut lines = Vec::new();
         render_system_entry(&mut lines, &entry);
-        assert!(lines[0].to_string().contains("Turn completed"));
+        assert_eq!(lines.first().unwrap().to_string(), "");
+        assert!(lines[1].to_string().contains("Turn completed"));
         assert!(lines[1].to_string().contains("1.4s · 3 tools"));
-        assert!(lines[2].to_string().contains("session · 15.4k total tok"));
+        assert!(lines[1].to_string().contains("+1 more"));
+        assert_eq!(lines.last().unwrap().to_string(), "");
     }
 
     #[test]

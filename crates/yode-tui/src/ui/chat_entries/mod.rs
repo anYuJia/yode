@@ -1,4 +1,5 @@
 mod assistant;
+pub(crate) mod assistant_compact;
 pub(crate) mod folding;
 mod metadata;
 mod plain_lines;
@@ -15,6 +16,9 @@ use crate::ui::chat::{CODE_BG, CYAN, WHITE};
 use crate::ui::palette::{INFO_COLOR, USER_PREFIX};
 
 pub(super) use assistant::render_assistant;
+pub(crate) use assistant_compact::compact_assistant_display_markdown;
+pub(crate) use assistant_compact::compact_assistant_streaming_preview_markdown;
+pub(crate) use assistant_compact::should_hide_assistant_preface_for_tools;
 pub(crate) use plain_lines::user_plain_lines;
 pub(super) use subagents::{render_grouped_subagent_batch, render_subagent_call};
 pub(super) use system::{render_grouped_system_entries, render_system_entry};

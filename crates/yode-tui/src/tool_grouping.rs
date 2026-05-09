@@ -68,7 +68,7 @@ pub(crate) struct SystemBatch {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SubAgentBatchItem {
     pub call_index: usize,
-    pub result_index: usize,
+    pub result_index: Option<usize>,
     pub description: String,
     pub tool_count: usize,
 }
@@ -78,6 +78,7 @@ pub(crate) struct SubAgentBatch {
     pub start_index: usize,
     pub next_index: usize,
     pub items: Vec<SubAgentBatchItem>,
+    pub is_active: bool,
 }
 
 pub(crate) fn detect_groupable_tool_batch(
@@ -298,6 +299,22 @@ pub(crate) fn describe_tool_call(tool_name: &str, args: &Value, is_active: bool)
                 })
                 .to_string(),
         ),
+        "agent" | "coordinator" => Some(format!(
+            "{} {}",
+            if is_active {
+                "Running agent"
+            } else {
+                "Ran agent"
+            },
+            truncate_words(
+                args.get("description")
+                    .or_else(|| args.get("prompt"))
+                    .or_else(|| args.get("task"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("task"),
+                72,
+            )
+        )),
         "notebook_edit" => Some(format!(
             "{} notebook {}",
             if is_active { "Editing" } else { "Edited" },
@@ -485,23 +502,28 @@ pub(crate) fn detect_groupable_subagent_batch(
     entries: &[ChatEntry],
     start_index: usize,
 ) -> Option<SubAgentBatch> {
-    let Some(ChatEntry {
-        role: ChatRole::SubAgentCall { .. },
-        ..
-    }) = entries.get(start_index)
-    else {
+    if !is_subagent_batch_start(entries.get(start_index)?) {
         return None;
-    };
+    }
 
     let mut index = start_index;
     let mut items = Vec::new();
     while let Some(item) = parse_subagent_segment(entries, index) {
-        index = item.result_index + 1;
+        index = item.result_index.map(|value| value + 1).unwrap_or_else(|| {
+            let mut next = item.call_index + 1;
+            while matches!(
+                entries.get(next).map(|entry| &entry.role),
+                Some(ChatRole::SubAgentToolCall { .. })
+            ) {
+                next += 1;
+            }
+            next
+        });
         items.push(item);
         let Some(next_entry) = entries.get(index) else {
             break;
         };
-        if !matches!(next_entry.role, ChatRole::SubAgentCall { .. }) {
+        if !is_subagent_batch_start(next_entry) {
             break;
         }
     }
@@ -513,8 +535,21 @@ pub(crate) fn detect_groupable_subagent_batch(
     Some(SubAgentBatch {
         start_index,
         next_index: index,
+        is_active: items.iter().any(|item| item.result_index.is_none()),
         items,
     })
+}
+
+fn is_subagent_batch_start(entry: &ChatEntry) -> bool {
+    match &entry.role {
+        ChatRole::SubAgentCall { .. } => true,
+        ChatRole::ToolCall { name, .. } => is_agent_tool_name(name),
+        _ => false,
+    }
+}
+
+pub(crate) fn is_agent_tool_name(name: &str) -> bool {
+    matches!(name, "agent" | "coordinator")
 }
 
 const SUMMARY_KIND_ORDER: &[ToolBatchItemKind] = &[
@@ -772,8 +807,20 @@ fn describe_memory_action(action: &str, is_active: bool) -> &'static str {
 
 fn parse_subagent_segment(entries: &[ChatEntry], start_index: usize) -> Option<SubAgentBatchItem> {
     let call = entries.get(start_index)?;
-    let ChatRole::SubAgentCall { description } = &call.role else {
-        return None;
+    let (description, tool_id) = match &call.role {
+        ChatRole::SubAgentCall { description } => (description.clone(), None),
+        ChatRole::ToolCall { id, name } if is_agent_tool_name(name) => {
+            let args: Value = serde_json::from_str(&call.content).unwrap_or(Value::Null);
+            let description = args
+                .get("description")
+                .or_else(|| args.get("prompt"))
+                .or_else(|| args.get("task"))
+                .and_then(Value::as_str)
+                .unwrap_or("Agent")
+                .to_string();
+            (description, Some(id.clone()))
+        }
+        _ => return None,
     };
     let mut tool_count = 0usize;
     let mut index = start_index + 1;
@@ -783,18 +830,39 @@ fn parse_subagent_segment(entries: &[ChatEntry], start_index: usize) -> Option<S
                 tool_count += 1;
                 index += 1;
             }
+            ChatRole::ToolResult { id, .. } if tool_id.as_ref() == Some(id) => {
+                return Some(SubAgentBatchItem {
+                    call_index: start_index,
+                    result_index: Some(index),
+                    description,
+                    tool_count,
+                });
+            }
             ChatRole::SubAgentResult => {
                 return Some(SubAgentBatchItem {
                     call_index: start_index,
-                    result_index: index,
-                    description: description.clone(),
+                    result_index: Some(index),
+                    description,
+                    tool_count,
+                });
+            }
+            _ if is_subagent_batch_start(entry) => {
+                return Some(SubAgentBatchItem {
+                    call_index: start_index,
+                    result_index: None,
+                    description,
                     tool_count,
                 });
             }
             _ => return None,
         }
     }
-    None
+    Some(SubAgentBatchItem {
+        call_index: start_index,
+        result_index: None,
+        description,
+        tool_count,
+    })
 }
 
 fn is_groupable_system_kind(kind: SystemMessageKind) -> bool {
@@ -1010,8 +1078,15 @@ mod tests {
             false,
         )
         .unwrap();
+        let agent = describe_tool_call(
+            "agent",
+            &serde_json::json!({"description": "Analyze Yode architecture"}),
+            true,
+        )
+        .unwrap();
         assert_eq!(edit, "Editing .../src/main.rs");
         assert_eq!(shell, "Ran cargo test -p yode-tui");
+        assert_eq!(agent, "Running agent Analyze Yode architecture");
     }
 
     #[test]
@@ -1043,6 +1118,73 @@ mod tests {
         assert_eq!(batch.items[0].tool_count, 1);
         assert_eq!(batch.items[1].tool_count, 0);
         assert_eq!(batch.next_index, 5);
+        assert!(!batch.is_active);
+    }
+
+    #[test]
+    fn detects_consecutive_active_subagent_segments() {
+        let entries = vec![
+            ChatEntry::new(
+                ChatRole::SubAgentCall {
+                    description: "Analyze Yode architecture".to_string(),
+                },
+                String::new(),
+            ),
+            ChatEntry::new(
+                ChatRole::SubAgentCall {
+                    description: "Find claude-code-rev project".to_string(),
+                },
+                String::new(),
+            ),
+        ];
+        let batch = detect_groupable_subagent_batch(&entries, 0).unwrap();
+        assert_eq!(batch.items.len(), 2);
+        assert_eq!(batch.next_index, 2);
+        assert!(batch.is_active);
+        assert!(batch.items.iter().all(|item| item.result_index.is_none()));
+    }
+
+    #[test]
+    fn detects_agent_tool_calls_as_explore_agent_batch() {
+        let entries = vec![
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "a".to_string(),
+                    name: "agent".to_string(),
+                },
+                "{\"description\":\"Analyze Yode architecture\"}".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolResult {
+                    id: "a".to_string(),
+                    name: "agent".to_string(),
+                    is_error: false,
+                },
+                "Background sub-agent launched as task-1. Output: /tmp/task-1.log".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "b".to_string(),
+                    name: "agent".to_string(),
+                },
+                "{\"description\":\"Find claude-code-rev project\"}".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolResult {
+                    id: "b".to_string(),
+                    name: "agent".to_string(),
+                    is_error: false,
+                },
+                "done".to_string(),
+            ),
+        ];
+
+        let batch = detect_groupable_subagent_batch(&entries, 0).unwrap();
+        assert_eq!(batch.items.len(), 2);
+        assert_eq!(batch.next_index, 4);
+        assert_eq!(batch.items[0].description, "Analyze Yode architecture");
+        assert_eq!(batch.items[1].description, "Find claude-code-rev project");
+        assert!(!batch.is_active);
     }
 
     #[test]

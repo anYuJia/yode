@@ -8,6 +8,7 @@ use ratatui::style::{Color, Modifier};
 
 use crate::app::{ChatEntry, ChatRole};
 use crate::tool_grouping::{should_hide_tool_from_transcript, SubAgentBatch};
+use crate::ui::chat_entries::should_hide_assistant_preface_for_tools;
 use crate::ui::error_format::parse_error_view;
 
 use self::style::role_style_palette;
@@ -62,13 +63,24 @@ pub(crate) fn format_entry_as_strings(
 
     match &entry.role {
         ChatRole::User => render_user(entry, &mut result, palette.cyan),
-        ChatRole::Assistant => render_assistant(
-            entry,
-            &mut result,
-            palette.dim,
-            palette.white,
-            latest_reasoning_index == Some(index),
-        ),
+        ChatRole::Assistant => {
+            if all_entries.get(index + 1).is_some_and(|next| {
+                matches!(
+                    next.role,
+                    ChatRole::ToolCall { .. } | ChatRole::SubAgentCall { .. } | ChatRole::System
+                )
+            }) && should_hide_assistant_preface_for_tools(&entry.content)
+            {
+                return result;
+            }
+            render_assistant(
+                entry,
+                &mut result,
+                palette.dim,
+                palette.white,
+                latest_reasoning_index == Some(index),
+            )
+        }
         ChatRole::ToolCall { id: tid, name } => {
             if should_hide_tool_from_transcript(name) {
                 return result;
@@ -132,12 +144,14 @@ pub(crate) fn format_entry_as_strings(
                     ));
                 }
             }
-            result.push((
-                "    ctrl+o to inspect".to_string(),
-                ratatui::style::Style::default()
-                    .fg(Color::Gray)
-                    .add_modifier(Modifier::ITALIC),
-            ));
+            if latest_error_index == Some(index) {
+                result.push((
+                    "    ctrl+o to inspect".to_string(),
+                    ratatui::style::Style::default()
+                        .fg(Color::Gray)
+                        .add_modifier(Modifier::ITALIC),
+                ));
+            }
         }
         ChatRole::System => {
             result.extend(render_system_entry(

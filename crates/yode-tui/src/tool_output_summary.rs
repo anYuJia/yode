@@ -52,6 +52,7 @@ pub(crate) fn summarize_tool_result(
         "web_fetch" => summarize_web_fetch(args, metadata),
         "project_map" => summarize_project_map(metadata),
         "batch" => summarize_batch(args, metadata),
+        "agent" | "coordinator" => summarize_agent_tool(args, metadata, result_content),
         "bash" | "powershell" => summarize_shell_command(metadata, result_content),
         _ => ToolResultSummary::default(),
     }
@@ -63,6 +64,26 @@ fn summarize_failed_tool_result(
     result_content: &str,
 ) -> ToolResultSummary {
     let mut lines = Vec::new();
+
+    if tool_name == "batch" {
+        if let Some(first_line) = result_content.lines().find(|line| !line.trim().is_empty()) {
+            let lower = first_line.to_ascii_lowercase();
+            if lower.contains("not allowed in batch mode") || lower.contains("read-only tools") {
+                let denied_tool = first_line
+                    .split_once("Tool '")
+                    .and_then(|(_, rest)| rest.split_once('\'').map(|(name, _)| name))
+                    .unwrap_or("batch tool");
+                lines.push(ToolSummaryLine {
+                    text: format!("batch denied: {} not allowed", denied_tool),
+                    tone: ToolSummaryTone::Warning,
+                });
+                return ToolResultSummary {
+                    lines,
+                    hide_body_by_default: true,
+                };
+            }
+        }
+    }
 
     if matches!(tool_name, "bash" | "powershell") {
         let sections = parse_shell_output_sections(result_content);
@@ -729,6 +750,51 @@ fn summarize_batch(args: &Value, metadata: Option<&Value>) -> ToolResultSummary 
     }
 }
 
+fn summarize_agent_tool(
+    args: &Value,
+    metadata: Option<&Value>,
+    result_content: &str,
+) -> ToolResultSummary {
+    let description = metadata
+        .and_then(|m| m.get("description"))
+        .and_then(Value::as_str)
+        .or_else(|| args.get("description").and_then(Value::as_str))
+        .or_else(|| args.get("prompt").and_then(Value::as_str))
+        .or_else(|| args.get("task").and_then(Value::as_str))
+        .unwrap_or("sub-agent");
+
+    let mut lines = Vec::new();
+    if let Some(task_id) = parse_background_agent_task_id(result_content) {
+        lines.push(ToolSummaryLine {
+            text: format!("background task {} launched", task_id),
+            tone: ToolSummaryTone::Success,
+        });
+    } else {
+        lines.push(ToolSummaryLine {
+            text: "sub-agent finished".to_string(),
+            tone: ToolSummaryTone::Success,
+        });
+    }
+    lines.push(ToolSummaryLine {
+        text: truncate_for_summary(description, 96),
+        tone: ToolSummaryTone::Neutral,
+    });
+
+    ToolResultSummary {
+        lines,
+        hide_body_by_default: true,
+    }
+}
+
+fn parse_background_agent_task_id(output: &str) -> Option<String> {
+    output
+        .trim()
+        .strip_prefix("Background sub-agent launched as ")
+        .and_then(|rest| rest.split_once('.'))
+        .map(|(task_id, _)| task_id.trim().to_string())
+        .filter(|task_id| !task_id.is_empty())
+}
+
 fn summarize_shell_command(_metadata: Option<&Value>, _result_content: &str) -> ToolResultSummary {
     ToolResultSummary {
         lines: Vec::new(),
@@ -827,7 +893,24 @@ fn human_readable_size(bytes: u64) -> String {
 mod tests {
     use serde_json::json;
 
-    use super::{parse_shell_output_sections, summarize_tool_result, ToolSummaryTone};
+    use super::{
+        parse_shell_output_sections, summarize_failed_tool_result, summarize_tool_result,
+        ToolSummaryTone,
+    };
+
+    #[test]
+    fn batch_failures_are_compacted_into_short_denial_messages() {
+        let summary = summarize_failed_tool_result(
+            "batch",
+            None,
+            "Tool 'project_map' is not allowed in batch mode. Only read-only tools are permitted: read_file, grep.",
+        );
+
+        assert_eq!(summary.lines.len(), 1);
+        assert_eq!(summary.lines[0].tone, ToolSummaryTone::Warning);
+        assert!(summary.lines[0].text.contains("batch denied"));
+        assert!(summary.lines[0].text.contains("project_map"));
+    }
 
     #[test]
     fn summarize_read_file_hides_body() {
@@ -960,6 +1043,21 @@ mod tests {
             false,
         );
         assert!(summary.hide_body_by_default);
+    }
+
+    #[test]
+    fn summarize_agent_hides_background_launch_receipt() {
+        let summary = summarize_tool_result(
+            "agent",
+            &json!({"description": "Analyze Yode architecture"}),
+            None,
+            "Background sub-agent launched as task-2. Output: /tmp/agent-task.log",
+            false,
+        );
+
+        assert!(summary.hide_body_by_default);
+        assert_eq!(summary.lines[0].text, "background task task-2 launched");
+        assert_eq!(summary.lines[1].text, "Analyze Yode architecture");
     }
 
     #[test]

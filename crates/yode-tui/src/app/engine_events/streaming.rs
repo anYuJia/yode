@@ -6,19 +6,15 @@ use tokio::sync::{mpsc, Mutex};
 use yode_core::engine::{AgentEngine, EngineEvent};
 use yode_llm::types::ChatResponse;
 
+use super::super::turn_flow::try_process_next;
+use super::super::{
+    find_case_insensitive, strip_internal_tags, App, ChatEntry, ChatRole, TurnStatus, TAG_RE,
+};
 use crate::runtime_artifacts::{
     write_prompt_cache_artifact, write_prompt_cache_break_artifact,
     write_prompt_cache_event_artifact, write_prompt_cache_state_artifact,
 };
 use crate::runtime_display::format_turn_completed_message;
-use crate::ui::chat::{
-    render_markdown_ansi_white_with_options, streaming_markdown_advance_stable_boundary,
-};
-
-use super::super::turn_flow::try_process_next;
-use super::super::{
-    find_case_insensitive, strip_internal_tags, App, ChatEntry, ChatRole, TurnStatus, TAG_RE,
-};
 
 pub(super) fn handle_text_delta(app: &mut App, delta: String) {
     app.streaming_tag_buf.push_str(&delta);
@@ -249,32 +245,12 @@ pub(super) fn finalize_streaming(app: &mut App) {
         } else {
             Some(std::mem::take(&mut app.streaming_reasoning))
         };
-        let stable_end =
-            streaming_markdown_advance_stable_boundary(&content, app.streaming_markdown_stable_len);
-        let stable_len = app
-            .streaming_markdown_stable_len
-            .min(stable_end)
-            .min(content.len());
-        let remainder = &content[stable_len..];
         app.streaming_markdown_remainder = None;
-        if !remainder.trim().is_empty() {
-            let render_width = crossterm::terminal::size()
-                .map(|(width, _)| width.saturating_sub(2) as usize)
-                .unwrap_or(78);
-            let rendered = render_markdown_ansi_white_with_options(
-                remainder,
-                Some(render_width),
-                app.terminal_caps.supports_hyperlinks(),
-            );
-            if !rendered.is_empty() {
-                app.streaming_markdown_remainder = Some((rendered, stable_len == 0));
-            }
-        }
 
         let mut entry =
             ChatEntry::new_with_reasoning(ChatRole::Assistant, content.clone(), reasoning);
-        entry.already_printed = true;
-        if !content.trim().is_empty() || entry.reasoning.is_some() {
+        entry.already_printed = false;
+        if !content.trim().is_empty() {
             app.chat_entries.push(entry);
         }
         app.streaming_markdown_stable_len = 0;
@@ -282,5 +258,48 @@ pub(super) fn finalize_streaming(app: &mut App) {
         app.streaming_markdown_cached_width = 0;
         app.streaming_markdown_preview_source.clear();
         app.streaming_markdown_preview.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use yode_llm::registry::ProviderRegistry;
+    use yode_tools::registry::ToolRegistry;
+
+    use crate::app::{App, ChatRole};
+
+    use super::{finalize_streaming, handle_reasoning_delta};
+
+    fn test_app() -> App {
+        App::new(
+            "test-model".to_string(),
+            "session-1234".to_string(),
+            "/tmp".to_string(),
+            "test".to_string(),
+            Vec::new(),
+            HashMap::new(),
+            Arc::new(ProviderRegistry::new()),
+            Arc::new(ToolRegistry::new()),
+        )
+    }
+
+    #[test]
+    fn finalize_streaming_does_not_persist_reasoning_only_assistant_entry() {
+        let mut app = test_app();
+        handle_reasoning_delta(
+            &mut app,
+            "Let me inspect the project.\n\n\nNow I have enough information.".to_string(),
+        );
+
+        finalize_streaming(&mut app);
+
+        assert!(app
+            .chat_entries
+            .iter()
+            .all(|entry| !matches!(entry.role, ChatRole::Assistant)));
+        assert!(app.streaming_reasoning.is_empty());
     }
 }

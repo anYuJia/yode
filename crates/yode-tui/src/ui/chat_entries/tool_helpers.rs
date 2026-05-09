@@ -14,6 +14,13 @@ pub(super) fn tool_summary_value(name: &str, args: &Value) -> String {
         "edit_file" => args["file_path"].as_str().unwrap_or("???").to_string(),
         "glob" => args["pattern"].as_str().unwrap_or("???").to_string(),
         "grep" => args["pattern"].as_str().unwrap_or("???").to_string(),
+        "agent" | "coordinator" => args
+            .get("description")
+            .or_else(|| args.get("prompt"))
+            .or_else(|| args.get("task"))
+            .and_then(Value::as_str)
+            .unwrap_or("agent")
+            .to_string(),
         _ => args
             .as_object()
             .and_then(|object| {

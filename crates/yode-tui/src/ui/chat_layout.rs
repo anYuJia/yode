@@ -42,7 +42,7 @@ pub(super) fn manual_wrap(lines: Vec<Line<'static>>, width: u16) -> Vec<Line<'st
                     current_spans.push(span);
                 } else {
                     let style = span.style;
-                    let fragments = split_terminal_text_fragments(&span.content);
+                    let fragments = split_terminal_wrap_units(&span.content, w);
                     let mut buffer = String::new();
                     let mut buffer_w = 0;
 
@@ -113,7 +113,7 @@ pub(crate) fn wrap_terminal_text(text: &str, width: usize) -> Vec<String> {
     let continuation_prefix = continuation_wrap_prefix(text);
     let continuation_width = visible_text_width(&continuation_prefix);
 
-    for fragment in split_terminal_text_fragments(text) {
+    for fragment in split_terminal_wrap_units(text, width) {
         if fragment.visible_width == 0 {
             if let Some(start) = osc8_start_sequence(&fragment.raw) {
                 active_hyperlink = Some(start);
@@ -241,6 +241,99 @@ fn split_terminal_text_fragments(text: &str) -> Vec<TerminalTextFragment> {
     }
 
     fragments
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WrapUnitKind {
+    Space,
+    Word,
+}
+
+fn split_terminal_wrap_units(text: &str, max_unit_width: usize) -> Vec<TerminalTextFragment> {
+    let max_unit_width = max_unit_width.max(1);
+    let fragments = split_terminal_text_fragments(text);
+    let mut units = Vec::new();
+    let mut pending_zero_width = String::new();
+    let mut current_raw = String::new();
+    let mut current_width = 0usize;
+    let mut current_kind: Option<WrapUnitKind> = None;
+
+    let flush_current = |units: &mut Vec<TerminalTextFragment>,
+                         pending_zero_width: &mut String,
+                         current_raw: &mut String,
+                         current_width: &mut usize,
+                         current_kind: &mut Option<WrapUnitKind>| {
+        if current_raw.is_empty() {
+            return;
+        }
+        let mut raw = std::mem::take(current_raw);
+        if !pending_zero_width.is_empty() {
+            raw.insert_str(0, pending_zero_width);
+            pending_zero_width.clear();
+        }
+        units.push(TerminalTextFragment {
+            raw,
+            visible_width: *current_width,
+        });
+        *current_width = 0;
+        *current_kind = None;
+    };
+
+    for fragment in fragments {
+        if fragment.visible_width == 0 {
+            if current_kind.is_some() {
+                current_raw.push_str(&fragment.raw);
+            } else {
+                pending_zero_width.push_str(&fragment.raw);
+            }
+            continue;
+        }
+
+        let is_space = fragment
+            .raw
+            .chars()
+            .all(|ch| ch.is_whitespace() && ch != '\n' && ch != '\r');
+        let kind = if is_space {
+            WrapUnitKind::Space
+        } else {
+            WrapUnitKind::Word
+        };
+
+        let should_split_word_run = matches!(kind, WrapUnitKind::Word)
+            && current_kind == Some(WrapUnitKind::Word)
+            && current_width + fragment.visible_width > max_unit_width;
+        if current_kind.is_some() && (current_kind != Some(kind) || should_split_word_run) {
+            flush_current(
+                &mut units,
+                &mut pending_zero_width,
+                &mut current_raw,
+                &mut current_width,
+                &mut current_kind,
+            );
+        }
+
+        if current_kind.is_none() {
+            current_kind = Some(kind);
+        }
+        current_raw.push_str(&fragment.raw);
+        current_width += fragment.visible_width;
+    }
+
+    flush_current(
+        &mut units,
+        &mut pending_zero_width,
+        &mut current_raw,
+        &mut current_width,
+        &mut current_kind,
+    );
+    if !pending_zero_width.is_empty() {
+        units.push(TerminalTextFragment {
+            raw: pending_zero_width,
+            visible_width: 0,
+        });
+    }
+
+    units
 }
 
 fn consume_terminal_sequence(text: &str, start: usize) -> Option<(String, usize)> {
@@ -422,7 +515,9 @@ pub(crate) fn render_header(app: &App, width: usize) -> Vec<Line<'static>> {
 
 #[cfg(test)]
 mod tests {
-    use super::wrap_terminal_text;
+    use ratatui::text::{Line, Span};
+
+    use super::{manual_wrap, wrap_terminal_text};
 
     #[test]
     fn wrap_terminal_text_preserves_hanging_indent_for_ordered_lists() {
@@ -440,5 +535,35 @@ mod tests {
         );
         assert!(wrapped.len() > 1);
         assert!(wrapped[1].starts_with("  "));
+    }
+
+    #[test]
+    fn wrap_terminal_text_avoids_breaking_ascii_words() {
+        let wrapped = wrap_terminal_text("Let me summarize the findings clearly.", 14);
+        assert!(wrapped.iter().any(|line| line.contains("summarize")));
+        assert!(wrapped.iter().all(|line| !line.ends_with("summar")));
+        assert!(wrapped.iter().all(|line| !line.starts_with("ize")));
+    }
+
+    #[test]
+    fn manual_wrap_avoids_breaking_ascii_words() {
+        let wrapped = manual_wrap(
+            vec![Line::from(vec![Span::raw(
+                "Let me summarize the findings clearly.",
+            )])],
+            14,
+        );
+        let text = wrapped
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+        assert!(text.iter().any(|line| line.contains("summarize")));
+        assert!(text.iter().all(|line| !line.ends_with("summar")));
+        assert!(text.iter().all(|line| !line.starts_with("ize")));
     }
 }

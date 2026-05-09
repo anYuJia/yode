@@ -1,14 +1,14 @@
 use super::chat_entries::{
     render_assistant, render_grouped_subagent_batch, render_grouped_system_entries,
     render_grouped_tool_call, render_standalone_result, render_subagent_call, render_system_entry,
-    render_tool_call, render_user,
+    render_tool_call, render_user, should_hide_assistant_preface_for_tools,
 };
 use super::chat_layout::{manual_wrap, render_header};
 use super::chat_markdown::render_markdown_impl;
 use super::error_format::parse_error_view;
 use super::palette::{
-    ERROR_COLOR, INFO_COLOR, LIGHT, MUTED, PANEL_ACCENT, SUCCESS_COLOR, SURFACE_BG_ALT,
-    TOOL_ACCENT, USER_COLOR, WARNING_COLOR,
+    ERROR_COLOR, INFO_COLOR, LIGHT, MUTED, SUCCESS_COLOR, SURFACE_BG_ALT, TOOL_ACCENT, USER_COLOR,
+    WARNING_COLOR,
 };
 use super::turn_status::active_working_label;
 use crate::app::{App, ChatRole};
@@ -67,6 +67,7 @@ pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
         .map(|(index, _)| index);
     let mut i = 0;
     let mut rendered_any_entry = false;
+    let mut previous_secondary = false;
     while i < entries.len() {
         let entry = &entries[i];
         // Skip empty assistant
@@ -74,9 +75,30 @@ pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
             i += 1;
             continue;
         }
+        if matches!(entry.role, ChatRole::Assistant)
+            && entries.get(i + 1).is_some_and(|next| {
+                matches!(
+                    next.role,
+                    ChatRole::ToolCall { .. } | ChatRole::SubAgentCall { .. } | ChatRole::System
+                )
+            })
+            && should_hide_assistant_preface_for_tools(&entry.content)
+        {
+            i += 1;
+            continue;
+        }
 
         // Add separator between entries (blank line before each entry except the first)
-        if rendered_any_entry {
+        let current_secondary = matches!(
+            entry.role,
+            ChatRole::ToolCall { .. }
+                | ChatRole::ToolResult { .. }
+                | ChatRole::System
+                | ChatRole::SubAgentCall { .. }
+                | ChatRole::SubAgentToolCall { .. }
+                | ChatRole::SubAgentResult
+        );
+        if rendered_any_entry && !(previous_secondary && current_secondary) {
             lines.push(Line::from(""));
         }
 
@@ -90,6 +112,12 @@ pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
                 latest_reasoning_index == Some(i),
             ),
             ChatRole::ToolCall { id, name } => {
+                if let Some(batch) = detect_groupable_subagent_batch(entries, i) {
+                    render_grouped_subagent_batch(&mut lines, entries, &batch);
+                    rendered_any_entry = true;
+                    i = batch.next_index;
+                    continue;
+                }
                 if should_hide_tool_from_transcript(name) {
                     i += 1;
                     continue;
@@ -198,6 +226,7 @@ pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
             }
         }
         rendered_any_entry = true;
+        previous_secondary = current_secondary;
         i += 1;
     }
 
@@ -219,16 +248,24 @@ pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
             ),
             Span::styled(format!(" ({})", elapsed_str), Style::default().fg(DIM)),
         ]));
-        if let Some(teaser) = streaming_reasoning_teaser(&app.streaming_reasoning) {
-            lines.push(Line::from(vec![
-                Span::styled("  ∴ ", Style::default().fg(PANEL_ACCENT)),
-                Span::styled(
-                    teaser,
-                    Style::default()
-                        .fg(DIM)
-                        .add_modifier(Modifier::ITALIC | Modifier::BOLD),
-                ),
-            ]));
+        if !app.streaming_markdown_preview.is_empty() {
+            lines.push(Line::from(""));
+            for (index, line) in app.streaming_markdown_preview.iter().cloned().enumerate() {
+                if line.spans.is_empty()
+                    || line.spans.iter().all(|span| span.content.trim().is_empty())
+                {
+                    lines.push(Line::from(""));
+                    continue;
+                }
+                let mut spans = Vec::new();
+                if index == 0 {
+                    spans.push(Span::styled("⏺ ", Style::default().fg(ACCENT)));
+                } else {
+                    spans.push(Span::raw("  "));
+                }
+                spans.extend(line.spans);
+                lines.push(Line::from(spans));
+            }
         }
         lines.push(Line::from(""));
     }
@@ -268,6 +305,7 @@ pub fn render_markdown_white_with_options(
     )
 }
 
+#[cfg(test)]
 fn streaming_reasoning_teaser(reasoning: &str) -> Option<String> {
     let first = reasoning
         .lines()
@@ -293,7 +331,9 @@ mod tests {
     use std::sync::Arc;
     use std::time::Instant;
 
+    use ratatui::backend::TestBackend;
     use ratatui::text::Line;
+    use ratatui::Terminal;
     use yode_llm::registry::ProviderRegistry;
     use yode_tools::registry::ToolRegistry;
 
@@ -305,7 +345,20 @@ mod tests {
     };
     use crate::ui::turn_status::{active_working_hint, active_working_label};
 
-    use super::streaming_reasoning_teaser;
+    use super::{render_chat, streaming_reasoning_teaser};
+
+    fn test_app() -> App {
+        App::new(
+            "test-model".to_string(),
+            "session-1234".to_string(),
+            "/tmp".to_string(),
+            "test".to_string(),
+            Vec::new(),
+            HashMap::new(),
+            Arc::new(ProviderRegistry::new()),
+            Arc::new(ToolRegistry::new()),
+        )
+    }
 
     #[test]
     fn streaming_reasoning_teaser_uses_first_nonempty_line() {
@@ -472,6 +525,84 @@ mod tests {
         println!("{}", lines_to_text(&grouped_tool_lines));
         println!("\n## System Batch Narrow\n");
         println!("{}", lines_to_text(&system_lines));
+    }
+
+    #[test]
+    fn render_chat_shows_streaming_markdown_preview_as_transient_assistant_block() {
+        let mut app = test_app();
+        app.is_thinking = true;
+        app.turn_status = TurnStatus::Working { verb: "Thinking" };
+        app.streaming_markdown_preview = vec![
+            Line::from("Streaming compact preview"),
+            Line::from("Second preview line"),
+        ];
+
+        let area = ratatui::layout::Rect::new(0, 0, 80, 20);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                render_chat(frame, area, &app);
+            })
+            .unwrap();
+
+        let buffer = terminal.backend().buffer().clone();
+        let rendered = buffer
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(rendered.contains("Streaming compact preview"));
+        assert!(rendered.contains("Second preview line"));
+    }
+
+    #[test]
+    fn render_chat_groups_active_agent_tool_calls_without_reasoning_or_preface() {
+        let mut app = test_app();
+        app.chat_entries = vec![
+            ChatEntry::new(
+                ChatRole::Assistant,
+                "Let me first explore both projects.".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "a".to_string(),
+                    name: "agent".to_string(),
+                },
+                "{\"description\":\"Analyze Yode architecture\"}".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "b".to_string(),
+                    name: "agent".to_string(),
+                },
+                "{\"description\":\"Find claude-code-rev project\"}".to_string(),
+            ),
+        ];
+
+        let area = ratatui::layout::Rect::new(0, 0, 100, 20);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                render_chat(frame, area, &app);
+            })
+            .unwrap();
+
+        let rendered = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(rendered.contains("Running 2 Explore agents"));
+        assert!(rendered.contains("Analyze Yode architecture"));
+        assert!(rendered.contains("Find claude-code-rev project"));
+        assert!(rendered.contains("Initializing"));
+        assert!(!rendered.contains("Let me first explore"));
+        assert!(!rendered.contains("∴ Thinking"));
+        assert!(!rendered.contains("Agent("));
     }
 
     fn lines_to_text(lines: &[Line<'static>]) -> String {

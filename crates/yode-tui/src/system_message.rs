@@ -116,12 +116,25 @@ fn parse_task_notification_xml(content: &str) -> SystemMessageView {
     let duration_ms = extract_xml_tag(content, "duration_ms");
     let tool_uses = extract_xml_tag(content, "tool_uses");
 
+    let compact_summary = summary
+        .as_deref()
+        .map(compact_task_summary_text)
+        .filter(|summary| !summary.trim().is_empty());
+    let compact_result = result
+        .as_deref()
+        .map(compact_task_result_text)
+        .filter(|summary| !summary.trim().is_empty());
+
     let mut detail_lines = Vec::new();
-    if let Some(summary) = summary.filter(|summary| !summary.trim().is_empty()) {
+    if let Some(summary) = compact_summary {
         detail_lines.push(summary);
+    } else if let Some(result) = compact_result.clone() {
+        detail_lines.push(result);
     }
-    if let Some(result) = result.filter(|result| !result.trim().is_empty()) {
-        detail_lines.push(format!("result · {}", result));
+    if let Some(result) = compact_result {
+        if detail_lines.first() != Some(&result) {
+            detail_lines.push(result);
+        }
     }
     if let Some(output_path) = output_path {
         detail_lines.push(format!("output · {}", output_path));
@@ -147,6 +160,26 @@ fn parse_task_notification_xml(content: &str) -> SystemMessageView {
     }
 }
 
+fn compact_task_summary_text(summary: &str) -> String {
+    let trimmed = summary.trim();
+    if let Some(rest) = trimmed.strip_prefix("completed:") {
+        return rest.trim().to_string();
+    }
+    if let Some(rest) = trimmed.strip_prefix("failed:") {
+        return format!("failed · {}", rest.trim());
+    }
+    trimmed.to_string()
+}
+
+fn compact_task_result_text(result: &str) -> String {
+    let trimmed = result.trim();
+    if trimmed.is_empty() {
+        String::new()
+    } else {
+        format!("result · {}", trimmed)
+    }
+}
+
 fn extract_xml_tag(content: &str, tag: &str) -> Option<String> {
     let open = format!("<{}>", tag);
     let close = format!("</{}>", tag);
@@ -166,7 +199,7 @@ pub(crate) fn system_message_summary(view: &SystemMessageView) -> String {
     let mut summary = view.title.clone();
     if let Some(first_detail) = view.detail_lines.first() {
         summary.push_str(" · ");
-        summary.push_str(&format_system_detail_line(first_detail));
+        summary.push_str(&format_system_summary_line(view.kind, first_detail));
     }
     if view.detail_lines.len() > 1 {
         summary.push_str(&format!(" · +{} more", view.detail_lines.len() - 1));
@@ -180,6 +213,22 @@ pub(crate) fn format_system_detail_line(detail: &str) -> String {
         .map(compact_path_token)
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+fn format_system_summary_line(kind: SystemMessageKind, detail: &str) -> String {
+    let formatted = format_system_detail_line(detail);
+    match kind {
+        SystemMessageKind::Memory | SystemMessageKind::Export => {
+            if formatted.contains("://") {
+                return formatted;
+            }
+            formatted
+                .split_once(" · ")
+                .map(|(head, _)| head.to_string())
+                .unwrap_or(formatted)
+        }
+        _ => formatted,
+    }
 }
 
 pub(crate) fn append_grouped_system_entry(

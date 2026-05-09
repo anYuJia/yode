@@ -60,8 +60,13 @@ pub(super) fn render_tool_call(
         let activity_title = describe_tool_call(name, &args, tool_result.is_none());
         let title =
             activity_title.unwrap_or_else(|| format!("{}({})", tool_display_name(name), summary));
+        let show_inspector_hint = show_detail || is_error || tool_result.is_none();
         result.push((
-            format!("⏺ {}{} (ctrl+o to inspect)", title, timing),
+            if show_inspector_hint {
+                format!("⏺ {}{} (ctrl+o to inspect)", title, timing)
+            } else {
+                format!("⏺ {}{}", title, timing)
+            },
             if is_error { red } else { accent },
         ));
 
@@ -131,7 +136,7 @@ fn render_metadata_hints(
 
 fn compact_metadata_hint_line(
     metadata: &serde_json::Value,
-    dim: ratatui::style::Style,
+    _dim: ratatui::style::Style,
 ) -> Option<(String, ratatui::style::Style)> {
     let mut segments = Vec::new();
     let mut style = ratatui::style::Style::default().fg(Color::Cyan);
@@ -157,23 +162,6 @@ fn compact_metadata_hint_line(
         segments.push(format!("warning: {}", warning));
     }
 
-    if let Some(suggestion) = metadata
-        .get("rewrite_suggestion")
-        .and_then(|value| value.as_str())
-    {
-        segments.push(format!("hint: {}", suggestion));
-    }
-
-    if let Some(reason) = metadata
-        .get("tool_runtime")
-        .and_then(|value| value.get("truncation"))
-        .and_then(|value| value.get("reason"))
-        .and_then(|value| value.as_str())
-    {
-        style = dim;
-        segments.push(format!("truncated: {}", reason));
-    }
-
     (!segments.is_empty()).then_some((format!("  │ {}", segments.join(" · ")), style))
 }
 
@@ -188,10 +176,12 @@ pub(super) fn render_grouped_tool_call(
         format!("⏺ {} (ctrl+o to expand)", tool_batch_summary_text(batch)),
         if batch.is_active { dim } else { accent },
     ));
-    if let Some(progress) = tool_batch_progress_text(all_entries, batch) {
-        result.push((format!("  ⎿  {}", progress), dim));
-    } else if let Some(hint) = tool_batch_hint_text(all_entries, batch) {
-        result.push((format!("  ⎿  {}", hint), dim));
+    if batch.is_active {
+        if let Some(progress) = tool_batch_progress_text(all_entries, batch) {
+            result.push((format!("  ⎿  {}", progress), dim));
+        } else if let Some(hint) = tool_batch_hint_text(all_entries, batch) {
+            result.push((format!("  ⎿  {}", hint), dim));
+        }
     }
 }
 
@@ -216,8 +206,13 @@ pub(super) fn render_standalone_result(
     );
     let green = ratatui::style::Style::default().fg(Color::LightGreen);
     let red_dim = ratatui::style::Style::default().fg(Color::LightRed);
+    let show_inspector_hint = show_detail || *is_error;
     result.push((
-        format!("⏺ {} (ctrl+o to inspect)", tool_display_name(name)),
+        if show_inspector_hint {
+            format!("⏺ {} (ctrl+o to inspect)", tool_display_name(name))
+        } else {
+            format!("⏺ {}", tool_display_name(name))
+        },
         if *is_error { red } else { accent },
     ));
     if show_detail {
@@ -477,20 +472,70 @@ fn render_summary_lines(
     _red: ratatui::style::Style,
     _red_dim: ratatui::style::Style,
 ) {
-    if let Some(first) = lines.first() {
-        let style = match first.tone {
-            ToolSummaryTone::Neutral => dim,
-            ToolSummaryTone::Success => green,
-            ToolSummaryTone::Warning => ratatui::style::Style::default().fg(Color::Yellow),
-        };
-        result.push((format!("  ⎿  {}", first.text), style));
+    if let Some((line, style)) = compact_summary_line(lines, dim, green) {
+        result.push((line, style));
     }
-    if lines.len() > 1 {
+    if summary_lines_need_expansion(lines) {
         result.push((
             format!("     … +{} more lines (ctrl+o to inspect)", lines.len() - 1),
             dim,
         ));
     }
+}
+
+fn compact_summary_line(
+    lines: &[crate::tool_output_summary::ToolSummaryLine],
+    dim: ratatui::style::Style,
+    green: ratatui::style::Style,
+) -> Option<(String, ratatui::style::Style)> {
+    let first = lines.first()?;
+    let style = match first.tone {
+        ToolSummaryTone::Neutral => dim,
+        ToolSummaryTone::Success => green,
+        ToolSummaryTone::Warning => ratatui::style::Style::default().fg(Color::Yellow),
+    };
+
+    let text = if should_inline_summary_lines(lines) {
+        let joined = lines
+            .iter()
+            .take(3)
+            .map(|line| line.text.trim())
+            .filter(|text| !text.is_empty())
+            .collect::<Vec<_>>()
+            .join(" · ");
+        if joined.is_empty() {
+            first.text.clone()
+        } else {
+            joined
+        }
+    } else {
+        first.text.clone()
+    };
+
+    Some((format!("  ⎿  {}", text), style))
+}
+
+fn should_inline_summary_lines(lines: &[crate::tool_output_summary::ToolSummaryLine]) -> bool {
+    if lines.len() < 2 || lines.len() > 3 {
+        return false;
+    }
+    if lines
+        .iter()
+        .any(|line| matches!(line.tone, ToolSummaryTone::Warning))
+    {
+        return false;
+    }
+    let joined_len = lines
+        .iter()
+        .take(3)
+        .map(|line| line.text.chars().count())
+        .sum::<usize>()
+        + (lines.len() - 1) * 3;
+    joined_len <= 96
+}
+
+fn summary_lines_need_expansion(lines: &[crate::tool_output_summary::ToolSummaryLine]) -> bool {
+    lines.len() > 1 && !should_inline_summary_lines(lines)
 }
 
 #[cfg(test)]
@@ -552,7 +597,7 @@ mod tests {
         );
 
         assert!(result[0].0.contains("Searched for 1 pattern, read 1 file"));
-        assert!(result[1].0.contains("Read"));
+        assert_eq!(result.len(), 1);
     }
 
     #[test]
@@ -615,7 +660,7 @@ mod tests {
             .0
             .contains("Searched the web for 1 query, inspected 1 symbol"));
         assert!(result[0].0.contains("ctrl+o to expand"));
-        assert!(result[1].0.contains("Inspected"));
+        assert_eq!(result.len(), 1);
     }
 
     #[test]
@@ -728,8 +773,10 @@ mod tests {
         assert!(result
             .iter()
             .any(|line| line.0.contains("read-only: validated git status")
-                && line.0.contains("warning: may discard changes")
-                && line.0.contains("hint: Prefer read_file")));
+                && line.0.contains("warning: may discard changes")));
+        assert!(result
+            .iter()
+            .all(|line| !line.0.contains("Prefer read_file")));
     }
 
     #[test]
@@ -763,7 +810,7 @@ mod tests {
             .any(|line| line.0.contains("read-only: validated git status")));
         assert!(result
             .iter()
-            .any(|line| line.0.contains("Prefer read_file")));
+            .all(|line| !line.0.contains("Prefer read_file")));
     }
 
     #[test]
@@ -792,6 +839,32 @@ mod tests {
         );
         assert_eq!(result[0].0, "  ⎿  first");
         assert!(result[1].0.contains("+2 more lines (ctrl+o to inspect)"));
+    }
+
+    #[test]
+    fn scrollback_summary_lines_inline_short_success_lines() {
+        let mut result = Vec::new();
+        render_summary_lines(
+            &mut result,
+            &[
+                ToolSummaryLine {
+                    text: "mapped rust workspace".to_string(),
+                    tone: ToolSummaryTone::Success,
+                },
+                ToolSummaryLine {
+                    text: "175 files · 80k lines".to_string(),
+                    tone: ToolSummaryTone::Neutral,
+                },
+            ],
+            Style::default(),
+            Style::default(),
+            Style::default(),
+            Style::default(),
+        );
+        assert_eq!(result.len(), 1);
+        assert!(result[0]
+            .0
+            .contains("mapped rust workspace · 175 files · 80k lines"));
     }
 
     #[test]

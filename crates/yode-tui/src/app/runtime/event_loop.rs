@@ -371,7 +371,6 @@ fn resize_inline_viewport(
         terminal.viewport = ratatui::Viewport::Inline(needed);
         terminal.set_viewport_area(new_area);
     } else {
-        let shrink_by = area.height - needed;
         let new_y = area.bottom().saturating_sub(needed);
 
         for row in area.y..new_y {
@@ -381,11 +380,6 @@ fn resize_inline_viewport(
                 crossterm::terminal::Clear(crossterm::terminal::ClearType::CurrentLine)
             )?;
         }
-
-        crossterm::execute!(
-            terminal.backend_mut(),
-            crossterm::terminal::ScrollDown(shrink_by)
-        )?;
 
         let new_area = ratatui::layout::Rect {
             x: area.x,
