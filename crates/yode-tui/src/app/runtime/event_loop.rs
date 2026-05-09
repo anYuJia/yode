@@ -244,7 +244,8 @@ mod tests {
 
     use super::{
         background_task_brief_lines, inline_viewport_target, inspector_viewport_height,
-        render_task_notification_xml, should_defer_runtime_task_notifications,
+        render_task_notification_xml, should_anchor_inline_to_bottom,
+        should_defer_runtime_task_notifications,
     };
 
     fn test_app() -> App {
@@ -357,6 +358,21 @@ mod tests {
         assert_eq!(inline_viewport_target(8, 4, 24, 40, true), (24, 0));
         assert_eq!(inline_viewport_target(0, 0, 0, 7, true), (1, 0));
     }
+
+    #[test]
+    fn hidden_or_restored_entries_do_not_force_bottom_anchor() {
+        let mut app = test_app();
+        app.chat_entries.push(crate::app::ChatEntry::new(
+            crate::app::ChatRole::System,
+            "Session resumed.".to_string(),
+        ));
+        app.printed_count = 1;
+
+        assert!(!should_anchor_inline_to_bottom(&app));
+
+        app.is_processing = true;
+        assert!(should_anchor_inline_to_bottom(&app));
+    }
 }
 
 fn resize_inline_viewport(
@@ -426,9 +442,7 @@ fn inline_viewport_target(
 }
 
 fn should_anchor_inline_to_bottom(app: &App) -> bool {
-    !app.chat_entries.is_empty()
-        || app.printed_count > 0
-        || app.is_processing
+    app.is_processing
         || app.is_thinking
         || app.turn_status.is_visible()
         || !app.turn_completion.is_empty()
