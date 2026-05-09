@@ -34,6 +34,9 @@ pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
             input_hint_text(app),
         ));
         frame.render_widget(paragraph, area);
+        if !app.is_thinking && app.pending_confirmation.is_none() {
+            frame.set_cursor_position((empty_input_cursor_x(area), area.y));
+        }
     } else {
         render_wrapped_input(frame, area, app, prompt_color);
     }
@@ -65,6 +68,10 @@ fn ghost_or_hint_line(
             Span::styled(fallback_hint, Style::default().fg(HINT_COLOR)),
         ])
     }
+}
+
+fn empty_input_cursor_x(area: Rect) -> u16 {
+    area.x + 2.min(area.width.saturating_sub(1))
 }
 
 fn input_hint_text(app: &App) -> String {
@@ -124,7 +131,7 @@ mod tests {
     use yode_llm::registry::ProviderRegistry;
     use yode_tools::registry::ToolRegistry;
 
-    use super::input_hint_text;
+    use super::{empty_input_cursor_x, input_hint_text};
     use crate::app::App;
 
     fn test_app() -> App {
@@ -151,5 +158,21 @@ mod tests {
         app.pending_inputs
             .push(("next".to_string(), "next".to_string()));
         assert_eq!(input_hint_text(&app), "Queue a follow-up… 1 already queued");
+    }
+
+    #[test]
+    fn empty_input_cursor_stays_inside_prompt_area() {
+        assert_eq!(
+            empty_input_cursor_x(ratatui::layout::Rect::new(4, 0, 80, 1)),
+            6
+        );
+        assert_eq!(
+            empty_input_cursor_x(ratatui::layout::Rect::new(4, 0, 1, 1)),
+            4
+        );
+        assert_eq!(
+            empty_input_cursor_x(ratatui::layout::Rect::new(4, 0, 0, 1)),
+            4
+        );
     }
 }
