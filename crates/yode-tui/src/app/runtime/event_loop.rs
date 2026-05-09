@@ -345,10 +345,17 @@ mod tests {
     }
 
     #[test]
-    fn inline_viewport_target_anchors_to_terminal_bottom() {
-        assert_eq!(inline_viewport_target(24, 7), (7, 17));
-        assert_eq!(inline_viewport_target(24, 40), (24, 0));
-        assert_eq!(inline_viewport_target(0, 7), (1, 0));
+    fn inline_viewport_target_keeps_empty_session_compact() {
+        assert_eq!(inline_viewport_target(8, 4, 24, 7, false), (7, 8));
+        assert_eq!(inline_viewport_target(20, 4, 24, 7, false), (7, 17));
+        assert_eq!(inline_viewport_target(0, 0, 0, 7, false), (1, 0));
+    }
+
+    #[test]
+    fn inline_viewport_target_anchors_active_session_to_terminal_bottom() {
+        assert_eq!(inline_viewport_target(8, 4, 24, 7, true), (7, 17));
+        assert_eq!(inline_viewport_target(8, 4, 24, 40, true), (24, 0));
+        assert_eq!(inline_viewport_target(0, 0, 0, 7, true), (1, 0));
     }
 }
 
@@ -359,7 +366,13 @@ fn resize_inline_viewport(
     let needed = viewport_height(app, terminal);
     let area = terminal.get_frame().area();
     let (_, terminal_height) = crossterm::terminal::size()?;
-    let (needed, new_y) = inline_viewport_target(terminal_height, needed);
+    let (needed, new_y) = inline_viewport_target(
+        area.y,
+        area.height,
+        terminal_height,
+        needed,
+        should_anchor_inline_to_bottom(app),
+    );
     if area.height == needed && area.y == new_y {
         return Ok(());
     }
@@ -391,9 +404,36 @@ fn resize_inline_viewport(
     Ok(())
 }
 
-fn inline_viewport_target(terminal_height: u16, needed: u16) -> (u16, u16) {
+fn inline_viewport_target(
+    current_y: u16,
+    current_height: u16,
+    terminal_height: u16,
+    needed: u16,
+    anchor_to_bottom: bool,
+) -> (u16, u16) {
     let height = needed.min(terminal_height.max(1));
-    (height, terminal_height.saturating_sub(height))
+    if anchor_to_bottom {
+        return (height, terminal_height.saturating_sub(height));
+    }
+
+    let current_bottom = current_y.saturating_add(current_height);
+    let target_y = if current_bottom >= terminal_height {
+        terminal_height.saturating_sub(height)
+    } else {
+        current_y.min(terminal_height.saturating_sub(height))
+    };
+    (height, target_y)
+}
+
+fn should_anchor_inline_to_bottom(app: &App) -> bool {
+    !app.chat_entries.is_empty()
+        || app.printed_count > 0
+        || app.is_processing
+        || app.is_thinking
+        || app.turn_status.is_visible()
+        || !app.turn_completion.is_empty()
+        || !app.streaming_buf.is_empty()
+        || !app.streaming_markdown_preview.is_empty()
 }
 
 fn viewport_height(app: &App, terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> u16 {
