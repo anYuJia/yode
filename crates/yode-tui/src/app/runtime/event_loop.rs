@@ -243,8 +243,8 @@ mod tests {
     use crate::ui::inspector::InspectorDocument;
 
     use super::{
-        background_task_brief_lines, inspector_viewport_height, render_task_notification_xml,
-        should_defer_runtime_task_notifications,
+        background_task_brief_lines, inline_viewport_target, inspector_viewport_height,
+        render_task_notification_xml, should_defer_runtime_task_notifications,
     };
 
     fn test_app() -> App {
@@ -343,6 +343,13 @@ mod tests {
 
         assert_eq!(inspector_viewport_height(&app), Some(17));
     }
+
+    #[test]
+    fn inline_viewport_target_anchors_to_terminal_bottom() {
+        assert_eq!(inline_viewport_target(24, 7), (7, 17));
+        assert_eq!(inline_viewport_target(24, 40), (24, 0));
+        assert_eq!(inline_viewport_target(0, 7), (1, 0));
+    }
 }
 
 fn resize_inline_viewport(
@@ -351,28 +358,19 @@ fn resize_inline_viewport(
 ) -> Result<()> {
     let needed = viewport_height(app, terminal);
     let area = terminal.get_frame().area();
-    if area.height == needed {
+    let (_, terminal_height) = crossterm::terminal::size()?;
+    let (needed, new_y) = inline_viewport_target(terminal_height, needed);
+    if area.height == needed && area.y == new_y {
         return Ok(());
     }
 
-    if needed > area.height {
-        let grow_by = needed - area.height;
+    if new_y < area.y {
+        let grow_by = area.y - new_y;
         crossterm::execute!(
             terminal.backend_mut(),
             crossterm::terminal::ScrollUp(grow_by)
         )?;
-        let new_y = area.y.saturating_sub(grow_by);
-        let new_area = ratatui::layout::Rect {
-            x: area.x,
-            y: new_y,
-            width: area.width,
-            height: needed,
-        };
-        terminal.viewport = ratatui::Viewport::Inline(needed);
-        terminal.set_viewport_area(new_area);
     } else {
-        let new_y = area.bottom().saturating_sub(needed);
-
         for row in area.y..new_y {
             crossterm::execute!(
                 terminal.backend_mut(),
@@ -380,18 +378,22 @@ fn resize_inline_viewport(
                 crossterm::terminal::Clear(crossterm::terminal::ClearType::CurrentLine)
             )?;
         }
-
-        let new_area = ratatui::layout::Rect {
-            x: area.x,
-            y: new_y,
-            width: area.width,
-            height: needed,
-        };
-        terminal.viewport = ratatui::Viewport::Inline(needed);
-        terminal.set_viewport_area(new_area);
     }
+    let new_area = ratatui::layout::Rect {
+        x: area.x,
+        y: new_y,
+        width: area.width,
+        height: needed,
+    };
+    terminal.viewport = ratatui::Viewport::Inline(needed);
+    terminal.set_viewport_area(new_area);
     terminal.clear()?;
     Ok(())
+}
+
+fn inline_viewport_target(terminal_height: u16, needed: u16) -> (u16, u16) {
+    let height = needed.min(terminal_height.max(1));
+    (height, terminal_height.saturating_sub(height))
 }
 
 fn viewport_height(app: &App, terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> u16 {

@@ -17,7 +17,7 @@ pub(crate) fn status_area_height(app: &App, completion_height: u16) -> u16 {
             3
         }
     } else if app.turn_completion.last_turn_message.is_some() {
-        1
+        3
     } else {
         0
     }
@@ -144,7 +144,7 @@ mod tests {
 
         let plan = build_main_layout(ratatui::layout::Rect::new(0, 0, 80, 20), &app);
 
-        assert_eq!(plan.areas[0].height, 1);
+        assert_eq!(plan.areas[0].height, 3);
         assert!(plan.show_turn_status);
         assert_eq!(plan.areas[2].height, 1);
     }
