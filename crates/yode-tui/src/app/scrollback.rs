@@ -6,7 +6,7 @@ use anyhow::Result;
 use crossterm::terminal::{Clear, ClearType};
 use crossterm::ExecutableCommand;
 use ratatui::backend::CrosstermBackend;
-use ratatui::style::{Color, Modifier};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Line;
 use ratatui::Terminal;
 
@@ -48,56 +48,49 @@ fn raw_print_lines(
                 .map(move |wrapped| (wrapped, *color, *bold))
         })
         .collect::<Vec<_>>();
-    let (_, screen_height) = crossterm::terminal::size()?;
-    let viewport_area = terminal.get_frame().area();
-    let scroll_region_height = if viewport_area.y == 0 {
-        screen_height
-    } else {
-        viewport_area.y
-    };
-    if scroll_region_height == 0 {
+    if wrapped_lines.is_empty() {
         return Ok(());
     }
 
-    let backend = terminal.backend_mut();
-    write!(backend, "\x1b[1;{}r", scroll_region_height)?;
-
-    for (text, color, bold) in wrapped_lines {
-        write!(backend, "\x1b[1S")?;
-        crossterm::queue!(
-            backend,
-            crossterm::cursor::MoveTo(0, scroll_region_height - 1),
-        )?;
-        crossterm::queue!(
-            backend,
-            crossterm::terminal::Clear(crossterm::terminal::ClearType::CurrentLine)
-        )?;
-        if bold {
-            crossterm::queue!(
-                backend,
-                crossterm::style::SetAttribute(crossterm::style::Attribute::Bold)
-            )?;
+    terminal.insert_before(wrapped_lines.len() as u16, |buffer| {
+        let max_width = buffer.area.width as usize;
+        for (row, (text, color, bold)) in wrapped_lines.iter().enumerate() {
+            let mut style = Style::default();
+            if let Some(color) = color.and_then(to_ratatui_color) {
+                style = style.fg(color);
+            }
+            if *bold {
+                style = style.add_modifier(Modifier::BOLD);
+            }
+            buffer.set_stringn(0, row as u16, text, max_width, style);
         }
-        if let Some(c) = color {
-            crossterm::queue!(backend, crossterm::style::SetForegroundColor(c))?;
-        }
-        crossterm::queue!(backend, crossterm::style::Print(text))?;
-        crossterm::queue!(backend, crossterm::style::ResetColor)?;
-        if bold {
-            crossterm::queue!(
-                backend,
-                crossterm::style::SetAttribute(crossterm::style::Attribute::NoBold)
-            )?;
-        }
-    }
-
-    write!(backend, "\x1b[r")?;
-    crossterm::queue!(
-        backend,
-        crossterm::cursor::MoveTo(0, screen_height.saturating_sub(1)),
-    )?;
-    IoWrite::flush(backend)?;
+    })?;
+    IoWrite::flush(terminal.backend_mut())?;
     Ok(())
+}
+
+fn to_ratatui_color(color: crossterm::style::Color) -> Option<Color> {
+    match color {
+        crossterm::style::Color::Reset => None,
+        crossterm::style::Color::Black => Some(Color::Black),
+        crossterm::style::Color::DarkGrey => Some(Color::DarkGray),
+        crossterm::style::Color::Red => Some(Color::Red),
+        crossterm::style::Color::DarkRed => Some(Color::LightRed),
+        crossterm::style::Color::Green => Some(Color::Green),
+        crossterm::style::Color::DarkGreen => Some(Color::LightGreen),
+        crossterm::style::Color::Yellow => Some(Color::Yellow),
+        crossterm::style::Color::DarkYellow => Some(Color::LightYellow),
+        crossterm::style::Color::Blue => Some(Color::Blue),
+        crossterm::style::Color::DarkBlue => Some(Color::LightBlue),
+        crossterm::style::Color::Magenta => Some(Color::Magenta),
+        crossterm::style::Color::DarkMagenta => Some(Color::LightMagenta),
+        crossterm::style::Color::Cyan => Some(Color::Cyan),
+        crossterm::style::Color::DarkCyan => Some(Color::LightCyan),
+        crossterm::style::Color::White => Some(Color::White),
+        crossterm::style::Color::Grey => Some(Color::Gray),
+        crossterm::style::Color::Rgb { r, g, b } => Some(Color::Rgb(r, g, b)),
+        crossterm::style::Color::AnsiValue(value) => Some(Color::Indexed(value)),
+    }
 }
 
 fn normalize_scrollback_print_lines(
