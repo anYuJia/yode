@@ -1,7 +1,10 @@
 use std::path::Path;
 
 use crate::commands::context::CommandContext;
-use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
+use crate::commands::{
+    ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
+    CommandResult,
+};
 
 pub struct InitCommand {
     meta: CommandMeta,
@@ -14,7 +17,15 @@ impl InitCommand {
                 name: "init",
                 description: "Create a project YODE.md instruction file",
                 aliases: &[],
-                args: Vec::new(),
+                args: vec![ArgDef {
+                    name: "force".to_string(),
+                    required: false,
+                    hint: "[--force|force]".to_string(),
+                    completions: ArgCompletionSource::Static(vec![
+                        "--force".to_string(),
+                        "force".to_string(),
+                    ]),
+                }],
                 category: CommandCategory::Session,
                 hidden: false,
             },
@@ -28,7 +39,7 @@ impl Command for InitCommand {
     }
 
     fn execute(&self, args: &str, ctx: &mut CommandContext<'_>) -> CommandResult {
-        let force = matches!(args.trim(), "--force" | "force");
+        let force = parse_force_flag(args)?;
         let project_root = std::path::PathBuf::from(&ctx.session.working_dir);
         let target = project_root.join("YODE.md");
         if target.exists() && !force {
@@ -43,6 +54,17 @@ impl Command for InitCommand {
             target.display()
         )))
     }
+}
+
+fn parse_force_flag(args: &str) -> Result<bool, String> {
+    let trimmed = args.trim();
+    if trimmed.is_empty() {
+        return Ok(false);
+    }
+    if matches!(trimmed, "--force" | "force" | "-f") {
+        return Ok(true);
+    }
+    Err("Usage: /init [--force]".to_string())
 }
 
 fn render_yode_md(project_root: &Path) -> String {
@@ -107,7 +129,7 @@ fn suggested_test_commands(project_root: &Path) -> Vec<&'static str> {
 
 #[cfg(test)]
 mod tests {
-    use super::render_yode_md;
+    use super::{parse_force_flag, render_yode_md};
 
     #[test]
     fn init_template_detects_rust_project() {
@@ -139,5 +161,14 @@ mod tests {
         assert!(content.contains("Run the repository's documented validation command"));
         assert!(!content.contains("TODO"));
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn parse_force_flag_accepts_expected_variants() {
+        assert!(!parse_force_flag("").unwrap());
+        assert!(parse_force_flag("--force").unwrap());
+        assert!(parse_force_flag("force").unwrap());
+        assert!(parse_force_flag("-f").unwrap());
+        assert!(parse_force_flag("bad").is_err());
     }
 }
