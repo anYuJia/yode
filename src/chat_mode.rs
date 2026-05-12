@@ -12,6 +12,7 @@ use yode_core::permission::PermissionManager;
 use yode_llm::provider::LlmProvider;
 use yode_llm::types::Message;
 use yode_tools::registry::ToolRegistry;
+use yode_tools::tool::McpResourceProvider;
 
 pub(crate) struct NoninteractiveChatRun<'a> {
     pub(crate) chat_message: &'a str,
@@ -23,6 +24,7 @@ pub(crate) struct NoninteractiveChatRun<'a> {
     pub(crate) restored_messages: Option<Vec<Message>>,
     pub(crate) config: &'a Config,
     pub(crate) mcp_clients: Vec<yode_mcp::McpClient>,
+    pub(crate) mcp_resource_provider: Option<Arc<dyn McpResourceProvider>>,
 }
 
 pub(crate) async fn run_noninteractive_chat(run: NoninteractiveChatRun<'_>) -> Result<()> {
@@ -36,9 +38,13 @@ pub(crate) async fn run_noninteractive_chat(run: NoninteractiveChatRun<'_>) -> R
         restored_messages,
         config,
         mcp_clients,
+        mcp_resource_provider,
     } = run;
     let mut engine = AgentEngine::new(provider, tool_registry, permissions, context);
     engine.set_database(db);
+    if let Some(provider) = mcp_resource_provider {
+        engine.set_mcp_resource_provider(provider);
+    }
 
     if let Some(budget) = config.cost.max_budget_usd {
         if budget > 0.0 {

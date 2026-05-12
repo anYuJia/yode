@@ -41,11 +41,13 @@ impl AgentEngine {
 
     /// Enforces per-turn aggregate tool result size limits.
     fn enforce_tool_budget(&mut self, result: &mut ToolResult) {
+        let max_total_tool_results_size =
+            dynamic_total_tool_results_limit(self.context_manager.context_window());
         let size = result.content.len();
         self.total_tool_results_bytes += size;
 
-        if self.total_tool_results_bytes > MAX_TOTAL_TOOL_RESULTS_SIZE {
-            let over_limit = self.total_tool_results_bytes - MAX_TOTAL_TOOL_RESULTS_SIZE;
+        if self.total_tool_results_bytes > max_total_tool_results_size {
+            let over_limit = self.total_tool_results_bytes - max_total_tool_results_size;
             if size > over_limit {
                 let allowed = size.saturating_sub(over_limit);
                 let preview_len = allowed.min(1000);
@@ -97,7 +99,7 @@ impl AgentEngine {
         parallel_batch: Option<u32>,
     ) -> ToolResult {
         self.track_file_access(&tool_call.name, &result);
-        result = truncate_tool_result(result);
+        result = truncate_tool_result(result, self.context_manager.context_window());
         self.enforce_tool_budget(&mut result);
         self.inject_intelligence(&mut result, &tool_call.name, &tool_call.arguments);
 

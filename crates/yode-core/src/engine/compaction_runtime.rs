@@ -10,11 +10,14 @@ const POST_COMPACT_RUNTIME_PREFIX: &str = "[Post-compact restore: runtime]";
 const POST_COMPACT_FILES_PREFIX: &str = "[Post-compact restore: files]";
 const POST_COMPACT_PLAN_PREFIX: &str = "[Post-compact restore: plan]";
 const POST_COMPACT_TOOLS_PREFIX: &str = "[Post-compact restore: tools]";
+const POST_COMPACT_PROMPT_CACHE_PREFIX: &str = "[Post-compact restore: prompt-cache]";
 const POST_COMPACT_SKILLS_PREFIX: &str = "[Post-compact restore: skills]";
 const POST_COMPACT_MCP_PREFIX: &str = "[Post-compact restore: mcp]";
 const POST_COMPACT_ARTIFACTS_PREFIX: &str = "[Post-compact restore: artifacts]";
 const HIDDEN_POST_COMPACT_RESTORE_PREFIX: &str = "# Post-compact Restore";
 const REACTIVE_GAP_SAFETY_TOKENS: usize = 2_000;
+const POST_COMPACT_FILE_EXCERPT_MAX_FILES: usize = 3;
+const POST_COMPACT_FILE_EXCERPT_MAX_CHARS: usize = 900;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CompactionMode {
@@ -29,6 +32,7 @@ enum RestoreBlockKind {
     Files,
     Plan,
     Tools,
+    PromptCache,
     Skills,
     Mcp,
     Artifacts,
@@ -41,6 +45,7 @@ impl RestoreBlockKind {
             Self::Files => "files",
             Self::Plan => "plan",
             Self::Tools => "tools",
+            Self::PromptCache => "prompt-cache",
             Self::Skills => "skills",
             Self::Mcp => "mcp",
             Self::Artifacts => "artifacts",
@@ -153,6 +158,84 @@ fn summarize_string_entries(entries: &[String], max_items: usize) -> Option<Stri
         summary.push_str(&format!(", +{} more", extra));
     }
     Some(summary)
+}
+
+fn resolve_post_compact_file_path(
+    project_root: &std::path::Path,
+    cwd: &str,
+    file_path: &str,
+) -> Option<std::path::PathBuf> {
+    let file_path = file_path.trim();
+    if file_path.is_empty() {
+        return None;
+    }
+
+    let canonical_root = std::fs::canonicalize(project_root).ok()?;
+    let raw_path = std::path::Path::new(file_path);
+    let candidates = if raw_path.is_absolute() {
+        vec![raw_path.to_path_buf()]
+    } else {
+        let cwd_path = std::path::Path::new(cwd);
+        let base = if cwd_path.is_absolute() {
+            cwd_path.to_path_buf()
+        } else {
+            project_root.join(cwd_path)
+        };
+        vec![base.join(raw_path), project_root.join(raw_path)]
+    };
+
+    candidates.into_iter().find_map(|candidate| {
+        let canonical = std::fs::canonicalize(candidate).ok()?;
+        canonical.starts_with(&canonical_root).then_some(canonical)
+    })
+}
+
+fn read_post_compact_file_excerpt(path: &std::path::Path) -> Option<String> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let normalized = content.replace("\r\n", "\n");
+    let mut excerpt = normalized.split_whitespace().collect::<Vec<_>>().join(" ");
+    excerpt = excerpt
+        .chars()
+        .take(POST_COMPACT_FILE_EXCERPT_MAX_CHARS)
+        .collect::<String>();
+    if normalized.chars().count() > POST_COMPACT_FILE_EXCERPT_MAX_CHARS {
+        excerpt.push_str(" ... [file excerpt truncated]");
+    }
+    Some(excerpt.trim_end().to_string()).filter(|value| !value.trim().is_empty())
+}
+
+fn render_post_compact_file_excerpts(
+    project_root: &std::path::Path,
+    cwd: &str,
+    read_files: &[String],
+) -> Vec<String> {
+    let mut files = read_files.to_vec();
+    files.sort();
+    files.dedup();
+
+    files
+        .into_iter()
+        .filter_map(|file_path| {
+            let resolved = resolve_post_compact_file_path(project_root, cwd, &file_path)?;
+            let excerpt = read_post_compact_file_excerpt(&resolved)?;
+            let display_path = resolved
+                .strip_prefix(project_root)
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|_| file_path.clone());
+            Some(format!("- Excerpt from {}: {}", display_path, excerpt))
+        })
+        .take(POST_COMPACT_FILE_EXCERPT_MAX_FILES)
+        .collect()
+}
+
+fn prompt_cache_value(value: Option<u32>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "-".to_string())
+}
+
+fn prompt_cache_text_value(value: Option<&String>) -> &str {
+    value.map(|value| value.as_str()).unwrap_or("none")
 }
 
 fn message_excerpt_for_compaction(message: &Message, limit: usize) -> Option<String> {
@@ -388,6 +471,7 @@ fn write_post_compact_restore_diff_artifact(
         RestoreBlockKind::Files,
         RestoreBlockKind::Plan,
         RestoreBlockKind::Tools,
+        RestoreBlockKind::PromptCache,
         RestoreBlockKind::Skills,
         RestoreBlockKind::Mcp,
         RestoreBlockKind::Artifacts,
@@ -438,6 +522,7 @@ fn load_post_compact_restore_state_artifact(
             "files" => RestoreBlockKind::Files,
             "plan" => RestoreBlockKind::Plan,
             "tools" => RestoreBlockKind::Tools,
+            "prompt-cache" | "prompt_cache" => RestoreBlockKind::PromptCache,
             "skills" => RestoreBlockKind::Skills,
             "mcp" => RestoreBlockKind::Mcp,
             "artifacts" => RestoreBlockKind::Artifacts,
@@ -457,6 +542,8 @@ fn restore_block_kind_from_content(content: &str) -> Option<RestoreBlockKind> {
         Some(RestoreBlockKind::Plan)
     } else if content.starts_with(POST_COMPACT_TOOLS_PREFIX) {
         Some(RestoreBlockKind::Tools)
+    } else if content.starts_with(POST_COMPACT_PROMPT_CACHE_PREFIX) {
+        Some(RestoreBlockKind::PromptCache)
     } else if content.starts_with(POST_COMPACT_SKILLS_PREFIX) {
         Some(RestoreBlockKind::Skills)
     } else if content.starts_with(POST_COMPACT_MCP_PREFIX) {
@@ -519,6 +606,8 @@ fn sanitize_restore_block_for_request(kind: RestoreBlockKind, content: &str) -> 
             for line in body_lines {
                 if line.starts_with("- Recent files read:")
                     || line.starts_with("- Recent files modified:")
+                    || line.starts_with("- Recent file excerpts:")
+                    || line.starts_with("- Excerpt from ")
                     || line.starts_with("- No recent file context to restore.")
                 {
                     lines.push(line.to_string());
@@ -543,16 +632,42 @@ fn sanitize_restore_block_for_request(kind: RestoreBlockKind, content: &str) -> 
             "- Tool availability follows the current runtime tool pool and permission state."
                 .to_string(),
         ],
+        RestoreBlockKind::PromptCache => {
+            let mut lines = vec![POST_COMPACT_PROMPT_CACHE_PREFIX.to_string()];
+            for line in body_lines {
+                if line.starts_with("- Last turn:")
+                    || line.starts_with("- Totals:")
+                    || line.starts_with("- Active cache edits:")
+                    || line.starts_with("- Expected next drop:")
+                    || line.starts_with("- Last break:")
+                    || line.starts_with("- Last transition:")
+                    || line.starts_with("- Last hashes:")
+                {
+                    lines.push(line.to_string());
+                }
+            }
+            if lines.len() == 1 {
+                lines.push(
+                    "- Prompt cache state will be re-derived from the next request.".to_string(),
+                );
+            }
+            lines
+        }
         RestoreBlockKind::Skills => {
             let mut lines = vec![POST_COMPACT_SKILLS_PREFIX.to_string()];
-            let skill_line = body_lines
-                .into_iter()
-                .find(|line| {
-                    line.starts_with("- Available skills:")
-                        || line.starts_with("- No skills discovered.")
-                })
-                .unwrap_or("- No skills discovered.");
-            lines.push(skill_line.to_string());
+            let mut found = false;
+            for line in body_lines {
+                if line.starts_with("- Path-gated active skills:")
+                    || line.starts_with("- Available skills:")
+                    || line.starts_with("- No skills discovered.")
+                {
+                    lines.push(line.to_string());
+                    found = true;
+                }
+            }
+            if !found {
+                lines.push("- No skills discovered.".to_string());
+            }
             lines
         }
         RestoreBlockKind::Mcp => vec![
@@ -677,6 +792,21 @@ impl AgentEngine {
     }
 
     pub(super) fn apply_microcompact(&mut self) {
+        let media_report = self
+            .context_manager
+            .microcompact_old_media(&mut self.messages);
+        let media_changed = media_report.media_removed > 0;
+        self.last_microcompact_media_removed = media_report.media_removed as u32;
+        self.last_microcompact_media_saved_chars = media_report.saved_chars as u64;
+        if media_changed {
+            self.microcompact_media_removed_total = self
+                .microcompact_media_removed_total
+                .saturating_add(media_report.media_removed as u64);
+            self.microcompact_media_saved_chars_total = self
+                .microcompact_media_saved_chars_total
+                .saturating_add(media_report.saved_chars as u64);
+        }
+
         if self.supports_anthropic_cache_editing() {
             let refs = self
                 .context_manager
@@ -685,6 +815,14 @@ impl AgentEngine {
                 self.cached_microcompact_deleted_refs.clear();
                 self.pending_cache_edit_refs.clear();
                 self.prompt_cache_runtime.last_turn_cache_edit_deletions = Some(0);
+                if media_changed {
+                    self.record_compaction_cause("microcompact_media");
+                    self.sync_persisted_messages_snapshot();
+                    debug!(
+                        "Applied media microcompact: removed {} old attachment(s) and saved ~{} chars",
+                        media_report.media_removed, media_report.saved_chars
+                    );
+                }
                 return;
             }
             self.cached_microcompact_deleted_refs = refs.clone();
@@ -708,6 +846,14 @@ impl AgentEngine {
             self.prompt_cache_runtime.pinned_cache_edit_refs =
                 self.pinned_cache_edit_refs.len() as u32;
             self.record_compaction_cause("microcompact_cached");
+            if media_changed {
+                self.record_compaction_cause("microcompact_media");
+                self.sync_persisted_messages_snapshot();
+                debug!(
+                    "Applied media microcompact: removed {} old attachment(s) and saved ~{} chars",
+                    media_report.media_removed, media_report.saved_chars
+                );
+            }
             debug!(
                 "Prepared cached microcompact with {} total cache references ({} pending, {} pinned)",
                 self.cached_microcompact_deleted_refs.len(),
@@ -718,7 +864,7 @@ impl AgentEngine {
         }
 
         let report = self.context_manager.microcompact(&mut self.messages);
-        if report.tool_results_cleared == 0 {
+        if report.tool_results_cleared == 0 && !media_changed {
             return;
         }
 
@@ -728,11 +874,18 @@ impl AgentEngine {
         self.prompt_cache_runtime.last_turn_cache_edit_deletions = Some(0);
         self.prompt_cache_runtime.pending_cache_edit_refs = 0;
         self.prompt_cache_runtime.pinned_cache_edit_refs = 0;
-        self.record_compaction_cause("microcompact");
+        if report.tool_results_cleared > 0 {
+            self.record_compaction_cause("microcompact");
+        }
+        if media_changed {
+            self.record_compaction_cause("microcompact_media");
+        }
         self.sync_persisted_messages_snapshot();
         debug!(
-            "Applied microcompact: cleared {} older tool results and saved ~{} chars",
-            report.tool_results_cleared, report.saved_chars
+            "Applied microcompact: cleared {} older tool results, removed {} old attachment(s), and saved ~{} chars",
+            report.tool_results_cleared,
+            media_report.media_removed,
+            report.saved_chars.saturating_add(media_report.saved_chars)
         );
     }
 
@@ -986,16 +1139,22 @@ impl AgentEngine {
         let skills = crate::skills::SkillRegistry::discover(
             &crate::skills::SkillRegistry::default_paths(&project_root),
         );
+        let mcp_cache = yode_tools::mcp_resource_cache_stats();
+
+        let read_files = self.files_read.keys().cloned().collect::<Vec<_>>();
+        let modified_files = self.files_modified.clone();
+        let recent_paths = read_files
+            .iter()
+            .chain(modified_files.iter())
+            .cloned()
+            .collect::<Vec<_>>();
+        let active_skills = skills.active_for_paths(recent_paths.iter());
         let skill_names = skills
             .list()
             .iter()
             .take(5)
             .map(|skill| skill.name.clone())
             .collect::<Vec<_>>();
-        let mcp_cache = yode_tools::mcp_resource_cache_stats();
-
-        let read_files = self.files_read.keys().cloned().collect::<Vec<_>>();
-        let modified_files = self.files_modified.clone();
 
         let runtime_lines = [
             format!(
@@ -1014,6 +1173,11 @@ impl AgentEngine {
         }
         if let Some(summary) = summarize_string_entries(&modified_files, 5) {
             file_lines.push(format!("- Recent files modified: {}", summary));
+        }
+        let file_excerpts = render_post_compact_file_excerpts(&project_root, &cwd, &read_files);
+        if !file_excerpts.is_empty() {
+            file_lines.push("- Recent file excerpts:".to_string());
+            file_lines.extend(file_excerpts);
         }
         if file_lines.len() == 1 {
             file_lines.push("- No recent file context to restore.".to_string());
@@ -1047,6 +1211,68 @@ impl AgentEngine {
             inventory.last_activated_tool.as_deref().unwrap_or("none")
         ));
 
+        let cache = &self.prompt_cache_runtime;
+        let prompt_cache_lines = vec![
+            POST_COMPACT_PROMPT_CACHE_PREFIX.to_string(),
+            format!(
+                "- Last turn: prompt={} completion={} write={} read={} edit_del={}",
+                prompt_cache_value(cache.last_turn_prompt_tokens),
+                prompt_cache_value(cache.last_turn_completion_tokens),
+                prompt_cache_value(cache.last_turn_cache_write_tokens),
+                prompt_cache_value(cache.last_turn_cache_read_tokens),
+                prompt_cache_value(cache.last_turn_cache_edit_deletions)
+            ),
+            format!(
+                "- Totals: turns={} write={} read={} edit_deletions={} deleted_tokens={}",
+                cache.reported_turns,
+                cache.cache_write_tokens_total,
+                cache.cache_read_tokens_total,
+                cache.cache_edit_deletions_total,
+                cache.cache_deleted_tokens_total
+            ),
+            format!(
+                "- Active cache edits: pending={} pinned={}",
+                self.pending_cache_edit_refs.len(),
+                self.pinned_cache_edit_refs.len()
+            ),
+            format!("- Expected next drop: compaction_{}", mode.label()),
+            format!(
+                "- Last break: count={} reason={} at={}",
+                cache.prompt_cache_break_count,
+                cache
+                    .last_prompt_cache_break_reason
+                    .as_deref()
+                    .unwrap_or("none"),
+                cache
+                    .last_prompt_cache_break_at
+                    .as_deref()
+                    .unwrap_or("none")
+            ),
+            format!(
+                "- Last transition: kind={} reason={} change={}",
+                cache
+                    .last_prompt_cache_transition_kind
+                    .as_deref()
+                    .unwrap_or("none"),
+                cache
+                    .last_prompt_cache_transition_reason
+                    .as_deref()
+                    .unwrap_or("none"),
+                cache
+                    .last_prompt_cache_change_summary
+                    .as_deref()
+                    .unwrap_or("none")
+            ),
+            format!(
+                "- Last hashes: prefix={} system={} restore={} tool={} message={}",
+                prompt_cache_text_value(self.last_prompt_cache_prefix_hash.as_ref()),
+                prompt_cache_text_value(self.last_prompt_cache_system_hash.as_ref()),
+                prompt_cache_text_value(self.last_prompt_cache_restore_hash.as_ref()),
+                prompt_cache_text_value(self.last_prompt_cache_tool_hash.as_ref()),
+                prompt_cache_text_value(self.last_prompt_cache_message_hash.as_ref())
+            ),
+        ];
+
         let mut mcp_lines = vec![POST_COMPACT_MCP_PREFIX.to_string()];
         mcp_lines.push(format!(
             "- MCP: visible_tools={} deferred_tools={} cache(list {} hit/{} miss, read {} hit/{} miss)",
@@ -1059,6 +1285,25 @@ impl AgentEngine {
         ));
 
         let mut skill_lines = vec![POST_COMPACT_SKILLS_PREFIX.to_string()];
+        if !active_skills.is_empty() {
+            let rendered = active_skills
+                .iter()
+                .take(5)
+                .map(|skill| {
+                    if skill.metadata.paths.is_empty() {
+                        skill.name.clone()
+                    } else {
+                        format!(
+                            "{} (paths: {})",
+                            skill.name,
+                            skill.metadata.paths.join(", ")
+                        )
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("; ");
+            skill_lines.push(format!("- Path-gated active skills: {}", rendered));
+        }
         if !skill_names.is_empty() {
             skill_lines.push(format!("- Available skills: {}", skill_names.join(", ")));
         } else {
@@ -1093,6 +1338,7 @@ impl AgentEngine {
             (RestoreBlockKind::Files, file_lines.join("\n")),
             (RestoreBlockKind::Plan, plan_lines.join("\n")),
             (RestoreBlockKind::Tools, tool_lines.join("\n")),
+            (RestoreBlockKind::PromptCache, prompt_cache_lines.join("\n")),
             (RestoreBlockKind::Skills, skill_lines.join("\n")),
             (RestoreBlockKind::Mcp, mcp_lines.join("\n")),
             (RestoreBlockKind::Artifacts, artifact_lines.join("\n")),
@@ -1110,7 +1356,6 @@ impl AgentEngine {
     ) -> bool {
         let mode_label = mode.label();
         let mut report = report;
-        self.clear_cache_edit_tracking();
 
         if !used_session_memory && report.removed > 0 {
             if let Some(summary) = self
@@ -1187,6 +1432,7 @@ impl AgentEngine {
         }
         self.set_post_compact_restore_blocks(restore_messages);
         self.take_post_compact_restore_messages_from_conversation();
+        self.clear_cache_edit_tracking();
         self.sync_persisted_messages_snapshot();
 
         let post_context = self.build_compaction_hook_context(
@@ -1333,7 +1579,7 @@ impl AgentEngine {
             .await;
 
         let pre_compact_messages = self.messages.clone();
-        let (mut report, used_session_memory) = if let Some(keep_last) = keep_last_override {
+        let (report, used_session_memory) = if let Some(keep_last) = keep_last_override {
             (
                 self.context_manager.compress_with_keep_last(
                     &mut self.messages,
@@ -1379,149 +1625,15 @@ impl AgentEngine {
             return false;
         }
 
-        if !used_session_memory && report.removed > 0 {
-            if let Some(summary) = self
-                .generate_structured_compaction_summary(
-                    &report.removed_messages,
-                    self.last_turn_artifact_path.as_deref(),
-                )
-                .await
-            {
-                let previous_summary = report.summary.clone();
-                self.replace_compaction_summary_message(previous_summary.as_deref(), &summary);
-                report.summary = Some(summary);
-            }
-        }
-
-        let mut session_memory_path = None;
-        let mut transcript_path = None;
-        let project_root = self.context.working_dir_compat();
-        match persist_compaction_memory(
-            &project_root,
-            &self.context.session_id,
-            &report,
-            &self.files_read,
-            &self.files_modified,
-        ) {
-            Ok(path) => {
-                session_memory_path = Some(path);
-            }
-            Err(err) => warn!("Failed to persist session memory after compaction: {}", err),
-        }
-        match write_compaction_transcript(
-            &project_root,
-            &self.context.session_id,
-            &pre_compact_messages,
-            &report,
-            mode_label,
-            &self.failed_tool_call_ids,
-            session_memory_path.as_deref(),
-            &self.files_read,
-            &self.files_modified,
-        ) {
-            Ok(path) => transcript_path = Some(path),
-            Err(err) => warn!("Failed to write compaction transcript: {}", err),
-        }
-
-        let restore_messages = self
-            .build_post_compact_restore_messages(
-                mode,
-                session_memory_path.as_deref(),
-                transcript_path.as_deref(),
-            )
-            .await;
-        self.set_post_compact_restore_blocks(restore_messages);
-        self.take_post_compact_restore_messages_from_conversation();
-        self.sync_persisted_messages_snapshot();
-
-        let post_context = self.build_compaction_hook_context(
-            HookEvent::PostCompact,
-            mode_label,
+        self.finalize_compaction_result(
+            mode,
             prompt_tokens,
-            Some(&report),
-            session_memory_path.as_deref(),
-            transcript_path.as_deref(),
-        );
-        self.execute_advisory_hooks(HookEvent::PostCompact, post_context)
-            .await;
-        let compressed_context = self.build_compaction_hook_context(
-            HookEvent::ContextCompressed,
-            mode_label,
-            prompt_tokens,
-            Some(&report),
-            session_memory_path.as_deref(),
-            transcript_path.as_deref(),
-        );
-        self.execute_advisory_hooks(HookEvent::ContextCompressed, compressed_context)
-            .await;
-
-        let still_above_threshold = self
-            .context_manager
-            .exceeds_threshold_estimate(&self.messages);
-        self.compaction_in_progress = false;
-
-        if still_above_threshold && mode.is_auto() {
-            self.record_compaction_cause("failed_above_threshold");
-            self.record_compaction_failure(
-                "context remains above the safety threshold after compaction",
-                event_tx,
-            );
-        } else if mode.is_auto() {
-            self.compaction_failures = 0;
-        }
-
-        let session_memory_path_str = session_memory_path
-            .as_ref()
-            .map(|p| p.display().to_string());
-        let transcript_path_str = transcript_path.as_ref().map(|p| p.display().to_string());
-
-        let _ = event_tx.send(EngineEvent::ContextCompressed {
-            mode: mode_label.to_string(),
-            removed: report.removed,
-            tool_results_truncated: report.tool_results_truncated,
-            summary: report.summary.clone(),
-            session_memory_path: session_memory_path_str.clone(),
-            transcript_path: transcript_path_str.clone(),
-        });
-        self.last_compaction_mode = Some(mode_label.to_string());
-        self.last_compaction_at =
-            Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
-        self.last_compaction_summary_excerpt = report.summary.as_ref().map(|summary| {
-            let excerpt: String = summary.chars().take(160).collect();
-            if summary.chars().count() > 160 {
-                format!("{}...", excerpt)
-            } else {
-                excerpt
-            }
-        });
-        self.last_compaction_session_memory_path = session_memory_path_str;
-        self.last_compaction_transcript_path = transcript_path_str;
-        self.last_compaction_prompt_tokens = Some(prompt_tokens);
-        self.compaction_prompt_tokens_total = self
-            .compaction_prompt_tokens_total
-            .saturating_add(prompt_tokens as u64);
-        self.compaction_prompt_token_samples =
-            self.compaction_prompt_token_samples.saturating_add(1);
-        self.total_compactions = self.total_compactions.saturating_add(1);
-        match mode {
-            CompactionMode::Auto => {
-                self.auto_compactions = self.auto_compactions.saturating_add(1);
-                if used_session_memory {
-                    self.record_compaction_cause("success_auto_session_memory");
-                } else {
-                    self.record_compaction_cause("success_auto");
-                }
-            }
-            CompactionMode::Manual => {
-                self.manual_compactions = self.manual_compactions.saturating_add(1);
-                self.record_compaction_cause("success_manual");
-            }
-            CompactionMode::Reactive => {
-                self.record_compaction_cause("success_reactive");
-            }
-        }
-        self.persist_session_artifacts();
-        true
+            event_tx,
+            pre_compact_messages,
+            report,
+            used_session_memory,
+        )
+        .await
     }
 
     pub(super) fn estimated_prompt_tokens_for_current_messages(&self) -> u32 {

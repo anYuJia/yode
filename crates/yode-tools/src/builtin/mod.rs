@@ -95,6 +95,7 @@ pub fn register_builtin_tools(registry: &ToolRegistry) {
     registry.register(Arc::new(worktree::ExitWorktreeTool));
     registry.register(Arc::new(mcp_resources::ListMcpResourcesTool));
     registry.register(Arc::new(mcp_resources::ReadMcpResourceTool));
+    registry.register(Arc::new(mcp_resources::CleanupMcpResourceArtifactsTool));
     registry.register(Arc::new(mcp_resources::McpAuthTool));
     registry.register(Arc::new(tool_search::ToolSearchTool));
     registry.register(Arc::new(remote_runtime::RemoteQueueDispatchTool));

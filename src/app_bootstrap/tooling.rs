@@ -11,6 +11,7 @@ use yode_core::config::Config;
 use yode_core::skills::SkillRegistry;
 use yode_tools::builtin;
 use yode_tools::registry::ToolRegistry;
+use yode_tools::tool::McpResourceProvider;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub(crate) struct McpStartupFailure {
@@ -23,6 +24,7 @@ pub(crate) struct ToolingBootstrap {
     pub(crate) tool_registry: Arc<ToolRegistry>,
     pub(crate) skill_registry: SkillRegistry,
     pub(crate) mcp_clients: Vec<yode_mcp::McpClient>,
+    pub(crate) mcp_resource_provider: Option<Arc<dyn McpResourceProvider>>,
     pub(crate) metrics: ToolingSetupMetrics,
 }
 
@@ -86,9 +88,31 @@ pub(crate) async fn setup_tooling(config: &Config, workdir: &Path) -> Result<Too
         let server_config = server_config.clone();
         mcp_connect_set.spawn(async move {
             let mcp_config = yode_mcp::McpServerConfig {
+                transport: match server_config.transport {
+                    yode_core::config::McpTransportConfig::Stdio => {
+                        yode_mcp::McpTransportConfig::Stdio
+                    }
+                    yode_core::config::McpTransportConfig::Sse => yode_mcp::McpTransportConfig::Sse,
+                    yode_core::config::McpTransportConfig::Http => {
+                        yode_mcp::McpTransportConfig::Http
+                    }
+                    yode_core::config::McpTransportConfig::Websocket => {
+                        yode_mcp::McpTransportConfig::Websocket
+                    }
+                },
                 command: server_config.command,
                 args: server_config.args,
                 env: server_config.env,
+                url: server_config.url,
+                auth: server_config.auth.map(|auth| yode_mcp::McpAuthConfig {
+                    oauth: auth.oauth.map(|oauth| yode_mcp::McpOAuthConfig {
+                        client_id: oauth.client_id,
+                        authorization_url: oauth.authorization_url,
+                        token_url: oauth.token_url,
+                        scopes: oauth.scopes,
+                    }),
+                    bearer_token_env: auth.bearer_token_env,
+                }),
             };
             let result = yode_mcp::McpClient::connect(&name, &mcp_config).await;
             (name, result)
@@ -190,15 +214,24 @@ pub(crate) async fn setup_tooling(config: &Config, workdir: &Path) -> Result<Too
 
     let skill_registry = skill_discovery_task.await?;
     {
-        use yode_tools::builtin::skill::SkillStore;
+        use yode_tools::builtin::skill::{SkillContextMode, SkillEntry, SkillStore};
 
         let mut store = SkillStore::new();
         for skill in skill_registry.list() {
-            store.add(
-                skill.name.clone(),
-                skill.description.clone(),
-                skill.content.clone(),
-            );
+            let context = match skill.metadata.context {
+                yode_core::skills::SkillContextMode::Inline => SkillContextMode::Inline,
+                yode_core::skills::SkillContextMode::Fork => SkillContextMode::Fork,
+            };
+            store.add_entry(SkillEntry {
+                name: skill.name.clone(),
+                description: skill.description.clone(),
+                content: skill.content.clone(),
+                allowed_tools: skill.metadata.allowed_tools.clone(),
+                paths: skill.metadata.paths.clone(),
+                context,
+                model: skill.metadata.model.clone(),
+                effort: skill.metadata.effort.clone(),
+            });
         }
         let store = Arc::new(tokio::sync::Mutex::new(store));
         builtin::register_skill_tool(&tool_registry, store);
@@ -209,10 +242,17 @@ pub(crate) async fn setup_tooling(config: &Config, workdir: &Path) -> Result<Too
     let inventory = tool_registry.inventory();
     let final_tool_count = inventory.total_count;
 
+    let mcp_resource_provider = (!mcp_clients.is_empty()).then(|| {
+        Arc::new(yode_mcp::McpClientResourceProvider::new(
+            mcp_clients.clone(),
+        )) as Arc<dyn McpResourceProvider>
+    });
+
     Ok(ToolingBootstrap {
         tool_registry: Arc::new(tool_registry),
         skill_registry,
         mcp_clients,
+        mcp_resource_provider,
         metrics: ToolingSetupMetrics {
             builtin_register_ms,
             mcp_connect_ms,

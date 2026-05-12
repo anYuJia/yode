@@ -71,7 +71,7 @@ pub trait McpResourceProvider: Send + Sync {
         &self,
         server: &str,
         uri: &str,
-    ) -> Pin<Box<dyn std::future::Future<Output = Result<String>> + Send + '_>>;
+    ) -> Pin<Box<dyn std::future::Future<Output = Result<McpResourceRead>> + Send + '_>>;
 }
 
 /// MCP resource descriptor.
@@ -81,6 +81,22 @@ pub struct McpResource {
     pub uri: String,
     pub name: String,
     pub description: Option<String>,
+}
+
+/// Decoded MCP resource read response with optional binary blobs preserved for artifacts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpResourceRead {
+    pub content: String,
+    pub blobs: Vec<McpResourceBlob>,
+}
+
+/// Binary MCP resource content represented as base64.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpResourceBlob {
+    pub uri: String,
+    pub mime_type: String,
+    pub base64: String,
+    pub approx_bytes: usize,
 }
 
 /// Worktree state for enter/exit worktree tools.
@@ -231,6 +247,8 @@ pub struct ToolDefinition {
     pub name: String,
     pub description: String,
     pub parameters: Value, // JSON Schema
+    #[serde(default)]
+    pub annotations: ToolAnnotations,
 }
 
 /// Tool capability flags
@@ -242,6 +260,25 @@ pub struct ToolCapabilities {
     pub supports_auto_execution: bool,
     /// Is a read-only operation (safe)
     pub read_only: bool,
+}
+
+/// MCP/Claude-style tool annotations used for planning and permission decisions.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolAnnotations {
+    pub read_only_hint: bool,
+    pub destructive_hint: bool,
+    pub open_world_hint: bool,
+}
+
+impl From<ToolCapabilities> for ToolAnnotations {
+    fn from(capabilities: ToolCapabilities) -> Self {
+        Self {
+            read_only_hint: capabilities.read_only,
+            destructive_hint: !capabilities.read_only && capabilities.requires_confirmation,
+            open_world_hint: !capabilities.read_only,
+        }
+    }
 }
 
 /// Tool trait - implemented by builtin tools, MCP tools, etc.
@@ -286,6 +323,7 @@ pub trait Tool: Send + Sync {
             name: self.name().to_string(),
             description: self.description().to_string(),
             parameters: self.parameters_schema(),
+            annotations: self.capabilities().into(),
         }
     }
 }

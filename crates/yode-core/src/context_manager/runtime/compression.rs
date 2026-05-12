@@ -46,6 +46,32 @@ fn summarize_tool_result_for_microcompact(content: &str) -> String {
     )
 }
 
+fn image_payload_chars(msg: &Message) -> usize {
+    msg.images
+        .iter()
+        .map(|image| image.base64.len().saturating_add(image.media_type.len()))
+        .sum()
+}
+
+fn append_microcompact_media_marker(msg: &mut Message, removed: usize, saved_chars: usize) {
+    let marker = format!(
+        "[Older media microcompacted: removed {} attachment(s), saved ~{} chars]",
+        removed, saved_chars
+    );
+    match msg.content.as_mut() {
+        Some(content) if !content.contains("[Older media microcompacted:") => {
+            if !content.ends_with('\n') {
+                content.push_str("\n\n");
+            }
+            content.push_str(&marker);
+        }
+        None => {
+            msg.content = Some(marker);
+        }
+        _ => {}
+    }
+}
+
 impl ContextManager {
     fn build_summary(
         &self,
@@ -126,6 +152,43 @@ impl ContextManager {
                 .saturating_add(original_chars.saturating_sub(compacted.chars().count()));
             msg.content = Some(compacted);
             msg.normalize_in_place();
+        }
+
+        report
+    }
+
+    pub fn microcompact_old_media(&self, messages: &mut [Message]) -> MicrocompactReport {
+        let mut report = MicrocompactReport::default();
+        if messages.len() <= MICROCOMPACT_PRESERVE_RECENT + 1 {
+            return report;
+        }
+
+        let preserve_end = messages.len().saturating_sub(MICROCOMPACT_PRESERVE_RECENT);
+        let older_media_payload_chars = messages
+            .iter()
+            .take(preserve_end)
+            .skip(1)
+            .map(image_payload_chars)
+            .sum::<usize>();
+        let has_collective_pressure =
+            older_media_payload_chars >= MICROCOMPACT_MEDIA_TOTAL_TRIGGER_CHARS;
+
+        for msg in messages.iter_mut().take(preserve_end).skip(1) {
+            if msg.images.is_empty() {
+                continue;
+            }
+
+            let saved_chars = image_payload_chars(msg);
+            if saved_chars < MICROCOMPACT_MEDIA_TRIGGER_CHARS && !has_collective_pressure {
+                continue;
+            }
+
+            let removed = msg.images.len();
+            msg.images.clear();
+            append_microcompact_media_marker(msg, removed, saved_chars);
+            msg.normalize_in_place();
+            report.media_removed = report.media_removed.saturating_add(removed);
+            report.saved_chars = report.saved_chars.saturating_add(saved_chars);
         }
 
         report

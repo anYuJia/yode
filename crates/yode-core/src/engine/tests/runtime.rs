@@ -580,6 +580,40 @@ fn test_build_chat_request_hides_denied_tools_from_model() {
 }
 
 #[test]
+fn test_build_chat_request_includes_tool_annotations() {
+    let engine = make_engine(
+        vec![
+            Arc::new(MockReadTool {
+                name: "safe_read".into(),
+            }),
+            Arc::new(MockWriteTool {
+                name: "write_side_effect".into(),
+            }),
+        ],
+        vec![],
+    );
+
+    let request = engine.build_chat_request();
+    let read = request
+        .tools
+        .iter()
+        .find(|tool| tool.name == "safe_read")
+        .expect("read tool should be visible");
+    assert!(read.annotations.read_only_hint);
+    assert!(!read.annotations.destructive_hint);
+    assert!(!read.annotations.open_world_hint);
+
+    let write = request
+        .tools
+        .iter()
+        .find(|tool| tool.name == "write_side_effect")
+        .expect("write tool should be visible");
+    assert!(!write.annotations.read_only_hint);
+    assert!(write.annotations.destructive_hint);
+    assert!(write.annotations.open_world_hint);
+}
+
+#[test]
 fn test_build_chat_request_injects_restore_blocks_as_virtual_system_messages() {
     let mut engine = make_engine(vec![], vec![]);
     engine
@@ -623,6 +657,7 @@ fn test_build_chat_request_sanitizes_volatile_restore_blocks_for_cache_stability
     let mut engine = make_engine(vec![], vec![]);
     engine.post_compact_restore_blocks = vec![
         "[Post-compact restore: tools]\n- Tool pool: 4 active visible, 1 active hidden, 2 deferred visible, search=enabled (reason: mcp)\n- Tool inventory: total=9 active=7 deferred=2 activations=3 last=mcp__demo__search".to_string(),
+        "[Post-compact restore: prompt-cache]\n- Last turn: prompt=1000 completion=200 write=500 read=300 edit_del=2\n- Totals: turns=4 write=500 read=900 edit_deletions=2 deleted_tokens=120\n- Active cache edits: pending=0 pinned=0\n- Expected next drop: compaction_manual\n- Last hashes: prefix=abc system=def restore=ghi tool=jkl message=mno\n- Debug artifact: /tmp/cache-diff.md".to_string(),
         "[Post-compact restore: mcp]\n- MCP: visible_tools=2 deferred_tools=4 cache(list 10 hit/2 miss, read 8 hit/5 miss)".to_string(),
         "[Post-compact restore: artifacts]\n- Session memory artifact: .yode/status/session.md\n- Latest turn artifact: /tmp/turn.md".to_string(),
     ];
@@ -640,6 +675,13 @@ fn test_build_chat_request_sanitizes_volatile_restore_blocks_for_cache_stability
             == (
                 "tools",
                 "- Tool availability follows the current runtime tool pool and permission state.",
+            )
+    }));
+    assert!(system_texts.iter().any(|text| {
+        *text
+            == (
+                "prompt-cache",
+                "- Last turn: prompt=1000 completion=200 write=500 read=300 edit_del=2\n- Totals: turns=4 write=500 read=900 edit_deletions=2 deleted_tokens=120\n- Active cache edits: pending=0 pinned=0\n- Expected next drop: compaction_manual\n- Last hashes: prefix=abc system=def restore=ghi tool=jkl message=mno",
             )
     }));
     assert!(system_texts.iter().any(|text| {
@@ -665,6 +707,9 @@ fn test_build_chat_request_sanitizes_volatile_restore_blocks_for_cache_stability
     assert!(!system_texts
         .iter()
         .any(|(_, content)| content.contains("Tool inventory: total=")));
+    assert!(!system_texts
+        .iter()
+        .any(|(_, content)| content.contains("Debug artifact:")));
 }
 
 #[test]

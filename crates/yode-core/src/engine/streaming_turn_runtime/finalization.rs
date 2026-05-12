@@ -132,6 +132,9 @@ impl AgentEngine {
             self.push_and_persist_assistant_message(&response.message);
 
             if response.message.tool_calls.is_empty() {
+                if self.run_stop_hooks_before_turn_complete(&response).await {
+                    return Ok(StreamFinalizeAction::Continue);
+                }
                 debug!("Streaming turn complete with no tool calls; finishing turn.");
                 self.maybe_refresh_live_session_memory(Some(event_tx));
                 self.complete_tool_turn_artifact();

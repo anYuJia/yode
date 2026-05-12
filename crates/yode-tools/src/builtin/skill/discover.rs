@@ -52,6 +52,25 @@ impl Tool for DiscoverSkillsTool {
         let mut output = String::from("Available skills:\n\n");
         for skill in skills {
             output.push_str(&format!("- **{}**: {}\n", skill.name, skill.description));
+            let mut details = Vec::new();
+            if !skill.paths.is_empty() {
+                details.push(format!("paths={}", skill.paths.join(",")));
+            }
+            if !skill.allowed_tools.is_empty() {
+                details.push(format!("allowed-tools={}", skill.allowed_tools.join(",")));
+            }
+            if skill.context != crate::builtin::skill::SkillContextMode::Inline {
+                details.push(format!("context={}", skill.context.label()));
+            }
+            if let Some(model) = &skill.model {
+                details.push(format!("model={}", model));
+            }
+            if let Some(effort) = &skill.effort {
+                details.push(format!("effort={}", effort));
+            }
+            if !details.is_empty() {
+                output.push_str(&format!("  - {}\n", details.join(" | ")));
+            }
         }
 
         if skills.is_empty() {

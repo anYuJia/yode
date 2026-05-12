@@ -64,6 +64,7 @@ impl AgentEngine {
         self.reset_prompt_cache_turn_runtime();
         self.reactive_compact_attempted = false;
         self.reactive_media_strip_attempted = false;
+        self.stop_hook_continue_attempted = false;
         self.recent_tool_calls.clear();
         self.consecutive_failures = 0;
         self.violation_retries = 0;

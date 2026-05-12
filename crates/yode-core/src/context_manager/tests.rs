@@ -117,6 +117,108 @@ fn test_microcompact_clears_older_tool_results_only() {
 }
 
 #[test]
+fn test_microcompact_old_media_clears_only_older_images() {
+    let cm = ContextManager::new("claude-sonnet-4");
+    let image = ImageData {
+        base64: "x".repeat(4 * 1024),
+        media_type: "image/png".to_string(),
+    };
+    let mut messages = vec![
+        Message::system("system"),
+        Message::user_with_images("older image", vec![image.clone()]),
+        Message::assistant("a1"),
+        Message::user("q2"),
+        Message::assistant("a2"),
+        Message::user_with_images("middle image", vec![image.clone()]),
+        Message::user("recent1"),
+        Message::assistant("recent2"),
+        Message::user("recent3"),
+        Message::assistant("recent4"),
+        Message::user("recent5"),
+        Message::assistant("recent6"),
+        Message::user("recent7"),
+        Message::user_with_images("recent image", vec![image]),
+    ];
+
+    let report = cm.microcompact_old_media(&mut messages);
+
+    assert_eq!(report.media_removed, 2);
+    assert!(report.saved_chars > 0);
+    assert!(messages[1].images.is_empty());
+    assert!(messages[5].images.is_empty());
+    assert_eq!(messages[13].images.len(), 1);
+    assert!(messages[1]
+        .content
+        .as_deref()
+        .unwrap_or_default()
+        .contains("Older media microcompacted"));
+}
+
+#[test]
+fn test_microcompact_old_media_preserves_small_low_pressure_images() {
+    let cm = ContextManager::new("claude-sonnet-4");
+    let image = ImageData {
+        base64: "x".repeat(512),
+        media_type: "image/png".to_string(),
+    };
+    let mut messages = vec![
+        Message::system("system"),
+        Message::user_with_images("small old image", vec![image.clone()]),
+        Message::assistant("a1"),
+        Message::user("q2"),
+        Message::assistant("a2"),
+        Message::user_with_images("small old image 2", vec![image.clone()]),
+        Message::user("recent1"),
+        Message::assistant("recent2"),
+        Message::user("recent3"),
+        Message::assistant("recent4"),
+        Message::user("recent5"),
+        Message::assistant("recent6"),
+        Message::user("recent7"),
+        Message::user_with_images("recent image", vec![image]),
+    ];
+
+    let report = cm.microcompact_old_media(&mut messages);
+
+    assert_eq!(report.media_removed, 0);
+    assert_eq!(messages[1].images.len(), 1);
+    assert_eq!(messages[5].images.len(), 1);
+    assert_eq!(messages[13].images.len(), 1);
+}
+
+#[test]
+fn test_microcompact_old_media_clears_small_images_under_collective_pressure() {
+    let cm = ContextManager::new("claude-sonnet-4");
+    let image = ImageData {
+        base64: "x".repeat(1_024),
+        media_type: "image/png".to_string(),
+    };
+    let mut messages = vec![Message::system("system")];
+    for idx in 0..13 {
+        messages.push(Message::user_with_images(
+            format!("old image {idx}"),
+            vec![image.clone()],
+        ));
+    }
+    for idx in 0..8 {
+        messages.push(Message::user_with_images(
+            format!("recent image {idx}"),
+            vec![image.clone()],
+        ));
+    }
+
+    let report = cm.microcompact_old_media(&mut messages);
+
+    assert_eq!(report.media_removed, 13);
+    assert!(messages[1..14]
+        .iter()
+        .all(|message| message.images.is_empty()));
+    assert!(messages[14..]
+        .iter()
+        .all(|message| message.images.len() == 1));
+}
+
+#[test]
 fn test_message_priority() {
     assert_eq!(
         super::runtime::message_priority(&Message::system("sys")),

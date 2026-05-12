@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// A parsed skill from a SKILL.md file.
 #[derive(Debug, Clone)]
@@ -13,6 +13,25 @@ pub struct Skill {
     pub content: String,
     /// Path to the source file.
     pub source: PathBuf,
+    /// Optional Claude Code-style skill metadata from frontmatter.
+    pub metadata: SkillMetadata,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct SkillMetadata {
+    pub allowed_tools: Vec<String>,
+    pub paths: Vec<String>,
+    pub context: SkillContextMode,
+    pub model: Option<String>,
+    pub effort: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SkillContextMode {
+    #[default]
+    Inline,
+    Fork,
 }
 
 /// SKILL.md frontmatter.
@@ -21,6 +40,45 @@ struct SkillFrontmatter {
     name: String,
     #[serde(default)]
     description: String,
+    #[serde(default, alias = "allowed_tools", rename = "allowed-tools")]
+    allowed_tools: Vec<String>,
+    #[serde(default)]
+    paths: Vec<String>,
+    #[serde(default)]
+    context: SkillContextModeFrontmatter,
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
+    effort: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum SkillContextModeFrontmatter {
+    #[default]
+    Inline,
+    Fork,
+}
+
+impl From<SkillContextModeFrontmatter> for SkillContextMode {
+    fn from(value: SkillContextModeFrontmatter) -> Self {
+        match value {
+            SkillContextModeFrontmatter::Inline => Self::Inline,
+            SkillContextModeFrontmatter::Fork => Self::Fork,
+        }
+    }
+}
+
+impl SkillFrontmatter {
+    fn metadata(&self) -> SkillMetadata {
+        SkillMetadata {
+            allowed_tools: normalized_list(&self.allowed_tools),
+            paths: normalized_list(&self.paths),
+            context: self.context.into(),
+            model: normalized_option(self.model.as_deref()),
+            effort: normalized_option(self.effort.as_deref()),
+        }
+    }
 }
 
 /// Registry of discovered skills.
@@ -91,11 +149,14 @@ impl SkillRegistry {
 
         let fm: SkillFrontmatter = serde_yaml_ng::from_str(frontmatter_str).ok()?;
 
+        let metadata = fm.metadata();
+
         Some(Skill {
             name: fm.name,
             description: fm.description,
             content: body,
             source: path.to_path_buf(),
+            metadata,
         })
     }
 
@@ -107,6 +168,29 @@ impl SkillRegistry {
     /// List all skills.
     pub fn list(&self) -> &[Skill] {
         &self.skills
+    }
+
+    pub fn active_for_paths<'a, I, P>(&'a self, changed_paths: I) -> Vec<&'a Skill>
+    where
+        I: IntoIterator<Item = P>,
+        P: AsRef<Path>,
+    {
+        let normalized_paths = changed_paths
+            .into_iter()
+            .map(|path| path.as_ref().to_string_lossy().replace('\\', "/"))
+            .collect::<Vec<_>>();
+
+        self.skills
+            .iter()
+            .filter(|skill| {
+                !skill.metadata.paths.is_empty()
+                    && skill.metadata.paths.iter().any(|pattern| {
+                        normalized_paths
+                            .iter()
+                            .any(|path| path_matches_skill_pattern(path, pattern))
+                    })
+            })
+            .collect()
     }
 
     /// Get default discovery paths based on working directory.
@@ -124,6 +208,51 @@ impl SkillRegistry {
 
         paths
     }
+}
+
+fn normalized_list(values: &[String]) -> Vec<String> {
+    values
+        .iter()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+        .collect()
+}
+
+fn normalized_option(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+fn path_matches_skill_pattern(path: &str, pattern: &str) -> bool {
+    let pattern = pattern.trim().replace('\\', "/");
+    if pattern.is_empty() {
+        return false;
+    }
+
+    if pattern == "*" || pattern == "**" || pattern == "**/*" {
+        return true;
+    }
+
+    if let Some(suffix) = pattern.strip_prefix("**/") {
+        return path.ends_with(suffix);
+    }
+
+    if let Some(prefix) = pattern.strip_suffix("/**") {
+        return path == prefix || path.starts_with(&format!("{}/", prefix));
+    }
+
+    if let Some(suffix) = pattern.strip_prefix('*') {
+        return path.ends_with(suffix);
+    }
+
+    if let Some(prefix) = pattern.strip_suffix('*') {
+        return path.starts_with(prefix);
+    }
+
+    path == pattern || path.starts_with(&format!("{}/", pattern))
 }
 
 fn candidate_skill_files(path: &Path) -> Vec<PathBuf> {
@@ -210,5 +339,50 @@ mod tests {
         assert_eq!(registry.list().len(), 1);
         assert_eq!(registry.get("review").unwrap().description, "project");
         assert_eq!(registry.get("review").unwrap().content, "project body");
+    }
+
+    #[test]
+    fn parses_claude_style_skill_frontmatter_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rust").join("SKILL.md");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            "---\nname: rust\ndescription: Rust guidance\nallowed-tools:\n  - read_file\n  - bash\npaths:\n  - crates/**/*.rs\n  - Cargo.toml\ncontext: fork\nmodel: claude-sonnet-4-5\neffort: high\n---\nUse cargo test.\n",
+        )
+        .unwrap();
+
+        let registry = SkillRegistry::discover(&[dir.path().to_path_buf()]);
+        let skill = registry.get("rust").unwrap();
+
+        assert_eq!(
+            skill.metadata.allowed_tools,
+            vec!["read_file".to_string(), "bash".to_string()]
+        );
+        assert_eq!(
+            skill.metadata.paths,
+            vec!["crates/**/*.rs".to_string(), "Cargo.toml".to_string()]
+        );
+        assert_eq!(skill.metadata.context, SkillContextMode::Fork);
+        assert_eq!(skill.metadata.model.as_deref(), Some("claude-sonnet-4-5"));
+        assert_eq!(skill.metadata.effort.as_deref(), Some("high"));
+    }
+
+    #[test]
+    fn active_for_paths_uses_path_gated_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rust").join("SKILL.md");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            "---\nname: rust\ndescription: Rust guidance\npaths:\n  - crates/yode-core/**\n  - '*.rs'\n---\nUse cargo test.\n",
+        )
+        .unwrap();
+
+        let registry = SkillRegistry::discover(&[dir.path().to_path_buf()]);
+        let active = registry.active_for_paths(["crates/yode-core/src/lib.rs"]);
+
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].name, "rust");
     }
 }

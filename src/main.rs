@@ -228,8 +228,14 @@ async fn main() -> Result<()> {
     let permissions = configure_permissions(&config, &workdir);
     startup_profiler.checkpoint("permission_setup");
     let session_bootstrap_started_at = Instant::now();
-    let (context, restored_messages, restore_report) =
-        restore_or_create_context(&cli, &db, workdir, provider_name.clone(), model.clone())?;
+    let (context, restored_messages, restore_report) = restore_or_create_context(
+        &cli,
+        &db,
+        workdir,
+        provider_name.clone(),
+        model.clone(),
+        config.ui.output_style.clone(),
+    )?;
     ensure_session_exists(&db, &context)?;
     let session_bootstrap_elapsed_ms = session_bootstrap_started_at.elapsed().as_millis() as u64;
     startup_profiler.checkpoint("session_bootstrap");
@@ -248,6 +254,7 @@ async fn main() -> Result<()> {
             restored_messages,
             config: &config,
             mcp_clients: tooling.mcp_clients,
+            mcp_resource_provider: tooling.mcp_resource_provider,
         })
         .await;
     }
@@ -343,6 +350,7 @@ async fn main() -> Result<()> {
         skill_cmds,
         all_provider_models,
         Some(startup_summary),
+        tooling.mcp_resource_provider.clone(),
     )
     .await?;
 

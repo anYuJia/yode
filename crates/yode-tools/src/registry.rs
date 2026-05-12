@@ -436,6 +436,7 @@ mod tests {
                 name: self.name().to_string(),
                 description: "custom description".to_string(),
                 parameters: json!({"type": "object", "required": ["value"]}),
+                annotations: self.capabilities().into(),
             }
         }
 

@@ -28,6 +28,7 @@ pub enum HookEvent {
     PermissionDenied,
     UserPromptSubmit,
     ContextCompressed,
+    Stop,
 }
 
 impl std::fmt::Display for HookEvent {
@@ -50,6 +51,7 @@ impl std::fmt::Display for HookEvent {
             Self::PermissionDenied => write!(f, "permission_denied"),
             Self::UserPromptSubmit => write!(f, "user_prompt_submit"),
             Self::ContextCompressed => write!(f, "context_compressed"),
+            Self::Stop => write!(f, "stop"),
         }
     }
 }

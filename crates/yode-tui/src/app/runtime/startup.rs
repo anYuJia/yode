@@ -16,6 +16,7 @@ use yode_llm::provider::LlmProvider;
 use yode_llm::registry::ProviderRegistry;
 use yode_llm::types::Message;
 use yode_tools::registry::ToolRegistry;
+use yode_tools::tool::McpResourceProvider;
 
 use super::super::scrollback::{print_entries_to_stdout, print_header_to_stdout};
 use super::super::{push_system_entry, App, ChatEntry, ChatRole, SkillCommandWrapper};
@@ -39,6 +40,7 @@ pub(super) async fn prepare_runtime(
     skill_commands: Vec<(String, String)>,
     all_provider_models: HashMap<String, Vec<String>>,
     startup_profile: Option<String>,
+    mcp_resource_provider: Option<Arc<dyn McpResourceProvider>>,
 ) -> Result<RuntimeStartup> {
     let resume_warmup_task = if context.is_resumed {
         let project_root = context.working_dir_compat();
@@ -78,6 +80,9 @@ pub(super) async fn prepare_runtime(
 
     let mut engine_inner = AgentEngine::new(provider, Arc::clone(&tools), permissions, context);
     engine_inner.set_database(db);
+    if let Some(provider) = mcp_resource_provider {
+        engine_inner.set_mcp_resource_provider(provider);
+    }
     attach_hook_manager(&mut engine_inner);
     if let Some(messages) = &restored_messages {
         engine_inner.restore_messages(messages.clone());

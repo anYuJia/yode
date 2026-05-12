@@ -1,6 +1,6 @@
 use serde_json::{json, Map, Value};
 
-use yode_llm::types::ToolDefinition as LlmToolDefinition;
+use yode_llm::types::{ToolAnnotations as LlmToolAnnotations, ToolDefinition as LlmToolDefinition};
 use yode_tools::registry::{ToolPoolSnapshot, ToolRegistry};
 use yode_tools::tool::ToolResult;
 
@@ -8,6 +8,24 @@ use crate::tool_runtime::ToolResultTruncationView;
 
 /// Maximum size for a single tool result before truncation.
 const MAX_TOOL_RESULT_SIZE: usize = 50 * 1024;
+const MIN_DYNAMIC_TOOL_RESULT_SIZE: usize = 8 * 1024;
+const MAX_DYNAMIC_TOTAL_TOOL_RESULTS_SIZE: usize = 200 * 1024;
+const MIN_DYNAMIC_TOTAL_TOOL_RESULTS_SIZE: usize = 32 * 1024;
+
+pub(super) fn dynamic_single_tool_result_limit(context_window_tokens: usize) -> usize {
+    let estimated_context_bytes = context_window_tokens.saturating_mul(4);
+    let budget = estimated_context_bytes / 40;
+    budget.clamp(MIN_DYNAMIC_TOOL_RESULT_SIZE, MAX_TOOL_RESULT_SIZE)
+}
+
+pub(super) fn dynamic_total_tool_results_limit(context_window_tokens: usize) -> usize {
+    let estimated_context_bytes = context_window_tokens.saturating_mul(4);
+    let budget = estimated_context_bytes / 10;
+    budget.clamp(
+        MIN_DYNAMIC_TOTAL_TOOL_RESULTS_SIZE,
+        MAX_DYNAMIC_TOTAL_TOOL_RESULTS_SIZE,
+    )
+}
 
 pub(super) fn convert_tool_definitions(
     registry: &ToolRegistry,
@@ -25,6 +43,11 @@ pub(super) fn convert_tool_definitions(
             name: td.name,
             description: td.description,
             parameters: td.parameters,
+            annotations: LlmToolAnnotations {
+                read_only_hint: td.annotations.read_only_hint,
+                destructive_hint: td.annotations.destructive_hint,
+                open_world_hint: td.annotations.open_world_hint,
+            },
         })
         .collect()
 }
@@ -90,12 +113,13 @@ pub(super) fn annotate_tool_result_runtime_metadata(
     }
 }
 
-/// Truncate tool result if it exceeds the size limit.
-pub(super) fn truncate_tool_result(result: ToolResult) -> ToolResult {
-    if result.content.len() > MAX_TOOL_RESULT_SIZE {
+/// Truncate tool result if it exceeds the context-aware size limit.
+pub(super) fn truncate_tool_result(result: ToolResult, context_window_tokens: usize) -> ToolResult {
+    let max_tool_result_size = dynamic_single_tool_result_limit(context_window_tokens);
+    if result.content.len() > max_tool_result_size {
         let original_len = result.content.len();
-        let head_size = MAX_TOOL_RESULT_SIZE * 3 / 4;
-        let tail_size = MAX_TOOL_RESULT_SIZE / 4;
+        let head_size = max_tool_result_size * 3 / 4;
+        let tail_size = max_tool_result_size / 4;
         let head: String = result.content.chars().take(head_size).collect();
         let tail: String = result
             .content
@@ -132,5 +156,21 @@ pub(super) fn truncate_tool_result(result: ToolResult) -> ToolResult {
         truncated
     } else {
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{dynamic_single_tool_result_limit, dynamic_total_tool_results_limit};
+
+    #[test]
+    fn dynamic_tool_result_budgets_scale_with_context_window() {
+        assert_eq!(dynamic_single_tool_result_limit(16_385), 8 * 1024);
+        assert_eq!(dynamic_total_tool_results_limit(16_385), 32 * 1024);
+
+        assert_eq!(dynamic_single_tool_result_limit(200_000), 20_000);
+        assert_eq!(dynamic_total_tool_results_limit(200_000), 80_000);
+
+        assert_eq!(dynamic_total_tool_results_limit(1_000_000), 200 * 1024);
     }
 }

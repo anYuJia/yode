@@ -8,7 +8,10 @@ pub mod state;
 pub mod tool;
 pub mod validation;
 
-pub use builtin::mcp_resources::{mcp_resource_cache_stats, McpResourceCacheStats};
+pub use builtin::mcp_resources::{
+    cleanup_mcp_resource_artifacts, mcp_resource_artifact_retention, mcp_resource_cache_stats,
+    McpResourceArtifactCleanup, McpResourceCacheStats,
+};
 pub use registry::ToolRegistry;
 pub use runtime_tasks::{
     RuntimeTask, RuntimeTaskNotification, RuntimeTaskNotificationSeverity, RuntimeTaskStatus,

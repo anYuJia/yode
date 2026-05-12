@@ -19,6 +19,7 @@ use yode_llm::provider::LlmProvider;
 use yode_llm::registry::ProviderRegistry;
 use yode_llm::types::Message;
 use yode_tools::registry::ToolRegistry;
+use yode_tools::tool::McpResourceProvider;
 
 use super::lifecycle::print_exit_summary;
 
@@ -34,6 +35,7 @@ pub async fn run(
     skill_commands: Vec<(String, String)>,
     all_provider_models: HashMap<String, Vec<String>>,
     startup_profile: Option<String>,
+    mcp_resource_provider: Option<Arc<dyn McpResourceProvider>>,
 ) -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -51,6 +53,7 @@ pub async fn run(
         skill_commands,
         all_provider_models,
         startup_profile,
+        mcp_resource_provider,
     )
     .await?;
 

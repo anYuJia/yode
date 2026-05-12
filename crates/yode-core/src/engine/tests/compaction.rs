@@ -204,6 +204,113 @@ async fn test_force_compact_ignores_auto_compact_guard() {
     );
 }
 
+#[tokio::test]
+async fn test_force_compact_uses_full_post_compact_finalize_path() {
+    let mut engine = make_engine(vec![], vec![]);
+    let project_root = engine.context().working_dir_compat();
+    let src_dir = project_root.join("src");
+    std::fs::create_dir_all(&src_dir).unwrap();
+    std::fs::write(
+        src_dir.join("lib.rs"),
+        "pub fn restored_context_marker() -> &'static str {\n    \"compact restore excerpt\"\n}\n",
+    )
+    .unwrap();
+    let skill_dir = project_root.join(".yode/skills/rust");
+    std::fs::create_dir_all(&skill_dir).unwrap();
+    std::fs::write(
+        skill_dir.join("SKILL.md"),
+        "---\nname: rust\ndescription: Rust path guidance\npaths:\n  - src/**\n---\nPrefer cargo test.\n",
+    )
+    .unwrap();
+    engine.files_read.insert("src/lib.rs".to_string(), 3);
+    engine.pending_cache_edit_refs = vec!["tc1".to_string()];
+    engine.pinned_cache_edit_refs = vec!["tc0".to_string()];
+    engine.last_prompt_cache_prefix_hash = Some("prefix-before-compact".to_string());
+
+    let big = "x".repeat(18_000);
+    engine.messages = vec![
+        Message::system("system"),
+        Message::user(&big),
+        Message::assistant(&big),
+        Message::tool_result("tc1", &big),
+        Message::user(&big),
+        Message::assistant(&big),
+        Message::user("recent1"),
+        Message::assistant("recent2"),
+        Message::user("recent3"),
+        Message::assistant("recent4"),
+        Message::user("recent5"),
+        Message::assistant("recent6"),
+    ];
+
+    let (tx, _rx) = mpsc::unbounded_channel();
+    let changed = engine.force_compact_keep_last(2, tx).await;
+
+    assert!(changed);
+    assert_eq!(
+        engine.forced_prompt_cache_expected_drop_reason.as_deref(),
+        Some("compaction_manual")
+    );
+
+    let runtime = engine.runtime_state();
+    assert_eq!(
+        runtime
+            .prompt_cache
+            .last_prompt_cache_expected_drop_reason
+            .as_deref(),
+        Some("compaction_manual")
+    );
+    let request = engine.build_chat_request();
+    assert!(!request.provider_hints.restore_system_blocks.is_empty());
+    assert!(request
+        .provider_hints
+        .restore_system_blocks
+        .iter()
+        .any(|block| block.kind == "files"
+            && block.content.contains("restored_context_marker")
+            && block.content.contains("compact restore excerpt")));
+    assert!(request
+        .provider_hints
+        .restore_system_blocks
+        .iter()
+        .any(|block| block.kind == "skills"
+            && block.content.contains("Path-gated active skills")
+            && block.content.contains("rust")));
+    assert!(request
+        .provider_hints
+        .restore_system_blocks
+        .iter()
+        .any(|block| block.kind == "prompt-cache"
+            && block
+                .content
+                .contains("Expected next drop: compaction_manual")
+            && block
+                .content
+                .contains("Active cache edits: pending=1 pinned=1")
+            && block.content.contains("prefix=prefix-before-compact")));
+    let runtime_after_request = engine.runtime_state();
+    assert_eq!(
+        runtime_after_request.prompt_cache.pending_cache_edit_refs,
+        0
+    );
+    assert_eq!(runtime_after_request.prompt_cache.pinned_cache_edit_refs, 0);
+
+    let short_session = engine
+        .context()
+        .session_id
+        .chars()
+        .take(8)
+        .collect::<String>();
+    assert!(project_root
+        .join(".yode/status")
+        .join(format!("{}-post-compact-restore.md", short_session))
+        .exists());
+    assert!(project_root
+        .join(".yode/status")
+        .join(format!("{}-post-compact-restore-state.json", short_session))
+        .exists());
+}
+
 #[test]
 fn test_prompt_too_long_errors_trigger_reactive_compact_detection() {
     let engine = make_engine(vec![], vec![]);
@@ -252,6 +359,47 @@ fn test_reactive_strip_old_media_clears_images_from_older_messages() {
         .as_deref()
         .unwrap_or_default()
         .contains("older media removed"));
+}
+
+#[test]
+fn test_apply_microcompact_proactively_clears_old_media() {
+    let mut engine = make_engine(vec![], vec![]);
+    engine.messages = vec![
+        Message::system("system"),
+        Message::user_with_images(
+            "older image",
+            vec![ImageData {
+                base64: "abcd".repeat(1_024),
+                media_type: "image/png".to_string(),
+            }],
+        ),
+        Message::assistant("a1"),
+        Message::user("recent1"),
+        Message::assistant("recent2"),
+        Message::user("recent3"),
+        Message::assistant("recent4"),
+        Message::user("recent5"),
+        Message::assistant("recent6"),
+        Message::user("recent7"),
+        Message::assistant("recent8"),
+    ];
+
+    engine.apply_microcompact();
+
+    assert!(engine.messages[1].images.is_empty());
+    assert!(engine.messages[1]
+        .content
+        .as_deref()
+        .unwrap_or_default()
+        .contains("Older media microcompacted"));
+    assert_eq!(
+        engine.compaction_cause_histogram.get("microcompact_media"),
+        Some(&1)
+    );
+    let runtime = engine.runtime_state();
+    assert_eq!(runtime.last_microcompact_media_removed, 1);
+    assert_eq!(runtime.microcompact_media_removed_total, 1);
+    assert!(runtime.microcompact_media_saved_chars_total > 0);
 }
 
 #[test]
@@ -395,7 +543,7 @@ async fn test_repeated_compaction_does_not_duplicate_restore_blocks() {
 
     let request = engine.build_chat_request();
     let request_restore_count = request.provider_hints.restore_system_blocks.len();
-    assert!(request_restore_count <= 7);
+    assert!(request_restore_count <= 8);
 }
 
 #[tokio::test]

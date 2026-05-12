@@ -187,6 +187,7 @@ async fn test_anthropic_tool_call() {
             },
             "required": ["file_path"]
         }),
+        annotations: Default::default(),
     }];
 
     let request = ChatRequest {

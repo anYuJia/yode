@@ -25,6 +25,8 @@ html2text = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 dirs = { workspace = true }
+toml = { workspace = true }
+sha2 = { workspace = true }
 cron = "0.15"
 
 [dev-dependencies]

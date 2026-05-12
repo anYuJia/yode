@@ -138,6 +138,10 @@ impl AgentEngine {
                 continue;
             }
 
+            if self.run_stop_hooks_before_turn_complete(&response).await {
+                continue;
+            }
+
             if let Some(text) = &response.message.content {
                 if self.consecutive_failures >= 2 && self.files_read.is_empty() {
                     let guarded = format!(

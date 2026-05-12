@@ -59,6 +59,7 @@ fn test_hook_event_display() {
     assert_eq!(HookEvent::SubagentStart.to_string(), "subagent_start");
     assert_eq!(HookEvent::TaskCreated.to_string(), "task_created");
     assert_eq!(HookEvent::WorktreeCreate.to_string(), "worktree_create");
+    assert_eq!(HookEvent::Stop.to_string(), "stop");
 }
 
 #[test]

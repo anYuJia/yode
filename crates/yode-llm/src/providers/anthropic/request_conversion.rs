@@ -437,11 +437,13 @@ mod tests {
                 name: "read_file".to_string(),
                 description: "read".to_string(),
                 parameters: serde_json::json!({"type":"object"}),
+                annotations: Default::default(),
             },
             ToolDefinition {
                 name: "edit_file".to_string(),
                 description: "edit".to_string(),
                 parameters: serde_json::json!({"type":"object"}),
+                annotations: Default::default(),
             },
         ];
         let hints = AnthropicRequestHints {

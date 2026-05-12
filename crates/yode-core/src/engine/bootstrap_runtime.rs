@@ -29,6 +29,7 @@ impl AgentEngine {
             worktree_state: Arc::new(Mutex::new(WorktreeState::default())),
             ask_user_tx: None,
             ask_user_rx: None,
+            mcp_resource_provider: None,
             tool_call_count: 0,
             recent_tool_calls: Vec::new(),
             consecutive_failures: 0,
@@ -98,6 +99,9 @@ impl AgentEngine {
             compaction_in_progress: false,
             reactive_compact_attempted: false,
             reactive_media_strip_attempted: false,
+            stop_hook_continue_attempted: false,
+            stop_hook_continue_count: 0,
+            last_stop_hook_continue_reason: None,
             cached_microcompact_deleted_refs: Vec::new(),
             pending_cache_edit_refs: Vec::new(),
             pinned_cache_edit_refs: Vec::new(),
@@ -138,6 +142,10 @@ impl AgentEngine {
             compaction_prompt_tokens_total: 0,
             compaction_prompt_token_samples: 0,
             compaction_cause_histogram: BTreeMap::new(),
+            last_microcompact_media_removed: 0,
+            last_microcompact_media_saved_chars: 0,
+            microcompact_media_removed_total: 0,
+            microcompact_media_saved_chars_total: 0,
             prompt_cache_runtime: PromptCacheRuntimeState::default(),
             system_prompt_estimated_tokens: system_prompt_build.estimated_tokens,
             system_prompt_segments: system_prompt_build.segments,
@@ -167,6 +175,15 @@ impl AgentEngine {
         self.context.effort = level;
     }
 
+    pub fn set_output_style(&mut self, style: String) {
+        if self.context.output_style == style {
+            return;
+        }
+        self.context.output_style = style;
+        self.set_expected_prompt_cache_drop_reason("output_style_change");
+        self.rebuild_system_prompt();
+    }
+
     pub fn effort(&self) -> EffortLevel {
         self.context.effort
     }
@@ -185,6 +202,16 @@ impl AgentEngine {
 
     pub fn permissions_mut(&mut self) -> &mut PermissionManager {
         &mut self.permissions
+    }
+
+    pub fn set_runtime_plan_mode(&self, enabled: bool) -> bool {
+        match self.plan_mode.try_lock() {
+            Ok(mut mode) => {
+                *mode = enabled;
+                true
+            }
+            Err(_) => false,
+        }
     }
 
     pub fn cost_tracker(&self) -> &CostTracker {

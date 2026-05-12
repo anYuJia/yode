@@ -115,6 +115,8 @@ impl AgentEngine {
             hook_execution_error_count: hook_stats.execution_error_count,
             hook_nonzero_exit_count: hook_stats.nonzero_exit_count,
             hook_wake_notification_count: hook_stats.wake_notification_count,
+            stop_hook_continue_count: self.stop_hook_continue_count,
+            last_stop_hook_continue_reason: self.last_stop_hook_continue_reason.clone(),
             last_hook_failure_event: hook_stats.last_failure_event,
             last_hook_failure_command: hook_stats.last_failure_command,
             last_hook_failure_reason: hook_stats.last_failure_reason,
@@ -126,6 +128,10 @@ impl AgentEngine {
                     as u32
             }),
             compaction_cause_histogram: self.compaction_cause_histogram.clone(),
+            last_microcompact_media_removed: self.last_microcompact_media_removed,
+            last_microcompact_media_saved_chars: self.last_microcompact_media_saved_chars,
+            microcompact_media_removed_total: self.microcompact_media_removed_total,
+            microcompact_media_saved_chars_total: self.microcompact_media_saved_chars_total,
             system_prompt_estimated_tokens,
             system_prompt_segments,
             prompt_cache,
@@ -325,6 +331,13 @@ impl AgentEngine {
         self.ask_user_rx = Some(Arc::new(Mutex::new(rx)));
     }
 
+    pub fn set_mcp_resource_provider(
+        &mut self,
+        provider: Arc<dyn yode_tools::tool::McpResourceProvider>,
+    ) {
+        self.mcp_resource_provider = Some(provider);
+    }
+
     /// Build a ToolContext with access to shared resources.
     pub(super) async fn build_tool_context(
         &self,
@@ -353,7 +366,7 @@ impl AgentEngine {
                 team_runtime: Arc::clone(&self.team_runtime_manager),
                 hook_manager: self.hook_manager.clone(),
             })),
-            mcp_resources: None,
+            mcp_resources: self.mcp_resource_provider.clone(),
             cron_manager: None,
             lsp_manager: None,
             worktree_state: Some(Arc::clone(&self.worktree_state)),

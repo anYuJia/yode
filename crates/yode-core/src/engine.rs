@@ -42,7 +42,9 @@ use yode_llm::types::{ChatRequest, ChatResponse, Message, Role, StreamEvent, Too
 use yode_tools::registry::ToolRegistry;
 use yode_tools::runtime_tasks::{RuntimeTask, RuntimeTaskNotification, RuntimeTaskStore};
 use yode_tools::state::TaskStore;
-use yode_tools::tool::{ToolContext, ToolErrorType, ToolResult, UserQuery, WorktreeState};
+use yode_tools::tool::{
+    McpResourceProvider, ToolContext, ToolErrorType, ToolResult, UserQuery, WorktreeState,
+};
 use yode_tools::validation;
 
 use crate::constants::thresholds::{
@@ -78,7 +80,7 @@ use retry::{
 use subagent_runner::SubAgentRunnerImpl;
 use tool_result::{
     annotate_tool_result_runtime_metadata, convert_tool_definitions,
-    set_tool_runtime_truncation_metadata, truncate_tool_result,
+    dynamic_total_tool_results_limit, set_tool_runtime_truncation_metadata, truncate_tool_result,
 };
 use types::{
     latest_transcript_runtime_state, CostRuntimeState, ProjectKind, RecoveryState,
@@ -88,9 +90,6 @@ pub use types::{
     ConfirmResponse, EngineEvent, EngineRuntimeState, PromptCacheRuntimeState,
     SystemPromptSegmentRuntimeState,
 };
-
-/// Maximum total size for all tool results in a single turn (200KB)
-const MAX_TOTAL_TOOL_RESULTS_SIZE: usize = 200 * 1024;
 
 /// The core agent engine that drives the conversation loop.
 pub struct AgentEngine {
@@ -113,6 +112,8 @@ pub struct AgentEngine {
     ask_user_tx: Option<mpsc::UnboundedSender<UserQuery>>,
     /// Channel for ask_user answers (TUI → engine).
     ask_user_rx: Option<Arc<Mutex<mpsc::UnboundedReceiver<String>>>>,
+    /// Shared provider for MCP resource list/read tools.
+    mcp_resource_provider: Option<Arc<dyn McpResourceProvider>>,
     /// Tool call counter for the current turn (budget tracking).
     tool_call_count: u32,
     /// Recent tool call signatures for dedup detection (name+args hash).
@@ -244,6 +245,12 @@ pub struct AgentEngine {
     reactive_compact_attempted: bool,
     /// Stop media-strip retries from looping within a single top-level turn.
     reactive_media_strip_attempted: bool,
+    /// Stop hooks may ask the agent loop to continue once before finalizing a turn.
+    stop_hook_continue_attempted: bool,
+    /// Number of times a stop hook requested another agent step in this session.
+    stop_hook_continue_count: u32,
+    /// Most recent stop-hook continuation reason.
+    last_stop_hook_continue_reason: Option<String>,
     /// Tool result cache references deleted via Anthropic cache editing.
     cached_microcompact_deleted_refs: Vec<String>,
     /// Cache edit refs discovered this turn but not yet pinned by a successful response.
@@ -307,6 +314,14 @@ pub struct AgentEngine {
     compaction_prompt_token_samples: u32,
     /// Histogram of compaction outcomes and skip reasons.
     compaction_cause_histogram: BTreeMap<String, u32>,
+    /// Old media attachments removed by the latest microcompact pass.
+    last_microcompact_media_removed: u32,
+    /// Estimated characters saved by the latest media microcompact pass.
+    last_microcompact_media_saved_chars: u64,
+    /// Old media attachments removed across the current session.
+    microcompact_media_removed_total: u64,
+    /// Estimated characters saved by media microcompact across the current session.
+    microcompact_media_saved_chars_total: u64,
     /// Prompt cache telemetry accumulated across turns.
     prompt_cache_runtime: PromptCacheRuntimeState,
     /// Estimated token footprint for the current system prompt.

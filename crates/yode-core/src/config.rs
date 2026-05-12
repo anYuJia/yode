@@ -250,13 +250,61 @@ fn merge_config_values(default: toml::Value, user: toml::Value) -> toml::Value {
 }
 
 /// Configuration for a single MCP server.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct McpServerConfig {
+    #[serde(default)]
+    pub transport: McpTransportConfig,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub command: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub args: Vec<String>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub env: HashMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth: Option<McpAuthConfig>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum McpTransportConfig {
+    #[default]
+    Stdio,
+    Sse,
+    Http,
+    Websocket,
+}
+
+impl McpTransportConfig {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Stdio => "stdio",
+            Self::Sse => "sse",
+            Self::Http => "http",
+            Self::Websocket => "websocket",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct McpAuthConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oauth: Option<McpOAuthConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bearer_token_env: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct McpOAuthConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authorization_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scopes: Vec<String>,
 }
 
 /// Top-level MCP configuration.
@@ -268,7 +316,7 @@ pub struct McpConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::{merge_config_values, Config};
+    use super::{merge_config_values, Config, McpTransportConfig};
 
     #[test]
     fn missing_update_section_uses_enabled_defaults() {
@@ -316,5 +364,43 @@ theme = "dark"
         assert_eq!(merged["ui"]["theme"].as_str(), Some("light"));
         assert_eq!(merged["ui"]["language"].as_str(), Some("zh-CN"));
         assert_eq!(merged["update"]["auto_check"].as_bool(), Some(true));
+    }
+
+    #[test]
+    fn mcp_remote_transport_config_parses_without_command() {
+        let config = toml::from_str::<Config>(
+            r#"
+[llm]
+default_provider = "openai"
+default_model = "gpt-4o"
+
+[tools]
+bash_timeout = 30
+require_confirmation = []
+
+[session]
+db_path = "~/.yode/sessions.db"
+
+[ui]
+language = "en"
+theme = "dark"
+
+[mcp.servers.docs]
+transport = "sse"
+url = "https://example.com/mcp"
+[mcp.servers.docs.auth]
+bearer_token_env = "DOCS_TOKEN"
+"#,
+        )
+        .unwrap();
+
+        let server = config.mcp.servers.get("docs").unwrap();
+        assert_eq!(server.transport, McpTransportConfig::Sse);
+        assert_eq!(server.command, "");
+        assert_eq!(server.url.as_deref(), Some("https://example.com/mcp"));
+        assert_eq!(
+            server.auth.as_ref().unwrap().bearer_token_env.as_deref(),
+            Some("DOCS_TOKEN")
+        );
     }
 }

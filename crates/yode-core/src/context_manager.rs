@@ -36,6 +36,10 @@ const MICROCOMPACT_PRESERVE_RECENT: usize = 8;
 const MICROCOMPACT_TRIGGER_CHARS: usize = 320;
 /// Preview budget for tool-result placeholders inserted by microcompact.
 const MICROCOMPACT_PREVIEW_CHARS: usize = 160;
+/// Per-message media payload below this size is usually not worth clearing proactively.
+const MICROCOMPACT_MEDIA_TRIGGER_CHARS: usize = 4 * 1024;
+/// Clear older media more broadly once old attachments collectively create pressure.
+const MICROCOMPACT_MEDIA_TOTAL_TRIGGER_CHARS: usize = 12 * 1024;
 /// Keep generated compression summaries compact so they do not immediately bloat context again.
 const SUMMARY_CHAR_BUDGET: usize = 1_200;
 const CONTEXT_SUMMARY_PREFIX: &str = "[Context summary]";
@@ -69,6 +73,7 @@ pub struct CompressionReport {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MicrocompactReport {
     pub tool_results_cleared: usize,
+    pub media_removed: usize,
     pub saved_chars: usize,
 }
 

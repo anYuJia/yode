@@ -7,7 +7,7 @@ use std::future::Future;
 use std::sync::{LazyLock, Mutex};
 use std::time::Instant;
 
-use yode_tools::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
+use yode_tools::tool::{Tool, ToolAnnotations, ToolCapabilities, ToolContext, ToolResult};
 
 use super::McpConnection;
 
@@ -17,6 +17,7 @@ pub struct McpToolWrapper {
     pub original_name: String,
     pub description: String,
     pub input_schema: Value,
+    pub annotations: ToolAnnotations,
     pub server_name: String,
     pub(crate) connection: McpConnection,
 }
@@ -90,6 +91,25 @@ fn record_mcp_tool_latency(server: &str, tool: &str, duration_ms: u64, is_error:
 
 pub(crate) fn wrapper_tool_name(server_name: &str, tool_name: &str) -> String {
     format!("mcp__{}_{}", server_name, tool_name)
+}
+
+pub(crate) fn annotations_from_mcp(
+    annotations: Option<&rmcp::model::ToolAnnotations>,
+) -> ToolAnnotations {
+    annotations
+        .map(|annotations| ToolAnnotations {
+            read_only_hint: annotations.read_only_hint.unwrap_or(false),
+            destructive_hint: annotations.destructive_hint.unwrap_or(true),
+            open_world_hint: annotations.open_world_hint.unwrap_or(true),
+        })
+        .unwrap_or_else(|| {
+            ToolCapabilities {
+                requires_confirmation: true,
+                supports_auto_execution: false,
+                read_only: false,
+            }
+            .into()
+        })
 }
 
 pub(crate) fn extract_text_content(call_result: &rmcp::model::CallToolResult) -> String {
@@ -169,10 +189,29 @@ impl Tool for McpToolWrapper {
     }
 
     fn capabilities(&self) -> ToolCapabilities {
+        if self.annotations.read_only_hint {
+            return ToolCapabilities {
+                requires_confirmation: false,
+                supports_auto_execution: true,
+                read_only: true,
+            };
+        }
+
         ToolCapabilities {
-            requires_confirmation: true,
-            supports_auto_execution: false,
+            requires_confirmation: self.annotations.destructive_hint
+                || self.annotations.open_world_hint,
+            supports_auto_execution: !self.annotations.destructive_hint
+                && !self.annotations.open_world_hint,
             read_only: false,
+        }
+    }
+
+    fn definition(&self) -> yode_tools::tool::ToolDefinition {
+        yode_tools::tool::ToolDefinition {
+            name: self.name().to_string(),
+            description: self.description().to_string(),
+            parameters: self.parameters_schema(),
+            annotations: self.annotations,
         }
     }
 
@@ -209,9 +248,9 @@ mod tests {
     use rmcp::model::{CallToolResult, Content};
 
     use super::{
-        build_call_request, execute_with_caller, extract_text_content, map_call_result,
-        mcp_tool_latency_stats, record_mcp_tool_latency, reset_mcp_tool_latency_stats,
-        wrapper_tool_name, MCP_TOOL_TEST_LOCK,
+        annotations_from_mcp, build_call_request, execute_with_caller, extract_text_content,
+        map_call_result, mcp_tool_latency_stats, record_mcp_tool_latency,
+        reset_mcp_tool_latency_stats, wrapper_tool_name, MCP_TOOL_TEST_LOCK,
     };
 
     #[test]
@@ -249,6 +288,27 @@ mod tests {
             wrapper_tool_name("github", "list_prs"),
             "mcp__github_list_prs"
         );
+    }
+
+    #[test]
+    fn maps_mcp_annotations_to_yode_annotations() {
+        let annotations = rmcp::model::ToolAnnotations::new()
+            .read_only(true)
+            .destructive(false)
+            .open_world(false);
+
+        let mapped = annotations_from_mcp(Some(&annotations));
+        assert!(mapped.read_only_hint);
+        assert!(!mapped.destructive_hint);
+        assert!(!mapped.open_world_hint);
+    }
+
+    #[test]
+    fn missing_mcp_annotations_remain_conservative() {
+        let mapped = annotations_from_mcp(None);
+        assert!(!mapped.read_only_hint);
+        assert!(mapped.destructive_hint);
+        assert!(mapped.open_world_hint);
     }
 
     #[test]

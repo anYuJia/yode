@@ -145,23 +145,27 @@ pub(crate) fn restore_or_create_context(
     workdir: PathBuf,
     provider_name: String,
     model: String,
+    output_style: String,
 ) -> Result<(AgentContext, Option<Vec<Message>>, SessionRestoreReport)> {
     if let Some(resume_id) = &cli.resume {
         if let Some(session) = resume_session_metadata(db, resume_id)? {
             info!("Resuming session: {}", resume_id);
-            let context = AgentContext::resume(
+            let mut context = AgentContext::resume(
                 session.id.clone(),
                 workdir,
                 session.provider.clone(),
                 session.model.clone(),
             );
+            context.output_style = output_style;
             let (messages, report) = restore_messages_full(db, resume_id)?;
             return Ok((context, Some(messages), report));
         }
 
         eprintln!("会话 '{}' 未找到，创建新会话。", resume_id);
+        let mut context = AgentContext::new(workdir, provider_name, model);
+        context.output_style = output_style;
         return Ok((
-            AgentContext::new(workdir, provider_name, model),
+            context,
             None,
             SessionRestoreReport {
                 mode: "new_session",
@@ -172,8 +176,10 @@ pub(crate) fn restore_or_create_context(
         ));
     }
 
+    let mut context = AgentContext::new(workdir, provider_name, model);
+    context.output_style = output_style;
     Ok((
-        AgentContext::new(workdir, provider_name, model),
+        context,
         None,
         SessionRestoreReport {
             mode: "new_session",
@@ -312,10 +318,12 @@ theme = "dark"
             std::env::temp_dir(),
             "openai".to_string(),
             "gpt".to_string(),
+            "learning".to_string(),
         )
         .unwrap();
 
         assert!(context.is_resumed);
+        assert_eq!(context.output_style, "learning");
         assert_eq!(report.mode, "full_transcript_restore");
         assert_eq!(report.decoded_messages, 1);
         assert_eq!(restored.unwrap().len(), 1);
@@ -330,10 +338,12 @@ theme = "dark"
             std::env::temp_dir(),
             "openai".to_string(),
             "gpt".to_string(),
+            "explanatory".to_string(),
         )
         .unwrap();
 
         assert!(!context.is_resumed);
+        assert_eq!(context.output_style, "explanatory");
         assert!(restored.is_none());
         assert_eq!(report.mode, "new_session");
         assert_eq!(

@@ -77,9 +77,21 @@ impl AgentEngine {
             return Ok(outcome);
         }
 
-        let permission_explanation = self
+        let mut permission_explanation = self
             .permissions
             .explain_with_content(&tool_call.name, prepared.command_content.as_deref());
+        if let Some(reason) = runtime_plan_mode_override_reason(
+            *self.plan_mode.lock().await,
+            &tool_call.name,
+            tool.capabilities(),
+        ) {
+            permission_explanation.action = PermissionAction::Deny;
+            permission_explanation.reason = reason;
+            permission_explanation.precedence_chain.insert(
+                0,
+                "runtime-plan-mode: mutating capability -> deny".to_string(),
+            );
+        }
         self.last_permission_tool = Some(tool_call.name.clone());
         self.last_permission_action = Some(permission_explanation.action.label().to_string());
         self.last_permission_explanation = Some(permission_explanation.reason.clone());
@@ -117,5 +129,63 @@ impl AgentEngine {
         Ok(self
             .execute_tool_with_tracking(tool_call, &tool, prepared, event_tx)
             .await)
+    }
+}
+
+fn runtime_plan_mode_override_reason(
+    enabled: bool,
+    tool_name: &str,
+    capabilities: yode_tools::tool::ToolCapabilities,
+) -> Option<String> {
+    if !enabled || tool_name == "exit_plan_mode" || capabilities.read_only {
+        return None;
+    }
+
+    Some(format!(
+        "Runtime plan mode blocks mutating tools based on tool annotations. Use read-only exploration or exit plan mode before running '{}'.",
+        tool_name
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::runtime_plan_mode_override_reason;
+    use yode_tools::tool::ToolCapabilities;
+
+    #[test]
+    fn runtime_plan_mode_blocks_mutating_tools_by_capability() {
+        let reason = runtime_plan_mode_override_reason(
+            true,
+            "write_file",
+            ToolCapabilities {
+                read_only: false,
+                requires_confirmation: true,
+                supports_auto_execution: false,
+            },
+        );
+
+        assert!(reason
+            .as_deref()
+            .is_some_and(|text| text.contains("blocks mutating tools")));
+    }
+
+    #[test]
+    fn runtime_plan_mode_allows_readonly_and_exit_plan_mode() {
+        assert!(runtime_plan_mode_override_reason(
+            true,
+            "read_file",
+            ToolCapabilities {
+                read_only: true,
+                requires_confirmation: false,
+                supports_auto_execution: true,
+            },
+        )
+        .is_none());
+        assert!(runtime_plan_mode_override_reason(
+            true,
+            "exit_plan_mode",
+            ToolCapabilities::default()
+        )
+        .is_none());
     }
 }

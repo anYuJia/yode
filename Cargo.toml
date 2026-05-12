@@ -40,7 +40,7 @@ html2text = "0.14"
 sha2 = "0.10"
 
 # MCP
-rmcp = { version = "1", features = ["client", "server", "transport-child-process", "transport-io"] }
+rmcp = { version = "1", features = ["client", "server", "transport-child-process", "transport-io", "transport-streamable-http-client-reqwest"] }
 
 # YAML (for skill frontmatter)
 serde_yaml_ng = "0.10"

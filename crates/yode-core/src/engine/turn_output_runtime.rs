@@ -92,4 +92,102 @@ impl AgentEngine {
             self.last_turn_artifact_path = Some(path.display().to_string());
         }
     }
+
+    pub(super) async fn run_stop_hooks_before_turn_complete(
+        &mut self,
+        response: &yode_llm::types::ChatResponse,
+    ) -> bool {
+        let Some(hook_mgr) = self.hook_manager.as_ref() else {
+            return false;
+        };
+
+        let assistant_text = response.message.content.as_deref().unwrap_or_default();
+        let hook_ctx = HookContext {
+            event: HookEvent::Stop.to_string(),
+            session_id: self.context.session_id.clone(),
+            working_dir: self.context.working_dir_compat().display().to_string(),
+            tool_name: None,
+            tool_input: None,
+            tool_output: None,
+            error: None,
+            user_prompt: None,
+            metadata: Some(serde_json::json!({
+                "query_source": format!("{:?}", self.current_query_source),
+                "stop_reason": response.stop_reason.as_ref().map(|reason| format!("{:?}", reason)),
+                "assistant_text": assistant_text,
+                "message_count": self.messages.len(),
+                "tool_calls_this_turn": self.tool_call_count,
+                "tool_output_bytes_this_turn": self.total_tool_results_bytes,
+                "runtime": self.runtime_hook_metadata(),
+            })),
+        };
+
+        let results = hook_mgr.execute(HookEvent::Stop, &hook_ctx).await;
+        let mut continuation_parts = Vec::new();
+        let mut advisory_parts = Vec::new();
+        let mut requested_continue = false;
+        let mut continuation_reason = None;
+
+        for result in results {
+            if result.blocked || result.deferred {
+                requested_continue = true;
+                if let Some(reason) = result.reason.as_deref() {
+                    if continuation_reason.is_none() {
+                        continuation_reason = Some(reason.to_string());
+                    }
+                    continuation_parts.push(format!("- Reason: {}", reason));
+                }
+            }
+
+            if let Some(stdout) = result.stdout {
+                let trimmed = stdout.trim();
+                if !trimmed.is_empty() {
+                    if result.blocked || result.deferred {
+                        continuation_parts.push(trimmed.to_string());
+                    } else {
+                        advisory_parts.push(trimmed.to_string());
+                    }
+                }
+            }
+        }
+
+        if !advisory_parts.is_empty() {
+            let message = format!(
+                "[System Auto-Context via stop hooks]\n{}",
+                advisory_parts.join("\n\n")
+            );
+            self.messages.push(Message::system(&message));
+            self.persist_message("system", Some(&message), None, None, None);
+        }
+
+        self.append_hook_wake_notifications_as_system_message();
+
+        if !requested_continue {
+            return false;
+        }
+
+        if self.stop_hook_continue_attempted {
+            warn!("stop hook requested continuation again; ignoring to avoid a loop");
+            return false;
+        }
+        self.stop_hook_continue_attempted = true;
+        self.stop_hook_continue_count = self.stop_hook_continue_count.saturating_add(1);
+        self.last_stop_hook_continue_reason = continuation_reason
+            .clone()
+            .or_else(|| Some("stop hook requested continuation without a reason".to_string()));
+
+        if continuation_parts.is_empty() {
+            continuation_parts.push(
+                "- Stop hook requested another assistant step before finalizing.".to_string(),
+            );
+        }
+
+        let message = format!(
+            "[Stop hook requested continuation]\n{}\n\nContinue the turn by addressing the stop hook feedback. Do not repeat the same final answer unchanged.",
+            continuation_parts.join("\n\n")
+        );
+        self.messages.push(Message::system(&message));
+        self.persist_message("system", Some(&message), None, None, None);
+        true
+    }
 }

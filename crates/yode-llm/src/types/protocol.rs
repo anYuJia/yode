@@ -18,6 +18,16 @@ pub struct ToolDefinition {
     pub name: String,
     pub description: String,
     pub parameters: serde_json::Value,
+    #[serde(default)]
+    pub annotations: ToolAnnotations,
+}
+
+#[derive(Debug, Clone, Copy, Default, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolAnnotations {
+    pub read_only_hint: bool,
+    pub destructive_hint: bool,
+    pub open_world_hint: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]

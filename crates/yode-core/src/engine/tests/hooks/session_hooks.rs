@@ -27,6 +27,19 @@ fn hook_echo_command(text: &str) -> String {
 }
 
 #[cfg(windows)]
+fn hook_json_command(json: &str) -> String {
+    crate::test_support::powershell_encoded_command(&format!(
+        "Write-Output '{}'",
+        json.replace('\'', "''")
+    ))
+}
+
+#[cfg(not(windows))]
+fn hook_json_command(json: &str) -> String {
+    format!("printf '%s' '{}'", json.replace('\'', "'\\''"))
+}
+
+#[cfg(windows)]
 fn hook_wake_command(json: &str) -> String {
     format!("echo {} && exit /b 2", json)
 }
@@ -218,6 +231,84 @@ async fn test_append_hook_outputs_as_system_message_injects_context() {
             .as_deref()
             .unwrap_or_default()
             .contains("prompt context")
+    }));
+}
+
+#[tokio::test]
+async fn test_stop_hook_can_request_one_continuation() {
+    let mut engine = make_engine(vec![], vec![]);
+    let hook_dir =
+        std::env::temp_dir().join(format!("yode-stop-hook-test-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&hook_dir).unwrap();
+    let mut hook_mgr = crate::hooks::HookManager::new(hook_dir);
+    hook_mgr.register(crate::hooks::HookDefinition {
+        command: hook_json_command(
+            r#"{"continue":false,"reason":"needs evidence","systemMessage":"Read the file before finalizing."}"#,
+        ),
+        events: vec!["stop".into()],
+        tool_filter: None,
+        timeout_secs: 5,
+        can_block: true,
+    });
+    engine.set_hook_manager(hook_mgr);
+
+    let response = yode_llm::types::ChatResponse {
+        message: Message::assistant("done"),
+        usage: yode_llm::types::Usage::default(),
+        model: "mock".to_string(),
+        stop_reason: None,
+    };
+
+    assert!(engine.run_stop_hooks_before_turn_complete(&response).await);
+    assert!(engine.messages.iter().any(|message| {
+        message
+            .content
+            .as_deref()
+            .unwrap_or_default()
+            .contains("Read the file before finalizing")
+    }));
+    let runtime = engine.runtime_state();
+    assert_eq!(runtime.stop_hook_continue_count, 1);
+    assert_eq!(
+        runtime.last_stop_hook_continue_reason.as_deref(),
+        Some("needs evidence")
+    );
+
+    assert!(!engine.run_stop_hooks_before_turn_complete(&response).await);
+}
+
+#[tokio::test]
+async fn test_stop_hook_advisory_output_is_persisted_for_next_turn() {
+    let mut engine = make_engine(vec![], vec![]);
+    let hook_dir = std::env::temp_dir().join(format!(
+        "yode-stop-advisory-hook-test-{}",
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::create_dir_all(&hook_dir).unwrap();
+    let mut hook_mgr = crate::hooks::HookManager::new(hook_dir);
+    hook_mgr.register(crate::hooks::HookDefinition {
+        command: hook_json_command(r#"{"systemMessage":"Remember to summarize test coverage."}"#),
+        events: vec!["stop".into()],
+        tool_filter: None,
+        timeout_secs: 5,
+        can_block: false,
+    });
+    engine.set_hook_manager(hook_mgr);
+
+    let response = yode_llm::types::ChatResponse {
+        message: Message::assistant("done"),
+        usage: yode_llm::types::Usage::default(),
+        model: "mock".to_string(),
+        stop_reason: None,
+    };
+
+    assert!(!engine.run_stop_hooks_before_turn_complete(&response).await);
+    assert!(engine.messages.iter().any(|message| {
+        message
+            .content
+            .as_deref()
+            .unwrap_or_default()
+            .contains("Remember to summarize test coverage")
     }));
 }
 

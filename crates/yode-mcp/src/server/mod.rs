@@ -8,7 +8,7 @@ use serde_json::Value;
 use tracing::info;
 
 use yode_tools::registry::ToolRegistry;
-use yode_tools::tool::{ToolContext, ToolDefinition, ToolResult};
+use yode_tools::tool::{ToolAnnotations, ToolContext, ToolDefinition, ToolResult};
 
 /// MCP Server that exposes yode's built-in tools.
 #[derive(Clone)]
@@ -73,9 +73,18 @@ fn definitions_to_mcp_tools(definitions: Vec<ToolDefinition>) -> Vec<rmcp::model
         .map(|td| {
             let input_schema: Arc<JsonObject> =
                 serde_json::from_value(td.parameters).unwrap_or_default();
+            let annotations = annotations_to_mcp(td.annotations);
             rmcp::model::Tool::new(td.name, td.description, input_schema)
+                .with_annotations(annotations)
         })
         .collect()
+}
+
+fn annotations_to_mcp(annotations: ToolAnnotations) -> rmcp::model::ToolAnnotations {
+    rmcp::model::ToolAnnotations::new()
+        .read_only(annotations.read_only_hint)
+        .destructive(annotations.destructive_hint)
+        .open_world(annotations.open_world_hint)
 }
 
 fn tool_result_to_call_result(result: ToolResult) -> CallToolResult {
@@ -101,8 +110,8 @@ pub async fn run_mcp_server(registry: Arc<ToolRegistry>) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{definitions_to_mcp_tools, tool_result_to_call_result};
-    use yode_tools::tool::{ToolDefinition, ToolResult};
+    use super::{annotations_to_mcp, definitions_to_mcp_tools, tool_result_to_call_result};
+    use yode_tools::tool::{ToolAnnotations, ToolDefinition, ToolResult};
 
     #[test]
     fn maps_tool_definitions_to_mcp_tools() {
@@ -115,12 +124,34 @@ mod tests {
                     "file_path": { "type": "string" }
                 }
             }),
+            annotations: ToolAnnotations {
+                read_only_hint: true,
+                destructive_hint: false,
+                open_world_hint: false,
+            },
         }]);
 
         assert_eq!(tools.len(), 1);
         assert_eq!(tools[0].name.as_ref(), "read_file");
         assert_eq!(tools[0].description.as_deref(), Some("Read a file"));
         assert!(tools[0].input_schema.contains_key("properties"));
+        let annotations = tools[0].annotations.as_ref().expect("annotations");
+        assert_eq!(annotations.read_only_hint, Some(true));
+        assert_eq!(annotations.destructive_hint, Some(false));
+        assert_eq!(annotations.open_world_hint, Some(false));
+    }
+
+    #[test]
+    fn maps_yode_annotations_to_mcp_annotations() {
+        let annotations = annotations_to_mcp(ToolAnnotations {
+            read_only_hint: false,
+            destructive_hint: true,
+            open_world_hint: true,
+        });
+
+        assert_eq!(annotations.read_only_hint, Some(false));
+        assert_eq!(annotations.destructive_hint, Some(true));
+        assert_eq!(annotations.open_world_hint, Some(true));
     }
 
     #[test]
