@@ -68,15 +68,19 @@ impl Command for SkillsCommand {
                     &active,
                 )))
             }
-            ["active", path] => {
-                let active = registry.active_for_paths([*path]);
+            ["active", paths @ ..] => {
+                let path_list = paths
+                    .iter()
+                    .map(|path| path.to_string())
+                    .collect::<Vec<_>>();
+                let active = registry.active_for_paths(paths.iter().copied());
                 Ok(CommandOutput::Message(render_active_skills(
-                    path,
-                    &[path.to_string()],
+                    &path_list.join(", "),
+                    &path_list,
                     &active,
                 )))
             }
-            _ => Err("Usage: /skills [list|show <name>|active <path>]".to_string()),
+            _ => Err("Usage: /skills [list|show <name>|active <path> [...]]".to_string()),
         }
     }
 }
@@ -221,5 +225,28 @@ mod tests {
         assert!(rendered.contains("recent read paths"));
         assert!(rendered.contains("crates/yode-core/src/lib.rs"));
         assert!(rendered.contains("rust"));
+    }
+
+    #[test]
+    fn active_skills_render_includes_multiple_paths() {
+        let skill = Skill {
+            name: "docs".to_string(),
+            description: "Docs guidance".to_string(),
+            content: "Keep docs concise.".to_string(),
+            source: std::path::PathBuf::from("/tmp/SKILL.md"),
+            metadata: SkillMetadata {
+                allowed_tools: vec![],
+                paths: vec!["docs/**".to_string()],
+                context: SkillContextMode::Inline,
+                model: None,
+                effort: None,
+            },
+        };
+        let paths = vec!["docs/guide.md".to_string(), "src/main.rs".to_string()];
+
+        let rendered = render_active_skills("docs/guide.md, src/main.rs", &paths, &[&skill]);
+
+        assert!(rendered.contains("docs/guide.md | src/main.rs"));
+        assert!(rendered.contains("docs"));
     }
 }
