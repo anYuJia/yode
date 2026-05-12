@@ -54,7 +54,7 @@ fn render_yode_md(project_root: &Path) -> String {
     let test_commands = suggested_test_commands(project_root);
 
     format!(
-        "# {project_name}\n\n## Project Overview\n\n- Type: {project_kind}\n- Primary goal: TODO describe what this repository builds.\n\n## Development Commands\n\n{commands}\n\n## Working Guidelines\n\n- Prefer small, focused changes that match the existing architecture.\n- Run the relevant tests before committing.\n- Do not overwrite unrelated user changes.\n\n## Review Checklist\n\n- Behavior is covered by focused tests or a clear manual verification note.\n- User-facing text and command output are concise and actionable.\n- Long-running context should preserve files, plans, skills, and MCP instructions after compacting.\n",
+        "# {project_name}\n\n## Project Overview\n\n- Type: {project_kind}\n- Goal: Maintain and improve this repository while preserving its existing architecture and user-facing behavior.\n\n## Development Commands\n\n{commands}\n\n## Working Guidelines\n\n- Prefer small, focused changes that match the existing architecture.\n- Read nearby code before introducing new abstractions.\n- Run the relevant validation command before committing when the change affects behavior.\n- Do not overwrite unrelated user changes.\n\n## Review Checklist\n\n- Behavior is covered by focused tests or a clear manual verification note.\n- User-facing text and command output are concise and actionable.\n- Long-running context should preserve files, plans, skills, and MCP instructions after compacting.\n",
         commands = test_commands
             .iter()
             .map(|command| format!("- `{}`", command))
@@ -80,11 +80,18 @@ fn detect_project_kind(project_root: &Path) -> &'static str {
 fn suggested_test_commands(project_root: &Path) -> Vec<&'static str> {
     let mut commands = Vec::new();
     if project_root.join("Cargo.toml").exists() {
+        commands.push("cargo check");
         commands.push("cargo test");
         commands.push("cargo fmt --check");
     }
     if project_root.join("package.json").exists() {
-        commands.push("npm test");
+        if project_root.join("pnpm-lock.yaml").exists() {
+            commands.push("pnpm test");
+        } else if project_root.join("yarn.lock").exists() {
+            commands.push("yarn test");
+        } else {
+            commands.push("npm test");
+        }
     }
     if project_root.join("pyproject.toml").exists() {
         commands.push("pytest");
@@ -93,7 +100,7 @@ fn suggested_test_commands(project_root: &Path) -> Vec<&'static str> {
         commands.push("go test ./...");
     }
     if commands.is_empty() {
-        commands.push("TODO add the project test command");
+        commands.push("Run the repository's documented validation command");
     }
     commands
 }
@@ -112,8 +119,25 @@ mod tests {
         let content = render_yode_md(&dir);
 
         assert!(content.contains("Rust workspace or crate"));
+        assert!(content.contains("cargo check"));
         assert!(content.contains("cargo test"));
         assert!(content.contains("cargo fmt --check"));
+        assert!(!content.contains("TODO"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn init_template_uses_actionable_fallback_for_unknown_projects() {
+        let dir =
+            std::env::temp_dir().join(format!("yode-init-generic-test-{}", uuid::Uuid::new_v4()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let content = render_yode_md(&dir);
+
+        assert!(content.contains("General software project"));
+        assert!(content.contains("Run the repository's documented validation command"));
+        assert!(!content.contains("TODO"));
         let _ = std::fs::remove_dir_all(dir);
     }
 }
