@@ -8,13 +8,15 @@ use yode_tools::{RuntimeTask, RuntimeTaskStatus};
 
 use crate::commands::artifact_nav::{
     latest_agent_team_artifact, latest_agent_team_monitor_artifact, latest_hook_deferred_artifact,
-    latest_hook_deferred_state_artifact, latest_permission_governance_artifact,
+    latest_hook_deferred_state_artifact, latest_mcp_resource_artifact,
+    latest_media_compact_events_artifact, latest_permission_governance_artifact,
     latest_post_compact_restore_artifact, latest_post_compact_restore_diff_artifact,
     latest_post_compact_restore_state_artifact, latest_prompt_cache_artifact,
     latest_prompt_cache_diff_artifact, latest_prompt_cache_events_artifact,
     latest_prompt_cache_state_artifact, latest_remote_live_session_artifact,
     latest_remote_live_session_state_artifact, latest_remote_session_transcript_sync_artifact,
 };
+use crate::mcp_resource_artifacts::mcp_resource_manifest_summary;
 use crate::runtime_display::{
     fold_recovery_breadcrumbs, format_permission_decision_summary, format_tool_progress_summary,
 };
@@ -75,6 +77,21 @@ pub(crate) fn build_runtime_timeline_lines_with_project_root(
                         .as_deref()
                         .unwrap_or("no compact summary")
                 )
+            ),
+        });
+    }
+
+    if state.microcompact_media_removed_total > 0 {
+        entries.push(RuntimeTimelineEntry {
+            at: state
+                .last_compaction_at
+                .clone()
+                .or_else(|| state.last_session_memory_update_at.clone()),
+            detail: format!(
+                "media microcompact: last={} removed / total={} removed / saved ~{} chars",
+                state.last_microcompact_media_removed,
+                state.microcompact_media_removed_total,
+                state.microcompact_media_saved_chars_total
             ),
         });
     }
@@ -290,10 +307,21 @@ fn timeline_summary_markdown(
             has_defer_artifact: false,
         }
     };
+    let media_line = if state.microcompact_media_removed_total > 0 {
+        format!(
+            "- Media compact: last {} / total {} removed, saved ~{} chars\n",
+            state.last_microcompact_media_removed,
+            state.microcompact_media_removed_total,
+            state.microcompact_media_saved_chars_total
+        )
+    } else {
+        String::new()
+    };
     format!(
-        "## Summary\n\n- Runtime: {}\n- Context: {}\n- Tools: {}\n- Tasks: total {} / running {}\n\n",
+        "## Summary\n\n- Runtime: {}\n- Context: {}\n{}- Tools: {}\n- Tasks: total {} / running {}\n\n",
         session_runtime_summary_text(&snapshot, state.estimated_context_tokens),
         context_window_summary_text(Some(state), state.estimated_context_tokens),
+        media_line,
         tool_runtime_summary_text(state),
         tasks.len(),
         running_tasks,
@@ -416,6 +444,10 @@ fn extend_with_runtime_family_entries(
             "prompt cache events",
         ),
         (
+            latest_media_compact_events_artifact(project_root),
+            "media compact events",
+        ),
+        (
             latest_prompt_cache_diff_artifact(project_root),
             "prompt cache diff",
         ),
@@ -455,6 +487,15 @@ fn extend_with_runtime_family_entries(
                 detail: format!("{}: artifact={}", label, path.display()),
             });
         }
+    }
+    if let Some(path) = latest_mcp_resource_artifact(project_root) {
+        let summary = mcp_resource_manifest_summary(&path, false, " · ")
+            .map(|summary| format!(" · {}", summary))
+            .unwrap_or_default();
+        entries.push(RuntimeTimelineEntry {
+            at: artifact_timestamp(&path.display().to_string()),
+            detail: format!("mcp resource: artifact={}{}", path.display(), summary),
+        });
     }
     for suffix in [
         ("settings-scopes.json", "settings scopes"),
@@ -565,6 +606,8 @@ mod tests {
             hook_execution_error_count: 0,
             hook_nonzero_exit_count: 0,
             hook_wake_notification_count: 0,
+            stop_hook_continue_count: 0,
+            last_stop_hook_continue_reason: None,
             last_hook_failure_event: None,
             last_hook_failure_command: None,
             last_hook_failure_reason: None,
@@ -573,6 +616,10 @@ mod tests {
             last_compaction_prompt_tokens: None,
             avg_compaction_prompt_tokens: None,
             compaction_cause_histogram: BTreeMap::new(),
+            last_microcompact_media_removed: 0,
+            last_microcompact_media_saved_chars: 0,
+            microcompact_media_removed_total: 0,
+            microcompact_media_saved_chars_total: 0,
             system_prompt_estimated_tokens: 0,
             system_prompt_segments: Vec::new(),
             prompt_cache: PromptCacheRuntimeState::default(),
@@ -728,6 +775,9 @@ mod tests {
         state.last_compaction_at = Some("2026-01-01 00:05:00".to_string());
         state.last_compaction_mode = Some("auto".to_string());
         state.last_compaction_summary_excerpt = Some("trimmed old messages".to_string());
+        state.last_microcompact_media_removed = 2;
+        state.microcompact_media_removed_total = 5;
+        state.microcompact_media_saved_chars_total = 4096;
         state.last_hook_failure_at = Some("2026-01-01 00:04:00".to_string());
         state.last_hook_failure_event = Some("pre_tool".to_string());
         state.last_hook_failure_command = Some("scripts/pre-tool".to_string());
@@ -747,6 +797,8 @@ mod tests {
         assert!(lines
             .iter()
             .any(|line| line.contains("context compacted: auto")));
+        assert!(lines.iter().any(|line| line
+            .contains("media microcompact: last=2 removed / total=5 removed / saved ~4096 chars")));
         assert!(lines
             .iter()
             .any(|line| line.contains("hook fail: scripts/pre-tool · pre_tool")));
@@ -783,6 +835,7 @@ mod tests {
         std::fs::create_dir_all(dir.join(".yode").join("remote")).unwrap();
         std::fs::create_dir_all(dir.join(".yode").join("startup")).unwrap();
         std::fs::create_dir_all(dir.join(".yode").join("status")).unwrap();
+        std::fs::create_dir_all(dir.join(".yode").join("status").join("mcp-resources")).unwrap();
         std::fs::write(
             dir.join(".yode").join("hooks").join("a-hook-deferred.md"),
             "x",
@@ -828,6 +881,21 @@ mod tests {
             "x",
         )
         .unwrap();
+        std::fs::write(
+            dir.join(".yode")
+                .join("status")
+                .join("a-media-compact-events.md"),
+            "x",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join(".yode")
+                .join("status")
+                .join("mcp-resources")
+                .join("a-mcp-resource-image.md"),
+            "# MCP Resource Blob Artifact\n\n- Server: demo\n- URI: mcp://image\n- Blob count: 1\n\n## Blob 1\n\n- Decode warning: invalid base64\n",
+        )
+        .unwrap();
 
         let lines = build_runtime_timeline_lines_with_project_root(
             Some(&dir),
@@ -856,6 +924,14 @@ mod tests {
         assert!(lines
             .iter()
             .any(|line| line.contains("prompt cache: artifact=")));
+        assert!(lines
+            .iter()
+            .any(|line| line.contains("media compact events: artifact=")));
+        assert!(lines
+            .iter()
+            .any(|line| line.contains("mcp resource: artifact=")
+                && line.contains("server=demo")
+                && line.contains("decode_warnings=1")));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

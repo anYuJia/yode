@@ -1,15 +1,16 @@
-mod helpers;
+pub(crate) mod helpers;
 mod render;
 mod sections;
 
 use crate::commands::artifact_nav::{
     latest_agent_team_monitor_artifact, latest_coordinator_artifact, latest_hook_deferred_artifact,
-    latest_permission_governance_artifact, latest_post_compact_restore_artifact,
-    latest_post_compact_restore_diff_artifact, latest_post_compact_restore_state_artifact,
-    latest_prompt_cache_break_artifact, latest_prompt_cache_diff_artifact,
-    latest_prompt_cache_events_artifact, latest_prompt_cache_state_artifact,
-    latest_remote_live_session_artifact, latest_runtime_orchestration_artifact,
-    latest_workflow_execution_artifact,
+    latest_mcp_resource_artifact, latest_mcp_resource_index_artifact,
+    latest_media_compact_events_artifact, latest_permission_governance_artifact,
+    latest_post_compact_restore_artifact, latest_post_compact_restore_diff_artifact,
+    latest_post_compact_restore_state_artifact, latest_prompt_cache_break_artifact,
+    latest_prompt_cache_diff_artifact, latest_prompt_cache_events_artifact,
+    latest_prompt_cache_state_artifact, latest_remote_live_session_artifact,
+    latest_runtime_orchestration_artifact, latest_workflow_execution_artifact,
 };
 use crate::commands::context::CommandContext;
 use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
@@ -162,6 +163,10 @@ impl Command for StatusCommand {
                 &working_dir,
                 "managed-mcp-inventory.json",
             ),
+            mcp_resource_artifact: latest_mcp_resource_artifact(&working_dir)
+                .map(|path| path.display().to_string()),
+            mcp_resource_index_artifact: latest_mcp_resource_index_artifact(&working_dir)
+                .map(|path| path.display().to_string()),
             resume_warmup_artifact: latest_startup_artifact_link(
                 &working_dir,
                 "resume-warmup.json",
@@ -190,6 +195,8 @@ impl Command for StatusCommand {
                     .map(|path| path.display().to_string())
             }),
             prompt_cache_events_artifact: latest_prompt_cache_events_artifact(&working_dir)
+                .map(|path| path.display().to_string()),
+            media_compact_events_artifact: latest_media_compact_events_artifact(&working_dir)
                 .map(|path| path.display().to_string()),
             prompt_cache_break_artifact: latest_prompt_cache_break_artifact(&working_dir)
                 .map(|path| path.display().to_string()),

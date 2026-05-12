@@ -16,6 +16,19 @@ enum CompactRequest {
     UpTo(usize),
 }
 
+const COMPACT_USAGE: &str =
+    "用法：/compact [keep_last=20 | keep-last 20 | from=40 | from 40 | up_to=80 | up-to 80]";
+const COMPACT_COMPLETIONS: &[&str] = &[
+    "full",
+    "keep_last=20",
+    "keep-last 20",
+    "from=40",
+    "from 40",
+    "up_to=80",
+    "up-to 80",
+    "help",
+];
+
 impl CompactCommand {
     pub fn new() -> Self {
         Self {
@@ -26,8 +39,13 @@ impl CompactCommand {
                 args: vec![ArgDef {
                     name: "range".to_string(),
                     required: false,
-                    hint: "[keep_last=20 | from=40 | up_to=80]".to_string(),
-                    completions: ArgCompletionSource::None,
+                    hint: "[full | keep_last=20 | from=40 | up_to=80]".to_string(),
+                    completions: ArgCompletionSource::Static(
+                        COMPACT_COMPLETIONS
+                            .iter()
+                            .map(|value| value.to_string())
+                            .collect(),
+                    ),
                 }],
                 category: CommandCategory::Session,
                 hidden: false,
@@ -44,7 +62,15 @@ impl Command for CompactCommand {
     fn execute(&self, args: &str, ctx: &mut CommandContext) -> CommandResult {
         let engine = ctx.engine.clone();
         let event_tx = ctx.engine_event_tx.clone();
-        let request = parse_compact_request(args).unwrap_or(CompactRequest::Full);
+        let request = match parse_compact_request(args) {
+            Ok(request) => request,
+            Err(err) => {
+                return Ok(CommandOutput::Message(format!(
+                    "{}\n{}",
+                    err, COMPACT_USAGE
+                )));
+            }
+        };
 
         tokio::spawn(async move {
             let mut engine = engine.lock().await;
@@ -91,41 +117,59 @@ impl Command for CompactCommand {
     }
 }
 
-fn parse_compact_request(args: &str) -> Option<CompactRequest> {
+fn parse_compact_request(args: &str) -> Result<CompactRequest, String> {
     let trimmed = args.trim();
     if trimmed.is_empty() {
-        return Some(CompactRequest::Full);
+        return Ok(CompactRequest::Full);
     }
 
-    if let Some(value) = trimmed.strip_prefix("keep_last=") {
-        return value
-            .parse::<usize>()
-            .ok()
-            .filter(|value| *value > 0)
-            .map(CompactRequest::KeepLast);
+    if matches!(trimmed, "help" | "--help" | "-h") {
+        return Err("显示 compact 参数帮助。".to_string());
     }
 
-    if let Some(value) = trimmed.strip_prefix("from=") {
-        return value
-            .parse::<usize>()
-            .ok()
-            .filter(|value| *value > 0)
-            .map(CompactRequest::From);
+    if matches!(trimmed, "full" | "all") {
+        return Ok(CompactRequest::Full);
     }
 
-    if let Some(value) = trimmed.strip_prefix("up_to=") {
-        return value
-            .parse::<usize>()
-            .ok()
-            .filter(|value| *value > 0)
-            .map(CompactRequest::UpTo);
+    for (prefix, request) in [
+        (
+            "keep_last=",
+            CompactRequest::KeepLast as fn(usize) -> CompactRequest,
+        ),
+        ("keep-last=", CompactRequest::KeepLast),
+        ("last=", CompactRequest::KeepLast),
+        ("from=", CompactRequest::From),
+        ("up_to=", CompactRequest::UpTo),
+        ("up-to=", CompactRequest::UpTo),
+    ] {
+        if let Some(value) = trimmed.strip_prefix(prefix) {
+            return parse_positive_usize(value, prefix.trim_end_matches('=')).map(request);
+        }
     }
 
-    trimmed
+    let parts = trimmed.split_whitespace().collect::<Vec<_>>();
+    match parts.as_slice() {
+        [value] => parse_positive_usize(value, "keep_last").map(CompactRequest::KeepLast),
+        ["keep_last" | "keep-last" | "last", value] => {
+            parse_positive_usize(value, "keep_last").map(CompactRequest::KeepLast)
+        }
+        ["from", value] => parse_positive_usize(value, "from").map(CompactRequest::From),
+        ["up_to" | "up-to", value] => {
+            parse_positive_usize(value, "up_to").map(CompactRequest::UpTo)
+        }
+        _ => Err(format!("无法解析 compact 参数：{}", trimmed)),
+    }
+}
+
+fn parse_positive_usize(value: &str, label: &str) -> Result<usize, String> {
+    let parsed = value
+        .trim()
         .parse::<usize>()
-        .ok()
-        .filter(|value| *value > 0)
-        .map(CompactRequest::KeepLast)
+        .map_err(|_| format!("{} 必须是正整数：{}", label, value.trim()))?;
+    if parsed == 0 {
+        return Err(format!("{} 必须大于 0。", label));
+    }
+    Ok(parsed)
 }
 
 #[cfg(test)]
@@ -134,23 +178,38 @@ mod tests {
 
     #[test]
     fn parses_keep_last_argument() {
-        assert_eq!(parse_compact_request(""), Some(CompactRequest::Full));
+        assert_eq!(parse_compact_request(""), Ok(CompactRequest::Full));
+        assert_eq!(parse_compact_request("full"), Ok(CompactRequest::Full));
         assert_eq!(
             parse_compact_request("12"),
-            Some(CompactRequest::KeepLast(12))
+            Ok(CompactRequest::KeepLast(12))
         );
         assert_eq!(
             parse_compact_request("keep_last=24"),
-            Some(CompactRequest::KeepLast(24))
+            Ok(CompactRequest::KeepLast(24))
+        );
+        assert_eq!(
+            parse_compact_request("keep-last 24"),
+            Ok(CompactRequest::KeepLast(24))
         );
         assert_eq!(
             parse_compact_request("from=18"),
-            Some(CompactRequest::From(18))
+            Ok(CompactRequest::From(18))
+        );
+        assert_eq!(
+            parse_compact_request("from 18"),
+            Ok(CompactRequest::From(18))
         );
         assert_eq!(
             parse_compact_request("up_to=32"),
-            Some(CompactRequest::UpTo(32))
+            Ok(CompactRequest::UpTo(32))
         );
-        assert_eq!(parse_compact_request("keep_last=0"), None);
+        assert_eq!(
+            parse_compact_request("up-to 32"),
+            Ok(CompactRequest::UpTo(32))
+        );
+        assert!(parse_compact_request("keep_last=0").is_err());
+        assert!(parse_compact_request("abc").is_err());
+        assert!(parse_compact_request("from nope").is_err());
     }
 }

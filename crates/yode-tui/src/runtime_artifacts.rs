@@ -315,6 +315,51 @@ pub(crate) fn write_prompt_cache_event_artifact(
     Some(path.display().to_string())
 }
 
+pub(crate) fn write_media_compact_event_artifact(
+    project_root: &std::path::Path,
+    session_id: &str,
+    state: &EngineRuntimeState,
+) -> Option<String> {
+    if state.microcompact_media_removed_total == 0 {
+        return None;
+    }
+
+    let dir = project_root.join(".yode").join("status");
+    std::fs::create_dir_all(&dir).ok()?;
+    let short_session = session_id.chars().take(8).collect::<String>();
+    let path = dir.join(format!("{}-media-compact-events.md", short_session));
+    let event = format!(
+        "- {} | last_removed={} last_saved_chars={} total_removed={} total_saved_chars={}\n",
+        chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+        state.last_microcompact_media_removed,
+        state.last_microcompact_media_saved_chars,
+        state.microcompact_media_removed_total,
+        state.microcompact_media_saved_chars_total,
+    );
+
+    let mut body = if path.exists() {
+        std::fs::read_to_string(&path).ok()?
+    } else {
+        "# Media Compact Event Timeline\n\n".to_string()
+    };
+
+    let event_without_time = event
+        .split_once(" | ")
+        .map(|(_, tail)| tail.trim_end())
+        .unwrap_or(event.trim_end());
+    let last_without_time = body
+        .lines()
+        .last()
+        .and_then(|line| line.split_once(" | ").map(|(_, tail)| tail));
+    if last_without_time == Some(event_without_time) {
+        return Some(path.display().to_string());
+    }
+
+    body.push_str(&event);
+    std::fs::write(&path, body).ok()?;
+    Some(path.display().to_string())
+}
+
 pub(crate) fn write_prompt_cache_break_artifact(
     project_root: &std::path::Path,
     session_id: &str,
@@ -418,6 +463,14 @@ fn runtime_summary_markdown(
             "- Context: {}",
             context_window_summary_text(Some(state), state.estimated_context_tokens)
         ));
+        if state.microcompact_media_removed_total > 0 {
+            lines.push(format!(
+                "- Media compact: last {} / total {} removed, saved ~{} chars",
+                state.last_microcompact_media_removed,
+                state.microcompact_media_removed_total,
+                state.microcompact_media_saved_chars_total
+            ));
+        }
         lines.push(format!("- Tools: {}", tool_runtime_summary_text(state)));
     }
     lines.push(format!(
@@ -479,10 +532,11 @@ mod tests {
     use yode_tools::{RuntimeTask, RuntimeTaskStatus};
 
     use super::{
-        write_hook_failure_artifact, write_prompt_cache_artifact,
-        write_prompt_cache_break_artifact, write_prompt_cache_event_artifact,
-        write_prompt_cache_state_artifact, write_runtime_task_inventory_artifact,
-        write_runtime_timeline_artifact, write_task_workspace_bundle_artifact,
+        write_hook_failure_artifact, write_media_compact_event_artifact,
+        write_prompt_cache_artifact, write_prompt_cache_break_artifact,
+        write_prompt_cache_event_artifact, write_prompt_cache_state_artifact,
+        write_runtime_task_inventory_artifact, write_runtime_timeline_artifact,
+        write_task_workspace_bundle_artifact,
     };
 
     fn test_runtime_state() -> EngineRuntimeState {
@@ -517,6 +571,8 @@ mod tests {
             hook_execution_error_count: 0,
             hook_nonzero_exit_count: 0,
             hook_wake_notification_count: 0,
+            stop_hook_continue_count: 0,
+            last_stop_hook_continue_reason: None,
             last_hook_failure_event: None,
             last_hook_failure_command: None,
             last_hook_failure_reason: None,
@@ -525,6 +581,10 @@ mod tests {
             last_compaction_prompt_tokens: None,
             avg_compaction_prompt_tokens: None,
             compaction_cause_histogram: BTreeMap::new(),
+            last_microcompact_media_removed: 0,
+            last_microcompact_media_saved_chars: 0,
+            microcompact_media_removed_total: 0,
+            microcompact_media_saved_chars_total: 0,
             system_prompt_estimated_tokens: 0,
             system_prompt_segments: Vec::new(),
             prompt_cache: PromptCacheRuntimeState::default(),
@@ -626,15 +686,18 @@ mod tests {
             std::env::temp_dir().join(format!("yode-runtime-timeline-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
+        let mut state = test_runtime_state();
+        state.last_microcompact_media_removed = 2;
+        state.microcompact_media_removed_total = 5;
+        state.microcompact_media_saved_chars_total = 4096;
 
-        let path =
-            write_runtime_timeline_artifact(&dir, "session-1234", &test_runtime_state(), &[])
-                .unwrap();
+        let path = write_runtime_timeline_artifact(&dir, "session-1234", &state, &[]).unwrap();
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("# Runtime Timeline"));
         assert!(content.contains("## Summary"));
+        assert!(content.contains("- Media compact: last 2 / total 5 removed, saved ~4096 chars"));
         assert!(content.contains("## Timeline"));
-        assert!(content.contains("no runtime events recorded"));
+        assert!(content.contains("media microcompact: last=2 removed"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -717,6 +780,37 @@ mod tests {
         assert!(content.contains("# Prompt Cache Event Timeline"));
         assert!(content.contains("reported=2"));
         assert!(content.contains("change="));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn writes_media_compact_events_markdown() {
+        let dir =
+            std::env::temp_dir().join(format!("yode-media-compact-events-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut state = test_runtime_state();
+        state.last_microcompact_media_removed = 2;
+        state.last_microcompact_media_saved_chars = 2048;
+        state.microcompact_media_removed_total = 5;
+        state.microcompact_media_saved_chars_total = 4096;
+
+        let path = write_media_compact_event_artifact(&dir, "session-1234", &state).unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("# Media Compact Event Timeline"));
+        assert!(content.contains("last_removed=2"));
+        assert!(content.contains("total_saved_chars=4096"));
+
+        let same = write_media_compact_event_artifact(&dir, "session-1234", &state).unwrap();
+        assert_eq!(same, path);
+        let deduped = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(
+            deduped
+                .lines()
+                .filter(|line| line.contains("total_removed=5"))
+                .count(),
+            1
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

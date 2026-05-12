@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::commands::artifact_nav::{
     artifact_display_line, artifact_history_lines, attach_inspector_actions,
@@ -9,21 +9,23 @@ use crate::commands::artifact_nav::{
     latest_branch_merge_state_artifact, latest_branch_state_artifact,
     latest_bundle_workspace_index, latest_checkpoint_artifact, latest_checkpoint_state_artifact,
     latest_coordinator_artifact, latest_coordinator_state_artifact, latest_hook_deferred_artifact,
-    latest_hook_deferred_state_artifact, latest_permission_governance_artifact,
-    latest_post_compact_restore_artifact, latest_post_compact_restore_diff_artifact,
-    latest_post_compact_restore_state_artifact, latest_prompt_cache_artifact,
-    latest_prompt_cache_break_artifact, latest_prompt_cache_diff_artifact,
-    latest_prompt_cache_events_artifact, latest_prompt_cache_state_artifact,
-    latest_remote_command_queue_artifact, latest_remote_control_artifact,
-    latest_remote_control_state_artifact, latest_remote_live_session_artifact,
-    latest_remote_live_session_state_artifact, latest_remote_queue_execution_artifact,
-    latest_remote_session_transcript_sync_artifact, latest_remote_task_handoff_artifact,
-    latest_remote_transport_artifact, latest_remote_transport_events_artifact,
-    latest_remote_transport_state_artifact, latest_rewind_anchor_artifact,
-    latest_rewind_anchor_state_artifact, latest_runtime_orchestration_artifact,
-    latest_subagent_result_artifact, latest_workflow_execution_artifact,
-    latest_workflow_state_artifact, open_artifact_inspector, recent_artifacts_by_suffix,
-    recent_bundle_workspace_indexes, resolve_artifact_basename, stale_artifact_actions,
+    latest_hook_deferred_state_artifact, latest_mcp_resource_artifact,
+    latest_mcp_resource_index_artifact, latest_media_compact_events_artifact,
+    latest_permission_governance_artifact, latest_post_compact_restore_artifact,
+    latest_post_compact_restore_diff_artifact, latest_post_compact_restore_state_artifact,
+    latest_prompt_cache_artifact, latest_prompt_cache_break_artifact,
+    latest_prompt_cache_diff_artifact, latest_prompt_cache_events_artifact,
+    latest_prompt_cache_state_artifact, latest_remote_command_queue_artifact,
+    latest_remote_control_artifact, latest_remote_control_state_artifact,
+    latest_remote_live_session_artifact, latest_remote_live_session_state_artifact,
+    latest_remote_queue_execution_artifact, latest_remote_session_transcript_sync_artifact,
+    latest_remote_task_handoff_artifact, latest_remote_transport_artifact,
+    latest_remote_transport_events_artifact, latest_remote_transport_state_artifact,
+    latest_rewind_anchor_artifact, latest_rewind_anchor_state_artifact,
+    latest_runtime_orchestration_artifact, latest_subagent_result_artifact,
+    latest_workflow_execution_artifact, latest_workflow_state_artifact, open_artifact_inspector,
+    recent_artifacts_by_suffix, recent_bundle_workspace_indexes,
+    recent_mcp_resource_index_artifacts, resolve_artifact_basename, stale_artifact_actions,
 };
 use crate::commands::context::CommandContext;
 use crate::commands::inspector_bridge::document_from_command_output;
@@ -31,6 +33,7 @@ use crate::commands::{
     ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
     CommandResult,
 };
+use crate::mcp_resource_artifacts::{mcp_resource_manifest_badges, mcp_resource_manifest_summary};
 
 pub struct InspectCommand {
     meta: CommandMeta,
@@ -493,6 +496,18 @@ fn inspect_artifact_target(args: &str, ctx: &mut CommandContext) -> CommandResul
             "prompt-cache".to_string(),
             vec!["/status".to_string(), "/doctor".to_string()],
         ),
+        "latest-media-compact-events" => (
+            latest_media_compact_events_artifact(&project_root)
+                .ok_or_else(|| "No media compact events artifact found.".to_string())?,
+            "Media compact events".to_string(),
+            "compact".to_string(),
+            vec![
+                "/context".to_string(),
+                "/status".to_string(),
+                "/inspect artifact history compact".to_string(),
+                "/compact help".to_string(),
+            ],
+        ),
         "latest-prompt-cache-break" => (
             latest_prompt_cache_break_artifact(&project_root)
                 .ok_or_else(|| "No prompt cache break artifact found.".to_string())?,
@@ -512,21 +527,57 @@ fn inspect_artifact_target(args: &str, ctx: &mut CommandContext) -> CommandResul
                 .ok_or_else(|| "No post-compact restore artifact found.".to_string())?,
             "Post-compact restore".to_string(),
             "compact".to_string(),
-            vec!["/compact".to_string(), "/status".to_string()],
+            vec![
+                "/context".to_string(),
+                "/compact help".to_string(),
+                "/inspect artifact history compact".to_string(),
+                "/status".to_string(),
+            ],
         ),
         "latest-post-compact-restore-state" => (
             latest_post_compact_restore_state_artifact(&project_root)
                 .ok_or_else(|| "No post-compact restore state artifact found.".to_string())?,
             "Post-compact restore state".to_string(),
             "compact".to_string(),
-            vec!["/compact".to_string(), "/status".to_string()],
+            vec![
+                "/context".to_string(),
+                "/compact help".to_string(),
+                "/inspect artifact history compact".to_string(),
+                "/status".to_string(),
+            ],
         ),
         "latest-post-compact-restore-diff" => (
             latest_post_compact_restore_diff_artifact(&project_root)
                 .ok_or_else(|| "No post-compact restore diff artifact found.".to_string())?,
             "Post-compact restore diff".to_string(),
             "compact".to_string(),
-            vec!["/compact".to_string(), "/status".to_string()],
+            vec![
+                "/context".to_string(),
+                "/compact help".to_string(),
+                "/inspect artifact history compact".to_string(),
+                "/status".to_string(),
+            ],
+        ),
+        "latest-mcp-resource" => (
+            latest_mcp_resource_artifact(&project_root)
+                .ok_or_else(|| "No MCP resource artifact found.".to_string())?,
+            "MCP resource artifact".to_string(),
+            "mcp_resource".to_string(),
+            vec![
+                "/mcp".to_string(),
+                "/inspect artifact history mcp-resources".to_string(),
+            ],
+        ),
+        "latest-mcp-resource-index" => (
+            latest_mcp_resource_index_artifact(&project_root)
+                .ok_or_else(|| "No MCP resource index artifact found.".to_string())?,
+            "MCP resource index".to_string(),
+            "mcp_resource_index".to_string(),
+            vec![
+                "/inspect artifact latest-mcp-resource".to_string(),
+                "/inspect artifact history mcp-resources".to_string(),
+                "/mcp resources cleanup".to_string(),
+            ],
         ),
         "latest-hook-failures" => (
             latest_artifact_by_suffix(&status_dir, "hook-failures.md")
@@ -726,24 +777,57 @@ fn inspect_artifact_target(args: &str, ctx: &mut CommandContext) -> CommandResul
     if let Some(stale) = stale_artifact_actions(&path, &refresh) {
         footer_lines.push(stale);
     }
+    let mut extra_badges = vec![("kind".into(), kind.clone())];
+    if kind == "mcp_resource" {
+        if let Some(summary) = mcp_resource_manifest_summary(&path, true, " · ") {
+            footer_lines.push(format!("resource {}", summary));
+        }
+        footer_lines.push("cleanup /mcp resources cleanup [keep=N|all]".to_string());
+        extra_badges.extend(mcp_resource_manifest_badges(&path));
+    } else if kind == "mcp_resource_index" {
+        footer_lines.push("cleanup /mcp resources cleanup [keep=N|all]".to_string());
+        extra_badges.push(("scope".to_string(), "mcp-resources".to_string()));
+    }
     let doc = open_artifact_inspector(
         &title,
         &path,
         (!footer_lines.is_empty()).then(|| footer_lines.join("\n")),
-        vec![("kind".into(), kind)],
+        extra_badges,
     )
     .ok_or_else(|| format!("Failed to open artifact {}.", path.display()))?;
     let mut doc = doc;
-    if !refresh.is_empty() {
-        attach_inspector_actions(
-            &mut doc,
-            refresh
-                .iter()
-                .map(|command| (command.clone(), command.clone()))
-                .collect(),
-        );
+    let actions = artifact_inspector_actions(&kind, &refresh);
+    if !actions.is_empty() {
+        attach_inspector_actions(&mut doc, actions);
     }
     Ok(CommandOutput::OpenInspector(doc))
+}
+
+fn artifact_inspector_actions(kind: &str, refresh: &[String]) -> Vec<(String, String)> {
+    let mut actions = refresh
+        .iter()
+        .map(|command| (command.clone(), command.clone()))
+        .collect::<Vec<_>>();
+    if kind == "mcp_resource" || kind == "mcp_resource_index" {
+        actions.push((
+            "cleanup old MCP resource artifacts".to_string(),
+            "/mcp resources cleanup".to_string(),
+        ));
+    } else if kind == "compact" {
+        for (label, command) in [
+            ("show context pressure", "/context"),
+            ("show compact command help", "/compact help"),
+            (
+                "show compact artifact history",
+                "/inspect artifact history compact",
+            ),
+        ] {
+            if !actions.iter().any(|(_, existing)| existing == command) {
+                actions.push((label.to_string(), command.to_string()));
+            }
+        }
+    }
+    actions
 }
 
 fn inspect_completion_targets(ctx: &crate::commands::context::CompletionContext) -> Vec<String> {
@@ -779,6 +863,7 @@ fn inspect_completion_targets(ctx: &crate::commands::context::CompletionContext)
         "artifact history runtime".to_string(),
         "artifact history actions".to_string(),
         "artifact history teams".to_string(),
+        "artifact history mcp-resources".to_string(),
         "artifact latest-workflow".to_string(),
         "artifact latest-checkpoint".to_string(),
         "artifact latest-checkpoint-state".to_string(),
@@ -819,6 +904,8 @@ fn inspect_completion_targets(ctx: &crate::commands::context::CompletionContext)
         "artifact latest-post-compact-restore".to_string(),
         "artifact latest-post-compact-restore-state".to_string(),
         "artifact latest-post-compact-restore-diff".to_string(),
+        "artifact latest-mcp-resource".to_string(),
+        "artifact latest-mcp-resource-index".to_string(),
         "artifact latest-action-history".to_string(),
         "artifact latest-action-metrics".to_string(),
         "artifact latest-hook-failures".to_string(),
@@ -844,6 +931,7 @@ fn inspect_completion_targets(ctx: &crate::commands::context::CompletionContext)
         "artifact bundle".to_string(),
     ];
     let status_dir = project_root.join(".yode").join("status");
+    let mcp_resource_dir = status_dir.join("mcp-resources");
     let remote_dir = project_root.join(".yode").join("remote");
     let startup_dir = project_root.join(".yode").join("startup");
     let hooks_dir = project_root.join(".yode").join("hooks");
@@ -856,6 +944,8 @@ fn inspect_completion_targets(ctx: &crate::commands::context::CompletionContext)
         .into_iter()
         .chain(recent_artifacts_by_suffix(&remote_dir, ".json", 4))
         .chain(recent_artifacts_by_suffix(&status_dir, ".json", 6))
+        .chain(recent_artifacts_by_suffix(&mcp_resource_dir, ".md", 4))
+        .chain(recent_artifacts_by_suffix(&mcp_resource_dir, ".b64", 2))
         .chain(recent_artifacts_by_suffix(&checkpoint_dir, ".md", 4))
         .chain(recent_artifacts_by_suffix(&checkpoint_dir, ".json", 4))
         .chain(recent_artifacts_by_suffix(&startup_dir, ".json", 4))
@@ -885,10 +975,10 @@ fn artifact_inventory_lines(project_root: &std::path::Path, cwd: &std::path::Pat
         "latest-branch | latest-branch-state | latest-branch-merge | latest-branch-merge-state | latest-rewind-anchor | latest-rewind-anchor-state".to_string(),
         "latest-remote-control | latest-remote-control-state | latest-remote-queue | latest-remote-queue-execution | latest-remote-transport | latest-remote-transport-state | latest-remote-transport-events | latest-remote-live-session | latest-remote-live-session-state | latest-remote-session-transcript-sync".to_string(),
         "latest-remote-task-handoff".to_string(),
-        "latest-runtime-timeline | latest-runtime-tasks | latest-prompt-cache | latest-prompt-cache-state | latest-prompt-cache-events | latest-prompt-cache-break | latest-prompt-cache-diff | latest-post-compact-restore | latest-post-compact-restore-state | latest-post-compact-restore-diff | latest-hook-failures | latest-hook-deferred | latest-hook-deferred-state".to_string(),
+        "latest-runtime-timeline | latest-runtime-tasks | latest-prompt-cache | latest-prompt-cache-state | latest-prompt-cache-events | latest-media-compact-events | latest-prompt-cache-break | latest-prompt-cache-diff | latest-post-compact-restore | latest-post-compact-restore-state | latest-post-compact-restore-diff | latest-mcp-resource | latest-mcp-resource-index | latest-hook-failures | latest-hook-deferred | latest-hook-deferred-state".to_string(),
         "latest-permission | latest-permission-governance | latest-permission-policy".to_string(),
         "latest-action-history | latest-action-metrics".to_string(),
-        "history families: runtime | prompt-cache | compact | hooks | remote | startup | reviews | transcripts | bundles".to_string(),
+        "history families: runtime | prompt-cache | compact | mcp-resources | hooks | remote | startup | reviews | transcripts | bundles".to_string(),
         "latest-startup-profile | latest-startup-manifest | latest-provider-inventory | latest-mcp-failures | latest-permission-policy | latest-settings-scopes | latest-managed-mcp-inventory | latest-tool-search-activation".to_string(),
         "latest-review | latest-transcript | latest-session-memory | latest-tool | latest-recovery | latest-permission | latest-permission-governance".to_string(),
         "latest-remote-capability | latest-remote-execution | bundle".to_string(),
@@ -935,6 +1025,17 @@ fn artifact_inventory_lines(project_root: &std::path::Path, cwd: &std::path::Pat
                 ".json",
                 6,
             ))
+            .collect::<Vec<_>>(),
+    ));
+    let mcp_resource_dir = project_root
+        .join(".yode")
+        .join("status")
+        .join("mcp-resources");
+    lines.push("Recent MCP resource artifacts:".to_string());
+    lines.extend(mcp_resource_artifact_history_lines(
+        recent_artifacts_by_suffix(&mcp_resource_dir, ".md", 6)
+            .into_iter()
+            .chain(recent_artifacts_by_suffix(&mcp_resource_dir, ".b64", 4))
             .collect::<Vec<_>>(),
     ));
     lines.push("Recent review artifacts:".to_string());
@@ -1021,7 +1122,7 @@ fn artifact_summary_lines(
     lines.extend([
         "Counts:".to_string(),
         format!(
-            "status={} state={} checkpoints={} startup={} hooks={} remote={} teams={} reviews={} transcripts={} bundles={}",
+            "status={} state={} checkpoints={} startup={} hooks={} remote={} mcp_resources={} teams={} reviews={} transcripts={} bundles={}",
             recent_artifacts_by_suffix(&project_root.join(".yode").join("status"), ".md", usize::MAX).len(),
             recent_artifacts_by_suffix(&project_root.join(".yode").join("status"), ".json", usize::MAX).len(),
             recent_artifacts_by_suffix(&project_root.join(".yode").join("checkpoints"), ".md", usize::MAX).len()
@@ -1032,6 +1133,8 @@ fn artifact_summary_lines(
                 + recent_artifacts_by_suffix(&project_root.join(".yode").join("hooks"), ".json", usize::MAX).len(),
             recent_artifacts_by_suffix(&project_root.join(".yode").join("remote"), ".json", usize::MAX).len()
                 + recent_artifacts_by_suffix(&project_root.join(".yode").join("remote"), ".md", usize::MAX).len(),
+            recent_artifacts_by_suffix(&project_root.join(".yode").join("status").join("mcp-resources"), ".md", usize::MAX).len()
+                + recent_artifacts_by_suffix(&project_root.join(".yode").join("status").join("mcp-resources"), ".b64", usize::MAX).len(),
             recent_artifacts_by_suffix(&project_root.join(".yode").join("teams"), ".json", usize::MAX).len()
                 + recent_artifacts_by_suffix(&project_root.join(".yode").join("teams"), ".md", usize::MAX).len()
                 + recent_artifacts_by_suffix(&project_root.join(".yode").join("agent-results"), ".md", usize::MAX).len(),
@@ -1162,6 +1265,12 @@ fn artifact_summary_lines(
         latest_post_compact_restore_diff_artifact(project_root)
             .map(|path| format!("post_compact_restore_diff -> {}", artifact_display_line(&path)))
             .unwrap_or_else(|| "post_compact_restore_diff -> none".to_string()),
+        latest_mcp_resource_artifact(project_root)
+            .map(|path| format!("mcp_resource -> {}", mcp_resource_artifact_display_line(&path)))
+            .unwrap_or_else(|| "mcp_resource -> none".to_string()),
+        latest_mcp_resource_index_artifact(cwd)
+            .map(|path| format!("mcp_resource_index -> {}", artifact_display_line(&path)))
+            .unwrap_or_else(|| "mcp_resource_index -> none".to_string()),
         latest_coordinator_artifact(project_root)
             .map(|path| format!("coordinate -> {}", artifact_display_line(&path)))
             .unwrap_or_else(|| "coordinate -> none".to_string()),
@@ -1176,6 +1285,21 @@ fn artifact_summary_lines(
             .unwrap_or_else(|| "bundle -> none".to_string()),
     ]);
     lines
+}
+
+fn mcp_resource_artifact_history_lines(paths: impl IntoIterator<Item = PathBuf>) -> Vec<String> {
+    paths
+        .into_iter()
+        .map(|path| mcp_resource_artifact_display_line(&path))
+        .collect()
+}
+
+fn mcp_resource_artifact_display_line(path: &Path) -> String {
+    let base = artifact_display_line(path);
+    let Some(summary) = mcp_resource_manifest_summary(path, true, " · ") else {
+        return base;
+    };
+    format!("{} · {}", base, summary)
 }
 
 fn artifact_history_family_lines(
@@ -1311,6 +1435,28 @@ fn artifact_history_family_lines(
             12,
         ))
         .collect(),
+        "mcp-resources" => {
+            let paths = recent_artifacts_by_suffix(
+                &project_root
+                    .join(".yode")
+                    .join("status")
+                    .join("mcp-resources"),
+                ".md",
+                12,
+            )
+            .into_iter()
+            .chain(recent_artifacts_by_suffix(
+                &project_root
+                    .join(".yode")
+                    .join("status")
+                    .join("mcp-resources"),
+                ".b64",
+                12,
+            ))
+            .chain(recent_mcp_resource_index_artifacts(cwd, 8))
+            .collect::<Vec<_>>();
+            return Ok(mcp_resource_artifact_history_lines(paths));
+        }
         "bundles" => recent_bundle_workspace_indexes(cwd, 8),
         "workflow" => recent_artifacts_by_suffix(
             &project_root.join(".yode").join("status"),
@@ -1348,6 +1494,11 @@ fn artifact_history_family_lines(
             paths.extend(recent_artifacts_by_suffix(
                 &project_root.join(".yode").join("status"),
                 "prompt-cache-events.md",
+                4,
+            ));
+            paths.extend(recent_artifacts_by_suffix(
+                &project_root.join(".yode").join("status"),
+                "media-compact-events.md",
                 4,
             ));
             paths.extend(recent_artifacts_by_suffix(
@@ -1391,6 +1542,11 @@ fn artifact_history_family_lines(
         ))
         .chain(recent_artifacts_by_suffix(
             &project_root.join(".yode").join("status"),
+            "media-compact-events.md",
+            8,
+        ))
+        .chain(recent_artifacts_by_suffix(
+            &project_root.join(".yode").join("status"),
             "prompt-cache-break.json",
             8,
         ))
@@ -1413,7 +1569,10 @@ fn artifact_history_family_lines(
 
 #[cfg(test)]
 mod tests {
-    use super::{artifact_history_family_lines, artifact_inventory_lines, artifact_summary_lines};
+    use super::{
+        artifact_history_family_lines, artifact_inspector_actions, artifact_inventory_lines,
+        artifact_summary_lines, mcp_resource_manifest_badges, mcp_resource_manifest_summary,
+    };
 
     #[test]
     fn inventory_and_summary_lines_surface_aliases_and_counts() {
@@ -1422,6 +1581,7 @@ mod tests {
         let status = dir.join(".yode").join("status");
         let remote = dir.join(".yode").join("remote");
         let startup = dir.join(".yode").join("startup");
+        let mcp_resources = dir.join(".yode").join("status").join("mcp-resources");
         let reviews = dir.join(".yode").join("reviews");
         let transcripts = dir.join(".yode").join("transcripts");
         let bundle = dir.join("diagnostics-sample");
@@ -1429,6 +1589,7 @@ mod tests {
         std::fs::create_dir_all(&status).unwrap();
         std::fs::create_dir_all(&remote).unwrap();
         std::fs::create_dir_all(&startup).unwrap();
+        std::fs::create_dir_all(&mcp_resources).unwrap();
         std::fs::create_dir_all(&reviews).unwrap();
         std::fs::create_dir_all(&transcripts).unwrap();
         std::fs::create_dir_all(&bundle).unwrap();
@@ -1436,18 +1597,32 @@ mod tests {
         std::fs::write(status.join("fff-prompt-cache.md"), "x").unwrap();
         std::fs::write(remote.join("bbb-remote-execution-state.json"), "x").unwrap();
         std::fs::write(startup.join("ccc-provider-inventory.json"), "x").unwrap();
+        std::fs::write(mcp_resources.join("ggg-mcp-resource-sample.md"), "x").unwrap();
+        std::fs::write(mcp_resources.join("ggg-mcp-resource-sample.b64"), "eA==").unwrap();
         std::fs::write(reviews.join("ddd-review.md"), "x").unwrap();
         std::fs::write(transcripts.join("eee-transcript.md"), "x").unwrap();
         std::fs::write(bundle.join("workspace-index.md"), "x").unwrap();
+        std::fs::write(bundle.join("mcp-resources-index.md"), "x").unwrap();
 
         let inventory = artifact_inventory_lines(&dir, &dir);
         assert!(inventory
             .iter()
             .any(|line| line.contains("latest-runtime-timeline")));
+        assert!(inventory
+            .iter()
+            .any(|line| line.contains("latest-mcp-resource")));
+        assert!(inventory
+            .iter()
+            .any(|line| line.contains("latest-mcp-resource-index")));
         assert!(inventory.iter().any(|line| line.contains("[fresh]")));
 
         let summary = artifact_summary_lines(&dir, &dir, None);
         assert!(summary.iter().any(|line| line.contains("status=")));
+        assert!(summary.iter().any(|line| line.contains("mcp_resources=2")));
+        assert!(summary.iter().any(|line| line.contains("mcp_resource ->")));
+        assert!(summary
+            .iter()
+            .any(|line| line.contains("mcp_resource_index ->")));
         assert!(summary.iter().any(|line| line.contains("bundle ->")));
         assert!(summary.iter().any(|line| line.contains("prompt_cache ->")));
         let bundle_index = summary
@@ -1515,6 +1690,113 @@ mod tests {
     }
 
     #[test]
+    fn mcp_resources_history_family_reads_manifests_and_base64_artifacts() {
+        let dir = std::env::temp_dir().join(format!(
+            "yode-inspect-mcp-resources-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let resources = dir.join(".yode").join("status").join("mcp-resources");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&resources).unwrap();
+        std::fs::write(
+            resources.join("a-mcp-resource-image.md"),
+            "# MCP Resource Blob Artifact\n\n- Server: demo\n- URI: mcp://image\n- Blob count: 1\n- Retention: keep newest 120 artifact files\n\n## Blob 1\n\n- Decode warning: invalid base64\n",
+        )
+        .unwrap();
+        std::fs::write(resources.join("a-mcp-resource-image.b64"), "eA==").unwrap();
+        let bundle = dir.join(".yode").join("exports").join("diagnostics-mcp");
+        std::fs::create_dir_all(&bundle).unwrap();
+        std::fs::write(bundle.join("workspace-index.md"), "x").unwrap();
+        std::fs::write(bundle.join("mcp-resources-index.md"), "index").unwrap();
+
+        let lines = artifact_history_family_lines("mcp-resources", &dir, &dir, None).unwrap();
+        assert!(lines
+            .iter()
+            .any(|line| line.contains("a-mcp-resource-image.md")));
+        assert!(lines.iter().any(|line| line.contains("server=demo")));
+        assert!(lines.iter().any(|line| line.contains("uri=mcp://image")));
+        assert!(lines.iter().any(|line| line.contains("blobs=1")));
+        assert!(lines.iter().any(|line| line.contains("decode_warnings=1")));
+        assert!(lines
+            .iter()
+            .any(|line| line.contains("retention=keep newest 120 artifact files")));
+        assert!(lines
+            .iter()
+            .any(|line| line.contains("a-mcp-resource-image.b64")));
+        assert!(lines
+            .iter()
+            .any(|line| line.contains("mcp-resources-index.md")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn mcp_resource_manifest_helpers_extract_footer_and_badges() {
+        let dir =
+            std::env::temp_dir().join(format!("yode-inspect-mcp-badges-{}", uuid::Uuid::new_v4()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("artifact.md");
+        std::fs::write(
+            &path,
+            "# MCP Resource Blob Artifact\n\n- Server: demo\n- URI: mcp://image\n- Blob count: 2\n- Retention: keep newest 120 artifact files\n\n## Blob 1\n\n- Decode warning: invalid base64\n",
+        )
+        .unwrap();
+
+        let summary = mcp_resource_manifest_summary(&path, true, " · ").unwrap();
+        assert!(summary.contains("server=demo"));
+        assert!(summary.contains("decode_warnings=1"));
+        let badges = mcp_resource_manifest_badges(&path);
+        assert!(badges.contains(&("server".to_string(), "demo".to_string())));
+        assert!(badges.contains(&("blobs".to_string(), "2".to_string())));
+        assert!(badges.contains(&("decode".to_string(), "warnings=1".to_string())));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn mcp_resource_inspector_actions_include_cleanup_command() {
+        let actions = artifact_inspector_actions(
+            "mcp_resource",
+            &[
+                "/mcp".to_string(),
+                "/inspect artifact history mcp-resources".to_string(),
+            ],
+        );
+        assert!(actions.contains(&("/mcp".to_string(), "/mcp".to_string())));
+        assert!(actions.contains(&(
+            "cleanup old MCP resource artifacts".to_string(),
+            "/mcp resources cleanup".to_string()
+        )));
+        let index_actions = artifact_inspector_actions(
+            "mcp_resource_index",
+            &["/inspect artifact latest-mcp-resource".to_string()],
+        );
+        assert!(index_actions
+            .iter()
+            .any(|(_, command)| command == "/mcp resources cleanup"));
+
+        let regular = artifact_inspector_actions("runtime", &["/status".to_string()]);
+        assert!(!regular
+            .iter()
+            .any(|(_, command)| command.contains("resources cleanup")));
+    }
+
+    #[test]
+    fn compact_inspector_actions_include_context_and_partial_compact_help() {
+        let actions = artifact_inspector_actions("compact", &["/status".to_string()]);
+        assert!(actions.contains(&("/status".to_string(), "/status".to_string())));
+        assert!(actions.contains(&("show context pressure".to_string(), "/context".to_string())));
+        assert!(actions.contains(&(
+            "show compact command help".to_string(),
+            "/compact help".to_string()
+        )));
+        assert!(actions.contains(&(
+            "show compact artifact history".to_string(),
+            "/inspect artifact history compact".to_string()
+        )));
+    }
+
+    #[test]
     fn artifact_summary_surfaces_runtime_summaries_when_available() {
         let dir =
             std::env::temp_dir().join(format!("yode-inspect-runtime-{}", uuid::Uuid::new_v4()));
@@ -1551,6 +1833,8 @@ mod tests {
             hook_execution_error_count: 0,
             hook_nonzero_exit_count: 0,
             hook_wake_notification_count: 0,
+            stop_hook_continue_count: 0,
+            last_stop_hook_continue_reason: None,
             last_hook_failure_event: None,
             last_hook_failure_command: None,
             last_hook_failure_reason: None,
@@ -1559,6 +1843,10 @@ mod tests {
             last_compaction_prompt_tokens: None,
             avg_compaction_prompt_tokens: None,
             compaction_cause_histogram: std::collections::BTreeMap::new(),
+            last_microcompact_media_removed: 0,
+            last_microcompact_media_saved_chars: 0,
+            microcompact_media_removed_total: 0,
+            microcompact_media_saved_chars_total: 0,
             system_prompt_estimated_tokens: 0,
             system_prompt_segments: Vec::new(),
             prompt_cache: yode_core::engine::PromptCacheRuntimeState::default(),

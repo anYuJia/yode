@@ -11,8 +11,9 @@ use super::super::{
     find_case_insensitive, strip_internal_tags, App, ChatEntry, ChatRole, TurnStatus, TAG_RE,
 };
 use crate::runtime_artifacts::{
-    write_prompt_cache_artifact, write_prompt_cache_break_artifact,
-    write_prompt_cache_event_artifact, write_prompt_cache_state_artifact,
+    write_media_compact_event_artifact, write_prompt_cache_artifact,
+    write_prompt_cache_break_artifact, write_prompt_cache_event_artifact,
+    write_prompt_cache_state_artifact,
 };
 use crate::runtime_display::format_turn_completed_message;
 
@@ -156,6 +157,7 @@ pub(super) fn handle_done(
         let _ = write_prompt_cache_state_artifact(&project_root, &app.session.session_id, state);
         let _ = write_prompt_cache_event_artifact(&project_root, &app.session.session_id, state);
         let _ = write_prompt_cache_break_artifact(&project_root, &app.session.session_id, state);
+        let _ = write_media_compact_event_artifact(&project_root, &app.session.session_id, state);
     }
 
     if let Some(started) = app.turn_started_at.take() {

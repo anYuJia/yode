@@ -1,13 +1,17 @@
 use super::mcp_workspace::{
     auth_session_summary, browser_mcp_capability_summary, latency_sparkline,
-    reconnect_backoff_timeline, remote_tool_source_badge, render_browser_access_workspace,
-    resource_cache_activity_summary, write_browser_access_state_artifact,
+    mcp_resource_artifact_summary, reconnect_backoff_timeline, remote_tool_source_badge,
+    render_browser_access_workspace, resource_cache_activity_summary,
+    write_browser_access_state_artifact,
 };
 use crate::commands::context::CommandContext;
 use crate::commands::info::startup_artifacts::{
     latest_managed_mcp_inventory, latest_settings_scopes,
 };
-use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
+use crate::commands::{
+    ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
+    CommandResult,
+};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub struct McpCommand {
@@ -21,7 +25,16 @@ impl McpCommand {
                 name: "mcp",
                 description: "Summarize MCP servers, auth readiness, and registered tools",
                 aliases: &[],
-                args: vec![],
+                args: vec![ArgDef {
+                    name: "view".to_string(),
+                    required: false,
+                    hint: "resources cleanup [keep=N|all]".to_string(),
+                    completions: ArgCompletionSource::Static(vec![
+                        "resources cleanup".to_string(),
+                        "resources cleanup keep=20".to_string(),
+                        "resources cleanup all".to_string(),
+                    ]),
+                }],
                 category: CommandCategory::Tools,
                 hidden: false,
             },
@@ -34,7 +47,12 @@ impl Command for McpCommand {
         &self.meta
     }
 
-    fn execute(&self, _args: &str, ctx: &mut CommandContext<'_>) -> CommandResult {
+    fn execute(&self, args: &str, ctx: &mut CommandContext<'_>) -> CommandResult {
+        let args = args.trim();
+        if let Some(cleanup_args) = args.strip_prefix("resources cleanup") {
+            return cleanup_mcp_resources(cleanup_args, ctx);
+        }
+
         let config = yode_core::config::Config::load().ok();
         let configured_servers = config
             .as_ref()
@@ -42,6 +60,7 @@ impl Command for McpCommand {
             .unwrap_or_default();
         let latency_stats = yode_mcp::mcp_tool_latency_stats();
         let reconnect_stats = yode_mcp::mcp_reconnect_diagnostics();
+        let elicitation_stats = yode_mcp::mcp_elicitation_diagnostics();
         let mut by_server = BTreeMap::<String, Vec<String>>::new();
         for tool in ctx.tools.definitions() {
             if let Some((server, original_name)) = parse_mcp_tool_name(&tool.name) {
@@ -71,17 +90,21 @@ impl Command for McpCommand {
             let more = tools.len().saturating_sub(6);
             let latency = server_latency_summary(&latency_stats, &server);
             let reconnect = server_reconnect_summary(&reconnect_stats, &server);
+            let elicitation = server_elicitation_summary(&elicitation_stats, &server);
             let config_state = if let Some(server_config) = configured_servers.get(&server) {
                 format!(
-                    "configured, auth={}, session={}",
-                    auth_status_label(server_config),
+                    "configured, transport={}({}), endpoint={}, auth={}, session={}",
+                    server_config.transport.label(),
+                    transport_execution_label(server_config.transport),
+                    mcp_endpoint_label(server_config),
+                    auth_status_label(&server, server_config),
                     auth_session_summary(server_config)
                 )
             } else {
                 "registered-only, auth=unknown".to_string()
             };
             lines.push(format!(
-                "  - {} {} [{} | {} tool(s) | latency={} {} | reconnect={} | timeline={}] {}{}",
+                "  - {} {} [{} | {} tool(s) | latency={} {} | reconnect={} | elicitation={} | timeline={}] {}{}",
                 remote_tool_source_badge(&format!("mcp__{}_tool", server)),
                 server,
                 config_state,
@@ -89,6 +112,7 @@ impl Command for McpCommand {
                 latency,
                 latency_sparkline(&latency_stats, &server),
                 reconnect,
+                elicitation,
                 reconnect_backoff_timeline(&reconnect_stats, &server),
                 preview,
                 if more > 0 {
@@ -102,6 +126,11 @@ impl Command for McpCommand {
             "  Cache stats: {}",
             resource_cache_activity_summary()
         ));
+        let project_root = std::path::PathBuf::from(&ctx.session.working_dir);
+        lines.push(format!(
+            "  Resource artifacts: {}",
+            mcp_resource_artifact_summary(&project_root)
+        ));
         let browser_tools_present = ctx.tools.definitions().into_iter().any(|definition| {
             matches!(
                 definition.name.as_str(),
@@ -112,7 +141,6 @@ impl Command for McpCommand {
             "  Capability merge: {}",
             browser_mcp_capability_summary(browser_tools_present, configured_servers.len())
         ));
-        let project_root = std::path::PathBuf::from(&ctx.session.working_dir);
         if let Some(scopes) = latest_settings_scopes(&project_root) {
             let scope_summary = scopes
                 .scopes
@@ -200,13 +228,63 @@ impl Command for McpCommand {
     }
 }
 
+fn cleanup_mcp_resources(args: &str, ctx: &CommandContext<'_>) -> CommandResult {
+    let keep = parse_resource_cleanup_keep(args.trim())?;
+    let project_root = std::path::PathBuf::from(&ctx.session.working_dir);
+    let summary = yode_tools::cleanup_mcp_resource_artifacts(&project_root, keep)
+        .map_err(|err| err.to_string())?;
+    Ok(CommandOutput::Message(format!(
+        "MCP resource artifact cleanup: removed={} kept={} retention={} dir={}",
+        summary.removed,
+        summary.kept,
+        keep,
+        summary.dir.display()
+    )))
+}
+
+fn parse_resource_cleanup_keep(args: &str) -> Result<usize, String> {
+    if args.is_empty() {
+        return Ok(yode_tools::mcp_resource_artifact_retention());
+    }
+    if args == "all" || args == "keep=0" {
+        return Ok(0);
+    }
+    let value = args
+        .strip_prefix("keep=")
+        .ok_or_else(|| "Usage: /mcp resources cleanup [keep=N|all]".to_string())?;
+    value
+        .parse::<usize>()
+        .map_err(|_| "Usage: /mcp resources cleanup [keep=N|all]".to_string())
+}
+
 pub fn parse_mcp_tool_name(name: &str) -> Option<(&str, &str)> {
     let rest = name.strip_prefix("mcp__")?;
     let (server, tool) = rest.split_once('_')?;
     Some((server, tool))
 }
 
-fn auth_status_label(config: &yode_core::config::McpServerConfig) -> String {
+fn auth_status_label(server: &str, config: &yode_core::config::McpServerConfig) -> String {
+    if let Some(auth) = &config.auth {
+        if let Some(env_name) = auth.bearer_token_env.as_deref() {
+            return if std::env::var(env_name)
+                .ok()
+                .map(|value| value.trim().is_empty())
+                .unwrap_or(true)
+            {
+                format!("missing {}", env_name)
+            } else {
+                format!("bearer-env {}", env_name)
+            };
+        }
+        if auth.oauth.is_some() {
+            return if oauth_token_saved(server) {
+                "oauth-token saved".to_string()
+            } else {
+                "oauth-token missing".to_string()
+            };
+        }
+    }
+
     if config.env.is_empty() {
         return "n/a".to_string();
     }
@@ -240,6 +318,64 @@ fn auth_status_label(config: &yode_core::config::McpServerConfig) -> String {
         "ready".to_string()
     } else {
         "inline".to_string()
+    }
+}
+
+fn oauth_token_saved(server: &str) -> bool {
+    let path = dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".yode")
+        .join("mcp-auth")
+        .join(format!("{}.token.json", sanitize_server_name(server)));
+    let Ok(contents) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    serde_json::from_str::<serde_json::Value>(&contents)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("access_token")
+                .and_then(|token| token.as_str())
+                .map(|token| !token.trim().is_empty())
+        })
+        .unwrap_or(false)
+}
+
+fn sanitize_server_name(server: &str) -> String {
+    server
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+fn mcp_endpoint_label(config: &yode_core::config::McpServerConfig) -> String {
+    match config.transport {
+        yode_core::config::McpTransportConfig::Stdio => {
+            if config.command.trim().is_empty() {
+                "missing-command".to_string()
+            } else {
+                config.command.clone()
+            }
+        }
+        _ => config
+            .url
+            .clone()
+            .unwrap_or_else(|| "missing-url".to_string()),
+    }
+}
+
+fn transport_execution_label(transport: yode_core::config::McpTransportConfig) -> &'static str {
+    match transport {
+        yode_core::config::McpTransportConfig::Stdio => "executable",
+        yode_core::config::McpTransportConfig::Sse
+        | yode_core::config::McpTransportConfig::Http => "executable",
+        yode_core::config::McpTransportConfig::Websocket => "parsed-only",
     }
 }
 
@@ -289,10 +425,36 @@ fn server_reconnect_summary(stats: &[yode_mcp::McpReconnectDiagnostic], server: 
     )
 }
 
+fn server_elicitation_summary(
+    stats: &[yode_mcp::McpElicitationDiagnostic],
+    server: &str,
+) -> String {
+    let Some(entry) = stats.iter().find(|entry| entry.server == server) else {
+        return "none".to_string();
+    };
+    let mut detail = format!(
+        "requests={} declined={} form={} url={}",
+        entry.requests, entry.declined, entry.form_requests, entry.url_requests
+    );
+    if let Some(message) = entry
+        .last_message
+        .as_deref()
+        .filter(|message| !message.is_empty())
+    {
+        detail.push_str(&format!(" last={}", message.replace('\n', " ")));
+    }
+    if let Some(url) = entry.last_url.as_deref().filter(|url| !url.is_empty()) {
+        detail.push_str(&format!(" url={}", url));
+    }
+    detail
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        auth_status_label, parse_mcp_tool_name, server_latency_summary, server_reconnect_summary,
+        auth_status_label, oauth_token_saved, parse_mcp_tool_name, parse_resource_cleanup_keep,
+        sanitize_server_name, server_elicitation_summary, server_latency_summary,
+        server_reconnect_summary, transport_execution_label,
     };
     use yode_core::config::McpServerConfig;
 
@@ -314,8 +476,9 @@ mod tests {
                 "TOKEN".to_string(),
                 "inline-secret".to_string(),
             )]),
+            ..McpServerConfig::default()
         };
-        assert_eq!(auth_status_label(&ready), "inline");
+        assert_eq!(auth_status_label("demo", &ready), "inline");
 
         let missing = McpServerConfig {
             command: "node".to_string(),
@@ -324,8 +487,73 @@ mod tests {
                 "TOKEN".to_string(),
                 "$YODE_MISSING_TOKEN".to_string(),
             )]),
+            ..McpServerConfig::default()
         };
-        assert!(auth_status_label(&missing).contains("missing YODE_MISSING_TOKEN"));
+        assert!(auth_status_label("demo", &missing).contains("missing YODE_MISSING_TOKEN"));
+    }
+
+    #[test]
+    fn auth_status_label_reports_remote_bearer_env() {
+        let configured = McpServerConfig {
+            transport: yode_core::config::McpTransportConfig::Sse,
+            url: Some("https://example.com/mcp".to_string()),
+            auth: Some(yode_core::config::McpAuthConfig {
+                bearer_token_env: Some("PATH".to_string()),
+                ..yode_core::config::McpAuthConfig::default()
+            }),
+            ..McpServerConfig::default()
+        };
+
+        assert_eq!(auth_status_label("demo", &configured), "bearer-env PATH");
+    }
+
+    #[test]
+    fn auth_status_label_reports_missing_oauth_token() {
+        let configured = McpServerConfig {
+            transport: yode_core::config::McpTransportConfig::Http,
+            url: Some("https://example.com/mcp".to_string()),
+            auth: Some(yode_core::config::McpAuthConfig {
+                oauth: Some(yode_core::config::McpOAuthConfig {
+                    client_id: Some("client".to_string()),
+                    authorization_url: Some("https://example.com/auth".to_string()),
+                    token_url: Some("https://example.com/token".to_string()),
+                    scopes: vec![],
+                }),
+                ..yode_core::config::McpAuthConfig::default()
+            }),
+            ..McpServerConfig::default()
+        };
+
+        assert_eq!(
+            auth_status_label("missing-token-test", &configured),
+            "oauth-token missing"
+        );
+    }
+
+    #[test]
+    fn oauth_token_helpers_match_saved_token_shape() {
+        assert_eq!(sanitize_server_name("github/prod"), "github_prod");
+        assert!(!oauth_token_saved("definitely-missing-token"));
+    }
+
+    #[test]
+    fn transport_execution_label_marks_supported_remote_transports_executable() {
+        assert_eq!(
+            transport_execution_label(yode_core::config::McpTransportConfig::Stdio),
+            "executable"
+        );
+        assert_eq!(
+            transport_execution_label(yode_core::config::McpTransportConfig::Sse),
+            "executable"
+        );
+        assert_eq!(
+            transport_execution_label(yode_core::config::McpTransportConfig::Http),
+            "executable"
+        );
+        assert_eq!(
+            transport_execution_label(yode_core::config::McpTransportConfig::Websocket),
+            "parsed-only"
+        );
     }
 
     #[test]
@@ -363,5 +591,36 @@ mod tests {
         assert!(rendered.contains("failures=2"));
         assert!(rendered.contains("next=4s"));
         assert!(rendered.contains("timeout"));
+    }
+
+    #[test]
+    fn server_elicitation_summary_formats_declined_requests() {
+        let rendered = server_elicitation_summary(
+            &[yode_mcp::McpElicitationDiagnostic {
+                server: "github".to_string(),
+                requests: 2,
+                form_requests: 1,
+                url_requests: 1,
+                declined: 2,
+                last_message: Some("Authorize access".to_string()),
+                last_url: Some("https://example.com/auth".to_string()),
+            }],
+            "github",
+        );
+
+        assert!(rendered.contains("requests=2"));
+        assert!(rendered.contains("declined=2"));
+        assert!(rendered.contains("form=1"));
+        assert!(rendered.contains("url=1"));
+        assert!(rendered.contains("Authorize access"));
+    }
+
+    #[test]
+    fn resource_cleanup_args_parse_keep_policy() {
+        assert!(parse_resource_cleanup_keep("").unwrap() > 0);
+        assert_eq!(parse_resource_cleanup_keep("all").unwrap(), 0);
+        assert_eq!(parse_resource_cleanup_keep("keep=0").unwrap(), 0);
+        assert_eq!(parse_resource_cleanup_keep("keep=7").unwrap(), 7);
+        assert!(parse_resource_cleanup_keep("bad").is_err());
     }
 }

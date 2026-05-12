@@ -268,6 +268,13 @@ pub(crate) fn latest_prompt_cache_events_artifact(project_root: &Path) -> Option
     )
 }
 
+pub(crate) fn latest_media_compact_events_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("status"),
+        "media-compact-events.md",
+    )
+}
+
 pub(crate) fn latest_prompt_cache_break_artifact(project_root: &Path) -> Option<PathBuf> {
     latest_artifact_by_suffix(
         &project_root.join(".yode").join("status"),
@@ -300,6 +307,16 @@ pub(crate) fn latest_post_compact_restore_diff_artifact(project_root: &Path) -> 
     latest_artifact_by_suffix(
         &project_root.join(".yode").join("status"),
         "post-compact-restore-diff.md",
+    )
+}
+
+pub(crate) fn latest_mcp_resource_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root
+            .join(".yode")
+            .join("status")
+            .join("mcp-resources"),
+        ".md",
     )
 }
 
@@ -341,6 +358,12 @@ pub(crate) fn latest_bundle_workspace_index(cwd: &Path) -> Option<PathBuf> {
     recent_bundle_workspace_indexes(cwd, 1).into_iter().next()
 }
 
+pub(crate) fn latest_mcp_resource_index_artifact(cwd: &Path) -> Option<PathBuf> {
+    recent_mcp_resource_index_artifacts(cwd, 1)
+        .into_iter()
+        .next()
+}
+
 pub(crate) fn export_bundle_root(project_root: &Path) -> PathBuf {
     project_root.join(".yode").join("exports")
 }
@@ -355,6 +378,22 @@ pub(crate) fn recent_bundle_workspace_indexes(cwd: &Path, limit: usize) -> Vec<P
     entries.into_iter().take(limit).collect()
 }
 
+pub(crate) fn recent_mcp_resource_index_artifacts(cwd: &Path, limit: usize) -> Vec<PathBuf> {
+    let mut entries = recent_export_bundle_dirs(cwd, 32)
+        .into_iter()
+        .flat_map(|dir| {
+            [
+                dir.join("mcp-resources-index.md"),
+                dir.join("mcp-resources").join("index.md"),
+            ]
+        })
+        .filter(|path| path.is_file())
+        .collect::<Vec<_>>();
+    entries.sort_by(compare_paths_by_modified_desc);
+    entries.dedup();
+    entries.into_iter().take(limit).collect()
+}
+
 fn bundle_search_roots(cwd: &Path) -> Vec<PathBuf> {
     let mut roots = cwd
         .ancestors()
@@ -363,6 +402,30 @@ fn bundle_search_roots(cwd: &Path) -> Vec<PathBuf> {
     roots.sort();
     roots.dedup();
     roots
+}
+
+fn recent_export_bundle_dirs(cwd: &Path, limit: usize) -> Vec<PathBuf> {
+    let mut entries = bundle_search_roots(cwd)
+        .into_iter()
+        .flat_map(|dir| {
+            std::fs::read_dir(dir)
+                .ok()
+                .into_iter()
+                .flat_map(|entries| entries.filter_map(Result::ok))
+                .map(|entry| entry.path())
+                .filter(|path| {
+                    path.is_dir()
+                        && (path.join("workspace-index.md").exists()
+                            || path.join("bundle-manifest.json").exists()
+                            || path.join("bundle-overview.txt").exists()
+                            || path.join("support-handoff.md").exists())
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    entries.sort_by(compare_paths_by_modified_desc);
+    entries.dedup();
+    entries.into_iter().take(limit).collect()
 }
 
 fn bundle_workspace_indexes_in_dir(dir: &Path) -> Vec<PathBuf> {
@@ -403,6 +466,16 @@ pub(crate) fn resolve_artifact_basename(project_root: &Path, target: &str) -> Op
         entries.sort_by(compare_paths_by_modified_desc);
         if let Some(path) = entries.into_iter().next() {
             return Some(path);
+        }
+    }
+    for bundle_dir in recent_export_bundle_dirs(project_root, 16) {
+        for path in [
+            bundle_dir.join(target),
+            bundle_dir.join("mcp-resources").join(target),
+        ] {
+            if path.is_file() {
+                return Some(path);
+            }
         }
     }
     None
@@ -605,6 +678,9 @@ pub(crate) fn build_runtime_orchestration_timeline_lines(
     if let Some(path) = latest_prompt_cache_events_artifact(project_root) {
         entries.push(artifact_timeline_entry(&path, "prompt cache events"));
     }
+    if let Some(path) = latest_media_compact_events_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "media compact events"));
+    }
     if let Some(path) = latest_prompt_cache_break_artifact(project_root) {
         entries.push(artifact_timeline_entry(&path, "prompt cache break"));
     }
@@ -622,6 +698,9 @@ pub(crate) fn build_runtime_orchestration_timeline_lines(
     }
     if let Some(path) = latest_post_compact_restore_diff_artifact(project_root) {
         entries.push(artifact_timeline_entry(&path, "post-compact restore diff"));
+    }
+    if let Some(path) = latest_mcp_resource_artifact(project_root) {
+        entries.push(artifact_timeline_entry(&path, "MCP resource"));
     }
     if let Some(path) = latest_workflow_state_artifact(project_root) {
         entries.push(artifact_timeline_entry(&path, "workflow state"));
@@ -843,9 +922,9 @@ mod tests {
     use super::{
         artifact_display_line, artifact_freshness_badge,
         build_runtime_orchestration_timeline_lines, export_bundle_root, latest_artifact_by_suffix,
-        latest_bundle_workspace_index, open_artifact_inspector, preview_artifact,
-        recent_artifacts_by_suffix, recent_bundle_workspace_indexes, render_timeline_entries,
-        resolve_artifact_basename, stale_artifact_actions,
+        latest_bundle_workspace_index, latest_mcp_resource_index_artifact, open_artifact_inspector,
+        preview_artifact, recent_artifacts_by_suffix, recent_bundle_workspace_indexes,
+        render_timeline_entries, resolve_artifact_basename, stale_artifact_actions,
         write_runtime_orchestration_timeline_artifact, ArtifactTimelineEntry,
     };
 
@@ -1038,6 +1117,47 @@ mod tests {
         std::fs::write(&file, "x").unwrap();
         let resolved = resolve_artifact_basename(&dir, "demo-workflow-execution.md").unwrap();
         assert_eq!(resolved, file);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn basename_resolution_searches_diagnostics_bundle_files() {
+        let dir =
+            std::env::temp_dir().join(format!("yode-bundle-basename-{}", uuid::Uuid::new_v4()));
+        let bundle = dir.join(".yode").join("exports").join("diagnostics-mcp");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&bundle).unwrap();
+        std::fs::write(bundle.join("workspace-index.md"), "index").unwrap();
+        let mcp_index = bundle.join("mcp-resources-index.md");
+        std::fs::write(&mcp_index, "mcp").unwrap();
+
+        let resolved = resolve_artifact_basename(&dir, "mcp-resources-index.md").unwrap();
+        assert_eq!(resolved, mcp_index);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn basename_resolution_searches_doctor_bundle_mcp_index() {
+        let dir = std::env::temp_dir().join(format!(
+            "yode-doctor-bundle-basename-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let bundle = dir.join(".yode").join("exports").join("doctor-bundle-mcp");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(bundle.join("mcp-resources")).unwrap();
+        std::fs::write(bundle.join("bundle-manifest.json"), "{}").unwrap();
+        let index = bundle.join("mcp-resources").join("index.md");
+        std::fs::write(&index, "mcp").unwrap();
+
+        let resolved = resolve_artifact_basename(&dir, "mcp-resources/index.md").unwrap();
+        assert_eq!(resolved, index);
+        let resolved = resolve_artifact_basename(&dir, "index.md").unwrap();
+        assert_eq!(resolved, index);
+
+        let latest = latest_mcp_resource_index_artifact(&dir).unwrap();
+        assert_eq!(latest, index);
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

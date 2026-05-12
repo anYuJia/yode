@@ -85,6 +85,8 @@ pub(crate) fn render_diagnostics_overview(
                 )
             })
             .unwrap_or_else(|| "none".to_string());
+    let mcp_resource_artifacts =
+        crate::commands::tools::mcp_workspace::mcp_resource_artifact_summary(project_root);
     let team_state = crate::commands::artifact_nav::latest_agent_team_state_artifact(project_root)
         .map(|path| path.display().to_string())
         .unwrap_or_else(|| "none".to_string());
@@ -102,7 +104,7 @@ pub(crate) fn render_diagnostics_overview(
     );
 
     format!(
-        "Diagnostics overview:\n  Runtime summary: {}\n  Context summary: {}\n  Tool summary:    {}\n\nContext:\n  Query source:   {}\n  Compact count:  {} (auto {}, manual {})\n  Breaker reason: {}\n  Compact tokens: {}\n\nMemory:\n  Live memory:    {}{}\n  Memory updates: {}\n  Last memory:    {}\n\nRecovery:\n  State:          {}\n  Last signature: {}\n  Permission:     {}\n  Denials:        {}\n\nTools:\n  Session calls:  {}\n  Progress:       {}\n  Parallel:       {} batches / {} calls\n  Truncations:    {}\n  Errors:         {}\n  Last artifact:  {}\n\nObservability:\n  Hook defer:     {}\n  Agent team:     {}\n  Remote live:    {}\n  Settings:       {}\n  Managed MCP:    {}\n\nTasks:\n  Total:          {}\n  Running:        {}\n\nHooks:\n  Total runs:     {}\n  Timeouts:       {}\n  Wake notices:   {}\n\nTimeline:\n{}",
+        "Diagnostics overview:\n  Runtime summary: {}\n  Context summary: {}\n  Tool summary:    {}\n\nContext:\n  Query source:   {}\n  Compact count:  {} (auto {}, manual {})\n  Breaker reason: {}\n  Compact tokens: {}\n  Media compact:  last {} / total {} removed, saved ~{} chars\n\nMemory:\n  Live memory:    {}{}\n  Memory updates: {}\n  Last memory:    {}\n\nRecovery:\n  State:          {}\n  Last signature: {}\n  Permission:     {}\n  Denials:        {}\n\nTools:\n  Session calls:  {}\n  Progress:       {}\n  Parallel:       {} batches / {} calls\n  Truncations:    {}\n  Errors:         {}\n  Last artifact:  {}\n\nObservability:\n  Hook defer:     {}\n  Agent team:     {}\n  Remote live:    {}\n  Settings:       {}\n  Managed MCP:    {}\n  MCP resources:  {}\n\nTasks:\n  Total:          {}\n  Running:        {}\n\nHooks:\n  Total runs:     {}\n  Timeouts:       {}\n  Wake notices:   {}\n\nTimeline:\n{}",
         runtime_summary,
         context_summary,
         tool_summary,
@@ -118,6 +120,9 @@ pub(crate) fn render_diagnostics_overview(
             .last_compaction_prompt_tokens
             .map(|value| value.to_string())
             .unwrap_or_else(|| "none".to_string()),
+        state.last_microcompact_media_removed,
+        state.microcompact_media_removed_total,
+        state.microcompact_media_saved_chars_total,
         if state.live_session_memory_initialized {
             "warm"
         } else {
@@ -152,6 +157,7 @@ pub(crate) fn render_diagnostics_overview(
         remote_live,
         startup_settings,
         managed_mcp,
+        mcp_resource_artifacts,
         tasks.len(),
         running_tasks,
         state.hook_total_executions,
@@ -203,6 +209,8 @@ mod tests {
             hook_execution_error_count: 0,
             hook_nonzero_exit_count: 0,
             hook_wake_notification_count: 0,
+            stop_hook_continue_count: 0,
+            last_stop_hook_continue_reason: None,
             last_hook_failure_event: None,
             last_hook_failure_command: None,
             last_hook_failure_reason: None,
@@ -211,6 +219,10 @@ mod tests {
             last_compaction_prompt_tokens: None,
             avg_compaction_prompt_tokens: None,
             compaction_cause_histogram: BTreeMap::new(),
+            last_microcompact_media_removed: 0,
+            last_microcompact_media_saved_chars: 0,
+            microcompact_media_removed_total: 0,
+            microcompact_media_saved_chars_total: 0,
             system_prompt_estimated_tokens: 0,
             system_prompt_segments: Vec::new(),
             prompt_cache: PromptCacheRuntimeState::default(),
@@ -276,6 +288,7 @@ mod tests {
         std::fs::create_dir_all(dir.join(".yode").join("teams")).unwrap();
         std::fs::create_dir_all(dir.join(".yode").join("remote")).unwrap();
         std::fs::create_dir_all(dir.join(".yode").join("startup")).unwrap();
+        std::fs::create_dir_all(dir.join(".yode").join("status").join("mcp-resources")).unwrap();
         std::fs::write(
             dir.join(".yode")
                 .join("hooks")
@@ -305,11 +318,21 @@ mod tests {
         )
         .unwrap();
         std::fs::write(dir.join(".yode").join("startup").join("a-managed-mcp-inventory.json"), r#"{"effective_server_count":1,"configured_server_count":1,"connected_server_count":1,"mcp_tool_count":2,"failure_count":0}"#).unwrap();
+        std::fs::write(
+            dir.join(".yode")
+                .join("status")
+                .join("mcp-resources")
+                .join("a-mcp-resource.md"),
+            "manifest",
+        )
+        .unwrap();
         let rendered = render_diagnostics_overview(&dir, &state(), &[]);
         assert!(rendered.contains("Hook defer:"));
         assert!(rendered.contains("Agent team:"));
         assert!(rendered.contains("Remote live:"));
         assert!(rendered.contains("Managed MCP:"));
+        assert!(rendered.contains("MCP resources:"));
+        assert!(rendered.contains("manifest=1"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

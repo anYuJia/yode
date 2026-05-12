@@ -12,9 +12,10 @@ use crate::commands::artifact_nav::export_bundle_root;
 use crate::commands::context::CommandContext;
 use crate::commands::tools::mcp_workspace::write_browser_access_state_artifact;
 use crate::runtime_artifacts::{
-    write_hook_failure_artifact, write_prompt_cache_artifact, write_prompt_cache_break_artifact,
-    write_prompt_cache_event_artifact, write_prompt_cache_state_artifact,
-    write_runtime_task_inventory_artifact, write_runtime_timeline_artifact,
+    write_hook_failure_artifact, write_media_compact_event_artifact, write_prompt_cache_artifact,
+    write_prompt_cache_break_artifact, write_prompt_cache_event_artifact,
+    write_prompt_cache_state_artifact, write_runtime_task_inventory_artifact,
+    write_runtime_timeline_artifact,
 };
 
 pub(super) fn render_doctor_report(ctx: &mut CommandContext) -> String {
@@ -141,6 +142,14 @@ pub(super) fn export_doctor_bundle(ctx: &mut CommandContext) -> Result<String, S
             copied_files.push(dest);
         }
         if let Some(path) =
+            write_media_compact_event_artifact(&working_dir, &ctx.session.session_id, state)
+        {
+            let dest = bundle_dir.join("media-compact-events.md");
+            std::fs::copy(&path, &dest)
+                .map_err(|err| format!("Failed to copy {}: {}", path, err))?;
+            copied_files.push(dest);
+        }
+        if let Some(path) =
             write_prompt_cache_break_artifact(&working_dir, &ctx.session.session_id, state)
         {
             let dest = bundle_dir.join("prompt-cache-break.json");
@@ -181,6 +190,7 @@ pub(super) fn export_doctor_bundle(ctx: &mut CommandContext) -> Result<String, S
             }
         }
     }
+    copy_mcp_resource_artifacts(&working_dir, &bundle_dir, &mut copied_files)?;
     let remote_state = build_remote_workflow_state(ctx);
     let remote_execution_state = ctx
         .engine
@@ -294,6 +304,150 @@ pub(super) fn export_doctor_bundle(ctx: &mut CommandContext) -> Result<String, S
         shared::doctor_copy_paste_summary(&bundle_dir, &copied_files),
         shared::doctor_bundle_navigation_summary(&bundle_dir)
     ))
+}
+
+fn copy_mcp_resource_artifacts(
+    working_dir: &std::path::Path,
+    bundle_dir: &std::path::Path,
+    copied_files: &mut Vec<std::path::PathBuf>,
+) -> Result<(), String> {
+    let candidates = recent_mcp_resource_artifacts(working_dir, 12);
+    if candidates.is_empty() {
+        return Ok(());
+    }
+    let dest_dir = bundle_dir.join("mcp-resources");
+    std::fs::create_dir_all(&dest_dir)
+        .map_err(|err| format!("Failed to create {}: {}", dest_dir.display(), err))?;
+    let index_path = write_mcp_resource_bundle_index(&dest_dir, &candidates)?;
+    for path in candidates {
+        let dest = dest_dir.join(
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("mcp-resource-artifact"),
+        );
+        std::fs::copy(&path, &dest)
+            .map_err(|err| format!("Failed to copy {}: {}", path.display(), err))?;
+        copied_files.push(dest);
+    }
+    if let Some(index_path) = index_path {
+        copied_files.push(index_path);
+    }
+    Ok(())
+}
+
+fn write_mcp_resource_bundle_index(
+    dest_dir: &std::path::Path,
+    candidates: &[std::path::PathBuf],
+) -> Result<Option<std::path::PathBuf>, String> {
+    let path = dest_dir.join("index.md");
+    std::fs::write(
+        &path,
+        crate::mcp_resource_artifacts::render_mcp_resource_artifact_index(candidates),
+    )
+    .map_err(|err| format!("Failed to write {}: {}", path.display(), err))?;
+    Ok(Some(path))
+}
+
+fn recent_mcp_resource_artifacts(
+    working_dir: &std::path::Path,
+    limit: usize,
+) -> Vec<std::path::PathBuf> {
+    let dir = working_dir
+        .join(".yode")
+        .join("status")
+        .join("mcp-resources");
+    let mut paths = std::fs::read_dir(&dir)
+        .ok()
+        .into_iter()
+        .flat_map(|entries| entries.filter_map(Result::ok))
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file())
+        .collect::<Vec<_>>();
+    paths.sort_by(|left, right| {
+        let left_modified = left
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+        let right_modified = right
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+        right_modified
+            .cmp(&left_modified)
+            .then_with(|| right.file_name().cmp(&left.file_name()))
+    });
+    paths.into_iter().take(limit).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        copy_mcp_resource_artifacts, recent_mcp_resource_artifacts, write_mcp_resource_bundle_index,
+    };
+
+    #[test]
+    fn recent_mcp_resource_artifacts_collects_saved_resource_files() {
+        let dir = std::env::temp_dir().join(format!(
+            "yode-doctor-mcp-resources-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let bundle = dir.join("bundle");
+        let resources = dir.join(".yode").join("status").join("mcp-resources");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&resources).unwrap();
+        std::fs::create_dir_all(&bundle).unwrap();
+        std::fs::write(
+            resources.join("a-mcp-resource.md"),
+            "# MCP Resource Blob Artifact\n\n- Server: demo\n- URI: mcp://image\n- Blob count: 1\n- Retention: keep newest 120 artifact files\n\n## Blob 1\n\n- Decode warning: invalid base64\n",
+        )
+        .unwrap();
+        std::fs::write(resources.join("a-mcp-resource.b64"), "ZmFrZQ==").unwrap();
+        std::fs::write(resources.join("a-mcp-resource.png"), b"fake").unwrap();
+
+        let paths = recent_mcp_resource_artifacts(&dir, 12);
+        assert_eq!(paths.len(), 3);
+
+        let mut copied = Vec::new();
+        copy_mcp_resource_artifacts(&dir, &bundle, &mut copied).unwrap();
+        assert_eq!(copied.len(), 4);
+        assert!(bundle
+            .join("mcp-resources")
+            .join("a-mcp-resource.md")
+            .exists());
+        assert!(bundle
+            .join("mcp-resources")
+            .join("a-mcp-resource.b64")
+            .exists());
+        assert!(bundle
+            .join("mcp-resources")
+            .join("a-mcp-resource.png")
+            .exists());
+        let index = std::fs::read_to_string(bundle.join("mcp-resources").join("index.md")).unwrap();
+        assert!(index.contains("server=demo"));
+        assert!(index.contains("uri=mcp://image"));
+        assert!(index.contains("decode_warnings=1"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn mcp_resource_bundle_index_handles_decoded_only_files() {
+        let dir =
+            std::env::temp_dir().join(format!("yode-doctor-mcp-index-{}", uuid::Uuid::new_v4()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let decoded = dir.join("image.png");
+        std::fs::write(&decoded, b"fake").unwrap();
+
+        let index = write_mcp_resource_bundle_index(&dir, &[decoded])
+            .unwrap()
+            .unwrap();
+        let content = std::fs::read_to_string(index).unwrap();
+        assert!(content.contains("- Files: 1"));
+        assert!(content.contains("- none"));
+        assert!(content.contains("/mcp resources cleanup"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 #[cfg(test)]

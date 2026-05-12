@@ -354,7 +354,7 @@ pub(crate) fn session_runtime_summary_text(
 }
 
 pub(crate) fn tool_runtime_summary_text(state: &EngineRuntimeState) -> String {
-    format!(
+    let mut summary = format!(
         "session {} · turn {} · progress {} · trunc {} · parallel {}b/{}c",
         state.session_tool_calls_total,
         state.current_turn_tool_calls,
@@ -362,7 +362,14 @@ pub(crate) fn tool_runtime_summary_text(state: &EngineRuntimeState) -> String {
         state.tool_truncation_count,
         state.parallel_tool_batch_count,
         state.parallel_tool_call_count,
-    )
+    );
+    if state.microcompact_media_removed_total > 0 {
+        summary.push_str(&format!(
+            " · media {} removed/~{} chars",
+            state.microcompact_media_removed_total, state.microcompact_media_saved_chars_total
+        ));
+    }
+    summary
 }
 
 pub(crate) fn context_window_summary_text(
@@ -557,6 +564,8 @@ mod tests {
             hook_execution_error_count: 0,
             hook_nonzero_exit_count: 0,
             hook_wake_notification_count: 0,
+            stop_hook_continue_count: 0,
+            last_stop_hook_continue_reason: None,
             last_hook_failure_event: None,
             last_hook_failure_command: None,
             last_hook_failure_reason: None,
@@ -565,6 +574,10 @@ mod tests {
             last_compaction_prompt_tokens: None,
             avg_compaction_prompt_tokens: None,
             compaction_cause_histogram: std::collections::BTreeMap::new(),
+            last_microcompact_media_removed: 0,
+            last_microcompact_media_saved_chars: 0,
+            microcompact_media_removed_total: 0,
+            microcompact_media_saved_chars_total: 0,
             system_prompt_estimated_tokens: 0,
             system_prompt_segments: Vec::new(),
             prompt_cache: PromptCacheRuntimeState::default(),
@@ -702,9 +715,11 @@ mod tests {
         state.tool_truncation_count = 1;
         state.parallel_tool_batch_count = 2;
         state.parallel_tool_call_count = 7;
+        state.microcompact_media_removed_total = 5;
+        state.microcompact_media_saved_chars_total = 4096;
         assert_eq!(
             tool_runtime_summary_text(&state),
-            "session 12 · turn 3 · progress 5 · trunc 1 · parallel 2b/7c"
+            "session 12 · turn 3 · progress 5 · trunc 1 · parallel 2b/7c · media 5 removed/~4096 chars"
         );
     }
 

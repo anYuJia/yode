@@ -7,6 +7,7 @@ use crate::commands::{
     CommandResult,
 };
 use crate::runtime_display::{format_repeated_tool_failure_summary, format_tool_progress_summary};
+use yode_tools::tool::ToolAnnotations;
 
 pub struct ToolsCommand {
     meta: CommandMeta,
@@ -74,15 +75,22 @@ impl ToolsCommand {
                 .and_then(|state| state.tool_pool.find_entry(&def.name))
                 .map(|entry| entry.reason.as_str())
                 .unwrap_or("runtime unavailable");
+            let annotations = annotation_summary(&def.annotations);
             if verbose {
                 lines.push(format!(
-                    "  {} — {}\n    policy: {}\n    taxonomy: {}\n    reason: {}\n    schema: {}",
-                    display_name, def.description, policy, taxonomy, reason, def.parameters
+                    "  {} — {}\n    policy: {}\n    taxonomy: {}\n    annotations: {}\n    reason: {}\n    schema: {}",
+                    display_name,
+                    def.description,
+                    policy,
+                    taxonomy,
+                    annotations,
+                    reason,
+                    def.parameters
                 ));
             } else {
                 lines.push(format!(
-                    "  {} [{} | {}] — {}",
-                    display_name, policy, taxonomy, def.description
+                    "  {} [{} | {} | {}] — {}",
+                    display_name, policy, taxonomy, annotations, def.description
                 ));
             }
         }
@@ -314,6 +322,24 @@ fn tool_output_preview_line(output: &str) -> String {
     }
 }
 
+fn annotation_summary(annotations: &ToolAnnotations) -> String {
+    let mut labels = Vec::new();
+    if annotations.read_only_hint {
+        labels.push("read-only");
+    }
+    if annotations.destructive_hint {
+        labels.push("destructive");
+    }
+    if annotations.open_world_hint {
+        labels.push("open-world");
+    }
+    if labels.is_empty() {
+        "unannotated".to_string()
+    } else {
+        labels.join("+")
+    }
+}
+
 fn tool_search_operator_affordance(
     search_enabled: bool,
     hidden_active: usize,
@@ -363,10 +389,11 @@ fn collect_command_tool_overlaps(
 #[cfg(test)]
 mod tests {
     use super::{
-        collect_command_tool_overlaps, failure_cluster_summary, tool_output_preview_line,
-        tool_search_operator_affordance,
+        annotation_summary, collect_command_tool_overlaps, failure_cluster_summary,
+        tool_output_preview_line, tool_search_operator_affordance,
     };
     use crate::commands::registry::VisibleCommandName;
+    use yode_tools::tool::ToolAnnotations;
 
     #[test]
     fn command_tool_overlap_detector_marks_aliases() {
@@ -423,6 +450,21 @@ mod tests {
         assert!(affordance.contains("hidden=2"));
         assert!(affordance.contains("deferred=3"));
         assert!(affordance.contains("/inspect artifact latest-tool-search-activation"));
+    }
+
+    #[test]
+    fn annotation_summary_renders_claude_style_hints() {
+        let summary = annotation_summary(&ToolAnnotations {
+            read_only_hint: true,
+            destructive_hint: false,
+            open_world_hint: true,
+        });
+
+        assert_eq!(summary, "read-only+open-world");
+        assert_eq!(
+            annotation_summary(&ToolAnnotations::default()),
+            "unannotated"
+        );
     }
 }
 

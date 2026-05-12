@@ -8,6 +8,7 @@ pub mod app;
 pub mod commands;
 mod display_text;
 pub mod event;
+mod mcp_resource_artifacts;
 mod runtime_artifacts;
 mod runtime_display;
 mod runtime_timeline;

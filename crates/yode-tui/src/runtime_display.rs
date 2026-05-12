@@ -40,6 +40,9 @@ pub(crate) fn format_context_compressed_message(
         content.push_str("\ntranscript · ");
         content.push_str(&compact_runtime_path(path));
     }
+    content.push_str(
+        "\ninspect · /context | /inspect artifact latest-post-compact-restore | /inspect artifact latest-post-compact-restore-diff",
+    );
 
     content
 }
@@ -275,6 +278,8 @@ mod tests {
             hook_execution_error_count: 0,
             hook_nonzero_exit_count: 0,
             hook_wake_notification_count: 0,
+            stop_hook_continue_count: 0,
+            last_stop_hook_continue_reason: None,
             last_hook_failure_event: None,
             last_hook_failure_command: None,
             last_hook_failure_reason: None,
@@ -283,6 +288,10 @@ mod tests {
             last_compaction_prompt_tokens: None,
             avg_compaction_prompt_tokens: None,
             compaction_cause_histogram: BTreeMap::new(),
+            last_microcompact_media_removed: 0,
+            last_microcompact_media_saved_chars: 0,
+            microcompact_media_removed_total: 0,
+            microcompact_media_saved_chars_total: 0,
             system_prompt_estimated_tokens: 0,
             system_prompt_segments: Vec::new(),
             prompt_cache: PromptCacheRuntimeState::default(),
@@ -367,7 +376,7 @@ mod tests {
                 Some("/tmp/memory.md"),
                 Some("/tmp/transcript.md"),
             ),
-            "Context compacted · auto · -4 msgs · 2 tool results truncated\nsummary · trimmed older turns\nmemory · .../tmp/memory.md\ntranscript · .../tmp/transcript.md"
+            "Context compacted · auto · -4 msgs · 2 tool results truncated\nsummary · trimmed older turns\nmemory · .../tmp/memory.md\ntranscript · .../tmp/transcript.md\ninspect · /context | /inspect artifact latest-post-compact-restore | /inspect artifact latest-post-compact-restore-diff"
         );
     }
 

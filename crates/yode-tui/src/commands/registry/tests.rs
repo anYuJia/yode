@@ -140,6 +140,70 @@ fn test_suggest_similar_typo() {
 }
 
 #[test]
+fn builtin_registry_includes_plan_command() {
+    let mut reg = CommandRegistry::new();
+    crate::commands::register_all(&mut reg);
+
+    let plan = reg.find("plan").expect("/plan should be registered");
+    assert_eq!(plan.meta().category, CommandCategory::Session);
+    assert!(!plan.meta().hidden);
+}
+
+#[test]
+fn builtin_registry_includes_skills_command() {
+    let mut reg = CommandRegistry::new();
+    crate::commands::register_all(&mut reg);
+
+    let skills = reg.find("skills").expect("/skills should be registered");
+    assert_eq!(skills.meta().category, CommandCategory::Tools);
+    assert!(!skills.meta().hidden);
+    assert!(reg.find("skill").is_some());
+}
+
+#[test]
+fn builtin_registry_includes_init_command() {
+    let mut reg = CommandRegistry::new();
+    crate::commands::register_all(&mut reg);
+
+    let init = reg.find("init").expect("/init should be registered");
+    assert_eq!(init.meta().category, CommandCategory::Session);
+    assert!(!init.meta().hidden);
+}
+
+#[test]
+fn builtin_registry_includes_rewind_command() {
+    let mut reg = CommandRegistry::new();
+    crate::commands::register_all(&mut reg);
+
+    let rewind = reg.find("rewind").expect("/rewind should be registered");
+    assert_eq!(rewind.meta().category, CommandCategory::Session);
+    assert!(!rewind.meta().hidden);
+}
+
+#[test]
+fn builtin_registry_includes_resume_command() {
+    let mut reg = CommandRegistry::new();
+    crate::commands::register_all(&mut reg);
+
+    let resume = reg.find("resume").expect("/resume should be registered");
+    assert_eq!(resume.meta().category, CommandCategory::Session);
+    assert!(!resume.meta().hidden);
+}
+
+#[test]
+fn builtin_registry_includes_output_style_command() {
+    let mut reg = CommandRegistry::new();
+    crate::commands::register_all(&mut reg);
+
+    let output_style = reg
+        .find("output-style")
+        .expect("/output-style should be registered");
+    assert_eq!(output_style.meta().category, CommandCategory::Utility);
+    assert!(!output_style.meta().hidden);
+    assert!(reg.find("style").is_some());
+}
+
+#[test]
 fn test_by_category() {
     let mut reg = CommandRegistry::new();
     reg.register(Box::new(DummyCommand::new(

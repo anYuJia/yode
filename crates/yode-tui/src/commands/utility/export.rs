@@ -1,6 +1,6 @@
 use std::fs::File;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::app::rendering::strip_ansi;
 use crate::app::{
@@ -9,6 +9,7 @@ use crate::app::{
 };
 use crate::commands::artifact_nav::{
     artifact_freshness_badge, export_bundle_root, latest_coordinator_artifact,
+    latest_mcp_resource_artifact, latest_media_compact_events_artifact,
     latest_post_compact_restore_artifact, latest_post_compact_restore_diff_artifact,
     latest_post_compact_restore_state_artifact, latest_prompt_cache_artifact,
     latest_prompt_cache_break_artifact, latest_prompt_cache_diff_artifact,
@@ -21,6 +22,7 @@ use crate::commands::{
     CommandResult,
 };
 use crate::display_text::compact_path_tail;
+use crate::mcp_resource_artifacts::mcp_resource_manifest_summary;
 use crate::runtime_artifacts::{
     write_prompt_cache_artifact, write_runtime_task_inventory_artifact,
     write_runtime_timeline_artifact,
@@ -311,8 +313,14 @@ fn export_diagnostics_bundle(custom_name: Option<&str>, ctx: &mut CommandContext
     std::fs::write(&prompt_cache_path, prompt_cache_body)
         .map_err(|err| format!("Failed to write {}: {}", prompt_cache_path.display(), err))?;
 
+    let artifact_candidates = latest_artifact_candidates(ctx);
+    let mcp_resource_candidates = artifact_candidates
+        .iter()
+        .filter(|path| is_mcp_resource_artifact(path))
+        .cloned()
+        .collect::<Vec<_>>();
     let mut copied = Vec::new();
-    for path in latest_artifact_candidates(ctx) {
+    for path in artifact_candidates {
         if path.exists() {
             let dest = bundle_dir.join(
                 path.file_name()
@@ -323,6 +331,10 @@ fn export_diagnostics_bundle(custom_name: Option<&str>, ctx: &mut CommandContext
                 copied.push(dest.display().to_string());
             }
         }
+    }
+    if let Some(index_path) = write_mcp_resource_export_index(&bundle_dir, &mcp_resource_candidates)
+    {
+        copied.push(index_path.display().to_string());
     }
 
     let doctor_refs = doctor_bundle_references(&project_root);
@@ -458,6 +470,9 @@ fn latest_artifact_candidates(ctx: &mut CommandContext) -> Vec<PathBuf> {
     if let Some(path) = latest_prompt_cache_events_artifact(&project_root) {
         paths.push(path);
     }
+    if let Some(path) = latest_media_compact_events_artifact(&project_root) {
+        paths.push(path);
+    }
     if let Some(path) = latest_prompt_cache_break_artifact(&project_root) {
         paths.push(path);
     }
@@ -473,6 +488,7 @@ fn latest_artifact_candidates(ctx: &mut CommandContext) -> Vec<PathBuf> {
     if let Some(path) = latest_post_compact_restore_diff_artifact(&project_root) {
         paths.push(path);
     }
+    paths.extend(mcp_resource_artifact_candidates(&project_root, 12));
     paths.extend(startup_artifact_candidates(&project_root));
 
     let review_dir = PathBuf::from(&ctx.session.working_dir)
@@ -490,6 +506,57 @@ fn latest_artifact_candidates(ctx: &mut CommandContext) -> Vec<PathBuf> {
         paths.push(latest_review);
     }
     dedup_artifact_paths(paths)
+}
+
+fn mcp_resource_artifact_candidates(project_root: &std::path::Path, limit: usize) -> Vec<PathBuf> {
+    let dir = project_root
+        .join(".yode")
+        .join("status")
+        .join("mcp-resources");
+    let mut paths = std::fs::read_dir(&dir)
+        .ok()
+        .into_iter()
+        .flat_map(|entries| entries.filter_map(Result::ok))
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file())
+        .collect::<Vec<_>>();
+    paths.sort_by(|left, right| {
+        let left_modified = left
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+        let right_modified = right
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+        right_modified
+            .cmp(&left_modified)
+            .then_with(|| right.file_name().cmp(&left.file_name()))
+    });
+    paths.into_iter().take(limit).collect()
+}
+
+fn is_mcp_resource_artifact(path: &std::path::Path) -> bool {
+    path.parent()
+        .and_then(|parent| parent.file_name())
+        .and_then(|name| name.to_str())
+        == Some("mcp-resources")
+}
+
+fn write_mcp_resource_export_index(
+    bundle_dir: &std::path::Path,
+    candidates: &[PathBuf],
+) -> Option<PathBuf> {
+    if candidates.is_empty() {
+        return None;
+    }
+    let index_path = bundle_dir.join("mcp-resources-index.md");
+    std::fs::write(
+        &index_path,
+        crate::mcp_resource_artifacts::render_mcp_resource_artifact_index(candidates),
+    )
+    .ok()?;
+    Some(index_path)
 }
 
 fn render_runtime_bundle_summary(
@@ -554,8 +621,17 @@ fn render_workspace_index(
             "engine busy".to_string(),
         )
     };
+    let mcp_resource_artifact = latest_mcp_resource_artifact(project_root)
+        .map(|path| mcp_resource_artifact_index_line(&path))
+        .unwrap_or_else(|| "none".to_string());
+    let mcp_resource_index = bundle_dir.join("mcp-resources-index.md");
+    let mcp_resource_index = if mcp_resource_index.exists() {
+        mcp_resource_index.display().to_string()
+    } else {
+        "none".to_string()
+    };
     format!(
-        "# Workspace Index\n\n## Summary\n\n- Bundle: {}\n- Runtime: {}\n- Context: {}\n- Tools: {}\n- Tasks: total {} / running {}\n- Conversation: {}\n- Runtime summary: {}\n- Runtime timeline: {}\n- Prompt cache: {}\n- Doctor refs: {}\n\n## Jump\n\n- Status: /status · /diagnostics · /doctor bundle\n- Work: /tasks latest · /memory latest · /reviews latest\n\n## Orchestration\n\n- workflow: {}\n- coordinator: {}\n- timeline: {}\n\n## Inspect\n\n- Overview: /inspect artifact summary · bundle\n- Flow: /inspect artifact latest-workflow · latest-coordinate · latest-orchestration\n- Runtime: /inspect artifact latest-runtime-timeline · latest-prompt-cache · latest-prompt-cache-state\n- Cache: /inspect artifact latest-prompt-cache-events · latest-prompt-cache-break · latest-prompt-cache-diff\n- Restore: /inspect artifact latest-post-compact-restore · latest-post-compact-restore-state · latest-post-compact-restore-diff\n- Refs: /inspect artifact latest-provider-inventory · latest-review · latest-transcript\n",
+        "# Workspace Index\n\n## Summary\n\n- Bundle: {}\n- Runtime: {}\n- Context: {}\n- Tools: {}\n- Tasks: total {} / running {}\n- Conversation: {}\n- Runtime summary: {}\n- Runtime timeline: {}\n- Prompt cache: {}\n- Doctor refs: {}\n\n## Jump\n\n- Status: /status · /diagnostics · /doctor bundle\n- Work: /tasks latest · /memory latest · /reviews latest\n\n## Orchestration\n\n- workflow: {}\n- coordinator: {}\n- timeline: {}\n\n## MCP\n\n- resource: {}\n- resource index: {}\n\n## Inspect\n\n- Overview: /inspect artifact summary · bundle\n- Flow: /inspect artifact latest-workflow · latest-coordinate · latest-orchestration\n- Runtime: /inspect artifact latest-runtime-timeline · latest-prompt-cache · latest-prompt-cache-state\n- Cache: /inspect artifact latest-prompt-cache-events · latest-media-compact-events · latest-prompt-cache-break · latest-prompt-cache-diff\n- Restore: /inspect artifact latest-post-compact-restore · latest-post-compact-restore-state · latest-post-compact-restore-diff\n- MCP: /inspect artifact latest-mcp-resource · latest-mcp-resource-index · history mcp-resources\n- Refs: /inspect artifact latest-provider-inventory · latest-review · latest-transcript\n",
         compact_path_tail(&bundle_dir.display().to_string()),
         runtime_line,
         context_line,
@@ -572,7 +648,17 @@ fn render_workspace_index(
         workflow_artifact,
         coordinator_artifact,
         orchestration_artifact,
+        mcp_resource_artifact,
+        mcp_resource_index,
     )
+}
+
+fn mcp_resource_artifact_index_line(path: &Path) -> String {
+    let base = format!("[{}] {}", artifact_freshness_badge(path), path.display());
+    let Some(summary) = mcp_resource_manifest_summary(path, false, " · ") else {
+        return base;
+    };
+    format!("{} · {}", base, summary)
 }
 
 fn render_conversation_summary(ctx: &CommandContext) -> String {
@@ -714,8 +800,10 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::{
-        conversation_export_path, render_bundle_completion_message, render_conversation_body,
+        conversation_export_path, is_mcp_resource_artifact, mcp_resource_artifact_candidates,
+        render_bundle_completion_message, render_conversation_body,
         render_conversation_summary_block, render_runtime_bundle_summary, render_workspace_index,
+        write_mcp_resource_export_index,
     };
     use crate::app::{ChatEntry, ChatRole};
     use yode_core::engine::{EngineRuntimeState, PromptCacheRuntimeState};
@@ -755,6 +843,8 @@ mod tests {
             hook_execution_error_count: 0,
             hook_nonzero_exit_count: 0,
             hook_wake_notification_count: 0,
+            stop_hook_continue_count: 0,
+            last_stop_hook_continue_reason: None,
             last_hook_failure_event: None,
             last_hook_failure_command: None,
             last_hook_failure_reason: None,
@@ -763,6 +853,10 @@ mod tests {
             last_compaction_prompt_tokens: None,
             avg_compaction_prompt_tokens: None,
             compaction_cause_histogram: BTreeMap::new(),
+            last_microcompact_media_removed: 0,
+            last_microcompact_media_saved_chars: 0,
+            microcompact_media_removed_total: 0,
+            microcompact_media_saved_chars_total: 0,
             system_prompt_estimated_tokens: 1234,
             system_prompt_segments: Vec::new(),
             prompt_cache: PromptCacheRuntimeState {
@@ -850,6 +944,7 @@ mod tests {
         assert!(rendered.contains("- Bundle: .../tmp/bundle"));
         assert!(rendered.contains("- Runtime:"));
         assert!(rendered.contains("## Jump"));
+        assert!(rendered.contains("## MCP"));
         assert!(rendered.contains("## Inspect"));
         assert!(rendered.contains("- Status: /status · /diagnostics · /doctor bundle"));
         assert!(rendered.contains("Work: /tasks latest · /memory latest · /reviews latest"));
@@ -1042,7 +1137,115 @@ mod tests {
             "- Flow: /inspect artifact latest-workflow · latest-coordinate · latest-orchestration"
         ));
         assert!(rendered.contains("- Runtime: /inspect artifact latest-runtime-timeline · latest-prompt-cache · latest-prompt-cache-state"));
+        assert!(rendered.contains("- Cache: /inspect artifact latest-prompt-cache-events · latest-media-compact-events · latest-prompt-cache-break · latest-prompt-cache-diff"));
+        assert!(rendered.contains(
+            "- MCP: /inspect artifact latest-mcp-resource · latest-mcp-resource-index · history mcp-resources"
+        ));
         assert!(rendered.contains("- Refs: /inspect artifact latest-provider-inventory · latest-review · latest-transcript"));
+    }
+
+    #[test]
+    fn workspace_index_summarizes_latest_mcp_resource_manifest() {
+        let dir = std::env::temp_dir().join(format!("yode-export-index-{}", uuid::Uuid::new_v4()));
+        let artifacts = dir.join(".yode").join("status").join("mcp-resources");
+        let bundle = dir.join("bundle");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&artifacts).unwrap();
+        std::fs::create_dir_all(&bundle).unwrap();
+        std::fs::write(
+            bundle.join("mcp-resources-index.md"),
+            "# MCP Resource Artifacts\n",
+        )
+        .unwrap();
+        std::fs::write(
+            artifacts.join("session-mcp-resource-demo.md"),
+            "# MCP Resource Blob Artifact\n\n- Server: demo\n- URI: mcp://image\n- Blob count: 1\n\n## Blob 1\n\n- Decode warning: invalid base64\n",
+        )
+        .unwrap();
+
+        let rendered = render_workspace_index(
+            &bundle,
+            &dir,
+            Some(&state()),
+            &Vec::<RuntimeTask>::new(),
+            std::path::Path::new("/tmp/bundle/conversation.txt"),
+            std::path::Path::new("/tmp/bundle/runtime-summary.txt"),
+            std::path::Path::new("/tmp/bundle/runtime-timeline.txt"),
+            std::path::Path::new("/tmp/bundle/prompt-cache.txt"),
+            None,
+            "workflow",
+            "coordinate",
+            "timeline",
+        );
+        assert!(rendered.contains("- resource: ["));
+        assert!(rendered.contains("server=demo"));
+        assert!(rendered.contains("uri=mcp://image"));
+        assert!(rendered.contains("blobs=1"));
+        assert!(rendered.contains("decode_warnings=1"));
+        assert!(rendered.contains("resource index:"));
+        assert!(rendered.contains("mcp-resources-index.md"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn mcp_resource_artifact_candidates_include_manifest_base64_and_decoded_files() {
+        let dir = std::env::temp_dir().join(format!("yode-export-mcp-{}", uuid::Uuid::new_v4()));
+        let artifacts = dir.join(".yode").join("status").join("mcp-resources");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&artifacts).unwrap();
+        std::fs::write(artifacts.join("session-mcp-resource-demo.md"), "manifest").unwrap();
+        std::fs::write(artifacts.join("session-mcp-resource-demo.b64"), "ZmFrZQ==").unwrap();
+        std::fs::write(artifacts.join("session-mcp-resource-demo.png"), b"fake").unwrap();
+
+        let paths = mcp_resource_artifact_candidates(&dir, 12);
+        assert_eq!(paths.len(), 3);
+        assert!(paths
+            .iter()
+            .any(|path| path.extension().is_some_and(|ext| ext == "md")));
+        assert!(paths
+            .iter()
+            .any(|path| path.extension().is_some_and(|ext| ext == "b64")));
+        assert!(paths
+            .iter()
+            .any(|path| path.extension().is_some_and(|ext| ext == "png")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn mcp_resource_artifact_path_detection_matches_resource_dir_only() {
+        assert!(is_mcp_resource_artifact(std::path::Path::new(
+            "/tmp/project/.yode/status/mcp-resources/a.md"
+        )));
+        assert!(!is_mcp_resource_artifact(std::path::Path::new(
+            "/tmp/project/.yode/status/a-mcp-resource.md"
+        )));
+    }
+
+    #[test]
+    fn mcp_resource_export_index_writes_manifest_summary() {
+        let dir =
+            std::env::temp_dir().join(format!("yode-export-mcp-index-{}", uuid::Uuid::new_v4()));
+        let resources = dir.join(".yode").join("status").join("mcp-resources");
+        let bundle = dir.join("bundle");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&resources).unwrap();
+        std::fs::create_dir_all(&bundle).unwrap();
+        let manifest = resources.join("session-mcp-resource-demo.md");
+        std::fs::write(
+            &manifest,
+            "# MCP Resource Blob Artifact\n\n- Server: demo\n- URI: mcp://image\n- Blob count: 1\n- Retention: keep newest 120 artifact files\n\n## Blob 1\n\n- Decode warning: invalid base64\n",
+        )
+        .unwrap();
+
+        let index =
+            write_mcp_resource_export_index(&bundle, &[manifest]).expect("index should be written");
+        let content = std::fs::read_to_string(index).unwrap();
+        assert!(content.contains("server=demo"));
+        assert!(content.contains("uri=mcp://image"));
+        assert!(content.contains("retention=keep newest 120 artifact files"));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

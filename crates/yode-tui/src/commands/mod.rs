@@ -92,6 +92,10 @@ pub fn register_all(registry: &mut CommandRegistry) {
     registry.register(Box::new(session::CompactCommand::new()));
     registry.register(Box::new(session::CheckpointCommand::new()));
     registry.register(Box::new(session::SessionsCommand::new()));
+    registry.register(Box::new(session::ResumeCommand::new()));
+    registry.register(Box::new(session::InitCommand::new()));
+    registry.register(Box::new(session::PlanCommand::new()));
+    registry.register(Box::new(session::RewindCommand::new()));
     registry.register(Box::new(session::ExitCommand::new()));
     registry.register(Box::new(session::RenameCommand::new()));
     // Model
@@ -102,6 +106,7 @@ pub fn register_all(registry: &mut CommandRegistry) {
     registry.register(Box::new(tools::ToolsCommand::new()));
     registry.register(Box::new(tools::McpCommand::new()));
     registry.register(Box::new(tools::PermissionsCommand::new()));
+    registry.register(Box::new(tools::SkillsCommand::new()));
     registry.register(Box::new(tools::WorkflowsCommand::new()));
     // Info
     registry.register(Box::new(info::HelpCommand::new()));
@@ -132,6 +137,7 @@ pub fn register_all(registry: &mut CommandRegistry) {
     // Utility
     registry.register(Box::new(utility::CopyCommand::new()));
     registry.register(Box::new(utility::KeysCommand::new()));
+    registry.register(Box::new(utility::OutputStyleCommand::new()));
     registry.register(Box::new(utility::HistoryCommand::new()));
     registry.register(Box::new(utility::JumpCommand::new()));
     registry.register(Box::new(utility::TimeCommand::new()));

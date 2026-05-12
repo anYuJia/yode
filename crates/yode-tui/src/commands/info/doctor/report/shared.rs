@@ -126,7 +126,7 @@ pub(super) fn support_handoff_template(
     report_names: &[&str],
 ) -> String {
     format!(
-        "# Support Handoff\n\n- Bundle: {}\n- Included reports:\n{}\n\n## Inspect First\n\n- local-doctor.txt\n- bundle-overview.txt\n- runtime-timeline.md\n- runtime-tasks.md\n- prompt-cache.md\n\n## If Runtime Stalls Or Hooks Fail\n\n- hook-failures.md\n- runtime-timeline.md\n- runtime-tasks.md\n- prompt-cache-break.json\n- prompt-cache-diff.md\n\n## If Compaction Looks Wrong\n\n- post-compact-restore.md\n- post-compact-restore-state.json\n- post-compact-restore-diff.md\n",
+        "# Support Handoff\n\n- Bundle: {}\n- Included reports:\n{}\n\n## Inspect First\n\n- local-doctor.txt\n- bundle-overview.txt\n- runtime-timeline.md\n- runtime-tasks.md\n- prompt-cache.md\n- media-compact-events.md\n\n## If Runtime Stalls Or Hooks Fail\n\n- hook-failures.md\n- runtime-timeline.md\n- runtime-tasks.md\n- prompt-cache-break.json\n- prompt-cache-diff.md\n\n## If Compaction Looks Wrong\n\n- media-compact-events.md\n- post-compact-restore.md\n- post-compact-restore-state.json\n- post-compact-restore-diff.md\n\n## If MCP Resources Look Wrong\n\n- inspect: /inspect artifact latest-mcp-resource-index\n- mcp-resources/index.md\n- mcp-resources/*.md\n- mcp-resources/*.b64\n- mcp-resources/* decoded files\n",
         bundle_dir.display(),
         doctor_checklist(report_names)
     )
@@ -134,7 +134,7 @@ pub(super) fn support_handoff_template(
 
 pub(super) fn doctor_bundle_navigation_summary(bundle_dir: &std::path::Path) -> String {
     format!(
-        "bundle={} | overview | handoff | runtime-timeline | runtime-tasks | prompt-cache | prompt-cache-diff",
+        "bundle={} | overview | handoff | runtime-timeline | runtime-tasks | prompt-cache | media-compact-events | prompt-cache-diff | mcp-resources | inspect latest-mcp-resource-index",
         bundle_dir.display()
     )
 }
@@ -193,6 +193,10 @@ mod tests {
         assert!(handoff.contains("Support Handoff"));
         assert!(handoff.contains("## Inspect First"));
         assert!(handoff.contains("runtime-tasks.md"));
+        assert!(handoff.contains("media-compact-events.md"));
+        assert!(handoff.contains("/inspect artifact latest-mcp-resource-index"));
+        assert!(handoff.contains("mcp-resources/index.md"));
+        assert!(handoff.contains("mcp-resources/*.md"));
     }
 
     #[test]
@@ -204,6 +208,8 @@ mod tests {
         assert!(handoff.contains("Support Handoff"));
         assert!(handoff.contains("runtime-timeline.md"));
         assert!(handoff.contains("prompt-cache-diff.md"));
+        assert!(handoff.contains("media-compact-events.md"));
+        assert!(handoff.contains("If MCP Resources Look Wrong"));
         assert!(!handoff.contains("step 1"));
     }
 
@@ -239,6 +245,8 @@ mod tests {
         assert!(summary.contains("+1 more"));
         let navigation = doctor_bundle_navigation_summary(&dir);
         assert!(navigation.contains("overview"));
+        assert!(navigation.contains("media-compact-events"));
+        assert!(navigation.contains("latest-mcp-resource-index"));
         assert!(!navigation.contains("local-doctor.txt"));
         let _ = std::fs::remove_dir_all(&dir);
     }

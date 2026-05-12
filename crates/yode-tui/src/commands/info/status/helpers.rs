@@ -72,7 +72,7 @@ pub(super) fn memory_update_pending(
     last_tool_turn > last_memory_update
 }
 
-pub(super) fn compact_breaker_hint(reason: Option<&str>) -> &'static str {
+pub(crate) fn compact_breaker_hint(reason: Option<&str>) -> &'static str {
     match reason {
         Some(reason) if reason.contains("compression made no changes") => {
             "Try /compact after a larger turn or clear older context."

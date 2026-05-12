@@ -418,6 +418,19 @@ mod tests {
     }
 
     #[test]
+    fn parses_compaction_inspect_hint_as_detail_line() {
+        let view = parse_system_message(
+            "Context compacted · manual · -8 msgs\ninspect · /context | /inspect artifact latest-post-compact-restore | /inspect artifact latest-post-compact-restore-diff",
+        );
+        assert_eq!(view.kind, SystemMessageKind::Context);
+        assert_eq!(view.title, "Context compacted");
+        assert_eq!(view.detail_lines[0], "manual · -8 msgs");
+        assert!(view.detail_lines[1].contains("/context"));
+        assert!(view.detail_lines[1].contains("/inspect artifact latest-post-compact-restore"));
+        assert!(view.detail_lines[1].contains("/inspect artifact latest-post-compact-restore-diff"));
+    }
+
+    #[test]
     fn parses_export_messages_into_title_and_path() {
         let view = parse_system_message("Diagnostics bundle exported to: /tmp/bundle");
         assert_eq!(view.kind, SystemMessageKind::Export);

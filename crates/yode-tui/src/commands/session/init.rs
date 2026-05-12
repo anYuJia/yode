@@ -1,0 +1,119 @@
+use std::path::Path;
+
+use crate::commands::context::CommandContext;
+use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
+
+pub struct InitCommand {
+    meta: CommandMeta,
+}
+
+impl InitCommand {
+    pub fn new() -> Self {
+        Self {
+            meta: CommandMeta {
+                name: "init",
+                description: "Create a project YODE.md instruction file",
+                aliases: &[],
+                args: Vec::new(),
+                category: CommandCategory::Session,
+                hidden: false,
+            },
+        }
+    }
+}
+
+impl Command for InitCommand {
+    fn meta(&self) -> &CommandMeta {
+        &self.meta
+    }
+
+    fn execute(&self, args: &str, ctx: &mut CommandContext<'_>) -> CommandResult {
+        let force = matches!(args.trim(), "--force" | "force");
+        let project_root = std::path::PathBuf::from(&ctx.session.working_dir);
+        let target = project_root.join("YODE.md");
+        if target.exists() && !force {
+            return Err("YODE.md already exists. Use `/init --force` to replace it.".to_string());
+        }
+
+        let content = render_yode_md(&project_root);
+        std::fs::write(&target, content)
+            .map_err(|err| format!("Failed to write {}: {}", target.display(), err))?;
+        Ok(CommandOutput::Message(format!(
+            "Initialized project instructions at {}.",
+            target.display()
+        )))
+    }
+}
+
+fn render_yode_md(project_root: &Path) -> String {
+    let project_name = project_root
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("project");
+    let project_kind = detect_project_kind(project_root);
+    let test_commands = suggested_test_commands(project_root);
+
+    format!(
+        "# {project_name}\n\n## Project Overview\n\n- Type: {project_kind}\n- Primary goal: TODO describe what this repository builds.\n\n## Development Commands\n\n{commands}\n\n## Working Guidelines\n\n- Prefer small, focused changes that match the existing architecture.\n- Run the relevant tests before committing.\n- Do not overwrite unrelated user changes.\n\n## Review Checklist\n\n- Behavior is covered by focused tests or a clear manual verification note.\n- User-facing text and command output are concise and actionable.\n- Long-running context should preserve files, plans, skills, and MCP instructions after compacting.\n",
+        commands = test_commands
+            .iter()
+            .map(|command| format!("- `{}`", command))
+            .collect::<Vec<_>>()
+            .join("\n")
+    )
+}
+
+fn detect_project_kind(project_root: &Path) -> &'static str {
+    if project_root.join("Cargo.toml").exists() {
+        "Rust workspace or crate"
+    } else if project_root.join("package.json").exists() {
+        "JavaScript/TypeScript package"
+    } else if project_root.join("pyproject.toml").exists() {
+        "Python project"
+    } else if project_root.join("go.mod").exists() {
+        "Go module"
+    } else {
+        "General software project"
+    }
+}
+
+fn suggested_test_commands(project_root: &Path) -> Vec<&'static str> {
+    let mut commands = Vec::new();
+    if project_root.join("Cargo.toml").exists() {
+        commands.push("cargo test");
+        commands.push("cargo fmt --check");
+    }
+    if project_root.join("package.json").exists() {
+        commands.push("npm test");
+    }
+    if project_root.join("pyproject.toml").exists() {
+        commands.push("pytest");
+    }
+    if project_root.join("go.mod").exists() {
+        commands.push("go test ./...");
+    }
+    if commands.is_empty() {
+        commands.push("TODO add the project test command");
+    }
+    commands
+}
+
+#[cfg(test)]
+mod tests {
+    use super::render_yode_md;
+
+    #[test]
+    fn init_template_detects_rust_project() {
+        let dir = std::env::temp_dir().join(format!("yode-init-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("Cargo.toml"), "[workspace]\n").unwrap();
+
+        let content = render_yode_md(&dir);
+
+        assert!(content.contains("Rust workspace or crate"));
+        assert!(content.contains("cargo test"));
+        assert!(content.contains("cargo fmt --check"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}

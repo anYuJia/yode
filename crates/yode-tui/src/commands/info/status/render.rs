@@ -100,8 +100,8 @@ pub(super) fn build_runtime_sections(
             .to_string()
     };
 
-    format!(
-        "\n\nCompact:\n  Query source:    {}\n  Autocompact:     {}\n  Compact fails:   {}\n  Compact count:   {} (auto {}, manual {})\n  Breaker reason:  {}\n  Breaker hint:    {}\n  Cause histogram: {}\n  Last compact:    {}\n  Compact at:      {}\n  Compact summary: {}\n  Last compact mem: {}\n  Last transcript: {}\n\nSystem Prompt:\n  Total est:       {} tokens\n{}\n\nPrompt Cache:\n  Last turn:       {}\n  Last tokens:     {} prompt / {} completion\n  Last cache:      {} write / {} read / {} deleted_tok / {} deletions\n  Cache turns:     {} reported / {} hit / {} miss / {} fill / {} edit\n  Cache tokens:    {} write / {} read / {} deleted\n  Cache deletes:   {} total\n  Cache refs:      {} pending / {} pinned\n  Cache hashes:    {} / {} / {} / {} / {}\n  Cache change:    {}\n  Transition:      {} ({})\n  Diff artifact:   {}\n  Diff summary:    {}\n  Cache breaks:    {} (last: {})\n  Expected drop:   {}\n\nTurn Runtime:\n  Last turn:       {} ms\n  Stop reason:     {}\n  Turn artifact:   {}\n  Watchdog stage:  {}\n  Retry reasons:   {}\n\nCost Runtime:\n  Model:           {}\n  Est. cost:       ${:.4}\n  Tokens:          {} in / {} out / {} cache write / {} cache read\n  API time:        {} ms ({} calls)\n  Tool time:       {} ms ({} calls)\n  Session time:    {} ms\n\nMemory:\n  Live memory:     {}{}\n  Live memory file: {}\n  Memory updates:  {}\n  Last memory update: {}\n  Freshness:       {}\n  Pending update:  {}\n\nRecovery:\n  State:           {}\n  Single-step:     {}\n  Reanchor:        {}\n  Need guidance:   {}\n  Last signature:  {}\n  Breadcrumbs:     {}\n  Artifact:        {}\n  Permission:      {}\n  Permission artifact: {}\n  Recent denials:  {}\n\nTools:\n  Inventory:       {} total / {} active / {} deferred\n  Model pool:      {} active visible / {} active hidden\n  Deferred pool:   {} visible / {} hidden\n  Pool policy:     mode={} confirm={} deny={}\n  Visible sources: {} builtin / {} mcp\n  Search mode:     {}\n  Search reason:   {}\n  Activations:     {} (last: {})\n  Duplicate regs:  {} ({})\n  Session tools:   {}\n  Current turn:    {} calls / {} bytes\n  Budget notices:  {} (warning {})\n  Budget active:   notice={} warning={}\n  Progress events: {} ({})\n  Parallel:        {} batches / {} calls (max {})\n  Truncations:     {} (last: {})\n  Error types:     {}\n  Repeat fail:     {}\n  Failure fix:     {}\n  Tool traces:     {} turn / {} calls\n  Tool artifact:   {}\n  Tool turn done:  {}\n  Failed tools:    {}\n  Always-allow:    {}{}{}{}\n\nObservability:\n  Runtime family:  {}\n\nHooks:\n  Hook runs:       {}\n  Hook timeouts:   {}\n  Hook exec errs:  {}\n  Hook exits!=0:   {}\n  Hook wakes:      {}\n  Last hook fail:  {}\n  Last hook at:    {}\n  Last hook timeout: {}\n\nTimeline:\n{}",
+    let mut rendered = format!(
+        "\n\nCompact:\n  Query source:    {}\n  Autocompact:     {}\n  Compact fails:   {}\n  Compact count:   {} (auto {}, manual {})\n  Breaker reason:  {}\n  Breaker hint:    {}\n  Cause histogram: {}\n  Media compact:   last {} / total {} removed, saved ~{} chars\n  Last compact:    {}\n  Compact at:      {}\n  Compact summary: {}\n  Last compact mem: {}\n  Last transcript: {}\n\nSystem Prompt:\n  Total est:       {} tokens\n{}\n\nPrompt Cache:\n  Last turn:       {}\n  Last tokens:     {} prompt / {} completion\n  Last cache:      {} write / {} read / {} deleted_tok / {} deletions\n  Cache turns:     {} reported / {} hit / {} miss / {} fill / {} edit\n  Cache tokens:    {} write / {} read / {} deleted\n  Cache deletes:   {} total\n  Cache refs:      {} pending / {} pinned\n  Cache hashes:    {} / {} / {} / {} / {}\n  Cache change:    {}\n  Transition:      {} ({})\n  Diff artifact:   {}\n  Diff summary:    {}\n  Cache breaks:    {} (last: {})\n  Expected drop:   {}\n\nTurn Runtime:\n  Last turn:       {} ms\n  Stop reason:     {}\n  Turn artifact:   {}\n  Watchdog stage:  {}\n  Retry reasons:   {}\n\nCost Runtime:\n  Model:           {}\n  Est. cost:       ${:.4}\n  Tokens:          {} in / {} out / {} cache write / {} cache read\n  API time:        {} ms ({} calls)\n  Tool time:       {} ms ({} calls)\n  Session time:    {} ms\n\nMemory:\n  Live memory:     {}{}\n  Live memory file: {}\n  Memory updates:  {}\n  Last memory update: {}\n  Freshness:       {}\n  Pending update:  {}\n\nRecovery:\n  State:           {}\n  Single-step:     {}\n  Reanchor:        {}\n  Need guidance:   {}\n  Last signature:  {}\n  Breadcrumbs:     {}\n  Artifact:        {}\n  Permission:      {}\n  Permission artifact: {}\n  Recent denials:  {}\n\nTools:\n  Inventory:       {} total / {} active / {} deferred\n  Model pool:      {} active visible / {} active hidden\n  Deferred pool:   {} visible / {} hidden\n  Pool policy:     mode={} confirm={} deny={}\n  Visible sources: {} builtin / {} mcp\n  Search mode:     {}\n  Search reason:   {}\n  Activations:     {} (last: {})\n  Duplicate regs:  {} ({})\n  Session tools:   {}\n  Current turn:    {} calls / {} bytes\n  Budget notices:  {} (warning {})\n  Budget active:   notice={} warning={}\n  Progress events: {} ({})\n  Parallel:        {} batches / {} calls (max {})\n  Truncations:     {} (last: {})\n  Error types:     {}\n  Repeat fail:     {}\n  Failure fix:     {}\n  Tool traces:     {} turn / {} calls\n  Tool artifact:   {}\n  Tool turn done:  {}\n  Failed tools:    {}\n  Always-allow:    {}{}{}{}\n\nObservability:\n  Runtime family:  {}\n\nHooks:\n  Hook runs:       {}\n  Hook timeouts:   {}\n  Hook exec errs:  {}\n  Hook exits!=0:   {}\n  Hook wakes:      {}\n  Last hook fail:  {}\n  Last hook at:    {}\n  Last hook timeout: {}\n\nTimeline:\n{}",
         state.query_source,
         if state.autocompact_disabled {
             "disabled"
@@ -118,6 +118,9 @@ pub(super) fn build_runtime_sections(
             .unwrap_or("none"),
         breaker_hint,
         compaction_histogram,
+        state.last_microcompact_media_removed,
+        state.microcompact_media_removed_total,
+        state.microcompact_media_saved_chars_total,
         state.last_compaction_mode.as_deref().unwrap_or("none"),
         state.last_compaction_at.as_deref().unwrap_or("none"),
         state
@@ -358,7 +361,17 @@ pub(super) fn build_runtime_sections(
             .as_deref()
             .unwrap_or("none"),
         timeline,
-    )
+    );
+
+    rendered.push_str(&format!(
+        "\n\nStop Hooks:\n  Continues:       {} ({})",
+        state.stop_hook_continue_count,
+        state
+            .last_stop_hook_continue_reason
+            .as_deref()
+            .unwrap_or("none")
+    ));
+    rendered
 }
 
 fn failure_cluster_summary(traces: &[yode_core::tool_runtime::ToolRuntimeCallView]) -> String {

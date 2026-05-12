@@ -6,8 +6,9 @@ use crate::commands::info::startup_artifacts::{
 use crate::commands::registry::VisibleCommandName;
 use crate::runtime_artifacts::write_runtime_timeline_artifact;
 use crate::runtime_artifacts::{
-    write_prompt_cache_artifact, write_prompt_cache_break_artifact,
-    write_prompt_cache_event_artifact, write_prompt_cache_state_artifact,
+    write_media_compact_event_artifact, write_prompt_cache_artifact,
+    write_prompt_cache_break_artifact, write_prompt_cache_event_artifact,
+    write_prompt_cache_state_artifact,
 };
 use crate::ui::status_summary::{
     context_window_summary_text, runtime_status_snapshot_from_parts, session_runtime_summary_text,
@@ -500,6 +501,11 @@ fn runtime_health_checks(
     } else {
         checks.push("  [--] Prompt cache events artifact unavailable".to_string());
     }
+    if let Some(path) = write_media_compact_event_artifact(project_root, session_id, state) {
+        checks.push(format!("  [ok] Media compact events artifact: {}", path));
+    } else {
+        checks.push("  [--] Media compact events artifact unavailable".to_string());
+    }
     if let Some(path) = write_prompt_cache_state_artifact(project_root, session_id, state) {
         checks.push(format!("  [ok] Prompt cache state artifact: {}", path));
     } else {
@@ -530,6 +536,24 @@ fn runtime_health_checks(
         ) {
             checks.push(format!(
                 "  [ok] Compact restore artifact: {}",
+                path.display()
+            ));
+        }
+    }
+    let mcp_resource_artifacts =
+        crate::commands::tools::mcp_workspace::mcp_resource_artifact_summary(project_root);
+    if mcp_resource_artifacts == "none" {
+        checks.push("  [--] MCP resource artifacts: none".to_string());
+    } else {
+        checks.push(format!(
+            "  [ok] MCP resource artifacts: {}",
+            mcp_resource_artifacts
+        ));
+        if let Some(path) =
+            crate::commands::artifact_nav::latest_mcp_resource_artifact(project_root)
+        {
+            checks.push(format!(
+                "  [ok] Latest MCP resource artifact: {}",
                 path.display()
             ));
         }
@@ -694,6 +718,8 @@ mod tests {
             hook_execution_error_count: 0,
             hook_nonzero_exit_count: 0,
             hook_wake_notification_count: 0,
+            stop_hook_continue_count: 0,
+            last_stop_hook_continue_reason: None,
             last_hook_failure_event: None,
             last_hook_failure_command: None,
             last_hook_failure_reason: None,
@@ -702,6 +728,10 @@ mod tests {
             last_compaction_prompt_tokens: None,
             avg_compaction_prompt_tokens: None,
             compaction_cause_histogram: BTreeMap::new(),
+            last_microcompact_media_removed: 0,
+            last_microcompact_media_saved_chars: 0,
+            microcompact_media_removed_total: 0,
+            microcompact_media_saved_chars_total: 0,
             system_prompt_estimated_tokens: 0,
             system_prompt_segments: Vec::new(),
             prompt_cache: PromptCacheRuntimeState::default(),
@@ -762,6 +792,15 @@ mod tests {
             std::env::temp_dir().join(format!("yode-doctor-runtime-{}", uuid::Uuid::new_v4()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join(".yode").join("transcripts")).unwrap();
+        std::fs::create_dir_all(dir.join(".yode").join("status").join("mcp-resources")).unwrap();
+        std::fs::write(
+            dir.join(".yode")
+                .join("status")
+                .join("mcp-resources")
+                .join("session-mcp-resource-demo.md"),
+            "manifest",
+        )
+        .unwrap();
         let rendered = runtime_health_checks(
             &dir,
             "session",
@@ -781,6 +820,12 @@ mod tests {
             .iter()
             .any(|line| line.contains("Context summary:")));
         assert!(rendered.iter().any(|line| line.contains("Tool summary:")));
+        assert!(rendered
+            .iter()
+            .any(|line| line.contains("MCP resource artifacts:")));
+        assert!(rendered
+            .iter()
+            .any(|line| line.contains("Latest MCP resource artifact:")));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

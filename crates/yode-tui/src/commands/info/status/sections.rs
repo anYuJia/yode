@@ -10,6 +10,8 @@ pub(super) struct StatusArtifactLinks {
     pub provider_inventory_artifact: Option<String>,
     pub settings_scope_artifact: Option<String>,
     pub managed_mcp_artifact: Option<String>,
+    pub mcp_resource_artifact: Option<String>,
+    pub mcp_resource_index_artifact: Option<String>,
     pub resume_warmup_artifact: Option<String>,
     pub mcp_failure_artifact: Option<String>,
     pub tool_artifact: Option<String>,
@@ -21,6 +23,7 @@ pub(super) struct StatusArtifactLinks {
     pub prompt_cache_artifact: Option<String>,
     pub prompt_cache_state_artifact: Option<String>,
     pub prompt_cache_events_artifact: Option<String>,
+    pub media_compact_events_artifact: Option<String>,
     pub prompt_cache_break_artifact: Option<String>,
     pub prompt_cache_diff_artifact: Option<String>,
     pub post_compact_restore_artifact: Option<String>,
@@ -75,13 +78,18 @@ pub(super) fn reviews_section(latest_review: Option<&ReviewSummary>) -> String {
 
 pub(super) fn artifact_links_section(links: &StatusArtifactLinks) -> String {
     format!(
-        "\n\nArtifacts:\n  Review:          {}\n  Startup profile: {}\n  Startup manifest: {}\n  Provider inv:    {}\n  Settings scopes: {}\n  Managed MCP:     {}\n  Tool search:     {}\n  Resume warmup:   {}\n  MCP failures:    {}\n  Tool:            {}\n  Recovery:        {}\n  Permission:      {}\n  Permission gov:  {}\n  Transcript:      {}\n  Runtime tasks:   {}\n  Prompt cache:    {}\n  Prompt cache st: {}\n  Prompt cache ev: {}\n  Prompt cache br: {}\n  Prompt cache df: {}\n  Restore:         {}\n  Restore state:   {}\n  Restore diff:    {}\n  Hook inspector:  {}\n  Hook defer:      {}\n  Team monitor:    {}\n  Remote live:     {}\n  Workflow:        {}\n  Coordinator:     {}\n  Orchestration:   {}\n\nInspect:\n  Orchestration:   /inspect artifact latest-orchestration\n  Workflow:        /inspect artifact latest-workflow | latest-workflow-state\n  Coordinator:     /inspect artifact latest-coordinate | latest-coordinate-state\n  Team runtime:    /inspect artifact latest-agent-team | latest-agent-team-monitor | latest-subagent-result\n  Checkpoint:      /checkpoint latest | /inspect artifact latest-checkpoint\n  Branch/Rewind:   /checkpoint branch latest | /inspect artifact latest-branch | /checkpoint rewind latest\n  Remote Control:  /remote-control latest | /inspect artifact latest-remote-control | /remote-control session\n  Hooks/Perms:     /inspect artifact latest-hook-deferred | latest-permission-governance\n  Action History:  /inspect artifact latest-action-history\n  Runtime:         /inspect artifact latest-runtime-timeline | latest-prompt-cache | latest-prompt-cache-state | latest-prompt-cache-events | latest-prompt-cache-break | latest-prompt-cache-diff | latest-post-compact-restore | latest-post-compact-restore-state | latest-post-compact-restore-diff\n  Startup:         /inspect artifact latest-provider-inventory | latest-settings-scopes | latest-managed-mcp-inventory | latest-tool-search-activation\n  Review/Memory:   /inspect artifact latest-review | /inspect artifact latest-transcript",
+        "\n\nArtifacts:\n  Review:          {}\n  Startup profile: {}\n  Startup manifest: {}\n  Provider inv:    {}\n  Settings scopes: {}\n  Managed MCP:     {}\n  MCP resource:    {}\n  MCP res index:   {}\n  Tool search:     {}\n  Resume warmup:   {}\n  MCP failures:    {}\n  Tool:            {}\n  Recovery:        {}\n  Permission:      {}\n  Permission gov:  {}\n  Transcript:      {}\n  Runtime tasks:   {}\n  Prompt cache:    {}\n  Prompt cache st: {}\n  Prompt cache ev: {}\n  Media compact:   {}\n  Prompt cache br: {}\n  Prompt cache df: {}\n  Restore:         {}\n  Restore state:   {}\n  Restore diff:    {}\n  Hook inspector:  {}\n  Hook defer:      {}\n  Team monitor:    {}\n  Remote live:     {}\n  Workflow:        {}\n  Coordinator:     {}\n  Orchestration:   {}\n\nInspect:\n  Orchestration:   /inspect artifact latest-orchestration\n  Workflow:        /inspect artifact latest-workflow | latest-workflow-state\n  Coordinator:     /inspect artifact latest-coordinate | latest-coordinate-state\n  Team runtime:    /inspect artifact latest-agent-team | latest-agent-team-monitor | latest-subagent-result\n  Checkpoint:      /checkpoint latest | /inspect artifact latest-checkpoint\n  Branch/Rewind:   /checkpoint branch latest | /inspect artifact latest-branch | /checkpoint rewind latest\n  Remote Control:  /remote-control latest | /inspect artifact latest-remote-control | /remote-control session\n  Hooks/Perms:     /inspect artifact latest-hook-deferred | latest-permission-governance\n  Action History:  /inspect artifact latest-action-history\n  Runtime:         /inspect artifact latest-runtime-timeline | latest-prompt-cache | latest-prompt-cache-state | latest-prompt-cache-events | latest-media-compact-events | latest-prompt-cache-break | latest-prompt-cache-diff | latest-post-compact-restore | latest-post-compact-restore-state | latest-post-compact-restore-diff\n  MCP:             /inspect artifact latest-mcp-resource | latest-mcp-resource-index | history mcp-resources\n  Startup:         /inspect artifact latest-provider-inventory | latest-settings-scopes | latest-managed-mcp-inventory | latest-tool-search-activation\n  Review/Memory:   /inspect artifact latest-review | /inspect artifact latest-transcript",
         links.review_artifact.as_deref().unwrap_or("none"),
         links.startup_profile_artifact.as_deref().unwrap_or("none"),
         links.startup_manifest_artifact.as_deref().unwrap_or("none"),
         links.provider_inventory_artifact.as_deref().unwrap_or("none"),
         links.settings_scope_artifact.as_deref().unwrap_or("none"),
         links.managed_mcp_artifact.as_deref().unwrap_or("none"),
+        links.mcp_resource_artifact.as_deref().unwrap_or("none"),
+        links
+            .mcp_resource_index_artifact
+            .as_deref()
+            .unwrap_or("none"),
         links.tool_search_activation_artifact.as_deref().unwrap_or("none"),
         links.resume_warmup_artifact.as_deref().unwrap_or("none"),
         links.mcp_failure_artifact.as_deref().unwrap_or("none"),
@@ -94,6 +102,10 @@ pub(super) fn artifact_links_section(links: &StatusArtifactLinks) -> String {
         links.prompt_cache_artifact.as_deref().unwrap_or("none"),
         links.prompt_cache_state_artifact.as_deref().unwrap_or("none"),
         links.prompt_cache_events_artifact.as_deref().unwrap_or("none"),
+        links
+            .media_compact_events_artifact
+            .as_deref()
+            .unwrap_or("none"),
         links.prompt_cache_break_artifact.as_deref().unwrap_or("none"),
         links.prompt_cache_diff_artifact.as_deref().unwrap_or("none"),
         links.post_compact_restore_artifact.as_deref().unwrap_or("none"),
