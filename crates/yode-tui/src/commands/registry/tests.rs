@@ -229,7 +229,7 @@ fn test_by_category() {
     let cats = reg.by_category();
     assert_eq!(cats.get(&CommandCategory::Model).unwrap().len(), 2);
     assert_eq!(cats.get(&CommandCategory::Info).unwrap().len(), 1);
-    assert!(cats.get(&CommandCategory::Utility).is_none());
+    assert!(!cats.contains_key(&CommandCategory::Utility));
 }
 
 #[test]

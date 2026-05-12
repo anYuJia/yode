@@ -170,7 +170,7 @@ impl SkillRegistry {
         &self.skills
     }
 
-    pub fn active_for_paths<'a, I, P>(&'a self, changed_paths: I) -> Vec<&'a Skill>
+    pub fn active_for_paths<I, P>(&self, changed_paths: I) -> Vec<&Skill>
     where
         I: IntoIterator<Item = P>,
         P: AsRef<Path>,

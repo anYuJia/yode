@@ -468,7 +468,7 @@ mod tests {
         );
         app.chat_entries = tool_entries.clone();
         app.turn_status = TurnStatus::Working { verb: "Analyzing" };
-        let turn_status_lines = vec![
+        let turn_status_lines = [
             format!("⠋ {}", active_working_label(&app, "Analyzing")),
             active_working_hint(&app).unwrap_or_else(|| "no hint".to_string()),
         ];

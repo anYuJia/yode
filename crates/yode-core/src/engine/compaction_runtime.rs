@@ -1212,7 +1212,7 @@ impl AgentEngine {
         ));
 
         let cache = &self.prompt_cache_runtime;
-        let prompt_cache_lines = vec![
+        let prompt_cache_lines = [
             POST_COMPACT_PROMPT_CACHE_PREFIX.to_string(),
             format!(
                 "- Last turn: prompt={} completion={} write={} read={} edit_del={}",
