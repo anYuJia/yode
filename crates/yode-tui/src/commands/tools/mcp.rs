@@ -49,7 +49,7 @@ impl Command for McpCommand {
 
     fn execute(&self, args: &str, ctx: &mut CommandContext<'_>) -> CommandResult {
         let args = args.trim();
-        if let Some(cleanup_args) = args.strip_prefix("resources cleanup") {
+        if let Some(cleanup_args) = resource_cleanup_args(args) {
             return cleanup_mcp_resources(cleanup_args, ctx);
         }
 
@@ -226,6 +226,13 @@ impl Command for McpCommand {
         }
         Ok(CommandOutput::Messages(lines))
     }
+}
+
+fn resource_cleanup_args(args: &str) -> Option<&str> {
+    if args == "resources cleanup" {
+        return Some("");
+    }
+    args.strip_prefix("resources cleanup ")
 }
 
 fn cleanup_mcp_resources(args: &str, ctx: &CommandContext<'_>) -> CommandResult {
@@ -453,8 +460,8 @@ fn server_elicitation_summary(
 mod tests {
     use super::{
         auth_status_label, oauth_token_saved, parse_mcp_tool_name, parse_resource_cleanup_keep,
-        sanitize_server_name, server_elicitation_summary, server_latency_summary,
-        server_reconnect_summary, transport_execution_label,
+        resource_cleanup_args, sanitize_server_name, server_elicitation_summary,
+        server_latency_summary, server_reconnect_summary, transport_execution_label,
     };
     use yode_core::config::McpServerConfig;
 
@@ -622,5 +629,17 @@ mod tests {
         assert_eq!(parse_resource_cleanup_keep("keep=0").unwrap(), 0);
         assert_eq!(parse_resource_cleanup_keep("keep=7").unwrap(), 7);
         assert!(parse_resource_cleanup_keep("bad").is_err());
+    }
+
+    #[test]
+    fn resource_cleanup_subcommand_requires_word_boundary() {
+        assert_eq!(resource_cleanup_args("resources cleanup"), Some(""));
+        assert_eq!(resource_cleanup_args("resources cleanup all"), Some("all"));
+        assert_eq!(
+            resource_cleanup_args("resources cleanup keep=7"),
+            Some("keep=7")
+        );
+        assert_eq!(resource_cleanup_args("resources cleanupall"), None);
+        assert_eq!(resource_cleanup_args("resources clean"), None);
     }
 }
