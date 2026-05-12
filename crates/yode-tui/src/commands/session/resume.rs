@@ -29,14 +29,14 @@ impl Command for ResumeCommand {
         let session_id = args.trim();
         if session_id.is_empty() {
             let current = render_resume_command(&ctx.session.session_id);
-            let recent = super::SessionsCommand::new().execute("", ctx)?;
-            return Ok(match recent {
-                CommandOutput::Message(message) => CommandOutput::Message(format!(
-                    "Current session:\n  {}\n\n{}",
-                    current, message
-                )),
-                other => other,
-            });
+            let recent = match super::SessionsCommand::new().execute("", ctx) {
+                Ok(CommandOutput::Message(message)) => message,
+                Ok(_) => "Recent sessions unavailable.".to_string(),
+                Err(err) => format!("Recent sessions unavailable: {}", err),
+            };
+            return Ok(CommandOutput::Message(render_resume_overview(
+                &current, &recent,
+            )));
         }
 
         let command = render_resume_command(session_id);
@@ -51,6 +51,13 @@ fn render_resume_command(session_id: &str) -> String {
     format!("yode --resume {}", shell_quote(session_id))
 }
 
+fn render_resume_overview(current_command: &str, recent_sessions: &str) -> String {
+    format!(
+        "Current session:\n  {}\n\n{}",
+        current_command, recent_sessions
+    )
+}
+
 fn shell_quote(value: &str) -> String {
     if value
         .chars()
@@ -63,7 +70,7 @@ fn shell_quote(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::render_resume_command;
+    use super::{render_resume_command, render_resume_overview};
 
     #[test]
     fn resume_command_keeps_simple_session_ids_readable() {
@@ -80,5 +87,16 @@ mod tests {
             render_resume_command("abc'123"),
             "yode --resume 'abc'\\''123'"
         );
+    }
+
+    #[test]
+    fn resume_overview_always_includes_current_command() {
+        let rendered = render_resume_overview(
+            "yode --resume current-session",
+            "Recent sessions unavailable: db locked",
+        );
+
+        assert!(rendered.contains("yode --resume current-session"));
+        assert!(rendered.contains("Recent sessions unavailable: db locked"));
     }
 }
