@@ -122,5 +122,6 @@ pub(in crate::commands::info::memory) struct TranscriptMetadata {
     pub session_memory_path: Option<String>,
     pub files_read_summary: Option<String>,
     pub files_modified_summary: Option<String>,
+    pub compact_boundary_summary: Option<String>,
     pub has_summary: bool,
 }

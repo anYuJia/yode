@@ -139,6 +139,7 @@ impl AgentEngine {
             last_compaction_summary_excerpt: None,
             last_compaction_session_memory_path: None,
             last_compaction_transcript_path: None,
+            last_compact_boundary: None,
             last_compaction_prompt_tokens: None,
             last_post_compaction_estimated_tokens: None,
             last_post_compaction_threshold_tokens: None,

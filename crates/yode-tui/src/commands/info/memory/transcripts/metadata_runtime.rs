@@ -21,7 +21,7 @@ pub(in crate::commands::info::memory) fn read_transcript_metadata(
     let content = fs::read_to_string(path).ok()?;
     let mut meta = TranscriptMetadata::default();
 
-    for line in content.lines().take(14) {
+    for line in content.lines().take(18) {
         if let Some(value) = line.strip_prefix("- Timestamp: ") {
             meta.timestamp = Some(value.to_string());
         } else if let Some(value) = line.strip_prefix("- Mode: ") {
@@ -38,6 +38,8 @@ pub(in crate::commands::info::memory) fn read_transcript_metadata(
             meta.files_read_summary = Some(value.to_string());
         } else if let Some(value) = line.strip_prefix("- Files modified: ") {
             meta.files_modified_summary = Some(value.to_string());
+        } else if let Some(value) = line.strip_prefix("- Compact boundary: ") {
+            meta.compact_boundary_summary = Some(value.to_string());
         }
     }
 

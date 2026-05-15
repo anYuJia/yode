@@ -117,6 +117,22 @@ pub enum ConfirmResponse {
     Deny,
 }
 
+/// Stable metadata for the latest compact boundary.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct CompactBoundaryRuntimeState {
+    pub mode: String,
+    pub timestamp: String,
+    pub removed_count: usize,
+    pub tool_results_truncated: usize,
+    pub preserved_tail_range: Option<String>,
+    pub summary_fingerprint: Option<String>,
+    pub post_compact_estimated_tokens: u32,
+    pub post_compact_threshold_tokens: u32,
+    pub post_compact_token_delta: i64,
+    pub will_retrigger_next_turn: bool,
+    pub artifact_paths: Vec<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct EngineRuntimeState {
     pub query_source: String,
@@ -139,6 +155,7 @@ pub struct EngineRuntimeState {
     pub last_compaction_summary_excerpt: Option<String>,
     pub last_compaction_session_memory_path: Option<String>,
     pub last_compaction_transcript_path: Option<String>,
+    pub last_compact_boundary: Option<CompactBoundaryRuntimeState>,
     pub last_session_memory_update_at: Option<String>,
     pub last_session_memory_update_path: Option<String>,
     pub last_session_memory_generated_summary: bool,
@@ -350,6 +367,7 @@ pub(super) struct TranscriptArtifactRuntimeState {
     pub timestamp: Option<String>,
     pub summary_excerpt: Option<String>,
     pub session_memory_path: Option<String>,
+    pub compact_boundary: Option<CompactBoundaryRuntimeState>,
 }
 
 pub(super) fn latest_transcript_runtime_state(
@@ -397,6 +415,8 @@ pub(super) fn latest_transcript_runtime_state(
             }
         });
 
+    let compact_boundary = parse_compact_boundary_record(&content);
+
     Some((
         path,
         TranscriptArtifactRuntimeState {
@@ -404,6 +424,16 @@ pub(super) fn latest_transcript_runtime_state(
             timestamp,
             summary_excerpt,
             session_memory_path,
+            compact_boundary,
         },
     ))
+}
+
+fn parse_compact_boundary_record(content: &str) -> Option<CompactBoundaryRuntimeState> {
+    let start = content.find("## Compact Boundary")?;
+    let block = &content[start..];
+    let fenced_start = block.find("```json")?;
+    let after_fence = &block[fenced_start + "```json".len()..];
+    let fenced_end = after_fence.find("```")?;
+    serde_json::from_str(after_fence[..fenced_end].trim()).ok()
 }

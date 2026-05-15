@@ -734,6 +734,10 @@ Commit target:
 
 - `Add compact boundary records`
 
+Progress:
+
+- 2026-05-16: Added compact boundary runtime/session records with transcript and restore artifact rendering. Verified with `cargo test -q -p yode-core compaction`, `cargo test -q -p yode-core transcript`, `cargo test -q -p yode-core db`, `cargo test -q -p yode-tui memory`, `cargo check -q`, and `git diff --check`. Remaining risk: persisted DB boundary JSON is latest-boundary metadata only; full replay still relies on transcript artifacts until a richer event log lands.
+
 ### Task B: Restore Budget Planner
 
 Files:

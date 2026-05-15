@@ -87,8 +87,8 @@ use types::{
     SharedMemoryStatus, SystemPromptBuild, ToolExecutionOutcome, ToolExecutionTrace,
 };
 pub use types::{
-    ConfirmResponse, EngineEvent, EngineRuntimeState, PromptCacheRuntimeState,
-    SystemPromptSegmentRuntimeState,
+    CompactBoundaryRuntimeState, ConfirmResponse, EngineEvent, EngineRuntimeState,
+    PromptCacheRuntimeState, SystemPromptSegmentRuntimeState,
 };
 
 /// The core agent engine that drives the conversation loop.
@@ -308,6 +308,8 @@ pub struct AgentEngine {
     last_compaction_session_memory_path: Option<String>,
     /// Most recent compaction transcript artifact path.
     last_compaction_transcript_path: Option<String>,
+    /// Stable record for the most recent compact boundary.
+    last_compact_boundary: Option<CompactBoundaryRuntimeState>,
     /// Prompt tokens that triggered the most recent compaction.
     last_compaction_prompt_tokens: Option<u32>,
     /// Estimated message + restore token footprint immediately after the most recent compaction.

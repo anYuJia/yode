@@ -246,7 +246,7 @@ fn read_transcript_metadata_parses_header_fields() {
     let path = dir.join("sample.md");
     std::fs::write(
         &path,
-        "# Compaction Transcript\n\n- Session: abc\n- Mode: manual\n- Timestamp: 2026-01-01 10:00:00\n- Removed messages: 7\n- Tool results truncated: 2\n- Failed tool results: 1\n- Session memory path: .yode/memory/session.md\n- Files read: src/lib.rs (120 lines)\n- Files modified: src/main.rs\n\n## Summary Anchor\n",
+        "# Compaction Transcript\n\n- Session: abc\n- Mode: manual\n- Timestamp: 2026-01-01 10:00:00\n- Removed messages: 7\n- Tool results truncated: 2\n- Failed tool results: 1\n- Session memory path: .yode/memory/session.md\n- Files read: src/lib.rs (120 lines)\n- Files modified: src/main.rs\n- Compact boundary: manual removed=7 post_tokens=1200 delta=-300\n\n## Summary Anchor\n",
     )
     .unwrap();
 
@@ -265,6 +265,10 @@ fn read_transcript_metadata_parses_header_fields() {
         Some("src/lib.rs (120 lines)")
     );
     assert_eq!(meta.files_modified_summary.as_deref(), Some("src/main.rs"));
+    assert_eq!(
+        meta.compact_boundary_summary.as_deref(),
+        Some("manual removed=7 post_tokens=1200 delta=-300")
+    );
     assert!(meta.has_summary);
 
     std::fs::remove_dir_all(&dir).ok();

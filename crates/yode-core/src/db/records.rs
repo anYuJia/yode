@@ -22,6 +22,7 @@ pub struct SessionArtifacts {
     pub last_compaction_summary_excerpt: Option<String>,
     pub last_compaction_session_memory_path: Option<String>,
     pub last_compaction_transcript_path: Option<String>,
+    pub last_compact_boundary_json: Option<String>,
     pub last_session_memory_update_at: Option<String>,
     pub last_session_memory_update_path: Option<String>,
     pub last_session_memory_generated_summary: bool,

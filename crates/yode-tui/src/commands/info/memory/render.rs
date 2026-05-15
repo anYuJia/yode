@@ -48,13 +48,25 @@ pub(super) fn render_memory_status(
     let runtime_lines = runtime
         .map(|state| {
             format!(
-                "\n  Last compact mode: {}\n  Last compact at:   {}\n  Last compact summary: {}\n  Last compact mem:  {}\n  Last transcript:   {}\n  Last memory update: {}",
+                "\n  Last compact mode: {}\n  Last compact at:   {}\n  Last compact summary: {}\n  Last compact boundary: {}\n  Last compact mem:  {}\n  Last transcript:   {}\n  Last memory update: {}",
                 state.last_compaction_mode.as_deref().unwrap_or("none"),
                 state.last_compaction_at.as_deref().unwrap_or("none"),
                 state
                     .last_compaction_summary_excerpt
                     .as_deref()
                     .unwrap_or("none"),
+                state
+                    .last_compact_boundary
+                    .as_ref()
+                    .map(|boundary| {
+                        format!(
+                            "{} removed={} delta={}",
+                            boundary.mode,
+                            boundary.removed_count,
+                            boundary.post_compact_token_delta
+                        )
+                    })
+                    .unwrap_or_else(|| "none".to_string()),
                 state
                     .last_compaction_session_memory_path
                     .as_deref()

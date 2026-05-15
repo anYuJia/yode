@@ -7,6 +7,7 @@ use super::summary::{
     render_summary_anchor, summarize_failed_tools, summarize_modified_files, summarize_read_files,
 };
 use crate::context_manager::CompressionReport;
+use crate::engine::CompactBoundaryRuntimeState;
 
 #[expect(
     clippy::too_many_arguments,
@@ -22,6 +23,7 @@ pub(super) fn render_compaction_transcript(
     session_memory_path: Option<&Path>,
     files_read: &HashMap<String, usize>,
     files_modified: &[String],
+    compact_boundary: Option<&CompactBoundaryRuntimeState>,
 ) -> String {
     let failure_summary = summarize_failed_tools(messages, failed_tool_call_ids);
     let files_read_summary = summarize_read_files(project_root, files_read);
@@ -58,7 +60,22 @@ pub(super) fn render_compaction_transcript(
     if let Some(summary) = files_modified_summary {
         output.push_str(&format!("- Files modified: {}\n", summary));
     }
+    if let Some(boundary) = compact_boundary {
+        output.push_str(&format!(
+            "- Compact boundary: {} removed={} post_tokens={} delta={}\n",
+            boundary.mode,
+            boundary.removed_count,
+            boundary.post_compact_estimated_tokens,
+            boundary.post_compact_token_delta
+        ));
+    }
     output.push_str(&render_summary_anchor(report.summary.as_deref()));
+
+    if let Some(boundary) = compact_boundary {
+        output.push_str("\n## Compact Boundary\n\n```json\n");
+        output.push_str(&serde_json::to_string_pretty(boundary).unwrap_or_else(|_| "{}".into()));
+        output.push_str("\n```\n");
+    }
 
     output.push_str("\n## Messages\n");
     for message in messages {

@@ -105,6 +105,7 @@ impl AgentEngine {
             last_compaction_summary_excerpt: self.last_compaction_summary_excerpt.clone(),
             last_compaction_session_memory_path: self.last_compaction_session_memory_path.clone(),
             last_compaction_transcript_path: self.last_compaction_transcript_path.clone(),
+            last_compact_boundary: self.last_compact_boundary.clone(),
             last_session_memory_update_at: shared_status.0,
             last_session_memory_update_path: shared_status.1,
             last_session_memory_generated_summary: shared_status.2,

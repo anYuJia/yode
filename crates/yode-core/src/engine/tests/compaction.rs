@@ -315,6 +315,25 @@ async fn test_force_compact_uses_full_post_compact_finalize_path() {
         0
     );
     assert_eq!(runtime_after_request.prompt_cache.pinned_cache_edit_refs, 0);
+    let boundary = runtime_after_request
+        .last_compact_boundary
+        .as_ref()
+        .expect("compact boundary record");
+    assert_eq!(boundary.mode, "manual");
+    assert!(boundary.removed_count > 0);
+    assert_eq!(
+        boundary.post_compact_estimated_tokens,
+        runtime_after_request
+            .last_post_compaction_estimated_tokens
+            .unwrap()
+    );
+    assert_eq!(
+        boundary.post_compact_token_delta,
+        boundary.post_compact_estimated_tokens as i64
+            - boundary.post_compact_threshold_tokens as i64
+    );
+    assert!(boundary.summary_fingerprint.is_some());
+    assert!(boundary.preserved_tail_range.is_some());
 
     let short_session = engine
         .context()
@@ -329,10 +348,16 @@ async fn test_force_compact_uses_full_post_compact_finalize_path() {
     let restore_artifact = std::fs::read_to_string(restore_artifact_path).unwrap();
     assert!(restore_artifact.contains("Post-compact pressure:"));
     assert!(restore_artifact.contains("next_auto="));
+    assert!(restore_artifact.contains("## Compact Boundary"));
+    assert!(restore_artifact.contains("\"removed_count\""));
     assert!(project_root
         .join(".yode/status")
         .join(format!("{}-post-compact-restore-state.json", short_session))
         .exists());
+    assert!(boundary
+        .artifact_paths
+        .iter()
+        .any(|path| path.ends_with("-post-compact-restore.md")));
 }
 
 #[test]
@@ -567,6 +592,17 @@ async fn test_partial_compact_up_to_keeps_newer_tail() {
         .messages
         .iter()
         .any(|message| message.content.as_deref() == Some("a4")));
+    let boundary = engine
+        .runtime_state()
+        .last_compact_boundary
+        .expect("partial up_to boundary");
+    assert_eq!(boundary.mode, "manual");
+    assert_eq!(boundary.removed_count, 4);
+    assert!(boundary.post_compact_estimated_tokens > 0);
+    assert!(boundary
+        .artifact_paths
+        .iter()
+        .any(|path| path.contains(".yode/transcripts/")));
 }
 
 #[tokio::test]
@@ -607,6 +643,51 @@ async fn test_partial_compact_from_keeps_older_prefix() {
 
     let request = engine.build_chat_request();
     assert!(!request.provider_hints.restore_system_blocks.is_empty());
+    let boundary = engine
+        .runtime_state()
+        .last_compact_boundary
+        .expect("partial from boundary");
+    assert_eq!(boundary.mode, "manual");
+    assert_eq!(boundary.removed_count, 4);
+    assert!(boundary.post_compact_estimated_tokens > 0);
+}
+
+#[tokio::test]
+async fn test_reactive_compact_records_boundary() {
+    let mut engine = make_engine(vec![], vec![]);
+    let big = "x".repeat(200_000);
+    engine.messages = vec![
+        Message::system("system"),
+        Message::user(&big),
+        Message::assistant(&big),
+        Message::tool_result("tc1", &big),
+        Message::user(&big),
+        Message::assistant(&big),
+        Message::user("recent1"),
+        Message::assistant("recent2"),
+        Message::user("recent3"),
+        Message::assistant("recent4"),
+        Message::user("recent5"),
+        Message::assistant("recent6"),
+    ];
+
+    let (tx, _rx) = mpsc::unbounded_channel();
+    assert!(
+        engine
+            .reactive_compact_context_for_text("context window exceeded", &tx)
+            .await
+    );
+    let boundary = engine
+        .runtime_state()
+        .last_compact_boundary
+        .expect("reactive boundary");
+    assert_eq!(boundary.mode, "reactive");
+    assert!(boundary.removed_count > 0);
+    assert!(boundary.post_compact_token_delta < boundary.post_compact_estimated_tokens as i64);
+    assert!(boundary
+        .artifact_paths
+        .iter()
+        .any(|path| path.ends_with("-post-compact-restore-state.json")));
 }
 
 #[tokio::test]

@@ -144,6 +144,10 @@ impl AgentEngine {
             last_compaction_summary_excerpt: self.last_compaction_summary_excerpt.clone(),
             last_compaction_session_memory_path: self.last_compaction_session_memory_path.clone(),
             last_compaction_transcript_path: self.last_compaction_transcript_path.clone(),
+            last_compact_boundary_json: self
+                .last_compact_boundary
+                .as_ref()
+                .and_then(|boundary| serde_json::to_string(boundary).ok()),
             last_session_memory_update_at: shared.as_ref().and_then(|shared| shared.0.clone()),
             last_session_memory_update_path: shared.as_ref().and_then(|shared| shared.1.clone()),
             last_session_memory_generated_summary: shared.map(|shared| shared.2).unwrap_or(false),
@@ -161,6 +165,7 @@ impl AgentEngine {
         self.last_compaction_summary_excerpt = None;
         self.last_compaction_session_memory_path = None;
         self.last_compaction_transcript_path = None;
+        self.last_compact_boundary = None;
 
         if let Some((path, state)) = latest_transcript_runtime_state(&project_root) {
             self.last_compaction_mode = state.mode;
@@ -173,6 +178,7 @@ impl AgentEngine {
                     .then(|| session_path.display().to_string())
             });
             self.last_compaction_transcript_path = Some(path.display().to_string());
+            self.last_compact_boundary = state.compact_boundary;
         } else {
             let session_path = crate::session_memory::session_memory_path(&project_root);
             if session_path.exists() {

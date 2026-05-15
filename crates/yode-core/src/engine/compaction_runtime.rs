@@ -280,6 +280,60 @@ fn prompt_cache_text_value(value: Option<&String>) -> &str {
     value.map(|value| value.as_str()).unwrap_or("none")
 }
 
+fn compact_summary_fingerprint(summary: Option<&String>) -> Option<String> {
+    let summary = summary?.trim();
+    if summary.is_empty() {
+        return None;
+    }
+
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(summary.as_bytes());
+    Some(format!("{:x}", hasher.finalize())[..16].to_string())
+}
+
+fn message_boundary_key(message: &Message) -> String {
+    serde_json::json!({
+        "role": format!("{:?}", message.role),
+        "content": message.content,
+        "reasoning": message.reasoning,
+        "tool_calls": message.tool_calls,
+        "tool_call_id": message.tool_call_id,
+    })
+    .to_string()
+}
+
+fn preserved_tail_range(
+    pre_compact_messages: &[Message],
+    post_compact_messages: &[Message],
+) -> Option<String> {
+    let mut pre_index = pre_compact_messages.len();
+    let mut post_index = post_compact_messages.len();
+
+    while pre_index > 0 && post_index > 0 {
+        let pre_key = message_boundary_key(&pre_compact_messages[pre_index - 1]);
+        let post_key = message_boundary_key(&post_compact_messages[post_index - 1]);
+        if pre_key != post_key {
+            break;
+        }
+        pre_index -= 1;
+        post_index -= 1;
+    }
+
+    (pre_index < pre_compact_messages.len())
+        .then(|| format!("{}..{}", pre_index, pre_compact_messages.len()))
+}
+
+fn push_artifact_path(artifact_paths: &mut Vec<String>, path: Option<&std::path::Path>) {
+    let Some(path) = path else {
+        return;
+    };
+    let path = path.display().to_string();
+    if !artifact_paths.contains(&path) {
+        artifact_paths.push(path);
+    }
+}
+
 fn message_excerpt_for_compaction(message: &Message, limit: usize) -> Option<String> {
     let role = match message.role {
         Role::System => "System",
@@ -446,6 +500,7 @@ fn write_post_compact_restore_artifact(
     session_id: &str,
     mode: &str,
     blocks: &[(RestoreBlockKind, String)],
+    compact_boundary: Option<&CompactBoundaryRuntimeState>,
 ) -> Option<std::path::PathBuf> {
     let dir = project_root.join(".yode").join("status");
     std::fs::create_dir_all(&dir).ok()?;
@@ -464,6 +519,11 @@ fn write_post_compact_restore_artifact(
         body.push_str(content.trim());
         body.push_str("\n```\n\n");
     }
+    if let Some(boundary) = compact_boundary {
+        body.push_str("## Compact Boundary\n\n```json\n");
+        body.push_str(&serde_json::to_string_pretty(boundary).ok()?);
+        body.push_str("\n```\n\n");
+    }
 
     std::fs::write(&path, body).ok()?;
     Some(path)
@@ -474,6 +534,7 @@ fn write_post_compact_restore_state_artifact(
     session_id: &str,
     mode: &str,
     blocks: &[(RestoreBlockKind, String)],
+    compact_boundary: Option<&CompactBoundaryRuntimeState>,
 ) -> Option<std::path::PathBuf> {
     let dir = project_root.join(".yode").join("status");
     std::fs::create_dir_all(&dir).ok()?;
@@ -484,6 +545,7 @@ fn write_post_compact_restore_state_artifact(
         "session_id": session_id,
         "mode": mode,
         "updated_at": chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+        "compact_boundary": compact_boundary,
         "blocks": blocks
             .iter()
             .map(|(kind, content)| RestoreBlockArtifact {
@@ -1480,6 +1542,7 @@ impl AgentEngine {
         let mut session_memory_path = None;
         let mut transcript_path = None;
         let project_root = self.context.working_dir_compat();
+        let compacted_at = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
         match persist_compaction_memory(
             &project_root,
             &self.context.session_id,
@@ -1492,6 +1555,34 @@ impl AgentEngine {
             }
             Err(err) => warn!("Failed to persist session memory after compaction: {}", err),
         }
+        let post_compact_estimated_tokens = self
+            .context_manager
+            .estimate_tokens_for_messages(&self.messages);
+        let auto_compact_threshold = self.context_manager.compression_threshold_tokens();
+        let will_retrigger_next_turn = post_compact_estimated_tokens >= auto_compact_threshold;
+        self.last_post_compaction_estimated_tokens = Some(post_compact_estimated_tokens as u32);
+        self.last_post_compaction_threshold_tokens = Some(auto_compact_threshold as u32);
+        self.last_post_compaction_will_retrigger = Some(will_retrigger_next_turn);
+
+        let mut compact_boundary = CompactBoundaryRuntimeState {
+            mode: mode_label.to_string(),
+            timestamp: compacted_at.clone(),
+            removed_count: report.removed,
+            tool_results_truncated: report.tool_results_truncated,
+            preserved_tail_range: preserved_tail_range(&pre_compact_messages, &self.messages),
+            summary_fingerprint: compact_summary_fingerprint(report.summary.as_ref()),
+            post_compact_estimated_tokens: post_compact_estimated_tokens as u32,
+            post_compact_threshold_tokens: auto_compact_threshold as u32,
+            post_compact_token_delta: post_compact_estimated_tokens as i64
+                - auto_compact_threshold as i64,
+            will_retrigger_next_turn,
+            artifact_paths: Vec::new(),
+        };
+        push_artifact_path(
+            &mut compact_boundary.artifact_paths,
+            session_memory_path.as_deref(),
+        );
+
         match write_compaction_transcript(
             &project_root,
             &self.context.session_id,
@@ -1502,19 +1593,15 @@ impl AgentEngine {
             session_memory_path.as_deref(),
             &self.files_read,
             &self.files_modified,
+            Some(&compact_boundary),
         ) {
-            Ok(path) => transcript_path = Some(path),
+            Ok(path) => {
+                push_artifact_path(&mut compact_boundary.artifact_paths, Some(&path));
+                transcript_path = Some(path);
+            }
             Err(err) => warn!("Failed to write compaction transcript: {}", err),
         }
 
-        let post_compact_estimated_tokens = self
-            .context_manager
-            .estimate_tokens_for_messages(&self.messages);
-        let auto_compact_threshold = self.context_manager.compression_threshold_tokens();
-        let will_retrigger_next_turn = post_compact_estimated_tokens >= auto_compact_threshold;
-        self.last_post_compaction_estimated_tokens = Some(post_compact_estimated_tokens as u32);
-        self.last_post_compaction_threshold_tokens = Some(auto_compact_threshold as u32);
-        self.last_post_compaction_will_retrigger = Some(will_retrigger_next_turn);
         let restore_messages = self
             .build_post_compact_restore_messages(
                 mode,
@@ -1527,17 +1614,27 @@ impl AgentEngine {
             .await;
         let previous_restore_messages =
             load_post_compact_restore_state_artifact(&project_root, &self.context.session_id);
-        let _ = write_post_compact_restore_artifact(
+        let restore_artifact_path = write_post_compact_restore_artifact(
             &project_root,
             &self.context.session_id,
             mode_label,
             &restore_messages,
+            Some(&compact_boundary),
         );
-        let _ = write_post_compact_restore_state_artifact(
+        let restore_state_artifact_path = write_post_compact_restore_state_artifact(
             &project_root,
             &self.context.session_id,
             mode_label,
             &restore_messages,
+            Some(&compact_boundary),
+        );
+        push_artifact_path(
+            &mut compact_boundary.artifact_paths,
+            restore_artifact_path.as_deref(),
+        );
+        push_artifact_path(
+            &mut compact_boundary.artifact_paths,
+            restore_state_artifact_path.as_deref(),
         );
         if let Some(previous) = previous_restore_messages.as_ref() {
             let _ = write_post_compact_restore_diff_artifact(
@@ -1602,8 +1699,7 @@ impl AgentEngine {
             transcript_path: transcript_path_str.clone(),
         });
         self.last_compaction_mode = Some(mode_label.to_string());
-        self.last_compaction_at =
-            Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
+        self.last_compaction_at = Some(compacted_at);
         self.last_compaction_summary_excerpt = report.summary.as_ref().map(|summary| {
             let excerpt: String = summary.chars().take(160).collect();
             if summary.chars().count() > 160 {
@@ -1614,6 +1710,7 @@ impl AgentEngine {
         });
         self.last_compaction_session_memory_path = session_memory_path_str;
         self.last_compaction_transcript_path = transcript_path_str;
+        self.last_compact_boundary = Some(compact_boundary);
         self.last_compaction_prompt_tokens = Some(prompt_tokens);
         self.compaction_prompt_tokens_total = self
             .compaction_prompt_tokens_total

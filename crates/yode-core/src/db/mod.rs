@@ -64,6 +64,7 @@ impl Database {
                 last_compaction_summary_excerpt TEXT,
                 last_compaction_session_memory_path TEXT,
                 last_compaction_transcript_path TEXT,
+                last_compact_boundary_json TEXT,
                 last_session_memory_update_at TEXT,
                 last_session_memory_update_path TEXT,
                 last_session_memory_generated_summary INTEGER NOT NULL DEFAULT 0,
@@ -74,6 +75,10 @@ impl Database {
         )?;
 
         let _ = conn.execute("ALTER TABLE messages ADD COLUMN reasoning TEXT", []);
+        let _ = conn.execute(
+            "ALTER TABLE session_artifacts ADD COLUMN last_compact_boundary_json TEXT",
+            [],
+        );
         Ok(())
     }
 

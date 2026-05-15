@@ -61,6 +61,7 @@ fn upsert_session_artifacts_persists_and_lists_metadata() {
             last_compaction_summary_excerpt: Some("summary".to_string()),
             last_compaction_session_memory_path: Some("/tmp/session.md".to_string()),
             last_compaction_transcript_path: Some("/tmp/transcript.md".to_string()),
+            last_compact_boundary_json: Some(r#"{"mode":"manual"}"#.to_string()),
             last_session_memory_update_at: Some("2026-01-01 10:05:00".to_string()),
             last_session_memory_update_path: Some("/tmp/live.md".to_string()),
             last_session_memory_generated_summary: true,
@@ -80,6 +81,10 @@ fn upsert_session_artifacts_persists_and_lists_metadata() {
             .last_compaction_transcript_path
             .as_deref(),
         Some("/tmp/transcript.md")
+    );
+    assert_eq!(
+        sessions[0].artifacts.last_compact_boundary_json.as_deref(),
+        Some(r#"{"mode":"manual"}"#)
     );
     assert!(sessions[0].artifacts.last_session_memory_generated_summary);
 }

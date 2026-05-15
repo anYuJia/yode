@@ -80,6 +80,7 @@ impl Database {
                 s.id, s.name, s.provider, s.model, s.created_at, s.updated_at,
                 a.last_compaction_mode, a.last_compaction_at, a.last_compaction_summary_excerpt,
                 a.last_compaction_session_memory_path, a.last_compaction_transcript_path,
+                a.last_compact_boundary_json,
                 a.last_session_memory_update_at, a.last_session_memory_update_path,
                 a.last_session_memory_generated_summary
              FROM sessions s
@@ -109,10 +110,11 @@ impl Database {
                         last_compaction_summary_excerpt: row.get(8)?,
                         last_compaction_session_memory_path: row.get(9)?,
                         last_compaction_transcript_path: row.get(10)?,
-                        last_session_memory_update_at: row.get(11)?,
-                        last_session_memory_update_path: row.get(12)?,
+                        last_compact_boundary_json: row.get(11)?,
+                        last_session_memory_update_at: row.get(12)?,
+                        last_session_memory_update_path: row.get(13)?,
                         last_session_memory_generated_summary: row
-                            .get::<_, Option<i64>>(13)?
+                            .get::<_, Option<i64>>(14)?
                             .unwrap_or(0)
                             != 0,
                     },
@@ -137,17 +139,19 @@ impl Database {
                 last_compaction_summary_excerpt,
                 last_compaction_session_memory_path,
                 last_compaction_transcript_path,
+                last_compact_boundary_json,
                 last_session_memory_update_at,
                 last_session_memory_update_path,
                 last_session_memory_generated_summary,
                 updated_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
              ON CONFLICT(session_id) DO UPDATE SET
                 last_compaction_mode = excluded.last_compaction_mode,
                 last_compaction_at = excluded.last_compaction_at,
                 last_compaction_summary_excerpt = excluded.last_compaction_summary_excerpt,
                 last_compaction_session_memory_path = excluded.last_compaction_session_memory_path,
                 last_compaction_transcript_path = excluded.last_compaction_transcript_path,
+                last_compact_boundary_json = excluded.last_compact_boundary_json,
                 last_session_memory_update_at = excluded.last_session_memory_update_at,
                 last_session_memory_update_path = excluded.last_session_memory_update_path,
                 last_session_memory_generated_summary = excluded.last_session_memory_generated_summary,
@@ -159,6 +163,7 @@ impl Database {
                 artifacts.last_compaction_summary_excerpt,
                 artifacts.last_compaction_session_memory_path,
                 artifacts.last_compaction_transcript_path,
+                artifacts.last_compact_boundary_json,
                 artifacts.last_session_memory_update_at,
                 artifacts.last_session_memory_update_path,
                 if artifacts.last_session_memory_generated_summary {

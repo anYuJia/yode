@@ -833,6 +833,7 @@ mod tests {
             last_compaction_summary_excerpt: Some("trimmed old turns".to_string()),
             last_compaction_session_memory_path: None,
             last_compaction_transcript_path: Some("/tmp/transcript.md".to_string()),
+            last_compact_boundary: None,
             last_session_memory_update_at: None,
             last_session_memory_update_path: None,
             last_session_memory_generated_summary: false,

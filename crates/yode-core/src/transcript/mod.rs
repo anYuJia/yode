@@ -11,6 +11,7 @@ use anyhow::{Context, Result};
 use yode_llm::types::Message;
 
 use crate::context_manager::CompressionReport;
+use crate::engine::CompactBoundaryRuntimeState;
 
 const TRANSCRIPTS_DIR: &str = ".yode/transcripts";
 
@@ -28,6 +29,7 @@ pub fn write_compaction_transcript(
     session_memory_path: Option<&Path>,
     files_read: &HashMap<String, usize>,
     files_modified: &[String],
+    compact_boundary: Option<&CompactBoundaryRuntimeState>,
 ) -> Result<PathBuf> {
     let dir = project_root.join(TRANSCRIPTS_DIR);
     std::fs::create_dir_all(&dir)
@@ -39,6 +41,17 @@ pub fn write_compaction_transcript(
         render::short_session_id(session_id),
         timestamp
     ));
+    let compact_boundary = compact_boundary.cloned().map(|mut boundary| {
+        if !boundary
+            .artifact_paths
+            .iter()
+            .any(|artifact| artifact == &path.display().to_string())
+        {
+            boundary.artifact_paths.push(path.display().to_string());
+        }
+        boundary
+    });
+
     writer::write_string_with_retry(
         &path,
         &render::render_compaction_transcript(
@@ -51,6 +64,7 @@ pub fn write_compaction_transcript(
             session_memory_path,
             files_read,
             files_modified,
+            compact_boundary.as_ref(),
         ),
     )
     .with_context(|| format!("Failed to write transcript file: {}", path.display()))?;

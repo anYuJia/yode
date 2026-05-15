@@ -25,7 +25,7 @@ pub(in crate::commands::info::memory) fn transcript_metadata_panel(
     summary_preview: &str,
 ) -> String {
     format!(
-        "Metadata panel:\n  Path:            {}\n  Timestamp:       {}\n  Mode:            {}\n  Removed:         {}\n  Truncated:       {}\n  Failed tools:    {}\n  Session memory:  {}\n  Files read:      {}\n  Files modified:  {}\n  Summary anchor:  {}\n  Summary preview: {}",
+        "Metadata panel:\n  Path:            {}\n  Timestamp:       {}\n  Mode:            {}\n  Removed:         {}\n  Truncated:       {}\n  Failed tools:    {}\n  Session memory:  {}\n  Files read:      {}\n  Files modified:  {}\n  Boundary:        {}\n  Summary anchor:  {}\n  Summary preview: {}",
         describe_path(path),
         meta.timestamp.as_deref().unwrap_or("unknown"),
         meta.mode.as_deref().unwrap_or("unknown"),
@@ -35,6 +35,7 @@ pub(in crate::commands::info::memory) fn transcript_metadata_panel(
         meta.session_memory_path.as_deref().unwrap_or("none"),
         meta.files_read_summary.as_deref().unwrap_or("none"),
         meta.files_modified_summary.as_deref().unwrap_or("none"),
+        meta.compact_boundary_summary.as_deref().unwrap_or("none"),
         if meta.has_summary { "yes" } else { "no" },
         if summary_preview.is_empty() {
             "none".to_string()
@@ -55,9 +56,19 @@ pub(in crate::commands::info::memory) fn transcript_timeline_anchor_panel(
         .unwrap_or(false);
     let runtime_summary = runtime.map(|state| {
         format!(
-            "  Runtime compact: {} / {}\n  Runtime session memory: {}\n  Runtime turn artifact: {}",
+            "  Runtime compact: {} / {}\n  Runtime boundary: {}\n  Runtime session memory: {}\n  Runtime turn artifact: {}",
             state.last_compaction_mode.as_deref().unwrap_or("none"),
             state.last_compaction_at.as_deref().unwrap_or("none"),
+            state
+                .last_compact_boundary
+                .as_ref()
+                .map(|boundary| {
+                    format!(
+                        "{} removed={} delta={}",
+                        boundary.mode, boundary.removed_count, boundary.post_compact_token_delta
+                    )
+                })
+                .unwrap_or_else(|| "none".to_string()),
             state
                 .last_compaction_session_memory_path
                 .as_deref()
@@ -132,10 +143,12 @@ mod tests {
             session_memory_path: Some("/tmp/memory.md".to_string()),
             files_read_summary: Some("src/lib.rs".to_string()),
             files_modified_summary: Some("src/main.rs".to_string()),
+            compact_boundary_summary: Some("manual removed=5 delta=-100".to_string()),
             has_summary: true,
         };
         let panel = transcript_metadata_panel(path, &meta, "summary line");
         assert!(panel.contains("Path:"));
+        assert!(panel.contains("manual removed=5"));
         assert!(panel.contains("summary line"));
     }
 

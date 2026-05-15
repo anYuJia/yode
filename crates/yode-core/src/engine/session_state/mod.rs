@@ -63,6 +63,7 @@ impl AgentEngine {
         self.last_compaction_summary_excerpt = None;
         self.last_compaction_session_memory_path = None;
         self.last_compaction_transcript_path = None;
+        self.last_compact_boundary = None;
         self.total_compactions = 0;
         self.auto_compactions = 0;
         self.manual_compactions = 0;
