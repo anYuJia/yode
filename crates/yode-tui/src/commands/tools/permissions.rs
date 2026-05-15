@@ -247,7 +247,7 @@ impl Command for PermissionsCommand {
                     Some((tool, content.as_deref())),
                 );
                 Ok(CommandOutput::Message(format!(
-                    "Permission explanation for '{}':\n  Action:      {}\n  Mode:        {}\n  Reason:      {}\n  Matched rule: {}\n  Risk:        {}\n  Categories:  {}\n  Denials:     {}{}\n  Precedence:  {}\n  Artifact:    {}\n",
+                    "Permission explanation for '{}':\n  Action:      {}\n  Mode:        {}\n  Reason:      {}\n  Matched rule: {}\n  Risk:        {}\n  Semantic:    {}{}\n  Categories:  {}\n  Denials:     {}{}\n  Precedence:  {}\n  Artifact:    {}\n",
                     tool,
                     explanation.action.label(),
                     explanation.mode,
@@ -257,6 +257,15 @@ impl Command for PermissionsCommand {
                         .classifier_risk
                         .map(|risk| format!("{:?}", risk))
                         .unwrap_or_else(|| "none".to_string()),
+                    explanation
+                        .semantic_category
+                        .map(|category| category.label().to_string())
+                        .unwrap_or_else(|| "none".to_string()),
+                    explanation
+                        .semantic_segment
+                        .as_deref()
+                        .map(|segment| format!(" / segment `{segment}`"))
+                        .unwrap_or_default(),
                     tool_categories(tool).join(", "),
                     explanation.denial_count,
                     if explanation.auto_skip_due_to_denials {
@@ -285,7 +294,7 @@ impl Command for PermissionsCommand {
                     Some((tool, content.as_deref())),
                 );
                 Ok(CommandOutput::Message(format!(
-                    "Permission explanation for '{}':\n  Action:      {}\n  Mode:        {}\n  Reason:      {}\n  Matched rule: {}\n  Risk:        {}\n  Categories:  {}\n  Denials:     {}{}\n  Precedence:  {}\n  Artifact:    {}\n",
+                    "Permission explanation for '{}':\n  Action:      {}\n  Mode:        {}\n  Reason:      {}\n  Matched rule: {}\n  Risk:        {}\n  Semantic:    {}{}\n  Categories:  {}\n  Denials:     {}{}\n  Precedence:  {}\n  Artifact:    {}\n",
                     tool,
                     explanation.action.label(),
                     explanation.mode,
@@ -295,6 +304,15 @@ impl Command for PermissionsCommand {
                         .classifier_risk
                         .map(|risk| format!("{:?}", risk))
                         .unwrap_or_else(|| "none".to_string()),
+                    explanation
+                        .semantic_category
+                        .map(|category| category.label().to_string())
+                        .unwrap_or_else(|| "none".to_string()),
+                    explanation
+                        .semantic_segment
+                        .as_deref()
+                        .map(|segment| format!(" / segment `{segment}`"))
+                        .unwrap_or_default(),
                     tool_categories(tool).join(", "),
                     explanation.denial_count,
                     if explanation.auto_skip_due_to_denials {
@@ -440,6 +458,8 @@ fn write_permission_governance_artifact(
             "reason": explanation.reason,
             "matched_rule": explanation.matched_rule,
             "risk": explanation.classifier_risk.map(|risk| format!("{:?}", risk)),
+            "semantic_category": explanation.semantic_category.map(|category| category.label()),
+            "semantic_segment": explanation.semantic_segment,
             "categories": tool_categories(tool),
             "precedence_chain": explanation.precedence_chain,
         })

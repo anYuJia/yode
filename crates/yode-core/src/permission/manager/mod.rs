@@ -3,8 +3,8 @@ mod explain;
 use std::collections::HashMap;
 
 use super::{
-    CommandRiskLevel, DenialClusterView, DenialRecordView, DenialTracker, PermissionAction,
-    PermissionMode, PermissionRule, RuleBehavior, RuleSource,
+    CommandRiskLevel, CommandSemanticCategory, DenialClusterView, DenialRecordView, DenialTracker,
+    PermissionAction, PermissionMode, PermissionRule, RuleBehavior, RuleSource,
 };
 
 #[derive(Debug, Clone)]
@@ -13,6 +13,8 @@ pub struct PermissionExplanation {
     pub reason: String,
     pub mode: PermissionMode,
     pub classifier_risk: Option<CommandRiskLevel>,
+    pub semantic_category: Option<CommandSemanticCategory>,
+    pub semantic_segment: Option<String>,
     pub matched_rule: Option<String>,
     pub denial_count: u32,
     pub auto_skip_due_to_denials: bool,

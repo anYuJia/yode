@@ -1,4 +1,4 @@
-use super::classifier::bash_risk_rationale;
+use super::classifier::bash_semantic_rationale;
 use super::{CommandClassifier, CommandRiskLevel, PermissionAction};
 
 pub(crate) struct BashDiscoveryRedirect {
@@ -39,30 +39,39 @@ pub(crate) fn discovery_redirect(command_lower: &str) -> Option<BashDiscoveryRed
 pub(crate) fn auto_mode_bash_decision(
     command: &str,
 ) -> Option<(PermissionAction, CommandRiskLevel, String)> {
-    let risk = CommandClassifier::classify(command);
-    match risk {
+    let analysis = CommandClassifier::analyze(command);
+    match analysis.risk {
         CommandRiskLevel::Safe => Some((
             PermissionAction::Allow,
-            risk,
+            analysis.risk,
             format!(
-                "Auto mode classifier marked this bash command as safe. {}",
-                bash_risk_rationale(command, risk)
+                "Auto mode classifier marked this bash command as {}. {} Detail: {}. Highest-risk segment: `{}`.",
+                analysis.category.label(),
+                bash_semantic_rationale(&analysis),
+                analysis.reason,
+                analysis.segment
             ),
         )),
         CommandRiskLevel::Destructive => Some((
             PermissionAction::Deny,
-            risk,
+            analysis.risk,
             format!(
-                "Auto mode classifier marked this bash command as destructive. {}",
-                bash_risk_rationale(command, risk)
+                "Auto mode classifier marked this bash command as {}. {} Detail: {}. Highest-risk segment: `{}`.",
+                analysis.category.label(),
+                bash_semantic_rationale(&analysis),
+                analysis.reason,
+                analysis.segment
             ),
         )),
         CommandRiskLevel::PotentiallyRisky => Some((
             PermissionAction::Confirm,
-            risk,
+            analysis.risk,
             format!(
-                "Auto mode classifier marked this bash command as potentially risky. {}",
-                bash_risk_rationale(command, risk)
+                "Auto mode classifier marked this bash command as {}. {} Detail: {}. Highest-risk segment: `{}`.",
+                analysis.category.label(),
+                bash_semantic_rationale(&analysis),
+                analysis.reason,
+                analysis.segment
             ),
         )),
         CommandRiskLevel::Unknown => None,

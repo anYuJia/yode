@@ -1,11 +1,14 @@
 use super::*;
 use crate::permission::bash::auto_mode_bash_decision;
 use crate::permission::tool_categories;
+use crate::permission::CommandClassifier;
 
 #[derive(Debug, Clone)]
 struct AutoPermissionClassifierOutcome {
     action: PermissionAction,
     risk: Option<CommandRiskLevel>,
+    semantic_category: Option<CommandSemanticCategory>,
+    semantic_segment: Option<String>,
     reason: String,
     stage: &'static str,
 }
@@ -20,10 +23,13 @@ impl AutoPermissionClassifier {
     ) -> Option<AutoPermissionClassifierOutcome> {
         if tool_name == "bash" {
             let command = content?;
+            let analysis = CommandClassifier::analyze(command);
             let (action, risk, reason) = auto_mode_bash_decision(command)?;
             return Some(AutoPermissionClassifierOutcome {
                 action,
                 risk: Some(risk),
+                semantic_category: Some(analysis.category),
+                semantic_segment: Some(analysis.segment),
                 reason,
                 stage: "bash_classifier",
             });
@@ -33,6 +39,8 @@ impl AutoPermissionClassifier {
             return Some(AutoPermissionClassifierOutcome {
                 action: PermissionAction::Allow,
                 risk: None,
+                semantic_category: None,
+                semantic_segment: None,
                 reason: "Auto mode allows this read-only tool.".to_string(),
                 stage: "readonly_allowlist",
             });
@@ -54,6 +62,8 @@ impl PermissionManager {
                 reason: "Permission mode is bypass; all tools are allowed.".to_string(),
                 mode: self.mode,
                 classifier_risk: None,
+                semantic_category: None,
+                semantic_segment: None,
                 matched_rule: None,
                 denial_count: 0,
                 auto_skip_due_to_denials: false,
@@ -68,6 +78,8 @@ impl PermissionManager {
                     reason: "Plan mode allows this read-only tool.".to_string(),
                     mode: self.mode,
                     classifier_risk: None,
+                    semantic_category: None,
+                    semantic_segment: None,
                     matched_rule: None,
                     denial_count: self.denial_tracker.denial_count(tool_name),
                     auto_skip_due_to_denials: false,
@@ -82,6 +94,8 @@ impl PermissionManager {
                 ),
                 mode: self.mode,
                 classifier_risk: None,
+                semantic_category: None,
+                semantic_segment: None,
                 matched_rule: None,
                 denial_count: self.denial_tracker.denial_count(tool_name),
                 auto_skip_due_to_denials: false,
@@ -100,6 +114,8 @@ impl PermissionManager {
                 reason: "Accept-edits mode auto-approves file modification tools.".to_string(),
                 mode: self.mode,
                 classifier_risk: None,
+                semantic_category: None,
+                semantic_segment: None,
                 matched_rule: None,
                 denial_count: self.denial_tracker.denial_count(tool_name),
                 auto_skip_due_to_denials: false,
@@ -115,6 +131,8 @@ impl PermissionManager {
                     reason: outcome.reason,
                     mode: self.mode,
                     classifier_risk: outcome.risk,
+                    semantic_category: outcome.semantic_category,
+                    semantic_segment: outcome.semantic_segment,
                     matched_rule: None,
                     denial_count: self.denial_tracker.denial_count(tool_name),
                     auto_skip_due_to_denials: false,
@@ -140,6 +158,8 @@ impl PermissionManager {
                 ),
                 mode: self.mode,
                 classifier_risk: None,
+                semantic_category: None,
+                semantic_segment: None,
                 matched_rule: None,
                 denial_count: self.denial_tracker.denial_count(tool_name),
                 auto_skip_due_to_denials: true,
@@ -169,6 +189,8 @@ impl PermissionManager {
                 reason: permission_rule_reason(rule, content),
                 mode: self.mode,
                 classifier_risk: None,
+                semantic_category: None,
+                semantic_segment: None,
                 matched_rule: Some(format!(
                     "{}:{}{}{}",
                     rule.tool_name,
@@ -204,6 +226,8 @@ impl PermissionManager {
             reason: "Fell back to the built-in default permission policy.".to_string(),
             mode: self.mode,
             classifier_risk: None,
+            semantic_category: None,
+            semantic_segment: None,
             matched_rule: None,
             denial_count: self.denial_tracker.denial_count(tool_name),
             auto_skip_due_to_denials: false,

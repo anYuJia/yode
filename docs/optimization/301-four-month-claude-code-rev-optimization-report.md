@@ -263,6 +263,10 @@ cargo test -q -p yode-tools bash
 cargo test -q -p yode-tools powershell
 ```
 
+Progress:
+
+- 2026-05-16: Added structured bash command semantic analysis in permission classification with read-only/package-install/network/git-mutating/destructive/interactive/unknown categories, highest-risk chained segment reporting, `/permissions explain` semantic output, and focused tests for read-only chains, destructive `rm -rf /tmp/project`/`git reset --hard`, and sed/awk edit redirection guidance. Verified with `cargo test -q -p yode-core permission`, `cargo test -q -p yode-tools bash`, `cargo test -q -p yode-tools powershell`, `cargo check -q`, and `git diff --check`. Remaining risk: bash/powershell tool-local guards still maintain their own parsers and should be unified with this semantic model in a later hardening pass.
+
 ### Week 6: Permission Rule Editor And Persistence UX
 
 Objective: make permission tuning product-grade.
