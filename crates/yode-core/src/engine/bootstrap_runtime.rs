@@ -144,6 +144,7 @@ impl AgentEngine {
             last_post_compaction_estimated_tokens: None,
             last_post_compaction_threshold_tokens: None,
             last_post_compaction_will_retrigger: None,
+            last_restore_budget: None,
             compaction_prompt_tokens_total: 0,
             compaction_prompt_token_samples: 0,
             compaction_cause_histogram: BTreeMap::new(),

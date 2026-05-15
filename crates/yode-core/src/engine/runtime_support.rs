@@ -127,6 +127,7 @@ impl AgentEngine {
             last_post_compaction_estimated_tokens: self.last_post_compaction_estimated_tokens,
             last_post_compaction_threshold_tokens: self.last_post_compaction_threshold_tokens,
             last_post_compaction_will_retrigger: self.last_post_compaction_will_retrigger,
+            last_restore_budget: self.last_restore_budget.clone(),
             avg_compaction_prompt_tokens: (self.compaction_prompt_token_samples > 0).then(|| {
                 (self.compaction_prompt_tokens_total / self.compaction_prompt_token_samples as u64)
                     as u32

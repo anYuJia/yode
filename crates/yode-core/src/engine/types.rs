@@ -133,6 +133,22 @@ pub struct CompactBoundaryRuntimeState {
     pub artifact_paths: Vec<String>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct RestoreBudgetEntryRuntimeState {
+    pub kind: String,
+    pub used_tokens: u32,
+    pub cap_tokens: u32,
+    pub truncated: bool,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct RestoreBudgetRuntimeState {
+    pub total_tokens: u32,
+    pub used_tokens: u32,
+    pub entries: Vec<RestoreBudgetEntryRuntimeState>,
+}
+
 #[derive(Debug, Clone)]
 pub struct EngineRuntimeState {
     pub query_source: String,
@@ -177,6 +193,7 @@ pub struct EngineRuntimeState {
     pub last_post_compaction_estimated_tokens: Option<u32>,
     pub last_post_compaction_threshold_tokens: Option<u32>,
     pub last_post_compaction_will_retrigger: Option<bool>,
+    pub last_restore_budget: Option<RestoreBudgetRuntimeState>,
     pub avg_compaction_prompt_tokens: Option<u32>,
     pub compaction_cause_histogram: BTreeMap<String, u32>,
     pub last_microcompact_media_removed: u32,

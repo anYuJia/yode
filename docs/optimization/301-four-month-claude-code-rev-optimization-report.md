@@ -757,6 +757,10 @@ Commit target:
 
 - `Budget post-compact restore blocks`
 
+Progress:
+
+- 2026-05-16: Added a shared post-compact restore budget with per-block caps, truncation recovery hints, restore artifact budget table, state artifact budget JSON, and `/context` budget summary. Verified with `cargo test -q -p yode-core compaction`, `cargo test -q -p yode-tui context_cmd`, `bash scripts/verify-compact-artifacts.sh`, `cargo check -q`, and `git diff --check`. Remaining risk: token accounting is approximate character-based budgeting; future model-specific tokenizers can tighten the cap.
+
 ### Task C: Plan Restore Block
 
 Files:

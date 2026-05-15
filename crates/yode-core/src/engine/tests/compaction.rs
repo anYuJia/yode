@@ -315,6 +315,16 @@ async fn test_force_compact_uses_full_post_compact_finalize_path() {
         0
     );
     assert_eq!(runtime_after_request.prompt_cache.pinned_cache_edit_refs, 0);
+    let restore_budget = runtime_after_request
+        .last_restore_budget
+        .as_ref()
+        .expect("restore budget");
+    assert!(restore_budget.used_tokens <= restore_budget.total_tokens);
+    assert_eq!(restore_budget.total_tokens, 5_000);
+    assert!(restore_budget
+        .entries
+        .iter()
+        .any(|entry| entry.kind == "files"));
     let boundary = runtime_after_request
         .last_compact_boundary
         .as_ref()
@@ -349,11 +359,15 @@ async fn test_force_compact_uses_full_post_compact_finalize_path() {
     assert!(restore_artifact.contains("Post-compact pressure:"));
     assert!(restore_artifact.contains("next_auto="));
     assert!(restore_artifact.contains("## Compact Boundary"));
+    assert!(restore_artifact.contains("## Restore Budget"));
+    assert!(restore_artifact.contains("| Block | Used | Cap | Truncated | Reason |"));
     assert!(restore_artifact.contains("\"removed_count\""));
-    assert!(project_root
+    let restore_state_path = project_root
         .join(".yode/status")
-        .join(format!("{}-post-compact-restore-state.json", short_session))
-        .exists());
+        .join(format!("{}-post-compact-restore-state.json", short_session));
+    assert!(restore_state_path.exists());
+    let restore_state = std::fs::read_to_string(restore_state_path).unwrap();
+    assert!(restore_state.contains("\"restore_budget\""));
     assert!(boundary
         .artifact_paths
         .iter()

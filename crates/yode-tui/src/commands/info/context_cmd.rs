@@ -3,7 +3,7 @@ use crate::commands::info::status::helpers::compact_breaker_hint;
 use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
 use crate::display_text::compact_path_tail;
 use crate::ui::status_summary::{context_window_summary_text, tool_runtime_summary_text};
-use yode_core::engine::{EngineRuntimeState, PromptCacheRuntimeState};
+use yode_core::engine::{EngineRuntimeState, PromptCacheRuntimeState, RestoreBudgetRuntimeState};
 
 pub struct ContextCommand {
     meta: CommandMeta,
@@ -76,12 +76,13 @@ fn render_runtime_context_lines(
     let prompt_cache = prompt_cache_summary(&state.prompt_cache);
     let compact_artifacts = compact_artifact_summary(state);
     format!(
-        "\n  Summary:         {}\n  Messages:        {}\n  Compaction line: ~{} tokens\n  Pressure:        {}\n  Post-compact:    {}\n  Suggestions:     {}\n  Query source:    {}\n  Autocompact:     {}\n  Compact count:   {} (auto {}, manual {})\n  Breaker reason:  {}\n  Hint:            {}\n  Last compact:    {}\n  Media compact:   last {} / total {} removed, saved ~{} chars\n  Compact files:   {}\n  Prompt cache:    {}\n  Live memory:     {}\n  Tool runtime:    {}\n  Memory updates:  {}",
+        "\n  Summary:         {}\n  Messages:        {}\n  Compaction line: ~{} tokens\n  Pressure:        {}\n  Post-compact:    {}\n  Restore budget:  {}\n  Suggestions:     {}\n  Query source:    {}\n  Autocompact:     {}\n  Compact count:   {} (auto {}, manual {})\n  Breaker reason:  {}\n  Hint:            {}\n  Last compact:    {}\n  Media compact:   last {} / total {} removed, saved ~{} chars\n  Compact files:   {}\n  Prompt cache:    {}\n  Live memory:     {}\n  Tool runtime:    {}\n  Memory updates:  {}",
         context_window_summary_text(Some(state), fallback_tokens),
         state.message_count,
         state.compaction_threshold_tokens,
         compact_pressure_hint(state, pct, threshold),
         post_compact_pressure_summary(state),
+        restore_budget_summary(state.last_restore_budget.as_ref()),
         context_suggestions_summary(state, pct, threshold),
         state.query_source,
         if state.autocompact_disabled {
@@ -106,6 +107,24 @@ fn render_runtime_context_lines(
         state.live_session_memory_path,
         tool_runtime_summary_text(state),
         state.session_memory_update_count,
+    )
+}
+
+fn restore_budget_summary(budget: Option<&RestoreBudgetRuntimeState>) -> String {
+    let Some(budget) = budget else {
+        return "none".to_string();
+    };
+    let truncated = budget
+        .entries
+        .iter()
+        .filter(|entry| entry.truncated)
+        .count();
+    format!(
+        "{}/{} tokens, {} blocks, {} truncated",
+        budget.used_tokens,
+        budget.total_tokens,
+        budget.entries.len(),
+        truncated
     )
 }
 
@@ -280,9 +299,11 @@ mod tests {
     use super::{
         compact_artifact_summary, compact_pressure_hint, context_suggestions_summary,
         last_compact_summary, post_compact_pressure_summary, prompt_cache_summary,
+        restore_budget_summary,
     };
     use yode_core::engine::{
-        EngineRuntimeState, PromptCacheRuntimeState, SystemPromptSegmentRuntimeState,
+        EngineRuntimeState, PromptCacheRuntimeState, RestoreBudgetEntryRuntimeState,
+        RestoreBudgetRuntimeState, SystemPromptSegmentRuntimeState,
     };
     use yode_core::tool_runtime::ToolRuntimeCallView;
     use yode_tools::registry::ToolPoolSnapshot;
@@ -335,6 +356,7 @@ mod tests {
             last_post_compaction_estimated_tokens: None,
             last_post_compaction_threshold_tokens: None,
             last_post_compaction_will_retrigger: None,
+            last_restore_budget: None,
             avg_compaction_prompt_tokens: Some(96_000),
             compaction_cause_histogram: BTreeMap::new(),
             last_microcompact_media_removed: 2,
@@ -471,6 +493,35 @@ mod tests {
         assert_eq!(
             post_compact_pressure_summary(&state),
             "est=90000 threshold=96000 delta=-6000 next_auto=clear"
+        );
+    }
+
+    #[test]
+    fn restore_budget_summary_surfaces_usage_and_truncation() {
+        let budget = RestoreBudgetRuntimeState {
+            total_tokens: 4000,
+            used_tokens: 2750,
+            entries: vec![
+                RestoreBudgetEntryRuntimeState {
+                    kind: "files".to_string(),
+                    used_tokens: 1400,
+                    cap_tokens: 1400,
+                    truncated: true,
+                    reason: Some("per-block restore budget cap".to_string()),
+                },
+                RestoreBudgetEntryRuntimeState {
+                    kind: "runtime".to_string(),
+                    used_tokens: 200,
+                    cap_tokens: 600,
+                    truncated: false,
+                    reason: None,
+                },
+            ],
+        };
+
+        assert_eq!(
+            restore_budget_summary(Some(&budget)),
+            "2750/4000 tokens, 2 blocks, 1 truncated"
         );
     }
 

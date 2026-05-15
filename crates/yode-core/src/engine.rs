@@ -88,7 +88,8 @@ use types::{
 };
 pub use types::{
     CompactBoundaryRuntimeState, ConfirmResponse, EngineEvent, EngineRuntimeState,
-    PromptCacheRuntimeState, SystemPromptSegmentRuntimeState,
+    PromptCacheRuntimeState, RestoreBudgetEntryRuntimeState, RestoreBudgetRuntimeState,
+    SystemPromptSegmentRuntimeState,
 };
 
 /// The core agent engine that drives the conversation loop.
@@ -318,6 +319,8 @@ pub struct AgentEngine {
     last_post_compaction_threshold_tokens: Option<u32>,
     /// Whether the most recent post-compaction context was still above the auto-compact threshold.
     last_post_compaction_will_retrigger: Option<bool>,
+    /// Shared restore budget used by the most recent post-compact restore blocks.
+    last_restore_budget: Option<RestoreBudgetRuntimeState>,
     /// Running total for compaction-trigger prompt token telemetry.
     compaction_prompt_tokens_total: u64,
     /// Sample count for compaction-trigger prompt token telemetry.

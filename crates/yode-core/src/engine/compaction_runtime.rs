@@ -18,6 +18,7 @@ const HIDDEN_POST_COMPACT_RESTORE_PREFIX: &str = "# Post-compact Restore";
 const REACTIVE_GAP_SAFETY_TOKENS: usize = 2_000;
 const POST_COMPACT_FILE_EXCERPT_MAX_FILES: usize = 3;
 const POST_COMPACT_FILE_EXCERPT_MAX_CHARS: usize = 900;
+const POST_COMPACT_RESTORE_TOTAL_BUDGET_TOKENS: u32 = 5_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CompactionMode {
@@ -73,6 +74,63 @@ struct OwnedRestoreBlockArtifact {
     content: String,
     #[serde(rename = "fingerprint")]
     _fingerprint: String,
+}
+
+struct RestoreBudget {
+    total_tokens: u32,
+    used_tokens: u32,
+    entries: Vec<RestoreBudgetEntryRuntimeState>,
+}
+
+impl RestoreBudget {
+    fn new(total_tokens: u32) -> Self {
+        Self {
+            total_tokens,
+            used_tokens: 0,
+            entries: Vec::new(),
+        }
+    }
+
+    fn apply(&mut self, kind: RestoreBlockKind, content: String) -> String {
+        let block_cap = restore_block_cap_tokens(kind);
+        let remaining = self.total_tokens.saturating_sub(self.used_tokens);
+        let cap = block_cap.min(remaining);
+        let original_tokens = estimate_restore_text_tokens(&content);
+        let (content, truncated, reason) = if original_tokens > cap {
+            let reason = if remaining == 0 {
+                "shared restore budget exhausted"
+            } else if block_cap <= remaining {
+                "per-block restore budget cap"
+            } else {
+                "shared restore budget remaining cap"
+            };
+            (
+                truncate_restore_block(kind, &content, cap),
+                true,
+                Some(reason.to_string()),
+            )
+        } else {
+            (content, false, None)
+        };
+        let used_tokens = estimate_restore_text_tokens(&content).min(cap);
+        self.used_tokens = self.used_tokens.saturating_add(used_tokens);
+        self.entries.push(RestoreBudgetEntryRuntimeState {
+            kind: kind.label().to_string(),
+            used_tokens,
+            cap_tokens: cap,
+            truncated,
+            reason,
+        });
+        content
+    }
+
+    fn into_runtime(self) -> RestoreBudgetRuntimeState {
+        RestoreBudgetRuntimeState {
+            total_tokens: self.total_tokens,
+            used_tokens: self.used_tokens,
+            entries: self.entries,
+        }
+    }
 }
 
 impl CompactionMode {
@@ -334,6 +392,103 @@ fn push_artifact_path(artifact_paths: &mut Vec<String>, path: Option<&std::path:
     }
 }
 
+fn estimate_restore_text_tokens(text: &str) -> u32 {
+    text.chars().count().div_ceil(4).max(1) as u32
+}
+
+fn restore_block_cap_tokens(kind: RestoreBlockKind) -> u32 {
+    match kind {
+        RestoreBlockKind::Runtime => 600,
+        RestoreBlockKind::Files => 1_400,
+        RestoreBlockKind::Plan => 400,
+        RestoreBlockKind::Tools => 500,
+        RestoreBlockKind::PromptCache => 500,
+        RestoreBlockKind::Skills => 500,
+        RestoreBlockKind::Mcp => 300,
+        RestoreBlockKind::Artifacts => 300,
+    }
+}
+
+fn truncate_restore_block(kind: RestoreBlockKind, content: &str, cap_tokens: u32) -> String {
+    let recovery = restore_recovery_instruction(kind);
+    let marker = format!(
+        "\n- Restore budget: truncated by {} token cap. {}",
+        cap_tokens, recovery
+    );
+    if cap_tokens == 0 {
+        return format!(
+            "[Post-compact restore: {}]{}",
+            kind.label(),
+            marker.trim_start()
+        );
+    }
+    let marker_chars = marker.chars().count();
+    let max_chars = (cap_tokens as usize)
+        .saturating_mul(4)
+        .saturating_sub(marker_chars)
+        .max(80);
+    let mut truncated = content.chars().take(max_chars).collect::<String>();
+    truncated.push_str(&marker);
+    truncated
+}
+
+fn restore_recovery_instruction(kind: RestoreBlockKind) -> &'static str {
+    match kind {
+        RestoreBlockKind::Files => {
+            "Re-read the named files with focused read_file calls for exact content."
+        }
+        RestoreBlockKind::Skills => {
+            "Run /skills active or rediscover the referenced SKILL.md files for full guidance."
+        }
+        RestoreBlockKind::Artifacts => {
+            "Open the listed .yode/status or transcript artifacts for the full details."
+        }
+        RestoreBlockKind::Plan => "Run /plan status or inspect the plan file for full state.",
+        RestoreBlockKind::Mcp => "Run /mcp status or list resources again for full MCP state.",
+        RestoreBlockKind::PromptCache => {
+            "Use /context for current cache diagnostics; the next request will rederive cache state."
+        }
+        RestoreBlockKind::Tools => "Run /tools status for the full active tool inventory.",
+        RestoreBlockKind::Runtime => "Use /status and /context for the full runtime state.",
+    }
+}
+
+fn apply_restore_budget(
+    blocks: Vec<(RestoreBlockKind, String)>,
+) -> (Vec<(RestoreBlockKind, String)>, RestoreBudgetRuntimeState) {
+    let mut budget = RestoreBudget::new(POST_COMPACT_RESTORE_TOTAL_BUDGET_TOKENS);
+    let blocks = blocks
+        .into_iter()
+        .map(|(kind, content)| (kind, budget.apply(kind, content)))
+        .collect::<Vec<_>>();
+    (blocks, budget.into_runtime())
+}
+
+fn render_restore_budget_table(budget: &RestoreBudgetRuntimeState) -> String {
+    let mut lines = vec![
+        "## Restore Budget".to_string(),
+        String::new(),
+        format!(
+            "- Total: {}/{} tokens",
+            budget.used_tokens, budget.total_tokens
+        ),
+        String::new(),
+        "| Block | Used | Cap | Truncated | Reason |".to_string(),
+        "| --- | ---: | ---: | --- | --- |".to_string(),
+    ];
+    for entry in &budget.entries {
+        lines.push(format!(
+            "| {} | {} | {} | {} | {} |",
+            entry.kind,
+            entry.used_tokens,
+            entry.cap_tokens,
+            if entry.truncated { "yes" } else { "no" },
+            entry.reason.as_deref().unwrap_or("none")
+        ));
+    }
+    lines.join("\n")
+}
+
 fn message_excerpt_for_compaction(message: &Message, limit: usize) -> Option<String> {
     let role = match message.role {
         Role::System => "System",
@@ -501,6 +656,7 @@ fn write_post_compact_restore_artifact(
     mode: &str,
     blocks: &[(RestoreBlockKind, String)],
     compact_boundary: Option<&CompactBoundaryRuntimeState>,
+    restore_budget: Option<&RestoreBudgetRuntimeState>,
 ) -> Option<std::path::PathBuf> {
     let dir = project_root.join(".yode").join("status");
     std::fs::create_dir_all(&dir).ok()?;
@@ -524,6 +680,10 @@ fn write_post_compact_restore_artifact(
         body.push_str(&serde_json::to_string_pretty(boundary).ok()?);
         body.push_str("\n```\n\n");
     }
+    if let Some(budget) = restore_budget {
+        body.push_str(&render_restore_budget_table(budget));
+        body.push_str("\n\n");
+    }
 
     std::fs::write(&path, body).ok()?;
     Some(path)
@@ -535,6 +695,7 @@ fn write_post_compact_restore_state_artifact(
     mode: &str,
     blocks: &[(RestoreBlockKind, String)],
     compact_boundary: Option<&CompactBoundaryRuntimeState>,
+    restore_budget: Option<&RestoreBudgetRuntimeState>,
 ) -> Option<std::path::PathBuf> {
     let dir = project_root.join(".yode").join("status");
     std::fs::create_dir_all(&dir).ok()?;
@@ -546,6 +707,7 @@ fn write_post_compact_restore_state_artifact(
         "mode": mode,
         "updated_at": chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
         "compact_boundary": compact_boundary,
+        "restore_budget": restore_budget,
         "blocks": blocks
             .iter()
             .map(|(kind, content)| RestoreBlockArtifact {
@@ -704,6 +866,16 @@ fn ordered_restore_block_contents(
     ordered.into_values().collect()
 }
 
+fn append_restore_budget_lines(lines: &mut Vec<String>, body_lines: &[&str]) {
+    lines.extend(
+        body_lines
+            .iter()
+            .copied()
+            .filter(|line| line.starts_with("- Restore budget:"))
+            .map(str::to_string),
+    );
+}
+
 fn sanitize_restore_block_for_request(kind: RestoreBlockKind, content: &str) -> Option<String> {
     let body_lines = content
         .lines()
@@ -712,10 +884,10 @@ fn sanitize_restore_block_for_request(kind: RestoreBlockKind, content: &str) -> 
         .filter(|line| !line.is_empty())
         .collect::<Vec<_>>();
 
-    let lines = match kind {
+    let mut lines = match kind {
         RestoreBlockKind::Runtime => {
             let mut lines = vec![POST_COMPACT_RUNTIME_PREFIX.to_string()];
-            for line in body_lines {
+            for line in body_lines.iter().copied() {
                 if line.starts_with("- Runtime cwd:")
                     || line.starts_with("- Persistent memory and instruction context")
                 {
@@ -732,7 +904,7 @@ fn sanitize_restore_block_for_request(kind: RestoreBlockKind, content: &str) -> 
         }
         RestoreBlockKind::Files => {
             let mut lines = vec![POST_COMPACT_FILES_PREFIX.to_string()];
-            for line in body_lines {
+            for line in body_lines.iter().copied() {
                 if line.starts_with("- Recent files read:")
                     || line.starts_with("- Recent files modified:")
                     || line.starts_with("- Recent file excerpts:")
@@ -750,7 +922,8 @@ fn sanitize_restore_block_for_request(kind: RestoreBlockKind, content: &str) -> 
         RestoreBlockKind::Plan => {
             let mut lines = vec![POST_COMPACT_PLAN_PREFIX.to_string()];
             let plan_line = body_lines
-                .into_iter()
+                .iter()
+                .copied()
                 .find(|line| line.starts_with("- Plan mode:"))
                 .unwrap_or("- Plan mode: unknown");
             lines.push(plan_line.to_string());
@@ -763,7 +936,7 @@ fn sanitize_restore_block_for_request(kind: RestoreBlockKind, content: &str) -> 
         ],
         RestoreBlockKind::PromptCache => {
             let mut lines = vec![POST_COMPACT_PROMPT_CACHE_PREFIX.to_string()];
-            for line in body_lines {
+            for line in body_lines.iter().copied() {
                 if line.starts_with("- Last turn:")
                     || line.starts_with("- Totals:")
                     || line.starts_with("- Active cache edits:")
@@ -785,7 +958,7 @@ fn sanitize_restore_block_for_request(kind: RestoreBlockKind, content: &str) -> 
         RestoreBlockKind::Skills => {
             let mut lines = vec![POST_COMPACT_SKILLS_PREFIX.to_string()];
             let mut found = false;
-            for line in body_lines {
+            for line in body_lines.iter().copied() {
                 if line.starts_with("- Path-gated active skills:")
                     || line.starts_with("- Available skills:")
                     || line.starts_with("- No skills discovered.")
@@ -810,6 +983,7 @@ fn sanitize_restore_block_for_request(kind: RestoreBlockKind, content: &str) -> 
         ],
     };
 
+    append_restore_budget_lines(&mut lines, &body_lines);
     Some(lines.join("\n"))
 }
 
@@ -1265,7 +1439,7 @@ impl AgentEngine {
         post_compact_estimated_tokens: Option<u32>,
         auto_compact_threshold: Option<u32>,
         will_retrigger_next_turn: Option<bool>,
-    ) -> Vec<(RestoreBlockKind, String)> {
+    ) -> (Vec<(RestoreBlockKind, String)>, RestoreBudgetRuntimeState) {
         let project_root = self.context.working_dir_compat();
         let cwd = self.current_runtime_working_dir().await;
         let tool_pool = self.build_tool_pool_snapshot();
@@ -1500,7 +1674,7 @@ impl AgentEngine {
             artifact_lines.push("- No artifact links available.".to_string());
         }
 
-        vec![
+        let blocks = vec![
             (RestoreBlockKind::Runtime, runtime_lines.join("\n")),
             (RestoreBlockKind::Files, file_lines.join("\n")),
             (RestoreBlockKind::Plan, plan_lines.join("\n")),
@@ -1509,7 +1683,8 @@ impl AgentEngine {
             (RestoreBlockKind::Skills, skill_lines.join("\n")),
             (RestoreBlockKind::Mcp, mcp_lines.join("\n")),
             (RestoreBlockKind::Artifacts, artifact_lines.join("\n")),
-        ]
+        ];
+        apply_restore_budget(blocks)
     }
 
     async fn finalize_compaction_result(
@@ -1602,7 +1777,7 @@ impl AgentEngine {
             Err(err) => warn!("Failed to write compaction transcript: {}", err),
         }
 
-        let restore_messages = self
+        let (restore_messages, restore_budget) = self
             .build_post_compact_restore_messages(
                 mode,
                 session_memory_path.as_deref(),
@@ -1612,6 +1787,7 @@ impl AgentEngine {
                 Some(will_retrigger_next_turn),
             )
             .await;
+        self.last_restore_budget = Some(restore_budget.clone());
         let previous_restore_messages =
             load_post_compact_restore_state_artifact(&project_root, &self.context.session_id);
         let restore_artifact_path = write_post_compact_restore_artifact(
@@ -1620,6 +1796,7 @@ impl AgentEngine {
             mode_label,
             &restore_messages,
             Some(&compact_boundary),
+            Some(&restore_budget),
         );
         let restore_state_artifact_path = write_post_compact_restore_state_artifact(
             &project_root,
@@ -1627,6 +1804,7 @@ impl AgentEngine {
             mode_label,
             &restore_messages,
             Some(&compact_boundary),
+            Some(&restore_budget),
         );
         push_artifact_path(
             &mut compact_boundary.artifact_paths,
@@ -2065,8 +2243,8 @@ mod tests {
     use yode_llm::types::Message;
 
     use super::{
-        format_llm_compaction_summary_content, parse_prompt_too_long_token_gap,
-        truncate_head_for_summary_retry,
+        apply_restore_budget, format_llm_compaction_summary_content,
+        parse_prompt_too_long_token_gap, truncate_head_for_summary_retry, RestoreBlockKind,
     };
 
     #[test]
@@ -2110,5 +2288,22 @@ mod tests {
         assert!(!formatted.contains("<summary>"));
         assert!(formatted.starts_with("## Goals"));
         assert!(formatted.contains("## Next Steps"));
+    }
+
+    #[test]
+    fn restore_budget_truncates_large_blocks_with_recovery_hint() {
+        let oversized_files = format!(
+            "[Post-compact restore: files]\n- Recent file excerpts:\n{}",
+            "very large file excerpt ".repeat(2_000)
+        );
+        let (blocks, budget) =
+            apply_restore_budget(vec![(RestoreBlockKind::Files, oversized_files)]);
+
+        assert!(budget.used_tokens <= budget.total_tokens);
+        assert_eq!(budget.entries.len(), 1);
+        assert!(budget.entries[0].truncated);
+        let files_block = &blocks[0].1;
+        assert!(files_block.contains("Restore budget: truncated"));
+        assert!(files_block.contains("Re-read the named files"));
     }
 }
