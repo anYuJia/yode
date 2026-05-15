@@ -76,7 +76,7 @@ fn render_runtime_context_lines(
     let prompt_cache = prompt_cache_summary(&state.prompt_cache);
     let compact_artifacts = compact_artifact_summary(state);
     format!(
-        "\n  Summary:         {}\n  Messages:        {}\n  Compaction line: ~{} tokens\n  Pressure:        {}\n  Post-compact:    {}\n  Restore budget:  {}\n  Async tasks:     {}\n  Suggestions:     {}\n  Query source:    {}\n  Autocompact:     {}\n  Compact count:   {} (auto {}, manual {})\n  Breaker reason:  {}\n  Hint:            {}\n  Last compact:    {}\n  Media compact:   last {} / total {} removed, saved ~{} chars\n  Compact files:   {}\n  Prompt cache:    {}\n  Live memory:     {}\n  Tool runtime:    {}\n  Memory updates:  {}",
+        "\n  Summary:         {}\n  Messages:        {}\n  Compaction line: ~{} tokens\n  Pressure:        {}\n  Post-compact:    {}\n  Restore budget:  {}\n  Async tasks:     {}\n  Collapse:        {}\n  Suggestions:     {}\n  Query source:    {}\n  Autocompact:     {}\n  Compact count:   {} (auto {}, manual {})\n  Breaker reason:  {}\n  Hint:            {}\n  Last compact:    {}\n  Media compact:   last {} / total {} removed, saved ~{} chars\n  Compact files:   {}\n  Prompt cache:    {}\n  Live memory:     {}\n  Tool runtime:    {}\n  Memory updates:  {}",
         context_window_summary_text(Some(state), fallback_tokens),
         state.message_count,
         state.compaction_threshold_tokens,
@@ -87,6 +87,7 @@ fn render_runtime_context_lines(
             .async_task_restore_summary
             .as_deref()
             .unwrap_or("none"),
+        context_collapse_summary(state),
         context_suggestions_summary(state, pct, threshold),
         state.query_source,
         if state.autocompact_disabled {
@@ -111,6 +112,26 @@ fn render_runtime_context_lines(
         state.live_session_memory_path,
         tool_runtime_summary_text(state),
         state.session_memory_update_count,
+    )
+}
+
+fn context_collapse_summary(state: &EngineRuntimeState) -> String {
+    format!(
+        "{} ops={} last_saved={} total_saved={} artifact={}",
+        if state.context_collapse.enabled {
+            "enabled"
+        } else {
+            "disabled"
+        },
+        state.context_collapse.operations,
+        state.context_collapse.last_saved_chars,
+        state.context_collapse.saved_chars_total,
+        state
+            .context_collapse
+            .last_artifact_path
+            .as_deref()
+            .map(compact_path_display)
+            .unwrap_or_else(|| "none".to_string())
     )
 }
 
@@ -363,6 +384,7 @@ mod tests {
             last_restore_budget: None,
             plan: Default::default(),
             async_task_restore_summary: None,
+            context_collapse: Default::default(),
             avg_compaction_prompt_tokens: Some(96_000),
             compaction_cause_histogram: BTreeMap::new(),
             last_microcompact_media_removed: 2,

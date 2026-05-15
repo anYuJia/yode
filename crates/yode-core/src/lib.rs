@@ -1,6 +1,7 @@
 pub mod config;
 mod constants;
 pub mod context;
+pub mod context_collapse;
 pub mod context_manager;
 pub mod cost_tracker;
 pub mod db;

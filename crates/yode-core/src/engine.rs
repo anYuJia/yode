@@ -87,8 +87,8 @@ use types::{
     SharedMemoryStatus, SystemPromptBuild, ToolExecutionOutcome, ToolExecutionTrace,
 };
 pub use types::{
-    CompactBoundaryRuntimeState, ConfirmResponse, EngineEvent, EngineRuntimeState,
-    PlanRuntimeState, PromptCacheRuntimeState, RestoreBudgetEntryRuntimeState,
+    CompactBoundaryRuntimeState, ConfirmResponse, ContextCollapseRuntimeState, EngineEvent,
+    EngineRuntimeState, PlanRuntimeState, PromptCacheRuntimeState, RestoreBudgetEntryRuntimeState,
     RestoreBudgetRuntimeState, SystemPromptSegmentRuntimeState,
 };
 
@@ -335,6 +335,11 @@ pub struct AgentEngine {
     microcompact_media_removed_total: u64,
     /// Estimated characters saved by media microcompact across the current session.
     microcompact_media_saved_chars_total: u64,
+    context_collapse_operations: u32,
+    last_context_collapse_at: Option<String>,
+    last_context_collapse_artifact_path: Option<String>,
+    last_context_collapse_saved_chars: u64,
+    context_collapse_saved_chars_total: u64,
     /// Prompt cache telemetry accumulated across turns.
     prompt_cache_runtime: PromptCacheRuntimeState,
     /// Estimated token footprint for the current system prompt.

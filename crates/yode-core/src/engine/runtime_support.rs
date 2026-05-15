@@ -183,6 +183,14 @@ impl AgentEngine {
             last_restore_budget: self.last_restore_budget.clone(),
             plan: self.plan_runtime_state(),
             async_task_restore_summary: self.async_task_restore_summary(),
+            context_collapse: ContextCollapseRuntimeState {
+                enabled: crate::context_collapse::is_context_collapse_enabled(),
+                operations: self.context_collapse_operations,
+                last_at: self.last_context_collapse_at.clone(),
+                last_artifact_path: self.last_context_collapse_artifact_path.clone(),
+                last_saved_chars: self.last_context_collapse_saved_chars,
+                saved_chars_total: self.context_collapse_saved_chars_total,
+            },
             avg_compaction_prompt_tokens: (self.compaction_prompt_token_samples > 0).then(|| {
                 (self.compaction_prompt_tokens_total / self.compaction_prompt_token_samples as u64)
                     as u32

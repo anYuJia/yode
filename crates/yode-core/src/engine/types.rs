@@ -157,6 +157,16 @@ pub struct PlanRuntimeState {
     pub compact_restore_available: bool,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ContextCollapseRuntimeState {
+    pub enabled: bool,
+    pub operations: u32,
+    pub last_at: Option<String>,
+    pub last_artifact_path: Option<String>,
+    pub last_saved_chars: u64,
+    pub saved_chars_total: u64,
+}
+
 #[derive(Debug, Clone)]
 pub struct EngineRuntimeState {
     pub query_source: String,
@@ -204,6 +214,7 @@ pub struct EngineRuntimeState {
     pub last_restore_budget: Option<RestoreBudgetRuntimeState>,
     pub plan: PlanRuntimeState,
     pub async_task_restore_summary: Option<String>,
+    pub context_collapse: ContextCollapseRuntimeState,
     pub avg_compaction_prompt_tokens: Option<u32>,
     pub compaction_cause_histogram: BTreeMap<String, u32>,
     pub last_microcompact_media_removed: u32,

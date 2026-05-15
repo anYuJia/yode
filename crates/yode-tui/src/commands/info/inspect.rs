@@ -1848,6 +1848,7 @@ mod tests {
             last_restore_budget: None,
             plan: Default::default(),
             async_task_restore_summary: None,
+            context_collapse: Default::default(),
             avg_compaction_prompt_tokens: None,
             compaction_cause_histogram: std::collections::BTreeMap::new(),
             last_microcompact_media_removed: 0,

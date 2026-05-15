@@ -1271,9 +1271,46 @@ impl AgentEngine {
         prompt_tokens: u32,
         event_tx: &mpsc::UnboundedSender<EngineEvent>,
     ) {
+        let prompt_tokens = if self.apply_context_collapse_if_enabled() {
+            self.estimated_prompt_tokens_for_current_messages()
+        } else {
+            prompt_tokens
+        };
         let _ = self
             .compact_context(prompt_tokens, event_tx, CompactionMode::Auto, None)
             .await;
+    }
+
+    fn apply_context_collapse_if_enabled(&mut self) -> bool {
+        if !crate::context_collapse::is_context_collapse_enabled() {
+            return false;
+        }
+        let Some(operation) =
+            crate::context_collapse::collapse_tool_heavy_spans(&mut self.messages)
+        else {
+            return false;
+        };
+
+        let project_root = self.context.working_dir_compat();
+        match crate::context_collapse::write_context_collapse_artifact(
+            &project_root,
+            &self.context.session_id,
+            &operation,
+        ) {
+            Ok(path) => {
+                self.last_context_collapse_artifact_path = Some(path.display().to_string());
+            }
+            Err(err) => warn!("Failed to write context collapse artifact: {}", err),
+        }
+        self.last_context_collapse_at = Some(operation.created_at);
+        self.last_context_collapse_saved_chars = operation.saved_chars as u64;
+        self.context_collapse_saved_chars_total = self
+            .context_collapse_saved_chars_total
+            .saturating_add(operation.saved_chars as u64);
+        self.context_collapse_operations = self.context_collapse_operations.saturating_add(1);
+        self.record_compaction_cause("context_collapse");
+        self.sync_persisted_messages_snapshot();
+        true
     }
 
     pub(super) async fn reactive_compact_context_for_text(

@@ -25,6 +25,34 @@ fn test_should_compress() {
 }
 
 #[test]
+fn test_context_collapse_reduces_tool_heavy_pressure_without_full_compact() {
+    let cm = ContextManager::new("gpt-3.5");
+    let big = "tool output ".repeat(1_200);
+    let mut messages = vec![
+        Message::system("system"),
+        Message::tool_result("tool-1", &big),
+        Message::user("recent 1"),
+        Message::assistant("recent 2"),
+        Message::user("recent 3"),
+        Message::assistant("recent 4"),
+        Message::user("recent 5"),
+        Message::assistant("recent 6"),
+        Message::user("recent 7"),
+        Message::assistant("recent 8"),
+        Message::user("recent 9"),
+    ];
+    let before = cm.estimate_tokens(&messages);
+    let operation = crate::context_collapse::collapse_tool_heavy_spans(&mut messages)
+        .expect("context collapse operation");
+    let after = cm.estimate_tokens(&messages);
+
+    assert_eq!(operation.source_ranges[0].message_index, 1);
+    assert!(operation.saved_chars > 0);
+    assert!(after < before);
+    assert_eq!(messages.len(), 11);
+}
+
+#[test]
 fn test_context_pressure_thresholds_are_multi_level() {
     let mut cm = ContextManager::new("claude-sonnet-4");
     let msgs = vec![Message::user("hello")];

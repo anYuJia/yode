@@ -221,6 +221,10 @@ cargo test -q -p yode-core compaction
 bash scripts/benchmark-snapshot.sh
 ```
 
+Progress:
+
+- 2026-05-16: Added a config-gated (`YODE_CONTEXT_COLLAPSE=1`) context collapse prototype that summarizes old large tool outputs without removing messages, persists reversible JSON operations under `.yode/context-collapse`, and surfaces collapse status in `/context`. Verified with `cargo test -q -p yode-core context_manager`, `cargo test -q -p yode-core compaction`, `cargo test -q -p yode-core context_collapse`, `bash scripts/benchmark-snapshot.sh`, `cargo check -q`, and `git diff --check`. Remaining risk: collapse summaries are deterministic local previews rather than LLM-generated semantic summaries, and auto-collapse is env-gated until product config UX lands.
+
 Month 1 milestone:
 
 - Long sessions have typed compact/collapse boundaries.

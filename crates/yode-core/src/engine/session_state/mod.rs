@@ -65,6 +65,11 @@ impl AgentEngine {
         self.last_compaction_transcript_path = None;
         self.last_compact_boundary = None;
         self.last_restore_budget = None;
+        self.context_collapse_operations = 0;
+        self.last_context_collapse_at = None;
+        self.last_context_collapse_artifact_path = None;
+        self.last_context_collapse_saved_chars = 0;
+        self.context_collapse_saved_chars_total = 0;
         self.total_compactions = 0;
         self.auto_compactions = 0;
         self.manual_compactions = 0;
