@@ -188,9 +188,13 @@ impl Command for TasksCommand {
                     id.to_string()
                 };
                 ctx.input.set_text(&build_task_follow_prompt(&id));
+                let compact_restore = engine
+                    .async_task_restore_summary()
+                    .map(|summary| format!(" Compact restore: {}.", summary))
+                    .unwrap_or_default();
                 Ok(CommandOutput::Message(format!(
-                    "Loaded a task_output follow prompt for task {}.",
-                    id
+                    "Loaded a task_output follow prompt for task {}.{}",
+                    id, compact_restore
                 )))
             }
             [id] => render_task_detail(&engine, id),

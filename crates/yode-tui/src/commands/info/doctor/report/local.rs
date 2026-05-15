@@ -732,6 +732,7 @@ mod tests {
             last_post_compaction_will_retrigger: None,
             last_restore_budget: None,
             plan: Default::default(),
+            async_task_restore_summary: None,
             avg_compaction_prompt_tokens: None,
             compaction_cause_histogram: BTreeMap::new(),
             last_microcompact_media_removed: 0,

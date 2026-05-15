@@ -9,6 +9,7 @@ const LLM_COMPACTION_MAX_RETRIES: usize = 3;
 const POST_COMPACT_RUNTIME_PREFIX: &str = "[Post-compact restore: runtime]";
 const POST_COMPACT_FILES_PREFIX: &str = "[Post-compact restore: files]";
 const POST_COMPACT_PLAN_PREFIX: &str = "[Post-compact restore: plan]";
+const POST_COMPACT_TASKS_PREFIX: &str = "[Post-compact restore: tasks]";
 const POST_COMPACT_TOOLS_PREFIX: &str = "[Post-compact restore: tools]";
 const POST_COMPACT_PROMPT_CACHE_PREFIX: &str = "[Post-compact restore: prompt-cache]";
 const POST_COMPACT_SKILLS_PREFIX: &str = "[Post-compact restore: skills]";
@@ -39,6 +40,7 @@ enum RestoreBlockKind {
     Runtime,
     Files,
     Plan,
+    Tasks,
     Tools,
     PromptCache,
     Skills,
@@ -52,6 +54,7 @@ impl RestoreBlockKind {
             Self::Runtime => "runtime",
             Self::Files => "files",
             Self::Plan => "plan",
+            Self::Tasks => "tasks",
             Self::Tools => "tools",
             Self::PromptCache => "prompt-cache",
             Self::Skills => "skills",
@@ -401,6 +404,7 @@ fn restore_block_cap_tokens(kind: RestoreBlockKind) -> u32 {
         RestoreBlockKind::Runtime => 600,
         RestoreBlockKind::Files => 1_400,
         RestoreBlockKind::Plan => 400,
+        RestoreBlockKind::Tasks => 700,
         RestoreBlockKind::Tools => 500,
         RestoreBlockKind::PromptCache => 500,
         RestoreBlockKind::Skills => 500,
@@ -444,6 +448,7 @@ fn restore_recovery_instruction(kind: RestoreBlockKind) -> &'static str {
             "Open the listed .yode/status or transcript artifacts for the full details."
         }
         RestoreBlockKind::Plan => "Run /plan status or inspect the plan file for full state.",
+        RestoreBlockKind::Tasks => "Run /tasks latest or task_output with the task id for current output.",
         RestoreBlockKind::Mcp => "Run /mcp status or list resources again for full MCP state.",
         RestoreBlockKind::PromptCache => {
             "Use /context for current cache diagnostics; the next request will rederive cache state."
@@ -462,6 +467,50 @@ fn apply_restore_budget(
         .map(|(kind, content)| (kind, budget.apply(kind, content)))
         .collect::<Vec<_>>();
     (blocks, budget.into_runtime())
+}
+
+fn task_restore_activity_key(task: &RuntimeTask) -> &str {
+    task.last_progress_at
+        .as_deref()
+        .or(task.completed_at.as_deref())
+        .or(task.started_at.as_deref())
+        .unwrap_or(task.created_at.as_str())
+}
+
+fn render_task_restore_lines(mut tasks: Vec<RuntimeTask>) -> Vec<String> {
+    tasks.sort_by(|a, b| task_restore_activity_key(b).cmp(task_restore_activity_key(a)));
+    let mut lines = vec![POST_COMPACT_TASKS_PREFIX.to_string()];
+    let relevant = tasks
+        .into_iter()
+        .filter(|task| {
+            matches!(
+                task.status,
+                yode_tools::RuntimeTaskStatus::Pending
+                    | yode_tools::RuntimeTaskStatus::Running
+                    | yode_tools::RuntimeTaskStatus::Completed
+                    | yode_tools::RuntimeTaskStatus::Failed
+            )
+        })
+        .take(5)
+        .collect::<Vec<_>>();
+    if relevant.is_empty() {
+        lines.push("- No async runtime tasks to restore.".to_string());
+        return lines;
+    }
+    for task in relevant {
+        lines.push(format!(
+            "- Task {} [{}:{}] output={} transcript={} last_progress={} retrieval=use /tasks read {} or task_output",
+            task.id,
+            task.kind,
+            format!("{:?}", task.status).to_ascii_lowercase(),
+            task.output_path,
+            task.transcript_path.as_deref().unwrap_or("none"),
+            task.last_progress.as_deref().unwrap_or("none"),
+            task.id
+        ));
+    }
+    lines.push("- Restore contract: do not respawn these tasks only because compact removed earlier task context.".to_string());
+    lines
 }
 
 fn render_restore_budget_table(budget: &RestoreBudgetRuntimeState) -> String {
@@ -761,6 +810,7 @@ fn write_post_compact_restore_diff_artifact(
         RestoreBlockKind::Runtime,
         RestoreBlockKind::Files,
         RestoreBlockKind::Plan,
+        RestoreBlockKind::Tasks,
         RestoreBlockKind::Tools,
         RestoreBlockKind::PromptCache,
         RestoreBlockKind::Skills,
@@ -812,6 +862,7 @@ fn load_post_compact_restore_state_artifact(
             "runtime" => RestoreBlockKind::Runtime,
             "files" => RestoreBlockKind::Files,
             "plan" => RestoreBlockKind::Plan,
+            "tasks" => RestoreBlockKind::Tasks,
             "tools" => RestoreBlockKind::Tools,
             "prompt-cache" | "prompt_cache" => RestoreBlockKind::PromptCache,
             "skills" => RestoreBlockKind::Skills,
@@ -831,6 +882,8 @@ fn restore_block_kind_from_content(content: &str) -> Option<RestoreBlockKind> {
         Some(RestoreBlockKind::Files)
     } else if content.starts_with(POST_COMPACT_PLAN_PREFIX) {
         Some(RestoreBlockKind::Plan)
+    } else if content.starts_with(POST_COMPACT_TASKS_PREFIX) {
+        Some(RestoreBlockKind::Tasks)
     } else if content.starts_with(POST_COMPACT_TOOLS_PREFIX) {
         Some(RestoreBlockKind::Tools)
     } else if content.starts_with(POST_COMPACT_PROMPT_CACHE_PREFIX) {
@@ -932,6 +985,21 @@ fn sanitize_restore_block_for_request(kind: RestoreBlockKind, content: &str) -> 
             }
             if lines.len() == 1 {
                 lines.push("- Plan mode: unknown".to_string());
+            }
+            lines
+        }
+        RestoreBlockKind::Tasks => {
+            let mut lines = vec![POST_COMPACT_TASKS_PREFIX.to_string()];
+            for line in body_lines.iter().copied() {
+                if line.starts_with("- Task ")
+                    || line.starts_with("- No async runtime tasks")
+                    || line.starts_with("- Restore contract:")
+                {
+                    lines.push(line.to_string());
+                }
+            }
+            if lines.len() == 1 {
+                lines.push("- No async runtime tasks to restore.".to_string());
             }
             lines
         }
@@ -1561,6 +1629,8 @@ impl AgentEngine {
             );
         }
 
+        let task_lines = render_task_restore_lines(self.runtime_tasks_snapshot());
+
         let mut tool_lines = vec![POST_COMPACT_TOOLS_PREFIX.to_string()];
         tool_lines.push(format!(
             "- Tool pool: {} active visible, {} active hidden, {} deferred visible, search={} (reason: {})",
@@ -1705,6 +1775,7 @@ impl AgentEngine {
             (RestoreBlockKind::Runtime, runtime_lines.join("\n")),
             (RestoreBlockKind::Files, file_lines.join("\n")),
             (RestoreBlockKind::Plan, plan_lines.join("\n")),
+            (RestoreBlockKind::Tasks, task_lines.join("\n")),
             (RestoreBlockKind::Tools, tool_lines.join("\n")),
             (RestoreBlockKind::PromptCache, prompt_cache_lines.join("\n")),
             (RestoreBlockKind::Skills, skill_lines.join("\n")),

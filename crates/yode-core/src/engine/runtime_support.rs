@@ -15,6 +15,30 @@ impl AgentEngine {
         }
     }
 
+    pub fn async_task_restore_summary(&self) -> Option<String> {
+        self.post_compact_restore_blocks
+            .iter()
+            .find(|content| content.starts_with("[Post-compact restore: tasks]"))
+            .map(|content| {
+                let mut task_count = 0usize;
+                let mut first_task = None;
+                for line in content.lines().map(str::trim) {
+                    if let Some(rest) = line.strip_prefix("- Task ") {
+                        task_count += 1;
+                        if first_task.is_none() {
+                            first_task = rest.split_whitespace().next().map(str::to_string);
+                        }
+                    }
+                }
+                match (task_count, first_task) {
+                    (0, _) => "no async runtime tasks".to_string(),
+                    (1, Some(id)) => format!("1 task restored, latest {}", id),
+                    (count, Some(id)) => format!("{} tasks restored, latest {}", count, id),
+                    (count, None) => format!("{} tasks restored", count),
+                }
+            })
+    }
+
     fn active_plan_file_path(&self) -> Option<String> {
         let project_root = self.context.working_dir_compat();
         let short_session = self.context.session_id.chars().take(8).collect::<String>();
@@ -158,6 +182,7 @@ impl AgentEngine {
             last_post_compaction_will_retrigger: self.last_post_compaction_will_retrigger,
             last_restore_budget: self.last_restore_budget.clone(),
             plan: self.plan_runtime_state(),
+            async_task_restore_summary: self.async_task_restore_summary(),
             avg_compaction_prompt_tokens: (self.compaction_prompt_token_samples > 0).then(|| {
                 (self.compaction_prompt_tokens_total / self.compaction_prompt_token_samples as u64)
                     as u32

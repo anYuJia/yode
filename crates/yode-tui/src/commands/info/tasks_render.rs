@@ -223,6 +223,12 @@ pub(super) fn render_task_summary(
             .field("Running", running.to_string())
             .field("Failed", failed.to_string())
             .field("Freshness", runtime_freshness_banner(&tasks, runtime))
+            .field(
+                "Compact restore",
+                runtime
+                    .and_then(|state| state.async_task_restore_summary.as_deref())
+                    .unwrap_or("none"),
+            )
             .section(
                 "By kind",
                 workspace_bullets(grouped_task_runtime_summary(&tasks)),

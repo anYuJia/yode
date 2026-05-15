@@ -803,6 +803,10 @@ Commit target:
 
 - `Restore async task state after compact`
 
+Progress:
+
+- 2026-05-16: Added a post-compact async task restore block with task id, status, output path, transcript path, last progress, retrieval guidance, and duplicate-spawn guard text. `/context` and `/tasks summary/follow latest` now surface compact task restore hints. Verified with `cargo test -q -p yode-core compaction`, `cargo test -q -p yode-tools runtime_tasks`, `cargo test -q -p yode-tui tasks`, `cargo check -q`, and `git diff --check`. Remaining risk: task retrieval state is expressed as operator guidance rather than a persisted per-task read/unread flag.
+
 ## Final Recommendation
 
 Start with Month 1 before adding more product commands. Yode's current differentiator is local-first Rust runtime plus operator visibility. The fastest path to "feels as capable as Claude Code" is not a wider slash-command list; it is making long, messy coding sessions survive context pressure, background agents, remote work, and recovery without losing state.

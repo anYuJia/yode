@@ -203,6 +203,7 @@ pub struct EngineRuntimeState {
     pub last_post_compaction_will_retrigger: Option<bool>,
     pub last_restore_budget: Option<RestoreBudgetRuntimeState>,
     pub plan: PlanRuntimeState,
+    pub async_task_restore_summary: Option<String>,
     pub avg_compaction_prompt_tokens: Option<u32>,
     pub compaction_cause_histogram: BTreeMap<String, u32>,
     pub last_microcompact_media_removed: u32,

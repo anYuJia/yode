@@ -249,6 +249,25 @@ async fn test_force_compact_uses_full_post_compact_finalize_path() {
     let plan_path = plan_dir.join(format!("{}-plan.md", short_session));
     std::fs::write(&plan_path, "# Active Plan\n\n- Keep compact state.").unwrap();
     assert!(engine.set_runtime_plan_mode(true));
+    let task_output = project_root.join(".yode/tasks/task-1.log");
+    std::fs::create_dir_all(task_output.parent().unwrap()).unwrap();
+    std::fs::write(&task_output, "task output").unwrap();
+    let task = engine
+        .create_runtime_task(
+            "agent",
+            "spawn_agent",
+            "continue compact validation",
+            &task_output.display().to_string(),
+            Some(
+                project_root
+                    .join(".yode/tasks/task-1.md")
+                    .display()
+                    .to_string(),
+            ),
+        )
+        .expect("task created");
+    engine.mark_runtime_task_running(&task.id);
+    engine.update_runtime_task_progress(&task.id, "exploring restore state");
 
     let big = "x".repeat(18_000);
     engine.messages = vec![
@@ -319,6 +338,14 @@ async fn test_force_compact_uses_full_post_compact_finalize_path() {
             && block.content.contains("- Plan mode: enabled")
             && block.content.contains("- Active plan file:")
             && block.content.contains("Restore contract")));
+    assert!(request
+        .provider_hints
+        .restore_system_blocks
+        .iter()
+        .any(|block| block.kind == "tasks"
+            && block.content.contains(&task.id)
+            && block.content.contains("exploring restore state")
+            && block.content.contains("do not respawn")));
     let runtime_after_request = engine.runtime_state();
     assert!(runtime_after_request
         .last_post_compaction_estimated_tokens
@@ -373,6 +400,7 @@ async fn test_force_compact_uses_full_post_compact_finalize_path() {
     assert!(restore_artifact.contains("next_auto="));
     assert!(restore_artifact.contains("## Compact Boundary"));
     assert!(restore_artifact.contains("## Restore Budget"));
+    assert!(restore_artifact.contains("[Post-compact restore: tasks]"));
     assert!(restore_artifact.contains("| Block | Used | Cap | Truncated | Reason |"));
     assert!(restore_artifact.contains("\"removed_count\""));
     let restore_state_path = project_root
@@ -805,7 +833,7 @@ async fn test_repeated_compaction_does_not_duplicate_restore_blocks() {
 
     let request = engine.build_chat_request();
     let request_restore_count = request.provider_hints.restore_system_blocks.len();
-    assert!(request_restore_count <= 8);
+    assert!(request_restore_count <= 9);
 }
 
 #[tokio::test]

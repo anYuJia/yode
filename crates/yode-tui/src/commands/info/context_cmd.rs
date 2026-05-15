@@ -76,13 +76,17 @@ fn render_runtime_context_lines(
     let prompt_cache = prompt_cache_summary(&state.prompt_cache);
     let compact_artifacts = compact_artifact_summary(state);
     format!(
-        "\n  Summary:         {}\n  Messages:        {}\n  Compaction line: ~{} tokens\n  Pressure:        {}\n  Post-compact:    {}\n  Restore budget:  {}\n  Suggestions:     {}\n  Query source:    {}\n  Autocompact:     {}\n  Compact count:   {} (auto {}, manual {})\n  Breaker reason:  {}\n  Hint:            {}\n  Last compact:    {}\n  Media compact:   last {} / total {} removed, saved ~{} chars\n  Compact files:   {}\n  Prompt cache:    {}\n  Live memory:     {}\n  Tool runtime:    {}\n  Memory updates:  {}",
+        "\n  Summary:         {}\n  Messages:        {}\n  Compaction line: ~{} tokens\n  Pressure:        {}\n  Post-compact:    {}\n  Restore budget:  {}\n  Async tasks:     {}\n  Suggestions:     {}\n  Query source:    {}\n  Autocompact:     {}\n  Compact count:   {} (auto {}, manual {})\n  Breaker reason:  {}\n  Hint:            {}\n  Last compact:    {}\n  Media compact:   last {} / total {} removed, saved ~{} chars\n  Compact files:   {}\n  Prompt cache:    {}\n  Live memory:     {}\n  Tool runtime:    {}\n  Memory updates:  {}",
         context_window_summary_text(Some(state), fallback_tokens),
         state.message_count,
         state.compaction_threshold_tokens,
         compact_pressure_hint(state, pct, threshold),
         post_compact_pressure_summary(state),
         restore_budget_summary(state.last_restore_budget.as_ref()),
+        state
+            .async_task_restore_summary
+            .as_deref()
+            .unwrap_or("none"),
         context_suggestions_summary(state, pct, threshold),
         state.query_source,
         if state.autocompact_disabled {
@@ -358,6 +362,7 @@ mod tests {
             last_post_compaction_will_retrigger: None,
             last_restore_budget: None,
             plan: Default::default(),
+            async_task_restore_summary: None,
             avg_compaction_prompt_tokens: Some(96_000),
             compaction_cause_histogram: BTreeMap::new(),
             last_microcompact_media_removed: 2,
