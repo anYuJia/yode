@@ -10,7 +10,7 @@ use crate::commands::{
 };
 use yode_core::permission::{
     tool_categories, PermissionConflictView, PermissionMode, PermissionRule, PermissionSourceView,
-    RuleSource,
+    RuleBehavior, RuleSource,
 };
 
 pub struct PermissionsCommand {
@@ -32,6 +32,8 @@ impl PermissionsCommand {
                         completions: ArgCompletionSource::Dynamic(|ctx| {
                             let mut names: Vec<String> = vec![
                                 "mode".into(),
+                                "add".into(),
+                                "remove".into(),
                                 "reset".into(),
                                 "explain".into(),
                                 "denials".into(),
@@ -160,6 +162,46 @@ impl Command for PermissionsCommand {
                 Ok(CommandOutput::Message(
                     "Permissions reset to defaults.".into(),
                 ))
+            }
+            ["add", scope, behavior, tool, rest @ ..] => {
+                let draft = parse_permission_rule_draft(scope, behavior, tool, rest)?;
+                if !draft.write {
+                    return Ok(CommandOutput::Message(render_permission_rule_dry_run(
+                        "add", &draft, None,
+                    )));
+                }
+                let path = permission_config_path_for_scope(draft.scope, &ctx.session.working_dir)?;
+                let changed = update_permission_config_file(&path, &draft, PermissionConfigEdit::Add)
+                    .map_err(|err| format!("Failed to update {}: {}", path.display(), err))?;
+                engine.permissions_mut().add_rule(draft.to_runtime_rule());
+                Ok(CommandOutput::Message(render_permission_rule_dry_run(
+                    "add",
+                    &draft,
+                    Some((path, changed)),
+                )))
+            }
+            ["remove", scope, behavior, tool, rest @ ..] => {
+                let draft = parse_permission_rule_draft(scope, behavior, tool, rest)?;
+                if !draft.write {
+                    return Ok(CommandOutput::Message(render_permission_rule_dry_run(
+                        "remove", &draft, None,
+                    )));
+                }
+                let path = permission_config_path_for_scope(draft.scope, &ctx.session.working_dir)?;
+                let changed =
+                    update_permission_config_file(&path, &draft, PermissionConfigEdit::Remove)
+                        .map_err(|err| format!("Failed to update {}: {}", path.display(), err))?;
+                let removed = engine.permissions_mut().remove_rule(
+                    draft.source(),
+                    draft.behavior.clone(),
+                    &draft.tool,
+                    draft.pattern.as_deref(),
+                );
+                Ok(CommandOutput::Message(format!(
+                    "{}\n  Runtime removed: {}",
+                    render_permission_rule_dry_run("remove", &draft, Some((path, changed))),
+                    removed
+                )))
             }
             ["scopes"] | ["sources"] => {
                 let views = engine.permissions().source_views_snapshot();
@@ -349,7 +391,7 @@ impl Command for PermissionsCommand {
                     "Tool '{tool}' set to deny."
                 )))
             }
-            _ => Err("Usage: /permissions [mode <mode>] | [governance] | [sources] | [scopes] | [denials [tool]] | [explain <tool> [content]] | [tool allow|deny|explain] | [category <name> allow|deny|ask] | [reset]".into()),
+            _ => Err("Usage: /permissions [mode <mode>] | [add <user|project> <allow|deny|ask> <tool> [pattern] [--write]] | [remove <user|project> <allow|deny|ask> <tool> [pattern] [--write]] | [governance] | [sources] | [scopes] | [denials [tool]] | [explain <tool> [content]] | [tool allow|deny|explain] | [category <name> allow|deny|ask] | [reset]".into()),
         }
     }
 }
@@ -421,6 +463,213 @@ fn render_permission_mode_switch(mode: PermissionMode) -> String {
         "Permission mode set to: {}\n{}\nNext: /permissions mode | /permissions governance | /permissions explain bash",
         mode, operator_note
     )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PermissionRuleScope {
+    User,
+    Project,
+}
+
+#[derive(Debug, Clone)]
+struct PermissionRuleDraft {
+    scope: PermissionRuleScope,
+    behavior: RuleBehavior,
+    tool: String,
+    pattern: Option<String>,
+    write: bool,
+}
+
+impl PermissionRuleDraft {
+    fn source(&self) -> RuleSource {
+        match self.scope {
+            PermissionRuleScope::User => RuleSource::UserConfig,
+            PermissionRuleScope::Project => RuleSource::ProjectConfig,
+        }
+    }
+
+    fn to_runtime_rule(&self) -> PermissionRule {
+        PermissionRule {
+            source: self.source(),
+            behavior: self.behavior.clone(),
+            tool_name: self.tool.clone(),
+            category: None,
+            pattern: self.pattern.clone(),
+            description: Some("added by /permissions add".to_string()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum PermissionConfigEdit {
+    Add,
+    Remove,
+}
+
+fn parse_permission_rule_draft(
+    scope: &str,
+    behavior: &str,
+    tool: &str,
+    rest: &[&str],
+) -> Result<PermissionRuleDraft, String> {
+    let scope = match scope {
+        "user" => PermissionRuleScope::User,
+        "project" => PermissionRuleScope::Project,
+        _ => return Err(
+            "Usage: /permissions add <user|project> <allow|deny|ask> <tool> [pattern] [--write]"
+                .to_string(),
+        ),
+    };
+    let behavior = match behavior {
+        "allow" => RuleBehavior::Allow,
+        "deny" => RuleBehavior::Deny,
+        "ask" => RuleBehavior::Ask,
+        _ => return Err(
+            "Usage: /permissions add <user|project> <allow|deny|ask> <tool> [pattern] [--write]"
+                .to_string(),
+        ),
+    };
+    let write = rest.iter().any(|part| *part == "--write");
+    let pattern_parts = rest
+        .iter()
+        .copied()
+        .filter(|part| *part != "--write")
+        .collect::<Vec<_>>();
+    let pattern = (!pattern_parts.is_empty()).then(|| pattern_parts.join(" "));
+    Ok(PermissionRuleDraft {
+        scope,
+        behavior,
+        tool: tool.to_string(),
+        pattern,
+        write,
+    })
+}
+
+fn render_permission_rule_dry_run(
+    action: &str,
+    draft: &PermissionRuleDraft,
+    write_result: Option<(std::path::PathBuf, bool)>,
+) -> String {
+    let scope = match draft.scope {
+        PermissionRuleScope::User => "user",
+        PermissionRuleScope::Project => "project",
+    };
+    let target = format!(
+        "{} {} rule: tool={}{}",
+        scope,
+        draft.behavior.label(),
+        draft.tool,
+        draft
+            .pattern
+            .as_deref()
+            .map(|pattern| format!(" pattern={pattern}"))
+            .unwrap_or_default()
+    );
+    match write_result {
+        Some((path, changed)) => format!(
+            "Permission {} complete:\n  Target: {}\n  Config: {}\n  Changed: {}",
+            action,
+            target,
+            path.display(),
+            changed
+        ),
+        None => format!(
+            "Permission {} dry-run:\n  Target: {}\n  Write:  add `--write` to update the {} config explicitly",
+            action, target, scope
+        ),
+    }
+}
+
+fn permission_config_path_for_scope(
+    scope: PermissionRuleScope,
+    working_dir: &str,
+) -> Result<std::path::PathBuf, String> {
+    match scope {
+        PermissionRuleScope::User => dirs::home_dir()
+            .map(|home| home.join(".yode").join("config.toml"))
+            .ok_or_else(|| "Cannot resolve home directory for user config.".to_string()),
+        PermissionRuleScope::Project => Ok(std::path::Path::new(working_dir)
+            .join(".yode")
+            .join("config.toml")),
+    }
+}
+
+fn update_permission_config_file(
+    path: &std::path::Path,
+    draft: &PermissionRuleDraft,
+    edit: PermissionConfigEdit,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    let mut root = if path.exists() {
+        std::fs::read_to_string(path)?.parse::<toml::Value>()?
+    } else {
+        toml::Value::Table(toml::map::Map::new())
+    };
+
+    let table = root
+        .as_table_mut()
+        .ok_or("permission config root must be a TOML table")?;
+    let permissions = table
+        .entry("permissions".to_string())
+        .or_insert_with(|| toml::Value::Table(toml::map::Map::new()))
+        .as_table_mut()
+        .ok_or("permissions must be a TOML table")?;
+    let key = permission_behavior_array_key(&draft.behavior);
+    let rules = permissions
+        .entry(key.to_string())
+        .or_insert_with(|| toml::Value::Array(Vec::new()))
+        .as_array_mut()
+        .ok_or("permission rule bucket must be an array")?;
+
+    let before = rules.len();
+    match edit {
+        PermissionConfigEdit::Add => {
+            if !rules
+                .iter()
+                .any(|value| permission_rule_value_matches(value, draft))
+            {
+                rules.push(permission_rule_to_value(draft));
+            }
+        }
+        PermissionConfigEdit::Remove => {
+            rules.retain(|value| !permission_rule_value_matches(value, draft));
+        }
+    }
+    let changed = rules.len() != before;
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, toml::to_string_pretty(&root)?)?;
+    Ok(changed)
+}
+
+fn permission_behavior_array_key(behavior: &RuleBehavior) -> &'static str {
+    match behavior {
+        RuleBehavior::Allow => "always_allow",
+        RuleBehavior::Deny => "always_deny",
+        RuleBehavior::Ask => "always_ask",
+    }
+}
+
+fn permission_rule_to_value(draft: &PermissionRuleDraft) -> toml::Value {
+    let mut table = toml::map::Map::new();
+    table.insert("tool".to_string(), toml::Value::String(draft.tool.clone()));
+    if let Some(pattern) = &draft.pattern {
+        table.insert("pattern".to_string(), toml::Value::String(pattern.clone()));
+    }
+    table.insert(
+        "description".to_string(),
+        toml::Value::String("added by /permissions add".to_string()),
+    );
+    toml::Value::Table(table)
+}
+
+fn permission_rule_value_matches(value: &toml::Value, draft: &PermissionRuleDraft) -> bool {
+    let Some(table) = value.as_table() else {
+        return false;
+    };
+    table.get("tool").and_then(toml::Value::as_str) == Some(draft.tool.as_str())
+        && table.get("pattern").and_then(toml::Value::as_str) == draft.pattern.as_deref()
 }
 
 fn render_permission_sources_lines(
@@ -557,8 +806,9 @@ fn serialize_permission_rule(rule: &PermissionRule) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::{
-        render_permission_mode_guide, render_permission_mode_switch,
-        render_permission_sources_lines,
+        parse_permission_rule_draft, render_permission_mode_guide, render_permission_mode_switch,
+        render_permission_rule_dry_run, render_permission_sources_lines,
+        update_permission_config_file, PermissionConfigEdit,
     };
     use yode_core::permission::{
         PermissionConflictView, PermissionMode, PermissionSourceView, RuleBehavior, RuleSource,
@@ -603,5 +853,39 @@ mod tests {
         assert!(lines
             .iter()
             .any(|line| line.contains("managed deny overrides user allow")));
+    }
+
+    #[test]
+    fn permission_add_defaults_to_dry_run_until_write_flag() {
+        let draft =
+            parse_permission_rule_draft("project", "allow", "bash", &["git status*", "--write"])
+                .unwrap();
+        assert!(draft.write);
+        let dry_run = render_permission_rule_dry_run("add", &draft, None);
+        assert!(dry_run.contains("dry-run"));
+        assert!(dry_run.contains("--write"));
+    }
+
+    #[test]
+    fn permission_config_file_adds_and_removes_rules() {
+        let dir =
+            std::env::temp_dir().join(format!("yode-permission-config-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        let draft =
+            parse_permission_rule_draft("project", "allow", "bash", &["git status*", "--write"])
+                .unwrap();
+
+        assert!(update_permission_config_file(&path, &draft, PermissionConfigEdit::Add).unwrap());
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("always_allow"));
+        assert!(content.contains("git status*"));
+
+        assert!(!update_permission_config_file(&path, &draft, PermissionConfigEdit::Add).unwrap());
+        assert!(
+            update_permission_config_file(&path, &draft, PermissionConfigEdit::Remove).unwrap()
+        );
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(!content.contains("git status*"));
     }
 }

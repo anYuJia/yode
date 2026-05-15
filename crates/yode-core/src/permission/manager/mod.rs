@@ -132,6 +132,23 @@ impl PermissionManager {
         self.rules.extend(rules);
     }
 
+    pub fn remove_rule(
+        &mut self,
+        source: RuleSource,
+        behavior: RuleBehavior,
+        tool_name: &str,
+        pattern: Option<&str>,
+    ) -> usize {
+        let before = self.rules.len();
+        self.rules.retain(|rule| {
+            !(rule.source == source
+                && rule.behavior == behavior
+                && rule.tool_name == tool_name
+                && rule.pattern.as_deref() == pattern)
+        });
+        before.saturating_sub(self.rules.len())
+    }
+
     /// Clear all rules from a specific source.
     pub fn clear_rules(&mut self, source: RuleSource) {
         self.rules.retain(|rule| rule.source != source);

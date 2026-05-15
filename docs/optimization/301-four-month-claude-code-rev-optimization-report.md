@@ -299,6 +299,7 @@ cargo test -q -p yode-tui permissions
 Progress:
 
 - 2026-05-16: Added `/permissions sources` as a precedence-oriented source view with file paths and conflict lines, plus core conflict detection that shows higher-precedence rules overriding lower-precedence rules. Added focused coverage that managed deny wins over user allow and that sources output includes precedence, paths, and conflicts. Verified with `cargo test -q -p yode-core permission`, `cargo test -q -p yode-tui permissions`, `cargo check -q`, and `git diff --check`. Remaining risk: `/permissions add/remove` persistence UX is still pending.
+- 2026-05-16: Added `/permissions add` and `/permissions remove` dry-run-first commands for explicit `user`/`project` scopes, requiring `--write` before updating `.yode/config.toml` or `~/.yode/config.toml`. Writes update the current runtime permission manager and TOML `permissions.always_allow`/`always_deny`/`always_ask` buckets without duplicating rules. Verified with `cargo test -q -p yode-core permission`, `cargo test -q -p yode-tui permissions`, `cargo check -q`, and `git diff --check`. Remaining risk: config reload/source-view refresh should be tightened so newly written rules appear in `/permissions sources` without relying on runtime rule snapshots.
 
 ### Week 7: Forked Subagent Mode
 

@@ -76,6 +76,9 @@ pub struct PermissionsConfig {
     /// Rules that always allow specific tool+pattern combos
     #[serde(default)]
     pub always_allow: Vec<PermissionRuleEntry>,
+    /// Rules that always ask for specific tool+pattern combos
+    #[serde(default)]
+    pub always_ask: Vec<PermissionRuleEntry>,
     /// Rules that always deny specific tool+pattern combos
     #[serde(default)]
     pub always_deny: Vec<PermissionRuleEntry>,
