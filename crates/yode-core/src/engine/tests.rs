@@ -10,6 +10,25 @@ mod partition;
 mod runtime;
 mod stream_recovery;
 
+#[test]
+fn ordered_recent_read_files_prefers_last_access_order() {
+    let mut files_read = std::collections::HashMap::new();
+    files_read.insert("src/older.rs".to_string(), 1);
+    files_read.insert("src/recent.rs".to_string(), 2);
+    files_read.insert("src/untracked_order.rs".to_string(), 3);
+    let recent_file_reads = vec![
+        "src/older.rs".to_string(),
+        "src/recent.rs".to_string(),
+        "src/older.rs".to_string(),
+    ];
+
+    let ordered = ordered_recent_read_files(&recent_file_reads, &files_read);
+
+    assert_eq!(ordered[0], "src/older.rs");
+    assert_eq!(ordered[1], "src/recent.rs");
+    assert!(ordered.contains(&"src/untracked_order.rs".to_string()));
+}
+
 /// A mock read-only tool for testing parallel execution.
 pub(super) struct MockReadTool {
     pub(super) name: String,

@@ -194,6 +194,12 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                                             format!("{}: {}", name, progress.message),
                                         );
                                     }
+                                    Some(EngineEvent::ContextCompactionStarted { mode }) => {
+                                        runtime_tasks.lock().await.update_progress(
+                                            &task_id,
+                                            format!("compacting context ({})", mode),
+                                        );
+                                    }
                                     Some(EngineEvent::ContextCompressed { mode, .. }) => {
                                         runtime_tasks.lock().await.update_progress(
                                             &task_id,

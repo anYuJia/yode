@@ -76,6 +76,9 @@ pub enum EngineEvent {
         plan_content: String,
     },
     PlanModeExited,
+    ContextCompactionStarted {
+        mode: String,
+    },
     ContextCompressed {
         mode: String,
         removed: usize,
@@ -154,6 +157,9 @@ pub struct EngineRuntimeState {
     pub last_hook_failure_at: Option<String>,
     pub last_hook_timeout_command: Option<String>,
     pub last_compaction_prompt_tokens: Option<u32>,
+    pub last_post_compaction_estimated_tokens: Option<u32>,
+    pub last_post_compaction_threshold_tokens: Option<u32>,
+    pub last_post_compaction_will_retrigger: Option<bool>,
     pub avg_compaction_prompt_tokens: Option<u32>,
     pub compaction_cause_histogram: BTreeMap<String, u32>,
     pub last_microcompact_media_removed: u32,

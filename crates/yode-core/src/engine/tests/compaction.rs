@@ -1,7 +1,7 @@
 use super::*;
 use std::sync::Arc;
 
-use yode_llm::types::{ChatResponse, ImageData, Usage};
+use yode_llm::types::{ChatResponse, ImageData, ToolCall, Usage};
 use yode_llm::MockProvider;
 use yode_tools::registry::ToolRegistry;
 
@@ -58,7 +58,19 @@ async fn test_autocompact_circuit_breaker_trips_after_repeated_failures() {
         runtime.last_compaction_breaker_reason.as_deref(),
         Some("compression made no changes")
     );
-    assert!(matches!(rx.try_recv(), Ok(EngineEvent::Error(_))));
+    let mut saw_start = false;
+    let mut saw_error = false;
+    while let Ok(event) = rx.try_recv() {
+        match event {
+            EngineEvent::ContextCompactionStarted { mode } => {
+                saw_start |= mode == "auto";
+            }
+            EngineEvent::Error(_) => saw_error = true,
+            _ => {}
+        }
+    }
+    assert!(saw_start);
+    assert!(saw_error);
 }
 
 #[tokio::test]
@@ -289,6 +301,15 @@ async fn test_force_compact_uses_full_post_compact_finalize_path() {
                 .contains("Active cache edits: pending=1 pinned=1")
             && block.content.contains("prefix=prefix-before-compact")));
     let runtime_after_request = engine.runtime_state();
+    assert!(runtime_after_request
+        .last_post_compaction_estimated_tokens
+        .is_some());
+    assert!(runtime_after_request
+        .last_post_compaction_threshold_tokens
+        .is_some());
+    assert!(runtime_after_request
+        .last_post_compaction_will_retrigger
+        .is_some());
     assert_eq!(
         runtime_after_request.prompt_cache.pending_cache_edit_refs,
         0
@@ -301,10 +322,13 @@ async fn test_force_compact_uses_full_post_compact_finalize_path() {
         .chars()
         .take(8)
         .collect::<String>();
-    assert!(project_root
+    let restore_artifact_path = project_root
         .join(".yode/status")
-        .join(format!("{}-post-compact-restore.md", short_session))
-        .exists());
+        .join(format!("{}-post-compact-restore.md", short_session));
+    assert!(restore_artifact_path.exists());
+    let restore_artifact = std::fs::read_to_string(restore_artifact_path).unwrap();
+    assert!(restore_artifact.contains("Post-compact pressure:"));
+    assert!(restore_artifact.contains("next_auto="));
     assert!(project_root
         .join(".yode/status")
         .join(format!("{}-post-compact-restore-state.json", short_session))
@@ -430,6 +454,86 @@ fn test_reactive_compact_prefers_prefix_range_from_token_gap() {
 }
 
 #[tokio::test]
+async fn test_post_compact_file_restore_prefers_recent_and_skips_preserved_tail_reads() {
+    let mut engine = make_engine(vec![], vec![]);
+    let project_root = engine.context().working_dir_compat();
+    let src_dir = project_root.join("src");
+    std::fs::create_dir_all(&src_dir).unwrap();
+    std::fs::write(
+        src_dir.join("older.rs"),
+        "pub const OLDER: &str = \"older\";\n",
+    )
+    .unwrap();
+    std::fs::write(
+        src_dir.join("middle.rs"),
+        "pub const MIDDLE: &str = \"middle\";\n",
+    )
+    .unwrap();
+    std::fs::write(
+        src_dir.join("recent.rs"),
+        "pub const RECENT: &str = \"recent\";\n",
+    )
+    .unwrap();
+
+    engine.files_read.insert("src/older.rs".to_string(), 1);
+    engine.files_read.insert("src/middle.rs".to_string(), 1);
+    engine.files_read.insert("src/recent.rs".to_string(), 1);
+    engine.recent_file_reads = vec![
+        "src/older.rs".to_string(),
+        "src/middle.rs".to_string(),
+        "src/recent.rs".to_string(),
+    ];
+
+    let mut read_recent = Message::assistant("reading recent");
+    read_recent.tool_calls = vec![ToolCall {
+        id: "read-recent".to_string(),
+        name: "read_file".to_string(),
+        arguments: r#"{"file_path":"src/recent.rs"}"#.to_string(),
+    }];
+    let big = "x".repeat(18_000);
+    engine.messages = vec![
+        Message::system("system"),
+        Message::user(&big),
+        Message::assistant(&big),
+        Message::user("older turn"),
+        Message::assistant("older response"),
+        read_recent,
+        Message::tool_result("read-recent", "pub const RECENT: &str = \"recent\";"),
+        Message::user("continue"),
+        Message::assistant("ok"),
+    ];
+
+    let (tx, _rx) = mpsc::unbounded_channel();
+    assert!(engine.force_compact_keep_last(4, tx).await);
+
+    let request = engine.build_chat_request();
+    let files_block = request
+        .provider_hints
+        .restore_system_blocks
+        .iter()
+        .find(|block| block.kind == "files")
+        .expect("files restore block");
+    assert!(files_block.content.contains("src/middle.rs"));
+    assert!(files_block.content.contains("MIDDLE"));
+    assert!(files_block.content.contains("src/older.rs"));
+    assert!(!files_block.content.contains("Excerpt from src/recent.rs"));
+
+    let short_session = engine
+        .context()
+        .session_id
+        .chars()
+        .take(8)
+        .collect::<String>();
+    let restore_artifact = std::fs::read_to_string(
+        project_root
+            .join(".yode/status")
+            .join(format!("{}-post-compact-restore.md", short_session)),
+    )
+    .unwrap();
+    assert!(restore_artifact.contains("Skipped excerpts already preserved in tail: src/recent.rs"));
+}
+
+#[tokio::test]
 async fn test_partial_compact_up_to_keeps_newer_tail() {
     let mut engine = make_engine(vec![], vec![]);
     engine.messages = vec![
@@ -503,6 +607,56 @@ async fn test_partial_compact_from_keeps_older_prefix() {
 
     let request = engine.build_chat_request();
     assert!(!request.provider_hints.restore_system_blocks.is_empty());
+}
+
+#[tokio::test]
+async fn test_partial_compact_summary_prompt_is_direction_aware() {
+    let mock_provider = MockProvider::new("stub-summary")
+        .with_chat_response(summary_response(
+            "## Goals\n- preserve older prefix\n## Current State\n- up_to compacted\n## Findings\n- None\n## Decisions\n- None\n## Files\n- None\n## Tools\n- None\n## Constraints\n- None\n## Open Questions\n- None\n## Next Steps\n- continue",
+        ))
+        .with_chat_response(summary_response(
+            "## Goals\n- preserve earlier messages\n## Current State\n- from compacted\n## Findings\n- None\n## Decisions\n- None\n## Files\n- None\n## Tools\n- None\n## Constraints\n- None\n## Open Questions\n- None\n## Next Steps\n- continue",
+        ));
+    let provider: Arc<dyn yode_llm::provider::LlmProvider> = Arc::new(mock_provider.clone());
+    let mut engine = make_engine_with_provider(provider);
+    engine.set_model("gpt-3.5".to_string());
+    engine.messages = vec![
+        Message::system("system"),
+        Message::user("u1"),
+        Message::assistant("a1"),
+        Message::user("u2"),
+        Message::assistant("a2"),
+        Message::user("u3"),
+        Message::assistant("a3"),
+        Message::user("u4"),
+        Message::assistant("a4"),
+    ];
+
+    let (tx, _rx) = mpsc::unbounded_channel();
+    assert!(engine.force_partial_compact_up_to(4, tx.clone()).await);
+    assert!(engine.force_partial_compact_from(5, tx).await);
+
+    let requests = mock_provider.requests();
+    assert!(requests.len() >= 2);
+    let prompts = requests
+        .iter()
+        .filter_map(|request| request.messages.get(1)?.content.as_deref())
+        .collect::<Vec<_>>();
+    let up_to_prompt = prompts
+        .iter()
+        .find(|prompt| prompt.contains("Scope: partial compact up_to"))
+        .copied()
+        .unwrap_or_default();
+    let from_prompt = prompts
+        .iter()
+        .find(|prompt| prompt.contains("Scope: partial compact from"))
+        .copied()
+        .unwrap_or_default();
+    assert!(up_to_prompt.contains("Scope: partial compact up_to"));
+    assert!(up_to_prompt.contains("older prefix"));
+    assert!(from_prompt.contains("Scope: partial compact from"));
+    assert!(from_prompt.contains("later tail"));
 }
 
 #[tokio::test]

@@ -26,6 +26,13 @@ enum CompactionMode {
     Reactive,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CompactionSummaryScope {
+    Full,
+    PartialUpTo,
+    PartialFrom,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum RestoreBlockKind {
     Runtime,
@@ -79,6 +86,22 @@ impl CompactionMode {
 
     fn is_auto(self) -> bool {
         matches!(self, Self::Auto)
+    }
+}
+
+impl CompactionSummaryScope {
+    fn prompt_guidance(self) -> &'static str {
+        match self {
+            Self::Full => {
+                "Scope: full compact. Summarize the compacted conversation so the next turn can continue from the kept recent tail."
+            }
+            Self::PartialUpTo => {
+                "Scope: partial compact up_to. You are summarizing the older prefix before a selected point. Preserve durable goals, decisions, files, constraints, and handoff state; do not imply the newer tail is included because it remains verbatim after this summary."
+            }
+            Self::PartialFrom => {
+                "Scope: partial compact from. You are summarizing the later tail after a selected point. Earlier messages remain verbatim before this summary, so focus on actionable work, findings, and next steps from the summarized tail."
+            }
+        }
     }
 }
 
@@ -208,13 +231,12 @@ fn render_post_compact_file_excerpts(
     project_root: &std::path::Path,
     cwd: &str,
     read_files: &[String],
+    preserved_read_files: &std::collections::HashSet<String>,
 ) -> Vec<String> {
-    let mut files = read_files.to_vec();
-    files.sort();
-    files.dedup();
-
-    files
-        .into_iter()
+    read_files
+        .iter()
+        .filter(|file_path| !preserved_read_files.contains(*file_path))
+        .cloned()
         .filter_map(|file_path| {
             let resolved = resolve_post_compact_file_path(project_root, cwd, &file_path)?;
             let excerpt = read_post_compact_file_excerpt(&resolved)?;
@@ -225,6 +247,26 @@ fn render_post_compact_file_excerpts(
             Some(format!("- Excerpt from {}: {}", display_path, excerpt))
         })
         .take(POST_COMPACT_FILE_EXCERPT_MAX_FILES)
+        .collect()
+}
+
+fn collect_preserved_read_file_paths(messages: &[Message]) -> std::collections::HashSet<String> {
+    let tool_results = messages
+        .iter()
+        .filter(|message| matches!(message.role, Role::Tool))
+        .filter_map(|message| message.tool_call_id.as_deref())
+        .collect::<std::collections::HashSet<_>>();
+    messages
+        .iter()
+        .flat_map(|message| message.tool_calls.iter())
+        .filter(|call| call.name == "read_file" && tool_results.contains(call.id.as_str()))
+        .filter_map(|call| {
+            serde_json::from_str::<serde_json::Value>(&call.arguments)
+                .ok()?
+                .get("file_path")?
+                .as_str()
+                .map(str::to_string)
+        })
         .collect()
 }
 
@@ -372,6 +414,31 @@ fn build_fallback_compaction_summary(
         summary.push_str("...");
     }
     summary
+}
+
+fn format_llm_compaction_summary_content(raw: &str) -> Option<String> {
+    let mut content = raw.trim().to_string();
+    if content.is_empty() {
+        return None;
+    }
+
+    let analysis_re = Regex::new(r"(?is)<analysis>.*?</analysis>").ok()?;
+    content = analysis_re.replace_all(&content, "").to_string();
+
+    let summary_re = Regex::new(r"(?is)<summary>(.*?)</summary>").ok()?;
+    if let Some(captures) = summary_re.captures(&content) {
+        content = captures
+            .get(1)
+            .map(|matched| matched.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+    }
+
+    let blank_re = Regex::new(r"\n{3,}").ok()?;
+    content = blank_re.replace_all(content.trim(), "\n\n").to_string();
+
+    (!content.trim().is_empty()).then(|| content.trim().to_string())
 }
 
 fn write_post_compact_restore_artifact(
@@ -1003,6 +1070,7 @@ impl AgentEngine {
         &self,
         removed_messages: &[Message],
         turn_artifact_path: Option<&str>,
+        scope: CompactionSummaryScope,
     ) -> Option<String> {
         if removed_messages.is_empty() || self.provider.name() == "mock" {
             return None;
@@ -1019,11 +1087,13 @@ impl AgentEngine {
             }
 
             let mut prompt = String::from(
-                "Create a structured compaction summary for an AI coding session.\n\
-                 Return markdown only.\n\
+                "CRITICAL: Respond with text only. Do not call tools.\n\
+                 Create a structured compaction summary for an AI coding session.\n\
+                 You may draft private reasoning in <analysis>...</analysis>, but only the <summary> content will be kept.\n\
+                 Return an optional <analysis> block followed by a <summary> block containing markdown.\n\
                  Keep only verified facts.\n\
                  Keep it concise but complete enough to continue work after compaction.\n\
-                 Use exactly these 9 sections in order:\n\
+                 In the <summary> block, use exactly these 9 sections in order:\n\
                  1. Goals\n2. Current State\n3. Findings\n4. Decisions\n5. Files\n6. Tools\n7. Constraints\n8. Open Questions\n9. Next Steps\n\
                  Use bullet lists.\n\
                  Use `- None` for empty sections.\n\
@@ -1032,6 +1102,8 @@ impl AgentEngine {
             if let Some(path) = turn_artifact_path.filter(|path| !path.trim().is_empty()) {
                 prompt.push_str(&format!("Turn artifact: {}\n\n", path));
             }
+            prompt.push_str(scope.prompt_guidance());
+            prompt.push_str("\n\n");
             prompt.push_str("Compacted transcript excerpt:\n");
             prompt.push_str(&transcript);
 
@@ -1058,10 +1130,8 @@ impl AgentEngine {
             .await
             {
                 Ok(Ok(response)) => {
-                    let content = response.message.content?.trim().to_string();
-                    if content.is_empty() {
-                        return None;
-                    }
+                    let content =
+                        format_llm_compaction_summary_content(&response.message.content?)?;
                     let mut summary = format!(
                         "{} LLM-generated structured summary of compacted conversation.\n{}",
                         SESSION_MEMORY_SUMMARY_PREFIX, content
@@ -1130,6 +1200,9 @@ impl AgentEngine {
         mode: CompactionMode,
         session_memory_path: Option<&std::path::Path>,
         transcript_path: Option<&std::path::Path>,
+        post_compact_estimated_tokens: Option<u32>,
+        auto_compact_threshold: Option<u32>,
+        will_retrigger_next_turn: Option<bool>,
     ) -> Vec<(RestoreBlockKind, String)> {
         let project_root = self.context.working_dir_compat();
         let cwd = self.current_runtime_working_dir().await;
@@ -1141,7 +1214,7 @@ impl AgentEngine {
         );
         let mcp_cache = yode_tools::mcp_resource_cache_stats();
 
-        let read_files = self.files_read.keys().cloned().collect::<Vec<_>>();
+        let read_files = ordered_recent_read_files(&self.recent_file_reads, &self.files_read);
         let modified_files = self.files_modified.clone();
         let recent_paths = read_files
             .iter()
@@ -1156,7 +1229,7 @@ impl AgentEngine {
             .map(|skill| skill.name.clone())
             .collect::<Vec<_>>();
 
-        let runtime_lines = [
+        let mut runtime_lines = vec![
             format!(
                 "{} Re-injected runtime context after {} compaction.",
                 POST_COMPACT_RUNTIME_PREFIX,
@@ -1166,6 +1239,20 @@ impl AgentEngine {
             "- Persistent memory and instruction context remain available via the system prompt."
                 .to_string(),
         ];
+        if let (Some(estimated_tokens), Some(threshold), Some(will_retrigger)) = (
+            post_compact_estimated_tokens,
+            auto_compact_threshold,
+            will_retrigger_next_turn,
+        ) {
+            let margin = estimated_tokens.saturating_sub(threshold);
+            runtime_lines.push(format!(
+                "- Post-compact pressure: est={} threshold={} margin={} next_auto={}",
+                estimated_tokens,
+                threshold,
+                margin,
+                if will_retrigger { "likely" } else { "clear" }
+            ));
+        }
 
         let mut file_lines = vec![POST_COMPACT_FILES_PREFIX.to_string()];
         if let Some(summary) = summarize_string_entries(&read_files, 5) {
@@ -1174,10 +1261,28 @@ impl AgentEngine {
         if let Some(summary) = summarize_string_entries(&modified_files, 5) {
             file_lines.push(format!("- Recent files modified: {}", summary));
         }
-        let file_excerpts = render_post_compact_file_excerpts(&project_root, &cwd, &read_files);
+        let preserved_read_files = collect_preserved_read_file_paths(&self.messages);
+        let file_excerpts = render_post_compact_file_excerpts(
+            &project_root,
+            &cwd,
+            &read_files,
+            &preserved_read_files,
+        );
         if !file_excerpts.is_empty() {
             file_lines.push("- Recent file excerpts:".to_string());
             file_lines.extend(file_excerpts);
+        }
+        let skipped_files = read_files
+            .iter()
+            .filter(|path| preserved_read_files.contains(*path))
+            .take(3)
+            .cloned()
+            .collect::<Vec<_>>();
+        if let Some(summary) = summarize_string_entries(&skipped_files, 3) {
+            file_lines.push(format!(
+                "- Skipped excerpts already preserved in tail: {}",
+                summary
+            ));
         }
         if file_lines.len() == 1 {
             file_lines.push("- No recent file context to restore.".to_string());
@@ -1362,6 +1467,7 @@ impl AgentEngine {
                 .generate_structured_compaction_summary(
                     &report.removed_messages,
                     self.last_turn_artifact_path.as_deref(),
+                    CompactionSummaryScope::Full,
                 )
                 .await
             {
@@ -1401,11 +1507,22 @@ impl AgentEngine {
             Err(err) => warn!("Failed to write compaction transcript: {}", err),
         }
 
+        let post_compact_estimated_tokens = self
+            .context_manager
+            .estimate_tokens_for_messages(&self.messages);
+        let auto_compact_threshold = self.context_manager.compression_threshold_tokens();
+        let will_retrigger_next_turn = post_compact_estimated_tokens >= auto_compact_threshold;
+        self.last_post_compaction_estimated_tokens = Some(post_compact_estimated_tokens as u32);
+        self.last_post_compaction_threshold_tokens = Some(auto_compact_threshold as u32);
+        self.last_post_compaction_will_retrigger = Some(will_retrigger_next_turn);
         let restore_messages = self
             .build_post_compact_restore_messages(
                 mode,
                 session_memory_path.as_deref(),
                 transcript_path.as_deref(),
+                Some(post_compact_estimated_tokens as u32),
+                Some(auto_compact_threshold as u32),
+                Some(will_retrigger_next_turn),
             )
             .await;
         let previous_restore_messages =
@@ -1566,6 +1683,9 @@ impl AgentEngine {
         }
 
         self.compaction_in_progress = true;
+        let _ = event_tx.send(EngineEvent::ContextCompactionStarted {
+            mode: mode_label.to_string(),
+        });
 
         let pre_context = self.build_compaction_hook_context(
             HookEvent::PreCompact,
@@ -1781,6 +1901,9 @@ impl AgentEngine {
 
         self.compaction_in_progress = true;
         let prompt_tokens = self.estimated_prompt_tokens_for_current_messages();
+        let _ = event_tx.send(EngineEvent::ContextCompactionStarted {
+            mode: CompactionMode::Manual.label().to_string(),
+        });
         let pre_context = self.build_compaction_hook_context(
             HookEvent::PreCompact,
             CompactionMode::Manual.label(),
@@ -1803,6 +1926,11 @@ impl AgentEngine {
             .generate_structured_compaction_summary(
                 &removed_messages,
                 self.last_turn_artifact_path.as_deref(),
+                if start <= 1 {
+                    CompactionSummaryScope::PartialUpTo
+                } else {
+                    CompactionSummaryScope::PartialFrom
+                },
             )
             .await
             .unwrap_or_else(|| {
@@ -1839,7 +1967,10 @@ impl AgentEngine {
 mod tests {
     use yode_llm::types::Message;
 
-    use super::{parse_prompt_too_long_token_gap, truncate_head_for_summary_retry};
+    use super::{
+        format_llm_compaction_summary_content, parse_prompt_too_long_token_gap,
+        truncate_head_for_summary_retry,
+    };
 
     #[test]
     fn parses_prompt_too_long_gap_from_error_text() {
@@ -1870,5 +2001,17 @@ mod tests {
                 .and_then(|message| message.content.as_deref()),
             Some("keep")
         );
+    }
+
+    #[test]
+    fn formats_llm_compaction_summary_by_stripping_analysis() {
+        let raw = "<analysis>\nprivate draft\n</analysis>\n\n<summary>\n## Goals\n- Continue compact parity\n\n\n## Next Steps\n- Run tests\n</summary>";
+
+        let formatted = format_llm_compaction_summary_content(raw).unwrap();
+
+        assert!(!formatted.contains("private draft"));
+        assert!(!formatted.contains("<summary>"));
+        assert!(formatted.starts_with("## Goals"));
+        assert!(formatted.contains("## Next Steps"));
     }
 }

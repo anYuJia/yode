@@ -123,6 +123,9 @@ impl AgentEngine {
             last_hook_failure_at: hook_stats.last_failure_at,
             last_hook_timeout_command: hook_stats.last_timeout_command,
             last_compaction_prompt_tokens: self.last_compaction_prompt_tokens,
+            last_post_compaction_estimated_tokens: self.last_post_compaction_estimated_tokens,
+            last_post_compaction_threshold_tokens: self.last_post_compaction_threshold_tokens,
+            last_post_compaction_will_retrigger: self.last_post_compaction_will_retrigger,
             avg_compaction_prompt_tokens: (self.compaction_prompt_token_samples > 0).then(|| {
                 (self.compaction_prompt_tokens_total / self.compaction_prompt_token_samples as u64)
                     as u32
@@ -199,13 +202,14 @@ impl AgentEngine {
     }
 
     fn read_file_history_preview(&self) -> Vec<String> {
-        let mut entries = self
-            .files_read
-            .iter()
-            .map(|(path, lines)| format!("{} ({} lines)", path, lines))
-            .collect::<Vec<_>>();
-        entries.sort();
-        entries.into_iter().take(8).collect()
+        ordered_recent_read_files(&self.recent_file_reads, &self.files_read)
+            .into_iter()
+            .map(|path| {
+                let lines = self.files_read.get(&path).copied().unwrap_or_default();
+                format!("{} ({} lines)", path, lines)
+            })
+            .take(8)
+            .collect()
     }
 
     fn command_tool_duplication_hints(&self) -> Vec<String> {

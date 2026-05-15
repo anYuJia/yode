@@ -29,6 +29,8 @@ impl AgentEngine {
                             .and_then(|v| v.as_u64())
                             .unwrap_or(0) as usize;
                         self.files_read.insert(file_path.to_string(), lines);
+                        self.recent_file_reads.retain(|path| path != file_path);
+                        self.recent_file_reads.push(file_path.to_string());
                     }
                     "edit_file" | "write_file" | "multi_edit" | "notebook_edit" => {
                         self.files_modified.push(file_path.to_string());

@@ -132,6 +132,8 @@ pub struct AgentEngine {
     hook_manager: Option<Arc<HookManager>>,
     /// Files the agent has already read in this turn (path → line count).
     files_read: std::collections::HashMap<String, usize>,
+    /// Read-file paths in last-access order for post-compact restoration.
+    recent_file_reads: Vec<String>,
     /// Files the agent has modified in this turn.
     files_modified: Vec<String>,
     /// Total tool progress events seen in this session.
@@ -308,6 +310,12 @@ pub struct AgentEngine {
     last_compaction_transcript_path: Option<String>,
     /// Prompt tokens that triggered the most recent compaction.
     last_compaction_prompt_tokens: Option<u32>,
+    /// Estimated message + restore token footprint immediately after the most recent compaction.
+    last_post_compaction_estimated_tokens: Option<u32>,
+    /// Threshold used to decide whether the most recent post-compaction context would compact again.
+    last_post_compaction_threshold_tokens: Option<u32>,
+    /// Whether the most recent post-compaction context was still above the auto-compact threshold.
+    last_post_compaction_will_retrigger: Option<bool>,
     /// Running total for compaction-trigger prompt token telemetry.
     compaction_prompt_tokens_total: u64,
     /// Sample count for compaction-trigger prompt token telemetry.
@@ -328,6 +336,25 @@ pub struct AgentEngine {
     system_prompt_estimated_tokens: usize,
     /// Segment breakdown for the current system prompt.
     system_prompt_segments: Vec<SystemPromptSegmentRuntimeState>,
+}
+
+fn ordered_recent_read_files(
+    recent_file_reads: &[String],
+    files_read: &std::collections::HashMap<String, usize>,
+) -> Vec<String> {
+    let mut ordered = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for path in recent_file_reads.iter().rev() {
+        if files_read.contains_key(path) && seen.insert(path.clone()) {
+            ordered.push(path.clone());
+        }
+    }
+    for path in files_read.keys() {
+        if seen.insert(path.clone()) {
+            ordered.push(path.clone());
+        }
+    }
+    ordered
 }
 
 /// Convert yode-tools ToolDefinition to yode-llm ToolDefinition.

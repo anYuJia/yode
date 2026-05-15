@@ -96,6 +96,8 @@ impl AgentEngine {
                         ));
                     }
                     self.files_read.insert(path.clone(), line_count);
+                    self.recent_file_reads.retain(|read_path| read_path != path);
+                    self.recent_file_reads.push(path.clone());
                 }
                 "edit_file" | "write_file" | "multi_edit" if !result.is_error => {
                     self.files_modified.push(path.clone());

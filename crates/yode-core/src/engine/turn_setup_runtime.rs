@@ -69,6 +69,7 @@ impl AgentEngine {
         self.consecutive_failures = 0;
         self.violation_retries = 0;
         self.files_read.clear();
+        self.recent_file_reads.clear();
         self.files_modified.clear();
     }
 
