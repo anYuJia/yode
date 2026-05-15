@@ -3,6 +3,7 @@ use crate::commands::{
     ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
     CommandResult,
 };
+use yode_core::engine::PlanRuntimeState;
 
 pub struct PlanCommand {
     meta: CommandMeta,
@@ -67,18 +68,31 @@ impl Command for PlanCommand {
                     "Plan mode disabled. Permission mode restored to default.".to_string(),
                 ))
             }
-            PlanAction::Status => Ok(CommandOutput::Message(format!(
-                "Plan mode: {}. Permission mode: {}.",
-                if engine.permissions().mode() == yode_core::PermissionMode::Plan {
-                    "enabled"
-                } else {
-                    "disabled"
-                },
-                engine.permissions().mode()
-            ))),
+            PlanAction::Status => {
+                let state = engine.plan_runtime_state();
+                Ok(CommandOutput::Message(render_plan_status(&state)))
+            }
             PlanAction::Invalid => Err("Usage: /plan [on|off|status]".to_string()),
         }
     }
+}
+
+fn render_plan_status(state: &PlanRuntimeState) -> String {
+    format!(
+        "Plan mode: {}. Permission mode: {}. Active plan file: {}. Compact restore: {}.",
+        if state.mode_enabled {
+            "enabled"
+        } else {
+            "disabled"
+        },
+        state.permission_mode,
+        state.active_plan_file_path.as_deref().unwrap_or("none"),
+        if state.compact_restore_available {
+            "available"
+        } else {
+            "none"
+        }
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,7 +114,8 @@ fn plan_action(value: &str) -> PlanAction {
 
 #[cfg(test)]
 mod tests {
-    use super::{plan_action, PlanAction};
+    use super::{plan_action, render_plan_status, PlanAction};
+    use yode_core::engine::PlanRuntimeState;
 
     #[test]
     fn plan_action_accepts_status_aliases() {
@@ -110,5 +125,19 @@ mod tests {
         assert_eq!(plan_action("status"), PlanAction::Status);
         assert_eq!(plan_action("current"), PlanAction::Status);
         assert_eq!(plan_action("bad"), PlanAction::Invalid);
+    }
+
+    #[test]
+    fn plan_status_renders_restore_details() {
+        let status = render_plan_status(&PlanRuntimeState {
+            mode_enabled: true,
+            permission_mode: "Plan".to_string(),
+            active_plan_file_path: Some("/tmp/project/.yode/plans/abc-plan.md".to_string()),
+            compact_restore_available: true,
+        });
+
+        assert!(status.contains("Plan mode: enabled"));
+        assert!(status.contains("Active plan file: /tmp/project/.yode/plans/abc-plan.md"));
+        assert!(status.contains("Compact restore: available"));
     }
 }

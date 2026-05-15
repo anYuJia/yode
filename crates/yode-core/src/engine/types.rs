@@ -149,6 +149,14 @@ pub struct RestoreBudgetRuntimeState {
     pub entries: Vec<RestoreBudgetEntryRuntimeState>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PlanRuntimeState {
+    pub mode_enabled: bool,
+    pub permission_mode: String,
+    pub active_plan_file_path: Option<String>,
+    pub compact_restore_available: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct EngineRuntimeState {
     pub query_source: String,
@@ -194,6 +202,7 @@ pub struct EngineRuntimeState {
     pub last_post_compaction_threshold_tokens: Option<u32>,
     pub last_post_compaction_will_retrigger: Option<bool>,
     pub last_restore_budget: Option<RestoreBudgetRuntimeState>,
+    pub plan: PlanRuntimeState,
     pub avg_compaction_prompt_tokens: Option<u32>,
     pub compaction_cause_histogram: BTreeMap<String, u32>,
     pub last_microcompact_media_removed: u32,

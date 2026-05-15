@@ -780,6 +780,10 @@ Commit target:
 
 - `Preserve plan state through compact`
 
+Progress:
+
+- 2026-05-16: Added a plan runtime snapshot used by post-compact restore blocks and `/plan status`, including plan mode, permission mode, active plan file discovery, and compact-restore availability. Verified with `cargo test -q -p yode-core compaction`, `cargo test -q -p yode-tools plan_mode`, `cargo test -q -p yode-tui plan`, `cargo check -q`, and `git diff --check`. Remaining risk: active plan file discovery is read-only and limited to existing Yode/common plan paths; this does not introduce a dedicated plan-file writer.
+
 ### Task D: Async Task Restore Block
 
 Files:

@@ -238,6 +238,17 @@ async fn test_force_compact_uses_full_post_compact_finalize_path() {
     engine.pending_cache_edit_refs = vec!["tc1".to_string()];
     engine.pinned_cache_edit_refs = vec!["tc0".to_string()];
     engine.last_prompt_cache_prefix_hash = Some("prefix-before-compact".to_string());
+    let plan_dir = project_root.join(".yode/plans");
+    std::fs::create_dir_all(&plan_dir).unwrap();
+    let short_session = engine
+        .context()
+        .session_id
+        .chars()
+        .take(8)
+        .collect::<String>();
+    let plan_path = plan_dir.join(format!("{}-plan.md", short_session));
+    std::fs::write(&plan_path, "# Active Plan\n\n- Keep compact state.").unwrap();
+    assert!(engine.set_runtime_plan_mode(true));
 
     let big = "x".repeat(18_000);
     engine.messages = vec![
@@ -300,6 +311,14 @@ async fn test_force_compact_uses_full_post_compact_finalize_path() {
                 .content
                 .contains("Active cache edits: pending=1 pinned=1")
             && block.content.contains("prefix=prefix-before-compact")));
+    assert!(request
+        .provider_hints
+        .restore_system_blocks
+        .iter()
+        .any(|block| block.kind == "plan"
+            && block.content.contains("- Plan mode: enabled")
+            && block.content.contains("- Active plan file:")
+            && block.content.contains("Restore contract")));
     let runtime_after_request = engine.runtime_state();
     assert!(runtime_after_request
         .last_post_compaction_estimated_tokens
@@ -345,12 +364,6 @@ async fn test_force_compact_uses_full_post_compact_finalize_path() {
     assert!(boundary.summary_fingerprint.is_some());
     assert!(boundary.preserved_tail_range.is_some());
 
-    let short_session = engine
-        .context()
-        .session_id
-        .chars()
-        .take(8)
-        .collect::<String>();
     let restore_artifact_path = project_root
         .join(".yode/status")
         .join(format!("{}-post-compact-restore.md", short_session));

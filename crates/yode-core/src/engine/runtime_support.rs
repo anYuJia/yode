@@ -2,6 +2,35 @@ use super::*;
 use yode_agent::AgentTeamSnapshot;
 
 impl AgentEngine {
+    pub fn plan_runtime_state(&self) -> PlanRuntimeState {
+        let mode_enabled = self.plan_mode.try_lock().map(|mode| *mode).unwrap_or(false);
+        PlanRuntimeState {
+            mode_enabled,
+            permission_mode: self.permissions.mode().to_string(),
+            active_plan_file_path: self.active_plan_file_path(),
+            compact_restore_available: self
+                .post_compact_restore_blocks
+                .iter()
+                .any(|content| content.starts_with("[Post-compact restore: plan]")),
+        }
+    }
+
+    fn active_plan_file_path(&self) -> Option<String> {
+        let project_root = self.context.working_dir_compat();
+        let short_session = self.context.session_id.chars().take(8).collect::<String>();
+        [
+            project_root
+                .join(".yode")
+                .join("plans")
+                .join(format!("{}-plan.md", short_session)),
+            project_root.join(".yode").join("plan.md"),
+            project_root.join("PLAN.md"),
+        ]
+        .into_iter()
+        .find(|path| path.is_file())
+        .map(|path| path.display().to_string())
+    }
+
     pub fn runtime_state(&self) -> EngineRuntimeState {
         let tool_pool = self.build_tool_pool_snapshot();
         let shared_status = self
@@ -128,6 +157,7 @@ impl AgentEngine {
             last_post_compaction_threshold_tokens: self.last_post_compaction_threshold_tokens,
             last_post_compaction_will_retrigger: self.last_post_compaction_will_retrigger,
             last_restore_budget: self.last_restore_budget.clone(),
+            plan: self.plan_runtime_state(),
             avg_compaction_prompt_tokens: (self.compaction_prompt_token_samples > 0).then(|| {
                 (self.compaction_prompt_tokens_total / self.compaction_prompt_token_samples as u64)
                     as u32

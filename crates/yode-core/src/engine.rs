@@ -88,8 +88,8 @@ use types::{
 };
 pub use types::{
     CompactBoundaryRuntimeState, ConfirmResponse, EngineEvent, EngineRuntimeState,
-    PromptCacheRuntimeState, RestoreBudgetEntryRuntimeState, RestoreBudgetRuntimeState,
-    SystemPromptSegmentRuntimeState,
+    PlanRuntimeState, PromptCacheRuntimeState, RestoreBudgetEntryRuntimeState,
+    RestoreBudgetRuntimeState, SystemPromptSegmentRuntimeState,
 };
 
 /// The core agent engine that drives the conversation loop.

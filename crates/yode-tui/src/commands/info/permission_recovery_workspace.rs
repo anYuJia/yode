@@ -345,6 +345,7 @@ mod tests {
             last_post_compaction_threshold_tokens: None,
             last_post_compaction_will_retrigger: None,
             last_restore_budget: None,
+            plan: Default::default(),
             avg_compaction_prompt_tokens: None,
             compaction_cause_histogram: BTreeMap::new(),
             last_microcompact_media_removed: 0,

@@ -921,12 +921,18 @@ fn sanitize_restore_block_for_request(kind: RestoreBlockKind, content: &str) -> 
         }
         RestoreBlockKind::Plan => {
             let mut lines = vec![POST_COMPACT_PLAN_PREFIX.to_string()];
-            let plan_line = body_lines
-                .iter()
-                .copied()
-                .find(|line| line.starts_with("- Plan mode:"))
-                .unwrap_or("- Plan mode: unknown");
-            lines.push(plan_line.to_string());
+            for line in body_lines.iter().copied() {
+                if line.starts_with("- Plan mode:")
+                    || line.starts_with("- Permission mode:")
+                    || line.starts_with("- Active plan file:")
+                    || line.starts_with("- Restore contract:")
+                {
+                    lines.push(line.to_string());
+                }
+            }
+            if lines.len() == 1 {
+                lines.push("- Plan mode: unknown".to_string());
+            }
             lines
         }
         RestoreBlockKind::Tools => vec![
@@ -1444,7 +1450,7 @@ impl AgentEngine {
         let cwd = self.current_runtime_working_dir().await;
         let tool_pool = self.build_tool_pool_snapshot();
         let inventory = self.tools.inventory();
-        let plan_mode_enabled = *self.plan_mode.lock().await;
+        let plan_snapshot = self.plan_runtime_state();
         let skills = crate::skills::SkillRegistry::discover(
             &crate::skills::SkillRegistry::default_paths(&project_root),
         );
@@ -1527,12 +1533,33 @@ impl AgentEngine {
         let mut plan_lines = vec![POST_COMPACT_PLAN_PREFIX.to_string()];
         plan_lines.push(format!(
             "- Plan mode: {}",
-            if plan_mode_enabled {
+            if plan_snapshot.mode_enabled {
                 "enabled"
             } else {
                 "disabled"
             }
         ));
+        plan_lines.push(format!(
+            "- Permission mode: {}",
+            plan_snapshot.permission_mode
+        ));
+        plan_lines.push(format!(
+            "- Active plan file: {}",
+            plan_snapshot
+                .active_plan_file_path
+                .as_deref()
+                .unwrap_or("none")
+        ));
+        if plan_snapshot.mode_enabled {
+            plan_lines.push(
+                "- Restore contract: remain in read-only planning until the plan is approved."
+                    .to_string(),
+            );
+        } else {
+            plan_lines.push(
+                "- Restore contract: no active plan mode; continue normal execution.".to_string(),
+            );
+        }
 
         let mut tool_lines = vec![POST_COMPACT_TOOLS_PREFIX.to_string()];
         tool_lines.push(format!(
