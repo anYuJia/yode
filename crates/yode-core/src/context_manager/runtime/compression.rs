@@ -258,7 +258,7 @@ impl ContextManager {
 
         let estimated_tokens = self.estimate_tokens(messages);
         let target_tokens =
-            (self.limits.context_window as f64 * COMPACTION_TARGET_THRESHOLD) as usize;
+            (self.effective_context_window() as f64 * COMPACTION_TARGET_THRESHOLD) as usize;
 
         if estimated_tokens <= target_tokens {
             if report.tool_results_truncated > 0 {

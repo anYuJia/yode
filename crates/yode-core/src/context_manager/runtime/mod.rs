@@ -10,6 +10,11 @@ pub(crate) use compression::message_priority;
 pub(crate) use summary::context_summary_lines;
 pub(crate) use summary::{calibration_token_estimate, messages_char_count};
 
+const MAX_OUTPUT_TOKENS_FOR_COMPACTION_SUMMARY: usize = 20_000;
+const AUTOCOMPACT_BUFFER_TOKENS: usize = 13_000;
+const WARNING_THRESHOLD_BUFFER_TOKENS: usize = 20_000;
+const MANUAL_COMPACT_BUFFER_TOKENS: usize = 3_000;
+
 impl ModelLimits {
     /// Look up known model limits by model name.
     pub fn for_model(model: &str) -> Self {
@@ -51,9 +56,6 @@ impl ContextManager {
     pub fn new(model: &str) -> Self {
         Self {
             limits: ModelLimits::for_model(model),
-            warning_threshold: 0.90,
-            auto_compact_threshold: 0.93,
-            blocking_threshold: 0.97,
             last_known_prompt_tokens: None,
             last_known_char_count: None,
         }
@@ -95,16 +97,38 @@ impl ContextManager {
         self.limits.context_window
     }
 
+    pub fn effective_context_window(&self) -> usize {
+        self.limits.context_window.saturating_sub(
+            self.limits
+                .output_tokens
+                .min(MAX_OUTPUT_TOKENS_FOR_COMPACTION_SUMMARY),
+        )
+    }
+
     pub fn warning_threshold_tokens(&self) -> usize {
-        (self.limits.context_window as f64 * self.warning_threshold) as usize
+        self.compression_threshold_tokens()
+            .saturating_sub(scaled_context_buffer(
+                self.compression_threshold_tokens(),
+                WARNING_THRESHOLD_BUFFER_TOKENS,
+            ))
     }
 
     pub fn compression_threshold_tokens(&self) -> usize {
-        (self.limits.context_window as f64 * self.auto_compact_threshold) as usize
+        let effective_window = self.effective_context_window();
+        effective_window.saturating_sub(scaled_context_buffer(
+            effective_window,
+            AUTOCOMPACT_BUFFER_TOKENS,
+        ))
     }
 
     pub fn blocking_threshold_tokens(&self) -> usize {
-        (self.limits.context_window as f64 * self.blocking_threshold) as usize
+        let effective_window = self.effective_context_window();
+        effective_window
+            .saturating_sub(scaled_context_buffer(
+                effective_window,
+                MANUAL_COMPACT_BUFFER_TOKENS,
+            ))
+            .max(self.compression_threshold_tokens())
     }
 
     pub fn estimate_tokens_for_messages(&self, messages: &[Message]) -> usize {
@@ -139,5 +163,13 @@ impl ContextManager {
             blocking_threshold_tokens,
             level,
         }
+    }
+}
+
+fn scaled_context_buffer(window: usize, target_buffer: usize) -> usize {
+    if window > target_buffer.saturating_mul(4) {
+        target_buffer
+    } else {
+        (window / 5).max(1)
     }
 }

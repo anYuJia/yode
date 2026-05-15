@@ -14,12 +14,6 @@ pub struct ModelLimits {
 /// Manages context window usage to prevent token limit overflows.
 pub struct ContextManager {
     limits: ModelLimits,
-    /// Warning threshold as a fraction of context_window.
-    warning_threshold: f64,
-    /// Auto-compaction threshold as a fraction of context_window.
-    auto_compact_threshold: f64,
-    /// Hard blocking threshold as a fraction of context_window.
-    blocking_threshold: f64,
     /// Cached prompt_tokens from last API response for better estimation.
     last_known_prompt_tokens: Option<u32>,
     /// Cached char count at the time prompt_tokens was recorded.

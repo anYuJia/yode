@@ -19,7 +19,7 @@ fn test_should_compress() {
     let mut cm = ContextManager::new("claude-sonnet-4");
     let msgs = vec![Message::user("hello")];
     assert!(!cm.should_compress(100_000, &msgs));
-    assert!(!cm.should_compress(180_000, &msgs));
+    assert!(!cm.should_compress(175_000, &msgs));
     assert!(cm.should_compress(190_000, &msgs));
     assert_eq!(cm.last_known_prompt_tokens, Some(190_000));
 }
@@ -28,18 +28,29 @@ fn test_should_compress() {
 fn test_context_pressure_thresholds_are_multi_level() {
     let mut cm = ContextManager::new("claude-sonnet-4");
     let msgs = vec![Message::user("hello")];
+    assert_eq!(cm.context_window(), 200_000);
+    assert_eq!(cm.effective_context_window(), 191_808);
 
-    let warning = cm.assess_prompt_pressure(181_000, &msgs);
+    let warning = cm.assess_prompt_pressure(160_000, &msgs);
     assert_eq!(warning.level, ContextPressureLevel::Warning);
-    assert_eq!(warning.warning_threshold_tokens, 180_000);
+    assert_eq!(warning.warning_threshold_tokens, 158_808);
 
-    let auto = cm.assess_prompt_pressure(186_500, &msgs);
+    let auto = cm.assess_prompt_pressure(179_000, &msgs);
     assert_eq!(auto.level, ContextPressureLevel::AutoCompact);
-    assert_eq!(auto.auto_compact_threshold_tokens, 186_000);
+    assert_eq!(auto.auto_compact_threshold_tokens, 178_808);
 
-    let blocking = cm.assess_prompt_pressure(194_500, &msgs);
+    let blocking = cm.assess_prompt_pressure(189_000, &msgs);
     assert_eq!(blocking.level, ContextPressureLevel::Blocking);
-    assert_eq!(blocking.blocking_threshold_tokens, 194_000);
+    assert_eq!(blocking.blocking_threshold_tokens, 188_808);
+}
+
+#[test]
+fn test_small_context_windows_keep_ordered_thresholds() {
+    let cm = ContextManager::new("gpt-3.5-turbo");
+
+    assert!(cm.warning_threshold_tokens() < cm.compression_threshold_tokens());
+    assert!(cm.compression_threshold_tokens() <= cm.blocking_threshold_tokens());
+    assert!(cm.blocking_threshold_tokens() < cm.effective_context_window());
 }
 
 #[test]
