@@ -163,15 +163,15 @@ fn post_compact_pressure_summary(state: &EngineRuntimeState) -> String {
     let threshold = state
         .last_post_compaction_threshold_tokens
         .unwrap_or(state.compaction_threshold_tokens as u32);
-    let margin = estimated.saturating_sub(threshold);
+    let delta = estimated as i64 - threshold as i64;
     let next_auto = match state.last_post_compaction_will_retrigger {
         Some(true) => "likely",
         Some(false) => "clear",
         None => "unknown",
     };
     format!(
-        "est={} threshold={} margin={} next_auto={}",
-        estimated, threshold, margin, next_auto
+        "est={} threshold={} delta={} next_auto={}",
+        estimated, threshold, delta, next_auto
     )
 }
 
@@ -456,7 +456,20 @@ mod tests {
 
         assert_eq!(
             post_compact_pressure_summary(&state),
-            "est=100000 threshold=96000 margin=4000 next_auto=likely"
+            "est=100000 threshold=96000 delta=4000 next_auto=likely"
+        );
+    }
+
+    #[test]
+    fn post_compact_pressure_summary_surfaces_clear_headroom() {
+        let mut state = state();
+        state.last_post_compaction_estimated_tokens = Some(90_000);
+        state.last_post_compaction_threshold_tokens = Some(96_000);
+        state.last_post_compaction_will_retrigger = Some(false);
+
+        assert_eq!(
+            post_compact_pressure_summary(&state),
+            "est=90000 threshold=96000 delta=-6000 next_auto=clear"
         );
     }
 

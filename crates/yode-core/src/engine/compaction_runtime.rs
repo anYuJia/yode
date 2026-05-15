@@ -1244,12 +1244,12 @@ impl AgentEngine {
             auto_compact_threshold,
             will_retrigger_next_turn,
         ) {
-            let margin = estimated_tokens.saturating_sub(threshold);
+            let delta = estimated_tokens as i64 - threshold as i64;
             runtime_lines.push(format!(
-                "- Post-compact pressure: est={} threshold={} margin={} next_auto={}",
+                "- Post-compact pressure: est={} threshold={} delta={} next_auto={}",
                 estimated_tokens,
                 threshold,
-                margin,
+                delta,
                 if will_retrigger { "likely" } else { "clear" }
             ));
         }
