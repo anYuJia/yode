@@ -29,6 +29,17 @@ pub struct PermissionSourceView {
     pub rules: Vec<PermissionRule>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PermissionConflictView {
+    pub higher_source: RuleSource,
+    pub lower_source: RuleSource,
+    pub tool_name: String,
+    pub category: Option<String>,
+    pub pattern: Option<String>,
+    pub higher_behavior: RuleBehavior,
+    pub lower_behavior: RuleBehavior,
+}
+
 /// Manages permissions for tool execution with modes, rules, and tracking.
 #[derive(Debug)]
 pub struct PermissionManager {
@@ -207,6 +218,46 @@ impl PermissionManager {
         self.source_views.clone()
     }
 
+    pub fn conflict_views_snapshot(&self) -> Vec<PermissionConflictView> {
+        let mut conflicts = Vec::new();
+        for higher in &self.rules {
+            for lower in &self.rules {
+                if higher.source <= lower.source {
+                    continue;
+                }
+                if !rules_overlap(higher, lower) || higher.behavior == lower.behavior {
+                    continue;
+                }
+                conflicts.push(PermissionConflictView {
+                    higher_source: higher.source,
+                    lower_source: lower.source,
+                    tool_name: higher.tool_name.clone(),
+                    category: higher.category.clone().or_else(|| lower.category.clone()),
+                    pattern: higher.pattern.clone().or_else(|| lower.pattern.clone()),
+                    higher_behavior: higher.behavior.clone(),
+                    lower_behavior: lower.behavior.clone(),
+                });
+            }
+        }
+        conflicts.sort_by(|a, b| {
+            (
+                a.tool_name.as_str(),
+                a.category.as_deref().unwrap_or(""),
+                a.pattern.as_deref().unwrap_or(""),
+                a.lower_source,
+                a.higher_source,
+            )
+                .cmp(&(
+                    b.tool_name.as_str(),
+                    b.category.as_deref().unwrap_or(""),
+                    b.pattern.as_deref().unwrap_or(""),
+                    b.lower_source,
+                    b.higher_source,
+                ))
+        });
+        conflicts
+    }
+
     pub fn allow(&mut self, tool_name: &str) {
         self.rules.push(PermissionRule {
             source: RuleSource::Session,
@@ -277,4 +328,14 @@ impl PermissionManager {
         tools.dedup();
         tools
     }
+}
+
+fn rules_overlap(higher: &PermissionRule, lower: &PermissionRule) -> bool {
+    let tool_matches =
+        higher.tool_name == lower.tool_name || higher.tool_name == "*" || lower.tool_name == "*";
+    let category_matches =
+        higher.category.is_none() || lower.category.is_none() || higher.category == lower.category;
+    let pattern_matches =
+        higher.pattern.is_none() || lower.pattern.is_none() || higher.pattern == lower.pattern;
+    tool_matches && category_matches && pattern_matches
 }

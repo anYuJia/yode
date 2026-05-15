@@ -363,6 +363,39 @@ fn test_source_views_snapshot_round_trips() {
 }
 
 #[test]
+fn test_managed_deny_takes_precedence_over_user_allow() {
+    let mut pm = PermissionManager::new(PermissionMode::Default);
+    pm.add_rule(PermissionRule {
+        source: RuleSource::UserConfig,
+        behavior: RuleBehavior::Allow,
+        tool_name: "bash".to_string(),
+        category: None,
+        pattern: Some("git push *".to_string()),
+        description: None,
+    });
+    pm.add_rule(PermissionRule {
+        source: RuleSource::ManagedConfig,
+        behavior: RuleBehavior::Deny,
+        tool_name: "bash".to_string(),
+        category: None,
+        pattern: Some("git push *".to_string()),
+        description: None,
+    });
+
+    let explanation = pm.explain_with_content("bash", Some("git push origin main"));
+    assert_eq!(explanation.action, PermissionAction::Deny);
+    assert!(explanation
+        .precedence_chain
+        .first()
+        .is_some_and(|line| line.contains("ManagedConfig")));
+
+    let conflicts = pm.conflict_views_snapshot();
+    assert_eq!(conflicts.len(), 1);
+    assert_eq!(conflicts[0].higher_source, RuleSource::ManagedConfig);
+    assert_eq!(conflicts[0].lower_source, RuleSource::UserConfig);
+}
+
+#[test]
 fn test_strict_manager_backwards_compatible() {
     let pm = PermissionManager::strict();
     assert_eq!(pm.check("bash"), PermissionAction::Confirm);

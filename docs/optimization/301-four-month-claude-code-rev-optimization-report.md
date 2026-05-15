@@ -296,6 +296,10 @@ cargo test -q -p yode-core permission
 cargo test -q -p yode-tui permissions
 ```
 
+Progress:
+
+- 2026-05-16: Added `/permissions sources` as a precedence-oriented source view with file paths and conflict lines, plus core conflict detection that shows higher-precedence rules overriding lower-precedence rules. Added focused coverage that managed deny wins over user allow and that sources output includes precedence, paths, and conflicts. Verified with `cargo test -q -p yode-core permission`, `cargo test -q -p yode-tui permissions`, `cargo check -q`, and `git diff --check`. Remaining risk: `/permissions add/remove` persistence UX is still pending.
+
 ### Week 7: Forked Subagent Mode
 
 Objective: support Claude-style implicit fork workers with inherited context and cache-friendly placeholder protocol.

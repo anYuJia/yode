@@ -8,7 +8,10 @@ use crate::commands::{
     ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
     CommandResult,
 };
-use yode_core::permission::{tool_categories, PermissionMode, PermissionRule};
+use yode_core::permission::{
+    tool_categories, PermissionConflictView, PermissionMode, PermissionRule, PermissionSourceView,
+    RuleSource,
+};
 
 pub struct PermissionsCommand {
     meta: CommandMeta,
@@ -34,6 +37,7 @@ impl PermissionsCommand {
                                 "denials".into(),
                                 "governance".into(),
                                 "scopes".into(),
+                                "sources".into(),
                                 "category".into(),
                             ];
                             names.extend(ctx.tools.definitions().iter().map(|d| d.name.clone()));
@@ -157,31 +161,12 @@ impl Command for PermissionsCommand {
                     "Permissions reset to defaults.".into(),
                 ))
             }
-            ["scopes"] => {
+            ["scopes"] | ["sources"] => {
                 let views = engine.permissions().source_views_snapshot();
-                let lines = if views.is_empty() {
-                    vec!["Permission scopes: none".to_string()]
-                } else {
-                    let mut lines = vec!["Permission scopes:".to_string()];
-                    for view in views {
-                        lines.push(format!(
-                            "  {} path={} mode={} rules={}",
-                            match view.source {
-                                yode_core::permission::RuleSource::ManagedConfig => "managed",
-                                yode_core::permission::RuleSource::UserConfig => "user",
-                                yode_core::permission::RuleSource::ProjectConfig => "project",
-                                yode_core::permission::RuleSource::LocalConfig => "local",
-                                yode_core::permission::RuleSource::Session => "session",
-                                yode_core::permission::RuleSource::CliArg => "cli",
-                            },
-                            view.path.as_deref().unwrap_or("none"),
-                            view.default_mode.as_deref().unwrap_or("inherit"),
-                            view.rules.len(),
-                        ));
-                    }
-                    lines
-                };
-                Ok(CommandOutput::Messages(lines))
+                let conflicts = engine.permissions().conflict_views_snapshot();
+                Ok(CommandOutput::Messages(render_permission_sources_lines(
+                    &views, &conflicts,
+                )))
             }
             ["governance"] => {
                 let path = write_permission_governance_artifact(
@@ -364,7 +349,7 @@ impl Command for PermissionsCommand {
                     "Tool '{tool}' set to deny."
                 )))
             }
-            _ => Err("Usage: /permissions [mode <mode>] | [governance] | [scopes] | [denials [tool]] | [explain <tool> [content]] | [tool allow|deny|explain] | [category <name> allow|deny|ask] | [reset]".into()),
+            _ => Err("Usage: /permissions [mode <mode>] | [governance] | [sources] | [scopes] | [denials [tool]] | [explain <tool> [content]] | [tool allow|deny|explain] | [category <name> allow|deny|ask] | [reset]".into()),
         }
     }
 }
@@ -438,6 +423,69 @@ fn render_permission_mode_switch(mode: PermissionMode) -> String {
     )
 }
 
+fn render_permission_sources_lines(
+    views: &[PermissionSourceView],
+    conflicts: &[PermissionConflictView],
+) -> Vec<String> {
+    let mut lines = vec![
+        "Permission sources:".to_string(),
+        "  precedence: cli > managed > session > local > project > user".to_string(),
+    ];
+    if views.is_empty() {
+        lines.push("  scopes: none".to_string());
+    } else {
+        let mut sorted = views.to_vec();
+        sorted.sort_by_key(|view| std::cmp::Reverse(view.source));
+        for view in sorted {
+            lines.push(format!(
+                "  {} path={} mode={} rules={}",
+                rule_source_name(view.source),
+                view.path.as_deref().unwrap_or("none"),
+                view.default_mode.as_deref().unwrap_or("inherit"),
+                view.rules.len(),
+            ));
+        }
+    }
+
+    if conflicts.is_empty() {
+        lines.push("  conflicts: none".to_string());
+    } else {
+        lines.push("  conflicts:".to_string());
+        for conflict in conflicts {
+            lines.push(format!(
+                "    {} {} overrides {} {} for tool={}{}{}",
+                rule_source_name(conflict.higher_source),
+                conflict.higher_behavior.label(),
+                rule_source_name(conflict.lower_source),
+                conflict.lower_behavior.label(),
+                conflict.tool_name,
+                conflict
+                    .category
+                    .as_deref()
+                    .map(|category| format!(" category={category}"))
+                    .unwrap_or_default(),
+                conflict
+                    .pattern
+                    .as_deref()
+                    .map(|pattern| format!(" pattern={pattern}"))
+                    .unwrap_or_default(),
+            ));
+        }
+    }
+    lines
+}
+
+fn rule_source_name(source: RuleSource) -> &'static str {
+    match source {
+        RuleSource::ManagedConfig => "managed",
+        RuleSource::UserConfig => "user",
+        RuleSource::ProjectConfig => "project",
+        RuleSource::LocalConfig => "local",
+        RuleSource::Session => "session",
+        RuleSource::CliArg => "cli",
+    }
+}
+
 fn write_permission_governance_artifact(
     project_root: &std::path::Path,
     session_id: &str,
@@ -477,6 +525,17 @@ fn write_permission_governance_artifact(
                 "rules": view.rules.into_iter().map(|rule| serialize_permission_rule(&rule)).collect::<Vec<_>>(),
             })
         }).collect::<Vec<_>>(),
+        "conflicts": permissions.conflict_views_snapshot().into_iter().map(|conflict| {
+            serde_json::json!({
+                "higher_source": format!("{:?}", conflict.higher_source),
+                "lower_source": format!("{:?}", conflict.lower_source),
+                "tool": conflict.tool_name,
+                "category": conflict.category,
+                "pattern": conflict.pattern,
+                "higher_behavior": conflict.higher_behavior.label(),
+                "lower_behavior": conflict.lower_behavior.label(),
+            })
+        }).collect::<Vec<_>>(),
         "rules": permissions.rules_snapshot().into_iter().map(|rule| serialize_permission_rule(&rule)).collect::<Vec<_>>(),
         "explanation_target": target_payload,
     });
@@ -497,8 +556,13 @@ fn serialize_permission_rule(rule: &PermissionRule) -> serde_json::Value {
 
 #[cfg(test)]
 mod tests {
-    use super::{render_permission_mode_guide, render_permission_mode_switch};
-    use yode_core::permission::PermissionMode;
+    use super::{
+        render_permission_mode_guide, render_permission_mode_switch,
+        render_permission_sources_lines,
+    };
+    use yode_core::permission::{
+        PermissionConflictView, PermissionMode, PermissionSourceView, RuleBehavior, RuleSource,
+    };
 
     #[test]
     fn permission_mode_guide_mentions_keyboard_and_slash_only_modes() {
@@ -512,5 +576,32 @@ mod tests {
         let rendered = render_permission_mode_switch(PermissionMode::Bypass);
         assert!(rendered.contains("Permission mode set to: bypass"));
         assert!(rendered.contains("/permissions governance"));
+    }
+
+    #[test]
+    fn permission_sources_lines_show_precedence_paths_and_conflicts() {
+        let lines = render_permission_sources_lines(
+            &[PermissionSourceView {
+                source: RuleSource::ManagedConfig,
+                path: Some("/tmp/managed.toml".to_string()),
+                default_mode: Some("auto".to_string()),
+                rules: vec![],
+            }],
+            &[PermissionConflictView {
+                higher_source: RuleSource::ManagedConfig,
+                lower_source: RuleSource::UserConfig,
+                tool_name: "bash".to_string(),
+                category: None,
+                pattern: Some("git push *".to_string()),
+                higher_behavior: RuleBehavior::Deny,
+                lower_behavior: RuleBehavior::Allow,
+            }],
+        );
+
+        assert!(lines.iter().any(|line| line.contains("cli > managed")));
+        assert!(lines.iter().any(|line| line.contains("/tmp/managed.toml")));
+        assert!(lines
+            .iter()
+            .any(|line| line.contains("managed deny overrides user allow")));
     }
 }
