@@ -76,11 +76,13 @@ fn render_runtime_context_lines(
     let prompt_cache = prompt_cache_summary(&state.prompt_cache);
     let compact_artifacts = compact_artifact_summary(state);
     format!(
-        "\n  Summary:         {}\n  Messages:        {}\n  Compaction line: ~{} tokens\n  Pressure:        {}\n  Query source:    {}\n  Autocompact:     {}\n  Compact count:   {} (auto {}, manual {})\n  Breaker reason:  {}\n  Hint:            {}\n  Last compact:    {}\n  Media compact:   last {} / total {} removed, saved ~{} chars\n  Compact files:   {}\n  Prompt cache:    {}\n  Live memory:     {}\n  Tool runtime:    {}\n  Memory updates:  {}",
+        "\n  Summary:         {}\n  Messages:        {}\n  Compaction line: ~{} tokens\n  Pressure:        {}\n  Post-compact:    {}\n  Suggestions:     {}\n  Query source:    {}\n  Autocompact:     {}\n  Compact count:   {} (auto {}, manual {})\n  Breaker reason:  {}\n  Hint:            {}\n  Last compact:    {}\n  Media compact:   last {} / total {} removed, saved ~{} chars\n  Compact files:   {}\n  Prompt cache:    {}\n  Live memory:     {}\n  Tool runtime:    {}\n  Memory updates:  {}",
         context_window_summary_text(Some(state), fallback_tokens),
         state.message_count,
         state.compaction_threshold_tokens,
         compact_pressure_hint(state, pct, threshold),
+        post_compact_pressure_summary(state),
+        context_suggestions_summary(state, pct, threshold),
         state.query_source,
         if state.autocompact_disabled {
             "disabled"
@@ -104,6 +106,72 @@ fn render_runtime_context_lines(
         state.live_session_memory_path,
         tool_runtime_summary_text(state),
         state.session_memory_update_count,
+    )
+}
+
+fn context_suggestions_summary(state: &EngineRuntimeState, pct: f64, threshold: usize) -> String {
+    let mut suggestions = Vec::new();
+
+    if state.autocompact_disabled {
+        suggestions
+            .push("enable autocompact or run /compact before the next large turn".to_string());
+    } else if state.estimated_context_tokens >= threshold {
+        suggestions
+            .push("run /compact now; the current context is at the auto threshold".to_string());
+    } else if pct >= 85.0 {
+        suggestions.push("keep the next turn tight; autocompact is close".to_string());
+    }
+
+    if state.current_turn_tool_output_bytes >= 100_000 {
+        suggestions
+            .push("large tool output this turn; prefer narrower reads or commands".to_string());
+    } else if state.current_turn_truncated_results > 0 || state.tool_truncation_count > 0 {
+        suggestions.push(
+            "tool results were truncated; rerun narrower commands for exact details".to_string(),
+        );
+    }
+
+    if state.read_file_history.len() >= 6 {
+        suggestions
+            .push("many files are in recent read history; focus reads on active files".to_string());
+    }
+
+    if let Some(segment) = state
+        .system_prompt_segments
+        .iter()
+        .max_by_key(|segment| segment.estimated_tokens)
+        .filter(|segment| segment.estimated_tokens >= threshold / 8)
+    {
+        suggestions.push(format!(
+            "large system segment '{}' (~{} tokens); trim if it is stale",
+            segment.label, segment.estimated_tokens
+        ));
+    }
+
+    if suggestions.is_empty() {
+        "none".to_string()
+    } else {
+        suggestions.truncate(3);
+        suggestions.join("; ")
+    }
+}
+
+fn post_compact_pressure_summary(state: &EngineRuntimeState) -> String {
+    let Some(estimated) = state.last_post_compaction_estimated_tokens else {
+        return "none".to_string();
+    };
+    let threshold = state
+        .last_post_compaction_threshold_tokens
+        .unwrap_or(state.compaction_threshold_tokens as u32);
+    let margin = estimated.saturating_sub(threshold);
+    let next_auto = match state.last_post_compaction_will_retrigger {
+        Some(true) => "likely",
+        Some(false) => "clear",
+        None => "unknown",
+    };
+    format!(
+        "est={} threshold={} margin={} next_auto={}",
+        estimated, threshold, margin, next_auto
     )
 }
 
@@ -210,9 +278,12 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::{
-        compact_artifact_summary, compact_pressure_hint, last_compact_summary, prompt_cache_summary,
+        compact_artifact_summary, compact_pressure_hint, context_suggestions_summary,
+        last_compact_summary, post_compact_pressure_summary, prompt_cache_summary,
     };
-    use yode_core::engine::{EngineRuntimeState, PromptCacheRuntimeState};
+    use yode_core::engine::{
+        EngineRuntimeState, PromptCacheRuntimeState, SystemPromptSegmentRuntimeState,
+    };
     use yode_core::tool_runtime::ToolRuntimeCallView;
     use yode_tools::registry::ToolPoolSnapshot;
 
@@ -260,6 +331,9 @@ mod tests {
             last_hook_failure_at: None,
             last_hook_timeout_command: None,
             last_compaction_prompt_tokens: Some(96_000),
+            last_post_compaction_estimated_tokens: None,
+            last_post_compaction_threshold_tokens: None,
+            last_post_compaction_will_retrigger: None,
             avg_compaction_prompt_tokens: Some(96_000),
             compaction_cause_histogram: BTreeMap::new(),
             last_microcompact_media_removed: 2,
@@ -371,5 +445,45 @@ mod tests {
             compact_pressure_hint(&state, 101.0, 96_000),
             "at threshold · run /compact now"
         );
+    }
+
+    #[test]
+    fn post_compact_pressure_summary_surfaces_retrigger_risk() {
+        let mut state = state();
+        state.last_post_compaction_estimated_tokens = Some(100_000);
+        state.last_post_compaction_threshold_tokens = Some(96_000);
+        state.last_post_compaction_will_retrigger = Some(true);
+
+        assert_eq!(
+            post_compact_pressure_summary(&state),
+            "est=100000 threshold=96000 margin=4000 next_auto=likely"
+        );
+    }
+
+    #[test]
+    fn context_suggestions_summary_prioritizes_actionable_bloat_causes() {
+        let mut state = state();
+        state.estimated_context_tokens = 95_000;
+        state.current_turn_tool_output_bytes = 150_000;
+        state.read_file_history = vec![
+            "a.rs".to_string(),
+            "b.rs".to_string(),
+            "c.rs".to_string(),
+            "d.rs".to_string(),
+            "e.rs".to_string(),
+            "f.rs".to_string(),
+        ];
+        state.system_prompt_segments = vec![SystemPromptSegmentRuntimeState {
+            label: "Tools".to_string(),
+            chars: 60_000,
+            estimated_tokens: 14_000,
+        }];
+
+        let summary = context_suggestions_summary(&state, 90.0, 96_000);
+
+        assert!(summary.contains("keep the next turn tight"));
+        assert!(summary.contains("large tool output"));
+        assert!(summary.contains("many files"));
+        assert!(!summary.contains("large system segment"));
     }
 }

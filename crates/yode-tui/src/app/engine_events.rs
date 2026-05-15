@@ -296,6 +296,10 @@ pub(super) fn handle_engine_event(
         EngineEvent::PlanModeExited => {
             push_system_entry(app, "📋 Exited plan mode");
         }
+        EngineEvent::ContextCompactionStarted { mode } => {
+            app.turn_status = TurnStatus::Working { verb: "Compacting" };
+            push_system_entry(app, format!("🗜️ Compacting context ({})", mode));
+        }
         EngineEvent::ContextCompressed {
             mode,
             removed,
