@@ -332,6 +332,10 @@ cargo test -q -p yode-tools agent
 cargo test -q -p yode-tools team_runtime
 ```
 
+Progress:
+
+- 2026-05-16: Added a `fork_context` agent option and subagent runner fork boilerplate with a recursive fork guard, stable directive prefix/fingerprint, and worktree path-translation notice. Added focused coverage that fork child prompts share a byte-identical prefix before the directive, worktree forks receive path translation guidance, and the agent tool forwards `fork_context`. Verified with `cargo test -q -p yode-core subagent`, `cargo test -q -p yode-tools agent`, `cargo test -q -p yode-tools team_runtime`, `cargo check -q`, and `git diff --check`. Remaining risk: fork children still receive a directive wrapper rather than full parent transcript messages with placeholder tool results; that history plumbing remains the next hardening step.
+
 ### Week 8: Tool Result Canonicalization And UI Grouping
 
 Objective: make tool output reviewable and compact-friendly.

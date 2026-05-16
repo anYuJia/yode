@@ -275,6 +275,7 @@ async fn run_skill(skill: SkillEntry, prompt: String, ctx: &ToolContext) -> Resu
                         allowed_tools: skill.allowed_tools.clone(),
                         team_id: None,
                         member_id: None,
+                        fork_context: false,
                     },
                 )
                 .await?;

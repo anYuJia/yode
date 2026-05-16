@@ -21,6 +21,9 @@ use crate::permission::PermissionManager;
 
 use super::{AgentEngine, EngineEvent};
 
+const FORK_BOILERPLATE_TAG: &str = "forked-worker";
+const FORK_DIRECTIVE_PREFIX: &str = "Directive:";
+
 /// Implementation of SubAgentRunner that creates a fresh AgentEngine for each sub-agent.
 pub struct SubAgentRunnerImpl {
     pub provider: Arc<dyn LlmProvider>,
@@ -51,12 +54,28 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                 options.member_id.as_deref(),
             )
             .await;
-            let prompt = inject_workspace_context(
+            let mut prompt = inject_workspace_context(
                 prompt,
                 &subagent_context,
                 options.isolation.as_deref(),
                 options.cwd.as_ref(),
             );
+            let fork_prompt_fingerprint = if options.fork_context {
+                if prompt.contains(&format!("<{}>", FORK_BOILERPLATE_TAG)) {
+                    return Err(anyhow::anyhow!(
+                        "Recursive fork_context sub-agents are blocked; execute directly in this fork worker."
+                    ));
+                }
+                prompt = build_fork_child_prompt(
+                    &prompt,
+                    &parent_working_dir,
+                    &subagent_context.working_dir_compat(),
+                    options.isolation.as_deref(),
+                );
+                Some(stable_prompt_fingerprint(&prompt))
+            } else {
+                None
+            };
             emit_subagent_hook(
                 self.hook_manager.as_ref(),
                 HookEvent::SubagentStart,
@@ -71,6 +90,8 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                     "cwd_override": options.cwd.as_ref().map(|path| path.display().to_string()),
                     "effective_cwd": subagent_context.working_dir_compat().display().to_string(),
                     "allowed_tools_count": options.allowed_tools.len(),
+                    "fork_context": options.fork_context,
+                    "fork_prompt_fingerprint": fork_prompt_fingerprint.clone(),
                 })),
             )
             .await;
@@ -418,6 +439,8 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                     "model_override": options.model,
                     "cwd_override": options.cwd.as_ref().map(|path| path.display().to_string()),
                     "allowed_tools_count": options.allowed_tools.len(),
+                    "fork_context": options.fork_context,
+                    "fork_prompt_fingerprint": fork_prompt_fingerprint.clone(),
                 })),
             )
             .await;
@@ -653,6 +676,43 @@ fn inject_workspace_context(
     )
 }
 
+fn build_fork_child_prompt(
+    directive: &str,
+    parent_cwd: &std::path::Path,
+    child_cwd: &std::path::Path,
+    isolation: Option<&str>,
+) -> String {
+    let worktree_notice = (isolation == Some("worktree")).then(|| {
+        build_worktree_notice(
+            &parent_cwd.display().to_string(),
+            &child_cwd.display().to_string(),
+        )
+    });
+    format!(
+        "<{tag}>\nSTOP. READ THIS FIRST.\n\nYou are a forked worker process. You are NOT the main agent.\n\nRULES:\n1. Do NOT spawn sub-agents or fork workers; execute directly.\n2. Use tools directly and stay within the directive's scope.\n3. Re-read files before editing when inherited context may be stale.\n4. Report concise structured facts, then stop.\n{notice}</{tag}>\n\n{prefix} {directive}",
+        tag = FORK_BOILERPLATE_TAG,
+        notice = worktree_notice
+            .map(|notice| format!("\nWorktree notice:\n{}\n", notice))
+            .unwrap_or_default(),
+        prefix = FORK_DIRECTIVE_PREFIX,
+    )
+}
+
+fn build_worktree_notice(parent_cwd: &str, worktree_cwd: &str) -> String {
+    format!(
+        "You've inherited context from a parent agent working in {parent_cwd}. You are operating in an isolated git worktree at {worktree_cwd}; translate inherited paths to this worktree root and re-read files before editing. Changes stay isolated from the parent's working copy."
+    )
+}
+
+fn stable_prompt_fingerprint(prompt: &str) -> String {
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in prompt.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{hash:016x}")
+}
+
 fn create_agent_worktree(root: &std::path::Path, description: &str) -> Result<std::path::PathBuf> {
     let git_root_output = std::process::Command::new("git")
         .args(["rev-parse", "--show-toplevel"])
@@ -840,9 +900,10 @@ fn merge_hook_metadata(
 #[cfg(test)]
 mod tests {
     use super::{
-        complete_background_subagent, emit_subagent_hook, emit_task_hook, inject_workspace_context,
-        prepare_subagent_context, sanitize_workspace_name, BackgroundSubagentCompletion,
-        BackgroundSubagentStatus,
+        build_fork_child_prompt, complete_background_subagent, emit_subagent_hook, emit_task_hook,
+        inject_workspace_context, prepare_subagent_context, sanitize_workspace_name,
+        stable_prompt_fingerprint, BackgroundSubagentCompletion, BackgroundSubagentStatus,
+        FORK_BOILERPLATE_TAG, FORK_DIRECTIVE_PREFIX,
     };
     use crate::context::AgentContext;
     use crate::hooks::{HookEvent, HookManager};
@@ -1073,6 +1134,38 @@ mod tests {
         assert!(prompt.contains("Sub-agent workspace:"));
         assert!(prompt.contains(&dir.path().display().to_string()));
         assert!(prompt.contains("do work"));
+    }
+
+    #[test]
+    fn fork_child_prompts_share_stable_prefix() {
+        let parent = std::path::Path::new("/tmp/parent");
+        let child = std::path::Path::new("/tmp/parent");
+        let first = build_fork_child_prompt("inspect auth", parent, child, None);
+        let second = build_fork_child_prompt("inspect billing", parent, child, None);
+        let first_prefix = first.split(FORK_DIRECTIVE_PREFIX).next().unwrap();
+        let second_prefix = second.split(FORK_DIRECTIVE_PREFIX).next().unwrap();
+
+        assert_eq!(first_prefix, second_prefix);
+        assert!(first_prefix.contains(&format!("<{}>", FORK_BOILERPLATE_TAG)));
+        assert_ne!(
+            stable_prompt_fingerprint(&first),
+            stable_prompt_fingerprint(&second)
+        );
+    }
+
+    #[test]
+    fn fork_child_worktree_prompt_includes_path_translation_notice() {
+        let prompt = build_fork_child_prompt(
+            "edit docs",
+            std::path::Path::new("/repo/main"),
+            std::path::Path::new("/repo/worktree"),
+            Some("worktree"),
+        );
+
+        assert!(prompt.contains("isolated git worktree"));
+        assert!(prompt.contains("/repo/main"));
+        assert!(prompt.contains("/repo/worktree"));
+        assert!(prompt.contains("translate inherited paths"));
     }
 
     #[test]

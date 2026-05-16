@@ -69,6 +69,7 @@ pub(super) async fn execute_review_then_commit(
                 ],
                 team_id: None,
                 member_id: None,
+                fork_context: false,
             },
         )
         .await?;

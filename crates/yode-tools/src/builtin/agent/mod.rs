@@ -66,6 +66,10 @@ impl Tool for AgentTool {
                     "type": "boolean",
                     "description": "Set to true to run this agent in the background. You will be notified when it completes."
                 },
+                "fork_context": {
+                    "type": "boolean",
+                    "description": "Inherit a cache-stable fork worker directive. Fork workers must not spawn more fork workers."
+                },
                 "isolation": {
                     "type": "string",
                     "enum": ["worktree"],
@@ -131,6 +135,10 @@ impl Tool for AgentTool {
             .get("run_in_background")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
+        let fork_context = params
+            .get("fork_context")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         let isolation = params
             .get("isolation")
@@ -180,6 +188,7 @@ impl Tool for AgentTool {
             allowed_tools,
             team_id: team_id.clone(),
             member_id: member_id.clone(),
+            fork_context,
         };
         let prompt = if let (Some(team_id), Some(member_id), Some(manager)) = (
             team_id.as_deref(),
@@ -611,5 +620,31 @@ mod tests {
             snapshot.state.as_ref().unwrap().members[0].pending_message_count,
             0
         );
+    }
+
+    #[tokio::test]
+    async fn agent_tool_passes_fork_context_option() {
+        let prompt = Arc::new(StdMutex::new(None));
+        let options = Arc::new(StdMutex::new(None));
+        let mut ctx = ToolContext::empty();
+        ctx.sub_agent_runner = Some(Arc::new(CapturingRunner {
+            prompt,
+            options: Arc::clone(&options),
+        }));
+
+        let result = AgentTool
+            .execute(
+                json!({
+                    "description": "inspect code",
+                    "prompt": "inspect the workspace",
+                    "fork_context": true
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(options.lock().unwrap().clone().unwrap().fork_context);
     }
 }

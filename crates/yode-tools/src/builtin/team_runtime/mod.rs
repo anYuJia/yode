@@ -856,6 +856,7 @@ impl AgentRunner for ToolSubAgentRunnerAdapter {
             allowed_tools: request.allowed_tools.clone(),
             team_id: Some(request.team_id.clone()),
             member_id: Some(request.member_id.clone()),
+            fork_context: false,
         };
         let summary = self.inner.run_sub_agent(prompt, options).await?;
         Ok(AgentRunResult {

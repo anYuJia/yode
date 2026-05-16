@@ -380,6 +380,7 @@ impl Tool for CoordinateAgentsTool {
                             allowed_tools: workstream.allowed_tools.clone(),
                             team_id: Some(team_id.clone()),
                             member_id: Some(workstream.id.clone()),
+                            fork_context: false,
                         },
                     )
                 });

@@ -49,6 +49,7 @@ pub struct SubAgentOptions {
     pub allowed_tools: Vec<String>,
     pub team_id: Option<String>,
     pub member_id: Option<String>,
+    pub fork_context: bool,
 }
 
 /// Sub-agent runner trait (implemented by yode-core).

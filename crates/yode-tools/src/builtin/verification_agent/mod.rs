@@ -124,6 +124,7 @@ impl Tool for VerificationAgentTool {
                     ],
                     team_id: None,
                     member_id: None,
+                    fork_context: false,
                 },
             )
             .await?;

@@ -114,6 +114,7 @@ impl Tool for ReviewChangesTool {
                     ],
                     team_id: None,
                     member_id: None,
+                    fork_context: false,
                 },
             )
             .await?;
