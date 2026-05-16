@@ -159,6 +159,22 @@ pub(crate) fn tool_batch_summary_text(batch: &ToolBatch) -> String {
     }
 }
 
+pub(crate) fn tool_batch_stable_id(entries: &[ChatEntry], batch: &ToolBatch) -> String {
+    let mut hash = 0xcbf29ce484222325u64;
+    hash_bytes(&mut hash, format!("{:?}", batch.kind).as_bytes());
+    for item in &batch.items {
+        if let Some(entry) = entries.get(item.call_index) {
+            if let ChatRole::ToolCall { id, name } = &entry.role {
+                hash_bytes(&mut hash, id.as_bytes());
+                hash_bytes(&mut hash, name.as_bytes());
+                hash_bytes(&mut hash, entry.content.as_bytes());
+            }
+        }
+        hash_bytes(&mut hash, format!("{:?}", item.kind).as_bytes());
+    }
+    format!("tool-batch-{hash:016x}")
+}
+
 pub(crate) fn summarize_groupable_tool_call(
     tool_name: &str,
     args_json: &str,
@@ -172,6 +188,13 @@ pub(crate) fn summarize_groupable_tool_call(
     } else {
         text
     })
+}
+
+fn hash_bytes(hash: &mut u64, bytes: &[u8]) {
+    for byte in bytes {
+        *hash ^= u64::from(*byte);
+        *hash = hash.wrapping_mul(0x100000001b3);
+    }
 }
 
 pub(crate) fn tool_batch_hint_text(entries: &[ChatEntry], batch: &ToolBatch) -> Option<String> {
@@ -884,8 +907,8 @@ mod tests {
     use super::{
         describe_groupable_tool_call, describe_tool_call, detect_groupable_subagent_batch,
         detect_groupable_system_batch, detect_groupable_tool_batch, summarize_batch_invocations,
-        tool_batch_hint_text, tool_batch_progress_text, tool_batch_summary_text, ToolBatchItemKind,
-        ToolBatchKind,
+        tool_batch_hint_text, tool_batch_progress_text, tool_batch_stable_id,
+        tool_batch_summary_text, ToolBatchItemKind, ToolBatchKind,
     };
 
     #[test]
@@ -948,6 +971,50 @@ mod tests {
         assert_eq!(
             tool_batch_summary_text(&batch),
             "Searched for 1 pattern, read 1 file, listed 1 directory"
+        );
+    }
+
+    #[test]
+    fn tool_batch_stable_id_is_replay_stable() {
+        let entries = vec![
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "call-1".to_string(),
+                    name: "grep".to_string(),
+                },
+                "{\"pattern\":\"todo\"}".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolResult {
+                    id: "call-1".to_string(),
+                    name: "grep".to_string(),
+                    is_error: false,
+                },
+                "ok".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolCall {
+                    id: "call-2".to_string(),
+                    name: "read_file".to_string(),
+                },
+                "{\"file_path\":\"src/lib.rs\"}".to_string(),
+            ),
+            ChatEntry::new(
+                ChatRole::ToolResult {
+                    id: "call-2".to_string(),
+                    name: "read_file".to_string(),
+                    is_error: false,
+                },
+                "ok".to_string(),
+            ),
+        ];
+        let batch = detect_groupable_tool_batch(&entries, 0).unwrap();
+        let replayed = entries.clone();
+        let replayed_batch = detect_groupable_tool_batch(&replayed, 0).unwrap();
+
+        assert_eq!(
+            tool_batch_stable_id(&entries, &batch),
+            tool_batch_stable_id(&replayed, &replayed_batch)
         );
     }
 

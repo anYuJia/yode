@@ -35,27 +35,29 @@ pub(crate) fn summarize_tool_result(
     result_content: &str,
     is_error: bool,
 ) -> ToolResultSummary {
-    if is_error {
-        return summarize_failed_tool_result(tool_name, metadata, result_content);
-    }
-
-    match tool_name {
-        "read_file" => summarize_read_file(args, metadata),
-        "grep" => summarize_grep(args, metadata, result_content),
-        "glob" => summarize_glob(args, metadata, result_content),
-        "ls" => summarize_ls(args, metadata, result_content),
-        "memory" => summarize_memory(args, metadata, result_content),
-        "skill" => summarize_skill(args, metadata, result_content),
-        "discover_skills" => summarize_discover_skills(result_content),
-        "lsp" => summarize_lsp(args, metadata),
-        "web_search" => summarize_web_search(args, metadata),
-        "web_fetch" => summarize_web_fetch(args, metadata),
-        "project_map" => summarize_project_map(metadata),
-        "batch" => summarize_batch(args, metadata),
-        "agent" | "coordinator" => summarize_agent_tool(args, metadata, result_content),
-        "bash" | "powershell" => summarize_shell_command(metadata, result_content),
-        _ => ToolResultSummary::default(),
-    }
+    let mut summary = if is_error {
+        summarize_failed_tool_result(tool_name, metadata, result_content)
+    } else {
+        match tool_name {
+            "read_file" => summarize_read_file(args, metadata),
+            "grep" => summarize_grep(args, metadata, result_content),
+            "glob" => summarize_glob(args, metadata, result_content),
+            "ls" => summarize_ls(args, metadata, result_content),
+            "memory" => summarize_memory(args, metadata, result_content),
+            "skill" => summarize_skill(args, metadata, result_content),
+            "discover_skills" => summarize_discover_skills(result_content),
+            "lsp" => summarize_lsp(args, metadata),
+            "web_search" => summarize_web_search(args, metadata),
+            "web_fetch" => summarize_web_fetch(args, metadata),
+            "project_map" => summarize_project_map(metadata),
+            "batch" => summarize_batch(args, metadata),
+            "agent" | "coordinator" => summarize_agent_tool(args, metadata, result_content),
+            "bash" | "powershell" => summarize_shell_command(metadata, result_content),
+            _ => ToolResultSummary::default(),
+        }
+    };
+    append_runtime_summary_lines(&mut summary, metadata);
+    summary
 }
 
 fn summarize_failed_tool_result(
@@ -142,6 +144,40 @@ fn summarize_failed_tool_result(
         lines,
         hide_body_by_default: true,
     }
+}
+
+fn append_runtime_summary_lines(summary: &mut ToolResultSummary, metadata: Option<&Value>) {
+    let Some(truncation) = metadata
+        .and_then(|value| value.get("tool_runtime"))
+        .and_then(|runtime| runtime.get("truncation"))
+    else {
+        return;
+    };
+    let original = truncation
+        .get("original_bytes")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let kept = truncation
+        .get("kept_bytes")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let omitted = truncation
+        .get("omitted_bytes")
+        .and_then(Value::as_u64)
+        .unwrap_or(original.saturating_sub(kept));
+    summary.lines.push(ToolSummaryLine {
+        text: format!(
+            "output truncated: kept {} of {} bytes, omitted {}",
+            kept, original, omitted
+        ),
+        tone: ToolSummaryTone::Warning,
+    });
+    summary.lines.push(ToolSummaryLine {
+        text: "re-run with a narrower query or use targeted read offset/limit for exact content"
+            .to_string(),
+        tone: ToolSummaryTone::Neutral,
+    });
+    summary.hide_body_by_default = true;
 }
 
 fn summarize_read_file(args: &Value, metadata: Option<&Value>) -> ToolResultSummary {
@@ -925,6 +961,32 @@ mod tests {
         let summary = summarize_tool_result("read_file", &args, Some(&metadata), "body", false);
         assert!(summary.hide_body_by_default);
         assert_eq!(summary.lines[0].text, "read lines 21-40 of 120");
+    }
+
+    #[test]
+    fn summarize_tool_result_surfaces_runtime_truncation_guidance() {
+        let args = json!({"command": "rg todo"});
+        let metadata = json!({
+            "tool_runtime": {
+                "truncation": {
+                    "reason": "single_result_limit",
+                    "original_bytes": 100000,
+                    "kept_bytes": 12000,
+                    "omitted_bytes": 88000
+                }
+            }
+        });
+        let summary = summarize_tool_result("bash", &args, Some(&metadata), "body", false);
+
+        assert!(summary.hide_body_by_default);
+        assert!(summary
+            .lines
+            .iter()
+            .any(|line| line.text.contains("output truncated")));
+        assert!(summary
+            .lines
+            .iter()
+            .any(|line| line.text.contains("offset/limit")));
     }
 
     #[test]

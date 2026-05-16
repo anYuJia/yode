@@ -5,8 +5,8 @@ use crate::system_message::{
 };
 use crate::tool_grouping::{
     describe_tool_call, detect_groupable_system_batch, detect_groupable_tool_batch,
-    tool_batch_hint_text, tool_batch_progress_text, tool_batch_summary_text, SystemBatch,
-    ToolBatch,
+    tool_batch_hint_text, tool_batch_progress_text, tool_batch_stable_id, tool_batch_summary_text,
+    SystemBatch, ToolBatch,
 };
 use crate::tool_output_summary::{parse_shell_output_sections, summarize_tool_result};
 use crate::ui::chat::{
@@ -1100,6 +1100,7 @@ fn tool_batch_badges(entries: &[ChatEntry], batch: &ToolBatch) -> Vec<(String, S
             "completed".to_string()
         },
     )];
+    badges.push(("group".to_string(), tool_batch_stable_id(entries, batch)));
     if batch
         .items
         .iter()

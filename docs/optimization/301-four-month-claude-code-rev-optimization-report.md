@@ -367,6 +367,10 @@ cargo test -q -p yode-tui tool_output_summary
 bash scripts/parity-replay-ci.sh
 ```
 
+Progress:
+
+- 2026-05-16: Added stable grouped-tool batch ids derived from replay-stable tool call ids, names, arguments, and item kinds, plus runtime truncation warnings in tool result summaries with explicit narrower-query/offset-limit guidance. Verified with `cargo test -q -p yode-core runtime`, `cargo test -q -p yode-tui tool_grouping`, `cargo test -q -p yode-tui tool_output_summary`, `bash scripts/parity-replay-ci.sh`, `cargo check -q`, and `git diff --check`. Remaining risk: compact representations are surfaced through runtime metadata and UI summaries, but full separate persisted compact-result artifacts are still pending.
+
 Month 2 milestone:
 
 - Shell safety is explainable and semantically tested.
