@@ -95,6 +95,7 @@ impl SkillFrontmatter {
 #[derive(Debug, Default)]
 pub struct SkillRegistry {
     skills: Vec<Skill>,
+    diagnostics: Vec<SkillDiagnostic>,
 }
 
 #[derive(Debug, Clone)]
@@ -111,9 +112,18 @@ pub struct ActiveSkillMatch<'a> {
     pub matched_patterns: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkillDiagnostic {
+    pub path: PathBuf,
+    pub message: String,
+}
+
 impl SkillRegistry {
     pub fn new() -> Self {
-        Self { skills: Vec::new() }
+        Self {
+            skills: Vec::new(),
+            diagnostics: Vec::new(),
+        }
     }
 
     /// Discover skills from multiple directories.
@@ -139,6 +149,12 @@ impl SkillRegistry {
                         self.skills.push(skill);
                     }
                 }
+            }
+            if !dir.exists() && looks_like_skill_file_reference(dir) {
+                self.diagnostics.push(SkillDiagnostic {
+                    path: dir.to_path_buf(),
+                    message: "referenced skill file is missing".to_string(),
+                });
             }
             return;
         }
@@ -204,6 +220,10 @@ impl SkillRegistry {
     /// List all skills.
     pub fn list(&self) -> &[Skill] {
         &self.skills
+    }
+
+    pub fn diagnostics(&self) -> &[SkillDiagnostic] {
+        &self.diagnostics
     }
 
     pub fn active_for_paths<I, P>(&self, changed_paths: I) -> Vec<&Skill>
@@ -420,6 +440,18 @@ fn path_matches_skill_pattern(path: &str, pattern: &str) -> bool {
     path == pattern || path.starts_with(&format!("{}/", pattern))
 }
 
+fn looks_like_skill_file_reference(path: &Path) -> bool {
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
+    file_name.eq_ignore_ascii_case("SKILL.md")
+        || path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
+}
+
 fn candidate_skill_files(path: &Path) -> Vec<PathBuf> {
     if path.is_file() {
         let name = path.file_name().unwrap_or_default().to_string_lossy();
@@ -609,6 +641,33 @@ skills = ["skills/review/SKILL.md"]
         let registry = SkillRegistry::discover(&SkillRegistry::default_paths(dir.path()));
 
         assert!(registry.get("plugin-review").is_some());
+    }
+
+    #[test]
+    fn missing_referenced_skill_files_emit_diagnostics() {
+        let dir = tempfile::tempdir().unwrap();
+        let plugin_dir = dir.path().join(".yode").join("plugins").join("review");
+        std::fs::create_dir_all(&plugin_dir).unwrap();
+        std::fs::write(
+            plugin_dir.join("plugin.toml"),
+            r#"
+name = "review"
+trust = "enabled"
+skills = ["skills/missing/SKILL.md"]
+"#,
+        )
+        .unwrap();
+
+        let registry = SkillRegistry::discover(&SkillRegistry::default_paths(dir.path()));
+
+        assert!(registry.get("plugin-review").is_none());
+        assert_eq!(registry.diagnostics().len(), 1);
+        assert!(registry.diagnostics()[0]
+            .path
+            .display()
+            .to_string()
+            .contains("skills/missing/SKILL.md"));
+        assert!(registry.diagnostics()[0].message.contains("missing"));
     }
 
     #[test]

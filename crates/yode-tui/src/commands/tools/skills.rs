@@ -98,8 +98,12 @@ impl Command for SkillsCommand {
 fn render_skill_list(registry: &yode_core::skills::SkillRegistry) -> String {
     let skills = registry.list();
     if skills.is_empty() {
-        return "No skills found. Add SKILL.md files under .yode/skills/ or ~/.yode/skills/."
-            .to_string();
+        let mut lines = vec![
+            "No skills found. Add SKILL.md files under .yode/skills/ or ~/.yode/skills/."
+                .to_string(),
+        ];
+        append_skill_diagnostics(&mut lines, registry);
+        return lines.join("\n");
     }
 
     let mut lines = vec![format!("Discovered skills ({}):", skills.len())];
@@ -111,6 +115,7 @@ fn render_skill_list(registry: &yode_core::skills::SkillRegistry) -> String {
             render_metadata_suffix(skill)
         ));
     }
+    append_skill_diagnostics(&mut lines, registry);
     lines.push("Use `/skills show <name>` for details.".to_string());
     lines.join("\n")
 }
@@ -189,6 +194,24 @@ fn render_search_results(query: &str, registry: &yode_core::skills::SkillRegistr
     lines.join("\n")
 }
 
+fn append_skill_diagnostics(lines: &mut Vec<String>, registry: &yode_core::skills::SkillRegistry) {
+    let diagnostics = registry.diagnostics();
+    if diagnostics.is_empty() {
+        return;
+    }
+    lines.push(format!(
+        "Diagnostics: {} stale skill reference(s)",
+        diagnostics.len()
+    ));
+    for diagnostic in diagnostics.iter().take(3) {
+        lines.push(format!(
+            "  - {}: {}",
+            diagnostic.path.display(),
+            diagnostic.message
+        ));
+    }
+}
+
 fn runtime_recent_paths(ctx: &mut CommandContext<'_>) -> Vec<String> {
     let runtime = ctx
         .engine
@@ -235,7 +258,7 @@ fn empty_label(value: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::{render_active_skills, render_search_results};
+    use super::{render_active_skills, render_search_results, render_skill_list};
     use yode_core::skills::{ActiveSkillMatch, Skill, SkillContextMode, SkillMetadata};
 
     #[test]
@@ -319,6 +342,20 @@ mod tests {
         assert!(rendered.contains("score="));
         assert!(rendered.contains("name exact"));
         assert!(rendered.contains("paths"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn skill_list_renders_stale_reference_diagnostics() {
+        let dir = std::env::temp_dir().join(format!("yode-skills-stale-{}", uuid::Uuid::new_v4()));
+        let missing = dir.join("missing").join("SKILL.md");
+        let _ = std::fs::remove_dir_all(&dir);
+        let registry = yode_core::skills::SkillRegistry::discover(&[missing]);
+
+        let rendered = render_skill_list(&registry);
+
+        assert!(rendered.contains("Diagnostics: 1 stale skill reference"));
+        assert!(rendered.contains("referenced skill file is missing"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

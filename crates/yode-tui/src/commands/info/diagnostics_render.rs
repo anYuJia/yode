@@ -88,6 +88,7 @@ pub(crate) fn render_diagnostics_overview(
     let mcp_resource_artifacts =
         crate::commands::tools::mcp_workspace::mcp_resource_artifact_summary(project_root);
     let plugin_summary = plugin_inventory_summary(project_root);
+    let skill_summary = skill_diagnostics_summary(project_root);
     let team_state = crate::commands::artifact_nav::latest_agent_team_state_artifact(project_root)
         .map(|path| path.display().to_string())
         .unwrap_or_else(|| "none".to_string());
@@ -105,7 +106,7 @@ pub(crate) fn render_diagnostics_overview(
     );
 
     format!(
-        "Diagnostics overview:\n  Runtime summary: {}\n  Context summary: {}\n  Tool summary:    {}\n\nContext:\n  Query source:   {}\n  Compact count:  {} (auto {}, manual {})\n  Breaker reason: {}\n  Compact tokens: {}\n  Media compact:  last {} / total {} removed, saved ~{} chars\n\nMemory:\n  Live memory:    {}{}\n  Memory updates: {}\n  Last memory:    {}\n\nRecovery:\n  State:          {}\n  Last signature: {}\n  Permission:     {}\n  Denials:        {}\n\nTools:\n  Session calls:  {}\n  Progress:       {}\n  Parallel:       {} batches / {} calls\n  Truncations:    {}\n  Errors:         {}\n  Last artifact:  {}\n\nObservability:\n  Hook defer:     {}\n  Agent team:     {}\n  Remote live:    {}\n  Settings:       {}\n  Managed MCP:    {}\n  MCP resources:  {}\n  Plugins:        {}\n\nTasks:\n  Total:          {}\n  Running:        {}\n\nHooks:\n  Total runs:     {}\n  Timeouts:       {}\n  Wake notices:   {}\n\nTimeline:\n{}",
+        "Diagnostics overview:\n  Runtime summary: {}\n  Context summary: {}\n  Tool summary:    {}\n\nContext:\n  Query source:   {}\n  Compact count:  {} (auto {}, manual {})\n  Breaker reason: {}\n  Compact tokens: {}\n  Media compact:  last {} / total {} removed, saved ~{} chars\n\nMemory:\n  Live memory:    {}{}\n  Memory updates: {}\n  Last memory:    {}\n\nRecovery:\n  State:          {}\n  Last signature: {}\n  Permission:     {}\n  Denials:        {}\n\nTools:\n  Session calls:  {}\n  Progress:       {}\n  Parallel:       {} batches / {} calls\n  Truncations:    {}\n  Errors:         {}\n  Last artifact:  {}\n\nObservability:\n  Hook defer:     {}\n  Agent team:     {}\n  Remote live:    {}\n  Settings:       {}\n  Managed MCP:    {}\n  MCP resources:  {}\n  Plugins:        {}\n  Skills:         {}\n\nTasks:\n  Total:          {}\n  Running:        {}\n\nHooks:\n  Total runs:     {}\n  Timeouts:       {}\n  Wake notices:   {}\n\nTimeline:\n{}",
         runtime_summary,
         context_summary,
         tool_summary,
@@ -160,6 +161,7 @@ pub(crate) fn render_diagnostics_overview(
         managed_mcp,
         mcp_resource_artifacts,
         plugin_summary,
+        skill_summary,
         tasks.len(),
         running_tasks,
         state.hook_total_executions,
@@ -200,6 +202,26 @@ pub(crate) fn plugin_inventory_summary(project_root: &std::path::Path) -> String
         blocked,
         errors,
         first_error.unwrap_or_default()
+    )
+}
+
+pub(crate) fn skill_diagnostics_summary(project_root: &std::path::Path) -> String {
+    let registry = yode_core::skills::SkillRegistry::discover(
+        &yode_core::skills::SkillRegistry::default_paths(project_root),
+    );
+    let diagnostics = registry.diagnostics();
+    let first = diagnostics.first().map(|diagnostic| {
+        format!(
+            " first={} {}",
+            diagnostic.path.display(),
+            diagnostic.message
+        )
+    });
+    format!(
+        "skills={} stale_refs={}{}",
+        registry.list().len(),
+        diagnostics.len(),
+        first.unwrap_or_default()
     )
 }
 
