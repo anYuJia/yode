@@ -93,6 +93,14 @@ pub struct AgentContext {
     pub provider: String,
     /// Whether this session was resumed from a previous one
     pub is_resumed: bool,
+    /// Description of the current sub-agent scope, if this is a sub-agent.
+    pub subagent_description: Option<String>,
+    /// Sub-agent type label, if this is a sub-agent.
+    pub subagent_type: Option<String>,
+    /// Team runtime identifier, if this is a team member.
+    pub team_id: Option<String>,
+    /// Team member identifier, if this is a team member.
+    pub member_id: Option<String>,
     /// Effort level for the session
     pub effort: EffortLevel,
     /// Output style: "default", "explanatory", "learning"
@@ -108,6 +116,10 @@ impl AgentContext {
             model,
             provider,
             is_resumed: false,
+            subagent_description: None,
+            subagent_type: None,
+            team_id: None,
+            member_id: None,
             effort: EffortLevel::Medium,
             output_style: "default".to_string(),
         }
@@ -138,6 +150,10 @@ impl AgentContext {
             model,
             provider,
             is_resumed: true,
+            subagent_description: None,
+            subagent_type: None,
+            team_id: None,
+            member_id: None,
             effort: EffortLevel::Medium,
             output_style: "default".to_string(),
         }

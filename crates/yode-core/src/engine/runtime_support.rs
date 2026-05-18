@@ -429,6 +429,10 @@ impl AgentEngine {
             progress_tx,
             working_dir: Some(cwd),
             session_id: Some(self.context.session_id.clone()),
+            subagent_description: self.context.subagent_description.clone(),
+            subagent_type: self.context.subagent_type.clone(),
+            team_id: self.context.team_id.clone(),
+            member_id: self.context.member_id.clone(),
             provider: Some(self.context.provider.clone()),
             model: Some(self.context.model.clone()),
             sub_agent_runner: Some(Arc::new(SubAgentRunnerImpl {

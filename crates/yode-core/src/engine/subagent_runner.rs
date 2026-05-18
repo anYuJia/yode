@@ -630,6 +630,10 @@ fn prepare_subagent_context(
     options: &SubAgentOptions,
 ) -> Result<AgentContext> {
     let mut sub_context = context.clone();
+    sub_context.subagent_description = Some(options.description.clone());
+    sub_context.subagent_type = options.subagent_type.clone();
+    sub_context.team_id = options.team_id.clone();
+    sub_context.member_id = options.member_id.clone();
     let target_cwd = if let Some(cwd) = options.cwd.as_ref() {
         Some(cwd.clone())
     } else if options.isolation.as_deref() == Some("worktree") {
@@ -1114,6 +1118,33 @@ mod tests {
 
         assert_eq!(sub_context.working_dir_compat(), child);
         assert_eq!(context.working_dir_compat(), dir.path());
+    }
+
+    #[test]
+    fn subagent_context_carries_invocation_scope() {
+        let dir = tempfile::tempdir().unwrap();
+        let context = AgentContext::new(
+            dir.path().to_path_buf(),
+            "mock".to_string(),
+            "claude-sonnet-4".to_string(),
+        );
+        let options = SubAgentOptions {
+            description: "review code".to_string(),
+            subagent_type: Some("worker".to_string()),
+            team_id: Some("team-1".to_string()),
+            member_id: Some("reviewer".to_string()),
+            ..Default::default()
+        };
+
+        let sub_context = prepare_subagent_context(&context, &options).unwrap();
+
+        assert_eq!(
+            sub_context.subagent_description.as_deref(),
+            Some("review code")
+        );
+        assert_eq!(sub_context.subagent_type.as_deref(), Some("worker"));
+        assert_eq!(sub_context.team_id.as_deref(), Some("team-1"));
+        assert_eq!(sub_context.member_id.as_deref(), Some("reviewer"));
     }
 
     #[test]

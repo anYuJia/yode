@@ -12,6 +12,8 @@ pub mod discover;
 /// A lightweight store for skill content, populated at startup.
 pub struct SkillStore {
     skills: Vec<SkillEntry>,
+    invocations: Vec<SkillInvocation>,
+    next_invocation_sequence: u64,
 }
 
 #[derive(Clone)]
@@ -34,6 +36,18 @@ pub struct SkillSearchResult {
     pub reasons: Vec<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SkillInvocation {
+    pub sequence: u64,
+    pub name: String,
+    pub action: String,
+    pub session_id: Option<String>,
+    pub subagent_description: Option<String>,
+    pub subagent_type: Option<String>,
+    pub team_id: Option<String>,
+    pub member_id: Option<String>,
+}
+
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub enum SkillContextMode {
     #[default]
@@ -52,7 +66,11 @@ impl SkillContextMode {
 
 impl SkillStore {
     pub fn new() -> Self {
-        Self { skills: Vec::new() }
+        Self {
+            skills: Vec::new(),
+            invocations: Vec::new(),
+            next_invocation_sequence: 1,
+        }
     }
 
     pub fn add(&mut self, name: String, description: String, content: String) {
@@ -89,6 +107,16 @@ impl SkillStore {
 
     pub fn list(&self) -> &[SkillEntry] {
         &self.skills
+    }
+
+    pub fn record_invocation(&mut self, mut invocation: SkillInvocation) {
+        invocation.sequence = self.next_invocation_sequence;
+        self.next_invocation_sequence = self.next_invocation_sequence.saturating_add(1);
+        self.invocations.push(invocation);
+    }
+
+    pub fn invocations(&self) -> &[SkillInvocation] {
+        &self.invocations
     }
 
     pub fn search(&self, query: &str) -> Vec<SkillSearchResult> {
@@ -251,7 +279,12 @@ impl Tool for SkillTool {
                     )));
                 };
 
-                run_skill(skill, prompt, ctx).await
+                let result = run_skill(skill, prompt, ctx).await?;
+                if !result.is_error {
+                    let mut store = self.store.lock().await;
+                    store.record_invocation(skill_invocation(name, action, ctx));
+                }
+                Ok(result)
             }
             _ => {
                 let name = params
@@ -259,16 +292,17 @@ impl Tool for SkillTool {
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("Missing required parameter: name"))?;
 
-                let store = self.store.lock().await;
-                match store.get(name) {
+                let mut store = self.store.lock().await;
+                match store.get(name).cloned() {
                     Some(skill) => {
+                        store.record_invocation(skill_invocation(name, action, ctx));
                         let metadata = json!({
                             "action": "get",
                             "name": name,
-                            "skill": skill_metadata_json(skill)
+                            "skill": skill_metadata_json(&skill)
                         });
                         let mut content = String::new();
-                        let metadata_lines = render_skill_metadata_block(skill);
+                        let metadata_lines = render_skill_metadata_block(&skill);
                         if !metadata_lines.is_empty() {
                             content.push_str(&metadata_lines);
                             content.push_str("\n\n");
@@ -287,6 +321,19 @@ impl Tool for SkillTool {
                 }
             }
         }
+    }
+}
+
+fn skill_invocation(name: &str, action: &str, ctx: &ToolContext) -> SkillInvocation {
+    SkillInvocation {
+        sequence: 0,
+        name: name.to_string(),
+        action: action.to_string(),
+        session_id: ctx.session_id.clone(),
+        subagent_description: ctx.subagent_description.clone(),
+        subagent_type: ctx.subagent_type.clone(),
+        team_id: ctx.team_id.clone(),
+        member_id: ctx.member_id.clone(),
     }
 }
 
@@ -551,6 +598,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn skill_get_records_session_invocation() {
+        let store = Arc::new(Mutex::new(SkillStore::new()));
+        {
+            let mut guard = store.lock().await;
+            guard.add(
+                "rust".to_string(),
+                "Rust guidance".to_string(),
+                "Prefer cargo test.".to_string(),
+            );
+        }
+        let mut ctx = ToolContext::empty();
+        ctx.session_id = Some("session-1".to_string());
+
+        let result = SkillTool {
+            store: Arc::clone(&store),
+        }
+        .execute(json!({"name": "rust"}), &ctx)
+        .await
+        .unwrap();
+
+        assert!(!result.is_error);
+        let guard = store.lock().await;
+        assert_eq!(guard.invocations().len(), 1);
+        assert_eq!(guard.invocations()[0].sequence, 1);
+        assert_eq!(guard.invocations()[0].name, "rust");
+        assert_eq!(guard.invocations()[0].action, "get");
+        assert_eq!(
+            guard.invocations()[0].session_id.as_deref(),
+            Some("session-1")
+        );
+    }
+
+    #[tokio::test]
     async fn skill_list_reports_available_skills() {
         let store = Arc::new(Mutex::new(SkillStore::new()));
         {
@@ -663,6 +743,53 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn skill_run_records_subagent_invocation_scope() {
+        let store = Arc::new(Mutex::new(SkillStore::new()));
+        {
+            let mut guard = store.lock().await;
+            guard.add_entry(super::SkillEntry {
+                name: "review".to_string(),
+                description: "Review guidance".to_string(),
+                content: "Inspect the diff.".to_string(),
+                allowed_tools: vec![],
+                paths: vec![],
+                trigger_examples: vec![],
+                context: super::SkillContextMode::Inline,
+                model: None,
+                effort: None,
+            });
+        }
+        let mut ctx = ToolContext::empty();
+        ctx.session_id = Some("session-2".to_string());
+        ctx.subagent_description = Some("Review worker".to_string());
+        ctx.subagent_type = Some("worker".to_string());
+        ctx.team_id = Some("team-a".to_string());
+        ctx.member_id = Some("reviewer".to_string());
+
+        let result = SkillTool {
+            store: Arc::clone(&store),
+        }
+        .execute(json!({"name": "review", "action": "run"}), &ctx)
+        .await
+        .unwrap();
+
+        assert!(!result.is_error);
+        let guard = store.lock().await;
+        assert_eq!(guard.invocations().len(), 1);
+        let invocation = &guard.invocations()[0];
+        assert_eq!(invocation.name, "review");
+        assert_eq!(invocation.action, "run");
+        assert_eq!(invocation.session_id.as_deref(), Some("session-2"));
+        assert_eq!(
+            invocation.subagent_description.as_deref(),
+            Some("Review worker")
+        );
+        assert_eq!(invocation.subagent_type.as_deref(), Some("worker"));
+        assert_eq!(invocation.team_id.as_deref(), Some("team-a"));
+        assert_eq!(invocation.member_id.as_deref(), Some("reviewer"));
+    }
+
+    #[tokio::test]
     async fn skill_run_reports_missing_runner_for_fork_context() {
         let store = Arc::new(Mutex::new(SkillStore::new()));
         {
@@ -680,18 +807,21 @@ mod tests {
             });
         }
 
-        let result = SkillTool { store }
-            .execute(
-                json!({
-                    "name": "review",
-                    "action": "run"
-                }),
-                &ToolContext::empty(),
-            )
-            .await
-            .unwrap();
+        let result = SkillTool {
+            store: Arc::clone(&store),
+        }
+        .execute(
+            json!({
+                "name": "review",
+                "action": "run"
+            }),
+            &ToolContext::empty(),
+        )
+        .await
+        .unwrap();
 
         assert!(result.is_error);
         assert!(result.content.contains("no sub-agent runner"));
+        assert!(store.lock().await.invocations().is_empty());
     }
 }

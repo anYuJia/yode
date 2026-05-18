@@ -176,6 +176,14 @@ pub struct ToolContext {
     pub working_dir: Option<PathBuf>,
     /// Current session identifier.
     pub session_id: Option<String>,
+    /// Current sub-agent description, if any.
+    pub subagent_description: Option<String>,
+    /// Current sub-agent type, if any.
+    pub subagent_type: Option<String>,
+    /// Team runtime identifier, if any.
+    pub team_id: Option<String>,
+    /// Team member identifier, if any.
+    pub member_id: Option<String>,
     /// Current provider name.
     pub provider: Option<String>,
     /// Current model name.
