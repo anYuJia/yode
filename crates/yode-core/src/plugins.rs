@@ -53,6 +53,12 @@ impl PluginRegistry {
             .flat_map(|plugin| plugin.contributions.hooks.iter().cloned())
             .collect()
     }
+
+    pub fn enabled_command_paths(&self) -> Vec<PathBuf> {
+        self.enabled_plugins()
+            .flat_map(|plugin| plugin.contributions.commands.iter().cloned())
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -120,6 +126,37 @@ pub struct PluginDiagnostic {
 pub struct PluginMcpDiscovery {
     pub servers: HashMap<String, crate::config::McpServerConfig>,
     pub diagnostics: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PluginCommandDiscovery {
+    pub commands: Vec<PluginCommandDefinition>,
+    pub diagnostics: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginCommandDefinition {
+    pub name: String,
+    pub description: String,
+    pub body: String,
+    pub source: PathBuf,
+}
+
+#[derive(Debug, Deserialize)]
+struct PluginCommandManifest {
+    #[serde(default)]
+    commands: Vec<PluginCommandEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PluginCommandEntry {
+    name: String,
+    #[serde(default)]
+    description: String,
+    #[serde(default)]
+    message: Option<String>,
+    #[serde(default)]
+    prompt: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -341,6 +378,101 @@ pub fn discover_plugin_mcp_servers(project_root: &Path) -> PluginMcpDiscovery {
         }
     }
     discovery
+}
+
+pub fn discover_plugin_commands(project_root: &Path) -> PluginCommandDiscovery {
+    let mut discovery = PluginCommandDiscovery::default();
+    for path in PluginRegistry::discover(project_root).enabled_command_paths() {
+        for command_path in expand_toml_contribution(path) {
+            match std::fs::read_to_string(&command_path)
+                .map_err(|err| format!("failed to read {}: {}", command_path.display(), err))
+                .and_then(|content| {
+                    toml::from_str::<PluginCommandManifest>(&content).map_err(|err| {
+                        format!(
+                            "invalid command manifest {}: {}",
+                            command_path.display(),
+                            err
+                        )
+                    })
+                }) {
+                Ok(manifest) => {
+                    for entry in manifest.commands {
+                        match normalize_plugin_command(entry, &command_path) {
+                            Ok(command) => discovery.commands.push(command),
+                            Err(message) => discovery.diagnostics.push(message),
+                        }
+                    }
+                }
+                Err(message) => discovery.diagnostics.push(message),
+            }
+        }
+    }
+    discovery
+}
+
+fn normalize_plugin_command(
+    entry: PluginCommandEntry,
+    source: &Path,
+) -> Result<PluginCommandDefinition, String> {
+    let name = entry.name.trim();
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+    {
+        return Err(format!(
+            "invalid plugin command name '{}' in {}",
+            entry.name,
+            source.display()
+        ));
+    }
+
+    let description = entry.description.trim();
+    let body = entry
+        .message
+        .as_deref()
+        .or(entry.prompt.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(description);
+    if body.is_empty() {
+        return Err(format!(
+            "plugin command '{}' in {} needs message, prompt, or description",
+            name,
+            source.display()
+        ));
+    }
+
+    Ok(PluginCommandDefinition {
+        name: name.to_string(),
+        description: if description.is_empty() {
+            body.chars().take(80).collect()
+        } else {
+            description.to_string()
+        },
+        body: body.to_string(),
+        source: source.to_path_buf(),
+    })
+}
+
+fn expand_toml_contribution(path: PathBuf) -> Vec<PathBuf> {
+    if path.is_dir() {
+        let mut paths = std::fs::read_dir(path)
+            .ok()
+            .into_iter()
+            .flat_map(|entries| entries.filter_map(Result::ok))
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("toml"))
+            .collect::<Vec<_>>();
+        paths.sort();
+        return paths;
+    }
+
+    if path.extension().and_then(|ext| ext.to_str()) == Some("toml") {
+        vec![path]
+    } else {
+        Vec::new()
+    }
 }
 
 #[cfg(test)]
@@ -568,6 +700,82 @@ command = "yode-mcp-demo"
         let discovery = discover_plugin_mcp_servers(dir.path());
 
         assert!(discovery.servers.is_empty());
+        assert!(discovery.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn discovers_enabled_plugin_commands() {
+        let dir = tempfile::tempdir().unwrap();
+        write_manifest(
+            &dir.path().join(".yode").join("plugins"),
+            "demo",
+            r#"
+name = "demo"
+trust = "enabled"
+commands = ["commands/demo.toml"]
+"#,
+        );
+        let command_dir = dir
+            .path()
+            .join(".yode")
+            .join("plugins")
+            .join("demo")
+            .join("commands");
+        std::fs::create_dir_all(&command_dir).unwrap();
+        std::fs::write(
+            command_dir.join("demo.toml"),
+            r#"
+[[commands]]
+name = "demo-review"
+description = "Run plugin review prompt"
+prompt = "Review this plugin contribution."
+"#,
+        )
+        .unwrap();
+
+        let discovery = discover_plugin_commands(dir.path());
+
+        assert!(discovery.diagnostics.is_empty());
+        assert_eq!(discovery.commands.len(), 1);
+        assert_eq!(discovery.commands[0].name, "demo-review");
+        assert_eq!(
+            discovery.commands[0].body,
+            "Review this plugin contribution."
+        );
+    }
+
+    #[test]
+    fn disabled_plugin_commands_are_not_discovered() {
+        let dir = tempfile::tempdir().unwrap();
+        write_manifest(
+            &dir.path().join(".yode").join("plugins"),
+            "demo",
+            r#"
+name = "demo"
+trust = "disabled"
+commands = ["commands/demo.toml"]
+"#,
+        );
+        let command_dir = dir
+            .path()
+            .join(".yode")
+            .join("plugins")
+            .join("demo")
+            .join("commands");
+        std::fs::create_dir_all(&command_dir).unwrap();
+        std::fs::write(
+            command_dir.join("demo.toml"),
+            r#"
+[[commands]]
+name = "demo-review"
+description = "Run plugin review prompt"
+"#,
+        )
+        .unwrap();
+
+        let discovery = discover_plugin_commands(dir.path());
+
+        assert!(discovery.commands.is_empty());
         assert!(discovery.diagnostics.is_empty());
     }
 }

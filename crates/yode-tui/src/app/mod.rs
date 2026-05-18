@@ -69,6 +69,30 @@ impl crate::commands::Command for SkillCommandWrapper {
     }
 }
 
+/// Dynamic plugin command wrapper backed by a plugin-provided prompt/message.
+struct PluginCommandWrapper {
+    meta: crate::commands::CommandMeta,
+    body: String,
+    source: String,
+}
+
+impl crate::commands::Command for PluginCommandWrapper {
+    fn meta(&self) -> &crate::commands::CommandMeta {
+        &self.meta
+    }
+
+    fn execute(
+        &self,
+        _args: &str,
+        _ctx: &mut crate::commands::context::CommandContext,
+    ) -> crate::commands::CommandResult {
+        Ok(crate::commands::CommandOutput::Message(format!(
+            "{}\n\nSource: {}",
+            self.body, self.source
+        )))
+    }
+}
+
 /// Find substring case-insensitively, return byte offset
 fn find_case_insensitive(haystack: &str, needle: &str) -> Option<usize> {
     haystack.to_lowercase().find(&needle.to_lowercase())

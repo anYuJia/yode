@@ -20,7 +20,9 @@ use yode_tools::registry::ToolRegistry;
 use yode_tools::tool::McpResourceProvider;
 
 use super::super::scrollback::{print_entries_to_stdout, print_header_to_stdout};
-use super::super::{push_system_entry, App, ChatEntry, ChatRole, SkillCommandWrapper};
+use super::super::{
+    push_system_entry, App, ChatEntry, ChatRole, PluginCommandWrapper, SkillCommandWrapper,
+};
 use crate::commands::info::ResumeTranscriptCacheWarmupStats;
 
 pub(super) struct RuntimeStartup {
@@ -53,7 +55,9 @@ pub(super) async fn prepare_runtime(
         None
     };
 
-    let working_dir = context.working_dir_compat().display().to_string();
+    let project_root = context.working_dir_compat();
+    let plugin_commands = yode_core::plugins::discover_plugin_commands(&project_root);
+    let working_dir = project_root.display().to_string();
     let is_resumed = context.is_resumed;
     let provider_name = context.provider.clone();
     let provider_models = all_provider_models
@@ -72,9 +76,16 @@ pub(super) async fn prepare_runtime(
     );
     app.session.startup_profile = startup_profile;
     app.cmd_completion.dynamic_commands = skill_commands.clone();
+    app.cmd_completion.dynamic_commands.extend(
+        plugin_commands
+            .commands
+            .iter()
+            .map(|command| (command.name.clone(), command.description.clone())),
+    );
 
     crate::commands::register_all(&mut app.cmd_registry);
     register_skill_commands(&mut app, &skill_commands);
+    register_plugin_commands(&mut app, &plugin_commands.commands);
 
     print_header_to_stdout(&app)?;
     hydrate_restored_messages(&mut app, restored_messages.as_ref(), is_resumed);
@@ -168,6 +179,29 @@ fn register_skill_commands(app: &mut App, skill_commands: &[(String, String)]) {
                 category: crate::commands::CommandCategory::Utility,
                 hidden: false,
             },
+        }));
+    }
+}
+
+fn register_plugin_commands(
+    app: &mut App,
+    plugin_commands: &[yode_core::plugins::PluginCommandDefinition],
+) {
+    for command in plugin_commands {
+        if app.cmd_registry.find(&command.name).is_some() {
+            continue;
+        }
+        app.cmd_registry.register(Box::new(PluginCommandWrapper {
+            meta: crate::commands::CommandMeta {
+                name: Box::leak(command.name.clone().into_boxed_str()),
+                description: Box::leak(command.description.clone().into_boxed_str()),
+                aliases: &[],
+                args: vec![],
+                category: crate::commands::CommandCategory::Utility,
+                hidden: false,
+            },
+            body: command.body.clone(),
+            source: command.source.display().to_string(),
         }));
     }
 }
