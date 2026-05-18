@@ -87,6 +87,7 @@ pub(crate) fn render_diagnostics_overview(
             .unwrap_or_else(|| "none".to_string());
     let mcp_resource_artifacts =
         crate::commands::tools::mcp_workspace::mcp_resource_artifact_summary(project_root);
+    let plugin_summary = plugin_inventory_summary(project_root);
     let team_state = crate::commands::artifact_nav::latest_agent_team_state_artifact(project_root)
         .map(|path| path.display().to_string())
         .unwrap_or_else(|| "none".to_string());
@@ -104,7 +105,7 @@ pub(crate) fn render_diagnostics_overview(
     );
 
     format!(
-        "Diagnostics overview:\n  Runtime summary: {}\n  Context summary: {}\n  Tool summary:    {}\n\nContext:\n  Query source:   {}\n  Compact count:  {} (auto {}, manual {})\n  Breaker reason: {}\n  Compact tokens: {}\n  Media compact:  last {} / total {} removed, saved ~{} chars\n\nMemory:\n  Live memory:    {}{}\n  Memory updates: {}\n  Last memory:    {}\n\nRecovery:\n  State:          {}\n  Last signature: {}\n  Permission:     {}\n  Denials:        {}\n\nTools:\n  Session calls:  {}\n  Progress:       {}\n  Parallel:       {} batches / {} calls\n  Truncations:    {}\n  Errors:         {}\n  Last artifact:  {}\n\nObservability:\n  Hook defer:     {}\n  Agent team:     {}\n  Remote live:    {}\n  Settings:       {}\n  Managed MCP:    {}\n  MCP resources:  {}\n\nTasks:\n  Total:          {}\n  Running:        {}\n\nHooks:\n  Total runs:     {}\n  Timeouts:       {}\n  Wake notices:   {}\n\nTimeline:\n{}",
+        "Diagnostics overview:\n  Runtime summary: {}\n  Context summary: {}\n  Tool summary:    {}\n\nContext:\n  Query source:   {}\n  Compact count:  {} (auto {}, manual {})\n  Breaker reason: {}\n  Compact tokens: {}\n  Media compact:  last {} / total {} removed, saved ~{} chars\n\nMemory:\n  Live memory:    {}{}\n  Memory updates: {}\n  Last memory:    {}\n\nRecovery:\n  State:          {}\n  Last signature: {}\n  Permission:     {}\n  Denials:        {}\n\nTools:\n  Session calls:  {}\n  Progress:       {}\n  Parallel:       {} batches / {} calls\n  Truncations:    {}\n  Errors:         {}\n  Last artifact:  {}\n\nObservability:\n  Hook defer:     {}\n  Agent team:     {}\n  Remote live:    {}\n  Settings:       {}\n  Managed MCP:    {}\n  MCP resources:  {}\n  Plugins:        {}\n\nTasks:\n  Total:          {}\n  Running:        {}\n\nHooks:\n  Total runs:     {}\n  Timeouts:       {}\n  Wake notices:   {}\n\nTimeline:\n{}",
         runtime_summary,
         context_summary,
         tool_summary,
@@ -158,6 +159,7 @@ pub(crate) fn render_diagnostics_overview(
         startup_settings,
         managed_mcp,
         mcp_resource_artifacts,
+        plugin_summary,
         tasks.len(),
         running_tasks,
         state.hook_total_executions,
@@ -165,6 +167,54 @@ pub(crate) fn render_diagnostics_overview(
         state.hook_wake_notification_count,
         timeline,
     )
+}
+
+pub(crate) fn plugin_inventory_summary(project_root: &std::path::Path) -> String {
+    let registry = yode_core::plugins::PluginRegistry::discover(project_root);
+    let mut installed = 0;
+    let mut enabled = 0;
+    let mut disabled = 0;
+    let mut blocked = 0;
+    for plugin in registry.plugins() {
+        match plugin.trust {
+            yode_core::plugins::PluginTrustState::Installed => installed += 1,
+            yode_core::plugins::PluginTrustState::Enabled => enabled += 1,
+            yode_core::plugins::PluginTrustState::Disabled => disabled += 1,
+            yode_core::plugins::PluginTrustState::Blocked => blocked += 1,
+        }
+    }
+    let errors = registry.diagnostics().len();
+    let first_error = registry.diagnostics().first().map(|diagnostic| {
+        format!(
+            " first={} {}",
+            diagnostic.manifest_path.display(),
+            diagnostic.message
+        )
+    });
+    format!(
+        "plugins={} installed={} enabled={} disabled={} blocked={} manifest_errors={}{}",
+        registry.plugins().len(),
+        installed,
+        enabled,
+        disabled,
+        blocked,
+        errors,
+        first_error.unwrap_or_default()
+    )
+}
+
+pub(crate) fn plugin_manifest_diagnostic_lines(project_root: &std::path::Path) -> Vec<String> {
+    yode_core::plugins::PluginRegistry::discover(project_root)
+        .diagnostics()
+        .iter()
+        .map(|diagnostic| {
+            format!(
+                "{}: {}",
+                diagnostic.manifest_path.display(),
+                diagnostic.message
+            )
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -296,6 +346,7 @@ mod tests {
         std::fs::create_dir_all(dir.join(".yode").join("teams")).unwrap();
         std::fs::create_dir_all(dir.join(".yode").join("remote")).unwrap();
         std::fs::create_dir_all(dir.join(".yode").join("startup")).unwrap();
+        std::fs::create_dir_all(dir.join(".yode").join("plugins").join("broken")).unwrap();
         std::fs::create_dir_all(dir.join(".yode").join("status").join("mcp-resources")).unwrap();
         std::fs::write(
             dir.join(".yode")
@@ -340,6 +391,8 @@ mod tests {
         assert!(rendered.contains("Remote live:"));
         assert!(rendered.contains("Managed MCP:"));
         assert!(rendered.contains("MCP resources:"));
+        assert!(rendered.contains("Plugins:"));
+        assert!(rendered.contains("manifest_errors=1"));
         assert!(rendered.contains("manifest=1"));
         let _ = std::fs::remove_dir_all(&dir);
     }

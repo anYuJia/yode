@@ -558,6 +558,22 @@ fn runtime_health_checks(
             ));
         }
     }
+    let plugin_summary =
+        crate::commands::info::diagnostics_render::plugin_inventory_summary(project_root);
+    let plugin_diagnostics =
+        crate::commands::info::diagnostics_render::plugin_manifest_diagnostic_lines(project_root);
+    if plugin_diagnostics.is_empty() {
+        checks.push(format!("  [ok] Plugin manifests: {}", plugin_summary));
+    } else {
+        checks.push(format!(
+            "  [!!] Plugin manifest diagnostics: {} ({})",
+            plugin_diagnostics.len(),
+            plugin_summary
+        ));
+        for diagnostic in plugin_diagnostics.into_iter().take(3) {
+            checks.push(format!("  [!!] Plugin manifest error: {}", diagnostic));
+        }
+    }
     checks.push(format!(
         "  [ok] Prompt cache change summary: {}",
         state
@@ -800,6 +816,7 @@ mod tests {
             std::env::temp_dir().join(format!("yode-doctor-runtime-{}", uuid::Uuid::new_v4()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join(".yode").join("transcripts")).unwrap();
+        std::fs::create_dir_all(dir.join(".yode").join("plugins").join("broken")).unwrap();
         std::fs::create_dir_all(dir.join(".yode").join("status").join("mcp-resources")).unwrap();
         std::fs::write(
             dir.join(".yode")
@@ -834,6 +851,9 @@ mod tests {
         assert!(rendered
             .iter()
             .any(|line| line.contains("Latest MCP resource artifact:")));
+        assert!(rendered
+            .iter()
+            .any(|line| line.contains("Plugin manifest diagnostics:")));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
