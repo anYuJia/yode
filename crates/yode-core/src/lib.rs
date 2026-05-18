@@ -10,6 +10,7 @@ pub mod error;
 pub mod hooks;
 pub mod instructions;
 pub mod permission;
+pub mod plugins;
 pub mod session;
 pub mod session_memory;
 pub mod setup;

@@ -445,6 +445,10 @@ cargo test -q -p yode-core hooks
 cargo test -q -p yode-tui skills
 ```
 
+Progress:
+
+- 2026-05-19: Added the core plugin manifest discovery layer for `.yode/plugins/<name>/plugin.toml`, including installed/enabled/disabled/blocked trust states, skill/workflow/hook/command/MCP contribution inventory, deterministic ordering, path escape validation, and diagnostics for missing or invalid manifests. Verified with `cargo test -q -p yode-core plugins`, `cargo test -q -p yode-core skills`, and `cargo test -q -p yode-core hooks`. Remaining risk: plugin contributions are inventoried but not yet wired into dynamic skills/workflows, `/plugin` commands, or `/diagnostics`/`/doctor`.
+
 ### Week 11: Skills Search And Invocation Persistence
 
 Objective: make skills behave like first-class dynamic capabilities.
