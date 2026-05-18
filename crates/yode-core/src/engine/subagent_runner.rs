@@ -8,6 +8,7 @@ use tokio_util::sync::CancellationToken;
 
 use yode_agent::AgentTeamManager;
 use yode_llm::provider::LlmProvider;
+use yode_tools::builtin::skill::SkillInvocation;
 use yode_tools::builtin::team_runtime::{
     hydrate_agent_team_manager, persist_agent_team_snapshot, update_agent_team_member,
 };
@@ -31,6 +32,7 @@ pub struct SubAgentRunnerImpl {
     pub context: AgentContext,
     pub runtime_tasks: Arc<Mutex<RuntimeTaskStore>>,
     pub team_runtime: Arc<Mutex<AgentTeamManager>>,
+    pub skill_invocation_store: Arc<Mutex<Vec<SkillInvocation>>>,
     pub hook_manager: Option<Arc<HookManager>>,
 }
 
@@ -140,6 +142,7 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                 }
                 let runtime_tasks = Arc::clone(&self.runtime_tasks);
                 let team_runtime = Arc::clone(&self.team_runtime);
+                let skill_invocation_store = Arc::clone(&self.skill_invocation_store);
                 let hook_manager = self.hook_manager.clone();
                 let turn_prompt = format!("[Sub-task: {}]\n\n{}", options.description, prompt);
                 let allowed_tools = allowed_tools.clone();
@@ -173,6 +176,7 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                         permissions,
                         sub_context,
                     );
+                    engine.skill_invocation_store = Arc::clone(&skill_invocation_store);
                     let (_confirm_tx, confirm_rx) = mpsc::unbounded_channel();
                     let (event_tx, mut event_rx) = mpsc::unbounded_channel();
                     let cancel_token = CancellationToken::new();
@@ -390,6 +394,7 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                 permissions,
                 sub_context,
             );
+            engine.skill_invocation_store = Arc::clone(&self.skill_invocation_store);
 
             let (_confirm_tx, confirm_rx) = mpsc::unbounded_channel();
             let turn_prompt = format!("[Sub-task: {}]\n\n{}", options.description, prompt);

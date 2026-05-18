@@ -39,6 +39,7 @@ use tracing::{debug, error, info, warn};
 use yode_agent::AgentTeamManager;
 use yode_llm::provider::LlmProvider;
 use yode_llm::types::{ChatRequest, ChatResponse, Message, Role, StreamEvent, ToolCall};
+use yode_tools::builtin::skill::SkillInvocation;
 use yode_tools::registry::ToolRegistry;
 use yode_tools::runtime_tasks::{RuntimeTask, RuntimeTaskNotification, RuntimeTaskStore};
 use yode_tools::state::TaskStore;
@@ -108,6 +109,8 @@ pub struct AgentEngine {
     runtime_task_store: Arc<Mutex<RuntimeTaskStore>>,
     /// Shared live multi-agent/team runtime manager.
     team_runtime_manager: Arc<Mutex<AgentTeamManager>>,
+    /// Shared successful skill invocation records for compact restoration.
+    skill_invocation_store: Arc<Mutex<Vec<SkillInvocation>>>,
     /// Shared worktree state for enter/exit worktree tools.
     worktree_state: Arc<Mutex<WorktreeState>>,
     /// Channel for ask_user questions (engine → TUI).

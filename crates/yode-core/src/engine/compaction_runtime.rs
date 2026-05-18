@@ -1,5 +1,6 @@
 use super::*;
 use yode_llm::types::RestoreSystemBlockHint;
+use yode_tools::builtin::skill::SkillInvocation;
 
 const SESSION_MEMORY_SUMMARY_PREFIX: &str = "[Context summary]";
 const SESSION_MEMORY_SUMMARY_MAX_CHARS: usize = 1_200;
@@ -242,6 +243,74 @@ fn summarize_string_entries(entries: &[String], max_items: usize) -> Option<Stri
         summary.push_str(&format!(", +{} more", extra));
     }
     Some(summary)
+}
+
+fn render_skill_invocation_restore_lines(invocations: &[SkillInvocation]) -> Vec<String> {
+    if invocations.is_empty() {
+        return Vec::new();
+    }
+
+    let mut recent = invocations.iter().rev().take(5).collect::<Vec<_>>();
+    recent.reverse();
+    let mut lines = vec!["- Recently invoked skills:".to_string()];
+    for invocation in recent {
+        lines.push(format!(
+            "  - {} via {}{} — {}",
+            invocation.name,
+            invocation.action,
+            render_skill_invocation_scope(invocation),
+            empty_restore_label(&invocation.description)
+        ));
+        if !invocation.content_excerpt.trim().is_empty() {
+            lines.push(format!(
+                "    excerpt: {}",
+                compact_restore_excerpt(&invocation.content_excerpt, 520)
+            ));
+        }
+        if invocation.content_truncated {
+            lines.push(format!(
+                "    recovery: run `skill` get {} for the full skill content.",
+                invocation.name
+            ));
+        }
+    }
+    lines
+}
+
+fn render_skill_invocation_scope(invocation: &SkillInvocation) -> String {
+    if let (Some(team_id), Some(member_id)) = (
+        invocation.team_id.as_deref(),
+        invocation.member_id.as_deref(),
+    ) {
+        return format!(" [team={} member={}]", team_id, member_id);
+    }
+    if let Some(description) = invocation.subagent_description.as_deref() {
+        return format!(" [subagent={}]", description);
+    }
+    if let Some(session_id) = invocation.session_id.as_deref() {
+        return format!(
+            " [session={}]",
+            session_id.chars().take(8).collect::<String>()
+        );
+    }
+    String::new()
+}
+
+fn compact_restore_excerpt(value: &str, max_chars: usize) -> String {
+    let mut compact = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if compact.chars().count() > max_chars {
+        compact = compact.chars().take(max_chars).collect::<String>();
+        compact.push_str("...");
+    }
+    compact
+}
+
+fn empty_restore_label(value: &str) -> &str {
+    if value.trim().is_empty() {
+        "(no description)"
+    } else {
+        value
+    }
 }
 
 fn resolve_post_compact_file_path(
@@ -1032,6 +1101,7 @@ fn sanitize_restore_block_for_request(kind: RestoreBlockKind, content: &str) -> 
         RestoreBlockKind::Skills => {
             let mut lines = vec![POST_COMPACT_SKILLS_PREFIX.to_string()];
             let mut found = false;
+            let mut in_invoked_skills = false;
             for line in body_lines.iter().copied() {
                 if line.starts_with("- Path-gated active skills:")
                     || line.starts_with("- Available skills:")
@@ -1039,6 +1109,17 @@ fn sanitize_restore_block_for_request(kind: RestoreBlockKind, content: &str) -> 
                 {
                     lines.push(line.to_string());
                     found = true;
+                    in_invoked_skills = false;
+                } else if line.starts_with("- Recently invoked skills:") {
+                    lines.push(line.to_string());
+                    found = true;
+                    in_invoked_skills = true;
+                } else if in_invoked_skills
+                    && (line.starts_with("- ")
+                        || line.starts_with("excerpt:")
+                        || line.starts_with("recovery:"))
+                {
+                    lines.push(line.to_string());
                 }
             }
             if !found {
@@ -1575,6 +1656,7 @@ impl AgentEngine {
             .take(5)
             .map(|skill| skill.name.clone())
             .collect::<Vec<_>>();
+        let skill_invocations = self.skill_invocation_store.lock().await.clone();
 
         let mut runtime_lines = vec![
             format!(
@@ -1779,6 +1861,7 @@ impl AgentEngine {
                 .join("; ");
             skill_lines.push(format!("- Path-gated active skills: {}", rendered));
         }
+        skill_lines.extend(render_skill_invocation_restore_lines(&skill_invocations));
         if !skill_names.is_empty() {
             skill_lines.push(format!("- Available skills: {}", skill_names.join(", ")));
         } else {

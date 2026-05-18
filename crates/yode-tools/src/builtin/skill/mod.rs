@@ -40,7 +40,10 @@ pub struct SkillSearchResult {
 pub struct SkillInvocation {
     pub sequence: u64,
     pub name: String,
+    pub description: String,
     pub action: String,
+    pub content_excerpt: String,
+    pub content_truncated: bool,
     pub session_id: Option<String>,
     pub subagent_description: Option<String>,
     pub subagent_type: Option<String>,
@@ -282,7 +285,12 @@ impl Tool for SkillTool {
                 let result = run_skill(skill, prompt, ctx).await?;
                 if !result.is_error {
                     let mut store = self.store.lock().await;
-                    store.record_invocation(skill_invocation(name, action, ctx));
+                    if let Some(skill) = store.get(name).cloned() {
+                        let invocation = skill_invocation(name, action, ctx, &skill);
+                        store.record_invocation(invocation.clone());
+                        drop(store);
+                        record_context_invocation(ctx, invocation).await;
+                    }
                 }
                 Ok(result)
             }
@@ -295,7 +303,10 @@ impl Tool for SkillTool {
                 let mut store = self.store.lock().await;
                 match store.get(name).cloned() {
                     Some(skill) => {
-                        store.record_invocation(skill_invocation(name, action, ctx));
+                        let invocation = skill_invocation(name, action, ctx, &skill);
+                        store.record_invocation(invocation.clone());
+                        drop(store);
+                        record_context_invocation(ctx, invocation).await;
                         let metadata = json!({
                             "action": "get",
                             "name": name,
@@ -324,17 +335,42 @@ impl Tool for SkillTool {
     }
 }
 
-fn skill_invocation(name: &str, action: &str, ctx: &ToolContext) -> SkillInvocation {
+fn skill_invocation(
+    name: &str,
+    action: &str,
+    ctx: &ToolContext,
+    skill: &SkillEntry,
+) -> SkillInvocation {
+    let (content_excerpt, content_truncated) = skill_content_excerpt(&skill.content);
     SkillInvocation {
         sequence: 0,
         name: name.to_string(),
+        description: skill.description.clone(),
         action: action.to_string(),
+        content_excerpt,
+        content_truncated,
         session_id: ctx.session_id.clone(),
         subagent_description: ctx.subagent_description.clone(),
         subagent_type: ctx.subagent_type.clone(),
         team_id: ctx.team_id.clone(),
         member_id: ctx.member_id.clone(),
     }
+}
+
+async fn record_context_invocation(ctx: &ToolContext, invocation: SkillInvocation) {
+    if let Some(store) = ctx.skill_invocations.as_ref() {
+        store.lock().await.push(invocation);
+    }
+}
+
+fn skill_content_excerpt(content: &str) -> (String, bool) {
+    const MAX_CHARS: usize = 1_200;
+    let truncated = content.chars().count() > MAX_CHARS;
+    let mut excerpt = content.chars().take(MAX_CHARS).collect::<String>();
+    if truncated {
+        excerpt.push_str("\n[skill excerpt truncated; run skill get for full content]");
+    }
+    (excerpt, truncated)
 }
 
 async fn run_skill(skill: SkillEntry, prompt: String, ctx: &ToolContext) -> Result<ToolResult> {
@@ -610,6 +646,8 @@ mod tests {
         }
         let mut ctx = ToolContext::empty();
         ctx.session_id = Some("session-1".to_string());
+        let context_invocations = Arc::new(Mutex::new(Vec::new()));
+        ctx.skill_invocations = Some(Arc::clone(&context_invocations));
 
         let result = SkillTool {
             store: Arc::clone(&store),
@@ -623,11 +661,18 @@ mod tests {
         assert_eq!(guard.invocations().len(), 1);
         assert_eq!(guard.invocations()[0].sequence, 1);
         assert_eq!(guard.invocations()[0].name, "rust");
+        assert_eq!(guard.invocations()[0].description, "Rust guidance");
         assert_eq!(guard.invocations()[0].action, "get");
+        assert!(guard.invocations()[0]
+            .content_excerpt
+            .contains("Prefer cargo test."));
         assert_eq!(
             guard.invocations()[0].session_id.as_deref(),
             Some("session-1")
         );
+        let context_guard = context_invocations.lock().await;
+        assert_eq!(context_guard.len(), 1);
+        assert_eq!(context_guard[0].name, "rust");
     }
 
     #[tokio::test]
@@ -765,6 +810,8 @@ mod tests {
         ctx.subagent_type = Some("worker".to_string());
         ctx.team_id = Some("team-a".to_string());
         ctx.member_id = Some("reviewer".to_string());
+        let context_invocations = Arc::new(Mutex::new(Vec::new()));
+        ctx.skill_invocations = Some(Arc::clone(&context_invocations));
 
         let result = SkillTool {
             store: Arc::clone(&store),
@@ -787,6 +834,7 @@ mod tests {
         assert_eq!(invocation.subagent_type.as_deref(), Some("worker"));
         assert_eq!(invocation.team_id.as_deref(), Some("team-a"));
         assert_eq!(invocation.member_id.as_deref(), Some("reviewer"));
+        assert_eq!(context_invocations.lock().await.len(), 1);
     }
 
     #[tokio::test]

@@ -9,6 +9,7 @@ use serde_json::Value;
 use tokio::sync::{mpsc, Mutex};
 use yode_agent::AgentTeamManager;
 
+use crate::builtin::skill::SkillInvocation;
 use crate::registry::ToolPoolSnapshot;
 use crate::registry::ToolRegistry;
 use crate::state::TaskStore;
@@ -176,6 +177,8 @@ pub struct ToolContext {
     pub working_dir: Option<PathBuf>,
     /// Current session identifier.
     pub session_id: Option<String>,
+    /// Shared successful skill invocation records for the current session.
+    pub skill_invocations: Option<Arc<Mutex<Vec<SkillInvocation>>>>,
     /// Current sub-agent description, if any.
     pub subagent_description: Option<String>,
     /// Current sub-agent type, if any.

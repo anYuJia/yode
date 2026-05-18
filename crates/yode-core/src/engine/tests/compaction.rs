@@ -234,6 +234,24 @@ async fn test_force_compact_uses_full_post_compact_finalize_path() {
         "---\nname: rust\ndescription: Rust path guidance\npaths:\n  - src/**\n---\nPrefer cargo test.\n",
     )
     .unwrap();
+    engine
+        .skill_invocation_store
+        .lock()
+        .await
+        .push(yode_tools::builtin::skill::SkillInvocation {
+            sequence: 1,
+            name: "rust".to_string(),
+            description: "Rust path guidance".to_string(),
+            action: "get".to_string(),
+            content_excerpt: "Prefer cargo test. Preserve this skill hint after compact."
+                .to_string(),
+            content_truncated: false,
+            session_id: Some(engine.context().session_id.clone()),
+            subagent_description: None,
+            subagent_type: None,
+            team_id: None,
+            member_id: None,
+        });
     engine.files_read.insert("src/lib.rs".to_string(), 3);
     engine.pending_cache_edit_refs = vec!["tc1".to_string()];
     engine.pinned_cache_edit_refs = vec!["tc0".to_string()];
@@ -317,6 +335,8 @@ async fn test_force_compact_uses_full_post_compact_finalize_path() {
         .iter()
         .any(|block| block.kind == "skills"
             && block.content.contains("Path-gated active skills")
+            && block.content.contains("Recently invoked skills")
+            && block.content.contains("Preserve this skill hint")
             && block.content.contains("rust")));
     assert!(request
         .provider_hints
