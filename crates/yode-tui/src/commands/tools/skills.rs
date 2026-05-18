@@ -62,7 +62,8 @@ impl Command for SkillsCommand {
                             .to_string(),
                     ));
                 }
-                let active = registry.active_for_paths(paths.iter().map(|path| path.as_str()));
+                let active =
+                    registry.active_for_paths_with_reasons(paths.iter().map(|path| path.as_str()));
                 Ok(CommandOutput::Message(render_active_skills(
                     "recent read paths",
                     &paths,
@@ -74,7 +75,7 @@ impl Command for SkillsCommand {
                     .iter()
                     .map(|path| path.to_string())
                     .collect::<Vec<_>>();
-                let active = registry.active_for_paths(paths.iter().copied());
+                let active = registry.active_for_paths_with_reasons(paths.iter().copied());
                 Ok(CommandOutput::Message(render_active_skills(
                     &path_list.join(", "),
                     &path_list,
@@ -143,7 +144,7 @@ fn render_skill_detail(skill: &yode_core::skills::Skill) -> String {
 fn render_active_skills(
     label: &str,
     paths: &[String],
-    skills: &[&yode_core::skills::Skill],
+    skills: &[yode_core::skills::ActiveSkillMatch<'_>],
 ) -> String {
     if skills.is_empty() {
         return format!("No path-gated skills match '{}'.", label);
@@ -152,12 +153,18 @@ fn render_active_skills(
     if !paths.is_empty() {
         lines.push(format!("  Paths: {}", paths.join(" | ")));
     }
-    for skill in skills {
+    for active in skills {
+        let skill = active.skill;
         lines.push(format!(
             "  - {} — {}{}",
             skill.name,
             skill.description,
             render_metadata_suffix(skill)
+        ));
+        lines.push(format!(
+            "    reason: matched {} on {}",
+            active.matched_patterns.join(", "),
+            active.matched_paths.join(" | ")
         ));
     }
     lines.join("\n")
@@ -229,7 +236,7 @@ fn empty_label(value: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::{render_active_skills, render_search_results};
-    use yode_core::skills::{Skill, SkillContextMode, SkillMetadata};
+    use yode_core::skills::{ActiveSkillMatch, Skill, SkillContextMode, SkillMetadata};
 
     #[test]
     fn active_skills_render_includes_recent_paths() {
@@ -249,11 +256,18 @@ mod tests {
         };
         let paths = vec!["crates/yode-core/src/lib.rs".to_string()];
 
-        let rendered = render_active_skills("recent read paths", &paths, &[&skill]);
+        let active = ActiveSkillMatch {
+            skill: &skill,
+            matched_paths: vec!["crates/yode-core/src/lib.rs".to_string()],
+            matched_patterns: vec!["crates/**".to_string()],
+        };
+
+        let rendered = render_active_skills("recent read paths", &paths, &[active]);
 
         assert!(rendered.contains("recent read paths"));
         assert!(rendered.contains("crates/yode-core/src/lib.rs"));
         assert!(rendered.contains("rust"));
+        assert!(rendered.contains("reason: matched crates/**"));
     }
 
     #[test]
@@ -274,10 +288,17 @@ mod tests {
         };
         let paths = vec!["docs/guide.md".to_string(), "src/main.rs".to_string()];
 
-        let rendered = render_active_skills("docs/guide.md, src/main.rs", &paths, &[&skill]);
+        let active = ActiveSkillMatch {
+            skill: &skill,
+            matched_paths: vec!["docs/guide.md".to_string()],
+            matched_patterns: vec!["docs/**".to_string()],
+        };
+
+        let rendered = render_active_skills("docs/guide.md, src/main.rs", &paths, &[active]);
 
         assert!(rendered.contains("docs/guide.md | src/main.rs"));
         assert!(rendered.contains("docs"));
+        assert!(rendered.contains("reason: matched docs/** on docs/guide.md"));
     }
 
     #[test]

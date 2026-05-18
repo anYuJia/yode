@@ -104,6 +104,13 @@ pub struct SkillSearchResult<'a> {
     pub reasons: Vec<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct ActiveSkillMatch<'a> {
+    pub skill: &'a Skill,
+    pub matched_paths: Vec<String>,
+    pub matched_patterns: Vec<String>,
+}
+
 impl SkillRegistry {
     pub fn new() -> Self {
         Self { skills: Vec::new() }
@@ -204,6 +211,17 @@ impl SkillRegistry {
         I: IntoIterator<Item = P>,
         P: AsRef<Path>,
     {
+        self.active_for_paths_with_reasons(changed_paths)
+            .into_iter()
+            .map(|active| active.skill)
+            .collect()
+    }
+
+    pub fn active_for_paths_with_reasons<I, P>(&self, changed_paths: I) -> Vec<ActiveSkillMatch<'_>>
+    where
+        I: IntoIterator<Item = P>,
+        P: AsRef<Path>,
+    {
         let normalized_paths = changed_paths
             .into_iter()
             .map(|path| path.as_ref().to_string_lossy().replace('\\', "/"))
@@ -211,14 +229,7 @@ impl SkillRegistry {
 
         self.skills
             .iter()
-            .filter(|skill| {
-                !skill.metadata.paths.is_empty()
-                    && skill.metadata.paths.iter().any(|pattern| {
-                        normalized_paths
-                            .iter()
-                            .any(|path| path_matches_skill_pattern(path, pattern))
-                    })
-            })
+            .filter_map(|skill| active_skill_match(skill, &normalized_paths))
             .collect()
     }
 
@@ -286,6 +297,32 @@ fn normalized_option(value: Option<&str>) -> Option<String> {
         .map(ToString::to_string)
 }
 
+fn active_skill_match<'a>(
+    skill: &'a Skill,
+    normalized_paths: &[String],
+) -> Option<ActiveSkillMatch<'a>> {
+    if skill.metadata.paths.is_empty() || normalized_paths.is_empty() {
+        return None;
+    }
+
+    let mut matched_paths = Vec::new();
+    let mut matched_patterns = Vec::new();
+    for pattern in &skill.metadata.paths {
+        for path in normalized_paths {
+            if path_matches_skill_pattern(path, pattern) {
+                push_unique_string(&mut matched_patterns, pattern);
+                push_unique_string(&mut matched_paths, path);
+            }
+        }
+    }
+
+    (!matched_paths.is_empty()).then_some(ActiveSkillMatch {
+        skill,
+        matched_paths,
+        matched_patterns,
+    })
+}
+
 fn search_tokens(query: &str) -> Vec<String> {
     query
         .split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '-' && ch != '_')
@@ -345,6 +382,12 @@ fn score_skill_search<'a>(skill: &'a Skill, tokens: &[String]) -> Option<SkillSe
 fn push_unique_reason(reasons: &mut Vec<String>, reason: &str) {
     if !reasons.iter().any(|existing| existing == reason) {
         reasons.push(reason.to_string());
+    }
+}
+
+fn push_unique_string(values: &mut Vec<String>, value: &str) {
+    if !values.iter().any(|existing| existing == value) {
+        values.push(value.to_string());
     }
 }
 
@@ -507,6 +550,17 @@ mod tests {
 
         assert_eq!(active.len(), 1);
         assert_eq!(active[0].name, "rust");
+
+        let active = registry.active_for_paths_with_reasons(["crates/yode-core/src/lib.rs"]);
+        assert_eq!(active[0].skill.name, "rust");
+        assert_eq!(
+            active[0].matched_paths,
+            vec!["crates/yode-core/src/lib.rs".to_string()]
+        );
+        assert_eq!(
+            active[0].matched_patterns,
+            vec!["crates/yode-core/**".to_string(), "*.rs".to_string()]
+        );
     }
 
     #[test]
