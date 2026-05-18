@@ -82,8 +82,13 @@ pub(crate) async fn setup_tooling(config: &Config, workdir: &Path) -> Result<Too
 
     let mcp_started = Instant::now();
     let mut mcp_connect_set = tokio::task::JoinSet::new();
-    let configured_mcp_server_count = config.mcp.servers.len();
-    for (name, server_config) in &config.mcp.servers {
+    let mut effective_mcp_servers = config.mcp.servers.clone();
+    let plugin_mcp = yode_core::plugins::discover_plugin_mcp_servers(workdir);
+    for (name, server_config) in plugin_mcp.servers {
+        effective_mcp_servers.entry(name).or_insert(server_config);
+    }
+    let configured_mcp_server_count = effective_mcp_servers.len();
+    for (name, server_config) in effective_mcp_servers {
         let name = name.clone();
         let server_config = server_config.clone();
         mcp_connect_set.spawn(async move {

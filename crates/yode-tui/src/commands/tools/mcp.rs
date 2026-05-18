@@ -59,10 +59,15 @@ impl Command for McpCommand {
         }
 
         let config = yode_core::config::Config::load().ok();
-        let configured_servers = config
+        let mut configured_servers = config
             .as_ref()
             .map(|cfg| cfg.mcp.servers.clone())
             .unwrap_or_default();
+        let project_root = std::path::PathBuf::from(&ctx.session.working_dir);
+        let plugin_mcp = yode_core::plugins::discover_plugin_mcp_servers(&project_root);
+        for (name, server) in plugin_mcp.servers {
+            configured_servers.entry(name).or_insert(server);
+        }
         let latency_stats = yode_mcp::mcp_tool_latency_stats();
         let reconnect_stats = yode_mcp::mcp_reconnect_diagnostics();
         let elicitation_stats = yode_mcp::mcp_elicitation_diagnostics();
@@ -150,7 +155,6 @@ impl Command for McpCommand {
             "  Cache stats: {}",
             resource_cache_activity_summary()
         ));
-        let project_root = std::path::PathBuf::from(&ctx.session.working_dir);
         lines.push(format!(
             "  Resource artifacts: {}",
             mcp_resource_artifact_summary(&project_root)

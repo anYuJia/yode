@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
@@ -113,6 +114,12 @@ pub struct PluginDiagnostic {
     pub plugin_dir: PathBuf,
     pub manifest_path: PathBuf,
     pub message: String,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct PluginMcpDiscovery {
+    pub servers: HashMap<String, crate::config::McpServerConfig>,
+    pub diagnostics: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -298,6 +305,44 @@ pub fn set_plugin_trust(
     Ok(manifest_path)
 }
 
+pub fn discover_plugin_mcp_servers(project_root: &Path) -> PluginMcpDiscovery {
+    let mut discovery = PluginMcpDiscovery::default();
+    for plugin in PluginRegistry::discover(project_root).enabled_plugins() {
+        for contribution in &plugin.contributions.mcp_servers {
+            let path = Path::new(contribution);
+            if path.extension().and_then(|ext| ext.to_str()) != Some("toml") {
+                continue;
+            }
+            if path.is_absolute()
+                || path
+                    .components()
+                    .any(|component| matches!(component, std::path::Component::ParentDir))
+            {
+                discovery.diagnostics.push(format!(
+                    "MCP contribution must stay inside plugin '{}': {}",
+                    plugin.name, contribution
+                ));
+                continue;
+            }
+            let path = plugin.root.join(path);
+            match std::fs::read_to_string(&path)
+                .map_err(|err| format!("failed to read {}: {}", path.display(), err))
+                .and_then(|content| {
+                    toml::from_str::<crate::config::McpConfig>(&content)
+                        .map_err(|err| format!("invalid MCP manifest {}: {}", path.display(), err))
+                }) {
+                Ok(config) => {
+                    for (server, config) in config.servers {
+                        discovery.servers.entry(server).or_insert(config);
+                    }
+                }
+                Err(message) => discovery.diagnostics.push(message),
+            }
+        }
+    }
+    discovery
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -453,5 +498,76 @@ skills = ["skills/demo/SKILL.md"]
             registry.get("demo").unwrap().trust,
             PluginTrustState::Enabled
         );
+    }
+
+    #[test]
+    fn discovers_enabled_plugin_mcp_server_manifests() {
+        let dir = tempfile::tempdir().unwrap();
+        write_manifest(
+            &dir.path().join(".yode").join("plugins"),
+            "demo",
+            r#"
+name = "demo"
+trust = "enabled"
+mcp_servers = ["mcp/servers.toml", "inventory-only"]
+"#,
+        );
+        let mcp_dir = dir
+            .path()
+            .join(".yode")
+            .join("plugins")
+            .join("demo")
+            .join("mcp");
+        std::fs::create_dir_all(&mcp_dir).unwrap();
+        std::fs::write(
+            mcp_dir.join("servers.toml"),
+            r#"
+[servers.plugin_docs]
+command = "yode-mcp-demo"
+args = ["--stdio"]
+"#,
+        )
+        .unwrap();
+
+        let discovery = discover_plugin_mcp_servers(dir.path());
+
+        assert!(discovery.diagnostics.is_empty());
+        let server = discovery.servers.get("plugin_docs").unwrap();
+        assert_eq!(server.command, "yode-mcp-demo");
+        assert_eq!(server.args, vec!["--stdio".to_string()]);
+    }
+
+    #[test]
+    fn disabled_plugin_mcp_servers_are_not_discovered() {
+        let dir = tempfile::tempdir().unwrap();
+        write_manifest(
+            &dir.path().join(".yode").join("plugins"),
+            "demo",
+            r#"
+name = "demo"
+trust = "disabled"
+mcp_servers = ["mcp/servers.toml"]
+"#,
+        );
+        let mcp_dir = dir
+            .path()
+            .join(".yode")
+            .join("plugins")
+            .join("demo")
+            .join("mcp");
+        std::fs::create_dir_all(&mcp_dir).unwrap();
+        std::fs::write(
+            mcp_dir.join("servers.toml"),
+            r#"
+[servers.plugin_docs]
+command = "yode-mcp-demo"
+"#,
+        )
+        .unwrap();
+
+        let discovery = discover_plugin_mcp_servers(dir.path());
+
+        assert!(discovery.servers.is_empty());
+        assert!(discovery.diagnostics.is_empty());
     }
 }
