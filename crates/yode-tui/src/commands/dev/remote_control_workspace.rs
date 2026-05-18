@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -179,6 +180,29 @@ struct RemoteReplayEvent {
     queue_item_id: Option<String>,
     #[serde(default)]
     runtime_task_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct RemoteReplayQueueState {
+    status: String,
+    runtime_task_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct RemoteReplayState {
+    transport_status: String,
+    reconnect_attempts: u32,
+    queue: BTreeMap<String, RemoteReplayQueueState>,
+}
+
+impl Default for RemoteReplayState {
+    fn default() -> Self {
+        Self {
+            transport_status: "unknown".to_string(),
+            reconnect_attempts: 0,
+            queue: BTreeMap::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -671,6 +695,7 @@ pub(crate) fn render_remote_event_log_replay(path: &Path) -> anyhow::Result<Stri
     let body = std::fs::read_to_string(path)?;
     let mut events = Vec::new();
     let mut diagnostics = Vec::new();
+    let mut state = RemoteReplayState::default();
     let mut expected_cursor = 1;
     for (index, line) in body.lines().enumerate() {
         let line = line.trim();
@@ -693,6 +718,7 @@ pub(crate) fn render_remote_event_log_replay(path: &Path) -> anyhow::Result<Stri
                         expected_cursor
                     ));
                 }
+                apply_remote_replay_event(&mut state, &event);
                 expected_cursor = expected_cursor.max(event.cursor.saturating_add(1));
                 events.push(event);
             }
@@ -713,12 +739,18 @@ pub(crate) fn render_remote_event_log_replay(path: &Path) -> anyhow::Result<Stri
         .last()
         .map(render_replay_event_label)
         .unwrap_or_else(|| "none".to_string());
+    let queue_summary = render_remote_replay_queue_summary(&state.queue);
     let mut lines = vec![
         "Remote event replay".to_string(),
         format!("  Source: {}", path.display()),
         format!("  Events: {}", events.len()),
         format!("  Cursor: {}..{}", first_cursor, last_cursor),
         format!("  Status: {}", status),
+        format!(
+            "  Reconstructed transport: {} / reconnects={}",
+            state.transport_status, state.reconnect_attempts
+        ),
+        format!("  Reconstructed queue: {}", queue_summary),
         format!("  Last event: {}", last_event),
     ];
     if !diagnostics.is_empty() {
@@ -734,6 +766,127 @@ pub(crate) fn render_remote_event_log_replay(path: &Path) -> anyhow::Result<Stri
         );
     }
     Ok(lines.join("\n"))
+}
+
+fn apply_remote_replay_event(state: &mut RemoteReplayState, event: &RemoteReplayEvent) {
+    match event.event.as_str() {
+        "connect" | "reconnect" => {
+            state.transport_status = "connected".to_string();
+            if event.event == "reconnect" {
+                state.reconnect_attempts = state.reconnect_attempts.saturating_add(1);
+            }
+        }
+        "connect_failed" => {
+            state.transport_status = "error".to_string();
+        }
+        "reconnect_failed" => {
+            state.transport_status = "error".to_string();
+            state.reconnect_attempts = state.reconnect_attempts.saturating_add(1);
+        }
+        "disconnect" => {
+            state.transport_status = "disconnected".to_string();
+        }
+        "dispatch" => {
+            if let Some(item_id) = event.queue_item_id.as_deref() {
+                state.queue.insert(
+                    item_id.to_string(),
+                    RemoteReplayQueueState {
+                        status: "dispatched".to_string(),
+                        runtime_task_id: event.runtime_task_id.clone(),
+                    },
+                );
+            }
+        }
+        "result_completed" => {
+            if let Some(item_id) = event.queue_item_id.as_deref() {
+                state
+                    .queue
+                    .entry(item_id.to_string())
+                    .and_modify(|item| {
+                        item.status = "completed".to_string();
+                        item.runtime_task_id = event.runtime_task_id.clone();
+                    })
+                    .or_insert(RemoteReplayQueueState {
+                        status: "completed".to_string(),
+                        runtime_task_id: event.runtime_task_id.clone(),
+                    });
+            }
+        }
+        "result_failed" => {
+            if let Some(item_id) = event.queue_item_id.as_deref() {
+                state
+                    .queue
+                    .entry(item_id.to_string())
+                    .and_modify(|item| {
+                        item.status = "failed".to_string();
+                        item.runtime_task_id = event.runtime_task_id.clone();
+                    })
+                    .or_insert(RemoteReplayQueueState {
+                        status: "failed".to_string(),
+                        runtime_task_id: event.runtime_task_id.clone(),
+                    });
+            }
+        }
+        "ack" => {
+            if let Some(item_id) = event.queue_item_id.as_deref() {
+                state
+                    .queue
+                    .entry(item_id.to_string())
+                    .and_modify(|item| item.status = "acked".to_string())
+                    .or_insert(RemoteReplayQueueState {
+                        status: "acked".to_string(),
+                        runtime_task_id: event.runtime_task_id.clone(),
+                    });
+            }
+        }
+        "retry" => {
+            if let Some(item_id) = event.queue_item_id.as_deref() {
+                state
+                    .queue
+                    .entry(item_id.to_string())
+                    .and_modify(|item| item.status = "queued".to_string())
+                    .or_insert(RemoteReplayQueueState {
+                        status: "queued".to_string(),
+                        runtime_task_id: event.runtime_task_id.clone(),
+                    });
+            }
+        }
+        _ => {}
+    }
+}
+
+fn render_remote_replay_queue_summary(queue: &BTreeMap<String, RemoteReplayQueueState>) -> String {
+    if queue.is_empty() {
+        return "none".to_string();
+    }
+    let completed = queue
+        .values()
+        .filter(|item| item.status == "completed")
+        .count();
+    let failed = queue
+        .values()
+        .filter(|item| item.status == "failed")
+        .count();
+    let acked = queue.values().filter(|item| item.status == "acked").count();
+    let active = queue
+        .values()
+        .filter(|item| matches!(item.status.as_str(), "dispatched" | "queued"))
+        .count();
+    let mut summary = format!(
+        "{} total / completed={} / failed={} / acked={} / active={}",
+        queue.len(),
+        completed,
+        failed,
+        acked,
+        active
+    );
+    if let Some((item_id, item)) = queue.iter().next_back() {
+        summary.push_str(&format!(" / last={}({})", item_id, item.status));
+        if let Some(task_id) = item.runtime_task_id.as_deref() {
+            summary.push_str(&format!(" task={}", task_id));
+        }
+    }
+    summary
 }
 
 fn cursor_range(start: u64, end: u64) -> String {
@@ -2248,6 +2401,10 @@ mod tests {
         let replay = render_remote_event_log_replay(&path).unwrap();
         assert!(replay.contains("Remote event replay"));
         assert!(replay.contains("Status: attention"));
+        assert!(replay.contains("Reconstructed transport: connected / reconnects=0"));
+        assert!(replay.contains(
+            "Reconstructed queue: 1 total / completed=1 / failed=0 / acked=0 / active=0"
+        ));
         assert!(replay.contains("missing cursor(s) 2 before line 2"));
         assert!(replay.contains("Last event: result_completed item=q-1 task=task-1"));
 
