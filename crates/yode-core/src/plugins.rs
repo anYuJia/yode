@@ -34,6 +34,18 @@ impl PluginRegistry {
             .iter()
             .filter(|plugin| plugin.trust == PluginTrustState::Enabled)
     }
+
+    pub fn enabled_skill_paths(&self) -> Vec<PathBuf> {
+        self.enabled_plugins()
+            .flat_map(|plugin| plugin.contributions.skills.iter().cloned())
+            .collect()
+    }
+
+    pub fn enabled_workflow_paths(&self) -> Vec<PathBuf> {
+        self.enabled_plugins()
+            .flat_map(|plugin| plugin.contributions.workflows.iter().cloned())
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

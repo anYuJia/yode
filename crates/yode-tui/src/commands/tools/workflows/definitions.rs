@@ -14,10 +14,9 @@ pub(super) fn load_workflow_definition(
     dir: &Path,
     name: &str,
 ) -> Result<(PathBuf, serde_json::Value, Vec<serde_json::Value>), String> {
-    let path = workflow_definition_dirs(dir)
+    let path = workflow_definition_paths(dir)
         .into_iter()
-        .map(|dir| dir.join(format!("{}.json", name)))
-        .find(|path| path.exists())
+        .find(|path| path.file_stem().and_then(|stem| stem.to_str()) == Some(name))
         .unwrap_or_else(|| dir.join(format!("{}.json", name)));
     let content = std::fs::read_to_string(&path)
         .map_err(|err| format!("Failed to read {}: {}", path.display(), err))?;
@@ -32,7 +31,7 @@ pub(super) fn load_workflow_definition(
 }
 
 pub(super) fn workflow_definition_paths(dir: &Path) -> Vec<PathBuf> {
-    workflow_definition_dirs(dir)
+    let mut paths = workflow_definition_dirs(dir)
         .into_iter()
         .flat_map(|dir| {
             std::fs::read_dir(dir)
@@ -43,7 +42,11 @@ pub(super) fn workflow_definition_paths(dir: &Path) -> Vec<PathBuf> {
                 .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("json"))
                 .collect::<Vec<_>>()
         })
-        .collect()
+        .collect::<Vec<_>>();
+    paths.extend(plugin_workflow_paths(dir));
+    paths.sort();
+    paths.dedup();
+    paths
 }
 
 fn workflow_definition_dirs(dir: &Path) -> Vec<PathBuf> {
@@ -66,6 +69,50 @@ fn workflow_definition_dirs(dir: &Path) -> Vec<PathBuf> {
     dirs.sort();
     dirs.dedup();
     dirs
+}
+
+fn plugin_workflow_paths(dir: &Path) -> Vec<PathBuf> {
+    let Some(project_root) = workflow_project_root(dir) else {
+        return Vec::new();
+    };
+
+    yode_core::plugins::PluginRegistry::discover(&project_root)
+        .enabled_workflow_paths()
+        .into_iter()
+        .flat_map(expand_workflow_contribution)
+        .collect()
+}
+
+fn expand_workflow_contribution(path: PathBuf) -> Vec<PathBuf> {
+    if path.is_dir() {
+        return std::fs::read_dir(path)
+            .ok()
+            .into_iter()
+            .flat_map(|entries| entries.filter_map(Result::ok))
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("json"))
+            .collect();
+    }
+
+    if path.extension().and_then(|ext| ext.to_str()) == Some("json") {
+        vec![path]
+    } else {
+        Vec::new()
+    }
+}
+
+fn workflow_project_root(dir: &Path) -> Option<PathBuf> {
+    if dir.file_name().and_then(|name| name.to_str()) != Some("workflows") {
+        return None;
+    }
+    let parent = dir.parent()?;
+    if parent.file_name().and_then(|name| name.to_str()) == Some(".yode")
+        || parent.file_name().and_then(|name| name.to_str()) == Some(".claude")
+    {
+        parent.parent().map(Path::to_path_buf)
+    } else {
+        None
+    }
 }
 
 pub(super) fn compact_json_preview(value: &serde_json::Value) -> String {
@@ -205,4 +252,79 @@ pub(super) fn is_safe_workflow_step(tool_name: &str) -> bool {
             | "verification_agent"
             | "coordinate_agents"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{load_workflow_definition, workflow_definition_paths};
+
+    #[test]
+    fn enabled_plugin_workflows_are_discovered() {
+        let root =
+            std::env::temp_dir().join(format!("yode-plugin-workflows-{}", uuid::Uuid::new_v4()));
+        let workflows_dir = root.join(".yode").join("workflows");
+        let plugin_dir = root.join(".yode").join("plugins").join("demo");
+        let plugin_workflows = plugin_dir.join("workflows");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&workflows_dir).unwrap();
+        std::fs::create_dir_all(&plugin_workflows).unwrap();
+        std::fs::write(
+            plugin_dir.join("plugin.toml"),
+            r#"
+name = "demo"
+trust = "enabled"
+workflows = ["workflows/plugin-review.json"]
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            plugin_workflows.join("plugin-review.json"),
+            r#"{"description":"plugin workflow","steps":[{"tool_name":"review_changes"}]}"#,
+        )
+        .unwrap();
+
+        let paths = workflow_definition_paths(&workflows_dir);
+        let (path, _json, steps) =
+            load_workflow_definition(&workflows_dir, "plugin-review").unwrap();
+
+        assert!(paths
+            .iter()
+            .any(|path| path.ends_with("plugin-review.json")));
+        assert!(path.ends_with("plugin-review.json"));
+        assert_eq!(steps.len(), 1);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn disabled_plugin_workflows_are_not_discovered() {
+        let root =
+            std::env::temp_dir().join(format!("yode-plugin-workflows-{}", uuid::Uuid::new_v4()));
+        let workflows_dir = root.join(".yode").join("workflows");
+        let plugin_dir = root.join(".yode").join("plugins").join("demo");
+        let plugin_workflows = plugin_dir.join("workflows");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&workflows_dir).unwrap();
+        std::fs::create_dir_all(&plugin_workflows).unwrap();
+        std::fs::write(
+            plugin_dir.join("plugin.toml"),
+            r#"
+name = "demo"
+trust = "disabled"
+workflows = ["workflows/plugin-review.json"]
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            plugin_workflows.join("plugin-review.json"),
+            r#"{"description":"plugin workflow","steps":[{"tool_name":"review_changes"}]}"#,
+        )
+        .unwrap();
+
+        let paths = workflow_definition_paths(&workflows_dir);
+
+        assert!(!paths
+            .iter()
+            .any(|path| path.ends_with("plugin-review.json")));
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

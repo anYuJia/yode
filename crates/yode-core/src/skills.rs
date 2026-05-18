@@ -104,6 +104,18 @@ impl SkillRegistry {
     /// Discover skills in a single directory.
     fn discover_dir(&mut self, dir: &Path) {
         if !dir.is_dir() {
+            for skill_path in candidate_skill_files(dir) {
+                if let Some(skill) = Self::parse_skill_file(&skill_path) {
+                    if !self.skills.iter().any(|s| s.name == skill.name) {
+                        tracing::debug!(
+                            name = %skill.name,
+                            path = %skill_path.display(),
+                            "Discovered skill"
+                        );
+                        self.skills.push(skill);
+                    }
+                }
+            }
             return;
         }
 
@@ -200,6 +212,8 @@ impl SkillRegistry {
         // Project-level skills (highest priority)
         let project_skills = working_dir.join(".yode").join("skills");
         paths.push(project_skills);
+
+        paths.extend(crate::plugins::PluginRegistry::discover(working_dir).enabled_skill_paths());
 
         // Global skills
         if let Some(home) = dirs::home_dir() {
@@ -384,5 +398,47 @@ mod tests {
 
         assert_eq!(active.len(), 1);
         assert_eq!(active[0].name, "rust");
+    }
+
+    #[test]
+    fn default_paths_include_enabled_plugin_skills() {
+        let dir = tempfile::tempdir().unwrap();
+        let plugin_dir = dir.path().join(".yode").join("plugins").join("review");
+        let skill_path = plugin_dir.join("skills").join("review").join("SKILL.md");
+        write_skill(&skill_path, "plugin-review", "Plugin review", "review body");
+        std::fs::write(
+            plugin_dir.join("plugin.toml"),
+            r#"
+name = "review"
+trust = "enabled"
+skills = ["skills/review/SKILL.md"]
+"#,
+        )
+        .unwrap();
+
+        let registry = SkillRegistry::discover(&SkillRegistry::default_paths(dir.path()));
+
+        assert!(registry.get("plugin-review").is_some());
+    }
+
+    #[test]
+    fn disabled_plugin_skills_are_not_discovered() {
+        let dir = tempfile::tempdir().unwrap();
+        let plugin_dir = dir.path().join(".yode").join("plugins").join("review");
+        let skill_path = plugin_dir.join("skills").join("review").join("SKILL.md");
+        write_skill(&skill_path, "plugin-review", "Plugin review", "review body");
+        std::fs::write(
+            plugin_dir.join("plugin.toml"),
+            r#"
+name = "review"
+trust = "disabled"
+skills = ["skills/review/SKILL.md"]
+"#,
+        )
+        .unwrap();
+
+        let registry = SkillRegistry::discover(&SkillRegistry::default_paths(dir.path()));
+
+        assert!(registry.get("plugin-review").is_none());
     }
 }
