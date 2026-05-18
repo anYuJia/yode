@@ -30,6 +30,11 @@ pub(super) fn latest_remote_transport_events_artifact(project_root: &Path) -> Op
     latest_artifact_by_suffix(&remote_dir(project_root), "remote-transport-events.md")
 }
 
+#[cfg(test)]
+pub(super) fn latest_remote_transport_event_log_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(&remote_dir(project_root), "remote-events.jsonl")
+}
+
 pub(super) fn latest_remote_live_session_state_artifact(project_root: &Path) -> Option<PathBuf> {
     latest_artifact_by_suffix(&remote_dir(project_root), "remote-live-session-state.json")
 }
@@ -57,4 +62,21 @@ pub(super) fn now_string() -> String {
 
 pub(super) fn remote_dir(project_root: &Path) -> PathBuf {
     project_root.join(".yode").join("remote")
+}
+
+pub(super) fn remote_transport_event_log_path(project_root: &Path, session_id: &str) -> PathBuf {
+    remote_dir(project_root).join(format!("{}-remote-events.jsonl", short_session(session_id)))
+}
+
+pub(super) fn read_remote_event_log_cursor(path: &Path) -> Option<u64> {
+    let body = std::fs::read_to_string(path).ok()?;
+    body.lines().rev().find_map(|line| {
+        let line = line.trim();
+        if line.is_empty() {
+            return None;
+        }
+        serde_json::from_str::<serde_json::Value>(line)
+            .ok()
+            .and_then(|value| value.get("cursor").and_then(|cursor| cursor.as_u64()))
+    })
 }

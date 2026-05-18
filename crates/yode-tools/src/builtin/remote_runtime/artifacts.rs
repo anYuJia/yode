@@ -1,12 +1,15 @@
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
+use serde::Serialize;
 
 use super::paths::{
     latest_artifact_by_suffix, latest_remote_control_state_artifact,
     latest_remote_live_session_state_artifact, latest_remote_transport_events_artifact,
     latest_remote_transport_state_artifact, latest_transcript_artifact, load_json, now_string,
-    remote_dir, short_session, timestamp_slug,
+    read_remote_event_log_cursor, remote_dir, remote_transport_event_log_path, short_session,
+    timestamp_slug,
 };
 use super::queue::default_queue_items;
 use super::render::{
@@ -18,6 +21,19 @@ use super::types::{
     RemoteControlArtifactSet, RemoteControlPayload, RemoteLiveSessionArtifactSet,
     RemoteLiveSessionPayload, RemoteQueueItem, RemoteTransportArtifactSet, RemoteTransportPayload,
 };
+
+#[derive(Serialize)]
+struct RemoteEventLogEntry {
+    kind: &'static str,
+    cursor: u64,
+    timestamp: String,
+    session_id: String,
+    event: String,
+    queue_item_id: Option<String>,
+    runtime_task_id: Option<String>,
+    summary: String,
+    artifact: String,
+}
 
 pub(super) fn load_or_create_remote_control_payload(
     project_root: &Path,
@@ -180,6 +196,8 @@ pub(super) fn write_remote_transport_payload(
         latest_artifact_by_suffix(&dir, "remote-control.md").map(|path| path.display().to_string());
     payload.latest_remote_execution = latest_artifact_by_suffix(&dir, "remote-queue-execution.md")
         .map(|path| path.display().to_string());
+    let event_log_path = remote_transport_event_log_path(project_root, session_id);
+    payload.resume_cursor = read_remote_event_log_cursor(&event_log_path).or(payload.resume_cursor);
     let stamp = timestamp_slug();
     let short_session = short_session(session_id);
     let summary_path = dir.join(format!("{}-{}-remote-transport.md", stamp, short_session));
@@ -319,9 +337,10 @@ pub(super) fn record_remote_transport_event(
         "{}-remote-transport-events.md",
         short_session(session_id)
     ));
+    let now = now_string();
     let line = format!(
         "- {} | {}{}{} | {}\n",
-        now_string(),
+        now,
         kind,
         item_id
             .map(|item_id| format!(" | item={}", item_id))
@@ -338,7 +357,48 @@ pub(super) fn record_remote_transport_event(
     } else {
         std::fs::write(&path, format!("# Remote Transport Events\n\n{}", line))?;
     }
+    append_remote_event_log(
+        project_root,
+        session_id,
+        kind,
+        item_id,
+        task_id,
+        detail,
+        &path,
+        now,
+    )?;
     Ok(path)
+}
+
+fn append_remote_event_log(
+    project_root: &Path,
+    session_id: &str,
+    kind: &str,
+    item_id: Option<&str>,
+    task_id: Option<&str>,
+    detail: &str,
+    artifact: &Path,
+    timestamp: String,
+) -> Result<u64> {
+    let path = remote_transport_event_log_path(project_root, session_id);
+    let cursor = read_remote_event_log_cursor(&path).unwrap_or(0) + 1;
+    let entry = RemoteEventLogEntry {
+        kind: "remote_event",
+        cursor,
+        timestamp,
+        session_id: session_id.to_string(),
+        event: kind.to_string(),
+        queue_item_id: item_id.map(str::to_string),
+        runtime_task_id: task_id.map(str::to_string),
+        summary: detail.to_string(),
+        artifact: artifact.display().to_string(),
+    };
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+    writeln!(file, "{}", serde_json::to_string(&entry)?)?;
+    Ok(cursor)
 }
 
 pub(super) fn probe_remote_transport(project_root: &Path) -> Result<()> {

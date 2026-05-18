@@ -79,7 +79,7 @@ pub(super) fn render_remote_transport_summary(
     state_path: &Path,
 ) -> String {
     format!(
-        "# Remote Transport\n\n- Session: {}\n- Remote dir: {}\n- Connection: {}\n- Connection id: {}\n- Connected at: {}\n- Disconnected at: {}\n- Handshake: {}\n- Summary: {}\n- Reconnect attempts: {}\n- Retry backoff: {}\n- Last command: {}\n- Queue gate: {}\n- Last error: {}\n- Latest transport task: {}\n- Latest event: {}\n- Latest event at: {}\n- Latest event artifact: {}\n- Latest remote control: {}\n- Latest remote execution: {}\n- State artifact: {}\n",
+        "# Remote Transport\n\n- Session: {}\n- Remote dir: {}\n- Connection: {}\n- Connection id: {}\n- Connected at: {}\n- Disconnected at: {}\n- Handshake: {}\n- Summary: {}\n- Reconnect attempts: {}\n- Retry backoff: {}\n- Last command: {}\n- Queue gate: {}\n- Last error: {}\n- Latest transport task: {}\n- Latest event: {}\n- Latest event at: {}\n- Latest event artifact: {}\n- Resume cursor: {}\n- Latest remote control: {}\n- Latest remote execution: {}\n- State artifact: {}\n",
         payload.session_id,
         payload.remote_dir,
         payload.connection_status,
@@ -102,6 +102,7 @@ pub(super) fn render_remote_transport_summary(
         payload.latest_event.as_deref().unwrap_or("none"),
         payload.latest_event_at.as_deref().unwrap_or("none"),
         payload.latest_event_artifact.as_deref().unwrap_or("none"),
+        payload.resume_cursor.unwrap_or(0),
         payload.latest_remote_control.as_deref().unwrap_or("none"),
         payload.latest_remote_execution.as_deref().unwrap_or("none"),
         state_path.display(),

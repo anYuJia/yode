@@ -771,7 +771,7 @@ fn default_remote_endpoint_id() -> String {
 mod tests {
     use super::paths::{
         latest_remote_control_state_artifact, latest_remote_live_session_state_artifact,
-        latest_remote_transport_state_artifact,
+        latest_remote_transport_event_log_artifact, latest_remote_transport_state_artifact,
     };
     use super::{RemoteQueueDispatchTool, RemoteQueueResultTool, RemoteTransportControlTool};
     use crate::runtime_tasks::RuntimeTaskStore;
@@ -835,6 +835,24 @@ mod tests {
             std::fs::read_to_string(latest_remote_live_session_state_artifact(dir.path()).unwrap())
                 .unwrap();
         assert!(live_state.contains("\"latest_result_status\": \"completed\""));
+
+        let event_log = latest_remote_transport_event_log_artifact(dir.path()).unwrap();
+        let entries = std::fs::read_to_string(event_log)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0]["cursor"], 1);
+        assert_eq!(entries[0]["event"], "connect");
+        assert_eq!(entries[1]["cursor"], 2);
+        assert_eq!(entries[1]["event"], "dispatch");
+        assert_eq!(entries[2]["cursor"], 3);
+        assert_eq!(entries[2]["event"], "result_completed");
+        let transport_state =
+            std::fs::read_to_string(latest_remote_transport_state_artifact(dir.path()).unwrap())
+                .unwrap();
+        assert!(transport_state.contains("\"resume_cursor\": 3"));
     }
 
     #[tokio::test]

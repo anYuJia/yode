@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -125,6 +126,19 @@ pub(crate) struct RemoteLiveSessionPayload {
     pub last_transcript_sync_at: Option<String>,
     pub transcript_sync_artifact: Option<String>,
     pub endpoints: Vec<RemoteSessionEndpoint>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct RemoteEventLogEntry {
+    kind: &'static str,
+    cursor: u64,
+    timestamp: String,
+    session_id: String,
+    event: String,
+    queue_item_id: Option<String>,
+    runtime_task_id: Option<String>,
+    summary: String,
+    artifact: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -256,6 +270,13 @@ pub(crate) fn latest_remote_transport_events_artifact(project_root: &Path) -> Op
     )
 }
 
+pub(crate) fn latest_remote_transport_event_log_artifact(project_root: &Path) -> Option<PathBuf> {
+    latest_artifact_by_suffix(
+        &project_root.join(".yode").join("remote"),
+        "remote-events.jsonl",
+    )
+}
+
 pub(crate) fn latest_remote_live_session_artifact(project_root: &Path) -> Option<PathBuf> {
     latest_artifact_by_suffix(
         &project_root.join(".yode").join("remote"),
@@ -309,9 +330,10 @@ pub(crate) fn render_remote_control_doctor(project_root: &Path) -> String {
             .as_ref()
             .map(|transport| {
                 format!(
-                    "{} / reconnects={} / gate={} / task={} / event={}",
+                    "{} / reconnects={} / cursor={} / gate={} / task={} / event={}",
                     transport.connection_status,
                     transport.reconnect_attempts,
+                    transport.resume_cursor.unwrap_or(0),
                     transport.queue_gate.as_deref().unwrap_or("none"),
                     transport.latest_transport_task_id.as_deref().unwrap_or("none"),
                     transport.latest_event.as_deref().unwrap_or("none"),
@@ -375,6 +397,9 @@ pub(crate) fn export_remote_control_bundle(project_root: &Path) -> anyhow::Resul
             &transport_events,
             bundle_dir.join("remote-transport-events.md"),
         );
+    }
+    if let Some(transport_event_log) = latest_remote_transport_event_log_artifact(project_root) {
+        let _ = std::fs::copy(&transport_event_log, bundle_dir.join("remote-events.jsonl"));
     }
     if let Some(live_session) = latest_remote_live_session_artifact(project_root) {
         let _ = std::fs::copy(&live_session, bundle_dir.join("remote-live-session.md"));
@@ -521,9 +546,10 @@ pub(crate) fn record_remote_transport_event(
     std::fs::create_dir_all(&dir)?;
     let short_session = session_id.chars().take(8).collect::<String>();
     let path = dir.join(format!("{}-remote-transport-events.md", short_session));
+    let now = now_string();
     let line = format!(
         "- {} | {}{}{} | {}\n",
-        now_string(),
+        now,
         kind,
         item_id
             .map(|item_id| format!(" | item={}", item_id))
@@ -541,6 +567,16 @@ pub(crate) fn record_remote_transport_event(
         let body = format!("# Remote Transport Events\n\n{}", line);
         std::fs::write(&path, body)?;
     }
+    let cursor = append_remote_event_log(
+        project_root,
+        session_id,
+        kind,
+        item_id,
+        task_id,
+        detail,
+        &path,
+        now.clone(),
+    )?;
     let event_label = format!(
         "{}{}{}",
         kind,
@@ -551,14 +587,45 @@ pub(crate) fn record_remote_transport_event(
             .map(|task_id| format!(" task={}", task_id))
             .unwrap_or_default()
     );
-    let now = now_string();
     let path_display = path.display().to_string();
     let _ = update_remote_transport_payload(project_root, session_id, |payload| {
         payload.latest_event = Some(event_label.clone());
         payload.latest_event_at = Some(now.clone());
         payload.latest_event_artifact = Some(path_display.clone());
+        payload.resume_cursor = Some(cursor);
     });
     Ok(path)
+}
+
+fn append_remote_event_log(
+    project_root: &Path,
+    session_id: &str,
+    kind: &str,
+    item_id: Option<&str>,
+    task_id: Option<&str>,
+    detail: &str,
+    artifact: &Path,
+    timestamp: String,
+) -> anyhow::Result<u64> {
+    let path = remote_transport_event_log_path(project_root, session_id);
+    let cursor = read_remote_event_log_cursor(&path).unwrap_or(0) + 1;
+    let entry = RemoteEventLogEntry {
+        kind: "remote_event",
+        cursor,
+        timestamp,
+        session_id: session_id.to_string(),
+        event: kind.to_string(),
+        queue_item_id: item_id.map(str::to_string),
+        runtime_task_id: task_id.map(str::to_string),
+        summary: detail.to_string(),
+        artifact: artifact.display().to_string(),
+    };
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+    writeln!(file, "{}", serde_json::to_string(&entry)?)?;
+    Ok(cursor)
 }
 
 pub(crate) fn render_remote_task_inventory(tasks: &[RuntimeTask]) -> String {
@@ -1226,6 +1293,10 @@ fn hydrate_remote_transport_payload(
         payload.active_endpoint_id = session.active_endpoint_id;
         payload.resume_cursor = Some(session.resume_cursor);
     }
+    let event_log_path = remote_transport_event_log_path(project_root, session_id);
+    if let Some(cursor) = read_remote_event_log_cursor(&event_log_path) {
+        payload.resume_cursor = Some(cursor);
+    }
 }
 
 fn hydrate_remote_live_session_payload(
@@ -1418,7 +1489,7 @@ fn write_remote_transport_payload(
 
 fn render_remote_transport_summary(payload: &RemoteTransportPayload, state_path: &Path) -> String {
     format!(
-        "# Remote Transport\n\n- Session: {}\n- Remote dir: {}\n- Connection: {}\n- Connection id: {}\n- Connected at: {}\n- Disconnected at: {}\n- Handshake: {}\n- Summary: {}\n- Reconnect attempts: {}\n- Retry backoff: {}\n- Last command: {}\n- Queue gate: {}\n- Last error: {}\n- Latest transport task: {}\n- Latest event: {}\n- Latest event at: {}\n- Latest event artifact: {}\n- Latest remote control: {}\n- Latest remote execution: {}\n- State artifact: {}\n",
+        "# Remote Transport\n\n- Session: {}\n- Remote dir: {}\n- Connection: {}\n- Connection id: {}\n- Connected at: {}\n- Disconnected at: {}\n- Handshake: {}\n- Summary: {}\n- Reconnect attempts: {}\n- Retry backoff: {}\n- Last command: {}\n- Queue gate: {}\n- Last error: {}\n- Latest transport task: {}\n- Latest event: {}\n- Latest event at: {}\n- Latest event artifact: {}\n- Resume cursor: {}\n- Latest remote control: {}\n- Latest remote execution: {}\n- State artifact: {}\n",
         payload.session_id,
         payload.remote_dir,
         payload.connection_status,
@@ -1441,6 +1512,7 @@ fn render_remote_transport_summary(payload: &RemoteTransportPayload, state_path:
         payload.latest_event.as_deref().unwrap_or("none"),
         payload.latest_event_at.as_deref().unwrap_or("none"),
         payload.latest_event_artifact.as_deref().unwrap_or("none"),
+        payload.resume_cursor.unwrap_or(0),
         payload.latest_remote_control.as_deref().unwrap_or("none"),
         payload.latest_remote_execution.as_deref().unwrap_or("none"),
         state_path.display(),
@@ -1627,6 +1699,26 @@ fn now_string() -> String {
     chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
 }
 
+fn remote_transport_event_log_path(project_root: &Path, session_id: &str) -> PathBuf {
+    project_root.join(".yode").join("remote").join(format!(
+        "{}-remote-events.jsonl",
+        session_id.chars().take(8).collect::<String>()
+    ))
+}
+
+fn read_remote_event_log_cursor(path: &Path) -> Option<u64> {
+    let body = std::fs::read_to_string(path).ok()?;
+    body.lines().rev().find_map(|line| {
+        let line = line.trim();
+        if line.is_empty() {
+            return None;
+        }
+        serde_json::from_str::<serde_json::Value>(line)
+            .ok()
+            .and_then(|value| value.get("cursor").and_then(|cursor| cursor.as_u64()))
+    })
+}
+
 fn render_remote_control_summary(
     payload: &RemoteControlPayload,
     state_path: &Path,
@@ -1811,14 +1903,14 @@ mod tests {
         latest_remote_command_queue_artifact, latest_remote_control_artifact,
         latest_remote_control_state_artifact, latest_remote_live_session_state_artifact,
         latest_remote_session_transcript_sync_artifact, latest_remote_task_handoff_artifact,
-        latest_remote_transport_events_artifact, latest_remote_transport_state_artifact,
-        load_remote_control_payload, load_remote_live_session_payload,
-        load_remote_transport_payload, mark_remote_queue_item, mark_remote_transport_connected,
-        mark_remote_transport_disconnected, mark_remote_transport_failed,
-        mark_remote_transport_reconnecting, note_remote_transport_dispatch, queue_item_target,
-        record_remote_transport_event, remote_queue_status_label,
-        remote_transport_handshake_summary, render_remote_control_doctor,
-        render_remote_retry_summary, render_remote_task_inventory,
+        latest_remote_transport_event_log_artifact, latest_remote_transport_events_artifact,
+        latest_remote_transport_state_artifact, load_remote_control_payload,
+        load_remote_live_session_payload, load_remote_transport_payload, mark_remote_queue_item,
+        mark_remote_transport_connected, mark_remote_transport_disconnected,
+        mark_remote_transport_failed, mark_remote_transport_reconnecting,
+        note_remote_transport_dispatch, queue_item_target, record_remote_transport_event,
+        remote_queue_status_label, remote_transport_handshake_summary,
+        render_remote_control_doctor, render_remote_retry_summary, render_remote_task_inventory,
         sync_remote_live_session_transport, write_remote_control_artifacts,
         write_remote_live_session_artifacts, write_remote_queue_execution_artifact,
         write_remote_task_handoff_artifact, write_remote_transport_artifacts, RemoteQueueItem,
@@ -1986,6 +2078,21 @@ mod tests {
             latest_remote_transport_events_artifact(&dir).as_deref(),
             Some(event_path.as_path())
         );
+        let event_log_path = latest_remote_transport_event_log_artifact(&dir).unwrap();
+        let event_lines = std::fs::read_to_string(event_log_path)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(event_lines.len(), 1);
+        assert_eq!(event_lines[0]["cursor"], 1);
+        assert_eq!(event_lines[0]["event"], "disconnect");
+        assert_eq!(event_lines[0]["queue_item_id"], "q-1");
+        assert_eq!(event_lines[0]["runtime_task_id"], "task-2");
+        let event_state =
+            load_remote_transport_payload(&latest_remote_transport_state_artifact(&dir).unwrap())
+                .unwrap();
+        assert_eq!(event_state.resume_cursor, Some(1));
 
         let _ = std::fs::remove_dir_all(&dir);
     }
