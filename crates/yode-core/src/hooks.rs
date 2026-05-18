@@ -209,5 +209,51 @@ pub struct HookConfig {
     pub hooks: Vec<HookDefinition>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct PluginHookDiscovery {
+    pub hooks: Vec<HookDefinition>,
+    pub diagnostics: Vec<String>,
+}
+
+pub fn discover_plugin_hooks(project_root: &std::path::Path) -> PluginHookDiscovery {
+    let mut discovery = PluginHookDiscovery::default();
+    for path in crate::plugins::PluginRegistry::discover(project_root).enabled_hook_paths() {
+        let hook_paths = expand_hook_contribution(path);
+        for hook_path in hook_paths {
+            match std::fs::read_to_string(&hook_path)
+                .map_err(|err| format!("failed to read {}: {}", hook_path.display(), err))
+                .and_then(|content| {
+                    toml::from_str::<HookConfig>(&content).map_err(|err| {
+                        format!("invalid hook manifest {}: {}", hook_path.display(), err)
+                    })
+                }) {
+                Ok(config) => discovery.hooks.extend(config.hooks),
+                Err(message) => discovery.diagnostics.push(message),
+            }
+        }
+    }
+    discovery
+}
+
+fn expand_hook_contribution(path: PathBuf) -> Vec<PathBuf> {
+    if path.is_dir() {
+        let mut paths = std::fs::read_dir(path)
+            .ok()
+            .into_iter()
+            .flat_map(|entries| entries.filter_map(Result::ok))
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("toml"))
+            .collect::<Vec<_>>();
+        paths.sort();
+        return paths;
+    }
+
+    if path.extension().and_then(|ext| ext.to_str()) == Some("toml") {
+        vec![path]
+    } else {
+        Vec::new()
+    }
+}
+
 #[cfg(test)]
 mod tests;

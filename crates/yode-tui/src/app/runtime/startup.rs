@@ -203,19 +203,27 @@ fn hydrate_restored_messages(
 
 fn attach_hook_manager(engine: &mut AgentEngine) {
     if let Ok(config) = yode_core::config::Config::load() {
-        if !config.hooks.hooks.is_empty() {
-            use yode_core::hooks::{HookDefinition, HookManager};
+        use yode_core::hooks::{discover_plugin_hooks, HookDefinition, HookManager};
 
-            let mut hook_manager = HookManager::new(engine.context().working_dir_compat());
-            for hook in &config.hooks.hooks {
-                hook_manager.register(HookDefinition {
-                    command: hook.command.clone(),
-                    events: hook.events.clone(),
-                    tool_filter: hook.tool_filter.clone(),
-                    timeout_secs: hook.timeout_secs,
-                    can_block: hook.can_block,
-                });
-            }
+        let project_root = engine.context().working_dir_compat();
+        let mut hook_definitions = config
+            .hooks
+            .hooks
+            .iter()
+            .map(|hook| HookDefinition {
+                command: hook.command.clone(),
+                events: hook.events.clone(),
+                tool_filter: hook.tool_filter.clone(),
+                timeout_secs: hook.timeout_secs,
+                can_block: hook.can_block,
+            })
+            .collect::<Vec<_>>();
+        let plugin_hooks = discover_plugin_hooks(&project_root);
+        hook_definitions.extend(plugin_hooks.hooks);
+
+        if !hook_definitions.is_empty() {
+            let mut hook_manager = HookManager::new(project_root);
+            hook_manager.register_all(hook_definitions);
             engine.set_hook_manager(hook_manager);
         }
     }

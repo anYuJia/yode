@@ -21,3 +21,70 @@ fn hook_context_builder_sets_optional_fields() {
     assert_eq!(ctx.user_prompt.as_deref(), Some("run ls"));
     assert_eq!(ctx.metadata.unwrap()["source"], serde_json::json!("test"));
 }
+
+#[test]
+fn discover_plugin_hooks_loads_enabled_hook_manifests() {
+    let dir = tempfile::tempdir().unwrap();
+    let plugin_dir = dir.path().join(".yode").join("plugins").join("demo");
+    let hooks_dir = plugin_dir.join("hooks");
+    std::fs::create_dir_all(&hooks_dir).unwrap();
+    std::fs::write(
+        plugin_dir.join("plugin.toml"),
+        r#"
+name = "demo"
+trust = "enabled"
+hooks = ["hooks/demo.toml"]
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        hooks_dir.join("demo.toml"),
+        r#"
+[[hooks]]
+command = "echo plugin"
+events = ["pre_turn"]
+timeout_secs = 3
+can_block = true
+"#,
+    )
+    .unwrap();
+
+    let discovery = discover_plugin_hooks(dir.path());
+
+    assert!(discovery.diagnostics.is_empty());
+    assert_eq!(discovery.hooks.len(), 1);
+    assert_eq!(discovery.hooks[0].command, "echo plugin");
+    assert_eq!(discovery.hooks[0].events, vec!["pre_turn".to_string()]);
+    assert!(discovery.hooks[0].can_block);
+}
+
+#[test]
+fn discover_plugin_hooks_skips_disabled_plugins() {
+    let dir = tempfile::tempdir().unwrap();
+    let plugin_dir = dir.path().join(".yode").join("plugins").join("demo");
+    let hooks_dir = plugin_dir.join("hooks");
+    std::fs::create_dir_all(&hooks_dir).unwrap();
+    std::fs::write(
+        plugin_dir.join("plugin.toml"),
+        r#"
+name = "demo"
+trust = "disabled"
+hooks = ["hooks/demo.toml"]
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        hooks_dir.join("demo.toml"),
+        r#"
+[[hooks]]
+command = "echo plugin"
+events = ["pre_turn"]
+"#,
+    )
+    .unwrap();
+
+    let discovery = discover_plugin_hooks(dir.path());
+
+    assert!(discovery.hooks.is_empty());
+    assert!(discovery.diagnostics.is_empty());
+}

@@ -46,6 +46,12 @@ impl PluginRegistry {
             .flat_map(|plugin| plugin.contributions.workflows.iter().cloned())
             .collect()
     }
+
+    pub fn enabled_hook_paths(&self) -> Vec<PathBuf> {
+        self.enabled_plugins()
+            .flat_map(|plugin| plugin.contributions.hooks.iter().cloned())
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
