@@ -215,6 +215,19 @@ impl Tool for ReadMcpResourceTool {
             .get("uri")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("'uri' parameter is required"))?;
+        if let Some(policy) = ctx.mcp_resource_policy.as_ref() {
+            if let Err(reason) = policy.allows(server, uri) {
+                return Ok(ToolResult::error_typed(
+                    reason,
+                    crate::tool::ToolErrorType::Permission,
+                    false,
+                    Some(
+                        "Update mcp.resource_allow/resource_deny in config or choose an allowed MCP resource."
+                            .to_string(),
+                    ),
+                ));
+            }
+        }
         let refresh = params
             .get("refresh")
             .and_then(|value| value.as_bool())
@@ -687,7 +700,8 @@ mod tests {
         ReadMcpResourceTool,
     };
     use crate::tool::{
-        McpResource, McpResourceBlob, McpResourceProvider, McpResourceRead, Tool, ToolContext,
+        McpResource, McpResourceBlob, McpResourcePolicy, McpResourceProvider, McpResourceRead,
+        Tool, ToolContext,
     };
     use anyhow::Result;
     use serde_json::json;
@@ -814,6 +828,46 @@ mod tests {
         assert_eq!(stats.read_misses, 1);
         assert_eq!(stats.read_hits, 1);
         assert_eq!(stats.cached_read_entries, 1);
+    }
+
+    #[tokio::test]
+    async fn read_mcp_resource_enforces_explicit_policy() {
+        let _guard = CACHE_TEST_LOCK.lock().await;
+        reset_mcp_resource_cache();
+        let provider = Arc::new(MockMcpProvider::new());
+        let mut ctx = ToolContext::empty();
+        ctx.mcp_resources = Some(provider);
+        ctx.mcp_resource_policy = Some(Arc::new(McpResourcePolicy {
+            allow: vec!["github:repo://allowed/*".to_string()],
+            deny: vec!["github:repo://allowed/private".to_string()],
+        }));
+
+        let tool = ReadMcpResourceTool;
+        let denied = tool
+            .execute(json!({"server":"github","uri":"repo://other/readme"}), &ctx)
+            .await
+            .unwrap();
+        assert!(denied.is_error);
+        assert!(denied.content.contains("not allowed"));
+
+        let explicit_deny = tool
+            .execute(
+                json!({"server":"github","uri":"repo://allowed/private"}),
+                &ctx,
+            )
+            .await
+            .unwrap();
+        assert!(explicit_deny.is_error);
+        assert!(explicit_deny.content.contains("denied by policy"));
+
+        let allowed = tool
+            .execute(
+                json!({"server":"github","uri":"repo://allowed/readme"}),
+                &ctx,
+            )
+            .await
+            .unwrap();
+        assert!(!allowed.is_error);
     }
 
     #[tokio::test]

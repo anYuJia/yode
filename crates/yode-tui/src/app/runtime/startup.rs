@@ -8,6 +8,7 @@ use std::{
 use anyhow::Result;
 use tokio::sync::{mpsc, Mutex};
 
+use yode_core::config::Config;
 use yode_core::context::AgentContext;
 use yode_core::db::Database;
 use yode_core::engine::{AgentEngine, EngineEvent};
@@ -41,6 +42,7 @@ pub(super) async fn prepare_runtime(
     all_provider_models: HashMap<String, Vec<String>>,
     startup_profile: Option<String>,
     mcp_resource_provider: Option<Arc<dyn McpResourceProvider>>,
+    config: &Config,
 ) -> Result<RuntimeStartup> {
     let resume_warmup_task = if context.is_resumed {
         let project_root = context.working_dir_compat();
@@ -83,6 +85,10 @@ pub(super) async fn prepare_runtime(
     if let Some(provider) = mcp_resource_provider {
         engine_inner.set_mcp_resource_provider(provider);
     }
+    engine_inner.set_mcp_resource_policy(yode_tools::tool::McpResourcePolicy {
+        allow: config.mcp.resource_allow.clone(),
+        deny: config.mcp.resource_deny.clone(),
+    });
     attach_hook_manager(&mut engine_inner);
     if let Some(messages) = &restored_messages {
         engine_inner.restore_messages(messages.clone());

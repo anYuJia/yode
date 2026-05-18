@@ -43,7 +43,8 @@ use yode_tools::registry::ToolRegistry;
 use yode_tools::runtime_tasks::{RuntimeTask, RuntimeTaskNotification, RuntimeTaskStore};
 use yode_tools::state::TaskStore;
 use yode_tools::tool::{
-    McpResourceProvider, ToolContext, ToolErrorType, ToolResult, UserQuery, WorktreeState,
+    McpResourcePolicy, McpResourceProvider, ToolContext, ToolErrorType, ToolResult, UserQuery,
+    WorktreeState,
 };
 use yode_tools::validation;
 
@@ -115,6 +116,8 @@ pub struct AgentEngine {
     ask_user_rx: Option<Arc<Mutex<mpsc::UnboundedReceiver<String>>>>,
     /// Shared provider for MCP resource list/read tools.
     mcp_resource_provider: Option<Arc<dyn McpResourceProvider>>,
+    /// Explicit MCP resource allow/deny policy.
+    mcp_resource_policy: Option<Arc<McpResourcePolicy>>,
     /// Tool call counter for the current turn (budget tracking).
     tool_call_count: u32,
     /// Recent tool call signatures for dedup detection (name+args hash).

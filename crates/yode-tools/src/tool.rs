@@ -13,6 +13,44 @@ use crate::registry::ToolPoolSnapshot;
 use crate::registry::ToolRegistry;
 use crate::state::TaskStore;
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct McpResourcePolicy {
+    pub allow: Vec<String>,
+    pub deny: Vec<String>,
+}
+
+impl McpResourcePolicy {
+    pub fn allows(&self, server: &str, uri: &str) -> Result<(), String> {
+        let target = format!("{server}:{uri}");
+        if self
+            .deny
+            .iter()
+            .any(|pattern| pattern_matches(pattern, &target))
+        {
+            return Err(format!("MCP resource denied by policy: {target}"));
+        }
+        if !self.allow.is_empty()
+            && !self
+                .allow
+                .iter()
+                .any(|pattern| pattern_matches(pattern, &target))
+        {
+            return Err(format!("MCP resource not allowed by policy: {target}"));
+        }
+        Ok(())
+    }
+}
+
+fn pattern_matches(pattern: &str, target: &str) -> bool {
+    if pattern == "*" || pattern == target {
+        return true;
+    }
+    let Some((prefix, suffix)) = pattern.split_once('*') else {
+        return false;
+    };
+    target.starts_with(prefix) && target.ends_with(suffix)
+}
+
 /// A query option for multiple choice questions.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserQueryOption {
@@ -146,6 +184,8 @@ pub struct ToolContext {
     pub sub_agent_runner: Option<Arc<dyn SubAgentRunner>>,
     /// MCP resource provider for list/read MCP resources.
     pub mcp_resources: Option<Arc<dyn McpResourceProvider>>,
+    /// Explicit MCP resource allow/deny policy.
+    pub mcp_resource_policy: Option<Arc<McpResourcePolicy>>,
     /// Cron job manager.
     pub cron_manager: Option<Arc<Mutex<crate::cron_manager::CronManager>>>,
     /// LSP manager.

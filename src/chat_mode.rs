@@ -45,6 +45,10 @@ pub(crate) async fn run_noninteractive_chat(run: NoninteractiveChatRun<'_>) -> R
     if let Some(provider) = mcp_resource_provider {
         engine.set_mcp_resource_provider(provider);
     }
+    engine.set_mcp_resource_policy(yode_tools::tool::McpResourcePolicy {
+        allow: config.mcp.resource_allow.clone(),
+        deny: config.mcp.resource_deny.clone(),
+    });
 
     if let Some(budget) = config.cost.max_budget_usd {
         if budget > 0.0 {

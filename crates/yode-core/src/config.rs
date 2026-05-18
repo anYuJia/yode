@@ -321,6 +321,10 @@ pub struct McpOAuthConfig {
 pub struct McpConfig {
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub servers: HashMap<String, McpServerConfig>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resource_allow: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resource_deny: Vec<String>,
 }
 
 #[cfg(test)]

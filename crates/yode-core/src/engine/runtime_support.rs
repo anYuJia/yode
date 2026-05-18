@@ -407,6 +407,10 @@ impl AgentEngine {
         self.mcp_resource_provider = Some(provider);
     }
 
+    pub fn set_mcp_resource_policy(&mut self, policy: yode_tools::tool::McpResourcePolicy) {
+        self.mcp_resource_policy = Some(Arc::new(policy));
+    }
+
     /// Build a ToolContext with access to shared resources.
     pub(super) async fn build_tool_context(
         &self,
@@ -436,6 +440,7 @@ impl AgentEngine {
                 hook_manager: self.hook_manager.clone(),
             })),
             mcp_resources: self.mcp_resource_provider.clone(),
+            mcp_resource_policy: self.mcp_resource_policy.clone(),
             cron_manager: None,
             lsp_manager: None,
             worktree_state: Some(Arc::clone(&self.worktree_state)),

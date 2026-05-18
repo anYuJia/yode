@@ -30,6 +30,7 @@ impl AgentEngine {
             ask_user_tx: None,
             ask_user_rx: None,
             mcp_resource_provider: None,
+            mcp_resource_policy: None,
             tool_call_count: 0,
             recent_tool_calls: Vec::new(),
             consecutive_failures: 0,

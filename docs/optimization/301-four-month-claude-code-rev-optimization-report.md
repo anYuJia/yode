@@ -412,6 +412,7 @@ cargo test -q -p yode-tui mcp
 Progress:
 
 - 2026-05-19: Added first-class MCP server inventory state for `/mcp status`, including config-level `disabled`, active/configured/unmanaged/auth-needed/failed classification, OAuth scope display, and server-specific reconnect failure handling. Disabled servers are rejected before connection attempts, and status tests cover active, disabled, auth-needed, failed, unmanaged, and OAuth scopes. Verified with `cargo test -q -p yode-mcp`, `cargo test -q -p yode-tools mcp_resources`, `cargo test -q -p yode-tui mcp`, `cargo check -q`, and `git diff --check`. Remaining risk: reload diff and explicit resource allow/deny policy are still pending.
+- 2026-05-19: Added explicit MCP resource allow/deny policy via `mcp.resource_allow` and `mcp.resource_deny`, threaded into tool execution context for both TUI and noninteractive chat. `read_mcp_resource` now blocks denied or non-allowlisted resources before cache/provider reads and returns actionable permission guidance. Verified with `cargo test -q -p yode-mcp`, `cargo test -q -p yode-tools mcp_resources`, `cargo test -q -p yode-tui mcp`, `cargo check -q`, and `git diff --check`. Remaining risk: reload diff is still pending.
 
 ### Week 10: Plugin System Foundation
 

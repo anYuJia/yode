@@ -12,6 +12,7 @@ use crossterm::ExecutableCommand;
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 
+use yode_core::config::Config;
 use yode_core::context::AgentContext;
 use yode_core::db::Database;
 use yode_core::permission::PermissionManager;
@@ -36,6 +37,7 @@ pub async fn run(
     all_provider_models: HashMap<String, Vec<String>>,
     startup_profile: Option<String>,
     mcp_resource_provider: Option<Arc<dyn McpResourceProvider>>,
+    config: &Config,
 ) -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -54,6 +56,7 @@ pub async fn run(
         all_provider_models,
         startup_profile,
         mcp_resource_provider,
+        config,
     )
     .await?;
 

@@ -351,6 +351,7 @@ async fn main() -> Result<()> {
         all_provider_models,
         Some(startup_summary),
         tooling.mcp_resource_provider.clone(),
+        &config,
     )
     .await?;
 
