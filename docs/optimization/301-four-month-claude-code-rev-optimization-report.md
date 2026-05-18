@@ -488,6 +488,7 @@ cargo test -q -p yode-tui skills
 Progress:
 
 - 2026-05-19: Added deterministic skill search over names, descriptions, path gates, and `trigger-examples`/trigger aliases in skill frontmatter, with scored reasons and `/skills search <query>` output. Verified with `cargo test -q -p yode-core skills`, `cargo test -q -p yode-tools skill`, and `cargo test -q -p yode-tui skills`. Remaining risk: `discover_skills` still lists store order, and skill invocation persistence across compaction is still pending.
+- 2026-05-19: Extended `discover_skills` with optional ranked `query` results, deterministic no-query ordering, trigger-example details, and metadata scores/reasons. Verified with `cargo test -q -p yode-core skills`, `cargo test -q -p yode-tools skill`, `cargo test -q -p yode-tui skills`, `cargo check -q`, and `git diff --check`. Remaining risk: skill invocation persistence across compaction is still pending.
 
 ### Week 12: Remote Event Log And Replay
 

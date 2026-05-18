@@ -21,9 +21,17 @@ pub struct SkillEntry {
     pub content: String,
     pub allowed_tools: Vec<String>,
     pub paths: Vec<String>,
+    pub trigger_examples: Vec<String>,
     pub context: SkillContextMode,
     pub model: Option<String>,
     pub effort: Option<String>,
+}
+
+#[derive(Clone)]
+pub struct SkillSearchResult {
+    pub skill: SkillEntry,
+    pub score: u32,
+    pub reasons: Vec<String>,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -54,6 +62,7 @@ impl SkillStore {
             content,
             allowed_tools: Vec::new(),
             paths: Vec::new(),
+            trigger_examples: Vec::new(),
             context: SkillContextMode::Inline,
             model: None,
             effort: None,
@@ -67,6 +76,7 @@ impl SkillStore {
             content: entry.content,
             allowed_tools: entry.allowed_tools,
             paths: entry.paths,
+            trigger_examples: entry.trigger_examples,
             context: entry.context,
             model: entry.model,
             effort: entry.effort,
@@ -79,6 +89,34 @@ impl SkillStore {
 
     pub fn list(&self) -> &[SkillEntry] {
         &self.skills
+    }
+
+    pub fn search(&self, query: &str) -> Vec<SkillSearchResult> {
+        let tokens = search_tokens(query);
+        let mut results = if tokens.is_empty() {
+            self.skills
+                .iter()
+                .cloned()
+                .map(|skill| SkillSearchResult {
+                    skill,
+                    score: 0,
+                    reasons: vec!["listed".to_string()],
+                })
+                .collect::<Vec<_>>()
+        } else {
+            self.skills
+                .iter()
+                .filter_map(|skill| score_skill_search(skill, &tokens))
+                .collect::<Vec<_>>()
+        };
+
+        results.sort_by(|left, right| {
+            right
+                .score
+                .cmp(&left.score)
+                .then_with(|| left.skill.name.cmp(&right.skill.name))
+        });
+        results
     }
 }
 
@@ -360,6 +398,12 @@ fn render_skill_metadata_block(skill: &SkillEntry) -> String {
     if !skill.paths.is_empty() {
         lines.push(format!("- Path activation: {}", skill.paths.join(", ")));
     }
+    if !skill.trigger_examples.is_empty() {
+        lines.push(format!(
+            "- Trigger examples: {}",
+            skill.trigger_examples.join(" | ")
+        ));
+    }
     if skill.context == SkillContextMode::Fork {
         lines.push("- Context mode: fork".to_string());
     }
@@ -382,10 +426,71 @@ fn skill_metadata_json(skill: &SkillEntry) -> serde_json::Value {
         "description": skill.description,
         "allowed_tools": skill.allowed_tools,
         "paths": skill.paths,
+        "trigger_examples": skill.trigger_examples,
         "context": skill.context.label(),
         "model": skill.model,
         "effort": skill.effort,
     })
+}
+
+fn search_tokens(query: &str) -> Vec<String> {
+    query
+        .split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '-' && ch != '_')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase())
+        .collect()
+}
+
+fn score_skill_search(skill: &SkillEntry, tokens: &[String]) -> Option<SkillSearchResult> {
+    let name = skill.name.to_ascii_lowercase();
+    let description = skill.description.to_ascii_lowercase();
+    let paths = skill
+        .paths
+        .iter()
+        .map(|value| value.to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    let triggers = skill
+        .trigger_examples
+        .iter()
+        .map(|value| value.to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    let mut score = 0;
+    let mut reasons = Vec::new();
+
+    for token in tokens {
+        if name == *token {
+            score += 100;
+            push_unique_reason(&mut reasons, "name exact");
+        } else if name.contains(token) {
+            score += 80;
+            push_unique_reason(&mut reasons, "name");
+        }
+        if description.contains(token) {
+            score += 50;
+            push_unique_reason(&mut reasons, "description");
+        }
+        if paths.iter().any(|path| path.contains(token)) {
+            score += 40;
+            push_unique_reason(&mut reasons, "paths");
+        }
+        if triggers.iter().any(|trigger| trigger.contains(token)) {
+            score += 60;
+            push_unique_reason(&mut reasons, "triggers");
+        }
+    }
+
+    (score > 0).then_some(SkillSearchResult {
+        skill: skill.clone(),
+        score,
+        reasons,
+    })
+}
+
+fn push_unique_reason(reasons: &mut Vec<String>, reason: &str) {
+    if !reasons.iter().any(|existing| existing == reason) {
+        reasons.push(reason.to_string());
+    }
 }
 
 #[cfg(test)]
@@ -487,6 +592,7 @@ mod tests {
                 content: "Inspect the diff.".to_string(),
                 allowed_tools: vec!["git_diff".to_string()],
                 paths: vec!["crates/**".to_string()],
+                trigger_examples: vec![],
                 context: super::SkillContextMode::Fork,
                 model: Some("claude-sonnet".to_string()),
                 effort: Some("high".to_string()),
@@ -521,6 +627,7 @@ mod tests {
                 content: "Inspect the diff.".to_string(),
                 allowed_tools: vec!["git_diff".to_string()],
                 paths: vec!["crates/**".to_string()],
+                trigger_examples: vec![],
                 context: super::SkillContextMode::Fork,
                 model: Some("claude-sonnet".to_string()),
                 effort: Some("high".to_string()),
@@ -566,6 +673,7 @@ mod tests {
                 content: "Inspect the diff.".to_string(),
                 allowed_tools: vec![],
                 paths: vec![],
+                trigger_examples: vec![],
                 context: super::SkillContextMode::Fork,
                 model: None,
                 effort: None,

@@ -234,6 +234,7 @@ pub(crate) async fn setup_tooling(config: &Config, workdir: &Path) -> Result<Too
                 content: skill.content.clone(),
                 allowed_tools: skill.metadata.allowed_tools.clone(),
                 paths: skill.metadata.paths.clone(),
+                trigger_examples: skill.metadata.trigger_examples.clone(),
                 context,
                 model: skill.metadata.model.clone(),
                 effort: skill.metadata.effort.clone(),
