@@ -12,6 +12,7 @@ use crate::commands::{
     ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
     CommandResult,
 };
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub struct McpCommand {
@@ -30,6 +31,7 @@ impl McpCommand {
                     required: false,
                     hint: "resources cleanup [keep=N|all]".to_string(),
                     completions: ArgCompletionSource::Static(vec![
+                        "reload".to_string(),
                         "resources cleanup".to_string(),
                         "resources cleanup keep=20".to_string(),
                         "resources cleanup all".to_string(),
@@ -49,6 +51,9 @@ impl Command for McpCommand {
 
     fn execute(&self, args: &str, ctx: &mut CommandContext<'_>) -> CommandResult {
         let args = args.trim();
+        if args == "reload" {
+            return reload_mcp_config(ctx);
+        }
         if let Some(cleanup_args) = resource_cleanup_args(args) {
             return cleanup_mcp_resources(cleanup_args, ctx);
         }
@@ -266,6 +271,124 @@ fn cleanup_mcp_resources(args: &str, ctx: &CommandContext<'_>) -> CommandResult 
         keep,
         summary.dir.display()
     )))
+}
+
+fn reload_mcp_config(ctx: &CommandContext<'_>) -> CommandResult {
+    let config = yode_core::config::Config::load().map_err(|err| err.to_string())?;
+    let current = McpReloadSnapshot::from_config(&config);
+    let project_root = std::path::PathBuf::from(&ctx.session.working_dir);
+    let path = mcp_reload_snapshot_path(&project_root);
+    let previous = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|content| serde_json::from_str::<McpReloadSnapshot>(&content).ok());
+    let diff = previous
+        .as_ref()
+        .map(|previous| diff_mcp_reload_snapshots(previous, &current))
+        .unwrap_or_else(|| McpReloadDiff {
+            added: current.servers.keys().cloned().collect(),
+            removed: Vec::new(),
+            changed: Vec::new(),
+            unchanged: 0,
+        });
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+    std::fs::write(
+        &path,
+        serde_json::to_string_pretty(&current).map_err(|err| err.to_string())?,
+    )
+    .map_err(|err| err.to_string())?;
+
+    Ok(CommandOutput::Message(format!(
+        "MCP config reload diff:\n  Added:   {}\n  Removed: {}\n  Changed: {}\n  Same:    {}\n  Snapshot: {}",
+        list_or_none(&diff.added),
+        list_or_none(&diff.removed),
+        list_or_none(&diff.changed),
+        diff.unchanged,
+        path.display()
+    )))
+}
+
+fn mcp_reload_snapshot_path(project_root: &std::path::Path) -> std::path::PathBuf {
+    project_root
+        .join(".yode")
+        .join("status")
+        .join("mcp-reload-state.json")
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+struct McpReloadSnapshot {
+    servers: BTreeMap<String, McpReloadServer>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct McpReloadServer {
+    disabled: bool,
+    transport: String,
+    endpoint: String,
+    auth: String,
+    scopes: String,
+}
+
+impl McpReloadSnapshot {
+    fn from_config(config: &yode_core::config::Config) -> Self {
+        let servers = config
+            .mcp
+            .servers
+            .iter()
+            .map(|(name, server)| {
+                (
+                    name.clone(),
+                    McpReloadServer {
+                        disabled: server.disabled,
+                        transport: server.transport.label().to_string(),
+                        endpoint: mcp_endpoint_label(server),
+                        auth: auth_status_label(name, server),
+                        scopes: mcp_server_scopes_label(server),
+                    },
+                )
+            })
+            .collect();
+        Self { servers }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct McpReloadDiff {
+    added: Vec<String>,
+    removed: Vec<String>,
+    changed: Vec<String>,
+    unchanged: usize,
+}
+
+fn diff_mcp_reload_snapshots(
+    previous: &McpReloadSnapshot,
+    current: &McpReloadSnapshot,
+) -> McpReloadDiff {
+    let mut diff = McpReloadDiff::default();
+    for (name, current_server) in &current.servers {
+        match previous.servers.get(name) {
+            Some(previous_server) if previous_server == current_server => {
+                diff.unchanged = diff.unchanged.saturating_add(1);
+            }
+            Some(_) => diff.changed.push(name.clone()),
+            None => diff.added.push(name.clone()),
+        }
+    }
+    for name in previous.servers.keys() {
+        if !current.servers.contains_key(name) {
+            diff.removed.push(name.clone());
+        }
+    }
+    diff
+}
+
+fn list_or_none(values: &[String]) -> String {
+    if values.is_empty() {
+        "none".to_string()
+    } else {
+        values.join(", ")
+    }
 }
 
 fn parse_resource_cleanup_keep(args: &str) -> Result<usize, String> {
@@ -522,11 +645,13 @@ fn server_elicitation_summary(
 #[cfg(test)]
 mod tests {
     use super::{
-        auth_status_label, mcp_server_scopes_label, oauth_token_saved, parse_mcp_tool_name,
-        parse_resource_cleanup_keep, resource_cleanup_args, sanitize_server_name,
-        server_elicitation_summary, server_inventory_status, server_latency_summary,
-        server_reconnect_summary, transport_execution_label,
+        auth_status_label, diff_mcp_reload_snapshots, mcp_server_scopes_label, oauth_token_saved,
+        parse_mcp_tool_name, parse_resource_cleanup_keep, resource_cleanup_args,
+        sanitize_server_name, server_elicitation_summary, server_inventory_status,
+        server_latency_summary, server_reconnect_summary, transport_execution_label,
+        McpReloadServer, McpReloadSnapshot,
     };
+    use std::collections::BTreeMap;
     use yode_core::config::McpServerConfig;
 
     #[test]
@@ -743,6 +868,84 @@ mod tests {
         assert!(rendered.contains("form=1"));
         assert!(rendered.contains("url=1"));
         assert!(rendered.contains("Authorize access"));
+    }
+
+    #[test]
+    fn mcp_reload_diff_detects_added_removed_and_changed_servers() {
+        let previous = McpReloadSnapshot {
+            servers: BTreeMap::from([
+                (
+                    "removed".to_string(),
+                    McpReloadServer {
+                        disabled: false,
+                        transport: "stdio".to_string(),
+                        endpoint: "node".to_string(),
+                        auth: "n/a".to_string(),
+                        scopes: "none".to_string(),
+                    },
+                ),
+                (
+                    "changed".to_string(),
+                    McpReloadServer {
+                        disabled: false,
+                        transport: "stdio".to_string(),
+                        endpoint: "node".to_string(),
+                        auth: "n/a".to_string(),
+                        scopes: "none".to_string(),
+                    },
+                ),
+                (
+                    "same".to_string(),
+                    McpReloadServer {
+                        disabled: false,
+                        transport: "http".to_string(),
+                        endpoint: "https://example.com".to_string(),
+                        auth: "n/a".to_string(),
+                        scopes: "none".to_string(),
+                    },
+                ),
+            ]),
+        };
+        let current = McpReloadSnapshot {
+            servers: BTreeMap::from([
+                (
+                    "added".to_string(),
+                    McpReloadServer {
+                        disabled: false,
+                        transport: "sse".to_string(),
+                        endpoint: "https://new.example.com".to_string(),
+                        auth: "n/a".to_string(),
+                        scopes: "none".to_string(),
+                    },
+                ),
+                (
+                    "changed".to_string(),
+                    McpReloadServer {
+                        disabled: true,
+                        transport: "stdio".to_string(),
+                        endpoint: "node".to_string(),
+                        auth: "n/a".to_string(),
+                        scopes: "none".to_string(),
+                    },
+                ),
+                (
+                    "same".to_string(),
+                    McpReloadServer {
+                        disabled: false,
+                        transport: "http".to_string(),
+                        endpoint: "https://example.com".to_string(),
+                        auth: "n/a".to_string(),
+                        scopes: "none".to_string(),
+                    },
+                ),
+            ]),
+        };
+
+        let diff = diff_mcp_reload_snapshots(&previous, &current);
+        assert_eq!(diff.added, vec!["added"]);
+        assert_eq!(diff.removed, vec!["removed"]);
+        assert_eq!(diff.changed, vec!["changed"]);
+        assert_eq!(diff.unchanged, 1);
     }
 
     #[test]
