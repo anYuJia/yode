@@ -21,6 +21,7 @@ pub struct Skill {
 pub struct SkillMetadata {
     pub allowed_tools: Vec<String>,
     pub paths: Vec<String>,
+    pub trigger_examples: Vec<String>,
     pub context: SkillContextMode,
     pub model: Option<String>,
     pub effort: Option<String>,
@@ -44,6 +45,14 @@ struct SkillFrontmatter {
     allowed_tools: Vec<String>,
     #[serde(default)]
     paths: Vec<String>,
+    #[serde(
+        default,
+        alias = "trigger_examples",
+        alias = "trigger-examples",
+        alias = "triggers",
+        alias = "examples"
+    )]
+    trigger_examples: Vec<String>,
     #[serde(default)]
     context: SkillContextModeFrontmatter,
     #[serde(default)]
@@ -74,6 +83,7 @@ impl SkillFrontmatter {
         SkillMetadata {
             allowed_tools: normalized_list(&self.allowed_tools),
             paths: normalized_list(&self.paths),
+            trigger_examples: normalized_list(&self.trigger_examples),
             context: self.context.into(),
             model: normalized_option(self.model.as_deref()),
             effort: normalized_option(self.effort.as_deref()),
@@ -85,6 +95,13 @@ impl SkillFrontmatter {
 #[derive(Debug, Default)]
 pub struct SkillRegistry {
     skills: Vec<Skill>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SkillSearchResult<'a> {
+    pub skill: &'a Skill,
+    pub score: u32,
+    pub reasons: Vec<String>,
 }
 
 impl SkillRegistry {
@@ -205,6 +222,35 @@ impl SkillRegistry {
             .collect()
     }
 
+    pub fn search(&self, query: &str) -> Vec<SkillSearchResult<'_>> {
+        let tokens = search_tokens(query);
+        if tokens.is_empty() {
+            return self
+                .skills
+                .iter()
+                .map(|skill| SkillSearchResult {
+                    skill,
+                    score: 0,
+                    reasons: vec!["listed".to_string()],
+                })
+                .collect();
+        }
+
+        let mut results = self
+            .skills
+            .iter()
+            .filter_map(|skill| score_skill_search(skill, &tokens))
+            .collect::<Vec<_>>();
+        results.sort_by(|left, right| {
+            right
+                .score
+                .cmp(&left.score)
+                .then_with(|| left.skill.name.cmp(&right.skill.name))
+                .then_with(|| left.skill.source.cmp(&right.skill.source))
+        });
+        results
+    }
+
     /// Get default discovery paths based on working directory.
     pub fn default_paths(working_dir: &Path) -> Vec<PathBuf> {
         let mut paths = Vec::new();
@@ -238,6 +284,68 @@ fn normalized_option(value: Option<&str>) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToString::to_string)
+}
+
+fn search_tokens(query: &str) -> Vec<String> {
+    query
+        .split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '-' && ch != '_')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase())
+        .collect()
+}
+
+fn score_skill_search<'a>(skill: &'a Skill, tokens: &[String]) -> Option<SkillSearchResult<'a>> {
+    let name = skill.name.to_ascii_lowercase();
+    let description = skill.description.to_ascii_lowercase();
+    let paths = skill
+        .metadata
+        .paths
+        .iter()
+        .map(|value| value.to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    let triggers = skill
+        .metadata
+        .trigger_examples
+        .iter()
+        .map(|value| value.to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    let mut score = 0;
+    let mut reasons = Vec::new();
+
+    for token in tokens {
+        if name == *token {
+            score += 100;
+            push_unique_reason(&mut reasons, "name exact");
+        } else if name.contains(token) {
+            score += 80;
+            push_unique_reason(&mut reasons, "name");
+        }
+        if description.contains(token) {
+            score += 50;
+            push_unique_reason(&mut reasons, "description");
+        }
+        if paths.iter().any(|path| path.contains(token)) {
+            score += 40;
+            push_unique_reason(&mut reasons, "paths");
+        }
+        if triggers.iter().any(|trigger| trigger.contains(token)) {
+            score += 60;
+            push_unique_reason(&mut reasons, "triggers");
+        }
+    }
+
+    (score > 0).then_some(SkillSearchResult {
+        skill,
+        score,
+        reasons,
+    })
+}
+
+fn push_unique_reason(reasons: &mut Vec<String>, reason: &str) {
+    if !reasons.iter().any(|existing| existing == reason) {
+        reasons.push(reason.to_string());
+    }
 }
 
 fn path_matches_skill_pattern(path: &str, pattern: &str) -> bool {
@@ -377,6 +485,7 @@ mod tests {
             skill.metadata.paths,
             vec!["crates/**/*.rs".to_string(), "Cargo.toml".to_string()]
         );
+        assert!(skill.metadata.trigger_examples.is_empty());
         assert_eq!(skill.metadata.context, SkillContextMode::Fork);
         assert_eq!(skill.metadata.model.as_deref(), Some("claude-sonnet-4-5"));
         assert_eq!(skill.metadata.effort.as_deref(), Some("high"));
@@ -398,6 +507,33 @@ mod tests {
 
         assert_eq!(active.len(), 1);
         assert_eq!(active[0].name, "rust");
+    }
+
+    #[test]
+    fn search_ranks_name_description_paths_and_triggers_deterministically() {
+        let dir = tempfile::tempdir().unwrap();
+        let rust_path = dir.path().join("rust").join("SKILL.md");
+        std::fs::create_dir_all(rust_path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &rust_path,
+            "---\nname: rust\ndescription: Rust crate review\npaths:\n  - crates/**/*.rs\ntrigger-examples:\n  - review unsafe Rust changes\n---\nUse cargo test.\n",
+        )
+        .unwrap();
+        let docs_path = dir.path().join("docs").join("SKILL.md");
+        std::fs::create_dir_all(docs_path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &docs_path,
+            "---\nname: docs\ndescription: Documentation guidance\npaths:\n  - crates/docs/**\ntrigger-examples:\n  - update markdown guide\n---\nKeep docs concise.\n",
+        )
+        .unwrap();
+
+        let registry = SkillRegistry::discover(&[dir.path().to_path_buf()]);
+        let results = registry.search("rust crates");
+
+        assert_eq!(results[0].skill.name, "rust");
+        assert!(results[0].score > results[1].score);
+        assert!(results[0].reasons.contains(&"name exact".to_string()));
+        assert!(results[0].reasons.contains(&"paths".to_string()));
     }
 
     #[test]

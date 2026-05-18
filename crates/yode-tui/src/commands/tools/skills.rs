@@ -20,11 +20,12 @@ impl SkillsCommand {
                 args: vec![ArgDef {
                     name: "view".to_string(),
                     required: false,
-                    hint: "list | show <name> | active <path>".to_string(),
+                    hint: "list | show <name> | active <path> | search <query>".to_string(),
                     completions: ArgCompletionSource::Static(vec![
                         "list".to_string(),
                         "show".to_string(),
                         "active".to_string(),
+                        "search".to_string(),
                     ]),
                 }],
                 category: CommandCategory::Tools,
@@ -80,7 +81,15 @@ impl Command for SkillsCommand {
                     &active,
                 )))
             }
-            _ => Err("Usage: /skills [list|show <name>|active <path> [...]]".to_string()),
+            ["search", query @ ..] => {
+                let query = query.join(" ");
+                Ok(CommandOutput::Message(render_search_results(
+                    &query, &registry,
+                )))
+            }
+            _ => Err(
+                "Usage: /skills [list|show <name>|active <path> [... ]|search <query>]".to_string(),
+            ),
         }
     }
 }
@@ -154,6 +163,25 @@ fn render_active_skills(
     lines.join("\n")
 }
 
+fn render_search_results(query: &str, registry: &yode_core::skills::SkillRegistry) -> String {
+    let results = registry.search(query);
+    if results.is_empty() {
+        return format!("No skills matched '{}'.", query);
+    }
+
+    let mut lines = vec![format!("Skill search results for '{}':", query)];
+    for result in results.iter().take(10) {
+        lines.push(format!(
+            "  - {} — {} [score={} | {}]",
+            result.skill.name,
+            result.skill.description,
+            result.score,
+            result.reasons.join(", ")
+        ));
+    }
+    lines.join("\n")
+}
+
 fn runtime_recent_paths(ctx: &mut CommandContext<'_>) -> Vec<String> {
     let runtime = ctx
         .engine
@@ -200,7 +228,7 @@ fn empty_label(value: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::render_active_skills;
+    use super::{render_active_skills, render_search_results};
     use yode_core::skills::{Skill, SkillContextMode, SkillMetadata};
 
     #[test]
@@ -213,6 +241,7 @@ mod tests {
             metadata: SkillMetadata {
                 allowed_tools: vec![],
                 paths: vec!["crates/**".to_string()],
+                trigger_examples: Vec::new(),
                 context: SkillContextMode::Inline,
                 model: None,
                 effort: None,
@@ -237,6 +266,7 @@ mod tests {
             metadata: SkillMetadata {
                 allowed_tools: vec![],
                 paths: vec!["docs/**".to_string()],
+                trigger_examples: Vec::new(),
                 context: SkillContextMode::Inline,
                 model: None,
                 effort: None,
@@ -248,5 +278,26 @@ mod tests {
 
         assert!(rendered.contains("docs/guide.md | src/main.rs"));
         assert!(rendered.contains("docs"));
+    }
+
+    #[test]
+    fn search_results_render_scores_and_reasons() {
+        let dir = std::env::temp_dir().join(format!("yode-skills-search-{}", uuid::Uuid::new_v4()));
+        let skill_path = dir.join("rust").join("SKILL.md");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(skill_path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &skill_path,
+            "---\nname: rust\ndescription: Rust guidance\npaths:\n  - crates/**\ntrigger-examples:\n  - review rust changes\n---\nUse cargo test.\n",
+        )
+        .unwrap();
+        let registry = yode_core::skills::SkillRegistry::discover(&[dir.clone()]);
+
+        let rendered = render_search_results("rust crates", &registry);
+
+        assert!(rendered.contains("score="));
+        assert!(rendered.contains("name exact"));
+        assert!(rendered.contains("paths"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
