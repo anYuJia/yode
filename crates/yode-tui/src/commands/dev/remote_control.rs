@@ -11,11 +11,12 @@ use super::remote_control_workspace::{
     bind_remote_queue_item_runtime, current_remote_transport_payload, export_remote_control_bundle,
     ingest_remote_queue_result, latest_remote_command_queue_artifact,
     latest_remote_control_artifact, latest_remote_live_session_artifact,
-    latest_remote_transport_artifact, load_remote_queue_result_ingest,
-    mark_remote_live_session_dispatch, mark_remote_queue_item, mark_remote_transport_connected,
-    mark_remote_transport_disconnected, mark_remote_transport_failed,
-    mark_remote_transport_reconnecting, note_remote_transport_dispatch, queue_item_target,
-    record_remote_transport_event, render_remote_control_doctor, render_remote_retry_summary,
+    latest_remote_transport_artifact, latest_remote_transport_event_log_artifact,
+    load_remote_queue_result_ingest, mark_remote_live_session_dispatch, mark_remote_queue_item,
+    mark_remote_transport_connected, mark_remote_transport_disconnected,
+    mark_remote_transport_failed, mark_remote_transport_reconnecting,
+    note_remote_transport_dispatch, queue_item_target, record_remote_transport_event,
+    render_remote_control_doctor, render_remote_event_log_replay, render_remote_retry_summary,
     render_remote_task_inventory, sync_remote_live_session_transport,
     write_remote_control_artifacts, write_remote_live_session_artifacts,
     write_remote_queue_execution_artifact, write_remote_task_handoff_artifact,
@@ -36,7 +37,7 @@ impl RemoteControlCommand {
                 args: vec![ArgDef {
                     name: "action".to_string(),
                     required: false,
-                    hint: "[plan [goal]|latest|session [status|sync]|transport [status|connect|disconnect|reconnect]|queue|dispatch <item>|run <item>|ingest <file>|complete <item> [summary]|fail <item> [reason]|retry <item>|ack <item>|tasks|monitor|follow <id>|retry-summary|handoff <id>|doctor|bundle]".to_string(),
+                    hint: "[plan [goal]|latest|session [status|sync]|transport [status|connect|disconnect|reconnect]|queue|dispatch <item>|run <item>|ingest <file>|complete <item> [summary]|fail <item> [reason]|retry <item>|ack <item>|tasks|monitor|follow <id>|replay [latest|file]|retry-summary|handoff <id>|doctor|bundle]".to_string(),
                     completions: ArgCompletionSource::Static(vec![
                         "plan".to_string(),
                         "latest".to_string(),
@@ -59,6 +60,8 @@ impl RemoteControlCommand {
                         "tasks".to_string(),
                         "monitor".to_string(),
                         "follow".to_string(),
+                        "replay".to_string(),
+                        "replay latest".to_string(),
                         "retry-summary".to_string(),
                         "handoff".to_string(),
                         "doctor".to_string(),
@@ -639,6 +642,24 @@ impl Command for RemoteControlCommand {
             return Ok(CommandOutput::Message(render_remote_task_inventory(&tasks)));
         }
 
+        if matches!(parts.as_slice(), ["replay"] | ["replay", "latest"]) {
+            let path = latest_remote_transport_event_log_artifact(&project_root)
+                .ok_or_else(|| "No remote event log found. Run `/remote-control transport connect` or dispatch a remote queue item first.".to_string())?;
+            let summary = render_remote_event_log_replay(&path)
+                .map_err(|err| format!("Failed to replay remote event log: {}", err))?;
+            return Ok(CommandOutput::Message(summary));
+        }
+
+        if let ["replay", file] = parts.as_slice() {
+            let mut path = std::path::PathBuf::from(file);
+            if path.is_relative() {
+                path = project_root.join(path);
+            }
+            let summary = render_remote_event_log_replay(&path)
+                .map_err(|err| format!("Failed to replay remote event log: {}", err))?;
+            return Ok(CommandOutput::Message(summary));
+        }
+
         if let ["follow", id] = parts.as_slice() {
             let id = if *id == "latest" {
                 ctx.engine
@@ -725,7 +746,7 @@ impl Command for RemoteControlCommand {
             }));
         }
 
-        Err("Usage: /remote-control [plan [goal]|latest|session [status|sync]|transport [status|connect|disconnect|reconnect]|queue|dispatch <item>|run <item>|ingest <file>|complete <item> [summary]|fail <item> [reason]|retry <item>|ack <item>|tasks|monitor|follow <id>|retry-summary|handoff <id>|doctor|bundle]".to_string())
+        Err("Usage: /remote-control [plan [goal]|latest|session [status|sync]|transport [status|connect|disconnect|reconnect]|queue|dispatch <item>|run <item>|ingest <file>|complete <item> [summary]|fail <item> [reason]|retry <item>|ack <item>|tasks|monitor|follow <id>|replay [latest|file]|retry-summary|handoff <id>|doctor|bundle]".to_string())
     }
 }
 
@@ -763,6 +784,7 @@ fn remote_control_footer(path: &std::path::Path) -> String {
         "/remote-control monitor".to_string(),
         "/remote-control dispatch latest".to_string(),
         "/remote-control queue".to_string(),
+        "/remote-control replay".to_string(),
         "/remote-control follow latest".to_string(),
         "/remote-control complete latest remote completion confirmed".to_string(),
         "/remote-control fail latest remote failure recorded".to_string(),
@@ -872,6 +894,7 @@ fn open_remote_transport_inspector(project_root: &std::path::Path) -> CommandRes
                 "events".to_string(),
                 "/inspect artifact latest-remote-transport-events".to_string(),
             ),
+            ("replay".to_string(), "/remote-control replay".to_string()),
             ("session".to_string(), "/remote-control session".to_string()),
             ("doctor".to_string(), "/remote-control doctor".to_string()),
             ("latest".to_string(), "/remote-control latest".to_string()),

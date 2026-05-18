@@ -527,6 +527,7 @@ bash scripts/parity-replay-ci.sh
 Progress:
 
 - 2026-05-19: Added durable JSONL remote event logs alongside existing markdown transport events, with monotonically increasing cursors surfaced in transport state and summaries. Verified with `cargo test -q -p yode-tools remote_runtime`, `cargo test -q -p yode-tui remote_control`, `bash scripts/parity-replay-ci.sh`, `cargo check -q`, and `git diff --check`. Remaining risk: replay command, missing-event diagnostics, and remote storage backend abstraction are still pending.
+- 2026-05-19: Added `/remote-control replay` for JSONL remote event logs, including cursor gap and invalid-line diagnostics plus a focused replay fixture test. Verified with `cargo test -q -p yode-tools remote_runtime`, `cargo test -q -p yode-tui remote_control`, `bash scripts/parity-replay-ci.sh`, `cargo check -q`, and `git diff --check`. Remaining risk: replay still reconstructs summaries only; full remote task state reconstruction and storage backend abstraction are pending.
 
 Month 3 milestone:
 

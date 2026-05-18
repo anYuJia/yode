@@ -169,6 +169,18 @@ pub(crate) struct RemoteQueueResultOutcome {
     pub transcript_sync_path: Option<PathBuf>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct RemoteReplayEvent {
+    cursor: u64,
+    event: String,
+    #[serde(default)]
+    timestamp: Option<String>,
+    #[serde(default)]
+    queue_item_id: Option<String>,
+    #[serde(default)]
+    runtime_task_id: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct RemoteControlArtifacts {
     pub summary_path: PathBuf,
@@ -653,6 +665,97 @@ pub(crate) fn render_remote_task_inventory(tasks: &[RuntimeTask]) -> String {
         "  next: /remote-control follow latest | /tasks monitor | /tasks follow latest".to_string(),
     );
     lines.join("\n")
+}
+
+pub(crate) fn render_remote_event_log_replay(path: &Path) -> anyhow::Result<String> {
+    let body = std::fs::read_to_string(path)?;
+    let mut events = Vec::new();
+    let mut diagnostics = Vec::new();
+    let mut expected_cursor = 1;
+    for (index, line) in body.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        match serde_json::from_str::<RemoteReplayEvent>(line) {
+            Ok(event) => {
+                if event.cursor > expected_cursor {
+                    diagnostics.push(format!(
+                        "missing cursor(s) {} before line {}",
+                        cursor_range(expected_cursor, event.cursor - 1),
+                        index + 1
+                    ));
+                } else if event.cursor < expected_cursor {
+                    diagnostics.push(format!(
+                        "out-of-order cursor {} at line {}; expected {}",
+                        event.cursor,
+                        index + 1,
+                        expected_cursor
+                    ));
+                }
+                expected_cursor = expected_cursor.max(event.cursor.saturating_add(1));
+                events.push(event);
+            }
+            Err(err) => diagnostics.push(format!("invalid JSON at line {}: {}", index + 1, err)),
+        }
+    }
+    let status = if diagnostics.is_empty() {
+        "ok"
+    } else {
+        "attention"
+    };
+    let (first_cursor, last_cursor) = events
+        .first()
+        .zip(events.last())
+        .map(|(first, last)| (first.cursor, last.cursor))
+        .unwrap_or((0, 0));
+    let last_event = events
+        .last()
+        .map(render_replay_event_label)
+        .unwrap_or_else(|| "none".to_string());
+    let mut lines = vec![
+        "Remote event replay".to_string(),
+        format!("  Source: {}", path.display()),
+        format!("  Events: {}", events.len()),
+        format!("  Cursor: {}..{}", first_cursor, last_cursor),
+        format!("  Status: {}", status),
+        format!("  Last event: {}", last_event),
+    ];
+    if !diagnostics.is_empty() {
+        lines.push("  Diagnostics:".to_string());
+        lines.extend(
+            diagnostics
+                .into_iter()
+                .map(|diagnostic| format!("    - {}", diagnostic)),
+        );
+        lines.push(
+            "  Action: reconnect remote transport or replay from the previous complete event log."
+                .to_string(),
+        );
+    }
+    Ok(lines.join("\n"))
+}
+
+fn cursor_range(start: u64, end: u64) -> String {
+    if start == end {
+        start.to_string()
+    } else {
+        format!("{}..{}", start, end)
+    }
+}
+
+fn render_replay_event_label(event: &RemoteReplayEvent) -> String {
+    let mut label = event.event.clone();
+    if let Some(item_id) = event.queue_item_id.as_deref() {
+        label.push_str(&format!(" item={}", item_id));
+    }
+    if let Some(task_id) = event.runtime_task_id.as_deref() {
+        label.push_str(&format!(" task={}", task_id));
+    }
+    if let Some(timestamp) = event.timestamp.as_deref() {
+        label.push_str(&format!(" at={}", timestamp));
+    }
+    label
 }
 
 pub(crate) fn render_remote_retry_summary(tasks: &[RuntimeTask]) -> String {
@@ -1910,11 +2013,11 @@ mod tests {
         mark_remote_transport_failed, mark_remote_transport_reconnecting,
         note_remote_transport_dispatch, queue_item_target, record_remote_transport_event,
         remote_queue_status_label, remote_transport_handshake_summary,
-        render_remote_control_doctor, render_remote_retry_summary, render_remote_task_inventory,
-        sync_remote_live_session_transport, write_remote_control_artifacts,
-        write_remote_live_session_artifacts, write_remote_queue_execution_artifact,
-        write_remote_task_handoff_artifact, write_remote_transport_artifacts, RemoteQueueItem,
-        RemoteTransportPayload,
+        render_remote_control_doctor, render_remote_event_log_replay, render_remote_retry_summary,
+        render_remote_task_inventory, sync_remote_live_session_transport,
+        write_remote_control_artifacts, write_remote_live_session_artifacts,
+        write_remote_queue_execution_artifact, write_remote_task_handoff_artifact,
+        write_remote_transport_artifacts, RemoteQueueItem, RemoteTransportPayload,
     };
 
     #[test]
@@ -2119,6 +2222,34 @@ mod tests {
             load_remote_control_payload(&latest_remote_control_state_artifact(&dir).unwrap())
                 .unwrap();
         assert_eq!(state.command_queue[0].attempts, 1);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn remote_event_replay_detects_missing_cursors() {
+        let dir = std::env::temp_dir().join(format!("yode-remote-replay-{}", uuid::Uuid::new_v4()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join(".yode").join("remote")).unwrap();
+        let path = dir
+            .join(".yode")
+            .join("remote")
+            .join("session--remote-events.jsonl");
+        std::fs::write(
+            &path,
+            [
+                r#"{"kind":"remote_event","cursor":1,"timestamp":"2026-01-01 00:00:00","session_id":"session-1234","event":"connect","summary":"connected","artifact":"events.md"}"#,
+                r#"{"kind":"remote_event","cursor":3,"timestamp":"2026-01-01 00:00:02","session_id":"session-1234","event":"result_completed","queue_item_id":"q-1","runtime_task_id":"task-1","summary":"done","artifact":"events.md"}"#,
+            ]
+            .join("\n"),
+        )
+        .unwrap();
+
+        let replay = render_remote_event_log_replay(&path).unwrap();
+        assert!(replay.contains("Remote event replay"));
+        assert!(replay.contains("Status: attention"));
+        assert!(replay.contains("missing cursor(s) 2 before line 2"));
+        assert!(replay.contains("Last event: result_completed item=q-1 task=task-1"));
 
         let _ = std::fs::remove_dir_all(&dir);
     }
