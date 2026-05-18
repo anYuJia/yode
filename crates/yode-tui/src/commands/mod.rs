@@ -106,6 +106,7 @@ pub fn register_all(registry: &mut CommandRegistry) {
     registry.register(Box::new(tools::ToolsCommand::new()));
     registry.register(Box::new(tools::McpCommand::new()));
     registry.register(Box::new(tools::PermissionsCommand::new()));
+    registry.register(Box::new(tools::PluginCommand::new()));
     registry.register(Box::new(tools::SkillsCommand::new()));
     registry.register(Box::new(tools::WorkflowsCommand::new()));
     // Info

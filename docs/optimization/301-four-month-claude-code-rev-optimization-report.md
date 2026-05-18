@@ -449,6 +449,7 @@ Progress:
 
 - 2026-05-19: Added the core plugin manifest discovery layer for `.yode/plugins/<name>/plugin.toml`, including installed/enabled/disabled/blocked trust states, skill/workflow/hook/command/MCP contribution inventory, deterministic ordering, path escape validation, and diagnostics for missing or invalid manifests. Verified with `cargo test -q -p yode-core plugins`, `cargo test -q -p yode-core skills`, and `cargo test -q -p yode-core hooks`. Remaining risk: plugin contributions are inventoried but not yet wired into dynamic skills/workflows, `/plugin` commands, or `/diagnostics`/`/doctor`.
 - 2026-05-19: Wired enabled plugin skill and workflow contributions into existing discovery paths. `SkillRegistry::default_paths` now includes enabled plugin `SKILL.md` contributions, workflow discovery loads enabled plugin JSON workflows, and disabled plugins are excluded for both surfaces. Verified with `cargo test -q -p yode-core skills` and `cargo test -q -p yode-tui workflows`. Remaining risk: `/plugin` management commands and diagnostics/doctor surfacing are still pending.
+- 2026-05-19: Added `/plugin list|inspect|enable|disable` with trust-state writes routed through the core manifest updater, plus command-registration wiring and focused render tests. Verified with `cargo test -q -p yode-core plugins`, `cargo test -q -p yode-tui plugin`, and `cargo test -q -p yode-tui skills`. Remaining risk: diagnostics/doctor exposure and plugin-provided hooks/MCP/commands are still pending.
 
 ### Week 11: Skills Search And Invocation Persistence
 

@@ -91,6 +91,15 @@ impl PluginTrustState {
     pub fn contributes(self) -> bool {
         self == Self::Enabled
     }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Installed => "installed",
+            Self::Enabled => "enabled",
+            Self::Disabled => "disabled",
+            Self::Blocked => "blocked",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -251,6 +260,38 @@ fn normalized_names(values: &[String]) -> Vec<String> {
     names
 }
 
+pub fn set_plugin_trust(
+    project_root: &Path,
+    name: &str,
+    trust: PluginTrustState,
+) -> Result<PathBuf, String> {
+    let registry = PluginRegistry::discover(project_root);
+    let plugin = registry
+        .get(name)
+        .ok_or_else(|| format!("Plugin '{name}' not found."))?;
+    let manifest_path = plugin.manifest_path.clone();
+    let content = std::fs::read_to_string(&manifest_path)
+        .map_err(|err| format!("failed to read {}: {err}", manifest_path.display()))?;
+    let mut value = content
+        .parse::<toml::Value>()
+        .map_err(|err| format!("invalid plugin.toml {}: {err}", manifest_path.display()))?;
+    let table = value
+        .as_table_mut()
+        .ok_or_else(|| format!("plugin.toml {} must be a table", manifest_path.display()))?;
+    table.insert(
+        "trust".to_string(),
+        toml::Value::String(trust.as_str().to_string()),
+    );
+    table.remove("enabled");
+    std::fs::write(
+        &manifest_path,
+        toml::to_string_pretty(&value)
+            .map_err(|err| format!("failed to render {}: {err}", manifest_path.display()))?,
+    )
+    .map_err(|err| format!("failed to write {}: {err}", manifest_path.display()))?;
+    Ok(manifest_path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -381,5 +422,30 @@ trust = "blocked"
             .collect::<Vec<_>>();
 
         assert_eq!(enabled, vec!["enabled"]);
+    }
+
+    #[test]
+    fn set_plugin_trust_updates_manifest() {
+        let dir = tempfile::tempdir().unwrap();
+        write_manifest(
+            &dir.path().join(".yode").join("plugins"),
+            "demo",
+            r#"
+name = "demo"
+enabled = false
+skills = ["skills/demo/SKILL.md"]
+"#,
+        );
+
+        let manifest = set_plugin_trust(dir.path(), "demo", PluginTrustState::Enabled).unwrap();
+        let updated = std::fs::read_to_string(manifest).unwrap();
+        let registry = PluginRegistry::discover(dir.path());
+
+        assert!(updated.contains("trust = \"enabled\""));
+        assert!(!updated.contains("enabled = false"));
+        assert_eq!(
+            registry.get("demo").unwrap().trust,
+            PluginTrustState::Enabled
+        );
     }
 }
