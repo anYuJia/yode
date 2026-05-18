@@ -278,6 +278,11 @@ pub(crate) struct McpConnection {
 impl McpClient {
     /// Connect to an MCP server via stdio transport.
     pub async fn connect(name: &str, config: &McpServerConfig) -> Result<Self> {
+        if config.disabled {
+            let message = format!("MCP server '{}' is disabled by config", name);
+            record_mcp_connect_result(name, false, Some(message.clone()));
+            return Err(anyhow::anyhow!(message));
+        }
         info!(
             server = %name,
             transport = %config.transport.label(),

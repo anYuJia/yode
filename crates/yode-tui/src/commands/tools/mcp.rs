@@ -88,20 +88,39 @@ impl Command for McpCommand {
             tools.sort();
             let preview = tools.iter().take(6).cloned().collect::<Vec<_>>().join(", ");
             let more = tools.len().saturating_sub(6);
+            let server_config = configured_servers.get(&server);
+            let auth_status = server_config
+                .map(|config| auth_status_label(&server, config))
+                .unwrap_or_else(|| "unknown".to_string());
+            let inventory_status = server_inventory_status(
+                &server,
+                server_config,
+                tools.len(),
+                &reconnect_stats,
+                &auth_status,
+            );
+            let scopes = server_config
+                .map(mcp_server_scopes_label)
+                .unwrap_or_else(|| "unknown".to_string());
             let latency = server_latency_summary(&latency_stats, &server);
             let reconnect = server_reconnect_summary(&reconnect_stats, &server);
             let elicitation = server_elicitation_summary(&elicitation_stats, &server);
-            let config_state = if let Some(server_config) = configured_servers.get(&server) {
+            let config_state = if let Some(server_config) = server_config {
                 format!(
-                    "configured, transport={}({}), endpoint={}, auth={}, session={}",
+                    "configured, status={}, transport={}({}), endpoint={}, auth={}, scopes={}, session={}",
+                    inventory_status,
                     server_config.transport.label(),
                     transport_execution_label(server_config.transport),
                     mcp_endpoint_label(server_config),
-                    auth_status_label(&server, server_config),
+                    auth_status,
+                    scopes,
                     auth_session_summary(server_config)
                 )
             } else {
-                "registered-only, auth=unknown".to_string()
+                format!(
+                    "registered-only, status={}, auth=unknown, scopes=unknown",
+                    inventory_status
+                )
             };
             lines.push(format!(
                 "  - {} {} [{} | {} tool(s) | latency={} {} | reconnect={} | elicitation={} | timeline={}] {}{}",
@@ -386,6 +405,50 @@ fn transport_execution_label(transport: yode_core::config::McpTransportConfig) -
     }
 }
 
+fn server_inventory_status(
+    server: &str,
+    config: Option<&yode_core::config::McpServerConfig>,
+    tool_count: usize,
+    reconnect_stats: &[yode_mcp::McpReconnectDiagnostic],
+    auth_status: &str,
+) -> &'static str {
+    let Some(config) = config else {
+        return "unmanaged";
+    };
+    if config.disabled {
+        return "disabled";
+    }
+    if auth_status.contains("missing") {
+        return "auth-needed";
+    }
+    if reconnect_stats
+        .iter()
+        .any(|entry| entry.server == server && entry.failures > 0)
+    {
+        return "failed";
+    }
+    if tool_count > 0 {
+        return "active";
+    }
+    "configured"
+}
+
+fn mcp_server_scopes_label(config: &yode_core::config::McpServerConfig) -> String {
+    let Some(scopes) = config
+        .auth
+        .as_ref()
+        .and_then(|auth| auth.oauth.as_ref())
+        .map(|oauth| oauth.scopes.as_slice())
+    else {
+        return "none".to_string();
+    };
+    if scopes.is_empty() {
+        "none".to_string()
+    } else {
+        scopes.join(",")
+    }
+}
+
 fn server_latency_summary(stats: &[yode_mcp::McpToolLatencyEntry], server: &str) -> String {
     let mut matching = stats
         .iter()
@@ -459,9 +522,10 @@ fn server_elicitation_summary(
 #[cfg(test)]
 mod tests {
     use super::{
-        auth_status_label, oauth_token_saved, parse_mcp_tool_name, parse_resource_cleanup_keep,
-        resource_cleanup_args, sanitize_server_name, server_elicitation_summary,
-        server_latency_summary, server_reconnect_summary, transport_execution_label,
+        auth_status_label, mcp_server_scopes_label, oauth_token_saved, parse_mcp_tool_name,
+        parse_resource_cleanup_keep, resource_cleanup_args, sanitize_server_name,
+        server_elicitation_summary, server_inventory_status, server_latency_summary,
+        server_reconnect_summary, transport_execution_label,
     };
     use yode_core::config::McpServerConfig;
 
@@ -512,6 +576,65 @@ mod tests {
         };
 
         assert_eq!(auth_status_label("demo", &configured), "bearer-env PATH");
+    }
+
+    #[test]
+    fn server_inventory_status_distinguishes_operational_states() {
+        let active = McpServerConfig {
+            command: "node".to_string(),
+            ..McpServerConfig::default()
+        };
+        assert_eq!(
+            server_inventory_status("github", Some(&active), 2, &[], "n/a"),
+            "active"
+        );
+
+        let disabled = McpServerConfig {
+            disabled: true,
+            ..McpServerConfig::default()
+        };
+        assert_eq!(
+            server_inventory_status("github", Some(&disabled), 0, &[], "n/a"),
+            "disabled"
+        );
+        assert_eq!(
+            server_inventory_status("github", Some(&active), 0, &[], "missing TOKEN"),
+            "auth-needed"
+        );
+        assert_eq!(
+            server_inventory_status(
+                "github",
+                Some(&active),
+                0,
+                &[yode_mcp::McpReconnectDiagnostic {
+                    server: "github".to_string(),
+                    failures: 1,
+                    ..yode_mcp::McpReconnectDiagnostic::default()
+                }],
+                "n/a"
+            ),
+            "failed"
+        );
+        assert_eq!(
+            server_inventory_status("registered", None, 1, &[], "unknown"),
+            "unmanaged"
+        );
+    }
+
+    #[test]
+    fn mcp_server_scopes_label_formats_oauth_scopes() {
+        let configured = McpServerConfig {
+            auth: Some(yode_core::config::McpAuthConfig {
+                oauth: Some(yode_core::config::McpOAuthConfig {
+                    scopes: vec!["repo".to_string(), "read:user".to_string()],
+                    ..yode_core::config::McpOAuthConfig::default()
+                }),
+                ..yode_core::config::McpAuthConfig::default()
+            }),
+            ..McpServerConfig::default()
+        };
+        assert_eq!(mcp_server_scopes_label(&configured), "repo,read:user");
+        assert_eq!(mcp_server_scopes_label(&McpServerConfig::default()), "none");
     }
 
     #[test]

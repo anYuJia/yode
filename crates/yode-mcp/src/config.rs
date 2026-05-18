@@ -5,6 +5,9 @@ use serde::Deserialize;
 /// Configuration for a single MCP server.
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct McpServerConfig {
+    /// Disable this server without deleting its configuration.
+    #[serde(default)]
+    pub disabled: bool,
     /// Transport to use. Stdio and streamable HTTP/SSE are executable; websocket is parsed for diagnostics.
     #[serde(default)]
     pub transport: McpTransportConfig,

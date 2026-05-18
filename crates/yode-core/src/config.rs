@@ -255,6 +255,8 @@ fn merge_config_values(default: toml::Value, user: toml::Value) -> toml::Value {
 /// Configuration for a single MCP server.
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct McpServerConfig {
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub disabled: bool,
     #[serde(default)]
     pub transport: McpTransportConfig,
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -267,6 +269,10 @@ pub struct McpServerConfig {
     pub url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auth: Option<McpAuthConfig>,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, Default, PartialEq, Eq)]
@@ -389,6 +395,7 @@ language = "en"
 theme = "dark"
 
 [mcp.servers.docs]
+disabled = true
 transport = "sse"
 url = "https://example.com/mcp"
 [mcp.servers.docs.auth]
@@ -398,6 +405,7 @@ bearer_token_env = "DOCS_TOKEN"
         .unwrap();
 
         let server = config.mcp.servers.get("docs").unwrap();
+        assert!(server.disabled);
         assert_eq!(server.transport, McpTransportConfig::Sse);
         assert_eq!(server.command, "");
         assert_eq!(server.url.as_deref(), Some("https://example.com/mcp"));

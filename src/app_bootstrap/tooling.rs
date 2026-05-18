@@ -88,6 +88,7 @@ pub(crate) async fn setup_tooling(config: &Config, workdir: &Path) -> Result<Too
         let server_config = server_config.clone();
         mcp_connect_set.spawn(async move {
             let mcp_config = yode_mcp::McpServerConfig {
+                disabled: server_config.disabled,
                 transport: match server_config.transport {
                     yode_core::config::McpTransportConfig::Stdio => {
                         yode_mcp::McpTransportConfig::Stdio
