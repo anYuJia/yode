@@ -142,6 +142,48 @@ struct RemoteEventLogEntry {
     artifact: String,
 }
 
+trait RemoteStorage {
+    fn create_dir_all(&self, path: &Path) -> anyhow::Result<()>;
+    fn exists(&self, path: &Path) -> bool;
+    fn read_text(&self, path: &Path) -> anyhow::Result<String>;
+    fn write_text(&self, path: &Path, body: &str) -> anyhow::Result<()>;
+    fn append_line(&self, path: &Path, line: &str) -> anyhow::Result<()>;
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+struct LocalRemoteStorage;
+
+impl RemoteStorage for LocalRemoteStorage {
+    fn create_dir_all(&self, path: &Path) -> anyhow::Result<()> {
+        Ok(std::fs::create_dir_all(path)?)
+    }
+
+    fn exists(&self, path: &Path) -> bool {
+        path.exists()
+    }
+
+    fn read_text(&self, path: &Path) -> anyhow::Result<String> {
+        Ok(std::fs::read_to_string(path)?)
+    }
+
+    fn write_text(&self, path: &Path, body: &str) -> anyhow::Result<()> {
+        Ok(std::fs::write(path, body)?)
+    }
+
+    fn append_line(&self, path: &Path, line: &str) -> anyhow::Result<()> {
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)?;
+        writeln!(file, "{}", line)?;
+        Ok(())
+    }
+}
+
+fn local_remote_storage() -> LocalRemoteStorage {
+    LocalRemoteStorage
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct RemoteQueueResultIngest {
     pub item: String,
@@ -578,8 +620,29 @@ pub(crate) fn record_remote_transport_event(
     task_id: Option<&str>,
     detail: &str,
 ) -> anyhow::Result<PathBuf> {
+    let storage = local_remote_storage();
+    record_remote_transport_event_with_storage(
+        &storage,
+        project_root,
+        session_id,
+        kind,
+        item_id,
+        task_id,
+        detail,
+    )
+}
+
+fn record_remote_transport_event_with_storage(
+    storage: &impl RemoteStorage,
+    project_root: &Path,
+    session_id: &str,
+    kind: &str,
+    item_id: Option<&str>,
+    task_id: Option<&str>,
+    detail: &str,
+) -> anyhow::Result<PathBuf> {
     let dir = project_root.join(".yode").join("remote");
-    std::fs::create_dir_all(&dir)?;
+    storage.create_dir_all(&dir)?;
     let short_session = session_id.chars().take(8).collect::<String>();
     let path = dir.join(format!("{}-remote-transport-events.md", short_session));
     let now = now_string();
@@ -595,15 +658,16 @@ pub(crate) fn record_remote_transport_event(
             .unwrap_or_default(),
         truncate_preview(detail, 160)
     );
-    if path.exists() {
-        let mut body = std::fs::read_to_string(&path)?;
+    if storage.exists(&path) {
+        let mut body = storage.read_text(&path)?;
         body.push_str(&line);
-        std::fs::write(&path, body)?;
+        storage.write_text(&path, &body)?;
     } else {
         let body = format!("# Remote Transport Events\n\n{}", line);
-        std::fs::write(&path, body)?;
+        storage.write_text(&path, &body)?;
     }
     let cursor = append_remote_event_log(
+        storage,
         project_root,
         session_id,
         kind,
@@ -634,6 +698,7 @@ pub(crate) fn record_remote_transport_event(
 }
 
 fn append_remote_event_log(
+    storage: &impl RemoteStorage,
     project_root: &Path,
     session_id: &str,
     kind: &str,
@@ -644,7 +709,7 @@ fn append_remote_event_log(
     timestamp: String,
 ) -> anyhow::Result<u64> {
     let path = remote_transport_event_log_path(project_root, session_id);
-    let cursor = read_remote_event_log_cursor(&path).unwrap_or(0) + 1;
+    let cursor = read_remote_event_log_cursor_from_storage(storage, &path).unwrap_or(0) + 1;
     let entry = RemoteEventLogEntry {
         kind: "remote_event",
         cursor,
@@ -656,12 +721,24 @@ fn append_remote_event_log(
         summary: detail.to_string(),
         artifact: artifact.display().to_string(),
     };
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)?;
-    writeln!(file, "{}", serde_json::to_string(&entry)?)?;
+    storage.append_line(&path, &serde_json::to_string(&entry)?)?;
     Ok(cursor)
+}
+
+fn read_remote_event_log_cursor_from_storage(
+    storage: &impl RemoteStorage,
+    path: &Path,
+) -> Option<u64> {
+    let body = storage.read_text(path).ok()?;
+    body.lines().rev().find_map(|line| {
+        let line = line.trim();
+        if line.is_empty() {
+            return None;
+        }
+        serde_json::from_str::<serde_json::Value>(line)
+            .ok()
+            .and_then(|value| value.get("cursor").and_then(|cursor| cursor.as_u64()))
+    })
 }
 
 pub(crate) fn render_remote_task_inventory(tasks: &[RuntimeTask]) -> String {
