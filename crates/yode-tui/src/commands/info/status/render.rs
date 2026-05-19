@@ -407,7 +407,7 @@ pub(super) fn build_status_message(
 ) -> String {
     let session_short = &ctx.session.session_id[..ctx.session.session_id.len().min(8)];
     format!(
-        "Session status:\n  Session:         {}\n  Model:           {}\n  Working dir:     {}\n  Permission mode: {}\n  Inspector exp:   {}\n  Startup profile: {}\n  Runtime summary: {}\n  Context summary: {}\n  Tool summary:    {}\n  Tokens:          {} (in: {}, out: {})\n  Tool calls:      {}\n  Resume warmup:   {}\n  Est. cost:       ${:.4}\n  Terminal:        {}{}{}",
+        "Session status:\n  Session:         {}\n  Model:           {}\n  Working dir:     {}\n  Permission mode: {}\n  Inspector exp:   {}\n  Startup profile: {}\n  Runtime summary: {}\n  Context summary: {}\n  Tool summary:    {}\n  File view:       /files\n  Tokens:          {} (in: {}, out: {})\n  Tool calls:      {}\n  Resume warmup:   {}\n  Est. cost:       ${:.4}\n  Terminal:        {}{}{}",
         session_short,
         ctx.session.model,
         ctx.session.working_dir,

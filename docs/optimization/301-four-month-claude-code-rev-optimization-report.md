@@ -571,6 +571,10 @@ cargo test -q -p yode-tui commands
 cargo test -q -p yode-core db
 ```
 
+Progress:
+
+- 2026-05-19: Added `/files` as the first Week 13 product command, showing recent read-file context entries plus live memory, compact memory, compact transcript, and compact boundary restore sources. `/help` discovers it through the command registry, and `/status` now links to `/files`. Verified with `cargo test -q -p yode-tui files`, `cargo test -q -p yode-tui commands`, `cargo test -q -p yode-core db`, `cargo check -q`, `cargo fmt -p yode -p yode-core -p yode-llm -p yode-tools -p yode-tui -p yode-mcp -p yode-agent -- --check`, and `git diff --check`. Remaining risk: `/files` currently reports read history and restore artifacts from runtime state; modified-file context is still only visible through memory/transcript summaries until the runtime exposes it directly.
+
 ### Week 14: Interactive Diagnostics And Context Visualization
 
 Objective: make existing observability faster to consume.

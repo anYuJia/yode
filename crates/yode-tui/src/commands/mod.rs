@@ -117,6 +117,7 @@ pub fn register_all(registry: &mut CommandRegistry) {
     registry.register(Box::new(info::VersionCommand::new()));
     registry.register(Box::new(info::ConfigCommand::new()));
     registry.register(Box::new(info::ContextCommand::new()));
+    registry.register(Box::new(info::FilesCommand::new()));
     registry.register(Box::new(info::DiagnosticsCommand::new()));
     registry.register(Box::new(info::HooksCommand::new()));
     registry.register(Box::new(info::InspectCommand::new()));
