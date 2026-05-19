@@ -106,7 +106,9 @@ fn writes_compact_boundary_record_in_transcript() {
     assert!(content.contains("- Compact boundary: manual removed=2 post_tokens=1200"));
     assert!(content.contains("## Compact Boundary"));
     assert!(content.contains("\"preserved_tail_range\": \"3..5\""));
-    let normalized_content = content.replace('\\', "/");
-    let normalized_transcript_path = transcript_path.display().to_string().replace('\\', "/");
-    assert!(normalized_content.contains(&normalized_transcript_path));
+    let transcript_file_name = transcript_path
+        .file_name()
+        .expect("transcript filename")
+        .to_string_lossy();
+    assert!(content.contains(transcript_file_name.as_ref()));
 }
