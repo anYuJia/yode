@@ -677,7 +677,7 @@ async fn test_partial_compact_up_to_keeps_newer_tail() {
     assert!(boundary
         .artifact_paths
         .iter()
-        .any(|path| path.contains(".yode/transcripts/")));
+        .any(|path| path.replace('\\', "/").contains(".yode/transcripts/")));
 }
 
 #[tokio::test]

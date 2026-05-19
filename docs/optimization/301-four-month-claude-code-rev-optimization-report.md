@@ -870,5 +870,6 @@ Start with Month 1 before adding more product commands. Yode's current different
 
 - 2026-05-19: Fixed `yode-mcp` compatibility with `rmcp v1.7.0` by adding `meta: None` to declined elicitation results, so the release build no longer fails on the newer dependency graph.
 - 2026-05-19: Fixed Rust 1.93 clippy release blockers in compact restore sanitizing, plugin manifest parsing, remote event logging, and permission parsing without changing behavior.
-- Verified with `cargo check -q`, `cargo clippy -p yode -p yode-core -p yode-llm -p yode-tools -p yode-tui -p yode-mcp -p yode-agent --no-deps -- -D warnings`, `cargo test -q -p yode-mcp`, `cargo test -q -p yode-core compaction`, `cargo test -q -p yode-tools remote_runtime`, `cargo test -q -p yode-tui`, and `git diff --check`.
+- 2026-05-19: Normalized compact/transcript path assertions so Windows workspace tests accept platform separators.
+- Verified with `cargo check -q`, `cargo clippy -p yode -p yode-core -p yode-llm -p yode-tools -p yode-tui -p yode-mcp -p yode-agent --no-deps -- -D warnings`, `cargo test -q -p yode-mcp`, `cargo test -q -p yode-core compaction`, `cargo test -q -p yode-core transcript`, `cargo test -q -p yode-tools remote_runtime`, `cargo test -q -p yode-tui`, and `git diff --check`.
 - Remaining risk: this addresses the released build break from `rmcp` API drift and current stable clippy drift; future dependency or toolchain changes may need another small compatibility pass.
