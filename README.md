@@ -53,7 +53,7 @@ curl -fsSL https://raw.githubusercontent.com/anYuJia/yode/main/install.sh | bash
 ### Cargo
 
 ```bash
-cargo install --git https://github.com/anYuJia/yode.git --tag v0.0.17
+cargo install --git https://github.com/anYuJia/yode.git --tag v0.0.18
 ```
 
 ### From source
@@ -254,16 +254,16 @@ crates/
 └── yode-agent    # agent/runtime helpers
 ```
 
-## What 0.0.17 Adds
+## What 0.0.18 Adds
 
-The `0.0.17` release focuses on Claude Code parity polish, composer status visibility, and multi-agent runtime correctness:
+The `0.0.18` release focuses on long-session remote continuity, skill persistence, and remote replay/state diagnostics:
 
-- composer status stays visible above the input during normal, inspector, and permission confirmation flows
-- status now surfaces elapsed time, model, session and turn tokens, estimated session cost, tools, permission waits, runtime badges, and queued work
-- queued follow-up input now has capped footer height plus explicit queueing placeholder text while the model is working
-- agent team planning now treats queued members as active and cancelled members as terminal, preventing stale ready-step scheduling
+- compact boundaries are recorded as first-class session events
+- restore blocks keep recent skills visible across compact
+- remote transport events are durable JSONL logs with replay diagnostics
+- remote control summaries now surface reconstructed transport and queue state
 
-Release: [v0.0.17](https://github.com/anYuJia/yode/releases/tag/v0.0.17)
+Release: [v0.0.18](https://github.com/anYuJia/yode/releases/tag/v0.0.18)
 
 ## Contributing
 

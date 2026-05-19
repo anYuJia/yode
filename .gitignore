@@ -5,6 +5,7 @@ Cargo.lock
 .DS_Store
 .env
 *.log
+.serena/project.yml
 ~/.yode/
 .yode/
 claude/
