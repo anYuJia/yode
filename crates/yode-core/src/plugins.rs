@@ -237,7 +237,7 @@ fn parse_plugin_manifest(plugin_dir: &Path, manifest_path: &Path) -> Result<Plug
         return Err("plugin name is required".to_string());
     }
 
-    let trust = manifest.trust.unwrap_or_else(|| match manifest.enabled {
+    let trust = manifest.trust.unwrap_or(match manifest.enabled {
         Some(true) => PluginTrustState::Enabled,
         Some(false) => PluginTrustState::Disabled,
         None => PluginTrustState::Installed,

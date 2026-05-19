@@ -380,41 +380,47 @@ fn record_remote_transport_event_with_storage(
     }
     append_remote_event_log(
         storage,
-        project_root,
-        session_id,
-        kind,
-        item_id,
-        task_id,
-        detail,
-        &path,
-        now,
+        RemoteEventLogAppend {
+            project_root,
+            session_id,
+            kind,
+            item_id,
+            task_id,
+            detail,
+            artifact: &path,
+            timestamp: now,
+        },
     )?;
     Ok(path)
 }
 
+struct RemoteEventLogAppend<'a> {
+    project_root: &'a Path,
+    session_id: &'a str,
+    kind: &'a str,
+    item_id: Option<&'a str>,
+    task_id: Option<&'a str>,
+    detail: &'a str,
+    artifact: &'a Path,
+    timestamp: String,
+}
+
 fn append_remote_event_log(
     storage: &impl RemoteStorage,
-    project_root: &Path,
-    session_id: &str,
-    kind: &str,
-    item_id: Option<&str>,
-    task_id: Option<&str>,
-    detail: &str,
-    artifact: &Path,
-    timestamp: String,
+    event_log: RemoteEventLogAppend<'_>,
 ) -> Result<u64> {
-    let path = remote_transport_event_log_path(project_root, session_id);
+    let path = remote_transport_event_log_path(event_log.project_root, event_log.session_id);
     let cursor = read_remote_event_log_cursor_from_storage(storage, &path).unwrap_or(0) + 1;
     let entry = RemoteEventLogEntry {
         kind: "remote_event",
         cursor,
-        timestamp,
-        session_id: session_id.to_string(),
-        event: kind.to_string(),
-        queue_item_id: item_id.map(str::to_string),
-        runtime_task_id: task_id.map(str::to_string),
-        summary: detail.to_string(),
-        artifact: artifact.display().to_string(),
+        timestamp: event_log.timestamp,
+        session_id: event_log.session_id.to_string(),
+        event: event_log.kind.to_string(),
+        queue_item_id: event_log.item_id.map(str::to_string),
+        runtime_task_id: event_log.task_id.map(str::to_string),
+        summary: event_log.detail.to_string(),
+        artifact: event_log.artifact.display().to_string(),
     };
     storage.append_line(&path, &serde_json::to_string(&entry)?)?;
     Ok(cursor)

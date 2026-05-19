@@ -529,7 +529,7 @@ fn parse_permission_rule_draft(
                 .to_string(),
         ),
     };
-    let write = rest.iter().any(|part| *part == "--write");
+    let write = rest.contains(&"--write");
     let pattern_parts = rest
         .iter()
         .copied()

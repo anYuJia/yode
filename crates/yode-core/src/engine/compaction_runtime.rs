@@ -992,9 +992,8 @@ fn append_restore_budget_lines(lines: &mut Vec<String>, body_lines: &[&str]) {
     lines.extend(
         body_lines
             .iter()
-            .copied()
             .filter(|line| line.starts_with("- Restore budget:"))
-            .map(str::to_string),
+            .map(|line| (*line).to_string()),
     );
 }
 
@@ -1009,7 +1008,7 @@ fn sanitize_restore_block_for_request(kind: RestoreBlockKind, content: &str) -> 
     let mut lines = match kind {
         RestoreBlockKind::Runtime => {
             let mut lines = vec![POST_COMPACT_RUNTIME_PREFIX.to_string()];
-            for line in body_lines.iter().copied() {
+            for &line in &body_lines {
                 if line.starts_with("- Runtime cwd:")
                     || line.starts_with("- Persistent memory and instruction context")
                 {
@@ -1026,7 +1025,7 @@ fn sanitize_restore_block_for_request(kind: RestoreBlockKind, content: &str) -> 
         }
         RestoreBlockKind::Files => {
             let mut lines = vec![POST_COMPACT_FILES_PREFIX.to_string()];
-            for line in body_lines.iter().copied() {
+            for &line in &body_lines {
                 if line.starts_with("- Recent files read:")
                     || line.starts_with("- Recent files modified:")
                     || line.starts_with("- Recent file excerpts:")
@@ -1043,7 +1042,7 @@ fn sanitize_restore_block_for_request(kind: RestoreBlockKind, content: &str) -> 
         }
         RestoreBlockKind::Plan => {
             let mut lines = vec![POST_COMPACT_PLAN_PREFIX.to_string()];
-            for line in body_lines.iter().copied() {
+            for &line in &body_lines {
                 if line.starts_with("- Plan mode:")
                     || line.starts_with("- Permission mode:")
                     || line.starts_with("- Active plan file:")
@@ -1059,7 +1058,7 @@ fn sanitize_restore_block_for_request(kind: RestoreBlockKind, content: &str) -> 
         }
         RestoreBlockKind::Tasks => {
             let mut lines = vec![POST_COMPACT_TASKS_PREFIX.to_string()];
-            for line in body_lines.iter().copied() {
+            for &line in &body_lines {
                 if line.starts_with("- Task ")
                     || line.starts_with("- No async runtime tasks")
                     || line.starts_with("- Restore contract:")
@@ -1079,7 +1078,7 @@ fn sanitize_restore_block_for_request(kind: RestoreBlockKind, content: &str) -> 
         ],
         RestoreBlockKind::PromptCache => {
             let mut lines = vec![POST_COMPACT_PROMPT_CACHE_PREFIX.to_string()];
-            for line in body_lines.iter().copied() {
+            for &line in &body_lines {
                 if line.starts_with("- Last turn:")
                     || line.starts_with("- Totals:")
                     || line.starts_with("- Active cache edits:")
@@ -1102,7 +1101,7 @@ fn sanitize_restore_block_for_request(kind: RestoreBlockKind, content: &str) -> 
             let mut lines = vec![POST_COMPACT_SKILLS_PREFIX.to_string()];
             let mut found = false;
             let mut in_invoked_skills = false;
-            for line in body_lines.iter().copied() {
+            for &line in &body_lines {
                 if line.starts_with("- Path-gated active skills:")
                     || line.starts_with("- Available skills:")
                     || line.starts_with("- No skills discovered.")
