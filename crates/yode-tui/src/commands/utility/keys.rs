@@ -46,16 +46,13 @@ fn render_keybindings_reference(working_dir: &str, home_dir: Option<&std::path::
         .join("config.local.toml");
 
     format!(
-        "{}{}",
-        format!(
-            "Keybindings:\n  Command:        /keybindings (/keys)\n  Keymap source:  built-in defaults\n  User config:    {} ({})\n  Project config: {} ({})\n  Local config:   {} ({})\n\n",
-            user_config.display(),
-            path_status(&user_config),
-            project_config.display(),
-            path_status(&project_config),
-            local_config.display(),
-            path_status(&local_config),
-        ),
+        "Keybindings:\n  Command:        /keybindings (/keys)\n  Keymap source:  built-in defaults\n  User config:    {} ({})\n  Project config: {} ({})\n  Local config:   {} ({})\n\n{}",
+        user_config.display(),
+        path_status(&user_config),
+        project_config.display(),
+        path_status(&project_config),
+        local_config.display(),
+        path_status(&local_config),
         concat!(
             "Keyboard shortcuts:\n",
             "\n",
