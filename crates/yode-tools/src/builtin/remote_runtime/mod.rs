@@ -4,6 +4,7 @@ mod paths;
 mod queue;
 mod render;
 mod status;
+mod storage;
 mod types;
 
 use std::path::Path;
