@@ -261,8 +261,9 @@ pub(crate) fn write_remote_control_artifacts(
     model: &str,
     goal: &str,
 ) -> anyhow::Result<RemoteControlArtifacts> {
+    let storage = local_remote_storage();
     let dir = project_root.join(".yode").join("remote");
-    std::fs::create_dir_all(&dir)?;
+    storage.create_dir_all(&dir)?;
     let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
     let short_session = session_id.chars().take(8).collect::<String>();
     let slug = remote_slug(goal);
@@ -277,12 +278,12 @@ pub(crate) fn write_remote_control_artifacts(
     ));
 
     let payload = build_remote_control_payload(project_root, session_id, provider, model, goal);
-    std::fs::write(&state_path, serde_json::to_string_pretty(&payload)?)?;
-    std::fs::write(
+    storage.write_text(&state_path, &serde_json::to_string_pretty(&payload)?)?;
+    storage.write_text(
         &summary_path,
-        render_remote_control_summary(&payload, &state_path, &queue_path),
+        &render_remote_control_summary(&payload, &state_path, &queue_path),
     )?;
-    std::fs::write(&queue_path, render_remote_control_queue(&payload))?;
+    storage.write_text(&queue_path, &render_remote_control_queue(&payload))?;
 
     let _ = slug;
     Ok(RemoteControlArtifacts {
