@@ -865,3 +865,9 @@ Progress:
 ## Final Recommendation
 
 Start with Month 1 before adding more product commands. Yode's current differentiator is local-first Rust runtime plus operator visibility. The fastest path to "feels as capable as Claude Code" is not a wider slash-command list; it is making long, messy coding sessions survive context pressure, background agents, remote work, and recovery without losing state.
+
+## Release Closeout
+
+- 2026-05-19: Fixed `yode-mcp` compatibility with `rmcp v1.7.0` by adding `meta: None` to declined elicitation results, so the release build no longer fails on the newer dependency graph.
+- Verified with `cargo check -q`, `cargo test -q -p yode-mcp`, `cargo test -q -p yode-tools remote_runtime`, `cargo test -q -p yode-tui remote_control`, and `git diff --check`.
+- Remaining risk: this only addresses the released build break from `rmcp` API drift; if `rmcp` changes other model structs later, the release workflow may need another small compatibility pass.
