@@ -52,7 +52,7 @@ impl Command for HelpCommand {
             }
         }
 
-        help.push_str("\nType /keys for keyboard shortcut reference.");
+        help.push_str("\nType /keybindings for keyboard shortcut and config-path reference.");
         Ok(CommandOutput::Message(help))
     }
 }
