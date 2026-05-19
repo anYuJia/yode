@@ -3,10 +3,10 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
   <source media="(prefers-color-scheme: light)" srcset="assets/logo-light.svg">
-  <img alt="Yode" src="assets/logo-dark.svg" width="200">
+  <img alt="Yode" src="assets/logo-dark.svg" width="220">
 </picture>
 
-### 用 Rust 构建的终端原生 AI 编程代理 runtime
+### 面向终端的本地优先 AI 编程代理 runtime
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-1.75+-orange.svg)](https://www.rust-lang.org/)
@@ -19,12 +19,13 @@
 
 ---
 
-**Yode** 面向希望在本地终端里获得“真正可操作的 AI 编程 runtime”体验的用户：
+**Yode** 是一个开源编程代理，目标是在 Rust 原生、可检查、终端优先的工作流里，提供接近 Claude Code 的核心使用体验。
 
-- 有内置工具：读写文件、搜索、shell、web、LSP、workflow、review、MCP
-- 有 operator surface：`/status`、`/brief`、`/diagnostics`、`/inspect`、`/tasks`、`/remote-control`、`/checkpoint`
-- 有可回看的 runtime artifact：permissions、hooks、team、remote session、startup settings、task history
-- 有一整套向 Claude Code 风格靠近的 tool/runtime 平台，而不是只有聊天框
+它围绕三件事设计：
+
+- **直接在仓库里行动。** 读写文件、搜索、运行 shell、使用 LSP、审查 diff、执行 workflow、协调 agents，都在一个终端会话内完成。
+- **让 runtime 可见。** permissions、hooks、MCP servers、startup settings、后台任务、remote sessions、compact/restore 状态都能被检查和复盘。
+- **保持本地优先。** 配置、artifact、任务历史、checkpoint 和 operator commands 都保留在你能审计、恢复、接力的位置。
 
 ```text
 ╭─── Yode ───────────────────────────────────────────────╮
@@ -53,7 +54,15 @@ curl -fsSL https://raw.githubusercontent.com/anYuJia/yode/main/install.sh | bash
 ### Cargo
 
 ```bash
-cargo install --git https://github.com/anYuJia/yode.git --tag v0.0.12
+cargo install --git https://github.com/anYuJia/yode.git --tag v0.0.18
+```
+
+### Windows
+
+从 [Releases](https://github.com/anYuJia/yode/releases) 下载 `yode-x86_64-pc-windows-msvc.zip`，或使用 PowerShell 安装：
+
+```powershell
+iwr -useb https://raw.githubusercontent.com/anYuJia/yode/main/install.ps1 | iex
 ```
 
 ### 从源码安装
@@ -64,16 +73,15 @@ cd yode
 cargo install --path .
 ```
 
-### Windows
-
-从 [Releases](https://github.com/anYuJia/yode/releases) 下载 `yode-x86_64-pc-windows-msvc.zip`。
-
 ## 快速开始
 
 ```bash
-# 先设置一个 provider 的 API key
+# 设置一个 provider API key
 export ANTHROPIC_API_KEY="..."
 # 或 OPENAI_API_KEY / GEMINI_API_KEY
+
+# 第一次使用时配置 provider
+yode provider add
 
 # 启动 TUI
 yode
@@ -87,59 +95,28 @@ yode --provider anthropic --model <model-name>
 # 恢复历史会话
 yode --resume <session-id>
 
-# 环境检查
+# 检查本地环境
 yode doctor
 ```
 
-如果还没有 provider 配置，先运行：
+## 核心体验
 
-```bash
-yode provider add
-```
+### Agent 工具
 
-## 为什么是 Yode
+Yode 内置一套覆盖实际编程工作的工具面：
 
-### 1. 它是 Tool Runtime，不只是聊天 UI
+| 范围 | 工具 |
+| --- | --- |
+| 代码 | `read_file`、`write_file`、`edit_file`、`glob`、`grep`、`bash`、`lsp` |
+| Review | `review_changes`、`review_pipeline`、`review_then_commit` |
+| Workflow | `workflow_run`、`workflow_run_with_writes`、worktree tools、plan-mode tools |
+| Agents | `agent`、`team_create`、`send_message`、`team_monitor`、`coordinate_agents` |
+| Remote | `remote_queue_dispatch`、`remote_queue_result`、`remote_transport_control` |
+| Runtime | `task_output`、`tool_search`、cron tools、MCP resource tools |
 
-Yode 不是简单把 LLM 包在 shell 外面，而是自带一套 runtime plane：
+### Operator Commands
 
-- 基础代码工具：`read_file`、`write_file`、`edit_file`、`glob`、`grep`、`bash`、`lsp`
-- 编排工具：`agent`、`team_create`、`send_message`、`team_monitor`、`coordinate_agents`
-- workflow / review 工具：`workflow_run`、`workflow_run_with_writes`、`review_changes`、`review_pipeline`、`review_then_commit`
-- remote runtime 工具：`remote_queue_dispatch`、`remote_queue_result`、`remote_transport_control`
-- 运行时辅助：`task_output`、`tool_search`、plan mode、worktree、cron、MCP resource
-
-### 2. 它有 Inspectable Operator Surface
-
-runtime 不是黑盒，可以在产品内部被复盘和诊断：
-
-- `/status`、`/brief`、`/diagnostics` 看整体状态
-- `/inspect artifact ...` 看 startup、runtime、hook、permission、team、remote 产物
-- `/tasks monitor`、`/tasks follow latest` 看后台任务
-- `/remote-control monitor`、`/remote-control queue`、`/remote-control follow latest` 看远端/持续运行面
-- `/checkpoint` 做 session checkpoint、branch、rewind、restore、rollback 类操作
-
-### 3. 它有 Governance、Hooks 和 Safety
-
-相比早期版本，Yode 现在有更完整的控制平面：
-
-- permission modes：`default`、`plan`、`auto`、`accept-edits`、`bypass`
-- 可检查的 permission governance 与 precedence chain
-- 覆盖 tool / task / sub-agent / worktree 的 hook lifecycle
-- hook `defer` 语义和可恢复 artifact/state
-- 对危险 shell 行为的检测与 runtime confirmation 规则
-
-### 4. 它把 MCP 和 Managed Settings 也做成了可见平面
-
-不再只是“当前加载了哪些工具”：
-
-- provider inventory artifact
-- settings scope artifact
-- managed MCP inventory artifact
-- tool-search activation artifact
-- 面向 operator 的 MCP diagnostics 与 remediation 跳转
-
-## 建议先掌握的命令
+runtime 不是黑盒，可以在产品内部直接检查：
 
 | 命令 | 用途 |
 | --- | --- |
@@ -153,9 +130,29 @@ runtime 不是黑盒，可以在产品内部被复盘和诊断：
 | `/remote-control monitor` | remote live-session monitor 面 |
 | `/mcp` | MCP 与 settings control-plane 摘要 |
 | `/workflows` | workflow 检查与运行入口 |
-| `/checkpoint` | 保存/恢复/branch/rewind/rollback |
+| `/checkpoint` | 保存、恢复、branch、rewind、rollback 会话状态 |
 
-## 常用 CLI 入口
+### Governance 与 Safety
+
+Yode 面向严肃本地开发提供控制平面：
+
+- permission modes：`default`、`plan`、`auto`、`accept-edits`、`bypass`
+- 可检查的 permission governance 与 precedence chain
+- 覆盖 tool / task / sub-agent / worktree 的 hook lifecycle
+- hook `defer` 支持和可恢复 artifact/state
+- 危险 shell 行为检测与 runtime confirmation 规则
+
+### MCP 与 Managed Settings
+
+MCP 和 settings 也是可检查 runtime 的一部分：
+
+- provider inventory artifact
+- settings scope artifact
+- managed MCP inventory artifact
+- tool-search activation artifact
+- 面向 operator 的 MCP diagnostics 与 remediation 跳转
+
+## CLI 入口
 
 | 命令 | 说明 |
 | --- | --- |
@@ -168,7 +165,7 @@ runtime 不是黑盒，可以在产品内部被复盘和诊断：
 | `yode completions zsh` | 生成 shell 补全 |
 | `yode doctor` | 环境健康检查 |
 
-## 配置分层
+## 配置
 
 Yode 会从多层来源合并配置与 governance 状态：
 
@@ -225,6 +222,19 @@ Yode 会加载多种兼容命名的项目说明文件，包括：
 - Keep migration notes in `docs/optimization/`
 ```
 
+## 回归快照
+
+修改命令输出或 operator surface 时，优先使用这些脚本留存快照：
+
+- `./scripts/output-regression-snapshot.sh`
+  写入多 surface 输出快照到 `.yode/benchmarks/output-regression-snapshot.md`。
+- `./scripts/split-output-regression-snapshot.sh`
+  将组合快照拆成按 section 分组的 markdown 文件。
+- `./scripts/diff-output-regression-snapshot.sh`
+  在临时目录重新生成快照，并和保存的 baseline 对比。
+- `./scripts/benchmark-snapshot.sh`
+  写入长会话 benchmark 快照到 `.yode/benchmarks/long-session-benchmark.md`。
+
 ## 架构
 
 ```text
@@ -237,15 +247,16 @@ crates/
 └── yode-agent    # agent/runtime helpers
 ```
 
-## 0.0.12 版本重点
+## 最新版本
 
-`0.0.12` 重点补齐了 Claude Code 风格的渲染结构与重试恢复：
+`0.0.18` 重点改进长会话 remote continuity、skill persistence 与 remote replay/state diagnostics：
 
-- fenced code block 已拆成独立的 `HighlightedCode` 和 `StructuredDiff` 渲染路径，不再走单一路径的 markdown code renderer
-- diff 渲染现在支持行号 gutter、增删背景、基于文件路径的语言探测，以及相邻增删行的 word-level 强调
-- 当网络恢复、流式输出重新开始后，顶部状态会从 `Retrying` 正确恢复到 `Working`，不会再卡住旧的 429 重试提示
+- compact boundary 会作为一等 session event 记录
+- restore blocks 会在 compact 后保留最近使用的 skills
+- remote transport events 会写入 durable JSONL logs，并支持 replay diagnostics
+- remote control summaries 会展示重建后的 transport 与 queue state
 
-Release: [v0.0.12](https://github.com/anYuJia/yode/releases/tag/v0.0.12)
+Release: [v0.0.18](https://github.com/anYuJia/yode/releases/tag/v0.0.18)
 
 ## 贡献
 

@@ -1,13 +1,23 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 100" fill="none">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 112" role="img" aria-labelledby="title desc">
+  <title id="title">Yode logo</title>
+  <desc id="desc">A terminal window icon with an agent node and the Yode wordmark.</desc>
   <defs>
-    <linearGradient id="accent-dark" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#A594FF"/>
-      <stop offset="100%" stop-color="#8C78FF"/>
+    <linearGradient id="mark-dark" x1="14" y1="18" x2="94" y2="96" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2DD4BF"/>
+      <stop offset="0.55" stop-color="#70A5FF"/>
+      <stop offset="1" stop-color="#FFD166"/>
+    </linearGradient>
+    <linearGradient id="screen-dark" x1="24" y1="24" x2="86" y2="88" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#172033"/>
+      <stop offset="1" stop-color="#0B1020"/>
     </linearGradient>
   </defs>
-  <!-- Terminal cursor icon -->
-  <rect x="16" y="20" width="56" height="60" rx="8" stroke="url(#accent-dark)" stroke-width="3" fill="none"/>
-  <text x="28" y="62" font-family="'SF Mono', 'Fira Code', 'Cascadia Code', monospace" font-size="28" font-weight="700" fill="url(#accent-dark)">&#x203A;_</text>
-  <!-- Yode text -->
-  <text x="88" y="66" font-family="'Inter', 'SF Pro Display', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="52" font-weight="800" letter-spacing="-1" fill="#FFFFFF">yode</text>
+  <rect x="12" y="14" width="88" height="84" rx="18" fill="#0B1020"/>
+  <rect x="12" y="14" width="88" height="84" rx="18" stroke="url(#mark-dark)" stroke-width="4"/>
+  <rect x="24" y="28" width="64" height="56" rx="10" fill="url(#screen-dark)" stroke="#27324A" stroke-width="2"/>
+  <path d="M37 48L48 56L37 64" stroke="#F8FAFC" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M57 66H74" stroke="#2DD4BF" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="72" cy="42" r="5" fill="#FFD166"/>
+  <path d="M72 47V57C72 62 68 66 63 66H57" stroke="#70A5FF" stroke-width="3" stroke-linecap="round"/>
+  <text x="120" y="72" fill="#F8FAFC" font-family="Inter, 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="56" font-weight="800" letter-spacing="0">yode</text>
 </svg>

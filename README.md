@@ -3,10 +3,10 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
   <source media="(prefers-color-scheme: light)" srcset="assets/logo-light.svg">
-  <img alt="Yode" src="assets/logo-dark.svg" width="200">
+  <img alt="Yode" src="assets/logo-dark.svg" width="220">
 </picture>
 
-### Terminal-native AI coding agent runtime built with Rust
+### A local-first AI coding agent runtime for the terminal
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-1.75+-orange.svg)](https://www.rust-lang.org/)
@@ -19,12 +19,13 @@
 
 ---
 
-**Yode** is an open-source coding agent for people who want a serious local terminal workflow:
+**Yode** is an open-source coding agent for developers who want Claude Code-style agent ergonomics inside a Rust-native, inspectable, terminal workflow.
 
-- built-in tools for reading, editing, searching, shell execution, web fetch, LSP, workflows, review, and MCP
-- operator surfaces for `/status`, `/brief`, `/diagnostics`, `/inspect`, `/tasks`, `/remote-control`, `/checkpoint`
-- inspectable runtime artifacts for permissions, hooks, team runs, remote sessions, startup settings, and task history
-- a tool/runtime model that has been pushed toward Claude Code-style parity, while staying local-first and Rust-native
+It is built around three ideas:
+
+- **Act in the repo.** Read, edit, search, run shell commands, use LSP, review diffs, run workflows, and coordinate agents from one terminal session.
+- **Keep the runtime visible.** Inspect permissions, hooks, MCP servers, startup settings, background tasks, remote sessions, and compact/restore state.
+- **Stay local-first.** Configuration, artifacts, task history, checkpoints, and operator commands live where you can audit and recover them.
 
 ```text
 ╭─── Yode ───────────────────────────────────────────────╮
@@ -56,22 +57,20 @@ curl -fsSL https://raw.githubusercontent.com/anYuJia/yode/main/install.sh | bash
 cargo install --git https://github.com/anYuJia/yode.git --tag v0.0.18
 ```
 
+### Windows
+
+Download `yode-x86_64-pc-windows-msvc.zip` from [Releases](https://github.com/anYuJia/yode/releases), or install with PowerShell:
+
+```powershell
+iwr -useb https://raw.githubusercontent.com/anYuJia/yode/main/install.ps1 | iex
+```
+
 ### From source
 
 ```bash
 git clone https://github.com/anYuJia/yode.git
 cd yode
 cargo install --path .
-```
-
-### Windows
-
-Download `yode-x86_64-pc-windows-msvc.zip` from [Releases](https://github.com/anYuJia/yode/releases).
-
-Or install with PowerShell:
-
-```powershell
-iwr -useb https://raw.githubusercontent.com/anYuJia/yode/main/install.ps1 | iex
 ```
 
 ## Quick Start
@@ -81,10 +80,13 @@ iwr -useb https://raw.githubusercontent.com/anYuJia/yode/main/install.ps1 | iex
 export ANTHROPIC_API_KEY="..."
 # or OPENAI_API_KEY / GEMINI_API_KEY
 
+# Configure a provider if this is your first run
+yode provider add
+
 # Launch the TUI
 yode
 
-# Non-interactive one-shot
+# Run a non-interactive one-shot
 yode --chat "Summarize the repository structure"
 
 # Pick a provider/model explicitly
@@ -93,59 +95,28 @@ yode --provider anthropic --model <model-name>
 # Resume a previous session
 yode --resume <session-id>
 
-# Run environment checks
+# Check the local environment
 yode doctor
 ```
 
-If you have not configured a provider yet, run:
+## Core Experience
 
-```bash
-yode provider add
-```
+### Agent Tools
 
-## Why Yode
+Yode ships a broad built-in tool surface:
 
-### 1. Tool Runtime, Not Just Chat
+| Area | Tools |
+| --- | --- |
+| Code | `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `bash`, `lsp` |
+| Review | `review_changes`, `review_pipeline`, `review_then_commit` |
+| Workflow | `workflow_run`, `workflow_run_with_writes`, worktree tools, plan-mode tools |
+| Agents | `agent`, `team_create`, `send_message`, `team_monitor`, `coordinate_agents` |
+| Remote | `remote_queue_dispatch`, `remote_queue_result`, `remote_transport_control` |
+| Runtime | `task_output`, `tool_search`, cron tools, MCP resource tools |
 
-Yode is not only a shell around an LLM. It ships a real tool/runtime plane with:
+### Operator Commands
 
-- code tools: `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `bash`, `lsp`
-- orchestration tools: `agent`, `team_create`, `send_message`, `team_monitor`, `coordinate_agents`
-- workflow/review tools: `workflow_run`, `workflow_run_with_writes`, `review_changes`, `review_pipeline`, `review_then_commit`
-- remote runtime tools: `remote_queue_dispatch`, `remote_queue_result`, `remote_transport_control`
-- runtime helpers: `task_output`, `tool_search`, plan-mode tools, worktree tools, cron tools, MCP resource tools
-
-### 2. Inspectable Operator Surface
-
-The runtime is visible and debuggable from inside the product:
-
-- `/status`, `/brief`, `/diagnostics` for session and runtime summaries
-- `/inspect artifact ...` for startup, runtime, hook, permission, team, and remote artifacts
-- `/tasks monitor` and `/tasks follow latest` for background work
-- `/remote-control monitor`, `/remote-control queue`, and `/remote-control follow latest` for remote/live-session flows
-- `/checkpoint` for checkpoint, branch, rewind, restore, and rollback-oriented session control
-
-### 3. Governance, Hooks, and Safety
-
-Yode now includes a much richer control plane than the early versions:
-
-- permission modes: `default`, `plan`, `auto`, `accept-edits`, `bypass`
-- inspectable permission governance and precedence chain
-- hook lifecycle coverage for tool, task, sub-agent, and worktree flows
-- hook `defer` support with resumable artifacts/state
-- dangerous shell detection and runtime confirmation rules
-
-### 4. MCP and Managed Settings Visibility
-
-Yode surfaces more than "which tools are loaded":
-
-- provider inventory artifacts
-- settings scope artifacts
-- managed MCP inventory artifacts
-- tool-search activation artifacts
-- operator-facing MCP diagnostics and remediation paths
-
-## Commands Worth Learning First
+The runtime is visible from inside the product:
 
 | Command | What it is for |
 | --- | --- |
@@ -159,20 +130,29 @@ Yode surfaces more than "which tools are loaded":
 | `/remote-control monitor` | Remote live-session monitor surface |
 | `/mcp` | MCP and settings control-plane summary |
 | `/workflows` | Workflow inspection and run prompts |
-| `/checkpoint` | Save/restore/branch/rewind/rollback session state |
+| `/checkpoint` | Save, restore, branch, rewind, and rollback session state |
 
-## Regression Snapshots
+### Governance and Safety
 
-- `./scripts/output-regression-snapshot.sh`
-  Writes a multi-surface output snapshot to `.yode/benchmarks/output-regression-snapshot.md`.
-- `./scripts/split-output-regression-snapshot.sh`
-  Splits the combined output snapshot into per-section markdown files.
-- `./scripts/diff-output-regression-snapshot.sh`
-  Regenerates the snapshot in a temp dir and diffs it against the saved baseline.
-- `./scripts/benchmark-snapshot.sh`
-  Writes the long-session benchmark snapshot to `.yode/benchmarks/long-session-benchmark.md`.
+Yode includes a control plane for serious local work:
 
-## CLI Entry Points
+- permission modes: `default`, `plan`, `auto`, `accept-edits`, `bypass`
+- inspectable permission governance and precedence chains
+- hook lifecycle coverage for tool, task, sub-agent, and worktree flows
+- hook `defer` support with resumable artifacts/state
+- dangerous shell detection and runtime confirmation rules
+
+### MCP and Managed Settings
+
+MCP and settings are part of the inspectable runtime, not hidden setup:
+
+- provider inventory artifacts
+- settings scope artifacts
+- managed MCP inventory artifacts
+- tool-search activation artifacts
+- operator-facing MCP diagnostics and remediation paths
+
+## CLI Reference
 
 | Command | Description |
 | --- | --- |
@@ -185,7 +165,7 @@ Yode surfaces more than "which tools are loaded":
 | `yode completions zsh` | Generate shell completions |
 | `yode doctor` | Environment health checks |
 
-## Configuration Layers
+## Configuration
 
 Yode merges configuration and permission/governance state from multiple layers:
 
@@ -242,6 +222,19 @@ Example:
 - Keep migration notes in `docs/optimization/`
 ```
 
+## Regression Snapshots
+
+Use the snapshot scripts when changing output surfaces:
+
+- `./scripts/output-regression-snapshot.sh`
+  Writes a multi-surface output snapshot to `.yode/benchmarks/output-regression-snapshot.md`.
+- `./scripts/split-output-regression-snapshot.sh`
+  Splits the combined output snapshot into per-section markdown files.
+- `./scripts/diff-output-regression-snapshot.sh`
+  Regenerates the snapshot in a temp dir and diffs it against the saved baseline.
+- `./scripts/benchmark-snapshot.sh`
+  Writes the long-session benchmark snapshot to `.yode/benchmarks/long-session-benchmark.md`.
+
 ## Architecture
 
 ```text
@@ -254,14 +247,14 @@ crates/
 └── yode-agent    # agent/runtime helpers
 ```
 
-## What 0.0.18 Adds
+## Latest Release
 
-The `0.0.18` release focuses on long-session remote continuity, skill persistence, and remote replay/state diagnostics:
+`0.0.18` focuses on long-session remote continuity, skill persistence, and remote replay/state diagnostics:
 
 - compact boundaries are recorded as first-class session events
 - restore blocks keep recent skills visible across compact
 - remote transport events are durable JSONL logs with replay diagnostics
-- remote control summaries now surface reconstructed transport and queue state
+- remote control summaries surface reconstructed transport and queue state
 
 Release: [v0.0.18](https://github.com/anYuJia/yode/releases/tag/v0.0.18)
 

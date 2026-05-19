@@ -873,3 +873,9 @@ Start with Month 1 before adding more product commands. Yode's current different
 - 2026-05-19: Normalized compact/transcript path assertions so Windows workspace tests accept platform separators.
 - Verified with `cargo check -q`, `cargo clippy -p yode -p yode-core -p yode-llm -p yode-tools -p yode-tui -p yode-mcp -p yode-agent --no-deps -- -D warnings`, `cargo test -q -p yode-mcp`, `cargo test -q -p yode-core compaction`, `cargo test -q -p yode-core transcript`, `cargo test -q -p yode-tools remote_runtime`, `cargo test -q -p yode-tui`, and `git diff --check`.
 - Remaining risk: this addresses the released build break from `rmcp` API drift and current stable clippy drift; future dependency or toolchain changes may need another small compatibility pass.
+
+## README and Brand Closeout
+
+- 2026-05-19: Refreshed the English and Chinese README entry flow, aligned the Chinese release copy with `v0.0.18`, redesigned the SVG logo mark, and added a standalone `assets/icon.svg` for future packaging surfaces.
+- Verified with `xmllint --noout assets/logo-light.svg assets/logo-dark.svg assets/icon.svg`, `cargo check -q`, and `git diff --check`.
+- Remaining risk: the new SVG icon is validated structurally but has not yet been wired into platform-specific package metadata.
