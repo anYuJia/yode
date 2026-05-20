@@ -273,7 +273,7 @@ fn diagnostic_issue_line_width(terminal_width: usize) -> usize {
     if terminal_width == 0 {
         96
     } else {
-        terminal_width.min(160).max(32)
+        terminal_width.clamp(32, 160)
     }
 }
 
