@@ -676,6 +676,10 @@ bash scripts/parity-ci-local.sh
 bash scripts/release-checklist.sh
 ```
 
+Progress:
+
+- 2026-05-20: Added `docs/optimization/302-four-month-final-gap-report.md` via `scripts/release-final-gap-report.sh`, covering release-candidate scope, accepted non-goals, release verification commands, and residual risk. Wired the generated report into docs CI, syntax dry-run coverage, and parity artifact bundles. Verified with `bash scripts/release-checklist.sh`, `bash scripts/release-final-gap-report.sh`, `bash scripts/parity-docs-ci.sh`, `bash scripts/parity-ci-local.sh`, `cargo check -q`, and `git diff --check`. Remaining risk: the gap report is a release-candidate summary; full platform confidence still depends on the GitHub Actions matrix before tagging.
+
 Month 4 milestone:
 
 - Product commands cover the most useful Claude equivalents.

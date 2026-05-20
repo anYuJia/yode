@@ -35,6 +35,7 @@ bash scripts/parity-eighth-signoff.sh >/dev/null
 bash scripts/parity-eighth-count-note.sh >/dev/null
 bash scripts/parity-eighth-verification-note.sh >/dev/null
 bash scripts/parity-ninth-backlog-note.sh >/dev/null
+bash scripts/release-final-gap-report.sh >/dev/null
 bash scripts/parity-owner-enforcement.sh >/dev/null
 bash scripts/parity-risk-register.sh >/dev/null
 bash scripts/parity-limitations-ci.sh >/dev/null
@@ -104,6 +105,7 @@ required_docs=(
   docs/optimization/298-eighth-automation-final-review.md
   docs/optimization/299-eighth-handoff-summary.md
   docs/optimization/300-eighth-ninth-backlog-seed.md
+  docs/optimization/302-four-month-final-gap-report.md
 )
 
 for doc in "${required_docs[@]}"; do
@@ -152,5 +154,7 @@ rg -q '^# Ninth 100 Claude Output / Interaction Parity Tracker' docs/optimizatio
 rg -q 'completed_rows:' docs/optimization/295-eighth-count-note.md
 rg -q 'scripts/parity-ci-local.sh' docs/optimization/296-eighth-verification-note.md
 rg -q 'Ninth-Backlog Seed' docs/optimization/300-eighth-ninth-backlog-seed.md
+rg -q 'Accepted Non-Goals' docs/optimization/302-four-month-final-gap-report.md
+rg -q 'bash scripts/release-checklist.sh' docs/optimization/302-four-month-final-gap-report.md
 
 echo "Parity docs CI ok"
