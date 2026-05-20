@@ -643,6 +643,10 @@ bash scripts/parity-docs-ci.sh
 bash scripts/parity-risk-register-validate.sh
 ```
 
+Progress:
+
+- 2026-05-20: Added `docs/optimization/parity-contract-manifest.tsv` with five Week 15 contract categories and `scripts/parity-contracts-ci.sh` to validate contract ids, owners, fixtures/docs, script paths, CI jobs, artifacts, and triage docs. Wired the check into `scripts/parity-ci-local.sh`, linked risk-register sections to contract ids, and refreshed four stale visual manifest test anchors exposed by the local wrapper. Verified with `bash scripts/parity-contracts-ci.sh`, `bash scripts/parity-command-audit.sh`, `bash scripts/parity-visual-ci.sh`, `bash scripts/parity-ci-local.sh`, `bash scripts/parity-docs-ci.sh`, `bash scripts/parity-risk-register-validate.sh`, `cargo check -q`, and `git diff --check`. Remaining risk: manifest consolidation is additive; redundant parity scripts are not deprecated until compatibility wrappers are mapped in a later pass.
+
 ### Week 16: Release Candidate And Hardening Sprint
 
 Objective: produce a release-ready parity milestone.

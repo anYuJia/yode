@@ -2,6 +2,7 @@
 set -euo pipefail
 
 bash scripts/parity-ci-hardening-audit.sh
+bash scripts/parity-contracts-ci.sh
 bash scripts/parity-snapshot-ci.sh
 bash scripts/parity-replay-ci.sh
 bash scripts/parity-visual-ci.sh

@@ -13,8 +13,8 @@ tests=(
   panel_stack_tracks_active_layer
   confirmation_density_switches_on_narrow_widths
   status_bar_density_compacts_on_narrow_widths
-  preview_and_timeline_panels_render_headers_and_footer
-  centered_panel_rect_respects_narrow_widths
+  leading_panel_rect_sticks_to_left_edge
+  leading_panel_rect_for_density_keeps_wide_layout_left_aligned
   hyperlink_text_keeps_underline_intensity
   cjk_tables_render_without_losing_cells
   confirmation_uses_user_facing_tool_name_and_risk_hint
@@ -22,7 +22,7 @@ tests=(
   transcript_line_prefixes_stay_consistent_across_core_roles
   empty_actions_and_pagination_render_fallbacks
   inspector_action_focus_cycles_when_actions_exist
-  pager_state_clamps_selection_into_visible_range
+  inspector_document_navigation_moves_selection
   streaming_boundary_advances_monotonically_from_existing_prefix
   shell_code_blocks_render_as_generic_highlighted_code_without_transcript_gutter
   narrow_tables_fall_back_to_vertical_key_value_layout
@@ -30,7 +30,7 @@ tests=(
   inline_code_wraps_across_narrow_widths
   latest_error_entry_keeps_detail_while_older_entries_collapse
   latest_system_entry_keeps_detail_while_older_entries_collapse
-  older_assistant_reasoning_can_collapse_to_teaser_only
+  scrollback_older_assistant_reasoning_is_hidden
 )
 
 for test_name in "${tests[@]}"; do
