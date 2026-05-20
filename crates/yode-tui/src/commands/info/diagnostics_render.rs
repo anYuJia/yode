@@ -115,6 +115,29 @@ pub(crate) fn render_diagnostics_overview_with_width(
         "{} ({})",
         state.tool_progress_event_count, tool_progress_summary
     );
+    let session_tool_calls = state.session_tool_calls_total.to_string();
+    let parallel_summary = format!(
+        "{} batches / {} calls",
+        state.parallel_tool_batch_count, state.parallel_tool_call_count
+    );
+    let tool_truncations = state.tool_truncation_count.to_string();
+    let tool_lines = render_diagnostic_overview_rows(
+        &[
+            ("Session calls:", session_tool_calls.as_str()),
+            ("Progress:", progress_line.as_str()),
+            ("Parallel:", parallel_summary.as_str()),
+            ("Truncations:", tool_truncations.as_str()),
+            ("Errors:", tool_errors.as_str()),
+            (
+                "Last artifact:",
+                state
+                    .last_tool_turn_artifact_path
+                    .as_deref()
+                    .unwrap_or("none"),
+            ),
+        ],
+        terminal_width,
+    );
     let observability_lines = render_diagnostic_overview_rows(
         &[
             ("Hook defer:", hook_defer.as_str()),
@@ -130,7 +153,7 @@ pub(crate) fn render_diagnostics_overview_with_width(
     );
 
     format!(
-        "Diagnostics overview:\n{}\n\n  Runtime summary: {}\n  Context summary: {}\n  Tool summary:    {}\n\nContext:\n  Query source:   {}\n  Compact count:  {} (auto {}, manual {})\n  Breaker reason: {}\n  Compact tokens: {}\n  Media compact:  last {} / total {} removed, saved ~{} chars\n\nMemory:\n  Live memory:    {}{}\n  Memory updates: {}\n  Last memory:    {}\n\nRecovery:\n  State:          {}\n  Last signature: {}\n  Permission:     {}\n  Denials:        {}\n\nTools:\n  Session calls:  {}\n  Progress:       {}\n  Parallel:       {} batches / {} calls\n  Truncations:    {}\n  Errors:         {}\n  Last artifact:  {}\n\nObservability:\n{}\n\nTasks:\n  Total:          {}\n  Running:        {}\n\nHooks:\n  Total runs:     {}\n  Timeouts:       {}\n  Wake notices:   {}\n\nTimeline:\n{}",
+        "Diagnostics overview:\n{}\n\n  Runtime summary: {}\n  Context summary: {}\n  Tool summary:    {}\n\nContext:\n  Query source:   {}\n  Compact count:  {} (auto {}, manual {})\n  Breaker reason: {}\n  Compact tokens: {}\n  Media compact:  last {} / total {} removed, saved ~{} chars\n\nMemory:\n  Live memory:    {}{}\n  Memory updates: {}\n  Last memory:    {}\n\nRecovery:\n  State:          {}\n  Last signature: {}\n  Permission:     {}\n  Denials:        {}\n\nTools:\n{}\n\nObservability:\n{}\n\nTasks:\n  Total:          {}\n  Running:        {}\n\nHooks:\n  Total runs:     {}\n  Timeouts:       {}\n  Wake notices:   {}\n\nTimeline:\n{}",
         issue_summary,
         runtime_summary,
         context_summary,
@@ -169,16 +192,7 @@ pub(crate) fn render_diagnostics_overview_with_width(
         state.last_failed_signature.as_deref().unwrap_or("none"),
         permission_summary,
         recent_denials,
-        state.session_tool_calls_total,
-        progress_line,
-        state.parallel_tool_batch_count,
-        state.parallel_tool_call_count,
-        state.tool_truncation_count,
-        tool_errors,
-        state
-            .last_tool_turn_artifact_path
-            .as_deref()
-            .unwrap_or("none"),
+        tool_lines,
         observability_lines,
         tasks.len(),
         running_tasks,
@@ -836,6 +850,43 @@ mod tests {
         assert!(observability_lines.iter().any(|line| line.ends_with("...")));
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn diagnostics_tool_rows_respect_terminal_width() {
+        let mut state = state();
+        state.session_tool_calls_total = 42;
+        state.tool_progress_event_count = 7;
+        state.last_tool_progress_message =
+            Some("downloaded a very long artifact preview for the current turn".to_string());
+        state.last_tool_progress_tool = Some("web_search".to_string());
+        state.last_tool_progress_at = Some("2026-05-20T12:34:56Z".to_string());
+        state.parallel_tool_batch_count = 3;
+        state.parallel_tool_call_count = 9;
+        state.tool_truncation_count = 2;
+        state.tool_error_type_counts.insert(
+            "long_error_type_name_for_narrow_terminal_rendering".to_string(),
+            1,
+        );
+        state.last_tool_turn_artifact_path = Some(
+            "/tmp/.yode/status/very-long-tool-turn-artifact-path-for-narrow-terminals.md"
+                .to_string(),
+        );
+
+        let rendered =
+            render_diagnostics_overview_with_width(std::path::Path::new("/tmp"), &state, &[], 64);
+        let tool_lines = rendered
+            .lines()
+            .skip_while(|line| *line != "Tools:")
+            .skip(1)
+            .take_while(|line| !line.is_empty())
+            .collect::<Vec<_>>();
+
+        assert!(!tool_lines.is_empty());
+        assert!(tool_lines
+            .iter()
+            .all(|line| unicode_width::UnicodeWidthStr::width(*line) <= 64));
+        assert!(tool_lines.iter().any(|line| line.ends_with("...")));
     }
 
     #[test]
