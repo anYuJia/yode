@@ -55,10 +55,11 @@ pub(crate) fn render_diagnostics_overview_with_width(
         state.last_tool_progress_message.as_deref(),
         state.last_tool_progress_at.as_deref(),
     );
+    let max_line_width = diagnostic_issue_line_width(terminal_width);
     let timeline =
         build_runtime_timeline_lines_with_project_root(Some(project_root), state, tasks, 6)
             .into_iter()
-            .map(|line| format!("  - {}", line))
+            .map(|line| truncate_visible_width(&format!("  - {}", line), max_line_width))
             .collect::<Vec<_>>()
             .join("\n");
     let startup_settings =
@@ -913,6 +914,35 @@ mod tests {
             .iter()
             .all(|line| unicode_width::UnicodeWidthStr::width(*line) <= 64));
         assert!(memory_lines.iter().any(|line| line.ends_with("...")));
+    }
+
+    #[test]
+    fn diagnostics_timeline_rows_respect_terminal_width() {
+        let mut state = state();
+        state.hook_timeout_count = 1;
+        state.last_hook_failure_at = Some("2026-05-20T12:34:56Z".to_string());
+        state.last_hook_failure_command = Some(
+            "bash scripts/a-very-long-hook-command-name-with-many-arguments --and-more".to_string(),
+        );
+        state.last_hook_failure_event = Some("post-tool-use".to_string());
+        state.last_hook_failure_reason =
+            Some("hook returned a long explanatory failure reason for the operator".to_string());
+        state.last_hook_timeout_command =
+            Some("bash scripts/a-very-long-timeout-command-name-with-many-arguments".to_string());
+
+        let rendered =
+            render_diagnostics_overview_with_width(std::path::Path::new("/tmp"), &state, &[], 64);
+        let timeline_lines = rendered
+            .lines()
+            .skip_while(|line| *line != "Timeline:")
+            .skip(1)
+            .collect::<Vec<_>>();
+
+        assert!(!timeline_lines.is_empty());
+        assert!(timeline_lines
+            .iter()
+            .all(|line| unicode_width::UnicodeWidthStr::width(*line) <= 64));
+        assert!(timeline_lines.iter().any(|line| line.ends_with("...")));
     }
 
     #[test]
