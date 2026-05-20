@@ -7,5 +7,6 @@ rg -q '^name: Release' "$workflow"
 rg -q 'tags:' "$workflow"
 rg -q 'v\*' "$workflow"
 rg -q 'generate_release_notes: true' "$workflow"
+rg -q 'assets/icon.svg' "$workflow"
 
 echo "Parity release workflow audit ok"

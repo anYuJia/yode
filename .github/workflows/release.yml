@@ -77,7 +77,8 @@ jobs:
           ARCHIVE="yode-${{ matrix.target }}.tar.gz"
           tar -czf "$ARCHIVE" \
             -C "target/${{ matrix.target }}/release" yode \
-            -C "${{ github.workspace }}" LICENSE
+            -C "${{ github.workspace }}" LICENSE \
+            -C "${{ github.workspace }}" assets/icon.svg
           echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
 
       - name: Package (Windows)
@@ -85,7 +86,7 @@ jobs:
         shell: pwsh
         run: |
           $archive = "yode-${{ matrix.target }}.zip"
-          Compress-Archive -Path "target/${{ matrix.target }}/release/yode.exe", "LICENSE" -DestinationPath $archive
+          Compress-Archive -Path "target/${{ matrix.target }}/release/yode.exe", "LICENSE", "assets/icon.svg" -DestinationPath $archive
           echo "ARCHIVE=$archive" >> $env:GITHUB_ENV
 
       - name: Upload artifact
