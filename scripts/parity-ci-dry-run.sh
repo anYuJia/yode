@@ -41,6 +41,7 @@ bash -n \
   scripts/release-config-compat-audit.sh \
   scripts/release-candidate-note.sh \
   scripts/release-benchmark-evidence.sh \
+  scripts/release-validation-matrix.sh \
   scripts/parity-ci-local.sh \
   scripts/parity-fixture-generate.sh \
   scripts/parity-fixture-minimize.sh \

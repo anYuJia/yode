@@ -39,6 +39,7 @@ bash scripts/release-final-gap-report.sh >/dev/null
 bash scripts/release-config-compat-audit.sh >/dev/null
 bash scripts/release-candidate-note.sh >/dev/null
 bash scripts/release-benchmark-evidence.sh >/dev/null
+bash scripts/release-validation-matrix.sh >/dev/null
 bash scripts/parity-owner-enforcement.sh >/dev/null
 bash scripts/parity-risk-register.sh >/dev/null
 bash scripts/parity-limitations-ci.sh >/dev/null
@@ -112,6 +113,7 @@ required_docs=(
   docs/optimization/303-release-config-compat-audit.md
   docs/optimization/304-four-month-release-note-draft.md
   docs/optimization/305-release-benchmark-evidence.md
+  docs/optimization/306-release-validation-matrix.md
 )
 
 for doc in "${required_docs[@]}"; do
@@ -168,5 +170,7 @@ rg -q 'Four-Month Release Candidate Note' docs/optimization/304-four-month-relea
 rg -q 'does not claim Claude-hosted remote infrastructure' docs/optimization/304-four-month-release-note-draft.md
 rg -q 'Release Benchmark Evidence' docs/optimization/305-release-benchmark-evidence.md
 rg -q 'scripts/benchmark-snapshot.sh' docs/optimization/305-release-benchmark-evidence.md
+rg -q 'Release Validation Matrix' docs/optimization/306-release-validation-matrix.md
+rg -q 'windows-latest' docs/optimization/306-release-validation-matrix.md
 
 echo "Parity docs CI ok"

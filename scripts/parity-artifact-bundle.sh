@@ -54,7 +54,8 @@ for doc in \
   302-four-month-final-gap-report.md \
   303-release-config-compat-audit.md \
   304-four-month-release-note-draft.md \
-  305-release-benchmark-evidence.md
+  305-release-benchmark-evidence.md \
+  306-release-validation-matrix.md
 do
   copy_if_present "$docs_dir/$doc" "$out_dir/docs/$doc"
 done
