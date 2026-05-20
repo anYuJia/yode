@@ -15,6 +15,7 @@ bash scripts/parity-handoff-artifact.sh >/dev/null
 bash scripts/parity-release-note.sh >/dev/null
 bash scripts/parity-failure-report-template.sh >/dev/null
 bash scripts/parity-failure-triage-summary.sh >/dev/null
+bash scripts/parity-contract-triage-template.sh >/dev/null
 bash scripts/parity-replay-schema-report.sh >/dev/null
 bash scripts/parity-replay-drift-report.sh >/dev/null
 bash scripts/parity-replay-jsonl-inventory.sh >/dev/null
@@ -71,6 +72,7 @@ required_docs=(
   docs/optimization/267-eighth-replay-owner-map.md
   docs/optimization/268-eighth-replay-storage-closeout.md
   docs/optimization/269-eighth-failure-report-template.md
+  docs/optimization/parity-contract-triage-template.md
   docs/optimization/270-eighth-stored-artifact-closeout.md
   docs/optimization/271-eighth-failure-triage-summary.md
   docs/optimization/272-eighth-ci-final-review.md
@@ -134,6 +136,8 @@ rg -q 'parity replay job' docs/optimization/266-eighth-ci-integration-closeout.m
 rg -q 'Eighth Replay Owner Map' docs/optimization/267-eighth-replay-owner-map.md
 rg -q 'replay-index.jsonl' docs/optimization/268-eighth-replay-storage-closeout.md
 rg -q 'Failure Report Template' docs/optimization/269-eighth-failure-report-template.md
+rg -q 'Parity Contract Failure Triage Template' docs/optimization/parity-contract-triage-template.md
+rg -q 'CONTRACT-REPLAY' docs/optimization/parity-contract-triage-template.md
 rg -q 'candidate compare report' docs/optimization/270-eighth-stored-artifact-closeout.md
 rg -q 'Failure Triage Summary' docs/optimization/271-eighth-failure-triage-summary.md
 rg -q 'serialization' docs/optimization/279-eighth-replay-final-review.md

@@ -7,6 +7,9 @@ docs_dir="${3:-docs/optimization}"
 
 rm -rf "$out_dir"
 mkdir -p "$out_dir"
+mkdir -p "$bench_dir"
+
+bash scripts/parity-contract-triage-template.sh "$bench_dir/failure-triage-template.md" >/dev/null
 
 copy_if_present() {
   local src="$1"
@@ -31,6 +34,7 @@ copy_if_present "$bench_dir/visual-width-report.md" "$out_dir/benchmarks/visual-
 copy_if_present "$bench_dir/candidate-compare-report.md" "$out_dir/benchmarks/candidate-compare-report.md"
 copy_if_present "$bench_dir/catalog-compare-report.md" "$out_dir/benchmarks/catalog-compare-report.md"
 copy_if_present "$bench_dir/failure-route-report.md" "$out_dir/benchmarks/failure-route-report.md"
+copy_if_present "$bench_dir/failure-triage-template.md" "$out_dir/benchmarks/failure-triage-template.md"
 copy_if_present "$bench_dir/golden/current" "$out_dir/benchmarks/golden-current"
 copy_if_present "$bench_dir/replay" "$out_dir/benchmarks/replay"
 
@@ -45,6 +49,7 @@ for doc in \
   261-parity-visual-inventory.md \
   264-eighth-artifact-upload-policy.md \
   269-eighth-failure-report-template.md \
+  parity-contract-triage-template.md \
   270-eighth-stored-artifact-closeout.md
 do
   copy_if_present "$docs_dir/$doc" "$out_dir/docs/$doc"

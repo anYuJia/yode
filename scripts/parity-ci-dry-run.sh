@@ -33,6 +33,7 @@ bash -n \
   scripts/parity-docs-ci.sh \
   scripts/parity-snapshot-retention.sh \
   scripts/parity-failure-report.sh \
+  scripts/parity-contract-triage-template.sh \
   scripts/parity-risk-register.sh \
   scripts/parity-limitations-ci.sh \
   scripts/parity-release-note.sh \
