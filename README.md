@@ -235,6 +235,19 @@ Use the snapshot scripts when changing output surfaces:
 - `./scripts/benchmark-snapshot.sh`
   Writes the long-session benchmark snapshot to `.yode/benchmarks/long-session-benchmark.md`.
 
+## Release Candidate Validation
+
+Before tagging a release candidate, run `bash scripts/release-checklist.sh` alongside the
+GitHub Actions matrix. The local checklist covers parity docs, snapshots, replay, visual
+artifacts, and benchmark evidence; the remote matrix still provides the Linux, macOS, and
+Windows confidence needed for the final tag.
+
+Current release-candidate evidence:
+
+- `docs/optimization/304-four-month-release-note-draft.md`
+- `docs/optimization/305-release-benchmark-evidence.md`
+- `docs/optimization/306-release-validation-matrix.md`
+
 ## Architecture
 
 ```text

@@ -172,5 +172,10 @@ rg -q 'Release Benchmark Evidence' docs/optimization/305-release-benchmark-evide
 rg -q 'scripts/benchmark-snapshot.sh' docs/optimization/305-release-benchmark-evidence.md
 rg -q 'Release Validation Matrix' docs/optimization/306-release-validation-matrix.md
 rg -q 'windows-latest' docs/optimization/306-release-validation-matrix.md
+rg -q 'Release Candidate Validation' README.md
+rg -q 'bash scripts/release-checklist.sh' README.md
+rg -q 'docs/optimization/304-four-month-release-note-draft.md' README.md
+rg -q 'docs/optimization/305-release-benchmark-evidence.md' README.md
+rg -q 'docs/optimization/306-release-validation-matrix.md' README.md
 
 echo "Parity docs CI ok"
