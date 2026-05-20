@@ -111,6 +111,18 @@ pub(crate) fn render_diagnostics_overview_with_width(
             .map(|path| path.display().to_string())
             .unwrap_or_else(|| "none".to_string());
     let issue_summary = render_diagnostic_issue_summary(project_root, state, tasks, terminal_width);
+    let recovery_lines = render_diagnostic_overview_rows(
+        &[
+            ("State:", state.recovery_state.as_str()),
+            (
+                "Last signature:",
+                state.last_failed_signature.as_deref().unwrap_or("none"),
+            ),
+            ("Permission:", permission_summary.as_str()),
+            ("Denials:", recent_denials.as_str()),
+        ],
+        terminal_width,
+    );
     let progress_line = format!(
         "{} ({})",
         state.tool_progress_event_count, tool_progress_summary
@@ -153,7 +165,7 @@ pub(crate) fn render_diagnostics_overview_with_width(
     );
 
     format!(
-        "Diagnostics overview:\n{}\n\n  Runtime summary: {}\n  Context summary: {}\n  Tool summary:    {}\n\nContext:\n  Query source:   {}\n  Compact count:  {} (auto {}, manual {})\n  Breaker reason: {}\n  Compact tokens: {}\n  Media compact:  last {} / total {} removed, saved ~{} chars\n\nMemory:\n  Live memory:    {}{}\n  Memory updates: {}\n  Last memory:    {}\n\nRecovery:\n  State:          {}\n  Last signature: {}\n  Permission:     {}\n  Denials:        {}\n\nTools:\n{}\n\nObservability:\n{}\n\nTasks:\n  Total:          {}\n  Running:        {}\n\nHooks:\n  Total runs:     {}\n  Timeouts:       {}\n  Wake notices:   {}\n\nTimeline:\n{}",
+        "Diagnostics overview:\n{}\n\n  Runtime summary: {}\n  Context summary: {}\n  Tool summary:    {}\n\nContext:\n  Query source:   {}\n  Compact count:  {} (auto {}, manual {})\n  Breaker reason: {}\n  Compact tokens: {}\n  Media compact:  last {} / total {} removed, saved ~{} chars\n\nMemory:\n  Live memory:    {}{}\n  Memory updates: {}\n  Last memory:    {}\n\nRecovery:\n{}\n\nTools:\n{}\n\nObservability:\n{}\n\nTasks:\n  Total:          {}\n  Running:        {}\n\nHooks:\n  Total runs:     {}\n  Timeouts:       {}\n  Wake notices:   {}\n\nTimeline:\n{}",
         issue_summary,
         runtime_summary,
         context_summary,
@@ -188,10 +200,7 @@ pub(crate) fn render_diagnostics_overview_with_width(
             .last_session_memory_update_path
             .as_deref()
             .unwrap_or("none"),
-        state.recovery_state,
-        state.last_failed_signature.as_deref().unwrap_or("none"),
-        permission_summary,
-        recent_denials,
+        recovery_lines,
         tool_lines,
         observability_lines,
         tasks.len(),
@@ -887,6 +896,37 @@ mod tests {
             .iter()
             .all(|line| unicode_width::UnicodeWidthStr::width(*line) <= 64));
         assert!(tool_lines.iter().any(|line| line.ends_with("...")));
+    }
+
+    #[test]
+    fn diagnostics_recovery_rows_respect_terminal_width() {
+        let mut state = state();
+        state.recovery_state = "NeedUserGuidanceBecauseTheSameFailureRepeated".to_string();
+        state.last_failed_signature =
+            Some("bash:permission:very-long-command-signature-for-narrow-terminals".to_string());
+        state.last_permission_tool = Some("bash".to_string());
+        state.last_permission_action = Some("deny".to_string());
+        state.last_permission_explanation =
+            Some("blocked destructive command with a long shell pipeline explanation".to_string());
+        state.recent_permission_denials = vec![
+            "bash rm -rf /tmp/a-very-long-project-path".to_string(),
+            "powershell Remove-Item C:\\very\\long\\path".to_string(),
+        ];
+
+        let rendered =
+            render_diagnostics_overview_with_width(std::path::Path::new("/tmp"), &state, &[], 64);
+        let recovery_lines = rendered
+            .lines()
+            .skip_while(|line| *line != "Recovery:")
+            .skip(1)
+            .take_while(|line| !line.is_empty())
+            .collect::<Vec<_>>();
+
+        assert!(!recovery_lines.is_empty());
+        assert!(recovery_lines
+            .iter()
+            .all(|line| unicode_width::UnicodeWidthStr::width(*line) <= 64));
+        assert!(recovery_lines.iter().any(|line| line.ends_with("...")));
     }
 
     #[test]
