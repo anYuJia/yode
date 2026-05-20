@@ -1,3 +1,4 @@
+use crate::app::{ChatEntry, ChatRole};
 use crate::commands::context::CommandContext;
 use crate::commands::info::status::helpers::compact_breaker_hint;
 use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
@@ -49,19 +50,25 @@ impl Command for ContextCommand {
             .map(|state| state.compaction_threshold_tokens)
             .unwrap_or((context_window as f64 * 0.93) as usize);
         let pct = (est_tokens as f64 / context_window as f64 * 100.0).min(100.0);
+        let usage_mix = ContextUsageMix::from_entries_and_runtime(
+            ctx.chat_entries,
+            runtime.as_ref(),
+            total_chars / 4,
+        );
         let runtime_lines = if let Some(state) = runtime {
-            render_runtime_context_lines(&state, total_chars / 4, pct, threshold)
+            render_runtime_context_lines(&state, &usage_mix, total_chars / 4, pct, threshold)
         } else {
             String::new()
         };
         Ok(CommandOutput::Message(format!(
-            "Context window:\n  Chat entries:    {}\n  Est. context:    ~{} tokens\n  API tokens used: {}\n  Window size:     {} tokens\n  Compact at:      ~{} tokens\n  Window usage:    {:.1}%{}",
+            "Context window:\n  Chat entries:    {}\n  Est. context:    ~{} tokens\n  API tokens used: {}\n  Window size:     {} tokens\n  Compact at:      ~{} tokens\n  Window usage:    {:.1}%\n{}{}",
             ctx.chat_entries.len(),
             est_tokens,
             ctx.session.total_tokens,
             context_window,
             threshold,
             pct,
+            render_context_mix_lines(&usage_mix),
             runtime_lines,
         )))
     }
@@ -69,6 +76,7 @@ impl Command for ContextCommand {
 
 fn render_runtime_context_lines(
     state: &EngineRuntimeState,
+    usage_mix: &ContextUsageMix,
     fallback_tokens: usize,
     pct: f64,
     threshold: usize,
@@ -76,7 +84,8 @@ fn render_runtime_context_lines(
     let prompt_cache = prompt_cache_summary(&state.prompt_cache);
     let compact_artifacts = compact_artifact_summary(state);
     format!(
-        "\n  Summary:         {}\n  Messages:        {}\n  Compaction line: ~{} tokens\n  Pressure:        {}\n  Post-compact:    {}\n  Restore budget:  {}\n  Async tasks:     {}\n  Collapse:        {}\n  Suggestions:     {}\n  Query source:    {}\n  Autocompact:     {}\n  Compact count:   {} (auto {}, manual {})\n  Breaker reason:  {}\n  Hint:            {}\n  Last compact:    {}\n  Media compact:   last {} / total {} removed, saved ~{} chars\n  Compact files:   {}\n  Prompt cache:    {}\n  Live memory:     {}\n  Tool runtime:    {}\n  Memory updates:  {}",
+        "\n  Mix detail:      {}\n  Summary:         {}\n  Messages:        {}\n  Compaction line: ~{} tokens\n  Pressure:        {}\n  Post-compact:    {}\n  Restore budget:  {}\n  Async tasks:     {}\n  Collapse:        {}\n  Suggestions:     {}\n  Query source:    {}\n  Autocompact:     {}\n  Compact count:   {} (auto {}, manual {})\n  Breaker reason:  {}\n  Hint:            {}\n  Last compact:    {}\n  Media compact:   last {} / total {} removed, saved ~{} chars\n  Compact files:   {}\n  Prompt cache:    {}\n  Live memory:     {}\n  Tool runtime:    {}\n  Memory updates:  {}",
+        usage_mix.detail_summary(),
         context_window_summary_text(Some(state), fallback_tokens),
         state.message_count,
         state.compaction_threshold_tokens,
@@ -113,6 +122,164 @@ fn render_runtime_context_lines(
         tool_runtime_summary_text(state),
         state.session_memory_update_count,
     )
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct ContextUsageMix {
+    system: usize,
+    user: usize,
+    assistant: usize,
+    tool: usize,
+    restore: usize,
+}
+
+impl ContextUsageMix {
+    fn from_entries_and_runtime(
+        entries: &[ChatEntry],
+        state: Option<&EngineRuntimeState>,
+        fallback_tokens: usize,
+    ) -> Self {
+        let mut mix = Self::default();
+
+        if let Some(state) = state {
+            mix.system = state.system_prompt_estimated_tokens;
+            mix.restore = state
+                .last_restore_budget
+                .as_ref()
+                .map(|budget| budget.used_tokens as usize)
+                .unwrap_or(0);
+        }
+
+        for entry in entries {
+            let tokens = estimate_display_tokens(&entry.content);
+            match &entry.role {
+                ChatRole::User | ChatRole::AskUser { .. } => mix.user += tokens,
+                ChatRole::Assistant | ChatRole::SubAgentResult => mix.assistant += tokens,
+                ChatRole::ToolCall { .. }
+                | ChatRole::ToolResult { .. }
+                | ChatRole::SubAgentToolCall { .. }
+                | ChatRole::SubAgentCall { .. } => mix.tool += tokens,
+                ChatRole::System => mix.system += tokens,
+                ChatRole::Error => mix.assistant += tokens,
+            }
+        }
+
+        if mix.total() == 0 {
+            mix.assistant = fallback_tokens;
+        }
+
+        mix
+    }
+
+    fn total(&self) -> usize {
+        self.system + self.user + self.assistant + self.tool + self.restore
+    }
+
+    fn percentages(&self) -> [u8; 5] {
+        let total = self.total().max(1) as f64;
+        [
+            pct(self.system, total),
+            pct(self.user, total),
+            pct(self.assistant, total),
+            pct(self.tool, total),
+            pct(self.restore, total),
+        ]
+    }
+
+    fn detail_summary(&self) -> String {
+        format!(
+            "system~{} user~{} assistant~{} tool~{} restore~{} tokens",
+            self.system, self.user, self.assistant, self.tool, self.restore
+        )
+    }
+}
+
+fn render_context_mix_lines(mix: &ContextUsageMix) -> String {
+    let [system, user, assistant, tool, restore] = mix.percentages();
+    format!(
+        "  Context mix:     [{}]\n                   S system {:>3}%  U user {:>3}%  A assistant {:>3}%\n                   T tool   {:>3}%  R restore {:>3}%",
+        context_mix_bar(mix, 30),
+        system,
+        user,
+        assistant,
+        tool,
+        restore,
+    )
+}
+
+fn context_mix_bar(mix: &ContextUsageMix, width: usize) -> String {
+    let parts = [
+        ('S', mix.system),
+        ('U', mix.user),
+        ('A', mix.assistant),
+        ('T', mix.tool),
+        ('R', mix.restore),
+    ];
+    let counts = proportional_counts(
+        &parts.map(|(_, value)| value),
+        width.max(parts.iter().filter(|(_, value)| *value > 0).count()),
+    );
+    let mut bar = String::new();
+    for ((label, _), count) in parts.into_iter().zip(counts) {
+        bar.extend(std::iter::repeat_n(label, count));
+    }
+    bar
+}
+
+fn proportional_counts(values: &[usize; 5], width: usize) -> [usize; 5] {
+    let total: usize = values.iter().sum();
+    if total == 0 || width == 0 {
+        return [0; 5];
+    }
+
+    let mut counts = [0usize; 5];
+    let mut remainders = [(0usize, 0usize); 5];
+    let mut used = 0usize;
+
+    for (idx, value) in values.iter().enumerate() {
+        let scaled = value.saturating_mul(width);
+        let mut count = scaled / total;
+        if *value > 0 && count == 0 {
+            count = 1;
+        }
+        counts[idx] = count;
+        remainders[idx] = (scaled % total, idx);
+        used += count;
+    }
+
+    while used > width {
+        if let Some(idx) = counts
+            .iter()
+            .enumerate()
+            .filter(|(_, count)| **count > 1)
+            .min_by_key(|(idx, _)| remainders[*idx].0)
+            .map(|(idx, _)| idx)
+        {
+            counts[idx] -= 1;
+            used -= 1;
+        } else {
+            break;
+        }
+    }
+
+    remainders.sort_by(|left, right| right.cmp(left));
+    let mut cursor = 0;
+    while used < width {
+        let idx = remainders[cursor % remainders.len()].1;
+        counts[idx] += 1;
+        used += 1;
+        cursor += 1;
+    }
+
+    counts
+}
+
+fn pct(value: usize, total: f64) -> u8 {
+    ((value as f64 / total) * 100.0).round() as u8
+}
+
+fn estimate_display_tokens(content: &str) -> usize {
+    (content.len() / 4).max(1)
 }
 
 fn context_collapse_summary(state: &EngineRuntimeState) -> String {
@@ -321,10 +488,13 @@ fn prompt_cache_summary(cache: &PromptCacheRuntimeState) -> String {
 mod tests {
     use std::collections::BTreeMap;
 
+    use crate::app::{ChatEntry, ChatRole};
+
     use super::{
-        compact_artifact_summary, compact_pressure_hint, context_suggestions_summary,
-        last_compact_summary, post_compact_pressure_summary, prompt_cache_summary,
-        restore_budget_summary,
+        compact_artifact_summary, compact_pressure_hint, context_mix_bar,
+        context_suggestions_summary, last_compact_summary, post_compact_pressure_summary,
+        prompt_cache_summary, proportional_counts, render_context_mix_lines,
+        restore_budget_summary, ContextUsageMix,
     };
     use yode_core::engine::{
         EngineRuntimeState, PromptCacheRuntimeState, RestoreBudgetEntryRuntimeState,
@@ -578,5 +748,84 @@ mod tests {
         assert!(summary.contains("large tool output"));
         assert!(summary.contains("many files"));
         assert!(!summary.contains("large system segment"));
+    }
+
+    #[test]
+    fn context_usage_mix_tracks_role_and_restore_proportions() {
+        let mut state = state();
+        state.system_prompt_estimated_tokens = 2_000;
+        state.last_restore_budget = Some(RestoreBudgetRuntimeState {
+            total_tokens: 2_000,
+            used_tokens: 800,
+            entries: Vec::new(),
+        });
+        let entries = vec![
+            ChatEntry::new(ChatRole::User, "u".repeat(400)),
+            ChatEntry::new(ChatRole::Assistant, "a".repeat(800)),
+            ChatEntry::new(
+                ChatRole::ToolResult {
+                    id: "1".to_string(),
+                    name: "read_file".to_string(),
+                    is_error: false,
+                },
+                "t".repeat(1_200),
+            ),
+            ChatEntry::new(ChatRole::System, "s".repeat(400)),
+        ];
+
+        let mix = ContextUsageMix::from_entries_and_runtime(&entries, Some(&state), 0);
+
+        assert_eq!(mix.system, 2_100);
+        assert_eq!(mix.user, 100);
+        assert_eq!(mix.assistant, 200);
+        assert_eq!(mix.tool, 300);
+        assert_eq!(mix.restore, 800);
+        assert!(mix.detail_summary().contains("restore~800 tokens"));
+    }
+
+    #[test]
+    fn context_mix_bar_preserves_visible_nonzero_segments() {
+        let mix = ContextUsageMix {
+            system: 10_000,
+            user: 1,
+            assistant: 1,
+            tool: 1,
+            restore: 1,
+        };
+
+        let bar = context_mix_bar(&mix, 10);
+
+        assert_eq!(bar.len(), 10);
+        for label in ['S', 'U', 'A', 'T', 'R'] {
+            assert!(bar.contains(label), "missing segment {label} in {bar}");
+        }
+    }
+
+    #[test]
+    fn context_mix_lines_stay_compact_for_narrow_terminals() {
+        let mix = ContextUsageMix {
+            system: 40,
+            user: 30,
+            assistant: 20,
+            tool: 10,
+            restore: 5,
+        };
+
+        let rendered = render_context_mix_lines(&mix);
+
+        assert!(rendered.contains("Context mix"));
+        assert!(rendered.contains("S system"));
+        assert!(rendered
+            .lines()
+            .all(|line| unicode_width::UnicodeWidthStr::width(line) <= 72));
+    }
+
+    #[test]
+    fn proportional_counts_allocates_fixed_width() {
+        let counts = proportional_counts(&[50, 30, 15, 4, 1], 30);
+
+        assert_eq!(counts.iter().sum::<usize>(), 30);
+        assert_eq!(counts[0], 15);
+        assert!(counts[4] >= 1);
     }
 }

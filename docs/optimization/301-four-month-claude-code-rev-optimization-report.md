@@ -606,6 +606,10 @@ cargo test -q -p yode-tui diagnostics
 bash scripts/parity-visual-ci.sh
 ```
 
+Progress:
+
+- 2026-05-20: Added a compact `/context` mix bar with system/user/assistant/tool/restore proportions, role-aware token estimates, and focused narrow-line tests. Verified with `cargo test -q -p yode-tui context_cmd`. Remaining risk: the bar uses display/runtime approximations rather than provider-specific tokenizer accounting, and diagnostics UI grouping remains pending.
+
 ### Week 15: CI Contract Consolidation
 
 Objective: reduce parity script sprawl into clear, enforceable contracts.
