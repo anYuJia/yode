@@ -100,13 +100,15 @@ pub(crate) fn render_diagnostics_overview(
         crate::commands::artifact_nav::latest_hook_deferred_state_artifact(project_root)
             .map(|path| path.display().to_string())
             .unwrap_or_else(|| "none".to_string());
+    let issue_summary = render_diagnostic_issue_summary(project_root, state, tasks);
     let progress_line = format!(
         "{} ({})",
         state.tool_progress_event_count, tool_progress_summary
     );
 
     format!(
-        "Diagnostics overview:\n  Runtime summary: {}\n  Context summary: {}\n  Tool summary:    {}\n\nContext:\n  Query source:   {}\n  Compact count:  {} (auto {}, manual {})\n  Breaker reason: {}\n  Compact tokens: {}\n  Media compact:  last {} / total {} removed, saved ~{} chars\n\nMemory:\n  Live memory:    {}{}\n  Memory updates: {}\n  Last memory:    {}\n\nRecovery:\n  State:          {}\n  Last signature: {}\n  Permission:     {}\n  Denials:        {}\n\nTools:\n  Session calls:  {}\n  Progress:       {}\n  Parallel:       {} batches / {} calls\n  Truncations:    {}\n  Errors:         {}\n  Last artifact:  {}\n\nObservability:\n  Hook defer:     {}\n  Agent team:     {}\n  Remote live:    {}\n  Settings:       {}\n  Managed MCP:    {}\n  MCP resources:  {}\n  Plugins:        {}\n  Skills:         {}\n\nTasks:\n  Total:          {}\n  Running:        {}\n\nHooks:\n  Total runs:     {}\n  Timeouts:       {}\n  Wake notices:   {}\n\nTimeline:\n{}",
+        "Diagnostics overview:\n{}\n\n  Runtime summary: {}\n  Context summary: {}\n  Tool summary:    {}\n\nContext:\n  Query source:   {}\n  Compact count:  {} (auto {}, manual {})\n  Breaker reason: {}\n  Compact tokens: {}\n  Media compact:  last {} / total {} removed, saved ~{} chars\n\nMemory:\n  Live memory:    {}{}\n  Memory updates: {}\n  Last memory:    {}\n\nRecovery:\n  State:          {}\n  Last signature: {}\n  Permission:     {}\n  Denials:        {}\n\nTools:\n  Session calls:  {}\n  Progress:       {}\n  Parallel:       {} batches / {} calls\n  Truncations:    {}\n  Errors:         {}\n  Last artifact:  {}\n\nObservability:\n  Hook defer:     {}\n  Agent team:     {}\n  Remote live:    {}\n  Settings:       {}\n  Managed MCP:    {}\n  MCP resources:  {}\n  Plugins:        {}\n  Skills:         {}\n\nTasks:\n  Total:          {}\n  Running:        {}\n\nHooks:\n  Total runs:     {}\n  Timeouts:       {}\n  Wake notices:   {}\n\nTimeline:\n{}",
+        issue_summary,
         runtime_summary,
         context_summary,
         tool_summary,
@@ -169,6 +171,239 @@ pub(crate) fn render_diagnostics_overview(
         state.hook_wake_notification_count,
         timeline,
     )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum DiagnosticSeverity {
+    Critical,
+    Warning,
+    Info,
+}
+
+impl DiagnosticSeverity {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Critical => "Critical",
+            Self::Warning => "Warning",
+            Self::Info => "Info",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DiagnosticIssue {
+    severity: DiagnosticSeverity,
+    title: String,
+    detail: String,
+    action: &'static str,
+}
+
+fn render_diagnostic_issue_summary(
+    project_root: &std::path::Path,
+    state: &yode_core::engine::EngineRuntimeState,
+    tasks: &[yode_tools::RuntimeTask],
+) -> String {
+    let issues = diagnostic_issues(project_root, state, tasks);
+    render_diagnostic_issue_lines(&issues, 96).join("\n")
+}
+
+fn render_diagnostic_issue_lines(issues: &[DiagnosticIssue], max_width: usize) -> Vec<String> {
+    if issues.is_empty() {
+        return vec![
+            "  Issues:         none".to_string(),
+            "  Next action:    continue current work; use /status for full runtime detail"
+                .to_string(),
+        ];
+    }
+
+    let critical = issues
+        .iter()
+        .filter(|issue| issue.severity == DiagnosticSeverity::Critical)
+        .count();
+    let warning = issues
+        .iter()
+        .filter(|issue| issue.severity == DiagnosticSeverity::Warning)
+        .count();
+    let info = issues
+        .iter()
+        .filter(|issue| issue.severity == DiagnosticSeverity::Info)
+        .count();
+
+    let mut lines = vec![format!(
+        "  Issues:         critical={} warning={} info={}",
+        critical, warning, info
+    )];
+    let mut previous = None;
+    for issue in issues.iter().take(5) {
+        if previous != Some(issue.severity) {
+            lines.push(format!("  {}:", issue.severity.label()));
+            previous = Some(issue.severity);
+        }
+        lines.push(truncate_visible_width(
+            &format!(
+                "    - {}: {} -> {}",
+                issue.title, issue.detail, issue.action
+            ),
+            max_width,
+        ));
+    }
+
+    lines
+}
+
+fn diagnostic_issues(
+    project_root: &std::path::Path,
+    state: &yode_core::engine::EngineRuntimeState,
+    tasks: &[yode_tools::RuntimeTask],
+) -> Vec<DiagnosticIssue> {
+    let mut issues = Vec::new();
+
+    if state.recovery_state != "Normal" {
+        issues.push(DiagnosticIssue {
+            severity: DiagnosticSeverity::Critical,
+            title: "Recovery".to_string(),
+            detail: format!("state={}", state.recovery_state),
+            action: "/status recovery",
+        });
+    }
+    if state.hook_timeout_count > 0 || state.hook_execution_error_count > 0 {
+        issues.push(DiagnosticIssue {
+            severity: DiagnosticSeverity::Critical,
+            title: "Hooks".to_string(),
+            detail: format!(
+                "timeouts={} errors={}",
+                state.hook_timeout_count, state.hook_execution_error_count
+            ),
+            action: "/hooks",
+        });
+    }
+    if !state.recent_permission_denials.is_empty() {
+        issues.push(DiagnosticIssue {
+            severity: DiagnosticSeverity::Critical,
+            title: "Permissions".to_string(),
+            detail: format!("{} recent denial(s)", state.recent_permission_denials.len()),
+            action: "/permissions recovery",
+        });
+    }
+
+    let plugin_errors = plugin_manifest_diagnostic_count(project_root);
+    if plugin_errors > 0 {
+        issues.push(DiagnosticIssue {
+            severity: DiagnosticSeverity::Warning,
+            title: "Plugins".to_string(),
+            detail: format!("{} manifest diagnostic(s)", plugin_errors),
+            action: "/plugin list",
+        });
+    }
+    let skill_errors = skill_diagnostic_count(project_root);
+    if skill_errors > 0 {
+        issues.push(DiagnosticIssue {
+            severity: DiagnosticSeverity::Warning,
+            title: "Skills".to_string(),
+            detail: format!("{} stale reference(s)", skill_errors),
+            action: "/skills list",
+        });
+    }
+    if state.compaction_failures > 0 {
+        issues.push(DiagnosticIssue {
+            severity: DiagnosticSeverity::Warning,
+            title: "Compaction".to_string(),
+            detail: format!("{} failure(s)", state.compaction_failures),
+            action: "/compact",
+        });
+    } else if state.compaction_threshold_tokens > 0
+        && state.estimated_context_tokens >= state.compaction_threshold_tokens
+    {
+        issues.push(DiagnosticIssue {
+            severity: DiagnosticSeverity::Warning,
+            title: "Context".to_string(),
+            detail: format!(
+                "{} / {} tokens",
+                state.estimated_context_tokens, state.compaction_threshold_tokens
+            ),
+            action: "/compact",
+        });
+    }
+    if state.tool_truncation_count > 0 {
+        issues.push(DiagnosticIssue {
+            severity: DiagnosticSeverity::Warning,
+            title: "Tools".to_string(),
+            detail: format!("{} truncated result(s)", state.tool_truncation_count),
+            action: "/tools diagnostics",
+        });
+    }
+    if !state.tool_error_type_counts.is_empty() {
+        issues.push(DiagnosticIssue {
+            severity: DiagnosticSeverity::Warning,
+            title: "Tool errors".to_string(),
+            detail: state
+                .tool_error_type_counts
+                .iter()
+                .map(|(kind, count)| format!("{}={}", kind, count))
+                .collect::<Vec<_>>()
+                .join(", "),
+            action: "/tools diagnostics",
+        });
+    }
+
+    let running_tasks = tasks
+        .iter()
+        .filter(|task| matches!(task.status, yode_tools::RuntimeTaskStatus::Running))
+        .count();
+    if running_tasks > 0 {
+        issues.push(DiagnosticIssue {
+            severity: DiagnosticSeverity::Info,
+            title: "Tasks".to_string(),
+            detail: format!("{} running", running_tasks),
+            action: "/tasks summary",
+        });
+    }
+    if state.tool_progress_event_count > 0 {
+        issues.push(DiagnosticIssue {
+            severity: DiagnosticSeverity::Info,
+            title: "Tool progress".to_string(),
+            detail: format!("{} event(s)", state.tool_progress_event_count),
+            action: "/tools diagnostics",
+        });
+    }
+
+    issues.sort_by_key(|issue| issue.severity);
+    issues
+}
+
+fn plugin_manifest_diagnostic_count(project_root: &std::path::Path) -> usize {
+    yode_core::plugins::PluginRegistry::discover(project_root)
+        .diagnostics()
+        .len()
+}
+
+fn skill_diagnostic_count(project_root: &std::path::Path) -> usize {
+    yode_core::skills::SkillRegistry::discover(&yode_core::skills::SkillRegistry::default_paths(
+        project_root,
+    ))
+    .diagnostics()
+    .len()
+}
+
+fn truncate_visible_width(value: &str, max_width: usize) -> String {
+    if unicode_width::UnicodeWidthStr::width(value) <= max_width {
+        return value.to_string();
+    }
+
+    let suffix = "...";
+    let limit = max_width.saturating_sub(suffix.len());
+    let mut rendered = String::new();
+    let mut width = 0;
+    for ch in value.chars() {
+        let ch_width = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+        if width + ch_width > limit {
+            break;
+        }
+        rendered.push(ch);
+        width += ch_width;
+    }
+    rendered.push_str(suffix);
+    rendered
 }
 
 pub(crate) fn plugin_inventory_summary(project_root: &std::path::Path) -> String {
@@ -246,8 +481,12 @@ mod tests {
     use yode_core::engine::{EngineRuntimeState, PromptCacheRuntimeState};
     use yode_core::tool_runtime::ToolRuntimeCallView;
     use yode_tools::registry::ToolPoolSnapshot;
+    use yode_tools::{RuntimeTask, RuntimeTaskStatus};
 
-    use super::render_diagnostics_overview;
+    use super::{
+        diagnostic_issues, render_diagnostic_issue_lines, render_diagnostics_overview,
+        truncate_visible_width, DiagnosticIssue, DiagnosticSeverity,
+    };
 
     fn state() -> EngineRuntimeState {
         EngineRuntimeState {
@@ -425,5 +664,104 @@ mod tests {
         assert!(rendered.contains("Runtime summary:"));
         assert!(rendered.contains("Context summary:"));
         assert!(rendered.contains("Tool summary:"));
+        assert!(rendered.contains("Issues:         none"));
+    }
+
+    #[test]
+    fn diagnostic_issues_group_severity_and_action_hints() {
+        let mut state = state();
+        state.recovery_state = "SingleStepMode".to_string();
+        state.recent_permission_denials = vec!["bash rm".to_string()];
+        state.estimated_context_tokens = 96_500;
+        state.compaction_threshold_tokens = 96_000;
+        state.tool_truncation_count = 2;
+        let tasks = vec![RuntimeTask {
+            id: "task-1".to_string(),
+            kind: "subagent".to_string(),
+            source_tool: "agent".to_string(),
+            description: "running".to_string(),
+            status: RuntimeTaskStatus::Running,
+            attempt: 1,
+            retry_of: None,
+            output_path: "/tmp/task.out".to_string(),
+            transcript_path: None,
+            created_at: "now".to_string(),
+            started_at: Some("now".to_string()),
+            completed_at: None,
+            last_progress: None,
+            last_progress_at: None,
+            progress_history: Vec::new(),
+            error: None,
+        }];
+
+        let issues = diagnostic_issues(std::path::Path::new("/tmp"), &state, &tasks);
+        let rendered = render_diagnostic_issue_lines(&issues, 96).join("\n");
+
+        assert!(rendered.contains("critical=2 warning=2 info=1"));
+        assert!(rendered.contains("Critical:"));
+        assert!(rendered.contains("Recovery: state=SingleStepMode -> /status recovery"));
+        assert!(rendered.contains("Permissions: 1 recent denial(s) -> /permissions recovery"));
+        assert!(rendered.contains("Warning:"));
+        assert!(rendered.contains("Context: 96500 / 96000 tokens -> /compact"));
+        assert!(rendered.contains("Tools: 2 truncated result(s) -> /tools diagnostics"));
+        assert!(rendered.contains("Info:"));
+        assert!(rendered.contains("Tasks: 1 running -> /tasks summary"));
+    }
+
+    #[test]
+    fn diagnostic_issue_lines_limit_top_five_items() {
+        let issues = vec![
+            DiagnosticIssue {
+                severity: DiagnosticSeverity::Critical,
+                title: "A".to_string(),
+                detail: "a".to_string(),
+                action: "/a",
+            },
+            DiagnosticIssue {
+                severity: DiagnosticSeverity::Critical,
+                title: "B".to_string(),
+                detail: "b".to_string(),
+                action: "/b",
+            },
+            DiagnosticIssue {
+                severity: DiagnosticSeverity::Warning,
+                title: "C".to_string(),
+                detail: "c".to_string(),
+                action: "/c",
+            },
+            DiagnosticIssue {
+                severity: DiagnosticSeverity::Warning,
+                title: "D".to_string(),
+                detail: "d".to_string(),
+                action: "/d",
+            },
+            DiagnosticIssue {
+                severity: DiagnosticSeverity::Info,
+                title: "E".to_string(),
+                detail: "e".to_string(),
+                action: "/e",
+            },
+            DiagnosticIssue {
+                severity: DiagnosticSeverity::Info,
+                title: "F".to_string(),
+                detail: "f".to_string(),
+                action: "/f",
+            },
+        ];
+
+        let rendered = render_diagnostic_issue_lines(&issues, 96).join("\n");
+
+        assert!(rendered.contains("critical=2 warning=2 info=2"));
+        assert!(rendered.contains("E: e -> /e"));
+        assert!(!rendered.contains("F: f -> /f"));
+    }
+
+    #[test]
+    fn diagnostic_issue_lines_truncate_cjk_at_visible_width() {
+        let value = "    - 权限: 需要检查重复的中文权限拒绝原因 -> /permissions recovery";
+        let rendered = truncate_visible_width(value, 40);
+
+        assert!(unicode_width::UnicodeWidthStr::width(rendered.as_str()) <= 40);
+        assert!(rendered.ends_with("..."));
     }
 }
