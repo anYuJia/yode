@@ -115,9 +115,22 @@ pub(crate) fn render_diagnostics_overview_with_width(
         "{} ({})",
         state.tool_progress_event_count, tool_progress_summary
     );
+    let observability_lines = render_diagnostic_overview_rows(
+        &[
+            ("Hook defer:", hook_defer.as_str()),
+            ("Agent team:", team_state.as_str()),
+            ("Remote live:", remote_live.as_str()),
+            ("Settings:", startup_settings.as_str()),
+            ("Managed MCP:", managed_mcp.as_str()),
+            ("MCP resources:", mcp_resource_artifacts.as_str()),
+            ("Plugins:", plugin_summary.as_str()),
+            ("Skills:", skill_summary.as_str()),
+        ],
+        terminal_width,
+    );
 
     format!(
-        "Diagnostics overview:\n{}\n\n  Runtime summary: {}\n  Context summary: {}\n  Tool summary:    {}\n\nContext:\n  Query source:   {}\n  Compact count:  {} (auto {}, manual {})\n  Breaker reason: {}\n  Compact tokens: {}\n  Media compact:  last {} / total {} removed, saved ~{} chars\n\nMemory:\n  Live memory:    {}{}\n  Memory updates: {}\n  Last memory:    {}\n\nRecovery:\n  State:          {}\n  Last signature: {}\n  Permission:     {}\n  Denials:        {}\n\nTools:\n  Session calls:  {}\n  Progress:       {}\n  Parallel:       {} batches / {} calls\n  Truncations:    {}\n  Errors:         {}\n  Last artifact:  {}\n\nObservability:\n  Hook defer:     {}\n  Agent team:     {}\n  Remote live:    {}\n  Settings:       {}\n  Managed MCP:    {}\n  MCP resources:  {}\n  Plugins:        {}\n  Skills:         {}\n\nTasks:\n  Total:          {}\n  Running:        {}\n\nHooks:\n  Total runs:     {}\n  Timeouts:       {}\n  Wake notices:   {}\n\nTimeline:\n{}",
+        "Diagnostics overview:\n{}\n\n  Runtime summary: {}\n  Context summary: {}\n  Tool summary:    {}\n\nContext:\n  Query source:   {}\n  Compact count:  {} (auto {}, manual {})\n  Breaker reason: {}\n  Compact tokens: {}\n  Media compact:  last {} / total {} removed, saved ~{} chars\n\nMemory:\n  Live memory:    {}{}\n  Memory updates: {}\n  Last memory:    {}\n\nRecovery:\n  State:          {}\n  Last signature: {}\n  Permission:     {}\n  Denials:        {}\n\nTools:\n  Session calls:  {}\n  Progress:       {}\n  Parallel:       {} batches / {} calls\n  Truncations:    {}\n  Errors:         {}\n  Last artifact:  {}\n\nObservability:\n{}\n\nTasks:\n  Total:          {}\n  Running:        {}\n\nHooks:\n  Total runs:     {}\n  Timeouts:       {}\n  Wake notices:   {}\n\nTimeline:\n{}",
         issue_summary,
         runtime_summary,
         context_summary,
@@ -166,14 +179,7 @@ pub(crate) fn render_diagnostics_overview_with_width(
             .last_tool_turn_artifact_path
             .as_deref()
             .unwrap_or("none"),
-        hook_defer,
-        team_state,
-        remote_live,
-        startup_settings,
-        managed_mcp,
-        mcp_resource_artifacts,
-        plugin_summary,
-        skill_summary,
+        observability_lines,
         tasks.len(),
         running_tasks,
         state.hook_total_executions,
@@ -275,6 +281,18 @@ fn diagnostic_issue_line_width(terminal_width: usize) -> usize {
     } else {
         terminal_width.clamp(32, 160)
     }
+}
+
+fn render_diagnostic_overview_rows(rows: &[(&str, &str)], terminal_width: usize) -> String {
+    let max_width = diagnostic_issue_line_width(terminal_width);
+    rows.iter()
+        .map(|(label, value)| diagnostic_overview_row(label, value, max_width))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn diagnostic_overview_row(label: &str, value: &str, max_width: usize) -> String {
+    truncate_visible_width(&format!("  {:<16}{}", label, value), max_width)
 }
 
 fn diagnostic_issues(
@@ -785,6 +803,39 @@ mod tests {
         assert!(rendered.contains("Context summary:"));
         assert!(rendered.contains("Tool summary:"));
         assert!(rendered.contains("Issues:         none"));
+    }
+
+    #[test]
+    fn diagnostics_observability_rows_respect_terminal_width() {
+        let dir = std::env::temp_dir().join(format!(
+            "yode-diagnostics-observability-width-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join(".yode").join("remote")).unwrap();
+        std::fs::write(
+            dir.join(".yode")
+                .join("remote")
+                .join("very-long-remote-live-session-state-for-narrow-terminals.json"),
+            "{}",
+        )
+        .unwrap();
+
+        let rendered = render_diagnostics_overview_with_width(&dir, &state(), &[], 64);
+        let observability_lines = rendered
+            .lines()
+            .skip_while(|line| *line != "Observability:")
+            .skip(1)
+            .take_while(|line| !line.is_empty())
+            .collect::<Vec<_>>();
+
+        assert!(!observability_lines.is_empty());
+        assert!(observability_lines
+            .iter()
+            .all(|line| unicode_width::UnicodeWidthStr::width(*line) <= 64));
+        assert!(observability_lines.iter().any(|line| line.ends_with("...")));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
