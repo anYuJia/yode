@@ -30,6 +30,14 @@ pub(crate) fn render_diagnostics_overview_with_width(
         session_runtime_summary_text(&runtime_snapshot, state.estimated_context_tokens);
     let context_summary = context_window_summary_text(Some(state), state.estimated_context_tokens);
     let tool_summary = tool_runtime_summary_text(state);
+    let summary_lines = render_diagnostic_overview_rows(
+        &[
+            ("Runtime summary:", runtime_summary.as_str()),
+            ("Context summary:", context_summary.as_str()),
+            ("Tool summary:", tool_summary.as_str()),
+        ],
+        terminal_width,
+    );
     let recent_denials = if state.recent_permission_denials.is_empty() {
         "none".to_string()
     } else {
@@ -235,11 +243,9 @@ pub(crate) fn render_diagnostics_overview_with_width(
     );
 
     format!(
-        "Diagnostics overview:\n{}\n\n  Runtime summary: {}\n  Context summary: {}\n  Tool summary:    {}\n\nContext:\n{}\n\nMemory:\n{}\n\nRecovery:\n{}\n\nTools:\n{}\n\nObservability:\n{}\n\nTasks:\n  Total:          {}\n  Running:        {}\n\nHooks:\n{}\n\nTimeline:\n{}",
+        "Diagnostics overview:\n{}\n\n{}\n\nContext:\n{}\n\nMemory:\n{}\n\nRecovery:\n{}\n\nTools:\n{}\n\nObservability:\n{}\n\nTasks:\n  Total:          {}\n  Running:        {}\n\nHooks:\n{}\n\nTimeline:\n{}",
         issue_summary,
-        runtime_summary,
-        context_summary,
-        tool_summary,
+        summary_lines,
         context_lines,
         memory_lines,
         recovery_lines,
@@ -866,6 +872,36 @@ mod tests {
         assert!(rendered.contains("Context summary:"));
         assert!(rendered.contains("Tool summary:"));
         assert!(rendered.contains("Issues:         none"));
+    }
+
+    #[test]
+    fn diagnostics_summary_rows_respect_terminal_width() {
+        let mut state = state();
+        state.query_source =
+            "VeryLongInteractiveQuerySourceNameThatWouldOtherwiseWrapTheSummary".to_string();
+        state.context_window_tokens = 128_000;
+        state.compaction_threshold_tokens = 96_000;
+        state.estimated_context_tokens = 95_500;
+        state.message_count = 1234;
+        state.tool_progress_event_count = 11;
+        state.current_turn_tool_calls = 9;
+        state.tool_truncation_count = 3;
+        state.parallel_tool_batch_count = 4;
+        state.parallel_tool_call_count = 12;
+
+        let rendered =
+            render_diagnostics_overview_with_width(std::path::Path::new("/tmp"), &state, &[], 64);
+        let summary_lines = rendered
+            .lines()
+            .skip_while(|line| !line.trim_start().starts_with("Runtime summary:"))
+            .take_while(|line| !line.is_empty())
+            .collect::<Vec<_>>();
+
+        assert_eq!(summary_lines.len(), 3);
+        assert!(summary_lines
+            .iter()
+            .all(|line| unicode_width::UnicodeWidthStr::width(*line) <= 64));
+        assert!(summary_lines.iter().any(|line| line.ends_with("...")));
     }
 
     #[test]
