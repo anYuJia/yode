@@ -37,6 +37,7 @@ bash scripts/parity-eighth-verification-note.sh >/dev/null
 bash scripts/parity-ninth-backlog-note.sh >/dev/null
 bash scripts/release-final-gap-report.sh >/dev/null
 bash scripts/release-config-compat-audit.sh >/dev/null
+bash scripts/release-candidate-note.sh >/dev/null
 bash scripts/parity-owner-enforcement.sh >/dev/null
 bash scripts/parity-risk-register.sh >/dev/null
 bash scripts/parity-limitations-ci.sh >/dev/null
@@ -108,6 +109,7 @@ required_docs=(
   docs/optimization/300-eighth-ninth-backlog-seed.md
   docs/optimization/302-four-month-final-gap-report.md
   docs/optimization/303-release-config-compat-audit.md
+  docs/optimization/304-four-month-release-note-draft.md
 )
 
 for doc in "${required_docs[@]}"; do
@@ -160,5 +162,7 @@ rg -q 'Accepted Non-Goals' docs/optimization/302-four-month-final-gap-report.md
 rg -q 'bash scripts/release-checklist.sh' docs/optimization/302-four-month-final-gap-report.md
 rg -q 'Release Config Compatibility Audit' docs/optimization/303-release-config-compat-audit.md
 rg -q 'cargo test -q -p yode-core config' docs/optimization/303-release-config-compat-audit.md
+rg -q 'Four-Month Release Candidate Note' docs/optimization/304-four-month-release-note-draft.md
+rg -q 'does not claim Claude-hosted remote infrastructure' docs/optimization/304-four-month-release-note-draft.md
 
 echo "Parity docs CI ok"
