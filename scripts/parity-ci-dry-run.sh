@@ -38,6 +38,7 @@ bash -n \
   scripts/parity-limitations-ci.sh \
   scripts/parity-release-note.sh \
   scripts/release-final-gap-report.sh \
+  scripts/release-config-compat-audit.sh \
   scripts/parity-ci-local.sh \
   scripts/parity-fixture-generate.sh \
   scripts/parity-fixture-minimize.sh \

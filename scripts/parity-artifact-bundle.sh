@@ -51,7 +51,8 @@ for doc in \
   269-eighth-failure-report-template.md \
   parity-contract-triage-template.md \
   270-eighth-stored-artifact-closeout.md \
-  302-four-month-final-gap-report.md
+  302-four-month-final-gap-report.md \
+  303-release-config-compat-audit.md
 do
   copy_if_present "$docs_dir/$doc" "$out_dir/docs/$doc"
 done
