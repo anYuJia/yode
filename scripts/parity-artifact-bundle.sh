@@ -53,7 +53,8 @@ for doc in \
   270-eighth-stored-artifact-closeout.md \
   302-four-month-final-gap-report.md \
   303-release-config-compat-audit.md \
-  304-four-month-release-note-draft.md
+  304-four-month-release-note-draft.md \
+  305-release-benchmark-evidence.md
 do
   copy_if_present "$docs_dir/$doc" "$out_dir/docs/$doc"
 done
