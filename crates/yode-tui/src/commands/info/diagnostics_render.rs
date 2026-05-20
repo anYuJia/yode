@@ -141,6 +141,34 @@ pub(crate) fn render_diagnostics_overview_with_width(
         ],
         terminal_width,
     );
+    let live_memory = format!(
+        "{}{}",
+        if state.live_session_memory_initialized {
+            "warm"
+        } else {
+            "cold"
+        },
+        if state.live_session_memory_updating {
+            " (updating)"
+        } else {
+            ""
+        }
+    );
+    let memory_updates = state.session_memory_update_count.to_string();
+    let memory_lines = render_diagnostic_overview_rows(
+        &[
+            ("Live memory:", live_memory.as_str()),
+            ("Memory updates:", memory_updates.as_str()),
+            (
+                "Last memory:",
+                state
+                    .last_session_memory_update_path
+                    .as_deref()
+                    .unwrap_or("none"),
+            ),
+        ],
+        terminal_width,
+    );
     let recovery_lines = render_diagnostic_overview_rows(
         &[
             ("State:", state.recovery_state.as_str()),
@@ -195,27 +223,13 @@ pub(crate) fn render_diagnostics_overview_with_width(
     );
 
     format!(
-        "Diagnostics overview:\n{}\n\n  Runtime summary: {}\n  Context summary: {}\n  Tool summary:    {}\n\nContext:\n{}\n\nMemory:\n  Live memory:    {}{}\n  Memory updates: {}\n  Last memory:    {}\n\nRecovery:\n{}\n\nTools:\n{}\n\nObservability:\n{}\n\nTasks:\n  Total:          {}\n  Running:        {}\n\nHooks:\n  Total runs:     {}\n  Timeouts:       {}\n  Wake notices:   {}\n\nTimeline:\n{}",
+        "Diagnostics overview:\n{}\n\n  Runtime summary: {}\n  Context summary: {}\n  Tool summary:    {}\n\nContext:\n{}\n\nMemory:\n{}\n\nRecovery:\n{}\n\nTools:\n{}\n\nObservability:\n{}\n\nTasks:\n  Total:          {}\n  Running:        {}\n\nHooks:\n  Total runs:     {}\n  Timeouts:       {}\n  Wake notices:   {}\n\nTimeline:\n{}",
         issue_summary,
         runtime_summary,
         context_summary,
         tool_summary,
         context_lines,
-        if state.live_session_memory_initialized {
-            "warm"
-        } else {
-            "cold"
-        },
-        if state.live_session_memory_updating {
-            " (updating)"
-        } else {
-            ""
-        },
-        state.session_memory_update_count,
-        state
-            .last_session_memory_update_path
-            .as_deref()
-            .unwrap_or("none"),
+        memory_lines,
         recovery_lines,
         tool_lines,
         observability_lines,
@@ -872,6 +886,33 @@ mod tests {
             .iter()
             .all(|line| unicode_width::UnicodeWidthStr::width(*line) <= 64));
         assert!(context_lines.iter().any(|line| line.ends_with("...")));
+    }
+
+    #[test]
+    fn diagnostics_memory_rows_respect_terminal_width() {
+        let mut state = state();
+        state.live_session_memory_initialized = true;
+        state.live_session_memory_updating = true;
+        state.session_memory_update_count = 17;
+        state.last_session_memory_update_path = Some(
+            "/tmp/.yode/memory/very-long-session-memory-update-path-for-narrow-terminals.md"
+                .to_string(),
+        );
+
+        let rendered =
+            render_diagnostics_overview_with_width(std::path::Path::new("/tmp"), &state, &[], 64);
+        let memory_lines = rendered
+            .lines()
+            .skip_while(|line| *line != "Memory:")
+            .skip(1)
+            .take_while(|line| !line.is_empty())
+            .collect::<Vec<_>>();
+
+        assert!(!memory_lines.is_empty());
+        assert!(memory_lines
+            .iter()
+            .all(|line| unicode_width::UnicodeWidthStr::width(*line) <= 64));
+        assert!(memory_lines.iter().any(|line| line.ends_with("...")));
     }
 
     #[test]
