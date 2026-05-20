@@ -111,6 +111,36 @@ pub(crate) fn render_diagnostics_overview_with_width(
             .map(|path| path.display().to_string())
             .unwrap_or_else(|| "none".to_string());
     let issue_summary = render_diagnostic_issue_summary(project_root, state, tasks, terminal_width);
+    let compact_count = format!(
+        "{} (auto {}, manual {})",
+        state.total_compactions, state.auto_compactions, state.manual_compactions
+    );
+    let compact_tokens = state
+        .last_compaction_prompt_tokens
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "none".to_string());
+    let media_compact = format!(
+        "last {} / total {} removed, saved ~{} chars",
+        state.last_microcompact_media_removed,
+        state.microcompact_media_removed_total,
+        state.microcompact_media_saved_chars_total
+    );
+    let context_lines = render_diagnostic_overview_rows(
+        &[
+            ("Query source:", state.query_source.as_str()),
+            ("Compact count:", compact_count.as_str()),
+            (
+                "Breaker reason:",
+                state
+                    .last_compaction_breaker_reason
+                    .as_deref()
+                    .unwrap_or("none"),
+            ),
+            ("Compact tokens:", compact_tokens.as_str()),
+            ("Media compact:", media_compact.as_str()),
+        ],
+        terminal_width,
+    );
     let recovery_lines = render_diagnostic_overview_rows(
         &[
             ("State:", state.recovery_state.as_str()),
@@ -165,26 +195,12 @@ pub(crate) fn render_diagnostics_overview_with_width(
     );
 
     format!(
-        "Diagnostics overview:\n{}\n\n  Runtime summary: {}\n  Context summary: {}\n  Tool summary:    {}\n\nContext:\n  Query source:   {}\n  Compact count:  {} (auto {}, manual {})\n  Breaker reason: {}\n  Compact tokens: {}\n  Media compact:  last {} / total {} removed, saved ~{} chars\n\nMemory:\n  Live memory:    {}{}\n  Memory updates: {}\n  Last memory:    {}\n\nRecovery:\n{}\n\nTools:\n{}\n\nObservability:\n{}\n\nTasks:\n  Total:          {}\n  Running:        {}\n\nHooks:\n  Total runs:     {}\n  Timeouts:       {}\n  Wake notices:   {}\n\nTimeline:\n{}",
+        "Diagnostics overview:\n{}\n\n  Runtime summary: {}\n  Context summary: {}\n  Tool summary:    {}\n\nContext:\n{}\n\nMemory:\n  Live memory:    {}{}\n  Memory updates: {}\n  Last memory:    {}\n\nRecovery:\n{}\n\nTools:\n{}\n\nObservability:\n{}\n\nTasks:\n  Total:          {}\n  Running:        {}\n\nHooks:\n  Total runs:     {}\n  Timeouts:       {}\n  Wake notices:   {}\n\nTimeline:\n{}",
         issue_summary,
         runtime_summary,
         context_summary,
         tool_summary,
-        state.query_source,
-        state.total_compactions,
-        state.auto_compactions,
-        state.manual_compactions,
-        state
-            .last_compaction_breaker_reason
-            .as_deref()
-            .unwrap_or("none"),
-        state
-            .last_compaction_prompt_tokens
-            .map(|value| value.to_string())
-            .unwrap_or_else(|| "none".to_string()),
-        state.last_microcompact_media_removed,
-        state.microcompact_media_removed_total,
-        state.microcompact_media_saved_chars_total,
+        context_lines,
         if state.live_session_memory_initialized {
             "warm"
         } else {
@@ -826,6 +842,36 @@ mod tests {
         assert!(rendered.contains("Context summary:"));
         assert!(rendered.contains("Tool summary:"));
         assert!(rendered.contains("Issues:         none"));
+    }
+
+    #[test]
+    fn diagnostics_context_rows_respect_terminal_width() {
+        let mut state = state();
+        state.query_source = "VeryLongUserFacingQuerySourceValueForNarrowTerminals".to_string();
+        state.total_compactions = 12;
+        state.auto_compactions = 10;
+        state.manual_compactions = 2;
+        state.last_compaction_breaker_reason =
+            Some("BecauseThePromptIncludedAnExceptionallyLongReasonThatShouldTruncate".to_string());
+        state.last_compaction_prompt_tokens = Some(9876);
+        state.last_microcompact_media_removed = 4;
+        state.microcompact_media_removed_total = 88;
+        state.microcompact_media_saved_chars_total = 12345;
+
+        let rendered =
+            render_diagnostics_overview_with_width(std::path::Path::new("/tmp"), &state, &[], 64);
+        let context_lines = rendered
+            .lines()
+            .skip_while(|line| *line != "Context:")
+            .skip(1)
+            .take_while(|line| !line.is_empty())
+            .collect::<Vec<_>>();
+
+        assert!(!context_lines.is_empty());
+        assert!(context_lines
+            .iter()
+            .all(|line| unicode_width::UnicodeWidthStr::width(*line) <= 64));
+        assert!(context_lines.iter().any(|line| line.ends_with("...")));
     }
 
     #[test]
