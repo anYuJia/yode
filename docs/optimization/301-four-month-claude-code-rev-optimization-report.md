@@ -610,6 +610,7 @@ Progress:
 
 - 2026-05-20: Added a compact `/context` mix bar with system/user/assistant/tool/restore proportions, role-aware token estimates, and focused narrow-line tests. Verified with `cargo test -q -p yode-tui context_cmd`. Remaining risk: the bar uses display/runtime approximations rather than provider-specific tokenizer accounting, and diagnostics UI grouping remains pending.
 - 2026-05-20: Added `/diagnostics` top-issue severity grouping with quick action hints for recovery, permissions, hooks, plugin/skill diagnostics, context pressure, tool truncation/errors, and running tasks, plus CJK/narrow-width truncation coverage. Verified with `cargo test -q -p yode-tui diagnostics`. Remaining risk: rows are command-hint driven rather than directly navigable inspector links; artifact/file row navigation remains pending.
+- 2026-05-20: Added inspector navigation hints to each `/diagnostics` top-issue row, routing runtime issues to latest recovery/permission/tool/compact/task artifacts when available and plugin/skill issues to inspectable manifest or skill files with short relative paths. Verified with `cargo test -q -p yode-tui diagnostics`. Remaining risk: some rows still fall back to command inspectors when no artifact has been emitted yet.
 
 ### Week 15: CI Contract Consolidation
 

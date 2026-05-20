@@ -196,6 +196,7 @@ struct DiagnosticIssue {
     title: String,
     detail: String,
     action: &'static str,
+    inspect: String,
 }
 
 fn render_diagnostic_issue_summary(
@@ -241,8 +242,8 @@ fn render_diagnostic_issue_lines(issues: &[DiagnosticIssue], max_width: usize) -
         }
         lines.push(truncate_visible_width(
             &format!(
-                "    - {}: {} -> {}",
-                issue.title, issue.detail, issue.action
+                "    - {}: {} -> {} · inspect {}",
+                issue.title, issue.detail, issue.action, issue.inspect
             ),
             max_width,
         ));
@@ -264,6 +265,11 @@ fn diagnostic_issues(
             title: "Recovery".to_string(),
             detail: format!("state={}", state.recovery_state),
             action: "/status recovery",
+            inspect: runtime_artifact_inspect_command(
+                state.last_recovery_artifact_path.as_deref(),
+                "latest-recovery",
+                "/inspect status",
+            ),
         });
     }
     if state.hook_timeout_count > 0 || state.hook_execution_error_count > 0 {
@@ -275,6 +281,15 @@ fn diagnostic_issues(
                 state.hook_timeout_count, state.hook_execution_error_count
             ),
             action: "/hooks",
+            inspect: latest_artifact_inspect_command(
+                project_root,
+                "latest-hook-failures",
+                crate::commands::artifact_nav::latest_artifact_by_suffix(
+                    &project_root.join(".yode").join("status"),
+                    "hook-failures.md",
+                ),
+                "/inspect hooks",
+            ),
         });
     }
     if !state.recent_permission_denials.is_empty() {
@@ -283,25 +298,32 @@ fn diagnostic_issues(
             title: "Permissions".to_string(),
             detail: format!("{} recent denial(s)", state.recent_permission_denials.len()),
             action: "/permissions recovery",
+            inspect: runtime_artifact_inspect_command(
+                state.last_permission_artifact_path.as_deref(),
+                "latest-permission",
+                "/inspect permissions",
+            ),
         });
     }
 
-    let plugin_errors = plugin_manifest_diagnostic_count(project_root);
+    let (plugin_errors, plugin_inspect) = plugin_manifest_diagnostic_summary(project_root);
     if plugin_errors > 0 {
         issues.push(DiagnosticIssue {
             severity: DiagnosticSeverity::Warning,
             title: "Plugins".to_string(),
             detail: format!("{} manifest diagnostic(s)", plugin_errors),
             action: "/plugin list",
+            inspect: plugin_inspect.unwrap_or_else(|| "/inspect diagnostics".to_string()),
         });
     }
-    let skill_errors = skill_diagnostic_count(project_root);
+    let (skill_errors, skill_inspect) = skill_diagnostic_summary(project_root);
     if skill_errors > 0 {
         issues.push(DiagnosticIssue {
             severity: DiagnosticSeverity::Warning,
             title: "Skills".to_string(),
             detail: format!("{} stale reference(s)", skill_errors),
             action: "/skills list",
+            inspect: skill_inspect.unwrap_or_else(|| "/inspect diagnostics".to_string()),
         });
     }
     if state.compaction_failures > 0 {
@@ -310,6 +332,12 @@ fn diagnostic_issues(
             title: "Compaction".to_string(),
             detail: format!("{} failure(s)", state.compaction_failures),
             action: "/compact",
+            inspect: latest_artifact_inspect_command(
+                project_root,
+                "latest-post-compact-restore",
+                crate::commands::artifact_nav::latest_post_compact_restore_artifact(project_root),
+                "/inspect status",
+            ),
         });
     } else if state.compaction_threshold_tokens > 0
         && state.estimated_context_tokens >= state.compaction_threshold_tokens
@@ -322,6 +350,12 @@ fn diagnostic_issues(
                 state.estimated_context_tokens, state.compaction_threshold_tokens
             ),
             action: "/compact",
+            inspect: latest_artifact_inspect_command(
+                project_root,
+                "latest-post-compact-restore",
+                crate::commands::artifact_nav::latest_post_compact_restore_artifact(project_root),
+                "/inspect status",
+            ),
         });
     }
     if state.tool_truncation_count > 0 {
@@ -330,6 +364,11 @@ fn diagnostic_issues(
             title: "Tools".to_string(),
             detail: format!("{} truncated result(s)", state.tool_truncation_count),
             action: "/tools diagnostics",
+            inspect: runtime_artifact_inspect_command(
+                state.last_tool_turn_artifact_path.as_deref(),
+                "latest-tool",
+                "/inspect status",
+            ),
         });
     }
     if !state.tool_error_type_counts.is_empty() {
@@ -343,6 +382,11 @@ fn diagnostic_issues(
                 .collect::<Vec<_>>()
                 .join(", "),
             action: "/tools diagnostics",
+            inspect: runtime_artifact_inspect_command(
+                state.last_tool_turn_artifact_path.as_deref(),
+                "latest-tool",
+                "/inspect status",
+            ),
         });
     }
 
@@ -356,6 +400,15 @@ fn diagnostic_issues(
             title: "Tasks".to_string(),
             detail: format!("{} running", running_tasks),
             action: "/tasks summary",
+            inspect: latest_artifact_inspect_command(
+                project_root,
+                "latest-runtime-tasks",
+                crate::commands::artifact_nav::latest_artifact_by_suffix(
+                    &project_root.join(".yode").join("status"),
+                    "runtime-tasks.md",
+                ),
+                "/inspect tasks latest",
+            ),
         });
     }
     if state.tool_progress_event_count > 0 {
@@ -364,6 +417,11 @@ fn diagnostic_issues(
             title: "Tool progress".to_string(),
             detail: format!("{} event(s)", state.tool_progress_event_count),
             action: "/tools diagnostics",
+            inspect: runtime_artifact_inspect_command(
+                state.last_tool_turn_artifact_path.as_deref(),
+                "latest-tool",
+                "/inspect status",
+            ),
         });
     }
 
@@ -371,18 +429,54 @@ fn diagnostic_issues(
     issues
 }
 
-fn plugin_manifest_diagnostic_count(project_root: &std::path::Path) -> usize {
-    yode_core::plugins::PluginRegistry::discover(project_root)
-        .diagnostics()
-        .len()
+fn runtime_artifact_inspect_command(path: Option<&str>, alias: &str, fallback: &str) -> String {
+    path.filter(|path| std::path::Path::new(path).exists())
+        .map(|_| format!("/inspect artifact {}", alias))
+        .unwrap_or_else(|| fallback.to_string())
 }
 
-fn skill_diagnostic_count(project_root: &std::path::Path) -> usize {
-    yode_core::skills::SkillRegistry::discover(&yode_core::skills::SkillRegistry::default_paths(
-        project_root,
-    ))
-    .diagnostics()
-    .len()
+fn latest_artifact_inspect_command(
+    _project_root: &std::path::Path,
+    alias: &str,
+    path: Option<std::path::PathBuf>,
+    fallback: &str,
+) -> String {
+    path.filter(|path| path.exists())
+        .map(|_| format!("/inspect artifact {}", alias))
+        .unwrap_or_else(|| fallback.to_string())
+}
+
+fn plugin_manifest_diagnostic_summary(project_root: &std::path::Path) -> (usize, Option<String>) {
+    let registry = yode_core::plugins::PluginRegistry::discover(project_root);
+    let diagnostics = registry.diagnostics();
+    let inspect = diagnostics
+        .first()
+        .map(|diagnostic| diagnostic.manifest_path.as_path())
+        .filter(|path| path.exists())
+        .map(|path| inspect_command_for_path(project_root, path));
+    (diagnostics.len(), inspect)
+}
+
+fn skill_diagnostic_summary(project_root: &std::path::Path) -> (usize, Option<String>) {
+    let registry = yode_core::skills::SkillRegistry::discover(
+        &yode_core::skills::SkillRegistry::default_paths(project_root),
+    );
+    let diagnostics = registry.diagnostics();
+    let inspect = diagnostics
+        .first()
+        .map(|diagnostic| diagnostic.path.as_path())
+        .filter(|path| path.exists())
+        .map(|path| inspect_command_for_path(project_root, path));
+    (diagnostics.len(), inspect)
+}
+
+fn inspect_command_for_path(project_root: &std::path::Path, path: &std::path::Path) -> String {
+    let display = path
+        .strip_prefix(project_root)
+        .ok()
+        .filter(|relative| !relative.as_os_str().is_empty())
+        .unwrap_or(path);
+    format!("/inspect artifact {}", display.display())
 }
 
 fn truncate_visible_width(value: &str, max_width: usize) -> String {
@@ -716,44 +810,110 @@ mod tests {
                 title: "A".to_string(),
                 detail: "a".to_string(),
                 action: "/a",
+                inspect: "/inspect artifact a.md".to_string(),
             },
             DiagnosticIssue {
                 severity: DiagnosticSeverity::Critical,
                 title: "B".to_string(),
                 detail: "b".to_string(),
                 action: "/b",
+                inspect: "/inspect artifact b.md".to_string(),
             },
             DiagnosticIssue {
                 severity: DiagnosticSeverity::Warning,
                 title: "C".to_string(),
                 detail: "c".to_string(),
                 action: "/c",
+                inspect: "/inspect artifact c.md".to_string(),
             },
             DiagnosticIssue {
                 severity: DiagnosticSeverity::Warning,
                 title: "D".to_string(),
                 detail: "d".to_string(),
                 action: "/d",
+                inspect: "/inspect artifact d.md".to_string(),
             },
             DiagnosticIssue {
                 severity: DiagnosticSeverity::Info,
                 title: "E".to_string(),
                 detail: "e".to_string(),
                 action: "/e",
+                inspect: "/inspect artifact e.md".to_string(),
             },
             DiagnosticIssue {
                 severity: DiagnosticSeverity::Info,
                 title: "F".to_string(),
                 detail: "f".to_string(),
                 action: "/f",
+                inspect: "/inspect artifact f.md".to_string(),
             },
         ];
 
         let rendered = render_diagnostic_issue_lines(&issues, 96).join("\n");
 
         assert!(rendered.contains("critical=2 warning=2 info=2"));
-        assert!(rendered.contains("E: e -> /e"));
+        assert!(rendered.contains("E: e -> /e · inspect /inspect artifact e.md"));
         assert!(!rendered.contains("F: f -> /f"));
+    }
+
+    #[test]
+    fn diagnostic_issues_include_inspector_navigation_to_artifacts_and_files() {
+        let dir =
+            std::env::temp_dir().join(format!("yode-diagnostics-inspect-{}", uuid::Uuid::new_v4()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let status_dir = dir.join(".yode").join("status");
+        let plugin_dir = dir.join(".yode").join("plugins").join("broken");
+        std::fs::create_dir_all(&status_dir).unwrap();
+        std::fs::create_dir_all(&plugin_dir).unwrap();
+        let recovery = status_dir.join("recovery.md");
+        let tool = status_dir.join("tool-turn.md");
+        std::fs::write(&recovery, "recovery").unwrap();
+        std::fs::write(&tool, "tool").unwrap();
+        std::fs::write(status_dir.join("a-post-compact-restore.md"), "restore").unwrap();
+        std::fs::write(status_dir.join("a-runtime-tasks.md"), "tasks").unwrap();
+        let manifest = plugin_dir.join("plugin.toml");
+        std::fs::write(&manifest, "not toml [[[[").unwrap();
+
+        let mut state = state();
+        state.recovery_state = "SingleStepMode".to_string();
+        state.last_recovery_artifact_path = Some(recovery.display().to_string());
+        state.compaction_failures = 1;
+        state.tool_truncation_count = 1;
+        state.last_tool_turn_artifact_path = Some(tool.display().to_string());
+        let tasks = vec![RuntimeTask {
+            id: "task-1".to_string(),
+            kind: "subagent".to_string(),
+            source_tool: "agent".to_string(),
+            description: "running".to_string(),
+            status: RuntimeTaskStatus::Running,
+            attempt: 1,
+            retry_of: None,
+            output_path: "/tmp/task.out".to_string(),
+            transcript_path: None,
+            created_at: "now".to_string(),
+            started_at: Some("now".to_string()),
+            completed_at: None,
+            last_progress: None,
+            last_progress_at: None,
+            progress_history: Vec::new(),
+            error: None,
+        }];
+
+        let issues = diagnostic_issues(&dir, &state, &tasks);
+        let rendered = render_diagnostic_issue_lines(&issues, 160).join("\n");
+
+        assert!(rendered.contains("Recovery: state=SingleStepMode -> /status recovery · inspect /inspect artifact latest-recovery"));
+        assert!(rendered.contains(
+            "Plugins: 1 manifest diagnostic(s) -> /plugin list · inspect /inspect artifact "
+        ));
+        assert!(rendered.contains("plugin.toml"));
+        assert!(rendered.contains("Compaction: 1 failure(s) -> /compact · inspect /inspect artifact latest-post-compact-restore"));
+        assert!(rendered.contains("Tools: 1 truncated result(s) -> /tools diagnostics · inspect /inspect artifact latest-tool"));
+        assert!(rendered.contains(
+            "Tasks: 1 running -> /tasks summary · inspect /inspect artifact latest-runtime-tasks"
+        ));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
