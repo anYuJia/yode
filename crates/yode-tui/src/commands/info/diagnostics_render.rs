@@ -222,9 +222,20 @@ pub(crate) fn render_diagnostics_overview_with_width(
         ],
         terminal_width,
     );
+    let hook_total_runs = state.hook_total_executions.to_string();
+    let hook_timeouts = state.hook_timeout_count.to_string();
+    let hook_wake_notices = state.hook_wake_notification_count.to_string();
+    let hook_lines = render_diagnostic_overview_rows(
+        &[
+            ("Total runs:", hook_total_runs.as_str()),
+            ("Timeouts:", hook_timeouts.as_str()),
+            ("Wake notices:", hook_wake_notices.as_str()),
+        ],
+        terminal_width,
+    );
 
     format!(
-        "Diagnostics overview:\n{}\n\n  Runtime summary: {}\n  Context summary: {}\n  Tool summary:    {}\n\nContext:\n{}\n\nMemory:\n{}\n\nRecovery:\n{}\n\nTools:\n{}\n\nObservability:\n{}\n\nTasks:\n  Total:          {}\n  Running:        {}\n\nHooks:\n  Total runs:     {}\n  Timeouts:       {}\n  Wake notices:   {}\n\nTimeline:\n{}",
+        "Diagnostics overview:\n{}\n\n  Runtime summary: {}\n  Context summary: {}\n  Tool summary:    {}\n\nContext:\n{}\n\nMemory:\n{}\n\nRecovery:\n{}\n\nTools:\n{}\n\nObservability:\n{}\n\nTasks:\n  Total:          {}\n  Running:        {}\n\nHooks:\n{}\n\nTimeline:\n{}",
         issue_summary,
         runtime_summary,
         context_summary,
@@ -236,9 +247,7 @@ pub(crate) fn render_diagnostics_overview_with_width(
         observability_lines,
         tasks.len(),
         running_tasks,
-        state.hook_total_executions,
-        state.hook_timeout_count,
-        state.hook_wake_notification_count,
+        hook_lines,
         timeline,
     )
 }
@@ -943,6 +952,29 @@ mod tests {
             .iter()
             .all(|line| unicode_width::UnicodeWidthStr::width(*line) <= 64));
         assert!(timeline_lines.iter().any(|line| line.ends_with("...")));
+    }
+
+    #[test]
+    fn diagnostics_hook_rows_respect_terminal_width() {
+        let mut state = state();
+        state.hook_total_executions = 12345;
+        state.hook_timeout_count = 67;
+        state.hook_wake_notification_count = 890;
+
+        let rendered =
+            render_diagnostics_overview_with_width(std::path::Path::new("/tmp"), &state, &[], 32);
+        let hook_lines = rendered
+            .lines()
+            .skip_while(|line| *line != "Hooks:")
+            .skip(1)
+            .take_while(|line| !line.is_empty())
+            .collect::<Vec<_>>();
+
+        assert!(!hook_lines.is_empty());
+        assert!(hook_lines
+            .iter()
+            .all(|line| unicode_width::UnicodeWidthStr::width(*line) <= 32));
+        assert!(hook_lines.iter().any(|line| line.contains("Total runs:")));
     }
 
     #[test]
