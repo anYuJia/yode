@@ -5,10 +5,20 @@ use crate::ui::status_summary::{
     tool_runtime_summary_text,
 };
 
+#[cfg(test)]
 pub(crate) fn render_diagnostics_overview(
     project_root: &std::path::Path,
     state: &yode_core::engine::EngineRuntimeState,
     tasks: &[yode_tools::RuntimeTask],
+) -> String {
+    render_diagnostics_overview_with_width(project_root, state, tasks, 96)
+}
+
+pub(crate) fn render_diagnostics_overview_with_width(
+    project_root: &std::path::Path,
+    state: &yode_core::engine::EngineRuntimeState,
+    tasks: &[yode_tools::RuntimeTask],
+    terminal_width: usize,
 ) -> String {
     let running_tasks = tasks
         .iter()
@@ -100,7 +110,7 @@ pub(crate) fn render_diagnostics_overview(
         crate::commands::artifact_nav::latest_hook_deferred_state_artifact(project_root)
             .map(|path| path.display().to_string())
             .unwrap_or_else(|| "none".to_string());
-    let issue_summary = render_diagnostic_issue_summary(project_root, state, tasks);
+    let issue_summary = render_diagnostic_issue_summary(project_root, state, tasks, terminal_width);
     let progress_line = format!(
         "{} ({})",
         state.tool_progress_event_count, tool_progress_summary
@@ -203,17 +213,21 @@ fn render_diagnostic_issue_summary(
     project_root: &std::path::Path,
     state: &yode_core::engine::EngineRuntimeState,
     tasks: &[yode_tools::RuntimeTask],
+    terminal_width: usize,
 ) -> String {
     let issues = diagnostic_issues(project_root, state, tasks);
-    render_diagnostic_issue_lines(&issues, 96).join("\n")
+    render_diagnostic_issue_lines(&issues, diagnostic_issue_line_width(terminal_width)).join("\n")
 }
 
 fn render_diagnostic_issue_lines(issues: &[DiagnosticIssue], max_width: usize) -> Vec<String> {
+    let max_width = diagnostic_issue_line_width(max_width);
     if issues.is_empty() {
         return vec![
-            "  Issues:         none".to_string(),
-            "  Next action:    continue current work; use /status for full runtime detail"
-                .to_string(),
+            truncate_visible_width("  Issues:         none", max_width),
+            truncate_visible_width(
+                "  Next action:    continue current work; use /status for full runtime detail",
+                max_width,
+            ),
         ];
     }
 
@@ -230,9 +244,12 @@ fn render_diagnostic_issue_lines(issues: &[DiagnosticIssue], max_width: usize) -
         .filter(|issue| issue.severity == DiagnosticSeverity::Info)
         .count();
 
-    let mut lines = vec![format!(
-        "  Issues:         critical={} warning={} info={}",
-        critical, warning, info
+    let mut lines = vec![truncate_visible_width(
+        &format!(
+            "  Issues:         critical={} warning={} info={}",
+            critical, warning, info
+        ),
+        max_width,
     )];
     let mut previous = None;
     for issue in issues.iter().take(5) {
@@ -250,6 +267,14 @@ fn render_diagnostic_issue_lines(issues: &[DiagnosticIssue], max_width: usize) -
     }
 
     lines
+}
+
+fn diagnostic_issue_line_width(terminal_width: usize) -> usize {
+    if terminal_width == 0 {
+        96
+    } else {
+        terminal_width.min(160).max(32)
+    }
 }
 
 fn diagnostic_issues(
@@ -578,7 +603,8 @@ mod tests {
     use yode_tools::{RuntimeTask, RuntimeTaskStatus};
 
     use super::{
-        diagnostic_issues, render_diagnostic_issue_lines, render_diagnostics_overview,
+        diagnostic_issue_line_width, diagnostic_issues, render_diagnostic_issue_lines,
+        render_diagnostics_overview, render_diagnostics_overview_with_width,
         truncate_visible_width, DiagnosticIssue, DiagnosticSeverity,
     };
 
@@ -762,6 +788,26 @@ mod tests {
     }
 
     #[test]
+    fn diagnostics_overview_accepts_terminal_width_for_issue_summary() {
+        let mut state = state();
+        state.recovery_state = "NeedUserGuidance".to_string();
+        state.last_recovery_artifact_path = Some("/missing/recovery.md".to_string());
+
+        let rendered =
+            render_diagnostics_overview_with_width(std::path::Path::new("/tmp"), &state, &[], 56);
+
+        assert!(rendered.contains("Issues:"));
+        assert!(rendered.contains("Recovery: state=NeedUserGuidance"));
+        let issue_lines = rendered
+            .lines()
+            .take_while(|line| !line.trim_start().starts_with("Runtime summary:"))
+            .collect::<Vec<_>>();
+        assert!(issue_lines
+            .iter()
+            .all(|line| unicode_width::UnicodeWidthStr::width(*line) <= 56));
+    }
+
+    #[test]
     fn diagnostic_issues_group_severity_and_action_hints() {
         let mut state = state();
         state.recovery_state = "SingleStepMode".to_string();
@@ -854,6 +900,30 @@ mod tests {
         assert!(rendered.contains("critical=2 warning=2 info=2"));
         assert!(rendered.contains("E: e -> /e · inspect /inspect artifact e.md"));
         assert!(!rendered.contains("F: f -> /f"));
+    }
+
+    #[test]
+    fn diagnostic_issue_lines_cover_narrow_normal_and_wide_widths() {
+        let issues = vec![DiagnosticIssue {
+            severity: DiagnosticSeverity::Warning,
+            title: "Plugins".to_string(),
+            detail: "1 manifest diagnostic(s)".to_string(),
+            action: "/plugin list",
+            inspect: "/inspect artifact .yode/plugins/broken/plugin.toml".to_string(),
+        }];
+
+        for width in [56, 96, 132] {
+            let rendered = render_diagnostic_issue_lines(&issues, width);
+            assert_eq!(diagnostic_issue_line_width(width), width);
+            assert!(rendered
+                .iter()
+                .all(|line| unicode_width::UnicodeWidthStr::width(line.as_str()) <= width));
+        }
+
+        let narrow = render_diagnostic_issue_lines(&issues, 56).join("\n");
+        assert!(narrow.contains("..."));
+        let wide = render_diagnostic_issue_lines(&issues, 132).join("\n");
+        assert!(wide.contains("/inspect artifact .yode/plugins/broken/plugin.toml"));
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use super::diagnostics_render::render_diagnostics_overview;
+use super::diagnostics_render::render_diagnostics_overview_with_width;
 use crate::commands::context::CommandContext;
 use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
 
@@ -38,10 +38,20 @@ impl Command for DiagnosticsCommand {
             ));
         };
 
-        Ok(CommandOutput::Message(render_diagnostics_overview(
-            std::path::Path::new(&ctx.session.working_dir),
-            &state,
-            &tasks,
-        )))
+        Ok(CommandOutput::Message(
+            render_diagnostics_overview_with_width(
+                std::path::Path::new(&ctx.session.working_dir),
+                &state,
+                &tasks,
+                diagnostics_terminal_width(),
+            ),
+        ))
     }
+}
+
+fn diagnostics_terminal_width() -> usize {
+    crossterm::terminal::size()
+        .ok()
+        .map(|(width, _)| width as usize)
+        .unwrap_or(96)
 }
