@@ -54,7 +54,7 @@ curl -fsSL https://raw.githubusercontent.com/anYuJia/yode/main/install.sh | bash
 ### Cargo
 
 ```bash
-cargo install --git https://github.com/anYuJia/yode.git --tag v0.0.18
+cargo install --git https://github.com/anYuJia/yode.git --tag v0.0.19
 ```
 
 ### Windows
@@ -262,14 +262,14 @@ crates/
 
 ## Latest Release
 
-`0.0.18` focuses on long-session remote continuity, skill persistence, and remote replay/state diagnostics:
+`0.0.19` focuses on terminal command polish, diagnostics readability, and release packaging refinements:
 
-- compact boundaries are recorded as first-class session events
-- restore blocks keep recent skills visible across compact
-- remote transport events are durable JSONL logs with replay diagnostics
-- remote control summaries surface reconstructed transport and queue state
+- `/diagnostics` rows now stay width-aware across narrow and wide terminals
+- `/context` runtime details truncate long compact, memory, prompt-cache, and task summaries cleanly
+- README and release packaging include the refreshed Yode icon asset
+- parity and release validation docs remain linked for final tag checks
 
-Release: [v0.0.18](https://github.com/anYuJia/yode/releases/tag/v0.0.18)
+Release: [v0.0.19](https://github.com/anYuJia/yode/releases/tag/v0.0.19)
 
 ## Contributing
 
