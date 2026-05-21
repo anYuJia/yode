@@ -4,6 +4,7 @@ use crate::commands::info::status::helpers::compact_breaker_hint;
 use crate::commands::{Command, CommandCategory, CommandMeta, CommandOutput, CommandResult};
 use crate::display_text::compact_path_tail;
 use crate::ui::status_summary::{context_window_summary_text, tool_runtime_summary_text};
+use unicode_width::UnicodeWidthStr;
 use yode_core::engine::{EngineRuntimeState, PromptCacheRuntimeState, RestoreBudgetRuntimeState};
 
 pub struct ContextCommand {
@@ -56,7 +57,14 @@ impl Command for ContextCommand {
             total_chars / 4,
         );
         let runtime_lines = if let Some(state) = runtime {
-            render_runtime_context_lines(&state, &usage_mix, total_chars / 4, pct, threshold)
+            render_runtime_context_lines(
+                &state,
+                &usage_mix,
+                total_chars / 4,
+                pct,
+                threshold,
+                context_terminal_width(),
+            )
         } else {
             String::new()
         };
@@ -80,48 +88,138 @@ fn render_runtime_context_lines(
     fallback_tokens: usize,
     pct: f64,
     threshold: usize,
+    terminal_width: usize,
 ) -> String {
     let prompt_cache = prompt_cache_summary(&state.prompt_cache);
     let compact_artifacts = compact_artifact_summary(state);
-    format!(
-        "\n  Mix detail:      {}\n  Summary:         {}\n  Messages:        {}\n  Compaction line: ~{} tokens\n  Pressure:        {}\n  Post-compact:    {}\n  Restore budget:  {}\n  Async tasks:     {}\n  Collapse:        {}\n  Suggestions:     {}\n  Query source:    {}\n  Autocompact:     {}\n  Compact count:   {} (auto {}, manual {})\n  Breaker reason:  {}\n  Hint:            {}\n  Last compact:    {}\n  Media compact:   last {} / total {} removed, saved ~{} chars\n  Compact files:   {}\n  Prompt cache:    {}\n  Live memory:     {}\n  Tool runtime:    {}\n  Memory updates:  {}",
-        usage_mix.detail_summary(),
-        context_window_summary_text(Some(state), fallback_tokens),
-        state.message_count,
-        state.compaction_threshold_tokens,
-        compact_pressure_hint(state, pct, threshold),
-        post_compact_pressure_summary(state),
-        restore_budget_summary(state.last_restore_budget.as_ref()),
-        state
-            .async_task_restore_summary
-            .as_deref()
-            .unwrap_or("none"),
-        context_collapse_summary(state),
-        context_suggestions_summary(state, pct, threshold),
-        state.query_source,
-        if state.autocompact_disabled {
-            "disabled"
-        } else {
-            "enabled"
-        },
-        state.total_compactions,
-        state.auto_compactions,
-        state.manual_compactions,
-        state
-            .last_compaction_breaker_reason
-            .as_deref()
-            .unwrap_or("none"),
-        compact_breaker_hint(state.last_compaction_breaker_reason.as_deref()),
-        last_compact_summary(state),
-        state.last_microcompact_media_removed,
-        state.microcompact_media_removed_total,
-        state.microcompact_media_saved_chars_total,
-        compact_artifacts,
-        prompt_cache,
-        state.live_session_memory_path,
-        tool_runtime_summary_text(state),
-        state.session_memory_update_count,
-    )
+    let runtime_rows = render_context_overview_rows(
+        vec![
+            ("Mix detail:", usage_mix.detail_summary()),
+            (
+                "Summary:",
+                context_window_summary_text(Some(state), fallback_tokens),
+            ),
+            ("Messages:", state.message_count.to_string()),
+            (
+                "Compaction line:",
+                format!("~{} tokens", state.compaction_threshold_tokens),
+            ),
+            ("Pressure:", compact_pressure_hint(state, pct, threshold)),
+            ("Post-compact:", post_compact_pressure_summary(state)),
+            (
+                "Restore budget:",
+                restore_budget_summary(state.last_restore_budget.as_ref()),
+            ),
+            (
+                "Async tasks:",
+                state
+                    .async_task_restore_summary
+                    .as_deref()
+                    .unwrap_or("none")
+                    .to_string(),
+            ),
+            ("Collapse:", context_collapse_summary(state)),
+            (
+                "Suggestions:",
+                context_suggestions_summary(state, pct, threshold),
+            ),
+            ("Query source:", state.query_source.clone()),
+            (
+                "Autocompact:",
+                if state.autocompact_disabled {
+                    "disabled".to_string()
+                } else {
+                    "enabled".to_string()
+                },
+            ),
+            (
+                "Compact count:",
+                format!(
+                    "{} (auto {}, manual {})",
+                    state.total_compactions, state.auto_compactions, state.manual_compactions
+                ),
+            ),
+            (
+                "Breaker reason:",
+                state
+                    .last_compaction_breaker_reason
+                    .as_deref()
+                    .unwrap_or("none")
+                    .to_string(),
+            ),
+            (
+                "Hint:",
+                compact_breaker_hint(state.last_compaction_breaker_reason.as_deref()).to_string(),
+            ),
+            ("Last compact:", last_compact_summary(state)),
+            (
+                "Media compact:",
+                format!(
+                    "last {} / total {} removed, saved ~{} chars",
+                    state.last_microcompact_media_removed,
+                    state.microcompact_media_removed_total,
+                    state.microcompact_media_saved_chars_total
+                ),
+            ),
+            ("Compact files:", compact_artifacts),
+            ("Prompt cache:", prompt_cache),
+            ("Live memory:", state.live_session_memory_path.clone()),
+            ("Tool runtime:", tool_runtime_summary_text(state)),
+            (
+                "Memory updates:",
+                state.session_memory_update_count.to_string(),
+            ),
+        ],
+        terminal_width,
+    );
+    format!("\n{runtime_rows}")
+}
+
+fn render_context_overview_rows(rows: Vec<(&str, String)>, terminal_width: usize) -> String {
+    let max_width = context_overview_line_width(terminal_width);
+    rows.iter()
+        .map(|(label, value)| context_overview_row(label, value, max_width))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn context_overview_row(label: &str, value: &str, max_width: usize) -> String {
+    truncate_visible_width(&format!("  {:<16}{}", label, value), max_width)
+}
+
+fn context_overview_line_width(terminal_width: usize) -> usize {
+    if terminal_width == 0 {
+        96
+    } else {
+        terminal_width.clamp(32, 160)
+    }
+}
+
+fn truncate_visible_width(value: &str, max_width: usize) -> String {
+    if UnicodeWidthStr::width(value) <= max_width {
+        return value.to_string();
+    }
+    let suffix = "...";
+    let limit = max_width.saturating_sub(suffix.len());
+    let mut out = String::new();
+    let mut width = 0usize;
+    for ch in value.chars() {
+        let ch_width = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+        if width + ch_width > limit {
+            break;
+        }
+        out.push(ch);
+        width += ch_width;
+    }
+    out.push_str(suffix);
+    out
+}
+
+fn context_terminal_width() -> usize {
+    crossterm::terminal::size()
+        .ok()
+        .map(|(width, _)| width as usize)
+        .unwrap_or(96)
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -494,7 +592,7 @@ mod tests {
         compact_artifact_summary, compact_pressure_hint, context_mix_bar,
         context_suggestions_summary, last_compact_summary, post_compact_pressure_summary,
         prompt_cache_summary, proportional_counts, render_context_mix_lines,
-        restore_budget_summary, ContextUsageMix,
+        render_runtime_context_lines, restore_budget_summary, ContextUsageMix,
     };
     use yode_core::engine::{
         EngineRuntimeState, PromptCacheRuntimeState, RestoreBudgetEntryRuntimeState,
@@ -818,6 +916,48 @@ mod tests {
         assert!(rendered
             .lines()
             .all(|line| unicode_width::UnicodeWidthStr::width(line) <= 72));
+    }
+
+    #[test]
+    fn runtime_context_lines_respect_terminal_width() {
+        let mut state = state();
+        state.query_source = "user request with a very long provenance chain".to_string();
+        state.last_compaction_breaker_reason =
+            Some("context pressure from repeated tool fanout and long source files".to_string());
+        state.async_task_restore_summary =
+            Some("2 restored tasks from previous compact, 1 awaiting follow-up review".to_string());
+        state.last_compaction_summary_excerpt =
+            Some("kept the plan, refreshed file list, and trimmed stale search output".to_string());
+        state.last_compaction_session_memory_path =
+            Some("/tmp/project/.yode/memory/session/latest-memory-snapshot.md".to_string());
+        state.live_session_memory_path =
+            "/tmp/project/.yode/memory/live/current-session-memory.md".to_string();
+        state.prompt_cache.last_prompt_cache_break_reason = Some(
+            "tool response changed cache line ordering and exceeded the reuse window".to_string(),
+        );
+        state.prompt_cache.last_prompt_cache_transition_kind =
+            Some("stable after a long prompt cache refill and compaction".to_string());
+        state.system_prompt_segments = vec![SystemPromptSegmentRuntimeState {
+            label: "tools".to_string(),
+            chars: 60_000,
+            estimated_tokens: 15_000,
+        }];
+
+        let rendered = render_runtime_context_lines(
+            &state,
+            &ContextUsageMix::default(),
+            1_024,
+            91.0,
+            96_000,
+            64,
+        );
+
+        assert!(rendered.contains("Mix detail:"));
+        assert!(rendered.contains("Prompt cache:"));
+        assert!(rendered
+            .lines()
+            .all(|line| unicode_width::UnicodeWidthStr::width(line) <= 64));
+        assert!(rendered.contains("..."));
     }
 
     #[test]
