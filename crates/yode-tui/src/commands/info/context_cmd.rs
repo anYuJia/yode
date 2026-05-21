@@ -56,6 +56,7 @@ impl Command for ContextCommand {
             runtime.as_ref(),
             total_chars / 4,
         );
+        let terminal_width = context_terminal_width();
         let runtime_lines = if let Some(state) = runtime {
             render_runtime_context_lines(
                 &state,
@@ -63,7 +64,7 @@ impl Command for ContextCommand {
                 total_chars / 4,
                 pct,
                 threshold,
-                context_terminal_width(),
+                terminal_width,
             )
         } else {
             String::new()
@@ -76,7 +77,7 @@ impl Command for ContextCommand {
             context_window,
             threshold,
             pct,
-            render_context_mix_lines(&usage_mix),
+            render_context_mix_lines(&usage_mix, terminal_width),
             runtime_lines,
         )))
     }
@@ -292,17 +293,61 @@ impl ContextUsageMix {
     }
 }
 
-fn render_context_mix_lines(mix: &ContextUsageMix) -> String {
+fn render_context_mix_lines(mix: &ContextUsageMix, terminal_width: usize) -> String {
     let [system, user, assistant, tool, restore] = mix.percentages();
-    format!(
-        "  Context mix:     [{}]\n                   S system {:>3}%  U user {:>3}%  A assistant {:>3}%\n                   T tool   {:>3}%  R restore {:>3}%",
-        context_mix_bar(mix, 30),
-        system,
-        user,
-        assistant,
-        tool,
-        restore,
-    )
+    let max_width = context_overview_line_width(terminal_width);
+    let bar = context_mix_bar(mix, context_mix_bar_width(mix, max_width));
+    let mut lines = vec![truncate_visible_width(
+        &format!("  Context mix:     [{bar}]"),
+        max_width,
+    )];
+    lines.extend(context_mix_legend_lines(
+        [system, user, assistant, tool, restore],
+        max_width,
+    ));
+    lines.join("\n")
+}
+
+fn context_mix_bar_width(mix: &ContextUsageMix, max_width: usize) -> usize {
+    let nonzero = [mix.system, mix.user, mix.assistant, mix.tool, mix.restore]
+        .into_iter()
+        .filter(|value| *value > 0)
+        .count()
+        .max(1);
+    let frame_width = UnicodeWidthStr::width("  Context mix:     []");
+    max_width.saturating_sub(frame_width).clamp(nonzero, 40)
+}
+
+fn context_mix_legend_lines(
+    [system, user, assistant, tool, restore]: [u8; 5],
+    max_width: usize,
+) -> Vec<String> {
+    let lines = if max_width < 48 {
+        vec![
+            format!("                   S{system:>3} U{user:>3}"),
+            format!("                   A{assistant:>3} T{tool:>3}"),
+            format!("                   R{restore:>3}"),
+        ]
+    } else if max_width < 72 {
+        vec![
+            format!("                   S sys {system:>3}%  U user {user:>3}%"),
+            format!(
+                "                   A asst {assistant:>3}%  T tool {tool:>3}%  R rest {restore:>3}%"
+            ),
+        ]
+    } else {
+        vec![
+            format!(
+                "                   S system {system:>3}%  U user {user:>3}%  A assistant {assistant:>3}%"
+            ),
+            format!("                   T tool   {tool:>3}%  R restore {restore:>3}%"),
+        ]
+    };
+
+    lines
+        .into_iter()
+        .map(|line| truncate_visible_width(&line, max_width))
+        .collect()
 }
 
 fn context_mix_bar(mix: &ContextUsageMix, width: usize) -> String {
@@ -589,7 +634,7 @@ mod tests {
     use crate::app::{ChatEntry, ChatRole};
 
     use super::{
-        compact_artifact_summary, compact_pressure_hint, context_mix_bar,
+        compact_artifact_summary, compact_pressure_hint, context_mix_bar, context_mix_bar_width,
         context_suggestions_summary, last_compact_summary, post_compact_pressure_summary,
         prompt_cache_summary, proportional_counts, render_context_mix_lines,
         render_runtime_context_lines, restore_budget_summary, ContextUsageMix,
@@ -909,13 +954,35 @@ mod tests {
             restore: 5,
         };
 
-        let rendered = render_context_mix_lines(&mix);
+        let rendered = render_context_mix_lines(&mix, 72);
 
         assert!(rendered.contains("Context mix"));
         assert!(rendered.contains("S system"));
         assert!(rendered
             .lines()
             .all(|line| unicode_width::UnicodeWidthStr::width(line) <= 72));
+    }
+
+    #[test]
+    fn context_mix_lines_scale_for_very_narrow_terminals() {
+        let mix = ContextUsageMix {
+            system: 40,
+            user: 30,
+            assistant: 20,
+            tool: 10,
+            restore: 5,
+        };
+
+        let narrow = render_context_mix_lines(&mix, 32);
+        let wide = render_context_mix_lines(&mix, 120);
+
+        assert!(narrow.contains("Context mix"));
+        assert!(narrow
+            .lines()
+            .all(|line| unicode_width::UnicodeWidthStr::width(line) <= 32));
+        assert!(narrow.lines().any(|line| line.contains("S 38 U 29")));
+        assert!(wide.contains("S system"));
+        assert!(context_mix_bar_width(&mix, 120) > context_mix_bar_width(&mix, 32));
     }
 
     #[test]
