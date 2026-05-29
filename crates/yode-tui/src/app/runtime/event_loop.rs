@@ -13,7 +13,6 @@ use yode_tools::RuntimeTaskNotification;
 
 use crate::event::{self, AppEvent};
 use crate::ui;
-use crate::ui::layout::status_area_height;
 
 use super::super::engine_events::handle_engine_event;
 use super::super::key_dispatch::handle_key_event;
@@ -426,21 +425,14 @@ fn viewport_height(app: &App, terminal: &mut Terminal<CrosstermBackend<io::Stdou
     }
 
     let term_width = terminal.get_frame().area().width;
-    let visual_lines = app.input.visual_line_count(term_width) as u16;
-    let completion_lines = if app.cmd_completion.is_active() {
-        if app.cmd_completion.args_hint.is_some() {
-            1
-        } else if !app.cmd_completion.candidates.is_empty() {
-            5
-        } else {
-            0
-        }
+    let inline_height = crate::ui::layout::main_inline_height(app, term_width);
+    if app.chat_scroll_active {
+        let (_, terminal_height) =
+            crossterm::terminal::size().unwrap_or((term_width, inline_height));
+        terminal_height.max(inline_height)
     } else {
-        0
-    };
-    let thinking_line = status_area_height(app, completion_lines);
-    let pending_line = app.pending_inputs.len() as u16;
-    visual_lines.clamp(1, 5) + completion_lines + thinking_line + pending_line + 4
+        inline_height
+    }
 }
 
 fn inspector_viewport_height(app: &App) -> Option<u16> {

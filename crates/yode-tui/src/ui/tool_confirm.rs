@@ -8,6 +8,7 @@ use super::palette::{BORDER_MUTED, ERROR_COLOR, LIGHT, MUTED, PANEL_ACCENT, SELE
 use super::panels::preview_empty_state;
 use crate::app::App;
 use crate::display_text::{compact_path_tail as compact_path, human_tool_display_name};
+use crate::i18n::{text, text_or};
 use crate::tool_grouping::describe_groupable_tool_call;
 use crate::ui::chat::render_markdown_white_with_options;
 
@@ -46,9 +47,9 @@ pub fn render_inline_confirm(frame: &mut Frame, area: Rect, app: &App) {
     let preview = tool_preview_line(&confirm.name, &confirm.arguments);
     let density = confirm_density(panel_area_width(area, frame));
     let options = vec![
-        "Allow once (default)".to_string(),
+        allow_once_option_label(),
         tool_allow_option_label(&confirm.name, &confirm.arguments, &tool_label),
-        "Deny".to_string(),
+        deny_option_label(),
     ];
     let confirm_height = inline_confirm_height(density);
     let panel_area = if area.height >= confirm_height {
@@ -74,7 +75,10 @@ pub fn render_inline_confirm(frame: &mut Frame, area: Rect, app: &App) {
         ]),
         Line::from(vec![
             Span::styled("  ⎿  ", Style::default().fg(MUTED)),
-            Span::styled("Running...", Style::default().fg(MUTED)),
+            Span::styled(
+                text_or("ui.confirm_waiting", "Awaiting approval - not executed yet"),
+                Style::default().fg(MUTED),
+            ),
         ]),
         Line::from(Span::styled(separator, Style::default().fg(BORDER_MUTED))),
         Line::from(vec![Span::styled(
@@ -122,13 +126,19 @@ pub fn render_inline_confirm(frame: &mut Frame, area: Rect, app: &App) {
         lines.extend(prefixed_markdown_lines("   url · ", &url, truncate_width));
     }
     lines.push(Line::from(vec![Span::styled(
-        " This command requires approval",
+        format!(
+            " {}",
+            text_or(
+                "ui.confirm_approval_required",
+                "Approval required before execution"
+            )
+        ),
         Style::default()
             .fg(ERROR_COLOR)
             .add_modifier(Modifier::BOLD),
     )]));
     lines.push(Line::from(vec![Span::styled(
-        " Do you want to proceed?",
+        option_scope_hint(density),
         Style::default().fg(LIGHT),
     )]));
     lines.extend(option_list_lines(&options, app.confirm_selected));
@@ -174,6 +184,33 @@ fn option_list_lines(options: &[String], selected: usize) -> Vec<Line<'static>> 
             )])
         })
         .collect()
+}
+
+fn allow_once_option_label() -> String {
+    text_or("ui.confirm_allow_once", "Allow once (this request only)")
+}
+
+fn deny_option_label() -> String {
+    text_or("ui.confirm_deny_scope", "Deny (skip this tool)")
+}
+
+fn option_scope_hint(density: ConfirmDensity) -> String {
+    match density {
+        ConfirmDensity::Default => format!(
+            " {}",
+            text_or(
+                "ui.confirm_scope_default",
+                "Scope: Always allow trusts this tool for the current session; Deny cancels only this call.",
+            )
+        ),
+        ConfirmDensity::Narrow => format!(
+            " {}",
+            text_or(
+                "ui.confirm_scope_narrow",
+                "Scope: once=this call - always=session - deny=this call",
+            )
+        ),
+    }
 }
 
 fn confirmation_title(app: &App, tool_name: &str, args_json: &str) -> String {
@@ -253,16 +290,30 @@ fn tool_allow_option_label(tool_name: &str, args_json: &str, tool_label: &str) -
         let parsed: serde_json::Value = match serde_json::from_str(args_json) {
             Ok(v) => v,
             Err(_) => {
-                return format!("Always allow: {}", tool_label);
+                return format!(
+                    "{}: {} (session)",
+                    text("ui.confirm_always_allow"),
+                    tool_label
+                );
             }
         };
-        if let Some(command) = parsed.get("command").and_then(|value| value.as_str()) {
-            if let Some(first) = command.split_whitespace().next() {
-                return format!("Always allow: {} *", first);
-            }
+        if parsed
+            .get("command")
+            .and_then(|value| value.as_str())
+            .is_some()
+        {
+            return format!(
+                "{}: {} (session)",
+                text("ui.confirm_always_allow"),
+                tool_label
+            );
         }
     }
-    format!("Always allow: {}", tool_label)
+    format!(
+        "{}: {} (session)",
+        text("ui.confirm_always_allow"),
+        tool_label
+    )
 }
 
 fn tool_activity_summary(app: &App, tool_name: &str, args_json: &str) -> String {
@@ -553,10 +604,11 @@ mod tests {
     use crate::app::App;
 
     use super::{
-        confirm_density, confirmation_primary_value, confirmation_section_title,
-        confirmation_title, inline_confirm_height, option_list_lines, tool_activity_summary,
-        tool_allow_option_label, tool_display_name, tool_preview_line, tool_risk_hint,
-        ConfirmDensity, ConfirmRiskLevel, INLINE_CONFIRM_HEIGHT, INLINE_CONFIRM_VIEWPORT_HEIGHT,
+        allow_once_option_label, confirm_density, confirmation_primary_value,
+        confirmation_section_title, confirmation_title, deny_option_label, inline_confirm_height,
+        option_list_lines, option_scope_hint, tool_activity_summary, tool_allow_option_label,
+        tool_display_name, tool_preview_line, tool_risk_hint, ConfirmDensity, ConfirmRiskLevel,
+        INLINE_CONFIRM_HEIGHT, INLINE_CONFIRM_VIEWPORT_HEIGHT,
     };
 
     fn test_app() -> App {
@@ -643,8 +695,8 @@ mod tests {
         let lines = option_list_lines(
             &[
                 "Allow once (default)".to_string(),
-                "Always allow: Bash".to_string(),
-                "Deny".to_string(),
+                "Always allow: Bash (session)".to_string(),
+                "Deny (skip this tool)".to_string(),
             ],
             0,
         );
@@ -653,8 +705,8 @@ mod tests {
             .map(|line| line.to_string())
             .collect::<Vec<_>>();
         assert!(rendered[0].contains("Allow once"));
-        assert!(rendered[1].contains("Always allow"));
-        assert!(rendered[2].contains("Deny"));
+        assert!(rendered[1].contains("Always allow") || rendered[1].contains("始终允许"));
+        assert!(rendered[2].contains("Deny") || rendered[2].contains("拒绝"));
     }
 
     #[test]
@@ -701,19 +753,29 @@ mod tests {
         let lines = option_list_lines(
             &[
                 "Allow once (default)".to_string(),
-                "Always allow: python *".to_string(),
-                "Deny".to_string(),
+                "Always allow: Bash (session)".to_string(),
+                "Deny (skip this tool)".to_string(),
             ],
             1,
         );
-        assert!(lines[1].to_string().contains("❯ 2. Always allow: python *"));
+        let selected = lines[1].to_string();
+        assert!(
+            selected.contains("❯ 2. Always allow: Bash (session)")
+                || selected.contains("❯ 2. 始终允许: Bash (session)")
+        );
         assert!(lines[0].to_string().contains("1. Allow once (default)"));
     }
 
     #[test]
-    fn bash_allow_option_uses_command_prefix_pattern() {
+    fn confirmation_option_labels_explain_scope() {
         let label = tool_allow_option_label("bash", r#"{"command":"python main.py"}"#, "Bash");
-        assert_eq!(label, "Always allow: python *");
+        assert!(label == "Always allow: Bash (session)" || label == "始终允许: Bash (session)");
+        let allow_once = allow_once_option_label();
+        assert!(allow_once.contains("Allow once") || allow_once.contains("允许一次"));
+        let deny = deny_option_label();
+        assert!(deny.contains("Deny") || deny.contains("拒绝"));
+        let scope = option_scope_hint(ConfirmDensity::Default);
+        assert!(scope.contains("current session") || scope.contains("当前会话"));
     }
 
     #[test]

@@ -12,7 +12,7 @@ use super::palette::{LIGHT, MUTED, SEP};
 use super::responsive::{density_from_width, status_section_mode, Density, StatusSectionMode};
 use super::status_summary::{
     compaction_badge, context_badge, cost_badge, memory_badge, prompt_cache_badge, push_badge,
-    runtime_family_badges, runtime_status_snapshot,
+    runtime_diagnostics_badge, runtime_status_snapshot,
 };
 use crate::app::{App, TurnStatus};
 use yode_core::cost_tracker::estimate_token_cost;
@@ -172,7 +172,7 @@ fn composer_status_spans(app: &App, width: u16) -> Vec<Span<'static>> {
         parts.push(Span::styled("· ", Style::default().fg(SEP)));
     }
 
-    for badge in runtime_family_badges(&snapshot, density) {
+    if let Some(badge) = runtime_diagnostics_badge(&snapshot, density) {
         push_badge(&mut parts, badge);
     }
 

@@ -309,6 +309,31 @@ pub(crate) fn runtime_family_badges(
     badges
 }
 
+pub(crate) fn runtime_diagnostics_badge(
+    snapshot: &RuntimeStatusSnapshot,
+    density: Density,
+) -> Option<StatusBadge> {
+    let count = [
+        snapshot.has_team_artifact,
+        snapshot.has_live_artifact,
+        snapshot.has_defer_artifact,
+    ]
+    .into_iter()
+    .filter(|value| *value)
+    .count();
+    if count == 0 || matches!(density, Density::Narrow) {
+        return None;
+    }
+    Some(StatusBadge {
+        text: match density {
+            Density::Wide => format!("inspect diag{} ", count),
+            Density::Medium => format!("diag{} ", count),
+            Density::Narrow => String::new(),
+        },
+        color: MUTED,
+    })
+}
+
 pub(crate) fn session_runtime_summary_text(
     snapshot: &RuntimeStatusSnapshot,
     fallback_context_tokens: usize,
@@ -525,8 +550,9 @@ fn compact_badge_text(text: &str) -> String {
 mod tests {
     use super::{
         compaction_badge, context_window_summary_text, cost_badge, percentage_label,
-        prompt_cache_badge_from_state, runtime_status_snapshot_from_parts,
-        session_runtime_summary_text, short_tokens, tool_runtime_summary_text, truncate_text,
+        prompt_cache_badge_from_state, runtime_diagnostics_badge,
+        runtime_status_snapshot_from_parts, session_runtime_summary_text, short_tokens,
+        tool_runtime_summary_text, truncate_text, RuntimeStatusSnapshot,
     };
     use crate::ui::responsive::Density;
     use yode_core::engine::{EngineRuntimeState, PromptCacheRuntimeState};
@@ -712,6 +738,23 @@ mod tests {
         assert!(summary.contains("mem 4"));
         assert!(summary.contains("2 tools"));
         assert!(summary.contains("1 jobs"));
+    }
+
+    #[test]
+    fn runtime_diagnostics_badge_collapses_low_frequency_flags() {
+        let snapshot = RuntimeStatusSnapshot {
+            has_team_artifact: true,
+            has_live_artifact: true,
+            has_defer_artifact: false,
+            ..RuntimeStatusSnapshot::default()
+        };
+        assert_eq!(
+            runtime_diagnostics_badge(&snapshot, Density::Wide)
+                .unwrap()
+                .text,
+            "inspect diag2 "
+        );
+        assert!(runtime_diagnostics_badge(&snapshot, Density::Narrow).is_none());
     }
 
     #[test]

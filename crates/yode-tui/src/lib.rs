@@ -8,6 +8,8 @@ pub mod app;
 pub mod commands;
 mod display_text;
 pub mod event;
+mod i18n;
+mod inspector_targets;
 mod mcp_resource_artifacts;
 mod runtime_artifacts;
 mod runtime_display;

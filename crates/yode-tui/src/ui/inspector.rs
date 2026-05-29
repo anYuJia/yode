@@ -6,6 +6,7 @@ use ratatui::Frame;
 
 use super::palette::{BORDER_MUTED, LIGHT, MUTED, PANEL_ACCENT, SELECT_ACCENT, SELECT_BG};
 use super::panels::{footer_hint_line, section_title_line};
+use crate::inspector_targets::read_only_inspector_target_from_command;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InspectorTab {
@@ -27,6 +28,9 @@ pub struct InspectorState {
     pub search_query: String,
     pub last_action_label: Option<String>,
     pub last_action_at: Option<String>,
+    pub last_action_result: Option<InspectorActionResult>,
+    pub last_action_error: Option<String>,
+    pub last_action_detail: Option<String>,
 }
 
 pub(crate) fn inspector_experiment_enabled() -> bool {
@@ -55,6 +59,49 @@ pub struct InspectorDocument {
 pub struct InspectorAction {
     pub label: String,
     pub command: String,
+    pub typed: Option<InspectorTypedAction>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InspectorTypedAction {
+    pub kind: InspectorActionKind,
+    pub target: InspectorActionTarget,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InspectorActionKind {
+    LoadCommand,
+    RunCommand,
+    InternalConfirmAllow,
+    InternalConfirmAlways,
+    InternalConfirmDeny,
+    OpenArtifact,
+    OpenInspectorTarget,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InspectorActionTarget {
+    Command(String),
+    Artifact(String),
+    InspectorTarget(String),
+    Internal,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InspectorActionEffect {
+    LoadCommand(String),
+    RunCommand(String),
+    InternalConfirmAllow,
+    InternalConfirmAlways,
+    InternalConfirmDeny,
+    OpenArtifact { target: String, command: String },
+    OpenInspectorTarget { target: String, command: String },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InspectorActionResult {
+    Success,
+    Failure,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,6 +125,183 @@ impl InspectorState {
             search_query: String::new(),
             last_action_label: None,
             last_action_at: None,
+            last_action_result: None,
+            last_action_error: None,
+            last_action_detail: None,
+        }
+    }
+}
+
+impl InspectorAction {
+    pub(crate) fn command(label: impl Into<String>, command: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            command: command.into(),
+            typed: None,
+        }
+    }
+
+    pub(crate) fn from_command(label: impl Into<String>, command: impl Into<String>) -> Self {
+        let label = label.into();
+        let command = command.into();
+        let label = if label.trim() == command.trim() {
+            inspector_action_label_for_command(&command)
+        } else {
+            label
+        };
+        if let Some(target) = inspect_artifact_target(&command) {
+            return Self::open_artifact(label, command, target);
+        }
+        if let Some(target) = inspect_inspector_target(&command) {
+            return Self::open_inspector_target(label, command, target);
+        }
+        Self::command(label, command)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn load_command(label: impl Into<String>, command: impl Into<String>) -> Self {
+        let command = command.into();
+        Self {
+            label: label.into(),
+            command: command.clone(),
+            typed: Some(InspectorTypedAction {
+                kind: InspectorActionKind::LoadCommand,
+                target: InspectorActionTarget::Command(command),
+            }),
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn run_command(label: impl Into<String>, command: impl Into<String>) -> Self {
+        let command = command.into();
+        Self {
+            label: label.into(),
+            command: command.clone(),
+            typed: Some(InspectorTypedAction {
+                kind: InspectorActionKind::RunCommand,
+                target: InspectorActionTarget::Command(command),
+            }),
+        }
+    }
+
+    pub(crate) fn internal_confirm_allow() -> Self {
+        Self {
+            label: "allow once".to_string(),
+            command: "__yode_confirm_allow__".to_string(),
+            typed: Some(InspectorTypedAction {
+                kind: InspectorActionKind::InternalConfirmAllow,
+                target: InspectorActionTarget::Internal,
+            }),
+        }
+    }
+
+    pub(crate) fn internal_confirm_always() -> Self {
+        Self {
+            label: "always allow".to_string(),
+            command: "__yode_confirm_always__".to_string(),
+            typed: Some(InspectorTypedAction {
+                kind: InspectorActionKind::InternalConfirmAlways,
+                target: InspectorActionTarget::Internal,
+            }),
+        }
+    }
+
+    pub(crate) fn internal_confirm_deny() -> Self {
+        Self {
+            label: "deny".to_string(),
+            command: "__yode_confirm_deny__".to_string(),
+            typed: Some(InspectorTypedAction {
+                kind: InspectorActionKind::InternalConfirmDeny,
+                target: InspectorActionTarget::Internal,
+            }),
+        }
+    }
+
+    pub(crate) fn open_artifact(
+        label: impl Into<String>,
+        command: impl Into<String>,
+        artifact: impl Into<String>,
+    ) -> Self {
+        Self {
+            label: label.into(),
+            command: command.into(),
+            typed: Some(InspectorTypedAction {
+                kind: InspectorActionKind::OpenArtifact,
+                target: InspectorActionTarget::Artifact(artifact.into()),
+            }),
+        }
+    }
+
+    pub(crate) fn open_inspector_target(
+        label: impl Into<String>,
+        command: impl Into<String>,
+        target: impl Into<String>,
+    ) -> Self {
+        Self {
+            label: label.into(),
+            command: command.into(),
+            typed: Some(InspectorTypedAction {
+                kind: InspectorActionKind::OpenInspectorTarget,
+                target: InspectorActionTarget::InspectorTarget(target.into()),
+            }),
+        }
+    }
+
+    pub(crate) fn effect(&self, execute_now: bool) -> InspectorActionEffect {
+        let Some(typed) = &self.typed else {
+            return if execute_now {
+                InspectorActionEffect::RunCommand(self.command.clone())
+            } else {
+                InspectorActionEffect::LoadCommand(self.command.clone())
+            };
+        };
+        match typed.kind {
+            InspectorActionKind::LoadCommand => {
+                if execute_now {
+                    InspectorActionEffect::RunCommand(self.command.clone())
+                } else {
+                    InspectorActionEffect::LoadCommand(self.command.clone())
+                }
+            }
+            InspectorActionKind::RunCommand => {
+                InspectorActionEffect::RunCommand(self.command.clone())
+            }
+            InspectorActionKind::InternalConfirmAllow => {
+                InspectorActionEffect::InternalConfirmAllow
+            }
+            InspectorActionKind::InternalConfirmAlways => {
+                InspectorActionEffect::InternalConfirmAlways
+            }
+            InspectorActionKind::InternalConfirmDeny => InspectorActionEffect::InternalConfirmDeny,
+            InspectorActionKind::OpenArtifact => match &typed.target {
+                InspectorActionTarget::Artifact(_) if execute_now => {
+                    InspectorActionEffect::OpenArtifact {
+                        target: typed.target.name().unwrap_or_default().to_string(),
+                        command: self.command.clone(),
+                    }
+                }
+                _ => InspectorActionEffect::LoadCommand(self.command.clone()),
+            },
+            InspectorActionKind::OpenInspectorTarget => match &typed.target {
+                InspectorActionTarget::InspectorTarget(_) if execute_now => {
+                    InspectorActionEffect::OpenInspectorTarget {
+                        target: typed.target.name().unwrap_or_default().to_string(),
+                        command: self.command.clone(),
+                    }
+                }
+                _ => InspectorActionEffect::LoadCommand(self.command.clone()),
+            },
+        }
+    }
+}
+
+impl InspectorActionTarget {
+    fn name(&self) -> Option<&str> {
+        match self {
+            InspectorActionTarget::Artifact(target)
+            | InspectorActionTarget::InspectorTarget(target)
+            | InspectorActionTarget::Command(target) => Some(target),
+            InspectorActionTarget::Internal => None,
         }
     }
 }
@@ -277,6 +501,29 @@ impl InspectorDocument {
             .or_else(|| self.footer.as_deref().and_then(extract_command_target))
     }
 
+    pub(crate) fn handoff_action(&self) -> Option<InspectorAction> {
+        let panel = self.active_panel()?;
+        if matches!(self.state.focus, InspectorFocus::Actions) && !panel.actions.is_empty() {
+            return panel
+                .actions
+                .get(
+                    self.state
+                        .selected_action
+                        .min(panel.actions.len().saturating_sub(1)),
+                )
+                .cloned();
+        }
+        let line = panel.lines.get(self.state.selected_line)?;
+        if let Some(command) = extract_command_target(line) {
+            Some(InspectorAction::from_command(
+                inspector_action_label_for_command(&command),
+                command,
+            ))
+        } else {
+            panel.actions.first().cloned()
+        }
+    }
+
     pub(crate) fn cycle_action_next(&mut self) {
         let Some(panel) = self.active_panel() else {
             return;
@@ -307,6 +554,44 @@ impl InspectorDocument {
         self.state.last_action_label = Some(label.into());
         self.state.last_action_at =
             Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
+        self.state.last_action_result = None;
+        self.state.last_action_error = None;
+        self.state.last_action_detail = None;
+    }
+
+    pub(crate) fn note_action_succeeded(&mut self, label: impl Into<String>) {
+        self.state.last_action_label = Some(label.into());
+        self.state.last_action_at =
+            Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
+        self.state.last_action_result = Some(InspectorActionResult::Success);
+        self.state.last_action_error = None;
+        self.state.last_action_detail = None;
+    }
+
+    pub(crate) fn note_action_succeeded_with_detail(
+        &mut self,
+        label: impl Into<String>,
+        detail: impl Into<String>,
+    ) {
+        self.state.last_action_label = Some(label.into());
+        self.state.last_action_at =
+            Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
+        self.state.last_action_result = Some(InspectorActionResult::Success);
+        self.state.last_action_error = None;
+        self.state.last_action_detail = Some(detail.into());
+    }
+
+    pub(crate) fn note_action_failed(
+        &mut self,
+        label: impl Into<String>,
+        reason: impl Into<String>,
+    ) {
+        self.state.last_action_label = Some(label.into());
+        self.state.last_action_at =
+            Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
+        self.state.last_action_result = Some(InspectorActionResult::Failure);
+        self.state.last_action_error = Some(reason.into());
+        self.state.last_action_detail = None;
     }
 
     fn sync_scroll(&mut self) {
@@ -419,15 +704,15 @@ pub(crate) fn inspector_action_safety_summary(actions: &[InspectorAction]) -> Op
         .iter()
         .any(|action| action.command.contains("run-write") || action.command.contains(" restore "));
     Some(if has_write {
-        "safety: preview/diff before write or restore".to_string()
+        "safety: Enter loads; Ctrl+Enter runs after preview/diff".to_string()
     } else {
-        "safety: Ctrl+Enter runs the selected action".to_string()
+        "safety: Enter loads the selected action; Ctrl+Enter runs it".to_string()
     })
 }
 
 pub(crate) fn inspector_empty_state_actions(actions: &[&str]) -> Vec<String> {
     if actions.is_empty() {
-        return vec!["no visible lines".to_string()];
+        return vec!["No visible lines; try /status or /inspect status".to_string()];
     }
     actions.iter().map(|action| action.to_string()).collect()
 }
@@ -536,26 +821,44 @@ pub(crate) fn render_inspector(frame: &mut Frame, area: Rect, document: &Inspect
                 InspectorFocus::Actions => "actions",
             },
             document.tab_cycle_summary(),
-            if matches!(document.state.focus, InspectorFocus::Body) && total > 0 {
-                format!(
-                    " · line {}/{}",
-                    document.state.selected_line.min(total.saturating_sub(1)) + 1,
-                    total
-                )
-            } else if document.state.search_active || !document.state.search_query.is_empty() {
-                format!(" · / {}", document.state.search_query)
-            } else if let Some(last_action) = &document.state.last_action_label {
-                format!(
-                    " · last={} @ {}",
-                    last_action,
-                    document
+            {
+                let mut details = Vec::new();
+                if matches!(document.state.focus, InspectorFocus::Body) && total > 0 {
+                    details.push(format!(
+                        " · line {}/{}",
+                        document.state.selected_line.min(total.saturating_sub(1)) + 1,
+                        total
+                    ));
+                }
+                if document.state.search_active || !document.state.search_query.is_empty() {
+                    details.push(format!(" · / {}", document.state.search_query));
+                }
+                if let Some(last_action) = &document.state.last_action_label {
+                    let result = match document.state.last_action_result {
+                        Some(InspectorActionResult::Success) => " ok",
+                        Some(InspectorActionResult::Failure) => " failed",
+                        None => "",
+                    };
+                    let detail = document
                         .state
-                        .last_action_at
+                        .last_action_error
                         .as_deref()
-                        .unwrap_or("unknown")
-                )
-            } else {
-                String::new()
+                        .or(document.state.last_action_detail.as_deref())
+                        .map(|detail| format!(": {}", detail))
+                        .unwrap_or_default();
+                    details.push(format!(
+                        " · last={}{}{} @ {}",
+                        last_action,
+                        result,
+                        detail,
+                        document
+                            .state
+                            .last_action_at
+                            .as_deref()
+                            .unwrap_or("unknown")
+                    ));
+                }
+                details.join("")
             }
         ),
         Style::default().fg(BORDER_MUTED),
@@ -657,22 +960,87 @@ impl PanelStackCoordinator {
 }
 
 fn extract_command_target(text: &str) -> Option<String> {
+    if let Some(start) = text.find("/inspect artifact ") {
+        return extract_command_segment(&text[start..]);
+    }
     let start = text.find('/')?;
-    let rest = &text[start..];
-    let end = rest.find('|').unwrap_or(rest.len());
-    Some(rest[..end].trim().trim_matches('`').to_string())
+    extract_command_segment(&text[start..])
+}
+
+fn extract_command_segment(rest: &str) -> Option<String> {
+    let end = [" · ", " | ", "|"]
+        .iter()
+        .filter_map(|separator| rest.find(separator))
+        .min()
+        .unwrap_or(rest.len());
+    let command = rest[..end].trim().trim_matches('`').to_string();
+    (!command.is_empty()).then_some(command)
+}
+
+fn inspect_artifact_target(command: &str) -> Option<String> {
+    command
+        .trim()
+        .strip_prefix("/inspect artifact ")
+        .map(str::trim)
+        .filter(|target| !target.is_empty())
+        .map(ToString::to_string)
+}
+
+fn inspect_inspector_target(command: &str) -> Option<String> {
+    read_only_inspector_target_from_command(command)
+}
+
+fn inspector_action_label_for_command(command: &str) -> String {
+    if inspect_artifact_target(command).is_some() {
+        "Open artifact".to_string()
+    } else if let Some(target) = inspect_inspector_target(command) {
+        inspector_target_action_label(&target)
+    } else if command.trim().starts_with('/') {
+        "Load command".to_string()
+    } else {
+        "Load prompt".to_string()
+    }
+}
+
+fn inspector_target_action_label(target: &str) -> String {
+    let parts = target.split_whitespace().collect::<Vec<_>>();
+    match parts.as_slice() {
+        ["plugin", "list"] => "Inspect plugins".to_string(),
+        ["plugin", "inspect", name] => format!("Inspect plugin {}", name),
+        ["skills", "list"] => "Inspect skills".to_string(),
+        ["skills", "show", name] => format!("Inspect skill {}", name),
+        ["keys"] => "Inspect keybindings".to_string(),
+        ["help"] => "Open help".to_string(),
+        ["history"] => "Inspect history".to_string(),
+        ["history", "pick"] => "Inspect history picker".to_string(),
+        ["history", "search", ..] => "Inspect history search".to_string(),
+        ["tasks", "read", target] => format!("Inspect task output {}", target),
+        ["teams"] | ["teams", "list"] => "Inspect teams".to_string(),
+        ["teams", "latest"] => "Inspect latest team".to_string(),
+        ["teams", "monitor"] => "Inspect team monitor".to_string(),
+        ["teams", "monitor", selector] => format!("Inspect team monitor {}", selector),
+        ["teams", "messages"] => "Inspect team messages".to_string(),
+        ["teams", "messages", selector] => format!("Inspect team messages {}", selector),
+        ["teams", selector] => format!("Inspect team {}", selector),
+        ["remote-control", "retry-summary"] => "Inspect remote retries".to_string(),
+        _ => format!("Inspect {}", target),
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use ratatui::backend::TestBackend;
+    use ratatui::layout::Rect;
     use ratatui::style::Color;
+    use ratatui::Terminal;
 
     use super::{
         inspector_action_row, inspector_action_safety_summary, inspector_empty_state_actions,
         inspector_experiment_enabled, inspector_footer_text, inspector_pagination_footer,
         inspector_status_badge_row, merge_inspector_footer_note, multi_pane_title_strip,
-        InspectorAction, InspectorBodySource, InspectorDocument, InspectorFocus, InspectorState,
-        InspectorTab, PanelStackCoordinator,
+        render_inspector, InspectorAction, InspectorActionEffect, InspectorActionKind,
+        InspectorActionResult, InspectorActionTarget, InspectorBodySource, InspectorDocument,
+        InspectorFocus, InspectorState, InspectorTab, PanelStackCoordinator,
     };
 
     #[test]
@@ -708,28 +1076,25 @@ mod tests {
         .to_string();
         assert!(ordered.find("state=running").unwrap() < ordered.find("hint=rewrite").unwrap());
         let actions = inspector_action_row(
-            &[InspectorAction {
-                label: "rerun".to_string(),
-                command: "/workflows run latest".to_string(),
-            }],
+            &[InspectorAction::command("rerun", "/workflows run latest")],
             0,
             Color::Green,
             true,
         );
         assert!(actions.to_string().contains("[rerun]"));
-        let safety = inspector_action_safety_summary(&[InspectorAction {
-            label: "restore".to_string(),
-            command: "/checkpoint restore latest".to_string(),
-        }])
+        let safety = inspector_action_safety_summary(&[InspectorAction::command(
+            "restore",
+            "/checkpoint restore latest",
+        )])
         .unwrap();
-        assert!(safety.contains("preview/diff before write"));
+        assert!(safety.contains("Ctrl+Enter runs"));
     }
 
     #[test]
     fn empty_actions_and_pagination_render_fallbacks() {
         assert_eq!(
             inspector_empty_state_actions(&[]),
-            vec!["no visible lines".to_string()]
+            vec!["No visible lines; try /status or /inspect status".to_string()]
         );
         assert!(inspector_pagination_footer(0, 0).contains("0/0"));
         assert!(inspector_pagination_footer(0, 0).contains("Tab panel"));
@@ -757,24 +1122,46 @@ mod tests {
     #[test]
     fn inspector_action_labels_use_open_show_run_verbs() {
         let actions = [
-            InspectorAction {
-                label: "show status".to_string(),
-                command: "/status".to_string(),
-            },
-            InspectorAction {
-                label: "open help".to_string(),
-                command: "/help".to_string(),
-            },
-            InspectorAction {
-                label: "run /compact".to_string(),
-                command: "/compact".to_string(),
-            },
+            InspectorAction::load_command("Inspect status", "/status"),
+            InspectorAction::open_inspector_target("Open help", "/help", "help"),
+            InspectorAction::command("Run compact", "/compact"),
         ];
         assert!(actions.iter().all(|action| {
-            action.label.starts_with("show ")
-                || action.label.starts_with("open ")
-                || action.label.starts_with("run ")
+            action.label.starts_with("Inspect ")
+                || action.label.starts_with("Open ")
+                || action.label.starts_with("Load ")
+                || action.label.starts_with("Run ")
         }));
+
+        assert_eq!(
+            InspectorAction::from_command("/plugin inspect demo", "/plugin inspect demo").label,
+            "Inspect plugin demo"
+        );
+        assert_eq!(
+            InspectorAction::from_command("/skills show rust", "/skills show rust").label,
+            "Inspect skill rust"
+        );
+        assert_eq!(
+            InspectorAction::from_command("/teams monitor team-demo", "/teams monitor team-demo")
+                .label,
+            "Inspect team monitor team-demo"
+        );
+        assert_eq!(
+            InspectorAction::from_command(
+                "/remote-control retry-summary",
+                "/remote-control retry-summary",
+            )
+            .label,
+            "Inspect remote retries"
+        );
+        assert_eq!(
+            InspectorAction::from_command("/help", "/help").label,
+            "Open help"
+        );
+        assert_eq!(
+            InspectorAction::from_command("/history search build", "/history search build").label,
+            "Inspect history search"
+        );
     }
 
     #[test]
@@ -849,13 +1236,643 @@ mod tests {
     #[test]
     fn inspector_action_focus_cycles_when_actions_exist() {
         let mut doc = InspectorDocument::single("demo", vec!["a".to_string()]);
-        doc.panels[0].actions.push(InspectorAction {
-            label: "run".to_string(),
-            command: "/status".to_string(),
-        });
+        doc.panels[0]
+            .actions
+            .push(InspectorAction::load_command("run", "/status"));
         doc.toggle_focus();
         assert!(matches!(doc.state.focus, InspectorFocus::Actions));
         doc.note_action_dispatched("run");
         assert_eq!(doc.state.last_action_label.as_deref(), Some("run"));
+    }
+
+    #[test]
+    fn tab_and_backtab_focus_behaviors_stay_distinct() {
+        let mut doc = InspectorDocument::single("demo", vec!["a".to_string()]);
+        let second_tab = InspectorTab {
+            id: "second".to_string(),
+            label: "Second".to_string(),
+            item_count: Some(1),
+        };
+        doc.state.tabs.push(second_tab.clone());
+        doc.panels.push(super::InspectorPanel {
+            tab: second_tab,
+            lines: vec!["b".to_string()],
+            badges: Vec::new(),
+            actions: vec![InspectorAction::load_command("Inspect status", "/status")],
+        });
+
+        doc.cycle_tab();
+        assert_eq!(doc.state.selected_tab, 1);
+        assert!(matches!(doc.state.focus, InspectorFocus::Body));
+
+        doc.toggle_focus();
+        assert_eq!(doc.state.selected_tab, 1);
+        assert!(matches!(doc.state.focus, InspectorFocus::Actions));
+    }
+
+    #[test]
+    fn typed_action_keeps_legacy_command_handoff() {
+        let mut doc = InspectorDocument::single("demo", vec!["a".to_string()]);
+        doc.panels[0]
+            .actions
+            .push(InspectorAction::load_command("Inspect status", "/status"));
+        doc.toggle_focus();
+
+        let action = doc.handoff_action().unwrap();
+        assert_eq!(action.command, "/status");
+        assert_eq!(doc.handoff_command().as_deref(), Some("/status"));
+        assert_eq!(
+            action.effect(false),
+            InspectorActionEffect::LoadCommand("/status".to_string())
+        );
+        assert_eq!(
+            action.effect(true),
+            InspectorActionEffect::RunCommand("/status".to_string())
+        );
+        assert!(action
+            .typed
+            .as_ref()
+            .is_some_and(|typed| typed.kind == InspectorActionKind::LoadCommand));
+    }
+
+    #[test]
+    fn open_artifact_action_preserves_command_and_uses_execute_fallback() {
+        let action =
+            InspectorAction::from_command("Open artifact", "/inspect artifact history runtime");
+
+        assert_eq!(action.command, "/inspect artifact history runtime");
+        assert_eq!(
+            action.effect(false),
+            InspectorActionEffect::LoadCommand("/inspect artifact history runtime".to_string())
+        );
+        assert_eq!(
+            action.effect(true),
+            InspectorActionEffect::OpenArtifact {
+                target: "history runtime".to_string(),
+                command: "/inspect artifact history runtime".to_string(),
+            }
+        );
+        assert!(action.typed.as_ref().is_some_and(|typed| {
+            typed.kind == InspectorActionKind::OpenArtifact
+                && typed.target == InspectorActionTarget::Artifact("history runtime".to_string())
+        }));
+    }
+
+    #[test]
+    fn open_inspector_target_loads_or_runs_command_handoff() {
+        let action = InspectorAction::open_inspector_target(
+            "Inspect diagnostics",
+            "/diagnostics",
+            "diagnostics",
+        );
+
+        assert_eq!(
+            action.effect(false),
+            InspectorActionEffect::LoadCommand("/diagnostics".to_string())
+        );
+        assert_eq!(
+            action.effect(true),
+            InspectorActionEffect::OpenInspectorTarget {
+                target: "diagnostics".to_string(),
+                command: "/diagnostics".to_string(),
+            }
+        );
+        assert!(action.typed.as_ref().is_some_and(|typed| {
+            typed.kind == InspectorActionKind::OpenInspectorTarget
+                && typed.target == InspectorActionTarget::InspectorTarget("diagnostics".to_string())
+        }));
+    }
+
+    #[test]
+    fn inspect_target_command_is_typed_without_breaking_fallback_command() {
+        let action = InspectorAction::from_command("Inspect status", "/inspect status");
+
+        assert_eq!(action.command, "/inspect status");
+        assert_eq!(
+            action.effect(false),
+            InspectorActionEffect::LoadCommand("/inspect status".to_string())
+        );
+        assert_eq!(
+            action.effect(true),
+            InspectorActionEffect::OpenInspectorTarget {
+                target: "status".to_string(),
+                command: "/inspect status".to_string(),
+            }
+        );
+        assert!(action.typed.as_ref().is_some_and(|typed| {
+            typed.kind == InspectorActionKind::OpenInspectorTarget
+                && typed.target == InspectorActionTarget::InspectorTarget("status".to_string())
+        }));
+    }
+
+    #[test]
+    fn inspect_proxy_command_uses_same_read_only_typed_boundary() {
+        let allowed =
+            InspectorAction::from_command("Inspect checkpoint", "/inspect checkpoint latest");
+        assert_eq!(
+            allowed.effect(true),
+            InspectorActionEffect::OpenInspectorTarget {
+                target: "checkpoint latest".to_string(),
+                command: "/inspect checkpoint latest".to_string(),
+            }
+        );
+
+        for command in [
+            "/inspect workflows run latest",
+            "/inspect permissions governance",
+            "/inspect doctor bundle",
+            "/inspect checkpoint restore latest",
+            "/inspect remote-control doctor",
+            "/inspect hooks",
+        ] {
+            let action = InspectorAction::from_command(command, command);
+            assert_eq!(action.label, "Load command");
+            assert!(action.typed.is_none(), "{} should remain fallback", command);
+            assert_eq!(
+                action.effect(false),
+                InspectorActionEffect::LoadCommand(command.to_string())
+            );
+            assert_eq!(
+                action.effect(true),
+                InspectorActionEffect::RunCommand(command.to_string())
+            );
+        }
+    }
+
+    #[test]
+    fn selected_line_inspect_commands_use_typed_action_with_command_fallback() {
+        let doc = InspectorDocument::single(
+            "diagnostics",
+            vec![
+                "Recovery: ok -> /status".to_string(),
+                "Artifact: inspect /inspect artifact latest-runtime-tasks".to_string(),
+            ],
+        );
+        assert_eq!(doc.handoff_command().as_deref(), Some("/status"));
+        let status_action = doc.handoff_action().unwrap();
+        assert_eq!(status_action.label, "Inspect status");
+        assert_eq!(
+            status_action.effect(true),
+            InspectorActionEffect::OpenInspectorTarget {
+                target: "status".to_string(),
+                command: "/status".to_string(),
+            }
+        );
+
+        let mut doc = doc;
+        doc.move_down();
+        assert_eq!(
+            doc.handoff_command().as_deref(),
+            Some("/inspect artifact latest-runtime-tasks")
+        );
+        let artifact_action = doc.handoff_action().unwrap();
+        assert_eq!(artifact_action.label, "Open artifact");
+        assert_eq!(
+            artifact_action.effect(true),
+            InspectorActionEffect::OpenArtifact {
+                target: "latest-runtime-tasks".to_string(),
+                command: "/inspect artifact latest-runtime-tasks".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn compound_diagnostics_lines_prefer_artifact_inspect_target() {
+        let doc = InspectorDocument::single(
+            "diagnostics",
+            vec![
+                "Tasks: 1 running -> /tasks summary · artifact /inspect artifact latest-runtime-tasks"
+                    .to_string(),
+                "Status: ok -> /status | /diagnostics".to_string(),
+            ],
+        );
+
+        assert_eq!(
+            doc.handoff_command().as_deref(),
+            Some("/inspect artifact latest-runtime-tasks")
+        );
+        let action = doc.handoff_action().unwrap();
+        assert_eq!(action.label, "Open artifact");
+        assert_eq!(
+            action.effect(true),
+            InspectorActionEffect::OpenArtifact {
+                target: "latest-runtime-tasks".to_string(),
+                command: "/inspect artifact latest-runtime-tasks".to_string(),
+            }
+        );
+
+        let mut doc = doc;
+        doc.move_down();
+        assert_eq!(doc.handoff_command().as_deref(), Some("/status"));
+    }
+
+    #[test]
+    fn read_only_tasks_and_reviews_commands_are_typed_inspector_targets() {
+        let tasks = InspectorAction::from_command("/tasks monitor", "/tasks monitor");
+        assert_eq!(tasks.label, "Inspect tasks monitor");
+        assert_eq!(
+            tasks.effect(true),
+            InspectorActionEffect::OpenInspectorTarget {
+                target: "tasks monitor".to_string(),
+                command: "/tasks monitor".to_string(),
+            }
+        );
+
+        let filtered_tasks =
+            InspectorAction::from_command("/tasks latest failed", "/tasks latest failed");
+        assert_eq!(filtered_tasks.label, "Inspect tasks latest failed");
+        assert_eq!(
+            filtered_tasks.effect(true),
+            InspectorActionEffect::OpenInspectorTarget {
+                target: "tasks latest failed".to_string(),
+                command: "/tasks latest failed".to_string(),
+            }
+        );
+
+        let reviews = InspectorAction::from_command("/reviews latest", "/reviews latest");
+        assert_eq!(reviews.label, "Inspect reviews latest");
+        assert_eq!(
+            reviews.effect(true),
+            InspectorActionEffect::OpenInspectorTarget {
+                target: "reviews latest".to_string(),
+                command: "/reviews latest".to_string(),
+            }
+        );
+
+        let team_monitor =
+            InspectorAction::from_command("/teams monitor team-demo", "/teams monitor team-demo");
+        assert_eq!(team_monitor.label, "Inspect team monitor team-demo");
+        assert_eq!(
+            team_monitor.effect(true),
+            InspectorActionEffect::OpenInspectorTarget {
+                target: "teams monitor team-demo".to_string(),
+                command: "/teams monitor team-demo".to_string(),
+            }
+        );
+
+        let task_read = InspectorAction::from_command("/tasks read latest", "/tasks read latest");
+        assert_eq!(task_read.label, "Inspect task output latest");
+        assert_eq!(
+            task_read.effect(true),
+            InspectorActionEffect::OpenInspectorTarget {
+                target: "tasks read latest".to_string(),
+                command: "/tasks read latest".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn mutating_tasks_commands_stay_on_command_string_handoff() {
+        for command in [
+            "/tasks stop latest",
+            "/tasks bundle latest",
+            "/tasks issue latest",
+            "/tasks follow latest",
+        ] {
+            let action = InspectorAction::from_command(command, command);
+            assert_eq!(action.label, "Load command");
+            assert!(action.typed.is_none());
+            assert_eq!(
+                action.effect(false),
+                InspectorActionEffect::LoadCommand(command.to_string())
+            );
+            assert_eq!(
+                action.effect(true),
+                InspectorActionEffect::RunCommand(command.to_string())
+            );
+        }
+    }
+
+    #[test]
+    fn broader_read_only_navigation_commands_are_typed_inspector_targets() {
+        for (command, target, label) in [
+            ("/memory latest", "memory latest", "Inspect memory latest"),
+            (
+                "/memory compare latest latest-1",
+                "memory compare latest latest-1",
+                "Inspect memory compare latest latest-1",
+            ),
+            (
+                "/doctor remote-artifacts",
+                "doctor remote-artifacts",
+                "Inspect doctor remote-artifacts",
+            ),
+            (
+                "/permissions sources",
+                "permissions sources",
+                "Inspect permissions sources",
+            ),
+            (
+                "/permissions denials",
+                "permissions denials",
+                "Inspect permissions denials",
+            ),
+            (
+                "/permissions mode guide",
+                "permissions mode guide",
+                "Inspect permissions mode guide",
+            ),
+            ("/context", "context", "Inspect context"),
+            ("/brief", "brief", "Inspect brief"),
+            ("/files", "files", "Inspect files"),
+            ("/cost", "cost", "Inspect cost"),
+            ("/config", "config", "Inspect config"),
+            ("/version", "version", "Inspect version"),
+            ("/keys", "keys", "Inspect keybindings"),
+            ("/keybindings", "keys", "Inspect keybindings"),
+            ("/time", "time", "Inspect time"),
+            ("/help", "help", "Open help"),
+            ("/history", "history", "Inspect history"),
+            ("/history 20", "history 20", "Inspect history 20"),
+            ("/history pick", "history pick", "Inspect history picker"),
+            (
+                "/history search build-failure",
+                "history search build-failure",
+                "Inspect history search",
+            ),
+            ("/update status", "update status", "Inspect update status"),
+            (
+                "/workflows latest",
+                "workflows latest",
+                "Inspect workflows latest",
+            ),
+            (
+                "/workflows preview latest",
+                "workflows preview latest",
+                "Inspect workflows preview latest",
+            ),
+            (
+                "/coordinate latest",
+                "coordinate latest",
+                "Inspect coordinate latest",
+            ),
+            (
+                "/coordinate history",
+                "coordinate history",
+                "Inspect coordinate history",
+            ),
+            (
+                "/remote-control latest",
+                "remote-control latest",
+                "Inspect remote-control latest",
+            ),
+            (
+                "/remote-control queue",
+                "remote-control queue",
+                "Inspect remote-control queue",
+            ),
+            (
+                "/remote-control tasks",
+                "remote-control tasks",
+                "Inspect remote-control tasks",
+            ),
+            (
+                "/remote-control replay",
+                "remote-control replay",
+                "Inspect remote-control replay",
+            ),
+            (
+                "/remote-control replay latest",
+                "remote-control replay latest",
+                "Inspect remote-control replay latest",
+            ),
+            (
+                "/remote-control retry-summary",
+                "remote-control retry-summary",
+                "Inspect remote retries",
+            ),
+            ("/tools", "tools", "Inspect tools"),
+            ("/tools diag", "tools diag", "Inspect tools diag"),
+            ("/tools list", "tools list", "Inspect tools list"),
+            ("/tools verbose", "tools verbose", "Inspect tools verbose"),
+            ("/plugin list", "plugin list", "Inspect plugins"),
+            (
+                "/plugin inspect demo",
+                "plugin inspect demo",
+                "Inspect plugin demo",
+            ),
+            ("/skills list", "skills list", "Inspect skills"),
+            (
+                "/skills show rust",
+                "skills show rust",
+                "Inspect skill rust",
+            ),
+            ("/teams", "teams", "Inspect teams"),
+            ("/teams list", "teams list", "Inspect teams"),
+            ("/teams latest", "teams latest", "Inspect latest team"),
+            ("/teams monitor", "teams monitor", "Inspect team monitor"),
+            (
+                "/teams monitor team-demo",
+                "teams monitor team-demo",
+                "Inspect team monitor team-demo",
+            ),
+            (
+                "/teams messages team-demo",
+                "teams messages team-demo",
+                "Inspect team messages team-demo",
+            ),
+            (
+                "/teams team-demo",
+                "teams team-demo",
+                "Inspect team team-demo",
+            ),
+            (
+                "/checkpoint list",
+                "checkpoint list",
+                "Inspect checkpoint list",
+            ),
+            (
+                "/checkpoint latest",
+                "checkpoint latest",
+                "Inspect checkpoint latest",
+            ),
+            (
+                "/checkpoint diff latest latest-1",
+                "checkpoint diff latest latest-1",
+                "Inspect checkpoint diff latest latest-1",
+            ),
+            (
+                "/checkpoint branch list",
+                "checkpoint branch list",
+                "Inspect checkpoint branch list",
+            ),
+            (
+                "/checkpoint branch latest",
+                "checkpoint branch latest",
+                "Inspect checkpoint branch latest",
+            ),
+            (
+                "/checkpoint branch diff latest latest-1",
+                "checkpoint branch diff latest latest-1",
+                "Inspect checkpoint branch diff latest latest-1",
+            ),
+            (
+                "/checkpoint rollback list",
+                "checkpoint rollback list",
+                "Inspect checkpoint rollback list",
+            ),
+            (
+                "/checkpoint rollback latest",
+                "checkpoint rollback latest",
+                "Inspect checkpoint rollback latest",
+            ),
+            (
+                "/checkpoint rollback-dry-run latest",
+                "checkpoint rollback-dry-run latest",
+                "Inspect checkpoint rollback-dry-run latest",
+            ),
+            (
+                "/checkpoint rewind-anchor",
+                "checkpoint rewind-anchor",
+                "Inspect checkpoint rewind-anchor",
+            ),
+            (
+                "/checkpoint rewind-anchor latest",
+                "checkpoint rewind-anchor latest",
+                "Inspect checkpoint rewind-anchor latest",
+            ),
+        ] {
+            let action = InspectorAction::from_command(command, command);
+            assert_eq!(action.label, label);
+            assert_eq!(
+                action.effect(true),
+                InspectorActionEffect::OpenInspectorTarget {
+                    target: target.to_string(),
+                    command: command.to_string(),
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn write_or_state_changing_navigation_commands_stay_command_strings() {
+        for command in [
+            "/doctor bundle",
+            "/permissions",
+            "/permissions governance",
+            "/permissions explain bash",
+            "/permissions mode auto",
+            "/permissions add project allow bash echo write=true",
+            "/workflows run latest",
+            "/workflows run-write latest",
+            "/workflows init rust",
+            "/workflows timeline",
+            "/coordinate",
+            "/coordinate timeline",
+            "/hooks",
+            "/mcp",
+            "/mcp reload",
+            "/mcp resources cleanup",
+            "/plugin",
+            "/plugin enable demo",
+            "/plugin disable demo",
+            "/skills",
+            "/skills active",
+            "/skills search rust tui",
+            "/remote-control",
+            "/remote-control plan",
+            "/remote-control session",
+            "/remote-control session status",
+            "/remote-control session sync",
+            "/remote-control transport",
+            "/remote-control transport status",
+            "/remote-control transport connect",
+            "/remote-control transport disconnect",
+            "/remote-control transport reconnect",
+            "/remote-control monitor",
+            "/remote-control doctor",
+            "/remote-control follow latest",
+            "/remote-control dispatch latest",
+            "/remote-control run latest",
+            "/remote-control complete latest remote completion confirmed",
+            "/remote-control fail latest remote failure recorded",
+            "/remote-control retry latest",
+            "/remote-control ack latest",
+            "/remote-control handoff latest",
+            "/remote-control bundle",
+            "/checkpoint",
+            "/checkpoint save handoff",
+            "/checkpoint restore latest",
+            "/checkpoint restore-dry-run latest",
+            "/checkpoint rewind latest",
+            "/checkpoint branch save workstream-a",
+            "/checkpoint branch merge latest",
+            "/checkpoint branch merge-dry-run latest",
+            "/checkpoint rewind-anchor save latest",
+            "/history use 1",
+            "/update",
+            "/update check",
+            "/update set auto_check true",
+        ] {
+            let action = InspectorAction::from_command(command, command);
+            assert_eq!(action.label, "Load command");
+            assert!(action.typed.is_none(), "{} should remain fallback", command);
+        }
+    }
+
+    #[test]
+    fn plain_command_string_fallback_still_has_no_typed_action() {
+        let action = InspectorAction::from_command("Open model", "/model");
+
+        assert_eq!(action.command, "/model");
+        assert!(action.typed.is_none());
+        assert_eq!(
+            action.effect(true),
+            InspectorActionEffect::RunCommand("/model".to_string())
+        );
+    }
+
+    #[test]
+    fn action_feedback_renders_success_and_failure() {
+        let mut doc = InspectorDocument::single("demo", vec!["visible".to_string()]);
+        doc.note_action_succeeded("Inspect status");
+        assert_eq!(
+            doc.state.last_action_result,
+            Some(InspectorActionResult::Success)
+        );
+
+        let area = Rect::new(0, 0, 120, 12);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| render_inspector(frame, area, &doc))
+            .unwrap();
+        let rendered = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(rendered.contains("last=Inspect status ok"));
+
+        doc.note_action_failed("allow once", "no pending confirmation");
+        terminal
+            .draw(|frame| render_inspector(frame, area, &doc))
+            .unwrap();
+        let rendered = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(rendered.contains("last=allow once failed: no pending confirmation"));
+
+        doc.note_action_succeeded_with_detail(
+            "Open artifact",
+            "fallback ran command: open artifact",
+        );
+        terminal
+            .draw(|frame| render_inspector(frame, area, &doc))
+            .unwrap();
+        let rendered = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(rendered.contains("last=Open artifact ok: fallback ran command: open artifact"));
     }
 }

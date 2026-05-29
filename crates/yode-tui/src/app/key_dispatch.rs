@@ -11,7 +11,10 @@ use yode_core::engine::{AgentEngine, ConfirmResponse, EngineEvent};
 use yode_tools::registry::ToolRegistry;
 
 use crate::commands::artifact_nav::record_inspector_action_history;
+use crate::commands::inspector_bridge::document_from_command_output;
+use crate::commands::CommandOutput;
 use crate::event;
+use crate::ui::inspector::InspectorActionEffect;
 
 use super::detail_inspector::{
     INSPECTOR_CONFIRM_ALLOW, INSPECTOR_CONFIRM_ALWAYS, INSPECTOR_CONFIRM_DENY,
@@ -21,7 +24,7 @@ use super::key_handlers::{handle_char, handle_down, handle_tab, handle_up};
 use super::turn_flow::handle_enter;
 use super::{
     input, open_latest_tool_inspector, open_pending_confirmation_inspector, push_system_entry, App,
-    ChatEntry, ChatRole,
+    ChatEntry, ChatRole, InspectorView,
 };
 
 /// Centralized key event handler.
@@ -149,6 +152,7 @@ pub(super) fn handle_key_event(
                     inspector.document.cycle_tab();
                 }
             }
+            KeyCode::BackTab => inspector.document.toggle_focus(),
             KeyCode::Char('/') => inspector.document.begin_search(),
             KeyCode::Backspace if inspector.document.state.search_active => {
                 inspector.document.pop_search_char();
@@ -158,54 +162,183 @@ pub(super) fn handle_key_event(
             }
             KeyCode::Enter => {
                 let execute_now = key.modifiers.contains(KeyModifiers::CONTROL);
-                let action_label = if let Some(panel) = inspector.document.active_panel() {
-                    if matches!(
-                        inspector.document.state.focus,
-                        crate::ui::inspector::InspectorFocus::Actions
-                    ) && !panel.actions.is_empty()
-                    {
-                        let index = inspector
-                            .document
-                            .state
-                            .selected_action
-                            .min(panel.actions.len().saturating_sub(1));
-                        Some(panel.actions[index].label.clone())
-                    } else {
-                        None
-                    }
-                } else {
-                    None
+                let action = inspector.document.handoff_action();
+                let command = action
+                    .as_ref()
+                    .map(|action| action.command.clone())
+                    .or_else(|| inspector.document.handoff_command());
+                let label = action.as_ref().map(|action| action.label.clone());
+                let effect = action
+                    .as_ref()
+                    .map(|action| action.effect(execute_now))
+                    .or_else(|| {
+                        command.as_ref().map(|command| {
+                            if execute_now {
+                                InspectorActionEffect::RunCommand(command.clone())
+                            } else {
+                                InspectorActionEffect::LoadCommand(command.clone())
+                            }
+                        })
+                    });
+
+                let Some(effect) = effect else {
+                    return;
                 };
-                if let Some(label) = action_label {
+
+                if let Some(label) = label.as_deref() {
                     inspector.document.note_action_dispatched(label);
                 }
-                let command = inspector.document.handoff_command();
-                if let Some(command) = command {
-                    let _ = inspector;
-                    if execute_inspector_internal_action(app, &command) {
+                let fallback_detail = inspector_action_fallback_detail(&effect);
+
+                let _ = inspector;
+                match effect {
+                    InspectorActionEffect::InternalConfirmAllow
+                    | InspectorActionEffect::InternalConfirmAlways
+                    | InspectorActionEffect::InternalConfirmDeny => {
+                        let label = label.unwrap_or_else(|| "confirmation action".to_string());
+                        let result = execute_inspector_typed_action(app, &effect);
+                        if let Some(active) = app.inspector.views.last_mut() {
+                            match result {
+                                Ok(()) => active.document.note_action_succeeded(&label),
+                                Err(reason) => {
+                                    active.document.note_action_failed(&label, reason);
+                                    return;
+                                }
+                            }
+                        }
                         app.inspector.views.pop();
                         app.inspector.stack.pop();
-                        return;
                     }
-                    if execute_now {
-                        let _ = record_inspector_action_history(
-                            std::path::Path::new(&app.session.working_dir),
-                            &app.session.session_id,
-                            &command,
-                        );
+                    InspectorActionEffect::LoadCommand(command) => {
+                        let should_execute = false;
+                        if execute_inspector_internal_action(app, &command) {
+                            if let Some(label) = label {
+                                if let Some(active) = app.inspector.views.last_mut() {
+                                    active.document.note_action_succeeded(label);
+                                }
+                            }
+                            app.inspector.views.pop();
+                            app.inspector.stack.pop();
+                            return;
+                        }
+                        if should_execute {
+                            let _ = record_inspector_action_history(
+                                std::path::Path::new(&app.session.working_dir),
+                                &app.session.session_id,
+                                &command,
+                            );
+                        }
+                        app.input.set_text(&command);
+                        if let Some(label) = label {
+                            if let Some(active) = app.inspector.views.last_mut() {
+                                if let Some(detail) = fallback_detail {
+                                    active
+                                        .document
+                                        .note_action_succeeded_with_detail(label, detail);
+                                } else {
+                                    active.document.note_action_succeeded(label);
+                                }
+                            }
+                        }
+                        app.inspector.views.pop();
+                        app.inspector.stack.pop();
                     }
-                    app.input.set_text(&command);
-                    app.inspector.views.pop();
-                    app.inspector.stack.pop();
-                    if execute_now {
-                        super::turn_flow::handle_enter(
-                            terminal,
+                    InspectorActionEffect::RunCommand(command) => {
+                        let should_execute = true;
+                        if execute_inspector_internal_action(app, &command) {
+                            if let Some(label) = label {
+                                if let Some(active) = app.inspector.views.last_mut() {
+                                    active.document.note_action_succeeded(label);
+                                }
+                            }
+                            app.inspector.views.pop();
+                            app.inspector.stack.pop();
+                            return;
+                        }
+                        if should_execute {
+                            let _ = record_inspector_action_history(
+                                std::path::Path::new(&app.session.working_dir),
+                                &app.session.session_id,
+                                &command,
+                            );
+                        }
+                        app.input.set_text(&command);
+                        if let Some(label) = label {
+                            if let Some(active) = app.inspector.views.last_mut() {
+                                if let Some(detail) = fallback_detail {
+                                    active
+                                        .document
+                                        .note_action_succeeded_with_detail(label, detail);
+                                } else {
+                                    active.document.note_action_succeeded(label);
+                                }
+                            }
+                        }
+                        app.inspector.views.pop();
+                        app.inspector.stack.pop();
+                        if should_execute {
+                            super::turn_flow::handle_enter(
+                                terminal,
+                                app,
+                                crossterm::event::KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+                                engine,
+                                tools,
+                                engine_event_tx,
+                            );
+                        }
+                    }
+                    InspectorActionEffect::OpenArtifact { target, command }
+                    | InspectorActionEffect::OpenInspectorTarget { target, command } => {
+                        let label = label.unwrap_or_else(|| "open inspector target".to_string());
+                        match execute_inspector_open_action(
                             app,
-                            crossterm::event::KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+                            &effect_from_target(&target, &command),
                             engine,
                             tools,
                             engine_event_tx,
-                        );
+                        ) {
+                            Ok(document) => {
+                                if let Some(active) = app.inspector.views.last_mut() {
+                                    active.document.note_action_succeeded(&label);
+                                }
+                                app.inspector.views.pop();
+                                app.inspector.stack.pop();
+                                app.inspector.stack.push(document.state.title.clone());
+                                app.inspector.views.push(InspectorView { document });
+                            }
+                            Err(reason) if reason.contains("has no target") => {
+                                if let Some(active) = app.inspector.views.last_mut() {
+                                    active.document.note_action_failed(label, reason);
+                                }
+                            }
+                            Err(_) => {
+                                let _ = record_inspector_action_history(
+                                    std::path::Path::new(&app.session.working_dir),
+                                    &app.session.session_id,
+                                    &command,
+                                );
+                                app.input.set_text(&command);
+                                if let Some(active) = app.inspector.views.last_mut() {
+                                    let detail = fallback_detail.unwrap_or("fallback ran command");
+                                    active
+                                        .document
+                                        .note_action_succeeded_with_detail(label, detail);
+                                }
+                                app.inspector.views.pop();
+                                app.inspector.stack.pop();
+                                super::turn_flow::handle_enter(
+                                    terminal,
+                                    app,
+                                    crossterm::event::KeyEvent::new(
+                                        KeyCode::Enter,
+                                        KeyModifiers::NONE,
+                                    ),
+                                    engine,
+                                    tools,
+                                    engine_event_tx,
+                                );
+                            }
+                        }
                     }
                 }
             }
@@ -250,6 +383,11 @@ pub(super) fn handle_key_event(
                 let _ = tx.send(ConfirmResponse::Deny);
             }
             app.pending_confirmation = None;
+            return;
+        }
+        if app.chat_scroll_active {
+            app.chat_scroll_active = false;
+            app.chat_scroll_offset = 0;
             return;
         }
         if app.is_thinking {
@@ -424,6 +562,10 @@ pub(super) fn handle_key_event(
         KeyCode::Up => handle_up(app),
         KeyCode::Down => handle_down(app),
         KeyCode::Home => app.input.move_home(),
+        KeyCode::End if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.chat_scroll_offset = 0;
+            app.chat_scroll_active = false;
+        }
         KeyCode::End => {
             app.input.move_end();
         }
@@ -437,8 +579,17 @@ pub(super) fn handle_key_event(
             }
         }
         KeyCode::Tab => handle_tab(app),
-        KeyCode::PageUp => {}
-        KeyCode::PageDown => {}
+        KeyCode::PageUp => {
+            app.chat_scroll_active = true;
+            app.chat_scroll_offset = app.chat_scroll_offset.saturating_add(10);
+        }
+        KeyCode::PageDown => {
+            if app.chat_scroll_offset == 0 {
+                app.chat_scroll_active = false;
+            } else {
+                app.chat_scroll_offset = app.chat_scroll_offset.saturating_sub(10);
+            }
+        }
         _ => {}
     }
 }
@@ -531,6 +682,155 @@ fn execute_inspector_internal_action(app: &mut App, command: &str) -> bool {
     }
 }
 
+fn inspector_action_fallback_detail(effect: &InspectorActionEffect) -> Option<&'static str> {
+    match effect {
+        InspectorActionEffect::OpenArtifact { .. } => Some("fallback ran command: open artifact"),
+        InspectorActionEffect::OpenInspectorTarget { .. } => {
+            Some("fallback ran command: inspect target")
+        }
+        _ => None,
+    }
+}
+
+fn effect_from_target(target: &str, command: &str) -> InspectorActionEffect {
+    if command.trim_start().starts_with("/inspect artifact") {
+        InspectorActionEffect::OpenArtifact {
+            target: target.to_string(),
+            command: command.to_string(),
+        }
+    } else {
+        InspectorActionEffect::OpenInspectorTarget {
+            target: target.to_string(),
+            command: command.to_string(),
+        }
+    }
+}
+
+fn execute_inspector_open_action(
+    app: &mut App,
+    effect: &InspectorActionEffect,
+    engine: &Arc<Mutex<AgentEngine>>,
+    tools: &Arc<ToolRegistry>,
+    engine_event_tx: &mpsc::UnboundedSender<EngineEvent>,
+) -> Result<crate::ui::inspector::InspectorDocument, String> {
+    let (command, args, title) = inspector_open_command(effect)?;
+
+    let result = {
+        let mut ctx = crate::commands::context::CommandContext {
+            engine: engine.clone(),
+            provider_registry: &app.provider_registry,
+            provider_name: &mut app.provider_name,
+            provider_models: &mut app.provider_models,
+            all_provider_models: &app.all_provider_models,
+            chat_entries: &mut app.chat_entries,
+            printed_count: &mut app.printed_count,
+            streaming_buf: &mut app.streaming_buf,
+            streaming_markdown_stable_len: &mut app.streaming_markdown_stable_len,
+            streaming_markdown_cached_buf_len: &mut app.streaming_markdown_cached_buf_len,
+            streaming_markdown_cached_width: &mut app.streaming_markdown_cached_width,
+            streaming_markdown_preview_source: &mut app.streaming_markdown_preview_source,
+            streaming_markdown_preview: &mut app.streaming_markdown_preview,
+            streaming_markdown_remainder: &mut app.streaming_markdown_remainder,
+            tools,
+            session: &mut app.session,
+            input: &mut app.input,
+            terminal_caps: &app.terminal_caps,
+            input_history: app.history.entries(),
+            should_quit: &mut app.should_quit,
+            session_start: app.session_start,
+            turn_started_at: app.turn_started_at,
+            cmd_registry: &app.cmd_registry,
+            engine_event_tx,
+        };
+        app.cmd_registry.execute_command(command, &args, &mut ctx)
+    };
+
+    match result {
+        Some(Ok(CommandOutput::OpenInspector(document))) => Ok(document),
+        Some(Ok(CommandOutput::Message(body))) => Ok(document_from_command_output(
+            &title,
+            body.lines().map(str::to_string).collect(),
+        )),
+        Some(Ok(CommandOutput::Messages(lines))) => Ok(document_from_command_output(&title, lines)),
+        Some(Ok(CommandOutput::Silent)) => {
+            Err("typed inspector target produced no output".to_string())
+        }
+        Some(Ok(CommandOutput::StartWizard(_)) | Ok(CommandOutput::ReloadProvider { .. })) => {
+            Err("typed inspector target is not viewable".to_string())
+        }
+        Some(Err(reason)) => Err(reason),
+        None => Err("inspect command unavailable".to_string()),
+    }
+}
+
+fn inspector_open_command(
+    effect: &InspectorActionEffect,
+) -> Result<(&'static str, String, String), String> {
+    Ok(match effect {
+        InspectorActionEffect::OpenArtifact { target, .. } => {
+            let target = target.trim();
+            if target.is_empty() {
+                return Err("typed artifact action has no target".to_string());
+            }
+            (
+                "inspect",
+                format!("artifact {}", target),
+                "Artifact inspector".to_string(),
+            )
+        }
+        InspectorActionEffect::OpenInspectorTarget { target, .. } => {
+            let target = target.trim();
+            if target.is_empty() {
+                return Err("typed inspector action has no target".to_string());
+            }
+            (
+                "inspect",
+                target.to_string(),
+                format!("{} inspector", target),
+            )
+        }
+        _ => return Err("not an inspector open action".to_string()),
+    })
+}
+
+fn execute_inspector_typed_action(
+    app: &mut App,
+    effect: &InspectorActionEffect,
+) -> Result<(), String> {
+    match effect {
+        InspectorActionEffect::InternalConfirmAllow => {
+            execute_typed_confirmation(app, ConfirmResponse::Allow, false)
+        }
+        InspectorActionEffect::InternalConfirmAlways => {
+            execute_typed_confirmation(app, ConfirmResponse::Allow, true)
+        }
+        InspectorActionEffect::InternalConfirmDeny => {
+            execute_typed_confirmation(app, ConfirmResponse::Deny, false)
+        }
+        _ => Err("not an internal confirmation action".to_string()),
+    }
+}
+
+fn execute_typed_confirmation(
+    app: &mut App,
+    response: ConfirmResponse,
+    remember_tool: bool,
+) -> Result<(), String> {
+    let Some(confirm) = app.pending_confirmation.as_ref() else {
+        return Err("no pending confirmation".to_string());
+    };
+    let Some(tx) = &app.confirm_tx else {
+        return Err("confirmation channel unavailable".to_string());
+    };
+    if remember_tool && !app.session.always_allow_tools.contains(&confirm.name) {
+        app.session.always_allow_tools.push(confirm.name.clone());
+    }
+    tx.send(response)
+        .map_err(|_| "confirmation channel closed".to_string())?;
+    app.pending_confirmation = None;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -542,10 +842,12 @@ mod tests {
     use yode_tools::registry::ToolRegistry;
 
     use crate::app::{App, PendingConfirmation};
+    use crate::ui::inspector::InspectorActionEffect;
 
     use super::{
-        execute_inspector_internal_action, INSPECTOR_CONFIRM_ALLOW, INSPECTOR_CONFIRM_ALWAYS,
-        INSPECTOR_CONFIRM_DENY,
+        execute_inspector_internal_action, execute_inspector_typed_action,
+        inspector_action_fallback_detail, inspector_open_command, INSPECTOR_CONFIRM_ALLOW,
+        INSPECTOR_CONFIRM_ALWAYS, INSPECTOR_CONFIRM_DENY,
     };
 
     fn test_app() -> App {
@@ -616,5 +918,280 @@ mod tests {
         ));
         assert!(matches!(rx.recv().await, Some(ConfirmResponse::Deny)));
         assert!(app.pending_confirmation.is_none());
+    }
+
+    #[tokio::test]
+    async fn inspector_typed_permission_actions_resolve_allow_always_and_deny() {
+        let cases = [
+            (
+                InspectorActionEffect::InternalConfirmAllow,
+                ConfirmResponse::Allow,
+                false,
+            ),
+            (
+                InspectorActionEffect::InternalConfirmAlways,
+                ConfirmResponse::Allow,
+                true,
+            ),
+            (
+                InspectorActionEffect::InternalConfirmDeny,
+                ConfirmResponse::Deny,
+                false,
+            ),
+        ];
+
+        for (effect, expected, should_remember) in cases {
+            let mut app = test_app();
+            let (tx, mut rx) = mpsc::unbounded_channel::<ConfirmResponse>();
+            app.confirm_tx = Some(tx);
+            app.pending_confirmation = Some(PendingConfirmation {
+                id: "a".to_string(),
+                name: "bash".to_string(),
+                arguments: "{\"command\":\"echo hi\"}".to_string(),
+            });
+
+            execute_inspector_typed_action(&mut app, &effect).unwrap();
+            let actual = rx.recv().await;
+            match expected {
+                ConfirmResponse::Allow => assert!(matches!(actual, Some(ConfirmResponse::Allow))),
+                ConfirmResponse::Deny => assert!(matches!(actual, Some(ConfirmResponse::Deny))),
+            }
+            assert!(app.pending_confirmation.is_none());
+            assert_eq!(
+                app.session.always_allow_tools.contains(&"bash".to_string()),
+                should_remember
+            );
+        }
+    }
+
+    #[test]
+    fn inspector_typed_permission_action_reports_missing_pending_confirmation() {
+        let mut app = test_app();
+        let error =
+            execute_inspector_typed_action(&mut app, &InspectorActionEffect::InternalConfirmAllow)
+                .unwrap_err();
+        assert_eq!(error, "no pending confirmation");
+    }
+
+    #[test]
+    fn typed_open_actions_report_command_handoff_fallback() {
+        assert_eq!(
+            inspector_action_fallback_detail(&InspectorActionEffect::OpenArtifact {
+                target: "bundle".to_string(),
+                command: "/inspect artifact bundle".to_string(),
+            }),
+            Some("fallback ran command: open artifact")
+        );
+        assert_eq!(
+            inspector_action_fallback_detail(&InspectorActionEffect::OpenInspectorTarget {
+                target: "diagnostics".to_string(),
+                command: "/diagnostics".to_string(),
+            }),
+            Some("fallback ran command: inspect target")
+        );
+        assert_eq!(
+            inspector_action_fallback_detail(&InspectorActionEffect::RunCommand(
+                "/help".to_string()
+            )),
+            None
+        );
+    }
+
+    #[test]
+    fn typed_open_artifact_builds_inspect_command_or_reports_missing_target() {
+        assert_eq!(
+            inspector_open_command(&InspectorActionEffect::OpenArtifact {
+                target: "bundle".to_string(),
+                command: "/inspect artifact bundle".to_string(),
+            })
+            .unwrap(),
+            (
+                "inspect",
+                "artifact bundle".to_string(),
+                "Artifact inspector".to_string()
+            )
+        );
+
+        let error = inspector_open_command(&InspectorActionEffect::OpenArtifact {
+            target: " ".to_string(),
+            command: "/inspect artifact ".to_string(),
+        })
+        .unwrap_err();
+        assert_eq!(error, "typed artifact action has no target");
+    }
+
+    #[test]
+    fn typed_open_inspector_target_builds_inspect_command_or_reports_missing_target() {
+        assert_eq!(
+            inspector_open_command(&InspectorActionEffect::OpenInspectorTarget {
+                target: "status".to_string(),
+                command: "/status".to_string(),
+            })
+            .unwrap(),
+            (
+                "inspect",
+                "status".to_string(),
+                "status inspector".to_string()
+            )
+        );
+        assert_eq!(
+            inspector_open_command(&InspectorActionEffect::OpenInspectorTarget {
+                target: "tasks monitor".to_string(),
+                command: "/tasks monitor".to_string(),
+            })
+            .unwrap(),
+            (
+                "inspect",
+                "tasks monitor".to_string(),
+                "tasks monitor inspector".to_string()
+            )
+        );
+        assert_eq!(
+            inspector_open_command(&InspectorActionEffect::OpenInspectorTarget {
+                target: "reviews latest".to_string(),
+                command: "/reviews latest".to_string(),
+            })
+            .unwrap(),
+            (
+                "inspect",
+                "reviews latest".to_string(),
+                "reviews latest inspector".to_string()
+            )
+        );
+        assert_eq!(
+            inspector_open_command(&InspectorActionEffect::OpenInspectorTarget {
+                target: "teams monitor team-demo".to_string(),
+                command: "/teams monitor team-demo".to_string(),
+            })
+            .unwrap(),
+            (
+                "inspect",
+                "teams monitor team-demo".to_string(),
+                "teams monitor team-demo inspector".to_string()
+            )
+        );
+        assert_eq!(
+            inspector_open_command(&InspectorActionEffect::OpenInspectorTarget {
+                target: "context".to_string(),
+                command: "/context".to_string(),
+            })
+            .unwrap(),
+            (
+                "inspect",
+                "context".to_string(),
+                "context inspector".to_string()
+            )
+        );
+        assert_eq!(
+            inspector_open_command(&InspectorActionEffect::OpenInspectorTarget {
+                target: "keys".to_string(),
+                command: "/keybindings".to_string(),
+            })
+            .unwrap(),
+            ("inspect", "keys".to_string(), "keys inspector".to_string())
+        );
+        assert_eq!(
+            inspector_open_command(&InspectorActionEffect::OpenInspectorTarget {
+                target: "history search build".to_string(),
+                command: "/history search build".to_string(),
+            })
+            .unwrap(),
+            (
+                "inspect",
+                "history search build".to_string(),
+                "history search build inspector".to_string()
+            )
+        );
+        assert_eq!(
+            inspector_open_command(&InspectorActionEffect::OpenInspectorTarget {
+                target: "update status".to_string(),
+                command: "/update status".to_string(),
+            })
+            .unwrap(),
+            (
+                "inspect",
+                "update status".to_string(),
+                "update status inspector".to_string()
+            )
+        );
+        assert_eq!(
+            inspector_open_command(&InspectorActionEffect::OpenInspectorTarget {
+                target: "memory compare latest latest-1".to_string(),
+                command: "/memory compare latest latest-1".to_string(),
+            })
+            .unwrap(),
+            (
+                "inspect",
+                "memory compare latest latest-1".to_string(),
+                "memory compare latest latest-1 inspector".to_string()
+            )
+        );
+        assert_eq!(
+            inspector_open_command(&InspectorActionEffect::OpenInspectorTarget {
+                target: "workflows preview latest".to_string(),
+                command: "/workflows preview latest".to_string(),
+            })
+            .unwrap(),
+            (
+                "inspect",
+                "workflows preview latest".to_string(),
+                "workflows preview latest inspector".to_string()
+            )
+        );
+        assert_eq!(
+            inspector_open_command(&InspectorActionEffect::OpenInspectorTarget {
+                target: "tools verbose".to_string(),
+                command: "/tools verbose".to_string(),
+            })
+            .unwrap(),
+            (
+                "inspect",
+                "tools verbose".to_string(),
+                "tools verbose inspector".to_string()
+            )
+        );
+        assert_eq!(
+            inspector_open_command(&InspectorActionEffect::OpenInspectorTarget {
+                target: "checkpoint diff latest latest-1".to_string(),
+                command: "/checkpoint diff latest latest-1".to_string(),
+            })
+            .unwrap(),
+            (
+                "inspect",
+                "checkpoint diff latest latest-1".to_string(),
+                "checkpoint diff latest latest-1 inspector".to_string()
+            )
+        );
+        assert_eq!(
+            inspector_open_command(&InspectorActionEffect::OpenInspectorTarget {
+                target: "remote-control queue".to_string(),
+                command: "/remote-control queue".to_string(),
+            })
+            .unwrap(),
+            (
+                "inspect",
+                "remote-control queue".to_string(),
+                "remote-control queue inspector".to_string()
+            )
+        );
+        assert_eq!(
+            inspector_open_command(&InspectorActionEffect::OpenInspectorTarget {
+                target: "plugin list".to_string(),
+                command: "/plugin list".to_string(),
+            })
+            .unwrap(),
+            (
+                "inspect",
+                "plugin list".to_string(),
+                "plugin list inspector".to_string()
+            )
+        );
+
+        let error = inspector_open_command(&InspectorActionEffect::OpenInspectorTarget {
+            target: String::new(),
+            command: "/status".to_string(),
+        })
+        .unwrap_err();
+        assert_eq!(error, "typed inspector action has no target");
     }
 }

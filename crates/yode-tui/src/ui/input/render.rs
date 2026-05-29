@@ -5,6 +5,7 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::app::App;
+use crate::i18n::{text_for, Locale};
 use crate::ui::palette::{GHOST_COLOR, HINT_COLOR, PROMPT_COLOR, PROMPT_DIM, TEXT_COLOR};
 
 use super::completions::{render_file_popup, render_history_search};
@@ -75,17 +76,27 @@ fn empty_input_cursor_x(area: Rect) -> u16 {
 }
 
 fn input_hint_text(app: &App) -> String {
+    input_hint_text_for(app, crate::i18n::current_locale())
+}
+
+fn input_hint_text_for(app: &App, locale: Locale) -> String {
     if app.is_thinking {
         if app.pending_inputs.is_empty() {
-            "Queue a follow-up…".to_string()
+            text_for(locale, "ui.input_queue_followup")
+                .unwrap_or("Queue a follow-up…")
+                .to_string()
         } else {
             format!(
-                "Queue a follow-up… {} already queued",
-                app.pending_inputs.len()
+                "{} {} {}",
+                text_for(locale, "ui.input_queue_followup").unwrap_or("Queue a follow-up…"),
+                app.pending_inputs.len(),
+                text_for(locale, "ui.input_already_queued").unwrap_or("already queued")
             )
         }
     } else {
-        "Ask anything…".to_string()
+        text_for(locale, "ui.input_ask_anything")
+            .unwrap_or("Ask anything…")
+            .to_string()
     }
 }
 
@@ -131,8 +142,9 @@ mod tests {
     use yode_llm::registry::ProviderRegistry;
     use yode_tools::registry::ToolRegistry;
 
-    use super::{empty_input_cursor_x, input_hint_text};
+    use super::{empty_input_cursor_x, input_hint_text_for};
     use crate::app::App;
+    use crate::i18n::Locale;
 
     fn test_app() -> App {
         App::new(
@@ -150,14 +162,21 @@ mod tests {
     #[test]
     fn input_hint_reflects_queueing_while_model_is_working() {
         let mut app = test_app();
-        assert_eq!(input_hint_text(&app), "Ask anything…");
+        assert_eq!(input_hint_text_for(&app, Locale::En), "Ask anything…");
 
         app.is_thinking = true;
-        assert_eq!(input_hint_text(&app), "Queue a follow-up…");
+        assert_eq!(input_hint_text_for(&app, Locale::En), "Queue a follow-up…");
 
         app.pending_inputs
             .push(("next".to_string(), "next".to_string()));
-        assert_eq!(input_hint_text(&app), "Queue a follow-up… 1 already queued");
+        assert_eq!(
+            input_hint_text_for(&app, Locale::En),
+            "Queue a follow-up… 1 already queued"
+        );
+        assert_eq!(
+            input_hint_text_for(&app, Locale::ZhCn),
+            "继续追加问题… 1 条已排队"
+        );
     }
 
     #[test]

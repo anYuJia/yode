@@ -70,13 +70,19 @@ fn render_keybindings_reference(working_dir: &str, home_dir: Option<&std::path::
             "  Navigation:\n",
             "    Up/Down         — Browse history (single-line) or navigate (multi-line)\n",
             "    Ctrl+R          — Reverse search history\n",
-            "    PageUp/PageDown — Scroll chat\n",
-            "    Ctrl+End        — Scroll to bottom\n",
+            "    PageUp/PageDown — Review chat history in the scroll view\n",
+            "    Ctrl+End        — Return to the live bottom composer\n",
             "\n",
             "  Session:\n",
             "    Esc / Ctrl+C    — Stop generation\n",
             "    Ctrl+L          — Clear screen\n",
-            "    Shift+Tab       — Cycle permission mode (when no popup)\n",
+            "    Shift+Tab       — Cycle permission mode: Default → Auto → Plan\n",
+            "\n",
+            "  Inspector:\n",
+            "    Tab             — Next panel\n",
+            "    Shift+Tab       — Move focus between body/actions/tabs\n",
+            "    PageUp/PageDown — Move through inspector body\n",
+            "    Ctrl+Enter      — Run selected action\n",
             "\n",
             "  Special input:\n",
             "    !command        — Execute shell command directly\n",
@@ -113,6 +119,8 @@ mod tests {
         assert!(rendered.contains("Project config:"));
         assert!(rendered.contains("available"));
         assert!(rendered.contains("Ctrl+A / Home"));
+        assert!(rendered.contains("Review chat history in the scroll view"));
+        assert!(rendered.contains("Default → Auto → Plan"));
 
         let _ = std::fs::remove_dir_all(root);
     }

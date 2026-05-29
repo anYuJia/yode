@@ -33,6 +33,7 @@ use crate::commands::{
     ArgCompletionSource, ArgDef, Command, CommandCategory, CommandMeta, CommandOutput,
     CommandResult,
 };
+use crate::inspector_targets::{is_read_only_inspector_family, read_only_inspector_target};
 use crate::mcp_resource_artifacts::{mcp_resource_manifest_badges, mcp_resource_manifest_summary};
 
 pub struct InspectCommand {
@@ -49,7 +50,7 @@ impl InspectCommand {
                 args: vec![ArgDef {
                     name: "target".to_string(),
                     required: false,
-                    hint: "[tasks|memory|reviews|status|diagnostics|doctor|hooks|permissions|workflows|coordinate|checkpoint|remote-control|artifact]".to_string(),
+                    hint: "[tasks|teams|memory|reviews|status|diagnostics|doctor|tools|plugin|skills|permissions|workflows|coordinate|checkpoint|remote-control|context|brief|files|cost|config|version|keys|time|help|history|update|artifact]".to_string(),
                     completions: ArgCompletionSource::Dynamic(inspect_completion_targets),
                 }],
                 category: CommandCategory::Info,
@@ -69,62 +70,11 @@ impl Command for InspectCommand {
         if let Some(target) = trimmed.strip_prefix("artifact") {
             return inspect_artifact_target(target.trim(), ctx);
         }
-        let (command, command_args, title) = match trimmed {
-            "" => ("status", "", "Status inspector".to_string()),
-            value if value.starts_with("workflows") => (
-                "workflows",
-                value.strip_prefix("workflows").unwrap_or("").trim(),
-                "Workflow inspector".to_string(),
-            ),
-            value if value.starts_with("coordinate") => (
-                "coordinate",
-                value.strip_prefix("coordinate").unwrap_or("").trim(),
-                "Coordinator inspector".to_string(),
-            ),
-            value if value.starts_with("checkpoint") => (
-                "checkpoint",
-                value.strip_prefix("checkpoint").unwrap_or("").trim(),
-                "Checkpoint inspector".to_string(),
-            ),
-            value if value.starts_with("remote-control") => (
-                "remote-control",
-                value.strip_prefix("remote-control").unwrap_or("").trim(),
-                "Remote control inspector".to_string(),
-            ),
-            value if value.starts_with("tasks") => (
-                "tasks",
-                value.strip_prefix("tasks").unwrap_or("").trim(),
-                "Task inspector".to_string(),
-            ),
-            value if value.starts_with("memory") => (
-                "memory",
-                value.strip_prefix("memory").unwrap_or("").trim(),
-                "Memory inspector".to_string(),
-            ),
-            value if value.starts_with("reviews") => (
-                "reviews",
-                value.strip_prefix("reviews").unwrap_or("").trim(),
-                "Review inspector".to_string(),
-            ),
-            value if value.starts_with("doctor") => (
-                "doctor",
-                value.strip_prefix("doctor").unwrap_or("").trim(),
-                "Doctor inspector".to_string(),
-            ),
-            "status" => ("status", "", "Status inspector".to_string()),
-            "diagnostics" => ("diagnostics", "", "Diagnostics inspector".to_string()),
-            "hooks" => ("hooks", "", "Hook inspector".to_string()),
-            value if value.starts_with("permissions") => (
-                "permissions",
-                value.strip_prefix("permissions").unwrap_or("").trim(),
-                "Permission inspector".to_string(),
-            ),
-            other => return Err(format!("Unknown inspect target '{}'.", other)),
-        };
+        let (command, command_args, title) = inspect_command_target(trimmed)?;
 
         let output = ctx
             .cmd_registry
-            .execute_command(command, command_args, ctx)
+            .execute_command(command, &command_args, ctx)
             .ok_or_else(|| format!("Command '{}' not found.", command))??;
 
         match output {
@@ -141,6 +91,94 @@ impl Command for InspectCommand {
             }
         }
     }
+}
+
+fn inspect_command_target(trimmed: &str) -> Result<(&'static str, String, String), String> {
+    let target = if trimmed.is_empty() {
+        "status".to_string()
+    } else {
+        read_only_inspector_target(trimmed).ok_or_else(|| {
+            if let Some(family) = is_read_only_inspector_family(trimmed) {
+                format!("Inspect {} target is not read-only.", family)
+            } else {
+                format!("Unknown inspect target '{}'.", trimmed)
+            }
+        })?
+    };
+    let (command, command_args) = target
+        .split_once(' ')
+        .map(|(command, args)| (command, args.to_string()))
+        .unwrap_or((target.as_str(), String::new()));
+    Ok((
+        inspect_command_name(command)?,
+        command_args,
+        inspect_title(command),
+    ))
+}
+
+fn inspect_command_name(command: &str) -> Result<&'static str, String> {
+    match command {
+        "context" => Ok("context"),
+        "brief" => Ok("brief"),
+        "files" => Ok("files"),
+        "cost" => Ok("cost"),
+        "config" => Ok("config"),
+        "version" => Ok("version"),
+        "keys" => Ok("keys"),
+        "time" => Ok("time"),
+        "help" => Ok("help"),
+        "status" => Ok("status"),
+        "diagnostics" => Ok("diagnostics"),
+        "history" => Ok("history"),
+        "update" => Ok("update"),
+        "remote-control" => Ok("remote-control"),
+        "doctor" => Ok("doctor"),
+        "permissions" => Ok("permissions"),
+        "checkpoint" => Ok("checkpoint"),
+        "workflows" => Ok("workflows"),
+        "coordinate" => Ok("coordinate"),
+        "tasks" => Ok("tasks"),
+        "teams" => Ok("teams"),
+        "memory" => Ok("memory"),
+        "reviews" => Ok("reviews"),
+        "tools" => Ok("tools"),
+        "plugin" => Ok("plugin"),
+        "skills" => Ok("skills"),
+        other => Err(format!("Unknown inspect target '{}'.", other)),
+    }
+}
+
+fn inspect_title(command: &str) -> String {
+    match command {
+        "context" => "Context inspector",
+        "brief" => "Brief inspector",
+        "files" => "Files inspector",
+        "cost" => "Cost inspector",
+        "config" => "Configuration inspector",
+        "version" => "Version inspector",
+        "keys" => "Keybindings inspector",
+        "time" => "Timing inspector",
+        "help" => "Help inspector",
+        "status" => "Status inspector",
+        "diagnostics" => "Diagnostics inspector",
+        "history" => "History inspector",
+        "update" => "Update inspector",
+        "remote-control" => "Remote control inspector",
+        "doctor" => "Doctor inspector",
+        "permissions" => "Permission inspector",
+        "checkpoint" => "Checkpoint inspector",
+        "workflows" => "Workflow inspector",
+        "coordinate" => "Coordinator inspector",
+        "tasks" => "Task inspector",
+        "teams" => "Team inspector",
+        "memory" => "Memory inspector",
+        "reviews" => "Review inspector",
+        "tools" => "Tools inspector",
+        "plugin" => "Plugin inspector",
+        "skills" => "Skills inspector",
+        _ => "Inspector",
+    }
+    .to_string()
 }
 
 fn inspect_artifact_target(args: &str, ctx: &mut CommandContext) -> CommandResult {
@@ -810,17 +848,14 @@ fn artifact_inspector_actions(kind: &str, refresh: &[String]) -> Vec<(String, St
         .collect::<Vec<_>>();
     if kind == "mcp_resource" || kind == "mcp_resource_index" {
         actions.push((
-            "cleanup old MCP resource artifacts".to_string(),
+            "Clean up old MCP resource artifacts".to_string(),
             "/mcp resources cleanup".to_string(),
         ));
     } else if kind == "compact" {
         for (label, command) in [
-            ("show context pressure", "/context"),
-            ("show compact command help", "/compact help"),
-            (
-                "show compact artifact history",
-                "/inspect artifact history compact",
-            ),
+            ("Inspect context", "/context"),
+            ("Load compact help", "/compact help"),
+            ("Open artifact", "/inspect artifact history compact"),
         ] {
             if !actions.iter().any(|(_, existing)| existing == command) {
                 actions.push((label.to_string(), command.to_string()));
@@ -836,14 +871,44 @@ fn inspect_completion_targets(ctx: &crate::commands::context::CompletionContext)
         "status".to_string(),
         "diagnostics".to_string(),
         "doctor".to_string(),
-        "hooks".to_string(),
+        "tools".to_string(),
+        "tools diag".to_string(),
+        "tools list".to_string(),
+        "tools verbose".to_string(),
+        "plugin list".to_string(),
+        "skills list".to_string(),
         "permissions".to_string(),
+        "context".to_string(),
+        "brief".to_string(),
+        "files".to_string(),
+        "cost".to_string(),
+        "config".to_string(),
+        "version".to_string(),
+        "keys".to_string(),
+        "keybindings".to_string(),
+        "time".to_string(),
+        "help".to_string(),
+        "history".to_string(),
+        "history pick".to_string(),
+        "history search".to_string(),
+        "update status".to_string(),
         "tasks".to_string(),
+        "teams".to_string(),
+        "teams list".to_string(),
+        "teams latest".to_string(),
+        "teams monitor".to_string(),
+        "teams messages".to_string(),
         "memory".to_string(),
         "reviews".to_string(),
         "workflows".to_string(),
         "coordinate".to_string(),
         "checkpoint".to_string(),
+        "remote-control latest".to_string(),
+        "remote-control queue".to_string(),
+        "remote-control tasks".to_string(),
+        "remote-control replay".to_string(),
+        "remote-control replay latest".to_string(),
+        "remote-control retry-summary".to_string(),
         "artifact list".to_string(),
         "artifact summary".to_string(),
         "artifact history".to_string(),
@@ -1571,8 +1636,160 @@ fn artifact_history_family_lines(
 mod tests {
     use super::{
         artifact_history_family_lines, artifact_inspector_actions, artifact_inventory_lines,
-        artifact_summary_lines, mcp_resource_manifest_badges, mcp_resource_manifest_summary,
+        artifact_summary_lines, inspect_command_target, mcp_resource_manifest_badges,
+        mcp_resource_manifest_summary,
     };
+
+    #[test]
+    fn inspect_command_target_routes_read_only_info_views() {
+        assert_eq!(
+            inspect_command_target("context").unwrap(),
+            ("context", String::new(), "Context inspector".to_string())
+        );
+        assert_eq!(
+            inspect_command_target("keybindings").unwrap(),
+            ("keys", String::new(), "Keybindings inspector".to_string())
+        );
+        assert_eq!(
+            inspect_command_target("help").unwrap(),
+            ("help", String::new(), "Help inspector".to_string())
+        );
+        assert_eq!(
+            inspect_command_target("history search build-failure").unwrap(),
+            (
+                "history",
+                "search build-failure".to_string(),
+                "History inspector".to_string()
+            )
+        );
+        assert!(inspect_command_target("history use 1").is_err());
+        assert_eq!(
+            inspect_command_target("update status").unwrap(),
+            (
+                "update",
+                "status".to_string(),
+                "Update inspector".to_string()
+            )
+        );
+        assert!(inspect_command_target("update check").is_err());
+        assert!(inspect_command_target("update set auto_check true").is_err());
+        assert_eq!(
+            inspect_command_target("remote-control queue").unwrap(),
+            (
+                "remote-control",
+                "queue".to_string(),
+                "Remote control inspector".to_string()
+            )
+        );
+        assert_eq!(
+            inspect_command_target("remote-control replay latest").unwrap(),
+            (
+                "remote-control",
+                "replay latest".to_string(),
+                "Remote control inspector".to_string()
+            )
+        );
+        assert!(inspect_command_target("remote-control session").is_err());
+        assert!(inspect_command_target("remote-control transport status").is_err());
+        assert!(inspect_command_target("remote-control doctor").is_err());
+        assert_eq!(
+            inspect_command_target("doctor remote").unwrap(),
+            (
+                "doctor",
+                "remote".to_string(),
+                "Doctor inspector".to_string()
+            )
+        );
+        assert!(inspect_command_target("doctor bundle").is_err());
+        assert_eq!(
+            inspect_command_target("teams monitor team-demo").unwrap(),
+            (
+                "teams",
+                "monitor team-demo".to_string(),
+                "Team inspector".to_string()
+            )
+        );
+        assert_eq!(
+            inspect_command_target("tasks read latest").unwrap(),
+            (
+                "tasks",
+                "read latest".to_string(),
+                "Task inspector".to_string()
+            )
+        );
+        assert!(inspect_command_target("tasks stop latest").is_err());
+        assert_eq!(
+            inspect_command_target("workflows preview latest").unwrap(),
+            (
+                "workflows",
+                "preview latest".to_string(),
+                "Workflow inspector".to_string()
+            )
+        );
+        assert!(inspect_command_target("workflows run latest").is_err());
+        assert!(inspect_command_target("coordinate").is_err());
+        assert!(inspect_command_target("coordinate timeline").is_err());
+        assert!(inspect_command_target("hooks").is_err());
+        assert_eq!(
+            inspect_command_target("plugin inspect demo").unwrap(),
+            (
+                "plugin",
+                "inspect demo".to_string(),
+                "Plugin inspector".to_string()
+            )
+        );
+        assert!(inspect_command_target("plugin enable demo").is_err());
+        assert!(inspect_command_target("skills search rust").is_err());
+        assert_eq!(
+            inspect_command_target("permissions denials bash").unwrap(),
+            (
+                "permissions",
+                "denials bash".to_string(),
+                "Permission inspector".to_string()
+            )
+        );
+        assert!(inspect_command_target("permissions").is_err());
+        assert!(inspect_command_target("permissions governance").is_err());
+        assert!(inspect_command_target("permissions explain bash").is_err());
+        assert_eq!(
+            inspect_command_target("checkpoint list").unwrap(),
+            (
+                "checkpoint",
+                "list".to_string(),
+                "Checkpoint inspector".to_string()
+            )
+        );
+        assert_eq!(
+            inspect_command_target("checkpoint latest").unwrap(),
+            (
+                "checkpoint",
+                "latest".to_string(),
+                "Checkpoint inspector".to_string()
+            )
+        );
+        assert_eq!(
+            inspect_command_target("checkpoint diff latest latest-1").unwrap(),
+            (
+                "checkpoint",
+                "diff latest latest-1".to_string(),
+                "Checkpoint inspector".to_string()
+            )
+        );
+        assert_eq!(
+            inspect_command_target("checkpoint rollback-dry-run latest").unwrap(),
+            (
+                "checkpoint",
+                "rollback-dry-run latest".to_string(),
+                "Checkpoint inspector".to_string()
+            )
+        );
+        assert!(inspect_command_target("checkpoint").is_err());
+        assert!(inspect_command_target("checkpoint save handoff").is_err());
+        assert!(inspect_command_target("checkpoint restore latest").is_err());
+        assert!(inspect_command_target("checkpoint restore-dry-run latest").is_err());
+        assert!(inspect_command_target("checkpoint branch merge latest").is_err());
+        assert!(inspect_command_target("unknown").is_err());
+    }
 
     #[test]
     fn inventory_and_summary_lines_surface_aliases_and_counts() {
@@ -1764,7 +1981,7 @@ mod tests {
         );
         assert!(actions.contains(&("/mcp".to_string(), "/mcp".to_string())));
         assert!(actions.contains(&(
-            "cleanup old MCP resource artifacts".to_string(),
+            "Clean up old MCP resource artifacts".to_string(),
             "/mcp resources cleanup".to_string()
         )));
         let index_actions = artifact_inspector_actions(
@@ -1785,13 +2002,10 @@ mod tests {
     fn compact_inspector_actions_include_context_and_partial_compact_help() {
         let actions = artifact_inspector_actions("compact", &["/status".to_string()]);
         assert!(actions.contains(&("/status".to_string(), "/status".to_string())));
-        assert!(actions.contains(&("show context pressure".to_string(), "/context".to_string())));
+        assert!(actions.contains(&("Inspect context".to_string(), "/context".to_string())));
+        assert!(actions.contains(&("Load compact help".to_string(), "/compact help".to_string())));
         assert!(actions.contains(&(
-            "show compact command help".to_string(),
-            "/compact help".to_string()
-        )));
-        assert!(actions.contains(&(
-            "show compact artifact history".to_string(),
+            "Open artifact".to_string(),
             "/inspect artifact history compact".to_string()
         )));
     }

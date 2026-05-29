@@ -23,13 +23,16 @@ pub(crate) fn status_area_height(app: &App, completion_height: u16) -> u16 {
     }
 }
 
-pub fn build_main_layout(area: Rect, app: &App) -> MainLayoutPlan {
-    let term_width = area.width;
+pub(crate) fn main_inline_height(app: &App, term_width: u16) -> u16 {
     let visual_lines = app.input.visual_line_count(term_width) as u16;
-    let input_height = visual_lines.clamp(1, 5);
-    let pending_height = (app.pending_inputs.len() as u16).min(MAX_PENDING_INPUT_LINES);
+    let completion_lines = command_completion_height(app);
+    let turn_status_lines = status_area_height(app, completion_lines);
+    let pending_lines = (app.pending_inputs.len() as u16).min(MAX_PENDING_INPUT_LINES);
+    visual_lines.clamp(1, 5) + completion_lines + turn_status_lines + pending_lines + 4
+}
 
-    let completion_height = if app.cmd_completion.is_active() {
+pub(crate) fn command_completion_height(app: &App) -> u16 {
+    if app.cmd_completion.is_active() {
         if app.cmd_completion.args_hint.is_some() {
             1
         } else if !app.cmd_completion.candidates.is_empty() {
@@ -39,7 +42,16 @@ pub fn build_main_layout(area: Rect, app: &App) -> MainLayoutPlan {
         }
     } else {
         0
-    };
+    }
+}
+
+pub fn build_main_layout(area: Rect, app: &App) -> MainLayoutPlan {
+    let term_width = area.width;
+    let visual_lines = app.input.visual_line_count(term_width) as u16;
+    let input_height = visual_lines.clamp(1, 5);
+    let pending_height = (app.pending_inputs.len() as u16).min(MAX_PENDING_INPUT_LINES);
+
+    let completion_height = command_completion_height(app);
 
     let status_area_height = status_area_height(app, completion_height);
 

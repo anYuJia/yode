@@ -104,7 +104,26 @@ fn render_confirmation_mode(frame: &mut Frame, app: &mut App) {
 }
 
 fn render_main_mode(frame: &mut Frame, app: &mut App) {
-    let plan = layout::build_main_layout(frame.area(), app);
+    let area = frame.area();
+    if app.chat_scroll_active {
+        use ratatui::layout::{Constraint, Direction, Layout};
+
+        let bottom_height = layout::main_inline_height(app, area.width).min(area.height);
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(0), Constraint::Length(bottom_height)])
+            .split(area);
+        if chunks[0].height > 0 {
+            chat::render_chat_scrolled(frame, chunks[0], app, app.chat_scroll_offset);
+        }
+        render_main_controls(frame, chunks[1], app);
+    } else {
+        render_main_controls(frame, area, app);
+    }
+}
+
+fn render_main_controls(frame: &mut Frame, area: ratatui::layout::Rect, app: &mut App) {
+    let plan = layout::build_main_layout(area, app);
     if plan.show_completion {
         input::render_command_inline(frame, plan.areas[0], app);
         if plan.show_turn_status {

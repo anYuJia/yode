@@ -67,9 +67,12 @@ fn build_pending_confirmation_document(
     }
     overview.push(String::new());
     overview.push("Decision controls:".to_string());
-    overview.push("  y / Enter  allow once".to_string());
-    overview.push("  a          always allow tool".to_string());
-    overview.push("  n          deny".to_string());
+    overview.push("  y / Enter  allow once (only this pending call)".to_string());
+    overview.push("  a          always allow this tool for this session".to_string());
+    overview.push("  n          deny (skip only this pending call)".to_string());
+    overview.push(String::new());
+    overview.push("Status: awaiting approval; the tool has not executed yet.".to_string());
+    overview.push("Risk: always-allow reduces prompts until the session ends.".to_string());
 
     let arguments = json_to_lines(&args);
     let panels = vec![
@@ -196,11 +199,10 @@ fn build_assistant_entry_document(entry: &ChatEntry) -> InspectorDocument {
         "Content",
         &entry.content,
         assistant_content_badges(entry),
-        vec![InspectorAction {
-            label: "continue from this".to_string(),
-            command: "Summarize the latest assistant response and suggest the next best action."
-                .to_string(),
-        }],
+        vec![InspectorAction::command(
+            "continue from this",
+            "Summarize the latest assistant response and suggest the next best action.",
+        )],
     ) {
         panels.push(panel);
     }
@@ -214,12 +216,10 @@ fn build_assistant_entry_document(entry: &ChatEntry) -> InspectorDocument {
             "Reasoning",
             reasoning,
             assistant_reasoning_badges(reasoning),
-            vec![InspectorAction {
-                label: "distill reasoning".to_string(),
-                command:
-                    "Distill the latest assistant reasoning into the key decisions and next step."
-                        .to_string(),
-            }],
+            vec![InspectorAction::command(
+                "distill reasoning",
+                "Distill the latest assistant reasoning into the key decisions and next step.",
+            )],
         ) {
             panels.push(panel);
         }
@@ -277,10 +277,10 @@ fn build_error_entry_document(entry: &ChatEntry) -> InspectorDocument {
     let view = parse_error_view(&entry.content);
     let badges = error_badges(&view);
     let mut recovery_actions = error_recovery_actions(&view);
-    recovery_actions.push(InspectorAction {
-        label: "explain recovery".to_string(),
-        command: "Explain the latest error and suggest the safest recovery step.".to_string(),
-    });
+    recovery_actions.push(InspectorAction::command(
+        "explain recovery",
+        "Explain the latest error and suggest the safest recovery step.",
+    ));
     let mut panels = vec![PanelSpec {
         label: "Overview".to_string(),
         lines: std::iter::once(view.title.clone())
@@ -334,10 +334,10 @@ fn build_tool_batch_document(
         actions: vec![
             status_action(),
             tools_action(),
-            InspectorAction {
-                label: "summarize outcome".to_string(),
-                command: "Summarize the most important outcome from the recent tool activity and suggest the next best step.".to_string(),
-            },
+            InspectorAction::command(
+                "summarize outcome",
+                "Summarize the most important outcome from the recent tool activity and suggest the next best step.",
+            ),
         ],
     }];
 
@@ -539,10 +539,10 @@ fn build_tool_entry_document(
                 }
             },
             badges: summary_badges.clone(),
-            actions: vec![InspectorAction {
-                label: "reuse args".to_string(),
-                command: serde_json::to_string_pretty(&args).unwrap_or_else(|_| args.to_string()),
-            }],
+            actions: vec![InspectorAction::command(
+                "reuse args",
+                serde_json::to_string_pretty(&args).unwrap_or_else(|_| args.to_string()),
+            )],
         },
     ];
 
@@ -612,13 +612,13 @@ fn build_standalone_result_document(app: &App, entry: &ChatEntry) -> InspectorDo
     let actions = vec![
         status_action(),
         tools_action(),
-        InspectorAction {
-            label: "analyze result".to_string(),
-            command: format!(
+        InspectorAction::command(
+            "analyze result",
+            format!(
                 "Explain the most important details from the last {} result and suggest the next step.",
                 title
             ),
-        },
+        ),
     ];
     let mut panels = vec![PanelSpec {
         label: "Overview".to_string(),
@@ -817,96 +817,58 @@ fn system_raw_panel_lines(
 
 fn confirm_actions() -> Vec<InspectorAction> {
     vec![
-        InspectorAction {
-            label: "allow once".to_string(),
-            command: INSPECTOR_CONFIRM_ALLOW.to_string(),
-        },
-        InspectorAction {
-            label: "always allow".to_string(),
-            command: INSPECTOR_CONFIRM_ALWAYS.to_string(),
-        },
-        InspectorAction {
-            label: "deny".to_string(),
-            command: INSPECTOR_CONFIRM_DENY.to_string(),
-        },
+        InspectorAction::internal_confirm_allow(),
+        InspectorAction::internal_confirm_always(),
+        InspectorAction::internal_confirm_deny(),
     ]
 }
 
 fn status_action() -> InspectorAction {
-    InspectorAction {
-        label: "show status".to_string(),
-        command: "/status".to_string(),
-    }
+    InspectorAction::open_inspector_target("Inspect status", "/status", "status")
 }
 
 fn tools_action() -> InspectorAction {
-    InspectorAction {
-        label: "show tools".to_string(),
-        command: "/tools".to_string(),
-    }
+    InspectorAction::open_inspector_target("Inspect tools", "/tools", "tools")
 }
 
 fn timeline_action() -> InspectorAction {
-    InspectorAction {
-        label: "open timeline".to_string(),
-        command: "/inspect artifact history runtime".to_string(),
-    }
+    InspectorAction::open_artifact(
+        "Open artifact",
+        "/inspect artifact history runtime",
+        "history runtime",
+    )
 }
 
 fn bundle_action() -> InspectorAction {
-    InspectorAction {
-        label: "open bundle".to_string(),
-        command: "/inspect artifact bundle".to_string(),
-    }
+    InspectorAction::open_artifact("Open artifact", "/inspect artifact bundle", "bundle")
 }
 
 fn diagnostics_action() -> InspectorAction {
-    InspectorAction {
-        label: "show diagnostics".to_string(),
-        command: "/diagnostics".to_string(),
-    }
+    InspectorAction::open_inspector_target("Inspect diagnostics", "/diagnostics", "diagnostics")
 }
 
 fn help_action() -> InspectorAction {
-    InspectorAction {
-        label: "open help".to_string(),
-        command: "/help".to_string(),
-    }
+    InspectorAction::open_inspector_target("Open help", "/help", "help")
 }
 
 fn compact_action() -> InspectorAction {
-    InspectorAction {
-        label: "run /compact".to_string(),
-        command: "/compact".to_string(),
-    }
+    InspectorAction::command("Run compact", "/compact")
 }
 
 fn clear_action() -> InspectorAction {
-    InspectorAction {
-        label: "run /clear".to_string(),
-        command: "/clear".to_string(),
-    }
+    InspectorAction::command("Run clear", "/clear")
 }
 
 fn model_action() -> InspectorAction {
-    InspectorAction {
-        label: "open model".to_string(),
-        command: "/model".to_string(),
-    }
+    InspectorAction::command("Open model", "/model")
 }
 
 fn provider_action() -> InspectorAction {
-    InspectorAction {
-        label: "open provider".to_string(),
-        command: "/provider".to_string(),
-    }
+    InspectorAction::command("Open provider", "/provider")
 }
 
 fn doctor_action() -> InspectorAction {
-    InspectorAction {
-        label: "run /doctor".to_string(),
-        command: "/doctor".to_string(),
-    }
+    InspectorAction::open_inspector_target("Inspect doctor", "/doctor", "doctor")
 }
 
 fn system_actions(
@@ -932,10 +894,7 @@ fn system_actions(
             if raw_content.to_ascii_lowercase().contains("hook") =>
         {
             vec![
-                InspectorAction {
-                    label: "open hooks".to_string(),
-                    command: "/hooks".to_string(),
-                },
+                InspectorAction::command("Load hooks", "/hooks"),
                 status_action(),
             ]
         }
@@ -965,10 +924,7 @@ fn tool_followup_actions(
     let mut actions = vec![status_action(), tools_action()];
 
     if let Some(prompt) = primary_followup_prompt(title, tool_name, args, result_entry) {
-        actions.push(InspectorAction {
-            label: "plan next step".to_string(),
-            command: prompt,
-        });
+        actions.push(InspectorAction::command("plan next step", prompt));
     }
 
     actions
@@ -1320,10 +1276,11 @@ mod tests {
 
     use crate::app::rendering::strip_ansi;
     use crate::app::{App, ChatEntry, ChatRole, PendingConfirmation};
+    use crate::ui::inspector::InspectorActionKind;
 
     use super::{
-        build_latest_tool_document, build_pending_confirmation_document, help_action,
-        primary_followup_prompt, status_action, INSPECTOR_CONFIRM_ALLOW,
+        build_latest_tool_document, build_pending_confirmation_document, doctor_action,
+        help_action, primary_followup_prompt, status_action, tools_action, INSPECTOR_CONFIRM_ALLOW,
     };
 
     fn test_app() -> App {
@@ -1360,10 +1317,12 @@ mod tests {
             .lines
             .iter()
             .any(|line| line.contains("/tmp/src/main.rs")));
-        assert!(doc.panels[0]
-            .actions
-            .iter()
-            .any(|action| action.command == INSPECTOR_CONFIRM_ALLOW));
+        assert!(doc.panels[0].actions.iter().any(|action| action.command
+            == INSPECTOR_CONFIRM_ALLOW
+            && action
+                .typed
+                .as_ref()
+                .is_some_and(|typed| typed.kind == InspectorActionKind::InternalConfirmAllow)));
     }
 
     #[test]
@@ -1778,7 +1737,7 @@ mod tests {
         assert!(doc.panels[0]
             .actions
             .iter()
-            .any(|action| action.label == "show status"));
+            .any(|action| action.label == "Inspect status"));
     }
 
     #[test]
@@ -1813,7 +1772,7 @@ mod tests {
         assert!(doc.panels[0]
             .actions
             .iter()
-            .any(|action| action.label == "open bundle"));
+            .any(|action| action.label == "Open artifact"));
     }
 
     #[test]
@@ -1828,7 +1787,7 @@ mod tests {
         assert!(doc.panels[0]
             .actions
             .iter()
-            .any(|action| action.label == "show diagnostics"));
+            .any(|action| action.label == "Inspect diagnostics"));
     }
 
     #[test]
@@ -1843,7 +1802,7 @@ mod tests {
         assert!(doc.panels[0]
             .actions
             .iter()
-            .any(|action| action.label == "open hooks"));
+            .any(|action| action.label == "Load hooks"));
     }
 
     #[test]
@@ -1867,11 +1826,11 @@ mod tests {
         assert!(doc.panels[0]
             .actions
             .iter()
-            .any(|action| action.label == "run /compact"));
+            .any(|action| action.label == "Run compact"));
         assert!(doc.panels[0]
             .actions
             .iter()
-            .any(|action| action.label == "run /clear"));
+            .any(|action| action.label == "Run clear"));
         assert!(doc.panels.iter().any(|panel| panel
             .lines
             .iter()
@@ -1910,15 +1869,15 @@ mod tests {
         assert!(doc.panels[0]
             .actions
             .iter()
-            .any(|action| action.label == "open provider"));
+            .any(|action| action.label == "Open provider"));
         assert!(doc.panels[0]
             .actions
             .iter()
-            .any(|action| action.label == "open model"));
+            .any(|action| action.label == "Open model"));
         assert!(doc.panels[0]
             .actions
             .iter()
-            .any(|action| action.label == "run /doctor"));
+            .any(|action| action.label == "Inspect doctor"));
     }
 
     #[test]
@@ -1932,10 +1891,32 @@ mod tests {
     fn inspector_status_and_help_actions_use_consistent_casing() {
         let status = status_action();
         let help = help_action();
-        assert_eq!(status.label, "show status");
+        let tools = tools_action();
+        let doctor = doctor_action();
+        assert_eq!(status.label, "Inspect status");
         assert_eq!(status.command, "/status");
-        assert_eq!(help.label, "open help");
+        assert!(status
+            .typed
+            .as_ref()
+            .is_some_and(|typed| typed.kind == InspectorActionKind::OpenInspectorTarget));
+        assert_eq!(help.label, "Open help");
         assert_eq!(help.command, "/help");
+        assert!(help
+            .typed
+            .as_ref()
+            .is_some_and(|typed| typed.kind == InspectorActionKind::OpenInspectorTarget));
+        assert_eq!(tools.label, "Inspect tools");
+        assert_eq!(tools.command, "/tools");
+        assert!(tools
+            .typed
+            .as_ref()
+            .is_some_and(|typed| typed.kind == InspectorActionKind::OpenInspectorTarget));
+        assert_eq!(doctor.label, "Inspect doctor");
+        assert_eq!(doctor.command, "/doctor");
+        assert!(doctor
+            .typed
+            .as_ref()
+            .is_some_and(|typed| typed.kind == InspectorActionKind::OpenInspectorTarget));
     }
 
     #[test]

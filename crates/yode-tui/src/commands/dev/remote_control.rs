@@ -123,18 +123,33 @@ impl Command for RemoteControlCommand {
                 &mut doc,
                 vec![
                     (
-                        "transport".to_string(),
+                        "Inspect transport".to_string(),
                         "/remote-control transport".to_string(),
                     ),
-                    ("session".to_string(), "/remote-control session".to_string()),
-                    ("queue".to_string(), "/remote-control queue".to_string()),
-                    ("tasks".to_string(), "/remote-control tasks".to_string()),
-                    ("monitor".to_string(), "/remote-control monitor".to_string()),
                     (
-                        "follow".to_string(),
+                        "Inspect session".to_string(),
+                        "/remote-control session".to_string(),
+                    ),
+                    (
+                        "Inspect queue".to_string(),
+                        "/remote-control queue".to_string(),
+                    ),
+                    (
+                        "Inspect tasks".to_string(),
+                        "/remote-control tasks".to_string(),
+                    ),
+                    (
+                        "Inspect monitor".to_string(),
+                        "/remote-control monitor".to_string(),
+                    ),
+                    (
+                        "Load follow prompt".to_string(),
                         "/remote-control follow latest".to_string(),
                     ),
-                    ("doctor".to_string(), "/remote-control doctor".to_string()),
+                    (
+                        "Run doctor".to_string(),
+                        "/remote-control doctor".to_string(),
+                    ),
                 ],
             );
             return Ok(CommandOutput::OpenInspector(doc));
@@ -592,41 +607,62 @@ impl Command for RemoteControlCommand {
             attach_inspector_actions(
                 &mut doc,
                 vec![
-                    ("latest".to_string(), "/remote-control latest".to_string()),
                     (
-                        "transport".to_string(),
+                        "Inspect latest".to_string(),
+                        "/remote-control latest".to_string(),
+                    ),
+                    (
+                        "Inspect transport".to_string(),
                         "/remote-control transport".to_string(),
                     ),
-                    ("session".to_string(), "/remote-control session".to_string()),
                     (
-                        "connect".to_string(),
+                        "Inspect session".to_string(),
+                        "/remote-control session".to_string(),
+                    ),
+                    (
+                        "Connect transport".to_string(),
                         "/remote-control transport connect".to_string(),
                     ),
-                    ("run".to_string(), "/remote-control run latest".to_string()),
                     (
-                        "dispatch".to_string(),
+                        "Run latest item".to_string(),
+                        "/remote-control run latest".to_string(),
+                    ),
+                    (
+                        "Dispatch latest item".to_string(),
                         "/remote-control dispatch latest".to_string(),
                     ),
                     (
-                        "complete".to_string(),
+                        "Complete latest item".to_string(),
                         "/remote-control complete latest remote completion confirmed".to_string(),
                     ),
                     (
-                        "fail".to_string(),
+                        "Fail latest item".to_string(),
                         "/remote-control fail latest remote failure recorded".to_string(),
                     ),
                     (
-                        "retry".to_string(),
+                        "Retry latest item".to_string(),
                         "/remote-control retry latest".to_string(),
                     ),
-                    ("ack".to_string(), "/remote-control ack latest".to_string()),
-                    ("tasks".to_string(), "/remote-control tasks".to_string()),
-                    ("monitor".to_string(), "/remote-control monitor".to_string()),
                     (
-                        "follow".to_string(),
+                        "Acknowledge latest item".to_string(),
+                        "/remote-control ack latest".to_string(),
+                    ),
+                    (
+                        "Inspect tasks".to_string(),
+                        "/remote-control tasks".to_string(),
+                    ),
+                    (
+                        "Inspect monitor".to_string(),
+                        "/remote-control monitor".to_string(),
+                    ),
+                    (
+                        "Load follow prompt".to_string(),
                         "/remote-control follow latest".to_string(),
                     ),
-                    ("bundle".to_string(), "/remote-control bundle".to_string()),
+                    (
+                        "Export bundle".to_string(),
+                        "/remote-control bundle".to_string(),
+                    ),
                 ],
             );
             return Ok(CommandOutput::OpenInspector(doc));
@@ -879,25 +915,37 @@ fn open_remote_transport_inspector(project_root: &std::path::Path) -> CommandRes
         &mut doc,
         vec![
             (
-                "connect".to_string(),
+                "Connect transport".to_string(),
                 "/remote-control transport connect".to_string(),
             ),
             (
-                "reconnect".to_string(),
+                "Reconnect transport".to_string(),
                 "/remote-control transport reconnect".to_string(),
             ),
             (
-                "disconnect".to_string(),
+                "Disconnect transport".to_string(),
                 "/remote-control transport disconnect".to_string(),
             ),
             (
-                "events".to_string(),
+                "Open events".to_string(),
                 "/inspect artifact latest-remote-transport-events".to_string(),
             ),
-            ("replay".to_string(), "/remote-control replay".to_string()),
-            ("session".to_string(), "/remote-control session".to_string()),
-            ("doctor".to_string(), "/remote-control doctor".to_string()),
-            ("latest".to_string(), "/remote-control latest".to_string()),
+            (
+                "Inspect replay".to_string(),
+                "/remote-control replay".to_string(),
+            ),
+            (
+                "Inspect session".to_string(),
+                "/remote-control session".to_string(),
+            ),
+            (
+                "Run doctor".to_string(),
+                "/remote-control doctor".to_string(),
+            ),
+            (
+                "Inspect latest".to_string(),
+                "/remote-control latest".to_string(),
+            ),
         ],
     );
     Ok(CommandOutput::OpenInspector(doc))
@@ -921,24 +969,33 @@ fn open_remote_live_session_inspector(project_root: &std::path::Path) -> Command
         &mut doc,
         vec![
             (
-                "sync".to_string(),
+                "Sync session".to_string(),
                 "/remote-control session sync".to_string(),
             ),
             (
-                "transport".to_string(),
+                "Inspect transport".to_string(),
                 "/remote-control transport".to_string(),
             ),
-            ("queue".to_string(), "/remote-control queue".to_string()),
-            ("monitor".to_string(), "/remote-control monitor".to_string()),
             (
-                "follow".to_string(),
+                "Inspect queue".to_string(),
+                "/remote-control queue".to_string(),
+            ),
+            (
+                "Inspect monitor".to_string(),
+                "/remote-control monitor".to_string(),
+            ),
+            (
+                "Load follow prompt".to_string(),
                 "/remote-control follow latest".to_string(),
             ),
             (
-                "state".to_string(),
+                "Open state".to_string(),
                 "/inspect artifact latest-remote-live-session-state".to_string(),
             ),
-            ("doctor".to_string(), "/remote-control doctor".to_string()),
+            (
+                "Run doctor".to_string(),
+                "/remote-control doctor".to_string(),
+            ),
         ],
     );
     Ok(CommandOutput::OpenInspector(doc))

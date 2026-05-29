@@ -570,7 +570,7 @@ pub(crate) fn attach_inspector_actions(
 ) {
     let actions = actions
         .into_iter()
-        .map(|(label, command)| InspectorAction { label, command })
+        .map(|(label, command)| InspectorAction::from_command(label, command))
         .collect::<Vec<_>>();
     for panel in &mut doc.panels {
         panel.actions.extend(actions.clone());
@@ -920,13 +920,15 @@ fn compare_paths_by_modified_desc(left: &PathBuf, right: &PathBuf) -> Ordering {
 #[cfg(test)]
 mod tests {
     use super::{
-        artifact_display_line, artifact_freshness_badge,
+        artifact_display_line, artifact_freshness_badge, attach_inspector_actions,
         build_runtime_orchestration_timeline_lines, export_bundle_root, latest_artifact_by_suffix,
         latest_bundle_workspace_index, latest_mcp_resource_index_artifact, open_artifact_inspector,
         preview_artifact, recent_artifacts_by_suffix, recent_bundle_workspace_indexes,
         render_timeline_entries, resolve_artifact_basename, stale_artifact_actions,
         write_runtime_orchestration_timeline_artifact, ArtifactTimelineEntry,
     };
+    use crate::commands::inspector_bridge::document_from_command_output;
+    use crate::ui::inspector::{InspectorActionKind, InspectorActionTarget};
 
     #[test]
     fn latest_artifact_prefers_newest_modified_file() {
@@ -1042,6 +1044,35 @@ mod tests {
             .flat_map(|panel| panel.lines.iter())
             .any(|line| line.contains("\u{1b}]8;;https://example.com")));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn attach_inspector_actions_types_inspect_artifact_commands() {
+        let mut doc = document_from_command_output("demo", vec!["body".to_string()]);
+        attach_inspector_actions(
+            &mut doc,
+            vec![
+                (
+                    "Open artifact".to_string(),
+                    "/inspect artifact history runtime".to_string(),
+                ),
+                ("Open help".to_string(), "/help".to_string()),
+                ("Open model".to_string(), "/model".to_string()),
+            ],
+        );
+
+        let artifact_action = &doc.panels[0].actions[0];
+        assert_eq!(artifact_action.command, "/inspect artifact history runtime");
+        assert!(artifact_action.typed.as_ref().is_some_and(|typed| {
+            typed.kind == InspectorActionKind::OpenArtifact
+                && typed.target == InspectorActionTarget::Artifact("history runtime".to_string())
+        }));
+        let help_action = &doc.panels[0].actions[1];
+        assert!(help_action.typed.as_ref().is_some_and(|typed| {
+            typed.kind == InspectorActionKind::OpenInspectorTarget
+                && typed.target == InspectorActionTarget::InspectorTarget("help".to_string())
+        }));
+        assert!(doc.panels[0].actions[2].typed.is_none());
     }
 
     #[test]

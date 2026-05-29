@@ -39,10 +39,30 @@ pub const ACCENT: Color = TOOL_ACCENT;
 
 // ── Main Render ─────────────────────────────────────────────────────
 pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
+    render_chat_scrolled(frame, area, app, 0)
+}
+
+pub fn render_chat_scrolled(
+    frame: &mut Frame,
+    area: Rect,
+    app: &App,
+    offset_from_bottom: usize,
+) -> u16 {
+    let wrapped = chat_lines(app, area.width);
+    let content_height = wrapped.len() as u16;
+    let max_scroll = wrapped.len().saturating_sub(area.height as usize);
+    let vertical_scroll = max_scroll.saturating_sub(offset_from_bottom.min(max_scroll));
+    let paragraph = Paragraph::new(wrapped).scroll((vertical_scroll as u16, 0));
+    frame.render_widget(paragraph, area);
+
+    content_height
+}
+
+pub(crate) fn chat_lines(app: &App, width: u16) -> Vec<Line<'static>> {
     let mut lines: Vec<Line> = Vec::new();
 
     // Header
-    lines.extend(render_header(app, area.width as usize));
+    lines.extend(render_header(app, width as usize));
     lines.push(Line::from(""));
 
     if app.chat_entries.is_empty() {
@@ -107,7 +127,7 @@ pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
             ChatRole::Assistant => render_assistant(
                 &mut lines,
                 entry,
-                area.width.saturating_sub(2) as usize,
+                width.saturating_sub(2) as usize,
                 app.terminal_caps.supports_hyperlinks(),
                 latest_reasoning_index == Some(i),
             ),
@@ -271,13 +291,7 @@ pub fn render_chat(frame: &mut Frame, area: Rect, app: &App) -> u16 {
     }
 
     // ── Manual wrapping ────────────────────────────────────────
-    let wrapped = manual_wrap(lines, area.width);
-    let content_height = wrapped.len() as u16;
-
-    let paragraph = Paragraph::new(wrapped);
-    frame.render_widget(paragraph, area);
-
-    content_height
+    manual_wrap(lines, width)
 }
 
 // ── Markdown Renderer ───────────────────────────────────────────────
@@ -345,7 +359,7 @@ mod tests {
     };
     use crate::ui::turn_status::{active_working_hint, active_working_label};
 
-    use super::{render_chat, streaming_reasoning_teaser};
+    use super::{render_chat, render_chat_scrolled, streaming_reasoning_teaser};
 
     fn test_app() -> App {
         App::new(
@@ -554,6 +568,37 @@ mod tests {
             .collect::<String>();
         assert!(rendered.contains("Streaming compact preview"));
         assert!(rendered.contains("Second preview line"));
+    }
+
+    #[test]
+    fn render_chat_scrolled_can_review_earlier_history() {
+        let mut app = test_app();
+        for index in 0..30 {
+            app.chat_entries.push(ChatEntry::new(
+                ChatRole::User,
+                format!("history line {}", index),
+            ));
+        }
+
+        let area = ratatui::layout::Rect::new(0, 0, 80, 8);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut content_height = 0;
+        terminal
+            .draw(|frame| {
+                content_height = render_chat_scrolled(frame, area, &app, 1_000);
+            })
+            .unwrap();
+
+        let rendered = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(content_height > area.height);
+        assert!(!rendered.contains("history line 29"));
     }
 
     #[test]
