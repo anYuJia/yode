@@ -42,6 +42,29 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
     return isZh ? zhText : enText;
   };
 
+  // State bindings for General configuration elements
+  const [workMode, setWorkMode] = useState(() => localStorage.getItem("yode-work-mode") || "coding");
+  const [defPerm, setDefPerm] = useState(() => localStorage.getItem("yode-def-perm") !== "false");
+  const [autoReview, setAutoReview] = useState(() => localStorage.getItem("yode-auto-review") !== "false");
+  const [fullAccess, setFullAccess] = useState(() => localStorage.getItem("yode-full-access") !== "false");
+  const [openDest, setOpenDest] = useState(() => localStorage.getItem("yode-open-dest") || "VS Code");
+  const [showInMenuBar, setShowInMenuBar] = useState(() => localStorage.getItem("yode-show-menu-bar") !== "false");
+  const [bottomPanel, setBottomPanel] = useState(() => localStorage.getItem("yode-bottom-panel") !== "false");
+  const [termLoc, setTermLoc] = useState(() => localStorage.getItem("yode-term-loc") || "bottom");
+  const [preventSleep, setPreventSleep] = useState(() => localStorage.getItem("yode-prevent-sleep") === "true");
+  const [codeReviewPolicy, setCodeReviewPolicy] = useState(() => localStorage.getItem("yode-code-review-policy") || "inline");
+  const [suggestedPrompts, setSuggestedPrompts] = useState(() => localStorage.getItem("yode-suggested-prompts") !== "false");
+  const [contextUsage, setContextUsage] = useState(() => localStorage.getItem("yode-context-usage") === "true");
+  const [followUpBehavior, setFollowUpBehavior] = useState(() => localStorage.getItem("yode-follow-up-behavior") || "queue");
+  const [requireOptEnter, setRequireOptEnter] = useState(() => localStorage.getItem("yode-require-opt-enter") === "true");
+  const [completionNotif, setCompletionNotif] = useState(() => localStorage.getItem("yode-completion-notif") || "Only when unfocused");
+  const [permNotif, setPermNotif] = useState(() => localStorage.getItem("yode-perm-notif") !== "false");
+  const [questionNotif, setQuestionNotif] = useState(() => localStorage.getItem("yode-question-notif") !== "false");
+
+  const updateGeneralVal = (key: string, value: string | boolean) => {
+    localStorage.setItem(key, String(value));
+  };
+
   const categories = [
     {
       title: t("个人设置", "Personal"),
@@ -242,7 +265,10 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
                   <button
                     type="button"
-                    onClick={() => localStorage.setItem("yode-work-mode", "coding")}
+                    onClick={() => {
+                      setWorkMode("coding");
+                      updateGeneralVal("yode-work-mode", "coding");
+                    }}
                     style={{
                       padding: "10px 14px",
                       borderRadius: "var(--radius)",
@@ -263,18 +289,22 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
                       width: "16px",
                       height: "16px",
                       borderRadius: "50%",
-                      border: "2px solid var(--accent)",
-                      background: "var(--accent)",
+                      border: `2px solid ${workMode === "coding" ? "var(--accent)" : "var(--line)"}`,
+                      background: workMode === "coding" ? "var(--accent)" : "transparent",
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center"
                     }}>
-                      <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: "var(--bg)" }} />
+                      {workMode === "coding" && <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: "var(--bg)" }} />}
                     </div>
                   </button>
 
                   <button
                     type="button"
+                    onClick={() => {
+                      setWorkMode("everyday");
+                      updateGeneralVal("yode-work-mode", "everyday");
+                    }}
                     style={{
                       padding: "10px 14px",
                       borderRadius: "var(--radius)",
@@ -282,7 +312,6 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
                       border: "1px solid var(--line-soft)",
                       textAlign: "left",
                       cursor: "pointer",
-                      opacity: 0.6,
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "space-between"
@@ -296,9 +325,14 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
                       width: "16px",
                       height: "16px",
                       borderRadius: "50%",
-                      border: "2px solid var(--line)",
-                      background: "transparent"
-                    }} />
+                      border: `2px solid ${workMode === "everyday" ? "var(--accent)" : "var(--line)"}`,
+                      background: workMode === "everyday" ? "var(--accent)" : "transparent",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center"
+                    }}>
+                      {workMode === "everyday" && <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: "var(--bg)" }} />}
+                    </div>
                   </button>
                 </div>
               </div>
@@ -315,7 +349,14 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
                       <span className="row-desc">{t("默认情况下，Yode 可以读取和编辑其工作区中的文件", "By default, Yode can read and edit files in its workspace")}</span>
                     </div>
                     <label className="switch-wrapper">
-                      <input type="checkbox" defaultChecked />
+                      <input
+                        type="checkbox"
+                        checked={defPerm}
+                        onChange={(e) => {
+                          setDefPerm(e.target.checked);
+                          updateGeneralVal("yode-def-perm", e.target.checked);
+                        }}
+                      />
                       <span className="switch-slider" />
                     </label>
                   </div>
@@ -326,7 +367,14 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
                       <span className="row-desc">{t("自动审查代码修改，以便发现潜在的设计隐患", "Yode automatically reviews requests for additional access")}</span>
                     </div>
                     <label className="switch-wrapper">
-                      <input type="checkbox" defaultChecked />
+                      <input
+                        type="checkbox"
+                        checked={autoReview}
+                        onChange={(e) => {
+                          setAutoReview(e.target.checked);
+                          updateGeneralVal("yode-auto-review", e.target.checked);
+                        }}
+                      />
                       <span className="switch-slider" />
                     </label>
                   </div>
@@ -337,7 +385,14 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
                       <span className="row-desc">{t("允许 Yode 编辑系统文件并执行本地终端指令", "Allows Yode to run shell commands and modify local files")}</span>
                     </div>
                     <label className="switch-wrapper">
-                      <input type="checkbox" defaultChecked />
+                      <input
+                        type="checkbox"
+                        checked={fullAccess}
+                        onChange={(e) => {
+                          setFullAccess(e.target.checked);
+                          updateGeneralVal("yode-full-access", e.target.checked);
+                        }}
+                      />
                       <span className="switch-slider" />
                     </label>
                   </div>
@@ -356,8 +411,11 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
                       <span className="row-desc">{t("默认情况下打开文件和文件夹的位置", "Where files and folders open by default")}</span>
                     </div>
                     <CustomSelect
-                      value="VS Code"
-                      onChange={() => {}}
+                      value={openDest}
+                      onChange={(val) => {
+                        setOpenDest(val);
+                        updateGeneralVal("yode-open-dest", val);
+                      }}
                       options={[
                         { value: "VS Code", label: "VS Code", avatarText: "💻", avatarBg: "rgba(255,255,255,0.05)" },
                         { value: "Cursor", label: "Cursor", avatarText: "🤖", avatarBg: "rgba(255,255,255,0.05)" },
@@ -394,7 +452,14 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
                       <span className="row-desc">{t("主窗口关闭时将 Yode 保留在系统状态栏中", "Keep Yode in the macOS menu bar when the main window is closed")}</span>
                     </div>
                     <label className="switch-wrapper">
-                      <input type="checkbox" defaultChecked />
+                      <input
+                        type="checkbox"
+                        checked={showInMenuBar}
+                        onChange={(e) => {
+                          setShowInMenuBar(e.target.checked);
+                          updateGeneralVal("yode-show-menu-bar", e.target.checked);
+                        }}
+                      />
                       <span className="switch-slider" />
                     </label>
                   </div>
@@ -406,7 +471,14 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
                       <span className="row-desc">{t("在应用底部状态栏显示核心操控面板", "Show the bottom panel control in the app header")}</span>
                     </div>
                     <label className="switch-wrapper">
-                      <input type="checkbox" defaultChecked />
+                      <input
+                        type="checkbox"
+                        checked={bottomPanel}
+                        onChange={(e) => {
+                          setBottomPanel(e.target.checked);
+                          updateGeneralVal("yode-bottom-panel", e.target.checked);
+                        }}
+                      />
                       <span className="switch-slider" />
                     </label>
                   </div>
@@ -418,8 +490,26 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
                       <span className="row-desc">{t("选择终端面板和环境动作在何处展开", "Choose where the terminal shortcut and environment actions open")}</span>
                     </div>
                     <div className="segmented-control">
-                      <button className="segmented-btn active" type="button">{t("底部", "Bottom")}</button>
-                      <button className="segmented-btn" type="button">{t("右侧", "Right")}</button>
+                      <button
+                        className={`segmented-btn ${termLoc === "bottom" ? "active" : ""}`}
+                        onClick={() => {
+                          setTermLoc("bottom");
+                          updateGeneralVal("yode-term-loc", "bottom");
+                        }}
+                        type="button"
+                      >
+                        {t("底部", "Bottom")}
+                      </button>
+                      <button
+                        className={`segmented-btn ${termLoc === "right" ? "active" : ""}`}
+                        onClick={() => {
+                          setTermLoc("right");
+                          updateGeneralVal("yode-term-loc", "right");
+                        }}
+                        type="button"
+                      >
+                        {t("右侧", "Right")}
+                      </button>
                     </div>
                   </div>
                   <div className="divider" />
@@ -430,7 +520,14 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
                       <span className="row-desc">{t("当 Yode 执行任务时保持计算机处于唤醒状态", "Keep your computer awake while Yode is running a chat")}</span>
                     </div>
                     <label className="switch-wrapper">
-                      <input type="checkbox" />
+                      <input
+                        type="checkbox"
+                        checked={preventSleep}
+                        onChange={(e) => {
+                          setPreventSleep(e.target.checked);
+                          updateGeneralVal("yode-prevent-sleep", e.target.checked);
+                        }}
+                      />
                       <span className="switch-slider" />
                     </label>
                   </div>
@@ -442,8 +539,26 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
                       <span className="row-desc">{t("选择在原处进行对比还是在新窗口中展开", "Start /review in the current chat when possible or launch a separate review chat")}</span>
                     </div>
                     <div className="segmented-control">
-                      <button className="segmented-btn active" type="button">{t("内联", "Inline")}</button>
-                      <button className="segmented-btn" type="button">{t("独立对话", "Detached")}</button>
+                      <button
+                        className={`segmented-btn ${codeReviewPolicy === "inline" ? "active" : ""}`}
+                        onClick={() => {
+                          setCodeReviewPolicy("inline");
+                          updateGeneralVal("yode-code-review-policy", "inline");
+                        }}
+                        type="button"
+                      >
+                        {t("内联", "Inline")}
+                      </button>
+                      <button
+                        className={`segmented-btn ${codeReviewPolicy === "detached" ? "active" : ""}`}
+                        onClick={() => {
+                          setCodeReviewPolicy("detached");
+                          updateGeneralVal("yode-code-review-policy", "detached");
+                        }}
+                        type="button"
+                      >
+                        {t("独立对话", "Detached")}
+                      </button>
                     </div>
                   </div>
                   <div className="divider" />
@@ -454,7 +569,14 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
                       <span className="row-desc">{t("通过索引文件和已连接的应用提供相关指令提示", "Suggest what to do next by searching project files and connected apps")}</span>
                     </div>
                     <label className="switch-wrapper">
-                      <input type="checkbox" defaultChecked />
+                      <input
+                        type="checkbox"
+                        checked={suggestedPrompts}
+                        onChange={(e) => {
+                          setSuggestedPrompts(e.target.checked);
+                          updateGeneralVal("yode-suggested-prompts", e.target.checked);
+                        }}
+                      />
                       <span className="switch-slider" />
                     </label>
                   </div>
@@ -494,7 +616,14 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
                       <span className="row-label">{t("显示上下文窗口用量", "Show context window usage")}</span>
                     </div>
                     <label className="switch-wrapper">
-                      <input type="checkbox" />
+                      <input
+                        type="checkbox"
+                        checked={contextUsage}
+                        onChange={(e) => {
+                          setContextUsage(e.target.checked);
+                          updateGeneralVal("yode-context-usage", e.target.checked);
+                        }}
+                      />
                       <span className="switch-slider" />
                     </label>
                   </div>
@@ -505,8 +634,26 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
                       <span className="row-desc">{t("连续追问时直接运行或等待确认", "Queue follow-ups while Yode runs or steer the current run")}</span>
                     </div>
                     <div className="segmented-control">
-                      <button className="segmented-btn active" type="button">{t("队列式", "Queue")}</button>
-                      <button className="segmented-btn" type="button">{t("指引式", "Steer")}</button>
+                      <button
+                        className={`segmented-btn ${followUpBehavior === "queue" ? "active" : ""}`}
+                        onClick={() => {
+                          setFollowUpBehavior("queue");
+                          updateGeneralVal("yode-follow-up-behavior", "queue");
+                        }}
+                        type="button"
+                      >
+                        {t("队列式", "Queue")}
+                      </button>
+                      <button
+                        className={`segmented-btn ${followUpBehavior === "steer" ? "active" : ""}`}
+                        onClick={() => {
+                          setFollowUpBehavior("steer");
+                          updateGeneralVal("yode-follow-up-behavior", "steer");
+                        }}
+                        type="button"
+                      >
+                        {t("指引式", "Steer")}
+                      </button>
                     </div>
                   </div>
                   <div className="divider" />
@@ -516,7 +663,14 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
                       <span className="row-desc">{t("开启后，多行输入框回车表示换行", "When enabled, multiline prompts require ⌥ + enter to send")}</span>
                     </div>
                     <label className="switch-wrapper">
-                      <input type="checkbox" />
+                      <input
+                        type="checkbox"
+                        checked={requireOptEnter}
+                        onChange={(e) => {
+                          setRequireOptEnter(e.target.checked);
+                          updateGeneralVal("yode-require-opt-enter", e.target.checked);
+                        }}
+                      />
                       <span className="switch-slider" />
                     </label>
                   </div>
@@ -535,8 +689,11 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
                       <span className="row-desc">{t("设置当 Yode 任务执行完成时发送弹窗通知", "Set when Yode alerts you that it's finished")}</span>
                     </div>
                     <CustomSelect
-                      value="Only when unfocused"
-                      onChange={() => {}}
+                      value={completionNotif}
+                      onChange={(val) => {
+                        setCompletionNotif(val);
+                        updateGeneralVal("yode-completion-notif", val);
+                      }}
                       options={[
                         { value: "Only when unfocused", label: t("仅当失去焦点时", "Only when unfocused"), avatarText: "🔔" },
                         { value: "Always", label: t("总是通知", "Always"), avatarText: "🔊" },
@@ -552,7 +709,14 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
                       <span className="row-desc">{t("需要提权及敏感读写请求时发送通知", "Show alerts when notification permissions are required")}</span>
                     </div>
                     <label className="switch-wrapper">
-                      <input type="checkbox" defaultChecked />
+                      <input
+                        type="checkbox"
+                        checked={permNotif}
+                        onChange={(e) => {
+                          setPermNotif(e.target.checked);
+                          updateGeneralVal("yode-perm-notif", e.target.checked);
+                        }}
+                      />
                       <span className="switch-slider" />
                     </label>
                   </div>
@@ -563,7 +727,14 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
                       <span className="row-desc">{t("任务等待用户确认或者交互追问时发送通知", "Show alerts when input is needed to continue")}</span>
                     </div>
                     <label className="switch-wrapper">
-                      <input type="checkbox" defaultChecked />
+                      <input
+                        type="checkbox"
+                        checked={questionNotif}
+                        onChange={(e) => {
+                          setQuestionNotif(e.target.checked);
+                          updateGeneralVal("yode-question-notif", e.target.checked);
+                        }}
+                      />
                       <span className="switch-slider" />
                     </label>
                   </div>
