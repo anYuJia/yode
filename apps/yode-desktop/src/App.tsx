@@ -296,6 +296,10 @@ export function App() {
     );
   }
 
+  const handleDeleteSession = (sessionId: string) => {
+    setSessionItems(prev => prev.filter(s => s.id !== sessionId));
+  };
+
   return (
     <main className="app-shell">
       <Sidebar
@@ -304,6 +308,7 @@ export function App() {
         onChangeView={handleSetViewMode}
         onCreateSession={handleCreateSession}
         onSelectSession={setActiveSessionId}
+        onDeleteSession={handleDeleteSession}
       />
       <section className="workspace" style={{ position: "relative", overflow: "hidden" }}>
         <Topbar
@@ -326,26 +331,189 @@ export function App() {
     </main>
   );
 }
-
 function Sidebar({
   sessions,
   viewMode,
   onChangeView,
   onCreateSession,
-  onSelectSession
+  onSelectSession,
+  onDeleteSession
 }: {
   sessions: SessionSummary[];
   viewMode: ViewMode;
   onChangeView: (mode: ViewMode) => void;
   onCreateSession: () => void;
   onSelectSession: (sessionId: string) => void;
+  onDeleteSession: (sessionId: string) => void;
 }) {
   const lang = localStorage.getItem("yode-language") || "zh";
   const isZh = lang === "zh";
   const t = (zhText: string, enText: string) => isZh ? zhText : enText;
 
+  // Track pinned sessions (e.g. initially s-1 is pinned)
+  const [pinnedSessionIds, setPinnedSessionIds] = useState<string[]>(["s-1"]);
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
+  
+  // Hover information popover state
+  const [hoveredSessionId, setHoveredSessionId] = useState<string | null>(null);
+  const [hoverPosition, setHoverPosition] = useState<{ top: number; left: number } | null>(null);
+  const hoverTimerRef = useRef<number | null>(null);
+
+  const handleMouseEnter = (sessionId: string, e: React.MouseEvent) => {
+    // Clear any active timer
+    if (hoverTimerRef.current) window.clearTimeout(hoverTimerRef.current);
+    
+    const rect = e.currentTarget.getBoundingClientRect();
+    const pos = {
+      top: rect.top,
+      left: rect.right + 8
+    };
+
+    hoverTimerRef.current = window.setTimeout(() => {
+      setHoveredSessionId(sessionId);
+      setHoverPosition(pos);
+    }, 600);
+  };
+
+  const handleMouseLeave = () => {
+    if (hoverTimerRef.current) {
+      window.clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+    setHoveredSessionId(null);
+    setHoverPosition(null);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (hoverTimerRef.current) window.clearTimeout(hoverTimerRef.current);
+    };
+  }, []);
+
+  const handleTogglePin = (sessionId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setPinnedSessionIds(prev => 
+      prev.includes(sessionId) 
+        ? prev.filter(id => id !== sessionId) 
+        : [...prev, sessionId]
+    );
+  };
+
+  const handleDeleteClick = (sessionId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setDeletingSessionId(sessionId);
+  };
+
+  const handleConfirmDelete = (sessionId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    // execute delete
+    onDeleteSession(sessionId);
+    setDeletingSessionId(null);
+  };
+
+  const handleSessionMouseLeave = (sessionId: string) => {
+    // If the mouse leaves the session button, cancel deletion mode
+    if (deletingSessionId === sessionId) {
+      setDeletingSessionId(null);
+    }
+    handleMouseLeave();
+  };
+
+  // Group sessions into Pinned and Projects
+  const pinnedSessions = sessions.filter(s => pinnedSessionIds.includes(s.id));
+  const unpinnedSessions = sessions.filter(s => !pinnedSessionIds.includes(s.id));
+
+  // Helper render method for a session item
+  const renderSessionItem = (session: SessionSummary) => {
+    const isPinned = pinnedSessionIds.includes(session.id);
+    const isDeleting = deletingSessionId === session.id;
+
+    return (
+      <div
+        className={`session-item-wrapper ${session.active ? "active" : ""}`}
+        key={session.id}
+        onMouseEnter={(e) => handleMouseEnter(session.id, e)}
+        onMouseLeave={() => handleSessionMouseLeave(session.id)}
+        style={{ position: "relative" }}
+      >
+        <button
+          className={`session-button ${session.active ? "active" : ""}`}
+          onClick={() => onSelectSession(session.id)}
+          type="button"
+          style={{ width: "100%", paddingRight: isDeleting ? "76px" : "32px", display: "flex", alignItems: "center", justifyContent: "space-between" }}
+        >
+          <span className="session-title" style={{ flex: 1, textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }}>
+            {session.title}
+          </span>
+          {!isDeleting && (
+            <span className="session-time" style={{ fontSize: "10.5px", color: "var(--text-soft)", marginLeft: "4px" }}>
+              {session.updatedAt}
+            </span>
+          )}
+        </button>
+
+        {/* Hover Actions / Confirm Buttons overlay */}
+        {isDeleting ? (
+          <div className="delete-confirm-overlay" style={{ position: "absolute", right: "6px", top: "50%", transform: "translateY(-50%)", display: "flex", gap: "4px" }}>
+            <button
+              onClick={(e) => handleConfirmDelete(session.id, e)}
+              type="button"
+              className="confirm-delete-btn"
+              style={{
+                background: "oklch(60% 0.16 30)",
+                color: "#fff",
+                border: "none",
+                borderRadius: "4px",
+                fontSize: "10.5px",
+                fontWeight: "600",
+                padding: "2px 8px",
+                height: "22px",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center"
+              }}
+            >
+              Confirm
+            </button>
+          </div>
+        ) : (
+          <div className="session-actions-overlay" style={{ display: "none", position: "absolute", right: "6px", top: "50%", transform: "translateY(-50%)", gap: "2px" }}>
+            <button
+              onClick={(e) => handleTogglePin(session.id, e)}
+              type="button"
+              className="action-icon-btn"
+              style={{ background: "transparent", border: "none", cursor: "pointer", color: "var(--text-soft)", padding: "4px" }}
+              title={isPinned ? t("取消置顶", "Unpin") : t("置顶", "Pin")}
+            >
+              {/* Pushpin SVG Icon */}
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isPinned ? "rotate(45deg)" : "none" }}>
+                <line x1="18" y1="8" x2="22" y2="12"></line>
+                <line x1="12" y1="2" x2="12" y2="6"></line>
+                <path d="M12 6h8a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-8M12 6H4a2 2 0 0 0-2 2v2a2 2 0 0 0 2 2h8"></path>
+                <line x1="12" y1="12" x2="12" y2="22"></line>
+              </svg>
+            </button>
+            <button
+              onClick={(e) => handleDeleteClick(session.id, e)}
+              type="button"
+              className="action-icon-btn"
+              style={{ background: "transparent", border: "none", cursor: "pointer", color: "var(--text-soft)", padding: "4px" }}
+              title={t("删除", "Delete")}
+            >
+              {/* Trash SVG Icon */}
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
-    <aside className="sidebar">
+    <aside className="sidebar" style={{ position: "relative" }}>
       <div className="brand-row" data-tauri-drag-region>
         <div className="brand-mark">Y</div>
         <div data-tauri-drag-region>
@@ -366,6 +534,17 @@ function Sidebar({
         <NavButton icon={<Clock3 size={16} />} label={t("自动化", "Autopilot")} />
       </nav>
 
+      {/* Pinned Section */}
+      {pinnedSessions.length > 0 && (
+        <div className="sidebar-section pinned-sessions" style={{ display: "flex", flexDirection: "column" }}>
+          <div className="section-label">{t("已置顶", "Pinned")}</div>
+          <div className="sessions-list" style={{ flex: "none" }}>
+            {pinnedSessions.map(renderSessionItem)}
+          </div>
+        </div>
+      )}
+
+      {/* Projects Section */}
       <div className="sidebar-section sessions">
         <div className="section-label">{t("项目与对话", "Projects & Chats")}</div>
         <button className="project-button" type="button" style={{ marginBottom: "6px" }}>
@@ -374,19 +553,57 @@ function Sidebar({
           <ChevronDown size={15} />
         </button>
         <div className="sessions-list">
-          {sessions.map((session) => (
-            <button
-              className={`session-button ${session.active ? "active" : ""}`}
-              key={session.id}
-              onClick={() => onSelectSession(session.id)}
-              type="button"
-            >
-              <span className="session-title">{session.title}</span>
-              <span className="session-meta">{session.project} · {session.updatedAt}</span>
-            </button>
-          ))}
+          {unpinnedSessions.map(renderSessionItem)}
         </div>
       </div>
+
+      {/* Hover info popover card */}
+      {hoveredSessionId && hoverPosition && (
+        <div
+          className="session-popover"
+          style={{
+            position: "fixed",
+            top: hoverPosition.top,
+            left: hoverPosition.left,
+            zIndex: 9999,
+            width: "220px",
+            background: "var(--panel-raised)",
+            border: "1px solid var(--line-soft)",
+            borderRadius: "var(--radius)",
+            padding: "10px",
+            boxShadow: "var(--shadow-raised)",
+            color: "var(--text)",
+            pointerEvents: "none",
+            animation: "fadeIn 0.15s ease-out"
+          }}
+        >
+          {(() => {
+            const s = sessions.find(x => x.id === hoveredSessionId);
+            if (!s) return null;
+            return (
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <div style={{ fontSize: "12px", fontWeight: "700", color: "var(--accent)" }}>
+                  {s.title}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: "3px", fontSize: "10.5px", color: "var(--text-muted)" }}>
+                  <div>
+                    <span style={{ color: "var(--text-soft)" }}>{t("项目：", "Project: ")}</span>
+                    <code>{s.project}</code>
+                  </div>
+                  <div>
+                    <span style={{ color: "var(--text-soft)" }}>{t("更新时间：", "Updated: ")}</span>
+                    {s.updatedAt}
+                  </div>
+                  <div>
+                    <span style={{ color: "var(--text-soft)" }}>{t("会话 ID：", "Session ID: ")}</span>
+                    <span style={{ fontFamily: "var(--font-code)", opacity: 0.8 }}>{s.id}</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      )}
 
       <div className="sidebar-footer">
         <button
@@ -411,6 +628,7 @@ function Sidebar({
     </aside>
   );
 }
+
 
 function NavButton({ icon, label }: { icon: React.ReactNode; label: string }) {
   return (

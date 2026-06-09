@@ -1,0 +1,181 @@
+- main [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]: "Y"
+      - generic [ref=e7]:
+        - generic [ref=e8]: Yode
+        - generic [ref=e9]: local agent runtime
+    - button "新对话" [ref=e10]:
+      - img [ref=e11]
+      - text: 新对话
+    - navigation "主导航" [ref=e13]:
+      - button "搜索" [ref=e14]:
+        - img [ref=e15]
+        - text: 搜索
+      - button "技能" [ref=e18]:
+        - img [ref=e19]
+        - text: 技能
+      - button "插件" [ref=e23]:
+        - img [ref=e24]
+        - text: 插件
+      - button "自动化" [ref=e28]:
+        - img [ref=e29]
+        - text: 自动化
+    - generic [ref=e32]:
+      - generic [ref=e33]: 项目
+      - button "yode" [ref=e34]:
+        - img [ref=e35]
+        - generic [ref=e37]: yode
+        - img [ref=e38]
+    - generic [ref=e40]:
+      - generic [ref=e41]: 最近对话
+      - button "桌面端迁移计划 yode · 刚刚" [ref=e42]:
+        - generic [ref=e43]: 桌面端迁移计划
+        - generic [ref=e44]: yode · 刚刚
+      - button "权限治理审查 yode · 14:18" [ref=e45]:
+        - generic [ref=e46]: 权限治理审查
+        - generic [ref=e47]: yode · 14:18
+      - button "AgentEngine event bridge yode · 昨天" [ref=e48]:
+        - generic [ref=e49]: AgentEngine event bridge
+        - generic [ref=e50]: yode · 昨天
+    - generic [ref=e51]:
+      - button "对话" [ref=e52]:
+        - img [ref=e53]
+        - text: 对话
+      - button "设置" [ref=e56]:
+        - img [ref=e57]
+        - text: 设置
+  - generic [ref=e60]:
+    - generic [ref=e61]:
+      - generic [ref=e62]:
+        - generic [ref=e63]: 桌面端迁移计划
+        - generic [ref=e64]:
+          - generic [ref=e65]: /Users/pyu/code/yode
+          - generic [ref=e66]: main
+      - generic "运行状态" [ref=e67]:
+        - generic [ref=e68]:
+          - img [ref=e69]
+          - text: anthropic
+        - generic [ref=e72]:
+          - img [ref=e73]
+          - text: claude-sonnet-4
+        - generic [ref=e77]:
+          - img [ref=e78]
+          - text: Default
+        - generic [ref=e81]:
+          - img [ref=e82]
+          - text: 运行中
+        - button "更多" [ref=e85]:
+          - img [ref=e86]
+    - generic [ref=e90]:
+      - generic [ref=e91]:
+        - region "会话时间线" [ref=e92]:
+          - generic [ref=e93]:
+            - generic [ref=e94]: RUN LOG
+            - strong [ref=e95]: desktop-scaffold
+            - emphasis [ref=e96]: 7 events
+          - article [ref=e97]:
+            - img [ref=e100]
+            - generic [ref=e102]:
+              - generic [ref=e103]:
+                - heading "用户" [level=2] [ref=e104]
+                - generic [ref=e105]: 工作区 yode
+              - paragraph [ref=e106]: 把 Yode 做成桌面端 app，参考 Codex 的信息架构，先完成第一批 scaffold。
+          - article [ref=e107]:
+            - img [ref=e110]
+            - generic [ref=e113]:
+              - generic [ref=e114]:
+                - heading "运行时分析" [level=2] [ref=e115]
+                - generic [ref=e116]: plan
+              - paragraph [ref=e117]: 当前批次只建立桌面 shell 和 mock event log。真实 AgentEngine bridge 留到下一批，避免 UI 与 runtime 问题混在一起。
+          - article [ref=e118]:
+            - img [ref=e121]
+            - generic [ref=e125]:
+              - generic [ref=e126]:
+                - heading "读取项目结构" [level=2] [ref=e127]
+                - generic [ref=e128]: 42 files scanned
+              - paragraph [ref=e129]: 发现 Rust workspace、核心 crates、TUI 入口和既有桌面迁移计划。
+              - generic [ref=e130]:
+                - generic [ref=e131]: 完成
+                - code [ref=e132]: rg --files
+                - button "open" [ref=e133]
+          - article [ref=e134]:
+            - img [ref=e137]
+            - generic [ref=e140]:
+              - heading "等待确认" [level=2] [ref=e142]
+              - paragraph [ref=e143]: "bash 将执行 `cargo test -p yode-core`。该动作会运行本地测试，不会写入业务文件。"
+              - generic [ref=e144]:
+                - generic [ref=e145]:
+                  - generic [ref=e146]: 需要确认
+                  - code [ref=e147]: bash
+                  - strong [ref=e148]: read / execute
+                - generic [ref=e149]:
+                  - button "拒绝" [ref=e150]
+                  - button "允许" [ref=e151]
+          - article [ref=e152]:
+            - img [ref=e155]
+            - generic [ref=e159]:
+              - generic [ref=e160]:
+                - heading "生成 UI shell" [level=2] [ref=e161]
+                - generic [ref=e162]: mock stream
+              - paragraph [ref=e163]: sidebar、topbar、timeline、composer 和 settings shell 已准备渲染。
+              - generic [ref=e164]:
+                - generic [ref=e165]: 运行中
+                - code [ref=e166]: tauri command
+                - button "open" [ref=e167]
+          - generic [ref=e168]:
+            - text: 上下文已压缩
+            - paragraph [ref=e169]: 保留当前计划、文件变更摘要和下一批 runtime bridge 边界。
+          - article [ref=e170]:
+            - img [ref=e173]
+            - generic [ref=e176]:
+              - generic [ref=e177]:
+                - heading "Yode" [level=2] [ref=e178]
+                - generic [ref=e179]: stream complete
+              - paragraph [ref=e180]: 第一批目标是让桌面窗口可以启动，并提供足够接近真实任务的交互骨架。接下来会把 EngineEvent 映射成 DesktopEvent。
+        - complementary "运行详情" [ref=e181]:
+          - generic [ref=e182]:
+            - generic [ref=e183]: TURN
+            - strong [ref=e184]: mock-001
+          - generic [ref=e185]:
+            - generic [ref=e186]:
+              - generic [ref=e187]: 状态
+              - strong [ref=e188]: streaming
+            - generic [ref=e189]:
+              - generic [ref=e190]: 权限
+              - strong [ref=e191]: default
+            - generic [ref=e192]:
+              - generic [ref=e193]: 上下文
+              - strong [ref=e194]: 31%
+            - generic [ref=e195]:
+              - generic [ref=e196]: 工具
+              - strong [ref=e197]: 2 / 3
+          - generic [ref=e198]:
+            - text: FILES
+            - button "apps/yode-desktop/src/App.tsx" [ref=e199]:
+              - img [ref=e200]
+              - generic [ref=e205]: apps/yode-desktop/src/App.tsx
+            - button "src/styles/app.css" [ref=e206]:
+              - img [ref=e207]
+              - generic [ref=e212]: src/styles/app.css
+          - generic [ref=e213]:
+            - text: NEXT
+            - paragraph [ref=e214]: 第 2 批接入 DesktopRuntime 和 EngineEvent bridge。
+      - generic [ref=e215]:
+        - textbox "消息" [ref=e216]:
+          - /placeholder: 给 Yode 一个明确的仓库任务
+        - generic [ref=e217]:
+          - generic [ref=e218]:
+            - button "附件" [ref=e219]:
+              - img [ref=e220]
+            - button "Default" [ref=e223]:
+              - img [ref=e224]
+              - text: Default
+            - button "sonnet" [ref=e227]:
+              - img [ref=e228]
+              - text: sonnet
+          - generic [ref=e231]:
+            - button "停止" [ref=e232]:
+              - img [ref=e233]
+            - button "发送" [ref=e236]:
+              - img [ref=e237]

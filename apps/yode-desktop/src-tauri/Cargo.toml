@@ -1,0 +1,23 @@
+[package]
+name = "yode-desktop"
+version = "0.0.19"
+edition = "2021"
+description = "Yode desktop shell"
+license = "MIT"
+
+[lib]
+name = "yode_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.2", features = [] }
+
+[dependencies]
+anyhow = { workspace = true }
+chrono = { workspace = true }
+dirs = { workspace = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = { workspace = true }
+tauri = { version = "2.11.2", features = [] }
+uuid = { workspace = true }
+yode-core = { workspace = true }

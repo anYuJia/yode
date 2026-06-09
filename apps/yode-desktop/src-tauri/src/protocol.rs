@@ -1,0 +1,69 @@
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Bootstrap {
+    pub app_version: &'static str,
+    pub workspace_path: String,
+    pub provider: String,
+    pub model: String,
+    pub permission_mode: String,
+    pub sessions: Vec<DesktopSession>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopSession {
+    pub id: String,
+    pub title: String,
+    pub project: String,
+    pub provider: String,
+    pub model: String,
+    pub updated_at: String,
+    pub active: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateSessionRequest {
+    pub project_root: Option<String>,
+    pub title: Option<String>,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SendMessageRequest {
+    pub session_id: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnAccepted {
+    pub session_id: String,
+    pub turn_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopEvent {
+    pub session_id: String,
+    pub turn_id: String,
+    pub seq: u64,
+    pub kind: String,
+    pub timestamp: String,
+    pub payload: Value,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeState {
+    pub active_session_id: Option<String>,
+    pub status: String,
+    pub permission_mode: String,
+    pub context_percent: u8,
+    pub tool_calls: String,
+}

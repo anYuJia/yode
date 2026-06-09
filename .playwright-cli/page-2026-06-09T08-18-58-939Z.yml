@@ -1,0 +1,128 @@
+- main [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]: "Y"
+      - generic [ref=e7]:
+        - generic [ref=e8]: Yode
+        - generic [ref=e9]: local agent runtime
+    - button "新对话" [ref=e10]:
+      - img [ref=e11]
+      - text: 新对话
+    - navigation "主导航" [ref=e13]:
+      - button "搜索" [ref=e14]:
+        - img [ref=e15]
+        - text: 搜索
+      - button "技能" [ref=e18]:
+        - img [ref=e19]
+        - text: 技能
+      - button "插件" [ref=e23]:
+        - img [ref=e24]
+        - text: 插件
+      - button "自动化" [ref=e28]:
+        - img [ref=e29]
+        - text: 自动化
+    - generic [ref=e32]:
+      - generic [ref=e33]: 项目
+      - button "yode" [ref=e34]:
+        - img [ref=e35]
+        - generic [ref=e37]: yode
+        - img [ref=e38]
+    - generic [ref=e40]:
+      - generic [ref=e41]: 最近对话
+      - button "桌面端迁移计划 yode · 刚刚" [ref=e42]:
+        - generic [ref=e43]: 桌面端迁移计划
+        - generic [ref=e44]: yode · 刚刚
+      - button "权限治理审查 yode · 14:18" [ref=e45]:
+        - generic [ref=e46]: 权限治理审查
+        - generic [ref=e47]: yode · 14:18
+      - button "AgentEngine event bridge yode · 昨天" [ref=e48]:
+        - generic [ref=e49]: AgentEngine event bridge
+        - generic [ref=e50]: yode · 昨天
+    - generic [ref=e51]:
+      - button "对话" [ref=e52]:
+        - img [ref=e53]
+        - text: 对话
+      - button "设置" [active] [ref=e56]:
+        - img [ref=e57]
+        - text: 设置
+  - generic [ref=e60]:
+    - generic [ref=e61]:
+      - generic [ref=e62]:
+        - generic [ref=e63]: 桌面端迁移计划
+        - generic [ref=e64]:
+          - generic [ref=e65]: /Users/pyu/code/yode
+          - generic [ref=e66]: main
+      - generic "运行状态" [ref=e67]:
+        - generic [ref=e68]:
+          - img [ref=e69]
+          - text: anthropic
+        - generic [ref=e72]:
+          - img [ref=e73]
+          - text: claude-sonnet-4
+        - generic [ref=e77]:
+          - img [ref=e78]
+          - text: Default
+        - generic [ref=e81]:
+          - img [ref=e82]
+          - text: 运行中
+        - button "更多" [ref=e85]:
+          - img [ref=e86]
+    - generic [ref=e240]:
+      - complementary [ref=e241]:
+        - button "常规" [ref=e242]:
+          - img [ref=e243]
+          - text: 常规
+        - button "外观" [ref=e244]:
+          - img [ref=e245]
+          - text: 外观
+        - button "配置" [ref=e246]:
+          - img [ref=e247]
+          - text: 配置
+        - button "键盘快捷键" [ref=e252]:
+          - img [ref=e253]
+          - text: 键盘快捷键
+        - button "MCP 服务器" [ref=e255]:
+          - img [ref=e256]
+          - text: MCP 服务器
+        - button "钩子" [ref=e259]:
+          - img [ref=e260]
+          - text: 钩子
+        - button "连接" [ref=e264]:
+          - img [ref=e265]
+          - text: 连接
+        - button "Git" [ref=e269]:
+          - img [ref=e270]
+          - text: Git
+        - button "环境" [ref=e274]:
+          - img [ref=e275]
+          - text: 环境
+        - button "工作树" [ref=e279]:
+          - img [ref=e280]
+          - text: 工作树
+        - button "已归档对话" [ref=e282]:
+          - img [ref=e283]
+          - text: 已归档对话
+      - generic [ref=e286]:
+        - generic [ref=e287]:
+          - generic [ref=e288]:
+            - heading "常规" [level=1] [ref=e289]
+            - paragraph [ref=e290]: Desktop runtime preview · 0.0.19
+          - button "重载" [ref=e291]:
+            - img [ref=e292]
+            - text: 重载
+        - generic [ref=e296]:
+          - generic [ref=e297]:
+            - generic [ref=e298]: 默认工作区
+            - code [ref=e299]: /Users/pyu/code/yode
+          - generic [ref=e300]:
+            - generic [ref=e301]: 默认 provider
+            - strong [ref=e302]: anthropic
+          - generic [ref=e303]:
+            - generic [ref=e304]: 默认 model
+            - strong [ref=e305]: claude-sonnet-4
+          - generic [ref=e306]:
+            - generic [ref=e307]: 权限模式
+            - strong [ref=e308]: Default
+        - generic [ref=e310]:
+          - img [ref=e311]
+          - generic [ref=e314]: 真实配置读写将在第 5 批接入

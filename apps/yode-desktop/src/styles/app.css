@@ -299,15 +299,32 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   gap: 2px;
 }
 
+.session-item-wrapper {
+  position: relative;
+  border-radius: var(--radius);
+  margin-bottom: 2px;
+}
+
+.session-item-wrapper:hover {
+  background: var(--panel-raised);
+}
+
+.session-item-wrapper:hover .session-actions-overlay {
+  display: flex !important;
+}
+
 .session-button {
-  display: grid;
-  gap: 1px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   min-height: 36px;
   padding: 5px 9px 5px 7px;
   background: transparent;
   color: var(--text-muted);
   text-align: left;
   border-left: 2px solid transparent;
+  width: 100%;
 }
 
 .session-button.active {
@@ -321,7 +338,43 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 650;
+  flex: 1;
 }
+
+.session-time {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+
+.action-icon-btn {
+  transition: color 0.15s ease, background 0.15s ease;
+  border-radius: 4px;
+}
+
+.action-icon-btn:hover {
+  color: var(--text) !important;
+  background: color-mix(in oklch, var(--line), transparent 30%);
+}
+
+.confirm-delete-btn {
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.confirm-delete-btn:hover {
+  background: oklch(50% 0.16 30) !important;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 
 .sidebar-footer {
   margin-top: auto;
@@ -1657,4 +1710,45 @@ html:has(meta[name="dummy"]) .sidebar { /* fallback styling using CSS property c
 .theme-preview-code.diff-symbols .added-line::before {
   content: "+ ";
   color: color-mix(in oklch, var(--success), transparent 10%);
+}
+
+/* 7. Settings Tab Optimization to avoid layout flickering */
+.settings-layout,
+.settings-tabs,
+.settings-content {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  perspective: 1000px;
+}
+.settings-layout {
+  background: var(--bg);
+}
+.settings-tabs {
+  background: var(--chrome) !important; /* solid background eliminates compositing repaint flashes */
+}
+.settings-tab {
+  transition: transform 180ms cubic-bezier(0.4, 0, 0.2, 1), background 180ms, color 180ms, opacity 180ms !important;
+  transform: scale(1) translateX(0);
+  cursor: pointer !important;
+}
+.settings-tab:hover {
+  transform: scale(1.01) translateX(1px);
+}
+.settings-tab:active {
+  transform: scale(0.98) !important;
+}
+.settings-tab:not(.active):hover {
+  background: var(--field) !important;
+  color: var(--text) !important;
+}
+.settings-tab:not(.active):hover .tab-icon {
+  color: var(--text) !important;
+}
+.back-tab-btn {
+  transition: color 150ms !important;
+  cursor: pointer !important;
+}
+.back-tab-btn:hover {
+  background: transparent !important;
+  color: var(--text) !important;
 }

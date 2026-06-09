@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "apps/yode-desktop/src-tauri",
     "crates/yode-core",
     "crates/yode-llm",
     "crates/yode-tools",
