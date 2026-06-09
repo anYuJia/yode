@@ -1725,18 +1725,25 @@ function KeyboardShortcutsSettings({ isZh, t }: { isZh: boolean; t: (zh: string,
   const [searchQuery, setSearchQuery] = useState("");
   
   // Custom states for keybindings deletion simulation
-  const [bindings, setBindings] = useState<Array<{ id: string; cmd: string; desc: string; keys: string[] }>>([
-    { id: "archive", cmd: "Archive chat", desc: "Archive the current chat", keys: ["⇧⌘A"] },
-    { id: "newchat", cmd: "New chat", desc: "Start a new chat", keys: ["⌘N", "⇧⌘O"] },
-    { id: "sidechat", cmd: "Open side chat", desc: "Open the current chat in a side chat", keys: [] },
-    { id: "newwin", cmd: "Open in new window", desc: "Open the current chat in a new window", keys: [] },
-    { id: "quickchat", cmd: "New quick chat", desc: "Start a lightweight chat in the quick compo...", keys: ["⌥⌘N"] },
-    { id: "pin", cmd: "Toggle pin", desc: "Pin or unpin the current chat", keys: ["⌥⌘P"] },
-    { id: "find", cmd: "Find", desc: "Search the current chat", keys: ["⌘F"] },
-    { id: "addressbar", cmd: "Focus browser address bar", desc: "Focus the in-app browser address bar", keys: ["⌘L"] },
-    { id: "back", cmd: "Back", desc: "Go back in navigation history", keys: ["⌘[", "Mouse Back"] },
-    { id: "forward", cmd: "Forward", desc: "Go forward in navigation history", keys: ["⌘]", "Mouse Forward"] },
-    { id: "recent", cmd: "Next recently viewed chat or tab", desc: "Cycle to the next recently viewed chat or t...", keys: ["⌃Tab"] }
+  const [bindings, setBindings] = useState<Array<{
+    id: string;
+    cmdZh: string;
+    cmdEn: string;
+    descZh: string;
+    descEn: string;
+    keys: string[];
+  }>>([
+    { id: "archive", cmdZh: "归档对话", cmdEn: "Archive chat", descZh: "归档当前活动的对话", descEn: "Archive the current chat", keys: ["⇧⌘A"] },
+    { id: "newchat", cmdZh: "新建对话", cmdEn: "New chat", descZh: "发起一个新的对话", descEn: "Start a new chat", keys: ["⌘N", "⇧⌘O"] },
+    { id: "sidechat", cmdZh: "打开侧边栏对话", cmdEn: "Open side chat", descZh: "在侧边栏中打开当前对话", descEn: "Open the current chat in a side chat", keys: [] },
+    { id: "newwin", cmdZh: "在新窗口打开", cmdEn: "Open in new window", descZh: "在新窗口中打开当前对话", descEn: "Open the current chat in a new window", keys: [] },
+    { id: "quickchat", cmdZh: "新建快速对话", cmdEn: "New quick chat", descZh: "在快速输入框中启动轻量对话", descEn: "Start a lightweight chat in the quick compo...", keys: ["⌥⌘N"] },
+    { id: "pin", cmdZh: "固定/取消固定", cmdEn: "Toggle pin", descZh: "固定或取消固定当前对话", descEn: "Pin or unpin the current chat", keys: ["⌥⌘P"] },
+    { id: "find", cmdZh: "查找", cmdEn: "Find", descZh: "在当前对话中搜索内容", descEn: "Search the current chat", keys: ["⌘F"] },
+    { id: "addressbar", cmdZh: "聚焦浏览器地址栏", cmdEn: "Focus browser address bar", descZh: "将焦点定位到应用内浏览器地址栏", descEn: "Focus the in-app browser address bar", keys: ["⌘L"] },
+    { id: "back", cmdZh: "后退", cmdEn: "Back", descZh: "在导航历史记录中向后退一步", descEn: "Go back in navigation history", keys: ["⌘[", "Mouse Back"] },
+    { id: "forward", cmdZh: "前进", cmdEn: "Forward", descZh: "在导航历史记录中向前进一步", descEn: "Go forward in navigation history", keys: ["⌘]", "Mouse Forward"] },
+    { id: "recent", cmdZh: "切换至最近对话或标签页", cmdEn: "Next recently viewed chat or tab", descZh: "轮转切换至上一个或最近查看的对话和标签页", descEn: "Cycle to the next recently viewed chat or t...", keys: ["⌃Tab"] }
   ]);
 
   const handleDeleteBinding = (id: string, keyIdx: number) => {
@@ -1751,8 +1758,10 @@ function KeyboardShortcutsSettings({ isZh, t }: { isZh: boolean; t: (zh: string,
   };
 
   const filteredBindings = bindings.filter(b => 
-    b.cmd.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    b.desc.toLowerCase().includes(searchQuery.toLowerCase())
+    b.cmdZh.toLowerCase().includes(searchQuery.toLowerCase()) || 
+    b.cmdEn.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    b.descZh.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    b.descEn.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
@@ -1812,8 +1821,8 @@ function KeyboardShortcutsSettings({ isZh, t }: { isZh: boolean; t: (zh: string,
             >
               {/* Command label */}
               <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                <span style={{ fontWeight: "600", color: "var(--text)" }}>{t(item.cmd, item.cmd)}</span>
-                <span style={{ fontSize: "11px", color: "var(--text-soft)" }}>{t(item.desc, item.desc)}</span>
+                <span style={{ fontWeight: "600", color: "var(--text)" }}>{t(item.cmdZh, item.cmdEn)}</span>
+                <span style={{ fontSize: "11px", color: "var(--text-soft)" }}>{t(item.descZh, item.descEn)}</span>
               </div>
 
               {/* Keybinding tags */}
