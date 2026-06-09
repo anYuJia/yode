@@ -1,0 +1,1212 @@
+import React, { useState, useEffect } from "react";
+import {
+  SlidersHorizontal,
+  Settings,
+  Eye,
+  Sliders,
+  Sparkles,
+  Command,
+  MonitorPlay,
+  TerminalSquare,
+  Globe,
+  Fingerprint,
+  GitBranch,
+  Workflow,
+  Code2,
+  Folder,
+  Archive,
+  History,
+  KeyRound,
+  Bot,
+  Sun,
+  Moon,
+  Monitor,
+  Copy,
+  Download,
+  ChevronDown,
+  ArrowLeft,
+  Search
+} from "lucide-react";
+import { Bootstrap } from "../lib/mock";
+import { CustomSelect, CustomSelectOption } from "./CustomSelect";
+import { ColorPicker } from "./ColorPicker";
+
+export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; onClose: () => void }) {
+  const [activeTab, setActiveTab] = useState("外观");
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const lang = localStorage.getItem("yode-language") || "zh";
+  const isZh = lang === "zh";
+
+  const t = (zhText: string, enText: string) => {
+    return isZh ? zhText : enText;
+  };
+
+  const categories = [
+    {
+      title: t("个人设置", "Personal"),
+      items: [
+        { id: "常规", label: t("常规", "General"), icon: Settings },
+        { id: "外观", label: t("外观", "Appearance"), icon: Eye },
+        { id: "配置", label: t("配置", "Configuration"), icon: Sliders },
+        { id: "个性化", label: t("个性化", "Personalization"), icon: Sparkles },
+        { id: "键盘快捷键", label: t("键盘快捷键", "Keyboard shortcuts"), icon: Command }
+      ]
+    },
+    {
+      title: t("应用集成", "Integrations"),
+      items: [
+        { id: "应用截图", label: t("应用截图", "Appshots"), icon: MonitorPlay },
+        { id: "MCP 服务器", label: t("MCP 服务器", "MCP servers"), icon: TerminalSquare },
+        { id: "浏览器", label: t("浏览器", "Browser"), icon: Globe },
+        { id: "计算机使用", label: t("计算机使用", "Computer use"), icon: Fingerprint }
+      ]
+    },
+    {
+      title: t("编码设置", "Coding"),
+      items: [
+        { id: "钩子", label: t("钩子", "Hooks"), icon: GitBranch },
+        { id: "连接", label: t("连接", "Connections"), icon: Workflow },
+        { id: "Git", label: t("Git", "Git"), icon: GitBranch },
+        { id: "环境", label: t("环境", "Environments"), icon: Code2 },
+        { id: "工作树", label: t("工作树", "Worktrees"), icon: Folder }
+      ]
+    },
+    {
+      title: t("已归档", "Archived"),
+      items: [
+        { id: "已归档对话", label: t("已归档对话", "Archived chats"), icon: Archive }
+      ]
+    }
+  ];
+
+  return (
+    <div className="settings-layout">
+      <aside className="settings-tabs" style={{ paddingTop: "32px", paddingInline: "12px", gap: "14px" }}>
+        {/* Back Button */}
+        <button
+          className="settings-tab back-tab-btn"
+          onClick={onClose}
+          type="button"
+          style={{
+            border: "none",
+            borderRadius: "var(--radius)",
+            fontWeight: "600",
+            fontSize: "13px",
+            color: "var(--text-soft)",
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            background: "transparent",
+            paddingInline: "8px",
+            paddingBlock: "4px",
+            cursor: "pointer",
+            width: "100%",
+            textAlign: "left",
+            marginBottom: "4px"
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.color = "var(--text)"}
+          onMouseLeave={(e) => e.currentTarget.style.color = "var(--text-soft)"}
+        >
+          <ArrowLeft size={15} />
+          {t("返回对话", "Back to app")}
+        </button>
+
+        {/* Search settings bar */}
+        <div style={{ position: "relative", width: "100%" }}>
+          <Search size={13} style={{ position: "absolute", left: "9px", top: "7px", color: "var(--text-soft)", opacity: 0.8 }} />
+          <input
+            type="text"
+            placeholder={t("搜索设置...", "Search settings...")}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{
+              width: "100%",
+              height: "26px",
+              background: "var(--field)",
+              border: "none",
+              borderRadius: "var(--radius)",
+              paddingLeft: "26px",
+              paddingRight: "8px",
+              fontSize: "11.5px",
+              color: "var(--text)",
+              outline: "none"
+            }}
+          />
+        </div>
+
+        {/* Categorized menu items */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "12px", overflowY: "auto", flex: 1, paddingRight: "2px" }}>
+          {categories.map((category) => {
+            const filteredItems = category.items.filter((item) =>
+              item.label.toLowerCase().includes(searchQuery.toLowerCase())
+            );
+
+            if (filteredItems.length === 0) return null;
+
+            return (
+              <div key={category.title} style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                <div style={{
+                  fontSize: "10.5px",
+                  fontWeight: "700",
+                  color: "var(--text-soft)",
+                  opacity: 0.6,
+                  paddingLeft: "10px",
+                  textTransform: "capitalize",
+                  marginBottom: "1px",
+                  letterSpacing: "0.3px"
+                }}>
+                  {category.title}
+                </div>
+                {filteredItems.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = activeTab === item.id;
+                  return (
+                    <button
+                      className={`settings-tab ${isActive ? "active" : ""}`}
+                      key={item.id}
+                      onClick={() => setActiveTab(item.id)}
+                      type="button"
+                      style={{
+                        paddingBlock: "5px",
+                        paddingInline: "10px",
+                        fontSize: "12.5px",
+                        fontWeight: isActive ? "600" : "500",
+                        borderRadius: "var(--radius)",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        width: "100%",
+                        textAlign: "left",
+                        background: isActive ? "color-mix(in oklch, var(--accent-muted), transparent 42%)" : "transparent",
+                        color: isActive ? "var(--text)" : "color-mix(in oklch, var(--text-muted), transparent 20%)",
+                        border: "none",
+                        transition: "all 180ms cubic-bezier(0.4, 0, 0.2, 1)",
+                        transform: "scale(1)",
+                        cursor: "pointer",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap"
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = "scale(1.01) translateX(1px)";
+                        if (!isActive) {
+                          e.currentTarget.style.background = "var(--field)";
+                          e.currentTarget.style.color = "var(--text)";
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = "scale(1) translateX(0)";
+                        if (!isActive) {
+                          e.currentTarget.style.background = "transparent";
+                          e.currentTarget.style.color = "color-mix(in oklch, var(--text-muted), transparent 20%)";
+                        }
+                      }}
+                      onMouseDown={(e) => {
+                        e.currentTarget.style.transform = "scale(0.98)";
+                      }}
+                      onMouseUp={(e) => {
+                        e.currentTarget.style.transform = "scale(1.01) translateX(1px)";
+                      }}
+                    >
+                      <Icon size={13} style={{ flexShrink: 0, color: isActive ? "var(--accent)" : "var(--text-soft)", transition: "transform 180ms ease" }} />
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+                        {item.label}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      </aside>
+      <section className="settings-content" style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+        <div style={{ width: "100%", maxWidth: "720px" }}>
+          <div className="settings-heading" style={{ marginBottom: "24px", paddingTop: "8px" }}>
+            <div>
+              <h1 style={{ margin: 0, fontSize: "22px", fontWeight: "600", letterSpacing: "-0.2px", color: "var(--text)" }}>{activeTab}</h1>
+            </div>
+          </div>
+
+          {activeTab === "常规" && (
+            <div className="appearance-container">
+              {/* 1. Work Mode Section */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <span style={{ fontSize: "11px", fontWeight: "700", color: "var(--text-soft)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  {t("工作模式", "Work mode")}
+                </span>
+                <span style={{ fontSize: "11px", color: "var(--text-soft)", marginBottom: "4px" }}>
+                  {t("选择 Yode 展示技术细节的深度", "Choose how much technical detail Yode shows")}
+                </span>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                  <button
+                    type="button"
+                    onClick={() => localStorage.setItem("yode-work-mode", "coding")}
+                    style={{
+                      padding: "10px 14px",
+                      borderRadius: "var(--radius)",
+                      background: "var(--field)",
+                      border: "1px solid var(--line-soft)",
+                      textAlign: "left",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between"
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: "12.5px", fontWeight: "600", color: "var(--text)" }}>{t("专注编码", "For coding")}</div>
+                      <div style={{ fontSize: "11px", color: "var(--text-soft)", marginTop: "2px" }}>{t("提供更多技术性响应与工具掌控", "More technical responses and control")}</div>
+                    </div>
+                    <div style={{
+                      width: "16px",
+                      height: "16px",
+                      borderRadius: "50%",
+                      border: "2px solid var(--accent)",
+                      background: "var(--accent)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center"
+                    }}>
+                      <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: "var(--bg)" }} />
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    style={{
+                      padding: "10px 14px",
+                      borderRadius: "var(--radius)",
+                      background: "var(--field)",
+                      border: "1px solid var(--line-soft)",
+                      textAlign: "left",
+                      cursor: "pointer",
+                      opacity: 0.6,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between"
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: "12.5px", fontWeight: "600", color: "var(--text)" }}>{t("日常工作", "For everyday work")}</div>
+                      <div style={{ fontSize: "11px", color: "var(--text-soft)", marginTop: "2px" }}>{t("相同的智能，但减少复杂技术细节", "Same power, less technical detail")}</div>
+                    </div>
+                    <div style={{
+                      width: "16px",
+                      height: "16px",
+                      borderRadius: "50%",
+                      border: "2px solid var(--line)",
+                      background: "transparent"
+                    }} />
+                  </button>
+                </div>
+              </div>
+
+              {/* 2. Permissions Card */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <span style={{ fontSize: "11px", fontWeight: "700", color: "var(--text-soft)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  {t("权限控制", "Permissions")}
+                </span>
+                <div className="theme-card">
+                  <div className="form-row">
+                    <div className="row-info">
+                      <span className="row-label">{t("默认文件权限", "Default permissions")}</span>
+                      <span className="row-desc">{t("默认情况下，Yode 可以读取和编辑其工作区中的文件", "By default, Yode can read and edit files in its workspace")}</span>
+                    </div>
+                    <label className="switch-wrapper">
+                      <input type="checkbox" defaultChecked />
+                      <span className="switch-slider" />
+                    </label>
+                  </div>
+                  <div className="divider" />
+                  <div className="form-row">
+                    <div className="row-info">
+                      <span className="row-label">{t("自动代码审查", "Auto-review")}</span>
+                      <span className="row-desc">{t("自动审查代码修改，以便发现潜在的设计隐患", "Yode automatically reviews requests for additional access")}</span>
+                    </div>
+                    <label className="switch-wrapper">
+                      <input type="checkbox" defaultChecked />
+                      <span className="switch-slider" />
+                    </label>
+                  </div>
+                  <div className="divider" />
+                  <div className="form-row">
+                    <div className="row-info">
+                      <span className="row-label">{t("完整系统访问权限", "Full access")}</span>
+                      <span className="row-desc">{t("允许 Yode 编辑系统文件并执行本地终端指令", "Allows Yode to run shell commands and modify local files")}</span>
+                    </div>
+                    <label className="switch-wrapper">
+                      <input type="checkbox" defaultChecked />
+                      <span className="switch-slider" />
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              {/* 3. General Config Form */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <span style={{ fontSize: "11px", fontWeight: "700", color: "var(--text-soft)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  {t("通用", "General")}
+                </span>
+                <div className="theme-card">
+                  <div className="form-row">
+                    <div className="row-info">
+                      <span className="row-label">{t("默认打开目标", "Default open destination")}</span>
+                      <span className="row-desc">{t("默认情况下打开文件和文件夹的位置", "Where files and folders open by default")}</span>
+                    </div>
+                    <CustomSelect
+                      value="VS Code"
+                      onChange={() => {}}
+                      options={[
+                        { value: "VS Code", label: "VS Code", avatarText: "💻", avatarBg: "rgba(255,255,255,0.05)" },
+                        { value: "Cursor", label: "Cursor", avatarText: "🤖", avatarBg: "rgba(255,255,255,0.05)" },
+                        { value: "Terminal", label: "Terminal", avatarText: "🐚", avatarBg: "rgba(255,255,255,0.05)" }
+                      ]}
+                      style={{ minWidth: "160px" }}
+                    />
+                  </div>
+                  <div className="divider" />
+
+                  <div className="form-row">
+                    <div className="row-info">
+                      <span className="row-label">{t("界面语言", "Language")}</span>
+                      <span className="row-desc">{t("设置 Yode 的界面显示语言", "Language for the app UI")}</span>
+                    </div>
+                    <CustomSelect
+                      value={localStorage.getItem("yode-language") || "zh"}
+                      onChange={(val) => {
+                        localStorage.setItem("yode-language", val);
+                        window.location.reload();
+                      }}
+                      options={[
+                        { value: "zh", label: "简体中文 (Simplified Chinese)", avatarText: "🇨🇳", avatarBg: "rgba(255,255,255,0.05)" },
+                        { value: "en", label: "English (US)", avatarText: "🇺🇸", avatarBg: "rgba(255,255,255,0.05)" }
+                      ]}
+                      style={{ minWidth: "200px" }}
+                    />
+                  </div>
+                  <div className="divider" />
+
+                  <div className="form-row">
+                    <div className="row-info">
+                      <span className="row-label">{t("在菜单栏中显示", "Show in menu bar")}</span>
+                      <span className="row-desc">{t("主窗口关闭时将 Yode 保留在系统状态栏中", "Keep Yode in the macOS menu bar when the main window is closed")}</span>
+                    </div>
+                    <label className="switch-wrapper">
+                      <input type="checkbox" defaultChecked />
+                      <span className="switch-slider" />
+                    </label>
+                  </div>
+                  <div className="divider" />
+
+                  <div className="form-row">
+                    <div className="row-info">
+                      <span className="row-label">{t("底部控制面板", "Bottom panel")}</span>
+                      <span className="row-desc">{t("在应用底部状态栏显示核心操控面板", "Show the bottom panel control in the app header")}</span>
+                    </div>
+                    <label className="switch-wrapper">
+                      <input type="checkbox" defaultChecked />
+                      <span className="switch-slider" />
+                    </label>
+                  </div>
+                  <div className="divider" />
+
+                  <div className="form-row">
+                    <div className="row-info">
+                      <span className="row-label">{t("默认终端位置", "Default terminal location")}</span>
+                      <span className="row-desc">{t("选择终端面板和环境动作在何处展开", "Choose where the terminal shortcut and environment actions open")}</span>
+                    </div>
+                    <div className="segmented-control">
+                      <button className="segmented-btn active" type="button">{t("底部", "Bottom")}</button>
+                      <button className="segmented-btn" type="button">{t("右侧", "Right")}</button>
+                    </div>
+                  </div>
+                  <div className="divider" />
+
+                  <div className="form-row">
+                    <div className="row-info">
+                      <span className="row-label">{t("运行期间阻止休眠", "Prevent sleep while running")}</span>
+                      <span className="row-desc">{t("当 Yode 执行任务时保持计算机处于唤醒状态", "Keep your computer awake while Yode is running a chat")}</span>
+                    </div>
+                    <label className="switch-wrapper">
+                      <input type="checkbox" />
+                      <span className="switch-slider" />
+                    </label>
+                  </div>
+                  <div className="divider" />
+
+                  <div className="form-row">
+                    <div className="row-info">
+                      <span className="row-label">{t("代码审查策略", "Code review")}</span>
+                      <span className="row-desc">{t("选择在原处进行对比还是在新窗口中展开", "Start /review in the current chat when possible or launch a separate review chat")}</span>
+                    </div>
+                    <div className="segmented-control">
+                      <button className="segmented-btn active" type="button">{t("内联", "Inline")}</button>
+                      <button className="segmented-btn" type="button">{t("独立对话", "Detached")}</button>
+                    </div>
+                  </div>
+                  <div className="divider" />
+
+                  <div className="form-row">
+                    <div className="row-info">
+                      <span className="row-label">{t("智能提示建议", "Suggested prompts")}</span>
+                      <span className="row-desc">{t("通过索引文件和已连接的应用提供相关指令提示", "Suggest what to do next by searching project files and connected apps")}</span>
+                    </div>
+                    <label className="switch-wrapper">
+                      <input type="checkbox" defaultChecked />
+                      <span className="switch-slider" />
+                    </label>
+                  </div>
+                  <div className="divider" />
+
+                  <div className="form-row">
+                    <div className="row-info">
+                      <span className="row-label">{t("导入其他 AI 会话", "Import work from other AI apps")}</span>
+                      <span className="row-desc">{t("将配置、项目及最近会话快速导入到 Yode", "Bring over your setup, projects, and recent chats")}</span>
+                    </div>
+                    <button className="secondary-button" style={{ paddingInline: "14px", height: "28px" }} type="button">
+                      {t("导入", "Import")}
+                    </button>
+                  </div>
+                  <div className="divider" />
+
+                  <div className="form-row">
+                    <div className="row-info">
+                      <span className="row-label">{t("开源许可声明", "Open source licenses")}</span>
+                      <span className="row-desc">{t("查看所包含依赖项的第三方声明", "Third-party notices for bundled dependencies")}</span>
+                    </div>
+                    <button className="secondary-button" style={{ paddingInline: "14px", height: "28px" }} type="button">
+                      {t("查看", "View")}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* 4. Composer Section */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <span style={{ fontSize: "11px", fontWeight: "700", color: "var(--text-soft)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  {t("输入框设置", "Composer")}
+                </span>
+                <div className="theme-card">
+                  <div className="form-row">
+                    <div className="row-info">
+                      <span className="row-label">{t("显示上下文窗口用量", "Show context window usage")}</span>
+                    </div>
+                    <label className="switch-wrapper">
+                      <input type="checkbox" />
+                      <span className="switch-slider" />
+                    </label>
+                  </div>
+                  <div className="divider" />
+                  <div className="form-row">
+                    <div className="row-info">
+                      <span className="row-label">{t("追问行为控制", "Follow-up behavior")}</span>
+                      <span className="row-desc">{t("连续追问时直接运行或等待确认", "Queue follow-ups while Yode runs or steer the current run")}</span>
+                    </div>
+                    <div className="segmented-control">
+                      <button className="segmented-btn active" type="button">{t("队列式", "Queue")}</button>
+                      <button className="segmented-btn" type="button">{t("指引式", "Steer")}</button>
+                    </div>
+                  </div>
+                  <div className="divider" />
+                  <div className="form-row">
+                    <div className="row-info">
+                      <span className="row-label">{t("回车发送长指令", "Require ⌥ + enter to send long prompts")}</span>
+                      <span className="row-desc">{t("开启后，多行输入框回车表示换行", "When enabled, multiline prompts require ⌥ + enter to send")}</span>
+                    </div>
+                    <label className="switch-wrapper">
+                      <input type="checkbox" />
+                      <span className="switch-slider" />
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              {/* 5. Notifications Section */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <span style={{ fontSize: "11px", fontWeight: "700", color: "var(--text-soft)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  {t("通知机制", "Notifications")}
+                </span>
+                <div className="theme-card">
+                  <div className="form-row">
+                    <div className="row-info">
+                      <span className="row-label">{t("任务完成通知", "Turn completion notifications")}</span>
+                      <span className="row-desc">{t("设置当 Yode 任务执行完成时发送弹窗通知", "Set when Yode alerts you that it's finished")}</span>
+                    </div>
+                    <CustomSelect
+                      value="Only when unfocused"
+                      onChange={() => {}}
+                      options={[
+                        { value: "Only when unfocused", label: t("仅当失去焦点时", "Only when unfocused"), avatarText: "🔔" },
+                        { value: "Always", label: t("总是通知", "Always"), avatarText: "🔊" },
+                        { value: "Never", label: t("从不通知", "Never"), avatarText: "🔕" }
+                      ]}
+                      style={{ minWidth: "180px" }}
+                    />
+                  </div>
+                  <div className="divider" />
+                  <div className="form-row">
+                    <div className="row-info">
+                      <span className="row-label">{t("启用权限请求提示", "Enable permission notifications")}</span>
+                      <span className="row-desc">{t("需要提权及敏感读写请求时发送通知", "Show alerts when notification permissions are required")}</span>
+                    </div>
+                    <label className="switch-wrapper">
+                      <input type="checkbox" defaultChecked />
+                      <span className="switch-slider" />
+                    </label>
+                  </div>
+                  <div className="divider" />
+                  <div className="form-row">
+                    <div className="row-info">
+                      <span className="row-label">{t("启用追问输入提示", "Enable question notifications")}</span>
+                      <span className="row-desc">{t("任务等待用户确认或者交互追问时发送通知", "Show alerts when input is needed to continue")}</span>
+                    </div>
+                    <label className="switch-wrapper">
+                      <input type="checkbox" defaultChecked />
+                      <span className="switch-slider" />
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "外观" && (
+            <AppearanceSettings />
+          )}
+
+          {activeTab !== "常规" && activeTab !== "外观" && (
+            <div className="settings-group compact">
+              <div className="empty-state">
+                <Bot size={20} />
+                <span>{activeTab} 模块的设置面板将在后续批次中接入</span>
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function AppearanceSettings() {
+  const [themeMode, setThemeMode] = useState<"light" | "dark" | "system">(() => {
+    return (localStorage.getItem("yode-theme-mode") as any) || "dark";
+  });
+  const [themeName, setThemeName] = useState(() => {
+    return localStorage.getItem("yode-theme-name") || "Dracula";
+  });
+  const [accentColor, setAccentColor] = useState(() => {
+    return localStorage.getItem("yode-accent-color") || "#FF79C6";
+  });
+  const [backgroundColor, setBackgroundColor] = useState(() => {
+    return localStorage.getItem("yode-bg-color") || "#282A36";
+  });
+  const [foregroundColor, setForegroundColor] = useState(() => {
+    return localStorage.getItem("yode-fg-color") || "#F8F8F2";
+  });
+  const [uiFont, setUiFont] = useState(() => {
+    return localStorage.getItem("yode-ui-font") || "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif";
+  });
+  const [codeFont, setCodeFont] = useState(() => {
+    return localStorage.getItem("yode-code-font") || "ui-monospace, \"SF Mono\", SFMono-Regular, Menlo, Monaco, Consolas, monospace";
+  });
+  const [translucentSidebar, setTranslucentSidebar] = useState(() => {
+    const val = localStorage.getItem("yode-translucent-sidebar");
+    return val === null ? true : val === "true";
+  });
+  const [contrast, setContrast] = useState(() => {
+    const val = localStorage.getItem("yode-contrast");
+    return val === null ? 48 : Number(val);
+  });
+  const [usePointerCursors, setUsePointerCursors] = useState(() => {
+    return localStorage.getItem("yode-use-pointers") === "true";
+  });
+  const [reduceMotion, setReduceMotion] = useState<"system" | "on" | "off">(() => {
+    return (localStorage.getItem("yode-reduce-motion") as any) || "system";
+  });
+  const [uiFontSize, setUiFontSize] = useState(() => {
+    const val = localStorage.getItem("yode-ui-font-size");
+    return val === null ? 13 : Number(val);
+  });
+  const [codeFontSize, setCodeFontSize] = useState(() => {
+    const val = localStorage.getItem("yode-code-font-size");
+    return val === null ? 12 : Number(val);
+  });
+  const [diffMarkers, setDiffMarkers] = useState<"color" | "symbols">(() => {
+    return (localStorage.getItem("yode-diff-markers") as any) || "color";
+  });
+  const [fontSmoothing, setFontSmoothing] = useState(() => {
+    const val = localStorage.getItem("yode-font-smoothing");
+    return val === null ? true : val === "true";
+  });
+  const [pet, setPet] = useState(() => {
+    return localStorage.getItem("yode-pet") || "Yode";
+  });
+
+  // Utility to convert hex to rgb
+  const hexToRgb = (hex: string) => {
+    const shorthandRegex = /^#?([a-f\d])([a-f\d])([a-f\d])$/i;
+    const fullHex = hex.replace(shorthandRegex, (_, r, g, b) => r + r + g + g + b + b);
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(fullHex);
+    return result ? {
+      r: parseInt(result[1], 16),
+      g: parseInt(result[2], 16),
+      b: parseInt(result[3], 16)
+    } : null;
+  };
+
+  // Convert RGB back to Hex
+  const rgbToHex = (r: number, g: number, b: number) => {
+    const toHex = (c: number) => {
+      const hex = Math.max(0, Math.min(255, c)).toString(16);
+      return hex.length === 1 ? "0" + hex : hex;
+    };
+    return "#" + toHex(r) + toHex(g) + toHex(b);
+  };
+
+  // Utility to determine if a hex color is light
+  const isLightColor = (hex: string) => {
+    const rgb = hexToRgb(hex);
+    if (!rgb) return false;
+    const luminance = 0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b;
+    return luminance > 128;
+  };
+
+  // Adjust brightness of a color to generate panel colors dynamically
+  const adjustBrightness = (hex: string, percent: number) => {
+    const rgb = hexToRgb(hex);
+    if (!rgb) return hex;
+    const factor = 1 + (percent / 100);
+    const r = Math.max(0, Math.min(255, Math.round(rgb.r * factor)));
+    const g = Math.max(0, Math.min(255, Math.round(rgb.g * factor)));
+    const b = Math.max(0, Math.min(255, Math.round(rgb.b * factor)));
+    return rgbToHex(r, g, b);
+  };
+
+  // Theme presets (Dark mode)
+  const presets: Record<string, { bg: string; fg: string; accent: string }> = {
+    "Dracula": { bg: "#282A36", fg: "#F8F8F2", accent: "#FF79C6" },
+    "One Dark": { bg: "#282C34", fg: "#ABB2BF", accent: "#61AFEF" },
+    "Nord": { bg: "#2F343F", fg: "#D8DEE9", accent: "#88C0D0" },
+    "Monokai": { bg: "#272822", fg: "#F8F8F2", accent: "#F92672" },
+    "Catppuccin": { bg: "#1E1E2E", fg: "#CDD6F4", accent: "#F5C2E7" },
+    "GitHub Dark": { bg: "#0D1117", fg: "#C9D1D9", accent: "#58A6FF" },
+    "Solarized": { bg: "#002B36", fg: "#839496", accent: "#268BD2" },
+    "Gruvbox": { bg: "#282828", fg: "#EBDBB2", accent: "#FE8019" },
+    "Ayu": { bg: "#0F1419", fg: "#E6B450", accent: "#F29718" },
+    "Tokyo Night": { bg: "#1A1B26", fg: "#A9B1D6", accent: "#7AA2F7" },
+    "Everforest": { bg: "#2D353B", fg: "#D3C6AA", accent: "#A7C080" },
+    "Linear": { bg: "#121214", fg: "#F7F8F8", accent: "#5E6AD2" }
+  };
+
+  // Theme presets (Light mode)
+  const lightPresets: Record<string, { bg: string; fg: string; accent: string }> = {
+    "Dracula": { bg: "#FAFAFA", fg: "#282A36", accent: "#E0007A" },
+    "One Dark": { bg: "#F5F5F5", fg: "#282C34", accent: "#007ACC" },
+    "Nord": { bg: "#ECEFF4", fg: "#2E3440", accent: "#3B82F6" },
+    "Monokai": { bg: "#FDF6E3", fg: "#272822", accent: "#D33682" },
+    "Catppuccin": { bg: "#EFF1F5", fg: "#4C4F69", accent: "#EA76CB" },
+    "GitHub Dark": { bg: "#FFFFFF", fg: "#24292F", accent: "#0969DA" },
+    "Solarized": { bg: "#FDF6E3", fg: "#657B83", accent: "#B58900" },
+    "Gruvbox": { bg: "#FBF1C7", fg: "#3C3836", accent: "#D65D0E" },
+    "Ayu": { bg: "#FAFAFA", fg: "#5C6773", accent: "#FF9900" },
+    "Tokyo Night": { bg: "#F5F6F9", fg: "#373B41", accent: "#4E75EC" },
+    "Everforest": { bg: "#FDF6E3", fg: "#5C6A72", accent: "#8DA101" },
+    "Linear": { bg: "#FFFFFF", fg: "#121214", accent: "#5E6AD2" }
+  };
+
+  // Save changes to localStorage helper
+  const saveItem = (key: string, val: any) => {
+    localStorage.setItem(key, String(val));
+  };
+
+  // Effect: Handle Theme Preset Selection
+  useEffect(() => {
+    const isLight = themeMode === "light" || (themeMode === "system" && !window.matchMedia("(prefers-color-scheme: dark)").matches);
+    const presetDict = isLight ? lightPresets : presets;
+    const preset = presetDict[themeName] || presetDict["Dracula"];
+    if (preset) {
+      setAccentColor(preset.accent);
+      setBackgroundColor(preset.bg);
+      setForegroundColor(preset.fg);
+      saveItem("yode-theme-name", themeName);
+      saveItem("yode-accent-color", preset.accent);
+      saveItem("yode-bg-color", preset.bg);
+      saveItem("yode-fg-color", preset.fg);
+    }
+  }, [themeName, themeMode]);
+
+  // Effect: Main dynamic styles injector
+  useEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty("--accent", accentColor);
+    root.style.setProperty("--bg", backgroundColor);
+    root.style.setProperty("--text", foregroundColor);
+    root.style.setProperty("--font-ui", uiFont);
+    root.style.setProperty("--font-code", codeFont);
+    root.style.setProperty("--code-font-size", `${codeFontSize}px`);
+    root.style.setProperty("--contrast-val", String(contrast));
+    root.style.fontSize = `${uiFontSize}px`;
+
+    // Deriving colors based on background color lightness
+    const light = isLightColor(backgroundColor);
+    const bgPercentMod = light ? -5 : 5; // darken if light, lighten if dark
+    const bgDoubleMod = light ? -10 : 10;
+    const bgTripleMod = light ? -15 : 15;
+    const borderMod = light ? -18 : 18;
+    const borderSoftMod = light ? -10 : 10;
+
+    const chromeColor = adjustBrightness(backgroundColor, bgPercentMod);
+    const panelColor = adjustBrightness(backgroundColor, bgDoubleMod);
+    const panelRaised = adjustBrightness(backgroundColor, bgTripleMod);
+    const fieldColor = adjustBrightness(backgroundColor, bgPercentMod);
+    const lineColor = adjustBrightness(backgroundColor, borderMod);
+    const lineSoftColor = adjustBrightness(backgroundColor, borderSoftMod);
+
+    const rgbAccent = hexToRgb(accentColor);
+    const accentMuted = rgbAccent ? `rgba(${rgbAccent.r}, ${rgbAccent.g}, ${rgbAccent.b}, 0.2)` : "rgba(255, 255, 255, 0.1)";
+
+    root.style.setProperty("--chrome", chromeColor);
+    root.style.setProperty("--panel", panelColor);
+    root.style.setProperty("--panel-raised", panelRaised);
+    root.style.setProperty("--field", fieldColor);
+    root.style.setProperty("--line", lineColor);
+    root.style.setProperty("--line-soft", lineSoftColor);
+    root.style.setProperty("--accent-muted", accentMuted);
+
+    // Save styles state
+    saveItem("yode-accent-color", accentColor);
+    saveItem("yode-bg-color", backgroundColor);
+    saveItem("yode-fg-color", foregroundColor);
+    saveItem("yode-ui-font", uiFont);
+    saveItem("yode-code-font", codeFont);
+    saveItem("yode-code-font-size", codeFontSize);
+    saveItem("yode-contrast", contrast);
+    saveItem("yode-ui-font-size", uiFontSize);
+  }, [accentColor, backgroundColor, foregroundColor, uiFont, codeFont, codeFontSize, contrast, uiFontSize]);
+
+  // Effect: Theme Mode class names on documentElement
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.remove("light", "dark");
+    if (themeMode === "light") {
+      root.classList.add("light");
+      root.style.setProperty("color-scheme", "light");
+    } else if (themeMode === "dark") {
+      root.classList.add("dark");
+      root.style.setProperty("color-scheme", "dark");
+    } else {
+      // System mode
+      const isSystemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      root.classList.add(isSystemDark ? "dark" : "light");
+      root.style.setProperty("color-scheme", isSystemDark ? "dark" : "light");
+    }
+    saveItem("yode-theme-mode", themeMode);
+  }, [themeMode]);
+
+  // Effect: Translucent sidebar class name
+  useEffect(() => {
+    const shells = document.querySelectorAll(".app-shell");
+    shells.forEach(shell => {
+      if (translucentSidebar) {
+        shell.classList.add("translucent-sidebar");
+      } else {
+        shell.classList.remove("translucent-sidebar");
+      }
+    });
+    saveItem("yode-translucent-sidebar", translucentSidebar);
+  }, [translucentSidebar]);
+
+  // Effect: Pointer cursors
+  useEffect(() => {
+    if (usePointerCursors) {
+      document.body.classList.add("use-pointers");
+    } else {
+      document.body.classList.remove("use-pointers");
+    }
+    saveItem("yode-use-pointers", usePointerCursors);
+  }, [usePointerCursors]);
+
+  // Effect: Reduce Motion
+  useEffect(() => {
+    const checkAndApplyMotion = () => {
+      document.body.classList.remove("reduce-motion");
+      if (reduceMotion === "on") {
+        document.body.classList.add("reduce-motion");
+      } else if (reduceMotion === "system") {
+        const prefersReduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        if (prefersReduced) {
+          document.body.classList.add("reduce-motion");
+        }
+      }
+    };
+    checkAndApplyMotion();
+    saveItem("yode-reduce-motion", reduceMotion);
+  }, [reduceMotion]);
+
+  // Effect: Font smoothing
+  useEffect(() => {
+    document.body.classList.remove("font-smoothing", "no-font-smoothing");
+    if (fontSmoothing) {
+      document.body.classList.add("font-smoothing");
+    } else {
+      document.body.classList.add("no-font-smoothing");
+    }
+    saveItem("yode-font-smoothing", fontSmoothing);
+  }, [fontSmoothing]);
+
+  // Effect: Pet select
+  useEffect(() => {
+    saveItem("yode-pet", pet);
+  }, [pet]);
+
+  // Effect: Diff markers preview class
+  useEffect(() => {
+    saveItem("yode-diff-markers", diffMarkers);
+  }, [diffMarkers]);
+
+  const handleCopyTheme = () => {
+    const themeJson = JSON.stringify({
+      themeMode,
+      themeName,
+      accentColor,
+      backgroundColor,
+      foregroundColor,
+      uiFont,
+      codeFont,
+      translucentSidebar,
+      contrast,
+      uiFontSize,
+      codeFontSize
+    }, null, 2);
+    navigator.clipboard.writeText(themeJson).then(() => {
+      alert("主题配置已成功复制到剪贴板！");
+    });
+  };
+
+  const handleResetTheme = () => {
+    setThemeMode("dark");
+    setThemeName("Dracula");
+    setAccentColor("#FF79C6");
+    setBackgroundColor("#282A36");
+    setForegroundColor("#F8F8F2");
+    setUiFont("-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif");
+    setCodeFont("ui-monospace, \"SF Mono\", SFMono-Regular, Menlo, Monaco, Consolas, monospace");
+    setTranslucentSidebar(true);
+    setContrast(48);
+    setUiFontSize(13);
+    setCodeFontSize(12);
+    setUsePointerCursors(false);
+    setReduceMotion("system");
+    setDiffMarkers("color");
+    setFontSmoothing(true);
+    setPet("Yode");
+  };
+
+  const lang = localStorage.getItem("yode-language") || "zh";
+  const isZh = lang === "zh";
+
+  const t = (zhText: string, enText: string) => {
+    return isZh ? zhText : enText;
+  };
+
+  return (
+    <div className="appearance-container">
+      {/* 1. Code Preview Panel */}
+      <div className="theme-preview-box">
+        <div className="theme-preview-header">
+          <span className="preview-label">{t("主题预览代码配置", "Theme preview code config")}</span>
+        </div>
+        <div className={`theme-preview-code ${diffMarkers === "symbols" ? "diff-symbols" : ""}`}>
+          <div className="code-column code-removed">
+            <div className="code-line"><span className="line-num">1</span><span className="keyword">const</span> themePreview: <span className="type">ThemeConfig</span> = &#123;</div>
+            <div className="code-line removed-line"><span className="line-num">2</span>  surface: <span className="string">"sidebar"</span>,</div>
+            <div className="code-line removed-line"><span className="line-num">3</span>  accent: <span className="string">"{accentColor}"</span>,</div>
+            <div className="code-line removed-line"><span className="line-num">4</span>  contrast: <span className="number">{contrast}</span>,</div>
+            <div className="code-line"><span className="line-num">5</span>&#125;;</div>
+          </div>
+          <div className="code-column code-added">
+            <div className="code-line"><span className="line-num">1</span><span className="keyword">const</span> themePreview: <span className="type">ThemeConfig</span> = &#123;</div>
+            <div className="code-line added-line"><span className="line-num">2</span>  surface: <span className="string">"{translucentSidebar ? "sidebar-translucent" : "sidebar-elevated"}"</span>,</div>
+            <div className="code-line added-line"><span className="line-num">3</span>  accent: <span className="string">"{accentColor}"</span>,</div>
+            <div className="code-line added-line"><span className="line-num">4</span>  contrast: <span className="number">{contrast}</span>,</div>
+            <div className="code-line"><span className="line-num">5</span>&#125;;</div>
+          </div>
+        </div>
+      </div>
+
+      {/* 2. Theme Config Panel */}
+      <div className="theme-card">
+        <div className="form-row theme-mode-row">
+          <div className="row-info">
+            <span className="row-label">{t("主题模式", "Theme")}</span>
+            <span className="row-desc">{t("使用亮色、暗色或匹配您的系统", "Use light, dark, or match your system")}</span>
+          </div>
+          <div className="theme-mode-buttons">
+            <button
+              className={`mode-btn ${themeMode === "light" ? "active" : ""}`}
+              onClick={() => setThemeMode("light")}
+              type="button"
+            >
+              <Sun size={14} />
+              <span>{t("亮色", "Light")}</span>
+            </button>
+            <button
+              className={`mode-btn ${themeMode === "dark" ? "active" : ""}`}
+              onClick={() => setThemeMode("dark")}
+              type="button"
+            >
+              <Moon size={14} />
+              <span>{t("暗色", "Dark")}</span>
+            </button>
+            <button
+              className={`mode-btn ${themeMode === "system" ? "active" : ""}`}
+              onClick={() => setThemeMode("system")}
+              type="button"
+            >
+              <Monitor size={14} />
+              <span>{t("系统", "System")}</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="divider" />
+
+        <div className="form-row flex-row">
+          <div className="row-info">
+            <span className="row-label">{t("当前主题", "Theme Preset")}</span>
+          </div>
+          <div className="theme-actions-preset">
+            <button className="text-action-btn" onClick={handleResetTheme} type="button">
+              <Download size={13} />
+              <span>{t("导入/重置", "Reset theme")}</span>
+            </button>
+            <button className="text-action-btn" onClick={handleCopyTheme} type="button">
+              <Copy size={13} />
+              <span>{t("复制配置", "Copy theme")}</span>
+            </button>
+            <CustomSelect
+              value={themeName}
+              onChange={setThemeName}
+              options={[
+                { value: "Dracula", label: "Dracula", avatarText: "Aa", avatarBg: "rgba(255, 121, 198, 0.2)", avatarFg: "#FF79C6" },
+                { value: "One Dark", label: "One Dark", avatarText: "Aa", avatarBg: "rgba(97, 175, 239, 0.2)", avatarFg: "#61AFEF" },
+                { value: "Nord", label: "Nord", avatarText: "Aa", avatarBg: "rgba(136, 192, 208, 0.2)", avatarFg: "#88C0D0" },
+                { value: "Monokai", label: "Monokai", avatarText: "Aa", avatarBg: "rgba(249, 38, 114, 0.2)", avatarFg: "#F92672" },
+                { value: "Catppuccin", label: "Catppuccin", avatarText: "Aa", avatarBg: "rgba(245, 194, 231, 0.2)", avatarFg: "#F5C2E7" },
+                { value: "GitHub Dark", label: "GitHub Dark", avatarText: "Aa", avatarBg: "rgba(88, 166, 255, 0.2)", avatarFg: "#58A6FF" },
+                { value: "Solarized", label: "Solarized", avatarText: "Aa", avatarBg: "rgba(38, 139, 210, 0.2)", avatarFg: "#268BD2" },
+                { value: "Gruvbox", label: "Gruvbox", avatarText: "Aa", avatarBg: "rgba(254, 128, 25, 0.2)", avatarFg: "#FE8019" },
+                { value: "Ayu", label: "Ayu", avatarText: "Aa", avatarBg: "rgba(242, 151, 24, 0.2)", avatarFg: "#F29718" },
+                { value: "Tokyo Night", label: "Tokyo Night", avatarText: "Aa", avatarBg: "rgba(122, 162, 247, 0.2)", avatarFg: "#7AA2F7" },
+                { value: "Everforest", label: "Everforest", avatarText: "Aa", avatarBg: "rgba(167, 192, 128, 0.2)", avatarFg: "#A7C080" },
+                { value: "Linear", label: "Linear", avatarText: "Aa", avatarBg: "rgba(94, 106, 210, 0.2)", avatarFg: "#5E6AD2" }
+              ]}
+              style={{ minWidth: "160px" }}
+            />
+          </div>
+        </div>
+
+        <div className="form-row flex-row">
+          <span className="row-label">{t("主题主色", "Accent color")}</span>
+          <ColorPicker value={accentColor} onChange={setAccentColor} />
+        </div>
+
+        <div className="form-row flex-row">
+          <span className="row-label">{t("背景色", "Background color")}</span>
+          <ColorPicker value={backgroundColor} onChange={setBackgroundColor} />
+        </div>
+
+        <div className="form-row flex-row">
+          <span className="row-label">{t("前景色", "Foreground color")}</span>
+          <ColorPicker value={foregroundColor} onChange={setForegroundColor} />
+        </div>
+
+        <div className="form-row flex-row">
+          <span className="row-label">{t("UI 界面字体", "UI font")}</span>
+          <input
+            type="text"
+            className="text-input text-field-font"
+            value={uiFont}
+            onChange={(e) => setUiFont(e.target.value)}
+          />
+        </div>
+
+        <div className="form-row flex-row">
+          <span className="row-label">{t("代码编辑器字体", "Code font")}</span>
+          <input
+            type="text"
+            className="text-input text-field-font"
+            value={codeFont}
+            onChange={(e) => setCodeFont(e.target.value)}
+          />
+        </div>
+
+        <div className="form-row flex-row">
+          <span className="row-label">{t("毛玻璃模糊侧边栏", "Translucent sidebar")}</span>
+          <label className="switch-wrapper">
+            <input
+              type="checkbox"
+              checked={translucentSidebar}
+              onChange={(e) => setTranslucentSidebar(e.target.checked)}
+            />
+            <span className="switch-slider" />
+          </label>
+        </div>
+
+        <div className="form-row flex-row">
+          <span className="row-label">{t("全局对比度", "Contrast")}</span>
+          <div className="slider-wrapper">
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={contrast}
+              onChange={(e) => setContrast(Number(e.target.value))}
+              className="range-input"
+            />
+            <span className="slider-value">{contrast}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="theme-card advanced-section">
+        <div className="form-row">
+          <div className="row-info">
+            <span className="row-label">{t("使用手型指针", "Use pointer cursors")}</span>
+            <span className="row-desc">{t("悬停在可交互元素上时，将光标更改为手型", "Change the cursor to a pointer when hovering over interactive elements")}</span>
+          </div>
+          <label className="switch-wrapper">
+            <input
+              type="checkbox"
+              checked={usePointerCursors}
+              onChange={(e) => setUsePointerCursors(e.target.checked)}
+            />
+            <span className="switch-slider" />
+          </label>
+        </div>
+
+        <div className="divider" />
+
+        <div className="form-row">
+          <div className="row-info">
+            <span className="row-label">{t("减少动画效果", "Reduce motion")}</span>
+            <span className="row-desc">{t("减少界面动效，或匹配您的系统偏好", "Reduce animations or match your system")}</span>
+          </div>
+          <div className="segmented-control">
+            {(["system", "on", "off"] as const).map((opt) => (
+              <button
+                key={opt}
+                onClick={() => setReduceMotion(opt)}
+                className={`segmented-btn ${reduceMotion === opt ? "active" : ""}`}
+                type="button"
+              >
+                {opt === "system" ? t("系统", "System") : opt === "on" ? t("开启", "On") : t("关闭", "Off")}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="divider" />
+
+        <div className="form-row">
+          <div className="row-info">
+            <span className="row-label">{t("UI 界面字号", "UI font size")}</span>
+            <span className="row-desc">{t("调整 Yode 整体界面的基本字号", "Adjust the base size used for the Yode UI")}</span>
+          </div>
+          <div className="number-input-wrapper">
+            <input
+              type="number"
+              value={uiFontSize}
+              onChange={(e) => setUiFontSize(Number(e.target.value))}
+              className="number-input"
+            />
+            <span className="unit-label">px</span>
+          </div>
+        </div>
+
+        <div className="divider" />
+
+        <div className="form-row">
+          <div className="row-info">
+            <span className="row-label">{t("代码字号", "Code font size")}</span>
+            <span className="row-desc">{t("调整对话和对比视图中的代码字号", "Adjust the base size used for code across chats and diffs")}</span>
+          </div>
+          <div className="number-input-wrapper">
+            <input
+              type="number"
+              value={codeFontSize}
+              onChange={(e) => setCodeFontSize(Number(e.target.value))}
+              className="number-input"
+            />
+            <span className="unit-label">px</span>
+          </div>
+        </div>
+
+        <div className="divider" />
+
+        <div className="form-row">
+          <div className="row-info">
+            <span className="row-label">{t("Diff 标记风格", "Diff markers")}</span>
+            <span className="row-desc">{t("使用背景色块，或者在每一行修改前显示 +/- 符号", "Use colored bars and backgrounds or show + and - symbols on each changed line")}</span>
+          </div>
+          <div className="segmented-control">
+            <button
+              onClick={() => setDiffMarkers("color")}
+              className={`segmented-btn ${diffMarkers === "color" ? "active" : ""}`}
+              type="button"
+            >
+              {t("彩色背景", "Color")}
+            </button>
+            <button
+              onClick={() => setDiffMarkers("symbols")}
+              className={`segmented-btn ${diffMarkers === "symbols" ? "active" : ""}`}
+              type="button"
+            >
+              {t("显示 +/-", "+/-")}
+            </button>
+          </div>
+        </div>
+
+        <div className="divider" />
+
+        <div className="form-row">
+          <div className="row-info">
+            <span className="row-label">{t("字体平滑 (抗锯齿)", "Font Smoothing")}</span>
+            <span className="row-desc">{t("使用 macOS 原生字体抗锯齿优化效果", "Use native macOS font anti-aliasing")}</span>
+          </div>
+          <label className="switch-wrapper">
+            <input
+              type="checkbox"
+              checked={fontSmoothing}
+              onChange={(e) => setFontSmoothing(e.target.checked)}
+            />
+            <span className="switch-slider" />
+          </label>
+        </div>
+      </div>
+
+      <div className="theme-card pet-section">
+        <div className="form-row">
+          <div className="row-info">
+            <span className="row-label">{t("电子宠物", "Pets")}</span>
+            <span className="row-desc">{t("已选 Yode 宠物", "Yode selected")}</span>
+          </div>
+            <CustomSelect
+              value={pet}
+              onChange={setPet}
+              options={[
+                { value: "Yode", label: t("Yode 宠物", "Yode selected"), avatarText: "🐱", avatarBg: "rgba(255,255,255,0.06)" },
+                { value: "Cat", label: t("猫猫", "Cat selected"), avatarText: "🐈", avatarBg: "rgba(255,255,255,0.06)" },
+                { value: "Dog", label: t("狗狗", "Dog selected"), avatarText: "🐕", avatarBg: "rgba(255,255,255,0.06)" },
+                { value: "None", label: t("无", "None"), avatarText: "🚫", avatarBg: "rgba(255,255,255,0.06)" }
+              ]}
+              style={{ minWidth: "165px" }}
+            />
+        </div>
+      </div>
+    </div>
+  );
+}
