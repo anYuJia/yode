@@ -937,6 +937,16 @@ function PermissionActions({
   // State to track keyboard focus / selection: "none" | "reject" | "allow"
   const [selectedOption, setSelectedOption] = useState<"reject" | "allow">("allow");
 
+  const respond = (allow: boolean) => {
+    if (item.sessionId && item.turnId) {
+      invoke("permission_respond", {
+        sessionId: item.sessionId,
+        turnId: item.turnId,
+        allow
+      }).catch(console.error);
+    }
+  };
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Look for ArrowUp/ArrowDown keys to toggle active option
@@ -945,17 +955,13 @@ function PermissionActions({
         setSelectedOption((prev) => (prev === "allow" ? "reject" : "allow"));
       } else if (e.key === "Enter") {
         e.preventDefault();
-        if (selectedOption === "allow") {
-          alert(`已允许执行: ${item.tool}`);
-        } else {
-          alert(`已拒绝执行: ${item.tool}`);
-        }
+        respond(selectedOption === "allow");
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedOption, item.tool]);
+  }, [selectedOption, item.sessionId, item.turnId]);
 
   return (
     <div className="permission-box">
@@ -967,7 +973,7 @@ function PermissionActions({
       <div className="permission-actions">
         <button
           className={`secondary-button ${selectedOption === "reject" ? "keyboard-focused" : ""}`}
-          onClick={() => alert(`已拒绝执行: ${item.tool}`)}
+          onClick={() => respond(false)}
           type="button"
           style={{
             outline: "none",
@@ -979,7 +985,7 @@ function PermissionActions({
         </button>
         <button
           className={`primary-button ${selectedOption === "allow" ? "keyboard-focused" : ""}`}
-          onClick={() => alert(`已允许执行: ${item.tool}`)}
+          onClick={() => respond(true)}
           type="button"
           style={{
             outline: "none",
@@ -1051,17 +1057,35 @@ function Composer({
 }
 
 function desktopEventToTimelineItem(
-  payload: DesktopEvent["payload"],
+  payload: any,
   eventKind?: string
 ): TimelineItem {
-  const kind = eventKind ?? stringValue(payload.kind) ?? stringValue(payload.type);
-  const tool = stringValue(payload.tool) ?? "desktop";
-  const title = stringValue(payload.title) ?? "Yode";
-  const body = stringValue(payload.body) ?? "";
-  const meta = stringValue(payload.meta);
-  const status = stringValue(payload.status);
+  const outer = payload && typeof payload === "object" && "payload" in payload ? payload : null;
+  const inner = outer ? outer.payload : payload;
+  const sessionId = outer ? outer.sessionId : undefined;
+  const turnId = outer ? outer.turnId : undefined;
 
-  if (kind === "tool_started" || kind === "tool_result" || payload.tool) {
+  const kind = eventKind ?? stringValue(outer?.kind) ?? stringValue(inner?.kind) ?? stringValue(inner?.type);
+  const tool = stringValue(inner?.tool) ?? "desktop";
+  const title = stringValue(inner?.title) ?? "Yode";
+  const body = stringValue(inner?.body) ?? "";
+  const meta = stringValue(inner?.meta);
+  const status = stringValue(inner?.status);
+
+  if (kind === "permission" || kind === "tool_confirm_required") {
+    return {
+      id: `event-${Date.now()}-${Math.random()}`,
+      kind: "permission",
+      title: title || "需要授权确认",
+      body: body || `工具 "${tool}" 请求执行。`,
+      tool: tool,
+      risk: meta || "中等风险",
+      sessionId,
+      turnId
+    };
+  }
+
+  if (kind === "tool_started" || kind === "tool_result" || inner?.tool) {
     return {
       id: `event-${Date.now()}-${Math.random()}`,
       kind: "tool",

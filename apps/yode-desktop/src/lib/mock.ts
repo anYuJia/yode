@@ -32,6 +32,7 @@ export type TimelineItem =
       tool: string;
       meta?: string;
     }
+
   | {
       id: string;
       kind: "permission";
@@ -39,6 +40,8 @@ export type TimelineItem =
       body: string;
       tool: string;
       risk: string;
+      sessionId?: string;
+      turnId?: string;
     }
   | {
       id: string;
