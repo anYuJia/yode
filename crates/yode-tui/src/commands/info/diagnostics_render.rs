@@ -258,6 +258,36 @@ pub(crate) fn render_diagnostics_overview_with_width(
     )
 }
 
+pub(crate) fn diagnostics_inspector_actions(
+    project_root: &std::path::Path,
+    state: &yode_core::engine::EngineRuntimeState,
+    tasks: &[yode_tools::RuntimeTask],
+) -> Vec<(String, String)> {
+    let mut actions = Vec::new();
+    for issue in diagnostic_issues(project_root, state, tasks)
+        .into_iter()
+        .take(5)
+    {
+        push_unique_action(
+            &mut actions,
+            issue.action.primary_action_label(),
+            issue.action.primary,
+        );
+        let inspect_label = issue.action.inspect_action_label();
+        push_unique_action(&mut actions, &inspect_label, &issue.action.inspect);
+    }
+    if actions.is_empty() {
+        push_unique_action(&mut actions, "Inspect status", "/status");
+    }
+    actions
+}
+
+fn push_unique_action(actions: &mut Vec<(String, String)>, label: &str, command: &str) {
+    if !actions.iter().any(|(_, existing)| existing == command) {
+        actions.push((label.to_string(), command.to_string()));
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum DiagnosticSeverity {
     Critical,
@@ -304,6 +334,56 @@ impl DiagnosticIssueAction {
             "inspect"
         }
     }
+
+    fn primary_action_label(&self) -> &'static str {
+        match self.primary {
+            "/status" => "Inspect status",
+            "/hooks" => "Inspect hooks",
+            "/permissions denials" => "Inspect permission denials",
+            "/plugin list" => "Inspect plugins",
+            "/skills list" => "Inspect skills",
+            "/compact" => "Run compact",
+            "/tools diagnostics" => "Inspect tools",
+            "/tasks summary" => "Inspect tasks",
+            _ => "Load command",
+        }
+    }
+
+    fn inspect_action_label(&self) -> String {
+        let inspect = self.inspect.trim();
+        if inspect.starts_with("/inspect artifact ") {
+            "Open artifact".to_string()
+        } else if let Some(target) = inspect.strip_prefix("/inspect ").map(str::trim) {
+            inspector_target_action_label(target)
+        } else {
+            "Inspect target".to_string()
+        }
+    }
+}
+
+fn inspector_target_action_label(target: &str) -> String {
+    let family = target
+        .trim_start_matches('/')
+        .split_whitespace()
+        .next()
+        .unwrap_or_default();
+    match family {
+        "status" => "Inspect status",
+        "diagnostics" => "Inspect diagnostics",
+        "context" => "Inspect context",
+        "tools" => "Inspect tools",
+        "tasks" => "Inspect tasks",
+        "reviews" => "Inspect reviews",
+        "teams" => "Inspect teams",
+        "permissions" => "Inspect permissions",
+        "plugin" => "Inspect plugins",
+        "skills" => "Inspect skills",
+        "doctor" => "Inspect doctor",
+        "hooks" => "Inspect hooks",
+        "memory" => "Inspect memory",
+        _ => "Inspect target",
+    }
+    .to_string()
 }
 
 fn render_diagnostic_issue_summary(
@@ -742,9 +822,10 @@ mod tests {
     use yode_tools::{RuntimeTask, RuntimeTaskStatus};
 
     use super::{
-        diagnostic_issue_line_width, diagnostic_issues, render_diagnostic_issue_lines,
-        render_diagnostics_overview, render_diagnostics_overview_with_width,
-        truncate_visible_width, DiagnosticIssue, DiagnosticIssueAction, DiagnosticSeverity,
+        diagnostic_issue_line_width, diagnostic_issues, diagnostics_inspector_actions,
+        render_diagnostic_issue_lines, render_diagnostics_overview,
+        render_diagnostics_overview_with_width, truncate_visible_width, DiagnosticIssue,
+        DiagnosticIssueAction, DiagnosticSeverity,
     };
 
     fn state() -> EngineRuntimeState {
@@ -1290,6 +1371,48 @@ mod tests {
     }
 
     #[test]
+    fn diagnostics_inspector_actions_include_primary_and_inspect_targets() {
+        let dir =
+            std::env::temp_dir().join(format!("yode-diagnostics-actions-{}", uuid::Uuid::new_v4()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let status_dir = dir.join(".yode").join("status");
+        std::fs::create_dir_all(&status_dir).unwrap();
+        let recovery = status_dir.join("recovery.md");
+        std::fs::write(&recovery, "recovery").unwrap();
+
+        let mut state = state();
+        state.recovery_state = "SingleStepMode".to_string();
+        state.last_recovery_artifact_path = Some(recovery.display().to_string());
+        let actions = diagnostics_inspector_actions(&dir, &state, &[]);
+
+        assert!(actions.contains(&("Inspect status".to_string(), "/status".to_string())));
+        assert!(actions.contains(&(
+            "Open artifact".to_string(),
+            "/inspect artifact latest-recovery".to_string()
+        )));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn diagnostics_inspector_actions_label_non_artifact_inspect_targets() {
+        let dir =
+            std::env::temp_dir().join(format!("yode-diagnostics-actions-{}", uuid::Uuid::new_v4()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let mut state = state();
+        state.recovery_state = "SingleStepMode".to_string();
+        state.last_recovery_artifact_path = Some(dir.join("missing.md").display().to_string());
+        let actions = diagnostics_inspector_actions(&dir, &state, &[]);
+
+        assert!(actions.contains(&("Inspect status".to_string(), "/status".to_string())));
+        assert!(actions.contains(&("Inspect status".to_string(), "/inspect status".to_string())));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn diagnostic_issue_lines_cover_narrow_normal_and_wide_widths() {
         let issues = vec![DiagnosticIssue {
             severity: DiagnosticSeverity::Warning,
@@ -1377,6 +1500,29 @@ mod tests {
         assert!(rendered.contains(
             "Tasks: 1 running -> /tasks summary · artifact /inspect artifact latest-runtime-tasks"
         ));
+
+        let actions = diagnostics_inspector_actions(&dir, &state, &tasks);
+        for expected in [
+            ("Inspect status", "/status"),
+            ("Inspect plugins", "/plugin list"),
+            ("Run compact", "/compact"),
+            ("Inspect tools", "/tools diagnostics"),
+            ("Inspect tasks", "/tasks summary"),
+            ("Open artifact", "/inspect artifact latest-recovery"),
+            (
+                "Open artifact",
+                "/inspect artifact latest-post-compact-restore",
+            ),
+            ("Open artifact", "/inspect artifact latest-tool"),
+            ("Open artifact", "/inspect artifact latest-runtime-tasks"),
+        ] {
+            assert!(
+                actions.contains(&(expected.0.to_string(), expected.1.to_string())),
+                "missing diagnostics action {:?} in {:?}",
+                expected,
+                actions
+            );
+        }
 
         let _ = std::fs::remove_dir_all(&dir);
     }
