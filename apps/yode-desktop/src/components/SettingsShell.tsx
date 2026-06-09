@@ -25,7 +25,8 @@ import {
   Download,
   ChevronDown,
   ArrowLeft,
-  Search
+  Search,
+  X
 } from "lucide-react";
 import { Bootstrap } from "../lib/mock";
 import { CustomSelect, CustomSelectOption } from "./CustomSelect";
@@ -763,7 +764,19 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
             <AppearanceSettings />
           )}
 
-          {activeTab !== "常规" && activeTab !== "外观" && (
+          {activeTab === "配置" && (
+            <ConfigurationSettings isZh={isZh} t={t} />
+          )}
+
+          {activeTab === "个性化" && (
+            <PersonalizationSettings isZh={isZh} t={t} />
+          )}
+
+          {activeTab === "键盘快捷键" && (
+            <KeyboardShortcutsSettings isZh={isZh} t={t} />
+          )}
+
+          {activeTab !== "常规" && activeTab !== "外观" && activeTab !== "配置" && activeTab !== "个性化" && activeTab !== "键盘快捷键" && (
             <div className="settings-group compact">
               <div className="empty-state">
                 <Bot size={20} />
@@ -1406,3 +1419,459 @@ function AppearanceSettings() {
     </div>
   );
 }
+
+// ----------------------------------------------------
+// 1. Configuration Settings
+// ----------------------------------------------------
+function ConfigurationSettings({ isZh, t }: { isZh: boolean; t: (zh: string, en: string) => string }) {
+  const [configScope, setConfigScope] = useState(() => localStorage.getItem("yode-config-scope") || "User config");
+  const [approvalPolicy, setApprovalPolicy] = useState(() => localStorage.getItem("yode-config-approval") || "On request");
+  const [sandboxSettings, setSandboxSettings] = useState(() => localStorage.getItem("yode-config-sandbox") || "Read only");
+  const [exposeDeps, setExposeDeps] = useState(() => localStorage.getItem("yode-expose-deps") !== "false");
+
+  const saveVal = (key: string, val: any) => localStorage.setItem(key, String(val));
+
+  return (
+    <div className="appearance-container" style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+      <div style={{ fontSize: "12px", color: "var(--text-soft)" }}>
+        {t("配置审批策略和沙箱设置", "Configure approval policy and sandbox settings")}{" "}
+        <a href="#learn" style={{ color: "var(--accent)", textDecoration: "none" }}>{t("了解更多", "Learn more")}</a>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+        <span style={{ fontSize: "11px", fontWeight: "700", color: "var(--text-soft)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+          {t("自定义 config.toml 设置", "Custom config.toml settings")}
+        </span>
+        
+        <div className="theme-card" style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "14px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <CustomSelect
+              value={configScope}
+              onChange={(val) => {
+                setConfigScope(val);
+                saveVal("yode-config-scope", val);
+              }}
+              options={[
+                { value: "User config", label: t("用户配置", "User config"), avatarText: "👤" },
+                { value: "Project config", label: t("项目配置", "Project config"), avatarText: "📁" }
+              ]}
+              style={{ minWidth: "150px" }}
+            />
+            <a href="#open" style={{ fontSize: "11px", color: "var(--text-soft)", textDecoration: "none" }} className="hover-link">
+              {t("打开 config.toml ↗", "Open config.toml ↗")}
+            </a>
+          </div>
+
+          <div style={{ height: "1px", background: "var(--line-soft)" }} />
+
+          <div className="form-row">
+            <div className="row-info">
+              <span className="row-label">{t("审批策略", "Approval policy")}</span>
+              <span className="row-desc">{t("选择 Yode 何时需要确认请求", "Choose when Yode asks for approval")}</span>
+            </div>
+            <CustomSelect
+              value={approvalPolicy}
+              onChange={(val) => {
+                setApprovalPolicy(val);
+                saveVal("yode-config-approval", val);
+              }}
+              options={[
+                { value: "On request", label: t("询问确认", "On request") },
+                { value: "Always auto-approve", label: t("始终自动允许", "Always auto-approve") },
+                { value: "Never approve", label: t("从不允许", "Never approve") }
+              ]}
+              style={{ minWidth: "160px" }}
+            />
+          </div>
+
+          <div style={{ height: "1px", background: "var(--line-soft)" }} />
+
+          <div className="form-row">
+            <div className="row-info">
+              <span className="row-label">{t("沙箱设置", "Sandbox settings")}</span>
+              <span className="row-desc">{t("选择 Yode 执行命令时的文件访问权限", "Choose how much Yode can do when running commands")}</span>
+            </div>
+            <CustomSelect
+              value={sandboxSettings}
+              onChange={(val) => {
+                setSandboxSettings(val);
+                saveVal("yode-config-sandbox", val);
+              }}
+              options={[
+                { value: "Read only", label: t("只读", "Read only") },
+                { value: "Full write access", label: t("读写访问", "Full write access") },
+                { value: "Restricted", label: t("限制范围", "Restricted") }
+              ]}
+              style={{ minWidth: "160px" }}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+        <span style={{ fontSize: "11px", fontWeight: "700", color: "var(--text-soft)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+          {t("工作区依赖项", "Workspace Dependencies")}
+        </span>
+        <div className="theme-card">
+          <div className="form-row">
+            <div className="row-info">
+              <span className="row-label">{t("当前版本", "Current version")}</span>
+            </div>
+            <span style={{ fontSize: "12px", fontFamily: "var(--font-code)", color: "var(--text-muted)", alignSelf: "center" }}>
+              26.601.10930
+            </span>
+          </div>
+
+          <div className="divider" />
+
+          <div className="form-row">
+            <div className="row-info">
+              <span className="row-label">{t("Yode 依赖项", "Yode dependencies")}</span>
+              <span className="row-desc">{t("允许 Yode 安装并向工作区暴露 Node.js & Python 工具", "Allow Yode to install and expose bundled Node.js and Python tools")}</span>
+            </div>
+            <label className="switch-wrapper">
+              <input
+                type="checkbox"
+                checked={exposeDeps}
+                onChange={(e) => {
+                  setExposeDeps(e.target.checked);
+                  saveVal("yode-expose-deps", e.target.checked);
+                }}
+              />
+              <span className="switch-slider" />
+            </label>
+          </div>
+
+          <div className="divider" />
+
+          <div className="form-row">
+            <div className="row-info">
+              <span className="row-label">{t("诊断 Yode 工作区问题", "Diagnose issues in Yode Workspace")}</span>
+              <span className="row-desc">{t("检查当前环境包并记录诊断日志", "Checks the current bundle and records diagnostic logs")}</span>
+            </div>
+            <button className="secondary-button" style={{ display: "flex", alignItems: "center", gap: "6px", paddingInline: "12px", height: "28px" }} type="button">
+              <Search size={12} />
+              <span>{t("诊断", "Diagnose")}</span>
+            </button>
+          </div>
+
+          <div className="divider" />
+
+          <div className="form-row">
+            <div className="row-info">
+              <span className="row-label">{t("重置并安装工作区", "Reset and install Workspace")}</span>
+              <span className="row-desc">{t("删除本地缓存，重新下载并重新加载工具", "Deletes the local bundle, downloads it again, and reloads tools")}</span>
+            </div>
+            <button className="secondary-button" style={{ color: "oklch(67% 0.15 28)", borderColor: "rgba(224, 80, 80, 0.2)", display: "flex", alignItems: "center", gap: "6px", paddingInline: "12px", height: "28px" }} type="button">
+              <Download size={12} />
+              <span>{t("重新安装", "Reinstall")}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ----------------------------------------------------
+// 2. Personalization Settings
+// ----------------------------------------------------
+function PersonalizationSettings({ isZh, t }: { isZh: boolean; t: (zh: string, en: string) => string }) {
+  const [personality, setPersonality] = useState(() => localStorage.getItem("yode-personality") || "Friendly");
+  const [customInstructions, setCustomInstructions] = useState(() => localStorage.getItem("yode-custom-instructions") || "");
+  const [enableMemories, setEnableMemories] = useState(() => localStorage.getItem("yode-enable-memories") === "true");
+  const [skipToolChats, setSkipToolChats] = useState(() => localStorage.getItem("yode-skip-tool-chats") === "true");
+
+  const saveVal = (key: string, val: any) => localStorage.setItem(key, String(val));
+
+  return (
+    <div className="appearance-container" style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+      <div className="theme-card" style={{ padding: "16px" }}>
+        <div className="form-row" style={{ alignItems: "center" }}>
+          <div className="row-info">
+            <span className="row-label">{t("人设风格", "Personality")}</span>
+            <span className="row-desc">{t("选择 Yode 对话时的默认语气风格", "Choose a default tone for Yode responses")}</span>
+          </div>
+          <CustomSelect
+            value={personality}
+            onChange={(val) => {
+              setPersonality(val);
+              saveVal("yode-personality", val);
+            }}
+            options={[
+              { value: "Friendly", label: t("友好热情", "Friendly") },
+              { value: "Professional", label: t("专业严谨", "Professional") },
+              { value: "Concise", label: t("简洁干练", "Concise") }
+            ]}
+            style={{ minWidth: "160px" }}
+          />
+        </div>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+        <span style={{ fontSize: "11px", fontWeight: "700", color: "var(--text-soft)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+          {t("自定义指令", "Custom instructions")}
+        </span>
+        <span style={{ fontSize: "11px", color: "var(--text-soft)", marginBottom: "4px" }}>
+          {t("为这台主机上的所有任务向 Yode 提供额外指令和上下文。", "Give Yode extra instructions and context for all tasks on this host.")}{" "}
+          <a href="#learn" style={{ color: "var(--accent)", textDecoration: "none" }}>{t("了解更多", "Learn more")}</a>
+        </span>
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+          <textarea
+            placeholder={t("添加您的自定义全局指令...", "Add your custom instructions...")}
+            value={customInstructions}
+            onChange={(e) => {
+              setCustomInstructions(e.target.value);
+              saveVal("yode-custom-instructions", e.target.value);
+            }}
+            style={{
+              width: "100%",
+              height: "160px",
+              background: "var(--field)",
+              border: "1px solid var(--line-soft)",
+              borderRadius: "var(--radius)",
+              padding: "12px",
+              fontSize: "12px",
+              color: "var(--text)",
+              fontFamily: "var(--font-ui)",
+              resize: "none",
+              outline: "none"
+            }}
+          />
+          <button
+            onClick={() => alert(t("全局指令已成功保存！", "Global instructions saved successfully!"))}
+            className="secondary-button"
+            type="button"
+            style={{ alignSelf: "flex-end", height: "28px", paddingInline: "20px", background: "var(--panel-raised)" }}
+          >
+            {t("保存", "Save")}
+          </button>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+        <span style={{ fontSize: "11px", fontWeight: "700", color: "var(--text-soft)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+          {t("长期记忆（实验性）", "Memory (experimental)")}
+        </span>
+        <span style={{ fontSize: "11px", color: "var(--text-soft)", marginBottom: "4px" }}>
+          {t("配置 Yode 如何收集、保留和整合对话记忆。", "Configure how Yode collects, retains, and consolidates memories.")}{" "}
+          <a href="#learn" style={{ color: "var(--accent)", textDecoration: "none" }}>{t("了解更多", "Learn more")}</a>
+        </span>
+        <div className="theme-card">
+          <div className="form-row">
+            <div className="row-info">
+              <span className="row-label">{t("启用长期记忆", "Enable memories")}</span>
+              <span className="row-desc">{t("从历史会话中生成长效记忆并在新对话中携带", "Generate new memories from chats and bring them into new chats")}</span>
+            </div>
+            <label className="switch-wrapper">
+              <input
+                type="checkbox"
+                checked={enableMemories}
+                onChange={(e) => {
+                  setEnableMemories(e.target.checked);
+                  saveVal("yode-enable-memories", e.target.checked);
+                }}
+              />
+              <span className="switch-slider" />
+            </label>
+          </div>
+
+          <div className="divider" />
+
+          <div className="form-row">
+            <div className="row-info">
+              <span className="row-label">{t("跳过包含工具的对话", "Skip tool-assisted chats")}</span>
+              <span className="row-desc">{t("对使用了 MCP 工具或进行网页搜索的对话不生成长期记忆", "Do not generate memories from chats that used MCP tools or web search")}</span>
+            </div>
+            <label className="switch-wrapper">
+              <input
+                type="checkbox"
+                checked={skipToolChats}
+                onChange={(e) => {
+                  setSkipToolChats(e.target.checked);
+                  saveVal("yode-skip-tool-chats", e.target.checked);
+                }}
+              />
+              <span className="switch-slider" />
+            </label>
+          </div>
+
+          <div className="divider" />
+
+          <div className="form-row">
+            <div className="row-info">
+              <span className="row-label">{t("重置记忆内容", "Reset memories")}</span>
+              <span className="row-desc">{t("彻底清空当前 Yode 保存的所有长期记忆", "Delete all Yode memories")}</span>
+            </div>
+            <button
+              onClick={() => alert(t("长期记忆已被重置清空。", "All long-term memories have been reset."))}
+              className="secondary-button"
+              style={{ color: "oklch(67% 0.15 28)", borderColor: "rgba(224, 80, 80, 0.2)", paddingInline: "14px", height: "28px" }}
+              type="button"
+            >
+              {t("重置", "Reset")}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ----------------------------------------------------
+// 3. Keyboard Shortcuts Settings
+// ----------------------------------------------------
+function KeyboardShortcutsSettings({ isZh, t }: { isZh: boolean; t: (zh: string, en: string) => string }) {
+  const [searchQuery, setSearchQuery] = useState("");
+  
+  // Custom states for keybindings deletion simulation
+  const [bindings, setBindings] = useState<Array<{ id: string; cmd: string; desc: string; keys: string[] }>>([
+    { id: "archive", cmd: "Archive chat", desc: "Archive the current chat", keys: ["⇧⌘A"] },
+    { id: "newchat", cmd: "New chat", desc: "Start a new chat", keys: ["⌘N", "⇧⌘O"] },
+    { id: "sidechat", cmd: "Open side chat", desc: "Open the current chat in a side chat", keys: [] },
+    { id: "newwin", cmd: "Open in new window", desc: "Open the current chat in a new window", keys: [] },
+    { id: "quickchat", cmd: "New quick chat", desc: "Start a lightweight chat in the quick compo...", keys: ["⌥⌘N"] },
+    { id: "pin", cmd: "Toggle pin", desc: "Pin or unpin the current chat", keys: ["⌥⌘P"] },
+    { id: "find", cmd: "Find", desc: "Search the current chat", keys: ["⌘F"] },
+    { id: "addressbar", cmd: "Focus browser address bar", desc: "Focus the in-app browser address bar", keys: ["⌘L"] },
+    { id: "back", cmd: "Back", desc: "Go back in navigation history", keys: ["⌘[", "Mouse Back"] },
+    { id: "forward", cmd: "Forward", desc: "Go forward in navigation history", keys: ["⌘]", "Mouse Forward"] },
+    { id: "recent", cmd: "Next recently viewed chat or tab", desc: "Cycle to the next recently viewed chat or t...", keys: ["⌃Tab"] }
+  ]);
+
+  const handleDeleteBinding = (id: string, keyIdx: number) => {
+    setBindings(prev => prev.map(b => {
+      if (b.id === id) {
+        const nextKeys = [...b.keys];
+        nextKeys.splice(keyIdx, 1);
+        return { ...b, keys: nextKeys };
+      }
+      return b;
+    }));
+  };
+
+  const filteredBindings = bindings.filter(b => 
+    b.cmd.toLowerCase().includes(searchQuery.toLowerCase()) || 
+    b.desc.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  return (
+    <div className="appearance-container" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+      {/* Search Bar */}
+      <div style={{ position: "relative", width: "100%" }}>
+        <Search size={13} style={{ position: "absolute", left: "10px", top: "8px", color: "var(--text-soft)", opacity: 0.8 }} />
+        <input
+          type="text"
+          placeholder={t("搜索快捷键...", "Search shortcuts...")}
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          style={{
+            width: "100%",
+            height: "28px",
+            background: "var(--field)",
+            border: "1px solid var(--line-soft)",
+            borderRadius: "var(--radius)",
+            paddingLeft: "28px",
+            paddingRight: "28px",
+            fontSize: "12px",
+            color: "var(--text)",
+            outline: "none"
+          }}
+        />
+        <SlidersHorizontal size={13} style={{ position: "absolute", right: "10px", top: "8px", color: "var(--text-soft)", opacity: 0.8 }} />
+      </div>
+
+      {/* Table grid */}
+      <div className="theme-card" style={{ padding: "0 12px 12px" }}>
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 200px",
+          paddingBlock: "10px",
+          borderBottom: "1px solid var(--line-soft)",
+          fontSize: "11px",
+          fontWeight: "700",
+          color: "var(--text-soft)",
+          textTransform: "uppercase",
+          letterSpacing: "0.5px"
+        }}>
+          <span>{t("命令", "Command")}</span>
+          <span>{t("快捷键", "Keybinding")}</span>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          {filteredBindings.map((item) => (
+            <div
+              key={item.id}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 200px",
+                paddingBlock: "12px",
+                borderBottom: "1px solid var(--line-soft)",
+                fontSize: "12px"
+              }}
+            >
+              {/* Command label */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                <span style={{ fontWeight: "600", color: "var(--text)" }}>{t(item.cmd, item.cmd)}</span>
+                <span style={{ fontSize: "11px", color: "var(--text-soft)" }}>{t(item.desc, item.desc)}</span>
+              </div>
+
+              {/* Keybinding tags */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px", justifyContent: "center" }}>
+                {item.keys.length === 0 ? (
+                  <span style={{ fontSize: "11px", color: "var(--text-soft)", opacity: 0.6 }}>Unassigned</span>
+                ) : (
+                  item.keys.map((k, idx) => (
+                    <div
+                      key={k}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        background: "var(--field)",
+                        border: "1px solid var(--line-soft)",
+                        borderRadius: "var(--radius)",
+                        paddingInline: "8px",
+                        paddingBlock: "2px",
+                        fontSize: "11px",
+                        color: "var(--text)",
+                        fontFamily: "var(--font-code)",
+                        width: "100%",
+                        maxWidth: "160px"
+                      }}
+                    >
+                      <span>{k}</span>
+                      <button
+                        onClick={() => handleDeleteBinding(item.id, idx)}
+                        type="button"
+                        style={{
+                          background: "transparent",
+                          border: "none",
+                          cursor: "pointer",
+                          color: "var(--text-soft)",
+                          padding: "1px 2px",
+                          display: "flex",
+                          alignItems: "center"
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.color = "oklch(67% 0.15 28)"}
+                        onMouseLeave={(e) => e.currentTarget.style.color = "var(--text-soft)"}
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          ))}
+          {filteredBindings.length === 0 && (
+            <div style={{ paddingBlock: "24px", textAlign: "center", color: "var(--text-soft)", fontSize: "12px" }}>
+              {t("未找到匹配的快捷键命令", "No matching shortcut commands found")}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
