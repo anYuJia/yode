@@ -681,40 +681,125 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   padding: 3px 8px;
 }
 
-.permission-box {
-  margin-top: 5px;
-  border: 1px solid transparent;
-  border-radius: var(--radius);
-  background: color-mix(in oklch, var(--warning), transparent 92%);
-  padding: 7px 9px;
+.permission-prompt {
+  width: 100%;
+  margin-top: 0;
+  border: 1px solid color-mix(in oklch, var(--line), transparent 28%);
+  border-radius: 14px;
+  background: color-mix(in oklch, var(--panel), var(--bg) 26%);
+  padding: 11px;
+  box-shadow: 0 14px 42px color-mix(in oklch, var(--bg), transparent 34%);
 }
 
-.permission-box span,
-.permission-box strong,
-.permission-box code {
-  display: block;
-}
-
-.permission-box span {
+.permission-prompt-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   color: var(--text);
-  font-weight: 680;
+  font-size: 13px;
+  font-weight: 720;
 }
 
-.permission-box code {
-  margin-top: 2px;
+.permission-prompt-title svg {
   color: var(--text-muted);
 }
 
-.permission-box strong {
-  margin-top: 2px;
-  color: var(--warning);
-  font-size: 12px;
-  font-weight: 650;
+.permission-command {
+  margin: 9px 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 9px;
+  background: color-mix(in oklch, var(--bg), transparent 10%);
+  color: var(--text);
+  padding: 8px 10px;
+  text-overflow: ellipsis;
+  white-space: pre-wrap;
 }
 
-.permission-actions {
+.permission-option-list {
+  display: grid;
+  gap: 4px;
+}
+
+.permission-option {
+  display: grid;
+  grid-template-columns: 24px minmax(0, max-content) minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  min-height: 32px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 4px 8px;
+  text-align: left;
+}
+
+.permission-option.selected {
+  border-color: color-mix(in oklch, var(--text), transparent 84%);
+  background: color-mix(in oklch, var(--text), transparent 91%);
+  color: var(--text);
+}
+
+.permission-option kbd {
+  display: grid;
+  width: 21px;
+  height: 21px;
+  place-items: center;
+  border-radius: 7px;
+  background: color-mix(in oklch, var(--text), transparent 90%);
+  color: var(--text-muted);
+  font-family: var(--font-code);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.permission-option em {
+  overflow: hidden;
+  color: var(--text-soft);
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.permission-prompt-footer {
   display: flex;
+  justify-content: flex-end;
   gap: 8px;
+  margin-top: 9px;
+}
+
+.permission-skip,
+.permission-submit {
+  border: 0;
+  border-radius: 8px;
+  min-height: 30px;
+  padding: 5px 11px;
+  font-weight: 700;
+}
+
+.permission-skip {
+  background: transparent;
+  color: var(--text-soft);
+}
+
+.permission-submit {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: color-mix(in oklch, var(--accent), transparent 20%);
+  color: color-mix(in oklch, var(--text), var(--accent) 14%);
+}
+
+.permission-submit span {
+  opacity: 0.7;
+}
+
+.permission-dock {
+  display: flex;
+  justify-content: center;
+  width: min(520px, calc(100% - 40px));
+  margin: 0 auto 8px;
 }
 
 .primary-button {

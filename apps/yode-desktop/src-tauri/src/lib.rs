@@ -49,7 +49,9 @@ fn permission_respond(
     session_id: String,
     turn_id: String,
     allow: bool,
+    always_allow: Option<bool>,
 ) -> Result<(), String> {
+    let _ = always_allow;
     runtime
         .permission_respond(session_id, turn_id, allow)
         .map_err(|err| err.to_string())

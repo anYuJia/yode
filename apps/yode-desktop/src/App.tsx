@@ -224,7 +224,12 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    return void listen<DesktopEvent>("desktop-event", (event) => {
+    if (!("__TAURI_INTERNALS__" in window)) {
+      return;
+    }
+
+    let unlisten: (() => void) | undefined;
+    listen<DesktopEvent>("desktop-event", (event) => {
       const payload = event.payload;
       setTimelineItems((items) => [
         ...items,
@@ -233,7 +238,13 @@ export function App() {
           (payload as any).kind ? undefined : (event as any).kind
         )
       ]);
-    });
+    })
+      .then((dispose) => {
+        unlisten = dispose;
+      })
+      .catch(console.error);
+
+    return () => unlisten?.();
   }, []);
 
   const activeSession = useMemo(
@@ -744,16 +755,21 @@ function ChatWorkspace({
   // Intermediate steps: tool, reasoning, permission, boundary.
   // We want to hide them when NOT streaming, unless the user toggles to show them.
   const processedItems = useMemo(() => {
+    const withoutActivePermission = timelineItems.filter((item) => item.kind !== "permission");
+
     if (isStreaming || !isCollapsed) {
-      return timelineItems;
+      return withoutActivePermission;
     }
 
     // When NOT streaming and collapsed, filter out tool, reasoning, permission, boundary
     // and keep only user and final assistant responses.
-    return timelineItems.filter(item => item.kind === "user" || item.kind === "assistant");
+    return withoutActivePermission.filter(item => item.kind === "user" || item.kind === "assistant");
   }, [timelineItems, isStreaming, isCollapsed]);
 
   const hiddenCount = timelineItems.length - processedItems.length;
+  const activePermission = [...timelineItems]
+    .reverse()
+    .find((item): item is Extract<TimelineItem, { kind: "permission" }> => item.kind === "permission");
 
   return (
     <div className={`chat-layout ${inspectorOpen ? "" : "inspector-collapsed"}`}>
@@ -828,6 +844,11 @@ function ChatWorkspace({
             </div>
           )}
         </section>
+        {activePermission ? (
+          <div className="permission-dock" aria-label="执行确认">
+            <PermissionActions item={activePermission} />
+          </div>
+        ) : null}
         <Composer draft={draft} onDraftChange={onDraftChange} onSendMessage={onSendMessage} />
       </div>
       <RunInspector />
@@ -855,32 +876,32 @@ function TimelineNode({ item }: { item: TimelineItem }) {
           width: "100%", 
           maxWidth: "760px",
           margin: "0 auto 12px",
-          paddingLeft: "24px" // Give spacing on left so bubble doesn't stretch 100%
+          paddingLeft: "24px"
         }}
       >
         <div 
           className="user-chat-bubble"
+          title={item.body}
           style={{
             background: "color-mix(in oklch, var(--accent), transparent 85%)",
-            border: "1px solid color-mix(in oklch, var(--accent), transparent 60%)",
+            border: "none",
             borderRadius: "14px 14px 2px 14px",
             padding: "10px 14px",
             maxWidth: "85%",
             boxShadow: "0 2px 8px rgba(0, 0, 0, 0.15)",
-            display: "flex",
-            flexDirection: "column",
-            gap: "4px"
+            display: "block",
+            overflow: "hidden"
           }}
         >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "16px" }}>
-            <span style={{ fontSize: "11px", fontWeight: "700", color: "var(--accent)" }}>我</span>
-            {"meta" in item && item.meta ? (
-              <span style={{ fontSize: "10px", color: "var(--text-soft)", opacity: 0.8 }}>
-                {item.meta}
-              </span>
-            ) : null}
-          </div>
-          <p style={{ margin: 0, color: "var(--text)", fontSize: "13px", lineHeight: "1.45", wordBreak: "break-word", whiteSpace: "pre-wrap" }}>
+          <p style={{ 
+            margin: 0, 
+            color: "var(--text)", 
+            fontSize: "13px", 
+            lineHeight: "1.45", 
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis"
+          }}>
             {item.body}
           </p>
         </div>
@@ -934,66 +955,95 @@ function PermissionActions({
 }: {
   item: Extract<TimelineItem, { kind: "permission" }>;
 }) {
-  // State to track keyboard focus / selection: "none" | "reject" | "allow"
-  const [selectedOption, setSelectedOption] = useState<"reject" | "allow">("allow");
+  const options = [
+    {
+      id: "allow_once",
+      label: "Yes, allow this time",
+      description: "仅允许本次执行"
+    },
+    {
+      id: "always_allow",
+      label: "Yes, always allow this command",
+      description: "后续同类命令不再询问"
+    },
+    {
+      id: "deny",
+      label: "No",
+      description: "告诉 agent 改用其他方式"
+    }
+  ] as const;
 
-  const respond = (allow: boolean) => {
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const selectedOption = options[selectedIndex];
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  const respond = (decision: (typeof options)[number]["id"]) => {
     if (item.sessionId && item.turnId) {
       invoke("permission_respond", {
         sessionId: item.sessionId,
         turnId: item.turnId,
-        allow
+        allow: decision !== "deny",
+        alwaysAllow: decision === "always_allow"
       }).catch(console.error);
     }
   };
 
   useEffect(() => {
+    optionRefs.current[selectedIndex]?.focus();
+  }, [selectedIndex]);
+
+  useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Look for ArrowUp/ArrowDown keys to toggle active option
-      if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      if (e.key === "ArrowUp") {
         e.preventDefault();
-        setSelectedOption((prev) => (prev === "allow" ? "reject" : "allow"));
+        setSelectedIndex((index) => (index - 1 + options.length) % options.length);
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSelectedIndex((index) => (index + 1) % options.length);
       } else if (e.key === "Enter") {
         e.preventDefault();
-        respond(selectedOption === "allow");
+        respond(selectedOption.id);
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedOption, item.sessionId, item.turnId]);
+  }, [selectedOption.id, item.sessionId, item.turnId]);
 
   return (
-    <div className="permission-box">
-      <div>
-        <span>需要确认</span>
-        <code>{item.tool}</code>
-        <strong>{item.risk}</strong>
+    <div className="permission-prompt">
+      <div className="permission-prompt-title">
+        <TerminalSquare size={16} />
+        <span>Allow running this command?</span>
       </div>
-      <div className="permission-actions">
-        <button
-          className={`secondary-button ${selectedOption === "reject" ? "keyboard-focused" : ""}`}
-          onClick={() => respond(false)}
-          type="button"
-          style={{
-            outline: "none",
-            border: selectedOption === "reject" ? "1.5px solid var(--error)" : "1px solid transparent",
-            boxShadow: selectedOption === "reject" ? "0 0 6px color-mix(in oklch, var(--error), transparent 60%)" : "none"
-          }}
-        >
-          拒绝 (↑/↓ 切换)
+      <pre className="permission-command">{item.body || item.tool}</pre>
+      <div className="permission-option-list">
+        {options.map((option, index) => (
+          <button
+            className={`permission-option ${selectedIndex === index ? "selected" : ""}`}
+            key={option.id}
+            ref={(node) => {
+              optionRefs.current[index] = node;
+            }}
+            onClick={() => {
+              setSelectedIndex(index);
+              respond(option.id);
+            }}
+            type="button"
+          >
+            <kbd>{index + 1}</kbd>
+            <span>{option.label}</span>
+            <em>{option.description}</em>
+          </button>
+        ))}
+      </div>
+      <div className="permission-prompt-footer">
+        <button className="permission-skip" onClick={() => respond("deny")} type="button">
+          Skip
         </button>
-        <button
-          className={`primary-button ${selectedOption === "allow" ? "keyboard-focused" : ""}`}
-          onClick={() => respond(true)}
-          type="button"
-          style={{
-            outline: "none",
-            border: selectedOption === "allow" ? "1.5px solid var(--accent)" : "1px solid transparent",
-            boxShadow: selectedOption === "allow" ? "0 0 6px color-mix(in oklch, var(--accent), transparent 40%)" : "none"
-          }}
-        >
-          允许 (Enter 确认)
+        <button className="permission-submit" onClick={() => respond(selectedOption.id)} type="button">
+          Submit
+          <span>↵</span>
         </button>
       </div>
     </div>
