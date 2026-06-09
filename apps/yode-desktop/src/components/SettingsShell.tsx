@@ -435,6 +435,7 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
                       value={localStorage.getItem("yode-language") || "zh"}
                       onChange={(val) => {
                         localStorage.setItem("yode-language", val);
+                        localStorage.setItem("yode-view-mode", "settings");
                         window.location.reload();
                       }}
                       options={[

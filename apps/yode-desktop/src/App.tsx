@@ -53,7 +53,9 @@ type ViewMode = "chat" | "settings";
 
 export function App() {
   const [bootstrap, setBootstrap] = useState<Bootstrap>(fallbackBootstrap);
-  const [viewMode, setViewMode] = useState<ViewMode>("chat");
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    return (localStorage.getItem("yode-view-mode") as ViewMode) || "chat";
+  });
   const [draft, setDraft] = useState("");
   const [sessionItems, setSessionItems] = useState(sessions);
   const [timelineItems, setTimelineItems] = useState<TimelineItem[]>(timeline);
@@ -269,10 +271,15 @@ export function App() {
     });
   }
 
+  const handleSetViewMode = (mode: ViewMode) => {
+    setViewMode(mode);
+    localStorage.setItem("yode-view-mode", mode);
+  };
+
   if (viewMode === "settings") {
     return (
       <main className="app-shell" style={{ display: "block", width: "100vw", height: "100vh", overflow: "hidden" }}>
-        <SettingsShell bootstrap={bootstrap} onClose={() => setViewMode("chat")} />
+        <SettingsShell bootstrap={bootstrap} onClose={() => handleSetViewMode("chat")} />
       </main>
     );
   }
@@ -282,7 +289,7 @@ export function App() {
       <Sidebar
         sessions={sessionItems}
         viewMode={viewMode}
-        onChangeView={setViewMode}
+        onChangeView={handleSetViewMode}
         onCreateSession={handleCreateSession}
         onSelectSession={setActiveSessionId}
       />
