@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <title>Yode</title>
+    <script>
+      (function() {
+        const root = document.documentElement;
+        // Theme mode
+        const themeMode = localStorage.getItem("yode-theme-mode") || "dark";
+        root.classList.remove("light", "dark");
+        if (themeMode === "light") {
+          root.classList.add("light");
+          root.style.setProperty("color-scheme", "light");
+        } else if (themeMode === "dark") {
+          root.classList.add("dark");
+          root.style.setProperty("color-scheme", "dark");
+        } else {
+          const isSystemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+          root.classList.add(isSystemDark ? "dark" : "light");
+          root.style.setProperty("color-scheme", isSystemDark ? "dark" : "light");
+        }
+
+        // Colors & Fonts
+        const accentColor = localStorage.getItem("yode-accent-color") || "#FF79C6";
+        const backgroundColor = localStorage.getItem("yode-bg-color") || "#282A36";
+        const foregroundColor = localStorage.getItem("yode-fg-color") || "#F8F8F2";
+        const uiFont = localStorage.getItem("yode-ui-font") || "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif";
+        const codeFont = localStorage.getItem("yode-code-font") || "ui-monospace, \"SF Mono\", SFMono-Regular, Menlo, Monaco, Consolas, monospace";
+        const codeFontSize = localStorage.getItem("yode-code-font-size") || "12";
+        const contrast = localStorage.getItem("yode-contrast") || "48";
+        const uiFontSize = localStorage.getItem("yode-ui-font-size") || "13";
+
+        root.style.setProperty("--accent", accentColor);
+        root.style.setProperty("--bg", backgroundColor);
+        root.style.setProperty("--text", foregroundColor);
+        root.style.setProperty("--font-ui", uiFont);
+        root.style.setProperty("--font-code", codeFont);
+        root.style.setProperty("--code-font-size", `${codeFontSize}px`);
+        root.style.setProperty("--contrast-val", contrast);
+        root.style.fontSize = `${uiFontSize}px`;
+
+        // Deriving colors helper
+        const hexToRgb = (hex) => {
+          const shorthandRegex = /^#?([a-f\d])([a-f\d])([a-f\d])$/i;
+          const fullHex = hex.replace(shorthandRegex, (_, r, g, b) => r + r + g + g + b + b);
+          const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(fullHex);
+          return result ? {
+            r: parseInt(result[1], 16),
+            g: parseInt(result[2], 16),
+            b: parseInt(result[3], 16)
+          } : null;
+        };
+        const rgbToHex = (r, g, b) => {
+          const toHex = (c) => {
+            const hex = Math.max(0, Math.min(255, c)).toString(16);
+            return hex.length === 1 ? "0" + hex : hex;
+          };
+          return "#" + toHex(r) + toHex(g) + toHex(b);
+        };
+        const isLightColor = (hex) => {
+          const rgb = hexToRgb(hex);
+          if (!rgb) return false;
+          const luminance = 0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b;
+          return luminance > 128;
+        };
+        const adjustBrightness = (hex, percent) => {
+          const rgb = hexToRgb(hex);
+          if (!rgb) return hex;
+          const factor = 1 + (percent / 100);
+          const r = Math.max(0, Math.min(255, Math.round(rgb.r * factor)));
+          const g = Math.max(0, Math.min(255, Math.round(rgb.g * factor)));
+          const b = Math.max(0, Math.min(255, Math.round(rgb.b * factor)));
+          return rgbToHex(r, g, b);
+        };
+
+        const light = isLightColor(backgroundColor);
+        const bgPercentMod = light ? -5 : 5;
+        const bgDoubleMod = light ? -10 : 10;
+        const bgTripleMod = light ? -15 : 15;
+        const borderMod = light ? -18 : 18;
+        const borderSoftMod = light ? -10 : 10;
+
+        const chromeColor = adjustBrightness(backgroundColor, bgPercentMod);
+        const panelColor = adjustBrightness(backgroundColor, bgDoubleMod);
+        const panelRaised = adjustBrightness(backgroundColor, bgTripleMod);
+        const fieldColor = adjustBrightness(backgroundColor, bgPercentMod);
+        const lineColor = adjustBrightness(backgroundColor, borderMod);
+        const lineSoftColor = adjustBrightness(backgroundColor, borderSoftMod);
+
+        const rgbAccent = hexToRgb(accentColor);
+        const accentMuted = rgbAccent ? `rgba(${rgbAccent.r}, ${rgbAccent.g}, ${rgbAccent.b}, 0.2)` : "rgba(255, 255, 255, 0.1)";
+
+        root.style.setProperty("--chrome", chromeColor);
+        root.style.setProperty("--panel", panelColor);
+        root.style.setProperty("--panel-raised", panelRaised);
+        root.style.setProperty("--field", fieldColor);
+        root.style.setProperty("--line", lineColor);
+        root.style.setProperty("--line-soft", lineSoftColor);
+        root.style.setProperty("--accent-muted", accentMuted);
+
+        // Sidebar translucent
+        const val = localStorage.getItem("yode-translucent-sidebar");
+        const isTranslucent = val === null ? true : val === "true";
+        if (isTranslucent) {
+          root.classList.remove("translucent-sidebar-disabled");
+        } else {
+          root.classList.add("translucent-sidebar-disabled");
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

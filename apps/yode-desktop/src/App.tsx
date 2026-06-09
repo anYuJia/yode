@@ -193,8 +193,10 @@ export function App() {
     shells.forEach(shell => {
       if (isTranslucent) {
         shell.classList.add("translucent-sidebar");
+        shell.classList.remove("translucent-sidebar-disabled");
       } else {
         shell.classList.remove("translucent-sidebar");
+        shell.classList.add("translucent-sidebar-disabled");
       }
     });
   }, [viewMode]);

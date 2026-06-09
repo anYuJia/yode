@@ -1627,9 +1627,21 @@ body.no-font-smoothing {
 }
 
 /* 4. Translucent Sidebar */
+.app-shell.translucent-sidebar .sidebar,
+html:has(meta[name="dummy"]) .sidebar { /* fallback styling using CSS property check */ }
 .app-shell.translucent-sidebar .sidebar {
   backdrop-filter: blur(16px);
   background: color-mix(in oklch, var(--chrome), transparent 15%) !important;
+}
+@supports (background: color-mix(in srgb, red, blue)) {
+  html:not(.translucent-sidebar-disabled) .sidebar {
+    backdrop-filter: blur(16px);
+    background: color-mix(in oklch, var(--chrome), transparent 15%) !important;
+  }
+  .app-shell.translucent-sidebar-disabled .sidebar {
+    backdrop-filter: none;
+    background: color-mix(in oklch, var(--chrome), var(--bg) 18%) !important;
+  }
 }
 
 /* 5. Contrast Multiplier */
