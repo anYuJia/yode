@@ -32,8 +32,13 @@ import { CustomSelect, CustomSelectOption } from "./CustomSelect";
 import { ColorPicker } from "./ColorPicker";
 
 export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; onClose: () => void }) {
-  const [activeTab, setActiveTab] = useState("外观");
+  const [activeTab, setActiveTab] = useState(() => localStorage.getItem("yode-active-tab") || "常规");
   const [searchQuery, setSearchQuery] = useState("");
+
+  const handleSetActiveTab = (tab: string) => {
+    setActiveTab(tab);
+    localStorage.setItem("yode-active-tab", tab);
+  };
 
   const lang = localStorage.getItem("yode-language") || "zh";
   const isZh = lang === "zh";
@@ -188,7 +193,7 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
                     <button
                       className={`settings-tab ${isActive ? "active" : ""}`}
                       key={item.id}
-                      onClick={() => setActiveTab(item.id)}
+                      onClick={() => handleSetActiveTab(item.id)}
                       type="button"
                       style={{
                         paddingBlock: "5px",
