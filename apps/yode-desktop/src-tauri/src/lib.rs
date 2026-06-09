@@ -57,6 +57,17 @@ fn permission_respond(
         .map_err(|err| err.to_string())
 }
 
+#[tauri::command]
+fn turn_cancel(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    session_id: String,
+    turn_id: String,
+) -> Result<(), String> {
+    runtime
+        .turn_cancel(session_id, turn_id)
+        .map_err(|err| err.to_string())
+}
+
 pub fn run() {
     let runtime = runtime::DesktopRuntime::new().expect("failed to initialize desktop runtime");
 
@@ -68,7 +79,8 @@ pub fn run() {
             sessions_create,
             runtime_state_get,
             turn_send_message,
-            permission_respond
+            permission_respond,
+            turn_cancel
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Yode desktop app");

@@ -63,6 +63,9 @@ export function App() {
   const [activeSessionId, setActiveSessionId] = useState<string>(sessions[0]?.id ?? "");
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [terminalOpen, setTerminalOpen] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [messageQueue, setMessageQueue] = useState<string[]>([]);
+  const [currentTurnId, setCurrentTurnId] = useState<string | null>(null);
 
   useEffect(() => {
     const handleLangChange = (e: Event) => {
@@ -231,6 +234,18 @@ export function App() {
     let unlisten: (() => void) | undefined;
     listen<DesktopEvent>("desktop-event", (event) => {
       const payload = event.payload;
+      const outer = (payload as any).kind ? (payload as DesktopEvent) : null;
+      const kind = outer ? outer.kind : (event as any).kind;
+
+      if (kind === "turn_started") {
+        setIsProcessing(true);
+        if (outer) {
+          setCurrentTurnId(outer.turnId);
+        }
+      } else if (kind === "turn_completed" || kind === "error") {
+        setIsProcessing(false);
+      }
+
       setTimelineItems((items) => [
         ...items,
         desktopEventToTimelineItem(
@@ -276,22 +291,76 @@ export function App() {
     if (!draft.trim() || !activeSession?.id) return;
     const content = draft.trim();
     setDraft("");
+
+    if (isProcessing) {
+      setMessageQueue((prev) => [...prev, content]);
+      setTimelineItems((items) => [
+        ...items,
+        {
+          id: `local-queued-${Date.now()}`,
+          kind: "user",
+          title: "用户 (等待中...)",
+          body: content
+        }
+      ]);
+      return;
+    }
+
+    setIsProcessing(true);
     setTimelineItems((items) => [
       ...items,
       {
         id: `local-${Date.now()}`,
         kind: "user",
         title: "用户",
-        body: content,
-        meta: "desktop"
+        body: content
       }
     ]);
-    await invoke<TurnAccepted>("turn_send_message", {
+    const res = await invoke<TurnAccepted>("turn_send_message", {
       request: {
         sessionId: activeSession.id,
         content
       }
     });
+    setCurrentTurnId(res.turnId);
+  }
+
+  useEffect(() => {
+    if (!isProcessing && messageQueue.length > 0 && activeSession?.id) {
+      const nextContent = messageQueue[0];
+      setMessageQueue((prev) => prev.slice(1));
+      setIsProcessing(true);
+      
+      setTimelineItems((items) =>
+        items.map((item) =>
+          item.kind === "user" && item.body === nextContent && item.title.includes("等待中")
+            ? { ...item, title: "用户" }
+            : item
+        )
+      );
+
+      invoke<TurnAccepted>("turn_send_message", {
+        request: {
+          sessionId: activeSession.id,
+          content: nextContent
+        }
+      }).then((res) => {
+        setCurrentTurnId(res.turnId);
+      }).catch((err) => {
+        console.error(err);
+        setIsProcessing(false);
+      });
+    }
+  }, [isProcessing, messageQueue, activeSession?.id]);
+
+  async function handleCancelMessage() {
+    if (activeSession?.id && currentTurnId) {
+      await invoke("turn_cancel", {
+        sessionId: activeSession.id,
+        turnId: currentTurnId
+      }).catch(console.error);
+      setIsProcessing(false);
+    }
   }
 
   const handleSetViewMode = (mode: ViewMode) => {
@@ -336,6 +405,8 @@ export function App() {
           onDraftChange={setDraft}
           onSendMessage={handleSendMessage}
           inspectorOpen={inspectorOpen}
+          isProcessing={isProcessing}
+          onCancelMessage={handleCancelMessage}
         />
         <TerminalDrawer isOpen={terminalOpen} onClose={() => setTerminalOpen(false)} />
       </section>
@@ -725,13 +796,17 @@ function ChatWorkspace({
   timelineItems,
   onDraftChange,
   onSendMessage,
-  inspectorOpen
+  inspectorOpen,
+  isProcessing,
+  onCancelMessage
 }: {
   draft: string;
   timelineItems: TimelineItem[];
   onDraftChange: (value: string) => void;
   onSendMessage: () => void;
   inspectorOpen: boolean;
+  isProcessing: boolean;
+  onCancelMessage: () => void;
 }) {
   // Check if assistant is currently streaming (has any running status or last item kind is not fully completed)
   const isStreaming = useMemo(() => {
@@ -849,7 +924,13 @@ function ChatWorkspace({
             <PermissionActions item={activePermission} />
           </div>
         ) : null}
-        <Composer draft={draft} onDraftChange={onDraftChange} onSendMessage={onSendMessage} />
+        <Composer
+          draft={draft}
+          onDraftChange={onDraftChange}
+          onSendMessage={onSendMessage}
+          isProcessing={isProcessing}
+          onCancelMessage={onCancelMessage}
+        />
       </div>
       <RunInspector />
     </div>
@@ -1059,11 +1140,15 @@ function statusLabel(status: "running" | "success" | "blocked") {
 function Composer({
   draft,
   onDraftChange,
-  onSendMessage
+  onSendMessage,
+  isProcessing,
+  onCancelMessage
 }: {
   draft: string;
   onDraftChange: (value: string) => void;
   onSendMessage: () => void;
+  isProcessing: boolean;
+  onCancelMessage: () => void;
 }) {
   return (
     <footer className="composer">
@@ -1073,9 +1158,25 @@ function Composer({
         value={draft}
         onChange={(event) => onDraftChange(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-            event.preventDefault();
-            onSendMessage();
+          if (event.key === "Enter" && !event.shiftKey) {
+            if (event.metaKey || event.ctrlKey) {
+              // Cmd+Enter or Ctrl+Enter -> Newline
+              event.preventDefault();
+              const target = event.target as HTMLTextAreaElement;
+              const start = target.selectionStart;
+              const end = target.selectionEnd;
+              const val = target.value;
+              const nextVal = val.substring(0, start) + "\n" + val.substring(end);
+              onDraftChange(nextVal);
+              // reset cursor position
+              setTimeout(() => {
+                target.selectionStart = target.selectionEnd = start + 1;
+              }, 0);
+            } else {
+              // Plain Enter -> Send / Queue
+              event.preventDefault();
+              onSendMessage();
+            }
           }
         }}
       />
@@ -1094,12 +1195,17 @@ function Composer({
           </button>
         </div>
         <div className="composer-actions">
-          <button className="icon-button" type="button" title="停止">
-            <Pause size={17} />
-          </button>
-          <button className="send-button" onClick={onSendMessage} type="button" title="发送">
-            <Send size={17} />
-          </button>
+          {isProcessing ? (
+            <button className="send-button stop-button" onClick={onCancelMessage} type="button" title="终止" style={{ background: "color-mix(in oklch, var(--error), transparent 30%)", borderColor: "color-mix(in oklch, var(--error), transparent 10%)" }}>
+              <Pause size={17} />
+              <span>终止</span>
+            </button>
+          ) : (
+            <button className="send-button" onClick={onSendMessage} type="button" title="发送">
+              <Send size={17} />
+              <span>发送</span>
+            </button>
+          )}
         </div>
       </div>
     </footer>

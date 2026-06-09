@@ -37,6 +37,7 @@ pub struct DesktopRuntime {
     active_session_id: Mutex<Option<String>>,
     seq: AtomicU64,
     confirm_txs: Arc<Mutex<std::collections::HashMap<(String, String), UnboundedSender<ConfirmResponse>>>>,
+    cancel_tokens: Arc<Mutex<std::collections::HashMap<(String, String), tokio_util::sync::CancellationToken>>>,
 }
 
 impl DesktopRuntime {
@@ -65,6 +66,7 @@ impl DesktopRuntime {
             active_session_id: Mutex::new(None),
             seq: AtomicU64::new(1),
             confirm_txs: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            cancel_tokens: Arc::new(Mutex::new(std::collections::HashMap::new())),
         })
     }
 
@@ -179,7 +181,14 @@ impl DesktopRuntime {
             txs.insert((session_id.clone(), emit_turn_id.clone()), confirm_tx);
         }
 
+        let cancel_token = tokio_util::sync::CancellationToken::new();
+        {
+            let mut tokens = self.cancel_tokens.lock().map_err(|_| anyhow::anyhow!("poisoned"))?;
+            tokens.insert((session_id.clone(), emit_turn_id.clone()), cancel_token.clone());
+        }
+
         let confirm_txs_clone = self.confirm_txs.clone();
+        let cancel_tokens_clone = self.cancel_tokens.clone();
 
         std::thread::spawn(move || {
             let rt = match tokio::runtime::Runtime::new() {
@@ -220,7 +229,7 @@ impl DesktopRuntime {
                         yode_core::context::QuerySource::User,
                         event_tx,
                         confirm_rx,
-                        None,
+                        Some(cancel_token),
                     ).await {
                         tracing::error!("AgentEngine run_turn_streaming failed: {}", err);
                     }
@@ -309,6 +318,9 @@ impl DesktopRuntime {
                 if let Ok(mut txs) = confirm_txs_clone.lock() {
                     txs.remove(&(session_id.clone(), emit_turn_id.clone()));
                 }
+                if let Ok(mut tokens) = cancel_tokens_clone.lock() {
+                    let _: Option<tokio_util::sync::CancellationToken> = tokens.remove(&(session_id.clone(), emit_turn_id.clone()));
+                }
             });
         });
 
@@ -323,6 +335,15 @@ impl DesktopRuntime {
         if let Some(tx) = txs.remove(&(session_id, turn_id)) {
             let response = if allow { ConfirmResponse::Allow } else { ConfirmResponse::Deny };
             let _ = tx.send(response);
+        }
+        Ok(())
+    }
+
+    pub fn turn_cancel(&self, session_id: String, turn_id: String) -> Result<()> {
+        let mut tokens = self.cancel_tokens.lock().map_err(|_| anyhow::anyhow!("poisoned"))?;
+        if let Some(token) = tokens.remove(&(session_id, turn_id)) {
+            let token: tokio_util::sync::CancellationToken = token;
+            token.cancel();
         }
         Ok(())
     }
