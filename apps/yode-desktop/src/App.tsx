@@ -56,12 +56,22 @@ export function App() {
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
     return (localStorage.getItem("yode-view-mode") as ViewMode) || "chat";
   });
+  const [appLang, setAppLang] = useState(() => localStorage.getItem("yode-language") || "zh");
   const [draft, setDraft] = useState("");
   const [sessionItems, setSessionItems] = useState(sessions);
   const [timelineItems, setTimelineItems] = useState<TimelineItem[]>(timeline);
   const [activeSessionId, setActiveSessionId] = useState<string>(sessions[0]?.id ?? "");
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [terminalOpen, setTerminalOpen] = useState(false);
+
+  useEffect(() => {
+    const handleLangChange = (e: Event) => {
+      const newLang = (e as CustomEvent).detail;
+      setAppLang(newLang);
+    };
+    window.addEventListener("yode-language-change", handleLangChange);
+    return () => window.removeEventListener("yode-language-change", handleLangChange);
+  }, []);
 
   // Load theme & settings on startup to avoid styling flashes
   useEffect(() => {
@@ -330,6 +340,10 @@ function Sidebar({
   onCreateSession: () => void;
   onSelectSession: (sessionId: string) => void;
 }) {
+  const lang = localStorage.getItem("yode-language") || "zh";
+  const isZh = lang === "zh";
+  const t = (zhText: string, enText: string) => isZh ? zhText : enText;
+
   return (
     <aside className="sidebar">
       <div className="brand-row" data-tauri-drag-region>
@@ -342,18 +356,18 @@ function Sidebar({
 
       <button className="primary-action" onClick={onCreateSession} type="button">
         <MessageSquarePlus size={17} />
-        新对话
+        {t("新对话", "New chat")}
       </button>
 
       <nav className="nav-block" aria-label="主导航">
-        <NavButton icon={<Search size={16} />} label="搜索" />
-        <NavButton icon={<Code2 size={16} />} label="技能" />
-        <NavButton icon={<Workflow size={16} />} label="插件" />
-        <NavButton icon={<Clock3 size={16} />} label="自动化" />
+        <NavButton icon={<Search size={16} />} label={t("搜索", "Search")} />
+        <NavButton icon={<Code2 size={16} />} label={t("技能", "Skills")} />
+        <NavButton icon={<Workflow size={16} />} label={t("插件", "Plugins")} />
+        <NavButton icon={<Clock3 size={16} />} label={t("自动化", "Autopilot")} />
       </nav>
 
       <div className="sidebar-section sessions">
-        <div className="section-label">项目与对话</div>
+        <div className="section-label">{t("项目与对话", "Projects & Chats")}</div>
         <button className="project-button" type="button" style={{ marginBottom: "6px" }}>
           <Folder size={16} />
           <span>yode</span>
@@ -379,19 +393,19 @@ function Sidebar({
           className={`footer-button ${viewMode === "chat" ? "active" : ""}`}
           onClick={() => onChangeView("chat")}
           type="button"
-          title="对话"
+          title={t("对话", "Chat")}
         >
           <Bot size={17} />
-          对话
+          {t("对话", "Chat")}
         </button>
         <button
           className={`footer-button ${viewMode === "settings" ? "active" : ""}`}
           onClick={() => onChangeView("settings")}
           type="button"
-          title="设置"
+          title={t("设置", "Settings")}
         >
           <Settings size={17} />
-          设置
+          {t("设置", "Settings")}
         </button>
       </div>
     </aside>

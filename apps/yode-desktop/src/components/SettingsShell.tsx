@@ -40,12 +40,21 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
     localStorage.setItem("yode-active-tab", tab);
   };
 
-  const lang = localStorage.getItem("yode-language") || "zh";
-  const isZh = lang === "zh";
+  const [currentLang, setCurrentLang] = useState(() => localStorage.getItem("yode-language") || "zh");
+  const isZh = currentLang === "zh";
 
   const t = (zhText: string, enText: string) => {
     return isZh ? zhText : enText;
   };
+
+  useEffect(() => {
+    const handleLangChange = (e: Event) => {
+      const newLang = (e as CustomEvent).detail;
+      setCurrentLang(newLang);
+    };
+    window.addEventListener("yode-language-change", handleLangChange);
+    return () => window.removeEventListener("yode-language-change", handleLangChange);
+  }, []);
 
   // State bindings for General configuration elements
   const [workMode, setWorkMode] = useState(() => localStorage.getItem("yode-work-mode") || "coding");
@@ -437,11 +446,12 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
                       <span className="row-desc">{t("设置 Yode 的界面显示语言", "Language for the app UI")}</span>
                     </div>
                     <CustomSelect
-                      value={localStorage.getItem("yode-language") || "zh"}
+                      value={currentLang}
                       onChange={(val) => {
                         localStorage.setItem("yode-language", val);
-                        localStorage.setItem("yode-view-mode", "settings");
-                        window.location.reload();
+                        setCurrentLang(val);
+                        // Trigger a Custom Event that App.tsx listens to to update its local language state dynamically
+                        window.dispatchEvent(new CustomEvent("yode-language-change", { detail: val }));
                       }}
                       options={[
                         { value: "zh", label: "简体中文 (Simplified Chinese)", avatarText: "🇨🇳", avatarBg: "rgba(255,255,255,0.05)" },
@@ -1082,12 +1092,21 @@ function AppearanceSettings() {
     setPet("Yode");
   };
 
-  const lang = localStorage.getItem("yode-language") || "zh";
-  const isZh = lang === "zh";
+  const [currentLang, setCurrentLang] = useState(() => localStorage.getItem("yode-language") || "zh");
+  const isZh = currentLang === "zh";
 
   const t = (zhText: string, enText: string) => {
     return isZh ? zhText : enText;
   };
+
+  useEffect(() => {
+    const handleLangChange = (e: Event) => {
+      const newLang = (e as CustomEvent).detail;
+      setCurrentLang(newLang);
+    };
+    window.addEventListener("yode-language-change", handleLangChange);
+    return () => window.removeEventListener("yode-language-change", handleLangChange);
+  }, []);
 
   return (
     <div className="appearance-container">
