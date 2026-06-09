@@ -1198,12 +1198,10 @@ function Composer({
           {isProcessing ? (
             <button className="send-button stop-button" onClick={onCancelMessage} type="button" title="终止" style={{ background: "color-mix(in oklch, var(--error), transparent 30%)", borderColor: "color-mix(in oklch, var(--error), transparent 10%)" }}>
               <Pause size={17} />
-              <span>终止</span>
             </button>
           ) : (
             <button className="send-button" onClick={onSendMessage} type="button" title="发送">
               <Send size={17} />
-              <span>发送</span>
             </button>
           )}
         </div>
