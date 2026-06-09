@@ -34,7 +34,7 @@ import {
   Copy,
   Download
 } from "lucide-react";
-import { useEffect, useMemo, useState, useRef } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 
 import {
   Bootstrap,
@@ -722,6 +722,39 @@ function ChatWorkspace({
   onSendMessage: () => void;
   inspectorOpen: boolean;
 }) {
+  // Check if assistant is currently streaming (has any running status or last item kind is not fully completed)
+  const isStreaming = useMemo(() => {
+    // If there is any item with status === 'running', it is still streaming/running.
+    const hasRunningTool = timelineItems.some(item => item.kind === "tool" && item.status === "running");
+    if (hasRunningTool) return true;
+    
+    // Fallback: if last item is reasoning or assistant without stream complete metadata, consider it active
+    const lastItem = timelineItems[timelineItems.length - 1];
+    if (!lastItem) return false;
+    if (lastItem.kind === "assistant" && lastItem.meta !== "stream complete") {
+      return true;
+    }
+    return false;
+  }, [timelineItems]);
+
+  // Collapsible toggle for folded intermediate steps
+  const [isCollapsed, setIsCollapsed] = useState(true);
+
+  // Group items by turns or separate them. 
+  // Intermediate steps: tool, reasoning, permission, boundary.
+  // We want to hide them when NOT streaming, unless the user toggles to show them.
+  const processedItems = useMemo(() => {
+    if (isStreaming || !isCollapsed) {
+      return timelineItems;
+    }
+
+    // When NOT streaming and collapsed, filter out tool, reasoning, permission, boundary
+    // and keep only user and final assistant responses.
+    return timelineItems.filter(item => item.kind === "user" || item.kind === "assistant");
+  }, [timelineItems, isStreaming, isCollapsed]);
+
+  const hiddenCount = timelineItems.length - processedItems.length;
+
   return (
     <div className={`chat-layout ${inspectorOpen ? "" : "inspector-collapsed"}`}>
       <div className="conversation-column">
@@ -729,11 +762,71 @@ function ChatWorkspace({
           <div className="timeline-header">
             <span>RUN LOG</span>
             <strong>desktop-scaffold</strong>
-            <em>7 events</em>
+            <em>{timelineItems.length} events</em>
           </div>
-          {timelineItems.map((item) => (
-            <TimelineNode item={item} key={item.id} />
-          ))}
+          
+          {processedItems.map((item, index) => {
+            // Insert a divider toggle after the first "user" message if we hid any events
+            const showToggle = !isStreaming && hiddenCount > 0 && item.kind === "user" && index === 0;
+
+            return (
+              <React.Fragment key={item.id}>
+                <TimelineNode item={item} />
+                {showToggle && (
+                  <div 
+                    onClick={() => setIsCollapsed(false)}
+                    style={{
+                      margin: "8px auto 14px",
+                      maxWidth: "760px",
+                      background: "var(--field)",
+                      border: "1px dashed var(--line-soft)",
+                      borderRadius: "var(--radius)",
+                      padding: "8px 12px",
+                      cursor: "pointer",
+                      fontSize: "11.5px",
+                      color: "var(--text-soft)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      transition: "all 0.15s ease",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = "var(--accent)";
+                      e.currentTarget.style.color = "var(--text)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = "var(--line-soft)";
+                      e.currentTarget.style.color = "var(--text-soft)";
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <span style={{
+                        width: "6px",
+                        height: "6px",
+                        borderRadius: "50%",
+                        background: "var(--accent)"
+                      }} />
+                      <span>已省略 {hiddenCount} 个中间思考与执行步骤...</span>
+                    </div>
+                    <span style={{ fontWeight: "600", fontSize: "11px", color: "var(--accent)" }}>展开详情</span>
+                  </div>
+                )}
+              </React.Fragment>
+            );
+          })}
+
+          {!isCollapsed && hiddenCount > 0 && (
+            <div style={{ display: "flex", justifyContent: "center", marginBlock: "10px" }}>
+              <button
+                onClick={() => setIsCollapsed(true)}
+                type="button"
+                className="secondary-button"
+                style={{ fontSize: "11.5px", paddingInline: "12px", height: "26px", color: "var(--text-soft)" }}
+              >
+                收起思考与执行步骤
+              </button>
+            </div>
+          )}
         </section>
         <Composer draft={draft} onDraftChange={onDraftChange} onSendMessage={onSendMessage} />
       </div>
@@ -752,13 +845,54 @@ function TimelineNode({ item }: { item: TimelineItem }) {
     );
   }
 
+  if (item.kind === "user") {
+    return (
+      <div 
+        className="timeline-node user-bubble-container" 
+        style={{ 
+          display: "flex", 
+          justifyContent: "flex-end", 
+          width: "100%", 
+          maxWidth: "760px",
+          margin: "0 auto 12px",
+          paddingLeft: "24px" // Give spacing on left so bubble doesn't stretch 100%
+        }}
+      >
+        <div 
+          className="user-chat-bubble"
+          style={{
+            background: "color-mix(in oklch, var(--accent), transparent 85%)",
+            border: "1px solid color-mix(in oklch, var(--accent), transparent 60%)",
+            borderRadius: "14px 14px 2px 14px",
+            padding: "10px 14px",
+            maxWidth: "85%",
+            boxShadow: "0 2px 8px rgba(0, 0, 0, 0.15)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "4px"
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "16px" }}>
+            <span style={{ fontSize: "11px", fontWeight: "700", color: "var(--accent)" }}>我</span>
+            {"meta" in item && item.meta ? (
+              <span style={{ fontSize: "10px", color: "var(--text-soft)", opacity: 0.8 }}>
+                {item.meta}
+              </span>
+            ) : null}
+          </div>
+          <p style={{ margin: 0, color: "var(--text)", fontSize: "13px", lineHeight: "1.45", wordBreak: "break-word", whiteSpace: "pre-wrap" }}>
+            {item.body}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   const icon =
     item.kind === "tool" ? (
       <Hammer size={18} />
     ) : item.kind === "permission" ? (
       <ShieldCheck size={18} />
-    ) : item.kind === "user" ? (
-      <Command size={18} />
     ) : item.kind === "reasoning" ? (
       <TerminalSquare size={18} />
     ) : (
@@ -800,6 +934,29 @@ function PermissionActions({
 }: {
   item: Extract<TimelineItem, { kind: "permission" }>;
 }) {
+  // State to track keyboard focus / selection: "none" | "reject" | "allow"
+  const [selectedOption, setSelectedOption] = useState<"reject" | "allow">("allow");
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Look for ArrowUp/ArrowDown keys to toggle active option
+      if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+        e.preventDefault();
+        setSelectedOption((prev) => (prev === "allow" ? "reject" : "allow"));
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        if (selectedOption === "allow") {
+          alert(`已允许执行: ${item.tool}`);
+        } else {
+          alert(`已拒绝执行: ${item.tool}`);
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedOption, item.tool]);
+
   return (
     <div className="permission-box">
       <div>
@@ -808,11 +965,29 @@ function PermissionActions({
         <strong>{item.risk}</strong>
       </div>
       <div className="permission-actions">
-        <button className="secondary-button" type="button">
-          拒绝
+        <button
+          className={`secondary-button ${selectedOption === "reject" ? "keyboard-focused" : ""}`}
+          onClick={() => alert(`已拒绝执行: ${item.tool}`)}
+          type="button"
+          style={{
+            outline: "none",
+            border: selectedOption === "reject" ? "1.5px solid var(--error)" : "1px solid transparent",
+            boxShadow: selectedOption === "reject" ? "0 0 6px color-mix(in oklch, var(--error), transparent 60%)" : "none"
+          }}
+        >
+          拒绝 (↑/↓ 切换)
         </button>
-        <button className="primary-button" type="button">
-          允许
+        <button
+          className={`primary-button ${selectedOption === "allow" ? "keyboard-focused" : ""}`}
+          onClick={() => alert(`已允许执行: ${item.tool}`)}
+          type="button"
+          style={{
+            outline: "none",
+            border: selectedOption === "allow" ? "1.5px solid var(--accent)" : "1px solid transparent",
+            boxShadow: selectedOption === "allow" ? "0 0 6px color-mix(in oklch, var(--accent), transparent 40%)" : "none"
+          }}
+        >
+          允许 (Enter 确认)
         </button>
       </div>
     </div>
