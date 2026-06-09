@@ -35,6 +35,7 @@ pub struct DesktopRuntime {
     tool_registry: Arc<ToolRegistry>,
     mcp_resource_provider: Option<Arc<dyn McpResourceProvider>>,
     active_session_id: Mutex<Option<String>>,
+    permission_mode: Mutex<String>,
     seq: AtomicU64,
     confirm_txs: Arc<Mutex<std::collections::HashMap<(String, String), UnboundedSender<ConfirmResponse>>>>,
     cancel_tokens: Arc<Mutex<std::collections::HashMap<(String, String), tokio_util::sync::CancellationToken>>>,
@@ -55,6 +56,8 @@ impl DesktopRuntime {
         let provider_registry = bootstrap_providers(&config);
         let (tool_registry, mcp_resource_provider) = setup_desktop_tooling(&config, &workspace_path);
 
+        let default_mode = config.permissions.default_mode.clone().unwrap_or_else(|| "Default".to_string());
+
         Ok(Self {
             config,
             db: Database::open(&db_path)?,
@@ -64,6 +67,7 @@ impl DesktopRuntime {
             tool_registry,
             mcp_resource_provider,
             active_session_id: Mutex::new(None),
+            permission_mode: Mutex::new(default_mode),
             seq: AtomicU64::new(1),
             confirm_txs: Arc::new(Mutex::new(std::collections::HashMap::new())),
             cancel_tokens: Arc::new(Mutex::new(std::collections::HashMap::new())),
@@ -72,12 +76,17 @@ impl DesktopRuntime {
 
     pub fn bootstrap(&self) -> Result<Bootstrap> {
         let sessions = self.sessions_list()?;
+        let permission_mode = self
+            .permission_mode
+            .lock()
+            .map_err(|_| anyhow::anyhow!("permission mode lock poisoned"))?
+            .clone();
         Ok(Bootstrap {
             app_version: env!("CARGO_PKG_VERSION"),
             workspace_path: self.workspace_path.display().to_string(),
             provider: self.config.llm.default_provider.clone(),
             model: self.config.llm.default_model.clone(),
-            permission_mode: self.config.permissions.default_mode.clone().unwrap_or_else(|| "Default".to_string()),
+            permission_mode,
             sessions,
         })
     }
@@ -114,6 +123,11 @@ impl DesktopRuntime {
     }
 
     pub fn runtime_state(&self) -> Result<RuntimeState> {
+        let permission_mode = self
+            .permission_mode
+            .lock()
+            .map_err(|_| anyhow::anyhow!("permission mode lock poisoned"))?
+            .clone();
         Ok(RuntimeState {
             active_session_id: self
                 .active_session_id
@@ -121,10 +135,19 @@ impl DesktopRuntime {
                 .map_err(|_| anyhow::anyhow!("active session lock poisoned"))?
                 .clone(),
             status: "idle".to_string(),
-            permission_mode: self.config.permissions.default_mode.clone().unwrap_or_else(|| "Default".to_string()),
+            permission_mode,
             context_percent: 31,
             tool_calls: "0 / 0".to_string(),
         })
+    }
+
+    pub fn permission_mode_set(&self, mode: String) -> Result<()> {
+        let mut active_mode = self
+            .permission_mode
+            .lock()
+            .map_err(|_| anyhow::anyhow!("permission mode lock poisoned"))?;
+        *active_mode = mode;
+        Ok(())
     }
 
     pub fn turn_send_message(
@@ -155,7 +178,12 @@ impl DesktopRuntime {
         let provider = self.provider_registry.get(&session.provider)
             .ok_or_else(|| anyhow::anyhow!("Provider '{}' not found in registry", session.provider))?;
 
-        let permissions = configure_desktop_permissions(&self.config, &self.workspace_path);
+        let mut permissions = configure_desktop_permissions(&self.config, &self.workspace_path);
+        if let Ok(active_mode_guard) = self.permission_mode.lock() {
+            if let Ok(mode) = active_mode_guard.parse::<yode_core::permission::PermissionMode>() {
+                permissions.set_mode(mode);
+            }
+        }
         let mut context = AgentContext::resume(
             session.id.clone(),
             self.workspace_path.clone(),

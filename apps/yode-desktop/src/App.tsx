@@ -32,7 +32,11 @@ import {
   Moon,
   Monitor,
   Copy,
-  Download
+  Download,
+  Hand,
+  Shield,
+  AlertCircle,
+  Check
 } from "lucide-react";
 import React, { useEffect, useMemo, useState, useRef } from "react";
 
@@ -66,6 +70,13 @@ export function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [messageQueue, setMessageQueue] = useState<string[]>([]);
   const [currentTurnId, setCurrentTurnId] = useState<string | null>(null);
+  const [permissionMode, setPermissionMode] = useState<string>("default");
+
+  const handlePermissionModeChange = (mode: string) => {
+    setPermissionMode(mode);
+    setBootstrap(prev => ({ ...prev, permissionMode: mode }));
+    invoke("permission_mode_set", { mode }).catch(console.error);
+  };
 
   useEffect(() => {
     const handleLangChange = (e: Event) => {
@@ -218,6 +229,7 @@ export function App() {
     invoke<Bootstrap>("app_get_bootstrap")
       .then((nextBootstrap) => {
         setBootstrap(nextBootstrap);
+        setPermissionMode(nextBootstrap.permissionMode);
         if (nextBootstrap.sessions.length > 0) {
           setSessionItems(nextBootstrap.sessions);
           setActiveSessionId(nextBootstrap.sessions[0].id);
@@ -407,6 +419,8 @@ export function App() {
           inspectorOpen={inspectorOpen}
           isProcessing={isProcessing}
           onCancelMessage={handleCancelMessage}
+          permissionMode={permissionMode}
+          onPermissionModeChange={handlePermissionModeChange}
         />
         <TerminalDrawer isOpen={terminalOpen} onClose={() => setTerminalOpen(false)} />
       </section>
@@ -798,7 +812,9 @@ function ChatWorkspace({
   onSendMessage,
   inspectorOpen,
   isProcessing,
-  onCancelMessage
+  onCancelMessage,
+  permissionMode,
+  onPermissionModeChange
 }: {
   draft: string;
   timelineItems: TimelineItem[];
@@ -807,6 +823,8 @@ function ChatWorkspace({
   inspectorOpen: boolean;
   isProcessing: boolean;
   onCancelMessage: () => void;
+  permissionMode: string;
+  onPermissionModeChange: (mode: string) => void;
 }) {
   // Check if assistant is currently streaming (has any running status or last item kind is not fully completed)
   const isStreaming = useMemo(() => {
@@ -930,6 +948,8 @@ function ChatWorkspace({
           onSendMessage={onSendMessage}
           isProcessing={isProcessing}
           onCancelMessage={onCancelMessage}
+          permissionMode={permissionMode}
+          onPermissionModeChange={onPermissionModeChange}
         />
       </div>
       <RunInspector />
@@ -1142,16 +1162,62 @@ function Composer({
   onDraftChange,
   onSendMessage,
   isProcessing,
-  onCancelMessage
+  onCancelMessage,
+  permissionMode,
+  onPermissionModeChange
 }: {
   draft: string;
   onDraftChange: (value: string) => void;
   onSendMessage: () => void;
   isProcessing: boolean;
   onCancelMessage: () => void;
+  permissionMode: string;
+  onPermissionModeChange: (mode: string) => void;
 }) {
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const OPTIONS = [
+    {
+      key: "default",
+      label: "Ask for approval",
+      description: "Always ask to edit external files and use the internet",
+      icon: <Hand size={15} />
+    },
+    {
+      key: "auto",
+      label: "Approve for me",
+      description: "Only ask for actions detected as potentially unsafe",
+      icon: <Shield size={15} />
+    },
+    {
+      key: "bypass",
+      label: "Full access",
+      description: "Unrestricted access to the internet and any file on your computer",
+      icon: <AlertCircle size={15} />
+    }
+  ];
+
+  const currentOption = OPTIONS.find(
+    (o) => o.key.toLowerCase() === (permissionMode || "default").toLowerCase()
+  ) || OPTIONS[0];
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setDropdownOpen(false);
+      }
+    }
+    if (dropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [dropdownOpen]);
+
   return (
-    <footer className="composer">
+    <footer className="composer" style={{ position: "relative" }}>
       <textarea
         aria-label="消息"
         placeholder="输入仓库任务..."
@@ -1181,14 +1247,125 @@ function Composer({
         }}
       />
       <div className="composer-toolbar">
-        <div className="composer-tools">
+        <div className="composer-tools" style={{ position: "relative" }}>
           <button className="icon-button" type="button" title="附件">
             <Paperclip size={17} />
           </button>
-          <button className="mode-chip" type="button">
-            <ShieldCheck size={15} />
-            Default
-          </button>
+          
+          <div ref={dropdownRef} style={{ display: "inline-block" }}>
+            <button
+              className="mode-chip"
+              type="button"
+              onClick={() => setDropdownOpen(!dropdownOpen)}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                cursor: "pointer",
+                position: "relative"
+              }}
+            >
+              {currentOption.icon}
+              {currentOption.label}
+            </button>
+
+            {dropdownOpen && (
+              <div
+                className="permission-dropdown"
+                style={{
+                  position: "absolute",
+                  bottom: "100%",
+                  left: "0",
+                  marginBottom: "8px",
+                  zIndex: 1000,
+                  width: "380px",
+                  background: "var(--panel)",
+                  border: "1px solid var(--line)",
+                  borderRadius: "8px",
+                  boxShadow: "0 4px 20px rgba(0, 0, 0, 0.3)",
+                  padding: "16px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "12px"
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center"
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: "12px",
+                      color: "var(--text-soft)",
+                      fontWeight: 500
+                    }}
+                  >
+                    How should Codex actions be approved?
+                  </span>
+                  <a
+                    href="#"
+                    onClick={(e) => e.preventDefault()}
+                    style={{
+                      fontSize: "12px",
+                      color: "var(--text-soft)",
+                      textDecoration: "underline"
+                    }}
+                  >
+                    Learn more
+                  </a>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                  {OPTIONS.map((option) => {
+                    const isSelected = option.key.toLowerCase() === currentOption.key.toLowerCase();
+                    return (
+                      <button
+                        key={option.key}
+                        type="button"
+                        onClick={() => {
+                          onPermissionModeChange(option.key);
+                          setDropdownOpen(false);
+                        }}
+                        style={{
+                          display: "flex",
+                          alignItems: "flex-start",
+                          gap: "12px",
+                          width: "100%",
+                          padding: "10px",
+                          background: isSelected ? "rgba(255, 255, 255, 0.05)" : "transparent",
+                          border: "none",
+                          borderRadius: "6px",
+                          textAlign: "left",
+                          cursor: "pointer",
+                          transition: "background 0.2s"
+                        }}
+                        className="dropdown-option-btn"
+                      >
+                        <div style={{ marginTop: "2px", color: isSelected ? "var(--accent)" : "var(--text-soft)" }}>
+                          {option.icon}
+                        </div>
+                        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "2px" }}>
+                          <span style={{ fontSize: "13px", fontWeight: 500, color: "var(--text)" }}>
+                            {option.label}
+                          </span>
+                          <span style={{ fontSize: "11px", color: "var(--text-soft)", lineHeight: "1.4" }}>
+                            {option.description}
+                          </span>
+                        </div>
+                        {isSelected && (
+                          <Check size={14} style={{ color: "var(--accent)", alignSelf: "center" }} />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
           <button className="mode-chip" type="button">
             <Bot size={15} />
             sonnet
