@@ -18,6 +18,8 @@ import {
   MoreHorizontal,
   Paperclip,
   Pause,
+  FolderPlus,
+  GripVertical,
   Search,
   Send,
   Settings,
@@ -37,7 +39,8 @@ import {
   Shield,
   AlertCircle,
   Check,
-  Pin
+  Pin,
+  Trash2
 } from "lucide-react";
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -57,6 +60,58 @@ import { TerminalDrawer } from "./components/TerminalDrawer";
 
 type ViewMode = "chat" | "settings";
 
+const PROJECT_ROOTS_STORAGE_KEY = "yode-project-roots";
+const PROJECT_ORDER_STORAGE_KEY = "yode-project-order";
+const SELECTED_PROJECT_ROOT_STORAGE_KEY = "yode-selected-project-root";
+const STANDALONE_PROJECT_SENTINEL = "__standalone__";
+
+function loadStoredProjectRoots(): string[] {
+  try {
+    const raw = localStorage.getItem(PROJECT_ROOTS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return dedupeProjectRoots(parsed.filter((value): value is string => typeof value === "string"));
+  } catch {
+    return [];
+  }
+}
+
+function loadStoredProjectOrder(): string[] {
+  try {
+    const raw = localStorage.getItem(PROJECT_ORDER_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return dedupeProjectRoots(parsed.filter((value): value is string => typeof value === "string"));
+  } catch {
+    return [];
+  }
+}
+
+function loadStoredSelectedProjectRoot(): string | null | undefined {
+  const raw = localStorage.getItem(SELECTED_PROJECT_ROOT_STORAGE_KEY);
+  if (raw === null) return undefined;
+  return raw === STANDALONE_PROJECT_SENTINEL ? null : raw;
+}
+
+function normalizeProjectRoot(root: string | null | undefined) {
+  const trimmed = root?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function dedupeProjectRoots(roots: Array<string | null | undefined>) {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  roots.forEach((root) => {
+    const normalized = normalizeProjectRoot(root);
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    unique.push(normalized);
+  });
+  return unique;
+}
+
 export function App() {
   const [bootstrap, setBootstrap] = useState<Bootstrap>(fallbackBootstrap);
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
@@ -64,9 +119,12 @@ export function App() {
   });
   const [appLang, setAppLang] = useState(() => localStorage.getItem("yode-language") || "zh");
   const [draft, setDraft] = useState("");
-  const [sessionItems, setSessionItems] = useState(sessions);
-  const [timelineItems, setTimelineItems] = useState<TimelineItem[]>(timeline);
-  const [activeSessionId, setActiveSessionId] = useState<string>(sessions[0]?.id ?? "");
+  const [sessionItems, setSessionItems] = useState<SessionSummary[]>([]);
+  const [timelineItems, setTimelineItems] = useState<TimelineItem[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [projectRoots, setProjectRoots] = useState<string[]>(() => loadStoredProjectRoots());
+  const [projectOrder, setProjectOrder] = useState<string[]>(() => loadStoredProjectOrder());
+  const [selectedProjectRoot, setSelectedProjectRoot] = useState<string | null | undefined>(() => loadStoredSelectedProjectRoot());
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -88,6 +146,22 @@ export function App() {
     window.addEventListener("yode-language-change", handleLangChange);
     return () => window.removeEventListener("yode-language-change", handleLangChange);
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem(PROJECT_ROOTS_STORAGE_KEY, JSON.stringify(projectRoots));
+  }, [projectRoots]);
+
+  useEffect(() => {
+    localStorage.setItem(PROJECT_ORDER_STORAGE_KEY, JSON.stringify(projectOrder));
+  }, [projectOrder]);
+
+  useEffect(() => {
+    if (selectedProjectRoot === undefined) return;
+    localStorage.setItem(
+      SELECTED_PROJECT_ROOT_STORAGE_KEY,
+      selectedProjectRoot === null ? STANDALONE_PROJECT_SENTINEL : selectedProjectRoot
+    );
+  }, [selectedProjectRoot]);
 
   // Load theme & settings on startup to avoid styling flashes
   useEffect(() => {
@@ -232,12 +306,31 @@ export function App() {
       .then((nextBootstrap) => {
         setBootstrap(nextBootstrap);
         setPermissionMode(nextBootstrap.permissionMode);
-        if (nextBootstrap.sessions.length > 0) {
-          setSessionItems(nextBootstrap.sessions);
-          setActiveSessionId(nextBootstrap.sessions[0].id);
-        }
+        setSelectedProjectRoot((current) =>
+          current === undefined || current === fallbackBootstrap.workspacePath
+            ? nextBootstrap.workspacePath
+            : current
+        );
+        setSessionItems(nextBootstrap.sessions);
+        setProjectRoots((current) =>
+          dedupeProjectRoots([
+            ...current,
+            ...nextBootstrap.sessions.map((session) => session.projectRoot),
+          ])
+        );
+        setActiveSessionId(nextBootstrap.sessions.find((session) => session.active)?.id ?? null);
       })
-      .catch(() => setBootstrap(fallbackBootstrap));
+      .catch(() => {
+        setBootstrap(fallbackBootstrap);
+        if (!("__TAURI_INTERNALS__" in window)) {
+          setSessionItems(sessions);
+          setActiveSessionId(sessions.find((session) => session.active)?.id ?? null);
+          setSelectedProjectRoot((current) =>
+            current === undefined ? fallbackBootstrap.workspacePath : current
+          );
+          setTimelineItems(timeline);
+        }
+      });
   }, []);
 
   useEffect(() => {
@@ -278,32 +371,93 @@ export function App() {
 
   const activeSession = useMemo(
     () =>
-      sessionItems.find((session) => session.id === activeSessionId) ??
-      sessionItems[0] ??
-      sessions[0],
+      activeSessionId
+        ? sessionItems.find((session) => session.id === activeSessionId) ?? null
+        : null,
     [activeSessionId, sessionItems]
   );
 
-  async function handleCreateSession() {
-    const session = await invoke<(typeof sessions)[number]>("sessions_create", {
-      request: {
-        title: "桌面端会话",
-        projectRoot: bootstrap.workspacePath,
-        provider: bootstrap.provider,
-        model: bootstrap.model
-      }
-    });
-    setSessionItems((items) => [
-      { ...session, active: true },
-      ...items.map((item) => ({ ...item, active: false }))
+  const projectOptions = useMemo(() => {
+    const roots = dedupeProjectRoots([
+      bootstrap.workspacePath,
+      ...projectRoots,
+      ...sessionItems.map((session) => session.projectRoot),
     ]);
-    setActiveSessionId(session.id);
+    return [
+      ...roots.map((root) => ({
+        label: projectLabelFromPath(root),
+        root,
+      })),
+      { label: "独立对话", root: null }
+    ];
+  }, [bootstrap.workspacePath, projectRoots, sessionItems]);
+
+  useEffect(() => {
+    const roots = projectOptions
+      .map((option) => option.root)
+      .filter((root): root is string => Boolean(root));
+    setProjectOrder((current) => [
+      ...current.filter((root) => roots.includes(root)),
+      ...roots.filter((root) => !current.includes(root)),
+    ]);
+  }, [projectOptions]);
+
+  const orderedProjectOptions = useMemo(() => {
+    const orderIndex = new Map(projectOrder.map((root, index) => [root, index]));
+    return [...projectOptions].sort((a, b) => {
+      if (!a.root || !b.root) {
+        return a.root ? -1 : b.root ? 1 : 0;
+      }
+      return (orderIndex.get(a.root) ?? Number.MAX_SAFE_INTEGER) -
+        (orderIndex.get(b.root) ?? Number.MAX_SAFE_INTEGER);
+    });
+  }, [projectOptions, projectOrder]);
+
+  const handleProjectReorder = (draggedRoot: string, targetRoot: string) => {
+    if (draggedRoot === targetRoot) return;
+    setProjectOrder((current) => {
+      const roots = projectOptions
+        .map((option) => option.root)
+        .filter((root): root is string => Boolean(root));
+      const base = [
+        ...current.filter((root) => roots.includes(root)),
+        ...roots.filter((root) => !current.includes(root)),
+      ];
+      const from = base.indexOf(draggedRoot);
+      const to = base.indexOf(targetRoot);
+      if (from < 0 || to < 0) return base;
+      const next = [...base];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return next;
+    });
+  };
+
+  function handleCreateSession() {
+    setActiveSessionId(null);
+    setCurrentTurnId(null);
+    setMessageQueue([]);
+    setIsProcessing(false);
+    setSessionItems((items) => items.map((item) => ({ ...item, active: false })));
     setTimelineItems([]);
   }
 
+  async function handleAddProject() {
+    const pickedRoot = await invoke<string | null>("project_folder_pick").catch((err) => {
+      console.error(err);
+      return null;
+    });
+    const normalized = normalizeProjectRoot(pickedRoot);
+    if (!normalized) return;
+    setProjectRoots((current) => dedupeProjectRoots([...current, normalized]));
+    setSelectedProjectRoot(normalized);
+  }
+
   async function handleSendMessage() {
-    if (!draft.trim() || !activeSession?.id) return;
+    if (!draft.trim()) return;
     const content = draft.trim();
+    const sessionIdAtSend = activeSession?.id ?? null;
+    const projectRootAtSend = selectedProjectRoot === undefined ? bootstrap.workspacePath : selectedProjectRoot;
     setDraft("");
 
     if (isProcessing) {
@@ -330,13 +484,26 @@ export function App() {
         body: content
       }
     ]);
-    const res = await invoke<TurnAccepted>("turn_send_message", {
-      request: {
-        sessionId: activeSession.id,
-        content
-      }
-    });
-    setCurrentTurnId(res.turnId);
+    try {
+      const res = await invoke<TurnAccepted>("turn_send_message", {
+        request: {
+          sessionId: sessionIdAtSend,
+          content,
+          projectRoot: sessionIdAtSend ? undefined : projectRootAtSend,
+          standalone: sessionIdAtSend ? undefined : projectRootAtSend === null,
+          title: sessionIdAtSend ? undefined : deriveSessionTitle(content),
+          provider: sessionIdAtSend ? undefined : bootstrap.provider,
+          model: sessionIdAtSend ? undefined : bootstrap.model
+        }
+      });
+      setCurrentTurnId(res.turnId);
+      setActiveSessionId(res.sessionId);
+      setSessionItems((items) => upsertActiveSession(items, res.session));
+    } catch (err) {
+      console.error(err);
+      setIsProcessing(false);
+      setDraft(content);
+    }
   }
 
   useEffect(() => {
@@ -356,10 +523,16 @@ export function App() {
       invoke<TurnAccepted>("turn_send_message", {
         request: {
           sessionId: activeSession.id,
-          content: nextContent
+          content: nextContent,
+          projectRoot: undefined,
+          standalone: undefined,
+          title: undefined,
+          provider: undefined,
+          model: undefined
         }
       }).then((res) => {
         setCurrentTurnId(res.turnId);
+        setSessionItems((items) => upsertActiveSession(items, res.session));
       }).catch((err) => {
         console.error(err);
         setIsProcessing(false);
@@ -398,22 +571,27 @@ export function App() {
     <main className="app-shell">
       <Sidebar
         sessions={sessionItems}
+        projectOptions={orderedProjectOptions}
         activeSessionId={activeSessionId}
         viewMode={viewMode}
         onChangeView={handleSetViewMode}
         onCreateSession={handleCreateSession}
         onSelectSession={(sessionId) => {
+          const nextSession = sessionItems.find((item) => item.id === sessionId);
           setActiveSessionId(sessionId);
+          setSelectedProjectRoot(nextSession?.projectRoot ?? null);
           setSessionItems((items) =>
             items.map((item) => ({ ...item, active: item.id === sessionId }))
           );
         }}
+        onAddProject={handleAddProject}
+        onProjectReorder={handleProjectReorder}
         onDeleteSession={handleDeleteSession}
       />
       <section className="workspace" style={{ position: "relative", overflow: "hidden" }}>
         <Topbar
           bootstrap={bootstrap}
-          sessionTitle={activeSession.title}
+          sessionTitle={activeSession?.title ?? (appLang === "zh" ? "新对话" : "New chat")}
           inspectorOpen={inspectorOpen}
           onToggleInspector={() => setInspectorOpen(!inspectorOpen)}
           terminalOpen={terminalOpen}
@@ -433,6 +611,10 @@ export function App() {
             setTimelineItems((items) => items.filter((item) => item.id !== id));
           }}
           appLang={appLang}
+          projectOptions={orderedProjectOptions}
+          selectedProjectRoot={selectedProjectRoot === undefined ? bootstrap.workspacePath : selectedProjectRoot}
+          onProjectRootChange={setSelectedProjectRoot}
+          onAddProject={handleAddProject}
         />
         <TerminalDrawer isOpen={terminalOpen} onClose={() => setTerminalOpen(false)} />
       </section>
@@ -441,19 +623,25 @@ export function App() {
 }
 function Sidebar({
   sessions,
+  projectOptions,
   activeSessionId,
   viewMode,
   onChangeView,
   onCreateSession,
   onSelectSession,
+  onAddProject,
+  onProjectReorder,
   onDeleteSession
 }: {
   sessions: SessionSummary[];
-  activeSessionId: string;
+  projectOptions: Array<{ label: string; root: string | null }>;
+  activeSessionId: string | null;
   viewMode: ViewMode;
   onChangeView: (mode: ViewMode) => void;
   onCreateSession: () => void;
   onSelectSession: (sessionId: string) => void;
+  onAddProject: () => Promise<void>;
+  onProjectReorder: (draggedRoot: string, targetRoot: string) => void;
   onDeleteSession: (sessionId: string) => void;
 }) {
   const lang = localStorage.getItem("yode-language") || "zh";
@@ -463,6 +651,7 @@ function Sidebar({
   const [pinnedSessionIds, setPinnedSessionIds] = useState<string[]>(["s-1"]);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const [expandedProjectIds, setExpandedProjectIds] = useState<string[]>([]);
+  const [draggingProjectId, setDraggingProjectId] = useState<string | null>(null);
   
   // Hover information popover state
   const [hoveredSessionId, setHoveredSessionId] = useState<string | null>(null);
@@ -534,14 +723,14 @@ function Sidebar({
     const standalone: SessionSummary[] = [];
 
     sessions.forEach((session) => {
-      const project = session.project?.trim();
-      if (!project) {
+      const projectRoot = session.projectRoot?.trim();
+      if (!projectRoot) {
         standalone.push(session);
         return;
       }
-      const existing = groupMap.get(project) ?? [];
+      const existing = groupMap.get(projectRoot) ?? [];
       existing.push(session);
-      groupMap.set(project, existing);
+      groupMap.set(projectRoot, existing);
     });
 
     const sortSessions = (items: SessionSummary[]) =>
@@ -551,20 +740,16 @@ function Sidebar({
       });
 
     return {
-      projectGroups: Array.from(groupMap.entries())
-        .map(([project, items]) => ({
-          id: project,
-          name: project,
-          sessions: sortSessions(items)
-        }))
-        .sort((a, b) => {
-          const aActive = a.sessions.some((session) => session.id === activeSessionId);
-          const bActive = b.sessions.some((session) => session.id === activeSessionId);
-          return Number(bActive) - Number(aActive) || a.name.localeCompare(b.name);
-        }),
+      projectGroups: projectOptions
+        .filter((option) => option.root)
+        .map((option) => ({
+          id: option.root!,
+          name: option.label,
+          sessions: sortSessions(groupMap.get(option.root!) ?? [])
+        })),
       standaloneSessions: sortSessions(standalone)
     };
-  }, [activeSessionId, pinnedSessionIds, sessions]);
+  }, [activeSessionId, pinnedSessionIds, projectOptions, sessions]);
 
   useEffect(() => {
     setExpandedProjectIds((current) => {
@@ -595,49 +780,33 @@ function Sidebar({
           className={`session-button ${isActive ? "active" : ""}`}
           onClick={() => onSelectSession(session.id)}
           type="button"
-          style={{ width: "100%", paddingRight: isDeleting ? "76px" : "32px", display: "flex", alignItems: "center", justifyContent: "space-between" }}
         >
-          <span className="session-title" style={{ flex: 1, textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }}>
+          <span className="session-title">
             {session.title}
           </span>
-          {!isDeleting && hoveredSessionId !== session.id && (
-            <span className="session-time" style={{ fontSize: "10.5px", color: "var(--text-soft)", marginLeft: "4px" }}>
+          {!isDeleting ? (
+            <span className="session-time">
               {session.updatedAt}
             </span>
-          )}
+          ) : null}
         </button>
 
-        {/* Hover Actions / Confirm Buttons overlay */}
         {isDeleting ? (
-          <div className="delete-confirm-overlay" style={{ position: "absolute", right: "6px", top: "50%", transform: "translateY(-50%)", display: "flex", gap: "4px" }}>
+          <div className="delete-confirm-overlay">
             <button
               onClick={(e) => handleConfirmDelete(session.id, e)}
               type="button"
               className="confirm-delete-btn"
-              style={{
-                background: "oklch(60% 0.16 30)",
-                color: "#fff",
-                border: "none",
-                borderRadius: "4px",
-                fontSize: "10.5px",
-                fontWeight: "600",
-                padding: "2px 8px",
-                height: "22px",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center"
-              }}
             >
               {t("确认", "Confirm")}
             </button>
           </div>
         ) : (
-          <div className="session-actions-overlay" style={{ display: "none", position: "absolute", right: "6px", top: "50%", transform: "translateY(-50%)", gap: "2px" }}>
+          <div className="session-actions-overlay">
             <button
               onClick={(e) => handleTogglePin(session.id, e)}
               type="button"
               className="action-icon-btn"
-              style={{ background: "transparent", border: "none", cursor: "pointer", color: "var(--text-soft)", padding: "4px" }}
               title={isPinned ? t("取消置顶", "Unpin") : t("置顶", "Pin")}
             >
               <Pin size={13} style={{ transform: isPinned ? "rotate(45deg)" : "none" }} />
@@ -646,14 +815,9 @@ function Sidebar({
               onClick={(e) => handleDeleteClick(session.id, e)}
               type="button"
               className="action-icon-btn"
-              style={{ background: "transparent", border: "none", cursor: "pointer", color: "var(--text-soft)", padding: "4px" }}
               title={t("删除", "Delete")}
             >
-              {/* Trash SVG Icon */}
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="3 6 5 6 21 6"></polyline>
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-              </svg>
+              <Trash2 size={13} />
             </button>
           </div>
         )}
@@ -664,11 +828,34 @@ function Sidebar({
   const renderProjectGroup = (group: { id: string; name: string; sessions: SessionSummary[] }) => {
     const expanded = expandedProjectIds.includes(group.id);
     const hasActiveSession = group.sessions.some((session) => session.id === activeSessionId);
+    const isDragging = draggingProjectId === group.id;
 
     return (
-      <div className={`project-group ${hasActiveSession ? "active" : ""}`} key={group.id}>
+      <div
+        className={`project-group ${hasActiveSession ? "active" : ""} ${isDragging ? "dragging" : ""}`}
+        key={group.id}
+        onDragOver={(event) => {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "move";
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          const draggedRoot = event.dataTransfer.getData("text/plain");
+          if (draggedRoot) {
+            onProjectReorder(draggedRoot, group.id);
+          }
+          setDraggingProjectId(null);
+        }}
+        onDragEnd={() => setDraggingProjectId(null)}
+      >
         <button
           className={`project-button ${hasActiveSession ? "active" : ""}`}
+          draggable
+          onDragStart={(event) => {
+            setDraggingProjectId(group.id);
+            event.dataTransfer.effectAllowed = "move";
+            event.dataTransfer.setData("text/plain", group.id);
+          }}
           onClick={() => {
             setExpandedProjectIds((current) =>
               current.includes(group.id)
@@ -678,6 +865,7 @@ function Sidebar({
           }}
           type="button"
         >
+          <GripVertical className="project-drag-icon" size={13} aria-hidden />
           <Folder size={16} />
           <span>{group.name}</span>
           <em>{group.sessions.length}</em>
@@ -687,6 +875,9 @@ function Sidebar({
           <div className="project-sessions">
             {group.sessions.map(renderSessionItem)}
           </div>
+        ) : null}
+        {expanded && group.sessions.length === 0 ? (
+          <div className="project-empty">{t("暂无会话", "No chats yet")}</div>
         ) : null}
       </div>
     );
@@ -715,7 +906,13 @@ function Sidebar({
       </nav>
 
       <div className="sidebar-section sessions">
-        <div className="section-label">{t("项目与对话", "Projects & Chats")}</div>
+        <div className="section-head">
+          <div className="section-label">{t("项目与对话", "Projects & Chats")}</div>
+          <button className="section-action" type="button" onClick={() => void onAddProject()}>
+            <FolderPlus size={14} />
+            {t("添加项目", "Add project")}
+          </button>
+        </div>
         <div className="sessions-list">
           {projectGroups.map(renderProjectGroup)}
           {standaloneSessions.length > 0 ? (
@@ -758,7 +955,7 @@ function Sidebar({
                 <div style={{ display: "flex", flexDirection: "column", gap: "3px", fontSize: "10.5px", color: "var(--text-muted)" }}>
                   <div>
                     <span style={{ color: "var(--text-soft)" }}>{t("项目：", "Project: ")}</span>
-                    <code>{s.project || t("独立对话", "Standalone")}</code>
+                    <code>{s.project || (s.projectRoot ? projectLabelFromPath(s.projectRoot) : t("独立对话", "Standalone"))}</code>
                   </div>
                   <div>
                     <span style={{ color: "var(--text-soft)" }}>{t("更新时间：", "Updated: ")}</span>
@@ -891,7 +1088,11 @@ function ChatWorkspace({
   permissionMode,
   onPermissionModeChange,
   onPermissionResolved,
-  appLang
+  appLang,
+  projectOptions,
+  selectedProjectRoot,
+  onProjectRootChange,
+  onAddProject
 }: {
   draft: string;
   timelineItems: TimelineItem[];
@@ -904,6 +1105,10 @@ function ChatWorkspace({
   onPermissionModeChange: (mode: string) => void;
   onPermissionResolved: (id: string) => void;
   appLang: string;
+  projectOptions: Array<{ label: string; root: string | null }>;
+  selectedProjectRoot: string | null;
+  onProjectRootChange: (root: string | null) => void;
+  onAddProject: () => Promise<void>;
 }) {
   // Check if assistant is currently streaming (has any running status or last item kind is not fully completed)
   const isStreaming = useMemo(() => {
@@ -1034,6 +1239,10 @@ function ChatWorkspace({
           permissionMode={permissionMode}
           onPermissionModeChange={onPermissionModeChange}
           appLang={appLang}
+          projectOptions={projectOptions}
+          selectedProjectRoot={selectedProjectRoot}
+          onProjectRootChange={onProjectRootChange}
+          onAddProject={onAddProject}
         />
       </div>
       <RunInspector />
@@ -1249,6 +1458,30 @@ function statusLabel(status: "running" | "success" | "blocked") {
   return "阻塞";
 }
 
+function projectLabelFromPath(path: string) {
+  const trimmed = path.trim();
+  if (!trimmed) return "项目";
+  const parts = trimmed.split(/[\\/]+/).filter(Boolean);
+  return parts[parts.length - 1] || trimmed;
+}
+
+function deriveSessionTitle(content: string) {
+  const normalized = content.replace(/\s+/g, " ").trim();
+  if (!normalized) return "新对话";
+  return normalized.length > 28 ? normalized.slice(0, 28) : normalized;
+}
+
+function upsertActiveSession(items: SessionSummary[], session: SessionSummary) {
+  const nextSession = { ...session, active: true };
+  const exists = items.some((item) => item.id === session.id);
+  if (!exists) {
+    return [nextSession, ...items.map((item) => ({ ...item, active: false }))];
+  }
+  return items.map((item) =>
+    item.id === session.id ? nextSession : { ...item, active: false }
+  );
+}
+
 function Composer({
   draft,
   onDraftChange,
@@ -1257,7 +1490,11 @@ function Composer({
   onCancelMessage,
   permissionMode,
   onPermissionModeChange,
-  appLang
+  appLang,
+  projectOptions,
+  selectedProjectRoot,
+  onProjectRootChange,
+  onAddProject
 }: {
   draft: string;
   onDraftChange: (value: string) => void;
@@ -1267,9 +1504,15 @@ function Composer({
   permissionMode: string;
   onPermissionModeChange: (mode: string) => void;
   appLang: string;
+  projectOptions: Array<{ label: string; root: string | null }>;
+  selectedProjectRoot: string | null;
+  onProjectRootChange: (root: string | null) => void;
+  onAddProject: () => Promise<void>;
 }) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const projectDropdownRef = useRef<HTMLDivElement>(null);
 
   const isZh = appLang === "zh";
 
@@ -1297,20 +1540,37 @@ function Composer({
   const currentOption = OPTIONS.find(
     (o) => o.key.toLowerCase() === (permissionMode || "default").toLowerCase()
   ) || OPTIONS[0];
+  const currentProject =
+    selectedProjectRoot === null
+      ? projectOptions.find((option) => option.root === null) ?? {
+          label: isZh ? "独立对话" : "Standalone",
+          root: null
+        }
+      : projectOptions.find((option) => option.root === selectedProjectRoot) ??
+        projectOptions[0] ?? {
+          label: isZh ? "当前项目" : "Current project",
+          root: selectedProjectRoot ?? null
+        };
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setDropdownOpen(false);
       }
+      if (
+        projectDropdownRef.current &&
+        !projectDropdownRef.current.contains(event.target as Node)
+      ) {
+        setProjectDropdownOpen(false);
+      }
     }
-    if (dropdownOpen) {
+    if (dropdownOpen || projectDropdownOpen) {
       document.addEventListener("mousedown", handleClickOutside);
     }
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [dropdownOpen]);
+  }, [dropdownOpen, projectDropdownOpen]);
 
   return (
     <footer className="composer" style={{ position: "relative" }}>
@@ -1347,6 +1607,54 @@ function Composer({
           <button className="icon-button" type="button" title={isZh ? "附件" : "Attachment"} style={{ outline: "none", boxShadow: "none" }}>
             <Paperclip size={17} />
           </button>
+
+          <div ref={projectDropdownRef} style={{ display: "inline-block", position: "relative" }}>
+            <button
+              className="mode-chip"
+              type="button"
+              onClick={() => setProjectDropdownOpen(!projectDropdownOpen)}
+              title={currentProject.root ?? (isZh ? "独立对话" : "Standalone")}
+              style={{ outline: "none", boxShadow: "none", cursor: "pointer" }}
+            >
+              <Folder size={15} />
+              {currentProject.label}
+            </button>
+
+            {projectDropdownOpen && (
+              <div className="context-dropdown project-dropdown">
+                {projectOptions.map((option) => {
+                  const selected = option.root === selectedProjectRoot;
+                  return (
+                    <button
+                      key={option.root ?? "__standalone__"}
+                      type="button"
+                      className={`context-option ${selected ? "selected" : ""}`}
+                      onClick={() => {
+                        onProjectRootChange(option.root);
+                        setProjectDropdownOpen(false);
+                      }}
+                    >
+                      <Folder size={14} />
+                      <span>{option.label}</span>
+                      {selected ? <Check size={14} /> : null}
+                    </button>
+                  );
+                })}
+                <div className="context-dropdown-divider" />
+                <button
+                  type="button"
+                  className="context-option context-option-action"
+                  onClick={() => {
+                    setProjectDropdownOpen(false);
+                    void onAddProject();
+                  }}
+                >
+                  <FolderPlus size={14} />
+                  <span>{isZh ? "添加项目..." : "Add project..."}</span>
+                </button>
+              </div>
+            )}
+          </div>
           
           <div ref={dropdownRef} style={{ display: "inline-block" }}>
             <button
@@ -1401,7 +1709,7 @@ function Composer({
                       fontWeight: 500
                     }}
                   >
-                    {isZh ? "如何授权 Codex 的操作？" : "How should Codex actions be approved?"}
+                    {isZh ? "如何授权 Yode 的操作？" : "How should Yode actions be approved?"}
                   </span>
                   <a
                     href="#"
