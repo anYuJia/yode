@@ -398,10 +398,16 @@ export function App() {
     <main className="app-shell">
       <Sidebar
         sessions={sessionItems}
+        activeSessionId={activeSessionId}
         viewMode={viewMode}
         onChangeView={handleSetViewMode}
         onCreateSession={handleCreateSession}
-        onSelectSession={setActiveSessionId}
+        onSelectSession={(sessionId) => {
+          setActiveSessionId(sessionId);
+          setSessionItems((items) =>
+            items.map((item) => ({ ...item, active: item.id === sessionId }))
+          );
+        }}
         onDeleteSession={handleDeleteSession}
       />
       <section className="workspace" style={{ position: "relative", overflow: "hidden" }}>
@@ -435,6 +441,7 @@ export function App() {
 }
 function Sidebar({
   sessions,
+  activeSessionId,
   viewMode,
   onChangeView,
   onCreateSession,
@@ -442,6 +449,7 @@ function Sidebar({
   onDeleteSession
 }: {
   sessions: SessionSummary[];
+  activeSessionId: string;
   viewMode: ViewMode;
   onChangeView: (mode: ViewMode) => void;
   onCreateSession: () => void;
@@ -452,9 +460,9 @@ function Sidebar({
   const isZh = lang === "zh";
   const t = (zhText: string, enText: string) => isZh ? zhText : enText;
 
-  // Track pinned sessions (e.g. initially s-1 is pinned)
   const [pinnedSessionIds, setPinnedSessionIds] = useState<string[]>(["s-1"]);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
+  const [expandedProjectIds, setExpandedProjectIds] = useState<string[]>([]);
   
   // Hover information popover state
   const [hoveredSessionId, setHoveredSessionId] = useState<string | null>(null);
@@ -521,25 +529,70 @@ function Sidebar({
     handleMouseLeave();
   };
 
-  // Group sessions into Pinned and Projects
-  const pinnedSessions = sessions.filter(s => pinnedSessionIds.includes(s.id));
-  const unpinnedSessions = sessions.filter(s => !pinnedSessionIds.includes(s.id));
+  const { projectGroups, standaloneSessions } = useMemo(() => {
+    const groupMap = new Map<string, SessionSummary[]>();
+    const standalone: SessionSummary[] = [];
+
+    sessions.forEach((session) => {
+      const project = session.project?.trim();
+      if (!project) {
+        standalone.push(session);
+        return;
+      }
+      const existing = groupMap.get(project) ?? [];
+      existing.push(session);
+      groupMap.set(project, existing);
+    });
+
+    const sortSessions = (items: SessionSummary[]) =>
+      [...items].sort((a, b) => {
+        const pinDelta = Number(pinnedSessionIds.includes(b.id)) - Number(pinnedSessionIds.includes(a.id));
+        return pinDelta || 0;
+      });
+
+    return {
+      projectGroups: Array.from(groupMap.entries())
+        .map(([project, items]) => ({
+          id: project,
+          name: project,
+          sessions: sortSessions(items)
+        }))
+        .sort((a, b) => {
+          const aActive = a.sessions.some((session) => session.id === activeSessionId);
+          const bActive = b.sessions.some((session) => session.id === activeSessionId);
+          return Number(bActive) - Number(aActive) || a.name.localeCompare(b.name);
+        }),
+      standaloneSessions: sortSessions(standalone)
+    };
+  }, [activeSessionId, pinnedSessionIds, sessions]);
+
+  useEffect(() => {
+    setExpandedProjectIds((current) => {
+      const known = new Set(projectGroups.map((group) => group.id));
+      const kept = current.filter((id) => known.has(id));
+      const missing = projectGroups
+        .filter((group) => !kept.includes(group.id))
+        .map((group) => group.id);
+      return [...kept, ...missing];
+    });
+  }, [projectGroups]);
 
   // Helper render method for a session item
   const renderSessionItem = (session: SessionSummary) => {
     const isPinned = pinnedSessionIds.includes(session.id);
     const isDeleting = deletingSessionId === session.id;
+    const isActive = session.id === activeSessionId;
 
     return (
       <div
-        className={`session-item-wrapper ${session.active ? "active" : ""}`}
+        className={`session-item-wrapper ${isActive ? "active" : ""}`}
         key={session.id}
         onMouseEnter={(e) => handleMouseEnter(session.id, e)}
         onMouseLeave={() => handleSessionMouseLeave(session.id)}
         style={{ position: "relative" }}
       >
         <button
-          className={`session-button ${session.active ? "active" : ""}`}
+          className={`session-button ${isActive ? "active" : ""}`}
           onClick={() => onSelectSession(session.id)}
           type="button"
           style={{ width: "100%", paddingRight: isDeleting ? "76px" : "32px", display: "flex", alignItems: "center", justifyContent: "space-between" }}
@@ -575,7 +628,7 @@ function Sidebar({
                 alignItems: "center"
               }}
             >
-              Confirm
+              {t("确认", "Confirm")}
             </button>
           </div>
         ) : (
@@ -608,6 +661,37 @@ function Sidebar({
     );
   };
 
+  const renderProjectGroup = (group: { id: string; name: string; sessions: SessionSummary[] }) => {
+    const expanded = expandedProjectIds.includes(group.id);
+    const hasActiveSession = group.sessions.some((session) => session.id === activeSessionId);
+
+    return (
+      <div className={`project-group ${hasActiveSession ? "active" : ""}`} key={group.id}>
+        <button
+          className={`project-button ${hasActiveSession ? "active" : ""}`}
+          onClick={() => {
+            setExpandedProjectIds((current) =>
+              current.includes(group.id)
+                ? current.filter((id) => id !== group.id)
+                : [...current, group.id]
+            );
+          }}
+          type="button"
+        >
+          <Folder size={16} />
+          <span>{group.name}</span>
+          <em>{group.sessions.length}</em>
+          <ChevronDown className={expanded ? "expanded" : ""} size={15} />
+        </button>
+        {expanded ? (
+          <div className="project-sessions">
+            {group.sessions.map(renderSessionItem)}
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+
   return (
     <aside className="sidebar" style={{ position: "relative" }}>
       <div className="brand-row" data-tauri-drag-region>
@@ -630,26 +714,16 @@ function Sidebar({
         <NavButton icon={<Clock3 size={16} />} label={t("自动化", "Autopilot")} />
       </nav>
 
-      {/* Pinned Section */}
-      {pinnedSessions.length > 0 && (
-        <div className="sidebar-section pinned-sessions" style={{ display: "flex", flexDirection: "column" }}>
-          <div className="section-label">{t("已置顶", "Pinned")}</div>
-          <div className="sessions-list" style={{ flex: "none" }}>
-            {pinnedSessions.map(renderSessionItem)}
-          </div>
-        </div>
-      )}
-
-      {/* Projects Section */}
       <div className="sidebar-section sessions">
         <div className="section-label">{t("项目与对话", "Projects & Chats")}</div>
-        <button className="project-button" type="button" style={{ marginBottom: "6px" }}>
-          <Folder size={16} />
-          <span>yode</span>
-          <ChevronDown size={15} />
-        </button>
         <div className="sessions-list">
-          {unpinnedSessions.map(renderSessionItem)}
+          {projectGroups.map(renderProjectGroup)}
+          {standaloneSessions.length > 0 ? (
+            <div className="standalone-group">
+              <div className="standalone-label">{t("独立对话", "Standalone")}</div>
+              {standaloneSessions.map(renderSessionItem)}
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -684,7 +758,7 @@ function Sidebar({
                 <div style={{ display: "flex", flexDirection: "column", gap: "3px", fontSize: "10.5px", color: "var(--text-muted)" }}>
                   <div>
                     <span style={{ color: "var(--text-soft)" }}>{t("项目：", "Project: ")}</span>
-                    <code>{s.project}</code>
+                    <code>{s.project || t("独立对话", "Standalone")}</code>
                   </div>
                   <div>
                     <span style={{ color: "var(--text-soft)" }}>{t("更新时间：", "Updated: ")}</span>

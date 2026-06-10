@@ -17,7 +17,7 @@ pub struct Bootstrap {
 pub struct DesktopSession {
     pub id: String,
     pub title: String,
-    pub project: String,
+    pub project: Option<String>,
     pub provider: String,
     pub model: String,
     pub updated_at: String,

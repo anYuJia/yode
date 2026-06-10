@@ -41,6 +41,7 @@ impl Database {
             "CREATE TABLE IF NOT EXISTS sessions (
                 id TEXT PRIMARY KEY,
                 name TEXT,
+                project_root TEXT,
                 provider TEXT NOT NULL,
                 model TEXT NOT NULL,
                 created_at TEXT NOT NULL,
@@ -75,6 +76,7 @@ impl Database {
         )?;
 
         let _ = conn.execute("ALTER TABLE messages ADD COLUMN reasoning TEXT", []);
+        let _ = conn.execute("ALTER TABLE sessions ADD COLUMN project_root TEXT", []);
         let _ = conn.execute(
             "ALTER TABLE session_artifacts ADD COLUMN last_compact_boundary_json TEXT",
             [],

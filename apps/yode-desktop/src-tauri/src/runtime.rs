@@ -122,6 +122,7 @@ impl DesktopRuntime {
         let session = Session {
             id: Uuid::new_v4().to_string(),
             name: request.title.or_else(|| Some("桌面端会话".to_string())),
+            project_root: request.project_root,
             provider: request.provider.unwrap_or_else(|| self.config.llm.default_provider.clone()),
             model: request.model.unwrap_or_else(|| self.config.llm.default_model.clone()),
             created_at: now,
@@ -449,12 +450,10 @@ impl DesktopRuntime {
                 .name
                 .clone()
                 .unwrap_or_else(|| session.id.chars().take(8).collect()),
-            project: self
-                .workspace_path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or("workspace")
-                .to_string(),
+            project: session
+                .project_root
+                .as_deref()
+                .and_then(project_label_from_root),
             provider: session.provider,
             model: session.model,
             updated_at: relative_time(session.updated_at),
@@ -645,6 +644,19 @@ fn extract_command_for_permission(tool_name: &str, arguments: &str) -> Option<St
                 .map(str::to_string)
         })
         .or_else(|| Some(arguments.to_string()))
+}
+
+fn project_label_from_root(project_root: &str) -> Option<String> {
+    let trimmed = project_root.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    PathBuf::from(trimmed)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.trim().is_empty())
+        .map(str::to_string)
 }
 
 fn stored_message_to_message(message: StoredMessage) -> Option<yode_llm::types::Message> {

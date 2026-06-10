@@ -10,7 +10,7 @@ export type Bootstrap = {
 export type SessionSummary = {
   id: string;
   title: string;
-  project: string;
+  project?: string | null;
   updatedAt: string;
   active?: boolean;
 };
@@ -92,6 +92,12 @@ export const sessions: SessionSummary[] = [
     title: "AgentEngine event bridge",
     project: "yode",
     updatedAt: "昨天"
+  },
+  {
+    id: "s-4",
+    title: "临时排查记录",
+    project: null,
+    updatedAt: "05月19日"
   }
 ];
 

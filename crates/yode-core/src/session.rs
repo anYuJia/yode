@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 pub struct Session {
     pub id: String,
     pub name: Option<String>,
+    pub project_root: Option<String>,
     pub provider: String,
     pub model: String,
     pub created_at: DateTime<Utc>,
@@ -77,6 +78,7 @@ mod tests {
         Session {
             id: id.to_string(),
             name: name.map(str::to_string),
+            project_root: None,
             provider: "openai".to_string(),
             model: "gpt-4o".to_string(),
             created_at: updated_at,

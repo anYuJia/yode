@@ -12,6 +12,7 @@ fn replace_messages_overwrites_previous_session_history() {
     db.create_session(&Session {
         id: "session-1".to_string(),
         name: None,
+        project_root: None,
         provider: "mock".to_string(),
         model: "mock-model".to_string(),
         created_at: Utc::now(),
@@ -46,6 +47,7 @@ fn upsert_session_artifacts_persists_and_lists_metadata() {
     db.create_session(&Session {
         id: "session-1".to_string(),
         name: Some("demo".to_string()),
+        project_root: Some("/tmp/yode".to_string()),
         provider: "mock".to_string(),
         model: "mock-model".to_string(),
         created_at: Utc::now(),
@@ -74,6 +76,10 @@ fn upsert_session_artifacts_persists_and_lists_metadata() {
     assert_eq!(
         sessions[0].artifacts.last_compaction_mode.as_deref(),
         Some("manual")
+    );
+    assert_eq!(
+        sessions[0].session.project_root.as_deref(),
+        Some("/tmp/yode")
     );
     assert_eq!(
         sessions[0]
