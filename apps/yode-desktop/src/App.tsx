@@ -36,7 +36,8 @@ import {
   Hand,
   Shield,
   AlertCircle,
-  Check
+  Check,
+  Pin
 } from "lucide-react";
 import React, { useEffect, useMemo, useState, useRef } from "react";
 
@@ -463,7 +464,7 @@ function Sidebar({
     const rect = e.currentTarget.getBoundingClientRect();
     const pos = {
       top: rect.top,
-      left: rect.right + 8
+      left: 240
     };
 
     hoverTimerRef.current = window.setTimeout(() => {
@@ -582,13 +583,7 @@ function Sidebar({
               style={{ background: "transparent", border: "none", cursor: "pointer", color: "var(--text-soft)", padding: "4px" }}
               title={isPinned ? t("取消置顶", "Unpin") : t("置顶", "Pin")}
             >
-              {/* Pushpin SVG Icon */}
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isPinned ? "rotate(45deg)" : "none" }}>
-                <line x1="18" y1="8" x2="22" y2="12"></line>
-                <line x1="12" y1="2" x2="12" y2="6"></line>
-                <path d="M12 6h8a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-8M12 6H4a2 2 0 0 0-2 2v2a2 2 0 0 0 2 2h8"></path>
-                <line x1="12" y1="12" x2="12" y2="22"></line>
-              </svg>
+              <Pin size={13} style={{ transform: isPinned ? "rotate(45deg)" : "none" }} />
             </button>
             <button
               onClick={(e) => handleDeleteClick(session.id, e)}
