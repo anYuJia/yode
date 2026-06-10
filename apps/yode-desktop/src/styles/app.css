@@ -123,6 +123,7 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   display: grid;
   grid-template-rows: auto auto auto 1fr auto;
   min-width: 0;
+  overflow: hidden;
   gap: 10px;
   border-right: 1px solid var(--line-soft);
   background: color-mix(in oklch, var(--chrome), var(--bg) 18%);
@@ -149,6 +150,7 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   align-items: center;
   gap: 10px;
   min-height: 36px;
+  min-width: 0;
   padding: 0 2px;
 }
 
@@ -165,9 +167,18 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 }
 
 .brand-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--text);
   font-size: 13px;
   font-weight: 700;
+}
+
+.brand-subtitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .brand-subtitle,
@@ -225,6 +236,8 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   align-items: center;
   justify-content: center;
   gap: 8px;
+  width: 100%;
+  min-width: 0;
   min-height: 30px;
   border-color: transparent;
   background: color-mix(in oklch, var(--panel-raised), var(--text) 2%);
@@ -255,6 +268,7 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
 }
 
 .section-label {
@@ -268,6 +282,7 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  min-width: 0;
   padding-right: 2px;
 }
 
@@ -297,6 +312,8 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   display: flex;
   align-items: center;
   gap: 9px;
+  width: 100%;
+  min-width: 0;
   min-height: 28px;
   padding: 4px 8px;
   background: transparent;
@@ -307,6 +324,7 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 .project-button {
   justify-content: flex-start;
   width: 100%;
+  overflow: hidden;
   padding-right: 8px;
 }
 
@@ -415,6 +433,8 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 
 .project-header-wrapper {
   width: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .project-actions-overlay,
@@ -468,6 +488,8 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 .sessions-list {
   flex: 1;
   min-height: 0;
+  min-width: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -479,6 +501,8 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   flex-direction: column;
   gap: 1px;
   width: 100%;
+  min-width: 0;
+  overflow: hidden;
   transition:
     opacity 180ms ease,
     background-color 220ms ease;
@@ -508,6 +532,7 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 
 .project-sessions-inner {
   min-height: 0;
+  min-width: 0;
   overflow: hidden;
 }
 
@@ -515,6 +540,7 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   display: flex;
   flex-direction: column;
   gap: 1px;
+  min-width: 0;
   padding: 1px 0 5px 18px;
 }
 
@@ -532,6 +558,8 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   display: flex;
   flex-direction: column;
   gap: 1px;
+  min-width: 0;
+  overflow: hidden;
   padding-top: 5px;
 }
 
@@ -548,6 +576,8 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   border-radius: var(--radius);
   margin-bottom: 2px;
   width: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .session-item-wrapper:hover {
@@ -569,6 +599,7 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  min-width: 0;
   min-height: 36px;
   padding: 5px 8px 5px 8px;
   background: transparent;
@@ -603,10 +634,15 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   white-space: nowrap;
   font-weight: 650;
   flex: 1;
+  min-width: 0;
 }
 
 .session-time {
   flex: 0 0 auto;
+  max-width: 42%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   margin-left: 4px;
   color: var(--text-soft);
   font-size: 10.5px;
