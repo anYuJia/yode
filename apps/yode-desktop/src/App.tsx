@@ -260,13 +260,13 @@ export function App() {
         setIsProcessing(false);
       }
 
-      setTimelineItems((items) => [
-        ...items,
-        desktopEventToTimelineItem(
+      setTimelineItems((items) =>
+        applyDesktopEventToTimelineItems(
+          items,
           (payload as any).kind ? (payload as DesktopEvent) : payload,
           (payload as any).kind ? undefined : (event as any).kind
         )
-      ]);
+      );
     })
       .then((dispose) => {
         unlisten = dispose;
@@ -423,6 +423,9 @@ export function App() {
           onCancelMessage={handleCancelMessage}
           permissionMode={permissionMode}
           onPermissionModeChange={handlePermissionModeChange}
+          onPermissionResolved={(id) => {
+            setTimelineItems((items) => items.filter((item) => item.id !== id));
+          }}
           appLang={appLang}
         />
         <TerminalDrawer isOpen={terminalOpen} onClose={() => setTerminalOpen(false)} />
@@ -813,6 +816,7 @@ function ChatWorkspace({
   onCancelMessage,
   permissionMode,
   onPermissionModeChange,
+  onPermissionResolved,
   appLang
 }: {
   draft: string;
@@ -824,6 +828,7 @@ function ChatWorkspace({
   onCancelMessage: () => void;
   permissionMode: string;
   onPermissionModeChange: (mode: string) => void;
+  onPermissionResolved: (id: string) => void;
   appLang: string;
 }) {
   // Check if assistant is currently streaming (has any running status or last item kind is not fully completed)
@@ -939,7 +944,11 @@ function ChatWorkspace({
         </section>
         {activePermission ? (
           <div className="permission-dock" aria-label="执行确认">
-            <PermissionActions item={activePermission} appLang={appLang} />
+            <PermissionActions
+              item={activePermission}
+              appLang={appLang}
+              onResolved={() => onPermissionResolved(activePermission.id)}
+            />
           </div>
         ) : null}
         <Composer
@@ -1054,10 +1063,12 @@ function ToolMeta({ item }: { item: Extract<TimelineItem, { kind: "tool" }> }) {
 
 function PermissionActions({
   item,
-  appLang
+  appLang,
+  onResolved
 }: {
   item: Extract<TimelineItem, { kind: "permission" }>;
   appLang: string;
+  onResolved?: () => void;
 }) {
   const isZh = appLang === "zh";
 
@@ -1084,6 +1095,7 @@ function PermissionActions({
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   const respond = (decision: (typeof options)[number]["id"]) => {
+    onResolved?.();
     if (item.sessionId && item.turnId) {
       invoke("permission_respond", {
         sessionId: item.sessionId,
@@ -1417,6 +1429,16 @@ function desktopEventToTimelineItem(
   const meta = stringValue(inner?.meta);
   const status = stringValue(inner?.status);
 
+  if (kind === "turn_started") {
+    return {
+      id: `event-${Date.now()}-${Math.random()}`,
+      kind: "reasoning",
+      title: title || "思考中",
+      body: body || "",
+      meta: "running"
+    };
+  }
+
   if (kind === "permission" || kind === "tool_confirm_required") {
     return {
       id: `event-${Date.now()}-${Math.random()}`,
@@ -1459,6 +1481,91 @@ function desktopEventToTimelineItem(
     body,
     meta
   };
+}
+
+function applyDesktopEventToTimelineItems(
+  items: TimelineItem[],
+  payload: any,
+  eventKind?: string
+): TimelineItem[] {
+  const outer = payload && typeof payload === "object" && "payload" in payload ? payload : null;
+  const inner = outer ? outer.payload : payload;
+  const kind = eventKind ?? stringValue(outer?.kind) ?? stringValue(inner?.kind) ?? stringValue(inner?.type);
+  const body = stringValue(inner?.body) ?? "";
+
+  if (kind === "assistant_text_delta") {
+    const last = items[items.length - 1];
+    if (last?.kind === "assistant" && last.meta !== "stream complete") {
+      return [
+        ...items.slice(0, -1),
+        {
+          ...last,
+          body: `${last.body}${body}`
+        }
+      ];
+    }
+    return [
+      ...items,
+      {
+        id: `event-${Date.now()}-${Math.random()}`,
+        kind: "assistant",
+        title: "Yode",
+        body,
+        meta: "streaming"
+      }
+    ];
+  }
+
+  if (kind === "assistant_text_complete") {
+    const last = items[items.length - 1];
+    if (last?.kind === "assistant") {
+      return [
+        ...items.slice(0, -1),
+        {
+          ...last,
+          body: body || last.body,
+          meta: "stream complete"
+        }
+      ];
+    }
+  }
+
+  if (kind === "assistant_reasoning_delta") {
+    const last = items[items.length - 1];
+    if (last?.kind === "reasoning" && last.meta === "running") {
+      return [
+        ...items.slice(0, -1),
+        {
+          ...last,
+          body: `${last.body}${body}`
+        }
+      ];
+    }
+  }
+
+  if (kind === "assistant_reasoning_complete") {
+    const last = items[items.length - 1];
+    if (last?.kind === "reasoning") {
+      return [
+        ...items.slice(0, -1),
+        {
+          ...last,
+          body: body || last.body,
+          meta: "complete"
+        }
+      ];
+    }
+  }
+
+  if (kind === "turn_completed") {
+    return items.map((item, index) =>
+      index === items.length - 1 && item.kind === "assistant"
+        ? { ...item, meta: "stream complete" }
+        : item
+    );
+  }
+
+  return [...items, desktopEventToTimelineItem(payload, eventKind)];
 }
 
 function stringValue(value: unknown): string | undefined {

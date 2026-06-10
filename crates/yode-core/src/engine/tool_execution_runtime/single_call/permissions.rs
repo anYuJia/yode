@@ -129,6 +129,18 @@ impl AgentEngine {
                     info!("Tool {} confirmed by user", tool_call.name);
                     break;
                 }
+                Ok(Some(ConfirmResponse::AllowAlways)) => {
+                    info!("Tool {} confirmed and allowed for session", tool_call.name);
+                    self.permissions.add_rule(PermissionRule {
+                        source: RuleSource::Session,
+                        behavior: RuleBehavior::Allow,
+                        tool_name: tool_call.name.clone(),
+                        category: None,
+                        pattern: prepared.command_content.clone(),
+                        description: Some("Allowed from desktop confirmation prompt".to_string()),
+                    });
+                    break;
+                }
                 Ok(Some(ConfirmResponse::Deny)) => {
                     info!("Tool {} denied by user", tool_call.name);
                     self.permissions.record_denial(&tool_call.name);

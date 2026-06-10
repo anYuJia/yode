@@ -114,6 +114,7 @@ pub enum EngineEvent {
 #[derive(Debug, Clone)]
 pub enum ConfirmResponse {
     Allow,
+    AllowAlways,
     Deny,
 }
 

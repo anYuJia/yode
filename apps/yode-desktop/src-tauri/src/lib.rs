@@ -51,9 +51,8 @@ fn permission_respond(
     allow: bool,
     always_allow: Option<bool>,
 ) -> Result<(), String> {
-    let _ = always_allow;
     runtime
-        .permission_respond(session_id, turn_id, allow)
+        .permission_respond(session_id, turn_id, allow, always_allow.unwrap_or(false))
         .map_err(|err| err.to_string())
 }
 

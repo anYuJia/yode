@@ -925,7 +925,8 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 }
 
 .composer {
-  width: min(680px, calc(100% - 40px));
+  width: calc(100% - 40px);
+  max-width: 680px;
   margin: 0 auto 12px;
   border: 1px solid transparent;
   border-radius: calc(var(--radius) + 2px);
@@ -1714,6 +1715,7 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 
   .composer {
     width: calc(100% - 32px);
+    max-width: 680px;
     margin-inline: auto;
   }
 

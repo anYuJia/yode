@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicU64, Ordering},
@@ -37,8 +38,16 @@ pub struct DesktopRuntime {
     active_session_id: Mutex<Option<String>>,
     permission_mode: Mutex<String>,
     seq: AtomicU64,
-    confirm_txs: Arc<Mutex<std::collections::HashMap<(String, String), UnboundedSender<ConfirmResponse>>>>,
-    cancel_tokens: Arc<Mutex<std::collections::HashMap<(String, String), tokio_util::sync::CancellationToken>>>,
+    confirm_txs: Arc<Mutex<HashMap<(String, String), UnboundedSender<ConfirmResponse>>>>,
+    cancel_tokens: Arc<Mutex<HashMap<(String, String), tokio_util::sync::CancellationToken>>>,
+    pending_confirmations: Arc<Mutex<HashMap<(String, String), PendingConfirmation>>>,
+    session_permission_rules: Arc<Mutex<HashMap<String, Vec<PermissionRule>>>>,
+}
+
+#[derive(Debug, Clone)]
+struct PendingConfirmation {
+    tool_name: String,
+    command: Option<String>,
 }
 
 impl DesktopRuntime {
@@ -69,8 +78,10 @@ impl DesktopRuntime {
             active_session_id: Mutex::new(None),
             permission_mode: Mutex::new(default_mode),
             seq: AtomicU64::new(1),
-            confirm_txs: Arc::new(Mutex::new(std::collections::HashMap::new())),
-            cancel_tokens: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            confirm_txs: Arc::new(Mutex::new(HashMap::new())),
+            cancel_tokens: Arc::new(Mutex::new(HashMap::new())),
+            pending_confirmations: Arc::new(Mutex::new(HashMap::new())),
+            session_permission_rules: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -184,6 +195,11 @@ impl DesktopRuntime {
                 permissions.set_mode(mode);
             }
         }
+        if let Ok(rules) = self.session_permission_rules.lock() {
+            if let Some(session_rules) = rules.get(&session.id) {
+                permissions.add_rules(session_rules.clone());
+            }
+        }
         let mut context = AgentContext::resume(
             session.id.clone(),
             self.workspace_path.clone(),
@@ -217,6 +233,7 @@ impl DesktopRuntime {
 
         let confirm_txs_clone = self.confirm_txs.clone();
         let cancel_tokens_clone = self.cancel_tokens.clone();
+        let pending_confirmations_clone = self.pending_confirmations.clone();
 
         std::thread::spawn(move || {
             let rt = match tokio::runtime::Runtime::new() {
@@ -272,8 +289,14 @@ impl DesktopRuntime {
                         EngineEvent::TextDelta(text) => {
                             ("assistant_text_delta", json!({ "body": text }))
                         }
+                        EngineEvent::TextComplete(text) => {
+                            ("assistant_text_complete", json!({ "body": text, "status": "completed" }))
+                        }
                         EngineEvent::ReasoningDelta(reasoning) => {
                             ("assistant_reasoning_delta", json!({ "body": reasoning }))
+                        }
+                        EngineEvent::ReasoningComplete(reasoning) => {
+                            ("assistant_reasoning_complete", json!({ "body": reasoning, "status": "completed" }))
                         }
                         EngineEvent::ToolCallStart { id, name, arguments } => {
                             ("tool_started", json!({
@@ -285,6 +308,12 @@ impl DesktopRuntime {
                             }))
                         }
                         EngineEvent::ToolConfirmRequired { id, name, arguments } => {
+                            if let Ok(mut pending) = pending_confirmations_clone.lock() {
+                                pending.insert((session_id_str.clone(), turn_id_str.clone()), PendingConfirmation {
+                                    tool_name: name.clone(),
+                                    command: extract_command_for_permission(&name, &arguments),
+                                });
+                            }
                             ("tool_confirm_required", json!({
                                 "id": id,
                                 "tool": name,
@@ -349,6 +378,9 @@ impl DesktopRuntime {
                 if let Ok(mut tokens) = cancel_tokens_clone.lock() {
                     let _: Option<tokio_util::sync::CancellationToken> = tokens.remove(&(session_id.clone(), emit_turn_id.clone()));
                 }
+                if let Ok(mut pending) = pending_confirmations_clone.lock() {
+                    pending.remove(&(session_id.clone(), emit_turn_id.clone()));
+                }
             });
         });
 
@@ -358,10 +390,36 @@ impl DesktopRuntime {
         })
     }
 
-    pub fn permission_respond(&self, session_id: String, turn_id: String, allow: bool) -> Result<()> {
+    pub fn permission_respond(&self, session_id: String, turn_id: String, allow: bool, always_allow: bool) -> Result<()> {
+        if allow && always_allow {
+            if let Ok(mut pending) = self.pending_confirmations.lock() {
+                if let Some(request) = pending.remove(&(session_id.clone(), turn_id.clone())) {
+                    let rule = PermissionRule {
+                        source: RuleSource::Session,
+                        behavior: RuleBehavior::Allow,
+                        tool_name: request.tool_name,
+                        category: None,
+                        pattern: request.command,
+                        description: Some("Allowed from desktop confirmation prompt".to_string()),
+                    };
+                    let mut rules = self
+                        .session_permission_rules
+                        .lock()
+                        .map_err(|_| anyhow::anyhow!("poisoned"))?;
+                    rules.entry(session_id.clone()).or_default().push(rule);
+                }
+            }
+        }
+
         let mut txs = self.confirm_txs.lock().map_err(|_| anyhow::anyhow!("poisoned"))?;
         if let Some(tx) = txs.remove(&(session_id, turn_id)) {
-            let response = if allow { ConfirmResponse::Allow } else { ConfirmResponse::Deny };
+            let response = if allow && always_allow {
+                ConfirmResponse::AllowAlways
+            } else if allow {
+                ConfirmResponse::Allow
+            } else {
+                ConfirmResponse::Deny
+            };
             let _ = tx.send(response);
         }
         Ok(())
@@ -571,6 +629,22 @@ fn configure_desktop_permissions(config: &Config, _workdir: &std::path::Path) ->
         });
     }
     permissions
+}
+
+fn extract_command_for_permission(tool_name: &str, arguments: &str) -> Option<String> {
+    if tool_name != "bash" {
+        return None;
+    }
+
+    serde_json::from_str::<serde_json::Value>(arguments)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("command")
+                .and_then(|command| command.as_str())
+                .map(str::to_string)
+        })
+        .or_else(|| Some(arguments.to_string()))
 }
 
 fn stored_message_to_message(message: StoredMessage) -> Option<yode_llm::types::Message> {

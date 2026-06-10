@@ -68,7 +68,10 @@ use crate::db::{Database, SessionArtifacts};
 use crate::error::EngineError;
 use crate::hooks::{HookContext, HookEvent, HookManager};
 use crate::instructions::{load_instruction_context, load_memory_context};
-use crate::permission::{CommandClassifier, CommandRiskLevel, PermissionAction, PermissionManager};
+use crate::permission::{
+    CommandClassifier, CommandRiskLevel, PermissionAction, PermissionManager, PermissionRule,
+    RuleBehavior, RuleSource,
+};
 use crate::session_memory::{
     best_compaction_memory_excerpt, build_live_snapshot, clear_live_session_memory,
     live_session_memory_path, persist_compaction_memory, persist_live_session_memory,
