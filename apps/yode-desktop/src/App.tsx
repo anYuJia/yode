@@ -1647,6 +1647,7 @@ function ChatWorkspace({
 
             const visibleItems = turn.items.filter((item) => {
               if (item.kind === "permission") return false;
+              if (item.kind === "boundary") return false;
 
               const isIntermediate = item.kind === "tool" || item.kind === "reasoning" || (item.kind === "assistant" && isIntermediateAssistantItem(item));
               if (isIntermediate) {
