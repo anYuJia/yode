@@ -2628,7 +2628,7 @@ function desktopEventToTimelineItem(
 
   if (kind === "turn_started") {
     return {
-      id: turnId ? `turn-${turnId}-thinking` : `event-${Date.now()}-${Math.random()}`,
+      id: turnId ? `reasoning-${turnId}` : `event-${Date.now()}-${Math.random()}`,
       kind: "reasoning",
       title: title || "思考中",
       body: body || "",
@@ -2757,7 +2757,7 @@ function applyDesktopEventToTimelineItems(
   }
 
   if (kind === "turn_started") {
-    const thinkingId = turnId ? `turn-${turnId}-thinking` : undefined;
+    const thinkingId = turnId ? `reasoning-${turnId}` : undefined;
     if (
       items.some((item) =>
         thinkingId
