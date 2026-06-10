@@ -124,6 +124,41 @@ fn sessions_delete(
         .map_err(|err| err.to_string())
 }
 
+#[tauri::command]
+fn sessions_update_llm(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    session_id: String,
+    provider: String,
+    model: String,
+) -> Result<(), String> {
+    runtime
+        .sessions_update_llm(session_id, provider, model)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn config_get_providers(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+) -> Result<Vec<protocol::DesktopProvider>, String> {
+    runtime.config_get_providers().map_err(|err: anyhow::Error| err.to_string())
+}
+
+#[tauri::command]
+fn config_save_providers(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    providers: Vec<protocol::DesktopProvider>,
+) -> Result<(), String> {
+    runtime.config_save_providers(providers).map_err(|err: anyhow::Error| err.to_string())
+}
+
+#[tauri::command]
+async fn config_test_provider(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    provider: protocol::DesktopProvider,
+) -> Result<(), String> {
+    runtime.config_test_provider(provider).await.map_err(|err: anyhow::Error| err.to_string())
+}
+
 pub fn run() {
     let runtime = runtime::DesktopRuntime::new().expect("failed to initialize desktop runtime");
 
@@ -142,7 +177,11 @@ pub fn run() {
             turn_cancel,
             permission_mode_set,
             terminal_run,
-            sessions_delete
+            sessions_delete,
+            sessions_update_llm,
+            config_get_providers,
+            config_save_providers,
+            config_test_provider
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Yode desktop app");

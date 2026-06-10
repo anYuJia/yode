@@ -23,16 +23,16 @@ use yode_tools::registry::ToolRegistry;
 use yode_tools::tool::McpResourceProvider;
 
 use crate::protocol::{
-    Bootstrap, CreateSessionRequest, DesktopEvent, DesktopMessage, DesktopSession, RuntimeState,
+    Bootstrap, CreateSessionRequest, DesktopEvent, DesktopMessage, DesktopProvider, DesktopSession, RuntimeState,
     SendMessageRequest, TurnAccepted,
 };
 
 pub struct DesktopRuntime {
-    config: Config,
+    config: Mutex<Config>,
     db: Database,
     db_path: PathBuf,
     workspace_path: PathBuf,
-    provider_registry: Arc<ProviderRegistry>,
+    provider_registry: Mutex<Arc<ProviderRegistry>>,
     tool_registry: Arc<ToolRegistry>,
     mcp_resource_provider: Option<Arc<dyn McpResourceProvider>>,
     active_session_id: Mutex<Option<String>>,
@@ -62,7 +62,7 @@ impl DesktopRuntime {
         let config = Config::load()
             .unwrap_or_else(|_| Config::load_from(None).expect("failed to load default config"));
 
-        let provider_registry = bootstrap_providers(&config);
+        let provider_registry = Mutex::new(bootstrap_providers(&config));
         let (tool_registry, mcp_resource_provider) =
             setup_desktop_tooling(&config, &workspace_path);
 
@@ -73,7 +73,7 @@ impl DesktopRuntime {
             .unwrap_or_else(|| "Default".to_string());
 
         Ok(Self {
-            config,
+            config: Mutex::new(config),
             db: Database::open(&db_path)?,
             db_path,
             workspace_path,
@@ -98,11 +98,12 @@ impl DesktopRuntime {
             .lock()
             .map_err(|_| anyhow::anyhow!("permission mode lock poisoned"))?
             .clone();
+        let config = self.config.lock().map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
         Ok(Bootstrap {
             app_version: env!("CARGO_PKG_VERSION"),
             workspace_path: self.workspace_path.display().to_string(),
-            provider: self.config.llm.default_provider.clone(),
-            model: self.config.llm.default_model.clone(),
+            provider: config.llm.default_provider.clone(),
+            model: config.llm.default_model.clone(),
             permission_mode,
             sessions,
         })
@@ -125,16 +126,17 @@ impl DesktopRuntime {
 
     pub fn sessions_create(&self, request: CreateSessionRequest) -> Result<DesktopSession> {
         let now = Utc::now();
+        let config = self.config.lock().map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
         let session = Session {
             id: Uuid::new_v4().to_string(),
             name: request.title.or_else(|| Some("桌面端会话".to_string())),
             project_root: request.project_root,
             provider: request
                 .provider
-                .unwrap_or_else(|| self.config.llm.default_provider.clone()),
+                .unwrap_or_else(|| config.llm.default_provider.clone()),
             model: request
                 .model
-                .unwrap_or_else(|| self.config.llm.default_model.clone()),
+                .unwrap_or_else(|| config.llm.default_model.clone()),
             created_at: now,
             updated_at: now,
         };
@@ -163,6 +165,11 @@ impl DesktopRuntime {
 
     pub fn sessions_delete(&self, session_id: String) -> Result<()> {
         self.db.delete_session(&session_id)?;
+        Ok(())
+    }
+
+    pub fn sessions_update_llm(&self, session_id: String, provider: String, model: String) -> Result<()> {
+        self.db.update_session_llm(&session_id, &provider, &model)?;
         Ok(())
     }
 
@@ -239,6 +246,7 @@ impl DesktopRuntime {
         app: AppHandle,
         request: SendMessageRequest,
     ) -> Result<TurnAccepted> {
+        let config = self.config.lock().map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
         let content = request.content.trim().to_string();
         if content.is_empty() {
             anyhow::bail!("message content cannot be empty");
@@ -250,9 +258,27 @@ impl DesktopRuntime {
             .as_deref()
             .filter(|id| !id.trim().is_empty())
         {
-            self.db
+            let mut s = self.db
                 .get_session(session_id)?
-                .with_context(|| format!("session '{}' not found", session_id))?
+                .with_context(|| format!("session '{}' not found", session_id))?;
+            
+            let mut changed = false;
+            if let Some(ref req_provider) = request.provider {
+                if s.provider != *req_provider {
+                    s.provider = req_provider.clone();
+                    changed = true;
+                }
+            }
+            if let Some(ref req_model) = request.model {
+                if s.model != *req_model {
+                    s.model = req_model.clone();
+                    changed = true;
+                }
+            }
+            if changed {
+                self.db.update_session_llm(&s.id, &s.provider, &s.model)?;
+            }
+            s
         } else {
             let session = Session {
                 id: Uuid::new_v4().to_string(),
@@ -270,10 +296,10 @@ impl DesktopRuntime {
                 },
                 provider: request
                     .provider
-                    .unwrap_or_else(|| self.config.llm.default_provider.clone()),
+                    .unwrap_or_else(|| config.llm.default_provider.clone()),
                 model: request
                     .model
-                    .unwrap_or_else(|| self.config.llm.default_model.clone()),
+                    .unwrap_or_else(|| config.llm.default_model.clone()),
                 created_at: now,
                 updated_at: now,
             };
@@ -292,6 +318,8 @@ impl DesktopRuntime {
 
         let provider = self
             .provider_registry
+            .lock()
+            .map_err(|_| anyhow::anyhow!("registry lock poisoned"))?
             .get(&session.provider)
             .ok_or_else(|| {
                 anyhow::anyhow!("Provider '{}' not found in registry", session.provider)
@@ -304,7 +332,7 @@ impl DesktopRuntime {
             .map(PathBuf::from)
             .unwrap_or_else(|| self.workspace_path.clone());
 
-        let mut permissions = configure_desktop_permissions(&self.config, &turn_workspace_path);
+        let mut permissions = configure_desktop_permissions(&config, &turn_workspace_path);
         if let Ok(active_mode_guard) = self.permission_mode.lock() {
             if let Ok(mode) = active_mode_guard.parse::<yode_core::permission::PermissionMode>() {
                 permissions.set_mode(mode);
@@ -321,7 +349,11 @@ impl DesktopRuntime {
             session.provider.clone(),
             session.model.clone(),
         );
-        context.output_style = self.config.ui.output_style.clone();
+        context.project_memory_enabled = session
+            .project_root
+            .as_deref()
+            .is_some_and(|root| !root.trim().is_empty());
+        context.output_style = config.ui.output_style.clone();
 
         let stored_msgs = self.db.load_messages(&session.id)?;
         let restored_messages: Vec<yode_llm::types::Message> = stored_msgs
@@ -331,7 +363,7 @@ impl DesktopRuntime {
 
         let tools = self.tool_registry.clone();
         let mcp_resource_provider = self.mcp_resource_provider.clone();
-        let config = self.config.clone();
+        let config = config.clone();
         let db_path_clone = self.db_path.clone();
 
         let (confirm_tx, confirm_rx) = unbounded_channel::<ConfirmResponse>();
@@ -861,6 +893,86 @@ impl DesktopRuntime {
             updated_at: relative_time(session.updated_at),
             active: active_session_id == Some(session.id.as_str()),
         }
+    }
+
+    pub fn config_get_providers(&self) -> Result<Vec<DesktopProvider>> {
+        let config = self.config.lock().map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
+        let mut providers = Vec::new();
+        for (id, p) in &config.llm.providers {
+            let name = match id.as_str() {
+                "anthropic" => "Anthropic Claude".to_string(),
+                "openai" => "OpenAI".to_string(),
+                "google" | "gemini" => "Google Gemini".to_string(),
+                "deepseek" => "DeepSeek (深度求索)".to_string(),
+                "ollama" => "Ollama (本地运行)".to_string(),
+                _ => id.to_uppercase(),
+            };
+            providers.push(DesktopProvider {
+                id: id.clone(),
+                name,
+                format: p.format.clone(),
+                enabled: p.enabled.unwrap_or(true),
+                api_key: p.api_key.clone().unwrap_or_default(),
+                base_url: p.base_url.clone().unwrap_or_default(),
+                models: p.models.clone(),
+                gradient: p.gradient.clone(),
+            });
+        }
+        let order = ["anthropic", "openai", "google", "deepseek", "ollama"];
+        providers.sort_by_key(|p| {
+            order.iter().position(|&x| x == p.id).unwrap_or(99)
+        });
+        Ok(providers)
+    }
+
+    pub fn config_save_providers(&self, providers: Vec<DesktopProvider>) -> Result<()> {
+        let mut config = self.config.lock().map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
+        let mut new_providers = std::collections::HashMap::new();
+        for p in providers {
+            new_providers.insert(p.id, yode_core::config::ProviderConfig {
+                format: p.format,
+                base_url: if p.base_url.is_empty() { None } else { Some(p.base_url) },
+                api_key: if p.api_key.is_empty() { None } else { Some(p.api_key) },
+                models: p.models,
+                enabled: Some(p.enabled),
+                gradient: p.gradient,
+            });
+        }
+        config.llm.providers = new_providers;
+        config.save()?;
+
+        let new_registry = bootstrap_providers(&config);
+        let mut reg_guard = self.provider_registry.lock().map_err(|_| anyhow::anyhow!("registry lock poisoned"))?;
+        *reg_guard = new_registry;
+
+        Ok(())
+    }
+
+    pub async fn config_test_provider(&self, p: DesktopProvider) -> Result<()> {
+        let api_key = p.api_key.trim().to_string();
+        let base_url = p.base_url.trim().to_string();
+        let provider: Arc<dyn yode_llm::provider::LlmProvider> = match p.format.as_str() {
+            "anthropic" => {
+                Arc::new(yode_llm::providers::anthropic::AnthropicProvider::new(
+                    &p.id, &api_key, &base_url,
+                ))
+            }
+            "gemini" => {
+                let mut provider = yode_llm::providers::gemini::GeminiProvider::new(&api_key);
+                if !base_url.is_empty() && base_url != "https://generativelanguage.googleapis.com/v1beta" {
+                    provider = provider.with_base_url(&base_url);
+                }
+                Arc::new(provider)
+            }
+            _ => {
+                Arc::new(yode_llm::providers::openai::OpenAiProvider::new(
+                    &p.id, &api_key, &base_url,
+                ))
+            }
+        };
+
+        let _models = provider.list_models().await?;
+        Ok(())
     }
 }
 

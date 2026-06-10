@@ -12,6 +12,19 @@ pub struct Bootstrap {
     pub sessions: Vec<DesktopSession>,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopProvider {
+    pub id: String,
+    pub name: String,
+    pub format: String,
+    pub enabled: bool,
+    pub api_key: String,
+    pub base_url: String,
+    pub models: Vec<String>,
+    pub gradient: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DesktopSession {
