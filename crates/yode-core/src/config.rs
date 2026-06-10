@@ -40,6 +40,10 @@ pub struct ProviderConfig {
     /// Allowed models for this provider. Empty means unrestricted.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub models: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gradient: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

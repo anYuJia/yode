@@ -58,6 +58,8 @@ pub(super) fn add_provider_to_config(
             base_url: base_url.map(|u| u.to_string()),
             api_key: api_key.map(|k| k.to_string()),
             models: models.to_vec(),
+            enabled: None,
+            gradient: None,
         },
     );
     config.llm.default_provider = name.to_string();

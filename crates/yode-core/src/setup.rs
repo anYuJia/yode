@@ -174,6 +174,8 @@ pub fn run_setup_interactive() -> Result<()> {
             base_url: Some(p_base_url),
             api_key: Some(p_api_key.clone()),
             models: Vec::new(),
+            enabled: None,
+            gradient: None,
         },
     );
 
