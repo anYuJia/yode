@@ -25,6 +25,18 @@ pub struct DesktopSession {
     pub active: bool,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopMessage {
+    pub id: i64,
+    pub role: String,
+    pub content: Option<String>,
+    pub reasoning: Option<String>,
+    pub tool_calls_json: Option<String>,
+    pub tool_call_id: Option<String>,
+    pub created_at: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateSessionRequest {

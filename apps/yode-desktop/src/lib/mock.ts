@@ -62,6 +62,16 @@ export type DesktopEvent = {
   payload: Record<string, unknown>;
 };
 
+export type DesktopMessage = {
+  id: number;
+  role: string;
+  content?: string | null;
+  reasoning?: string | null;
+  toolCallsJson?: string | null;
+  toolCallId?: string | null;
+  createdAt: string;
+};
+
 export type TurnAccepted = {
   sessionId: string;
   turnId: string;
@@ -119,9 +129,9 @@ export const timeline: TimelineItem[] = [
   {
     id: "t-2",
     kind: "reasoning",
-    title: "运行时分析",
-    body: "当前批次只建立桌面 shell 和 mock event log。真实 AgentEngine bridge 留到下一批，避免 UI 与 runtime 问题混在一起。",
-    meta: "plan"
+    title: "浏览器预览",
+    body: "当前页面运行在普通浏览器环境时，会展示静态预览数据；桌面端会通过 Tauri IPC 连接真实 AgentEngine。",
+    meta: "preview"
   },
   {
     id: "t-3",
@@ -143,11 +153,11 @@ export const timeline: TimelineItem[] = [
   {
     id: "t-5",
     kind: "tool",
-    title: "生成 UI shell",
-    body: "sidebar、topbar、timeline、composer 和 settings shell 已准备渲染。",
+    title: "渲染预览事件",
+    body: "sidebar、topbar、timeline、composer 和 settings shell 正在使用预览数据渲染。",
     tool: "tauri command",
     status: "running",
-    meta: "mock stream"
+    meta: "preview stream"
   },
   {
     id: "t-6",
@@ -159,7 +169,7 @@ export const timeline: TimelineItem[] = [
     id: "t-7",
     kind: "assistant",
     title: "Yode",
-    body: "第一批目标是让桌面窗口可以启动，并提供足够接近真实任务的交互骨架。接下来会把 EngineEvent 映射成 DesktopEvent。",
+    body: "这是非桌面环境的预览内容。打开 Tauri 桌面端后，输入、输出、工具事件和历史消息会走真实后端链路。",
     meta: "stream complete"
   }
 ];

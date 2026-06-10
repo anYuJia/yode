@@ -26,6 +26,16 @@ fn sessions_create(
 }
 
 #[tauri::command]
+fn sessions_messages(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    session_id: String,
+) -> Result<Vec<protocol::DesktopMessage>, String> {
+    runtime
+        .sessions_messages(session_id)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
 fn project_folder_pick() -> Option<String> {
     rfd::FileDialog::new()
         .pick_folder()
@@ -64,6 +74,18 @@ fn permission_respond(
 }
 
 #[tauri::command]
+fn ask_user_respond(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    session_id: String,
+    turn_id: String,
+    answer: String,
+) -> Result<(), String> {
+    runtime
+        .ask_user_respond(session_id, turn_id, answer)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
 fn turn_cancel(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
     session_id: String,
@@ -85,6 +107,14 @@ fn permission_mode_set(
 }
 
 #[tauri::command]
+fn terminal_run(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    command: String,
+) -> Result<String, String> {
+    runtime.terminal_run(command).map_err(|err| err.to_string())
+}
+
+#[tauri::command]
 fn sessions_delete(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
     session_id: String,
@@ -103,12 +133,15 @@ pub fn run() {
             app_get_bootstrap,
             sessions_list,
             sessions_create,
+            sessions_messages,
             project_folder_pick,
             runtime_state_get,
             turn_send_message,
             permission_respond,
+            ask_user_respond,
             turn_cancel,
             permission_mode_set,
+            terminal_run,
             sessions_delete
         ])
         .run(tauri::generate_context!())

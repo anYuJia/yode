@@ -77,9 +77,14 @@ pub(super) async fn handle_stream_chunk(
 
         if let Some(reasoning) = &delta.reasoning_content {
             if !reasoning.is_empty() {
-                state.full_reasoning.push_str(reasoning);
+                let Some(reasoning_delta) =
+                    streaming_delta(&state.full_reasoning, reasoning)
+                else {
+                    continue;
+                };
+                state.full_reasoning.push_str(&reasoning_delta);
                 if tx
-                    .send(StreamEvent::ReasoningDelta(reasoning.clone()))
+                    .send(StreamEvent::ReasoningDelta(reasoning_delta))
                     .await
                     .is_err()
                 {
@@ -90,9 +95,12 @@ pub(super) async fn handle_stream_chunk(
 
         if let Some(content) = &delta.content {
             if !content.is_empty() {
-                state.full_content.push_str(content);
+                let Some(content_delta) = streaming_delta(&state.full_content, content) else {
+                    continue;
+                };
+                state.full_content.push_str(&content_delta);
                 if tx
-                    .send(StreamEvent::TextDelta(content.clone()))
+                    .send(StreamEvent::TextDelta(content_delta))
                     .await
                     .is_err()
                 {
@@ -147,6 +155,32 @@ pub(super) async fn handle_stream_chunk(
     }
 
     false
+}
+
+fn streaming_delta(current: &str, incoming: &str) -> Option<String> {
+    if incoming.is_empty() || current.ends_with(incoming) {
+        return None;
+    }
+    if current.is_empty() {
+        return Some(incoming.to_string());
+    }
+    if incoming.starts_with(current) {
+        return Some(incoming[current.len()..].to_string());
+    }
+
+    let max_overlap = current.len().min(incoming.len());
+    for overlap in (1..=max_overlap).rev() {
+        if !current.is_char_boundary(current.len() - overlap)
+            || !incoming.is_char_boundary(overlap)
+        {
+            continue;
+        }
+        if current.ends_with(&incoming[..overlap]) {
+            return Some(incoming[overlap..].to_string());
+        }
+    }
+
+    Some(incoming.to_string())
 }
 
 pub(super) async fn finalize_stream(mut state: OpenAiStreamState, tx: &mpsc::Sender<StreamEvent>) {

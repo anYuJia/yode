@@ -23,7 +23,7 @@ use yode_tools::registry::ToolRegistry;
 use yode_tools::tool::McpResourceProvider;
 
 use crate::protocol::{
-    Bootstrap, CreateSessionRequest, DesktopEvent, DesktopSession, RuntimeState,
+    Bootstrap, CreateSessionRequest, DesktopEvent, DesktopMessage, DesktopSession, RuntimeState,
     SendMessageRequest, TurnAccepted,
 };
 
@@ -39,6 +39,7 @@ pub struct DesktopRuntime {
     permission_mode: Mutex<String>,
     seq: AtomicU64,
     confirm_txs: Arc<Mutex<HashMap<(String, String), UnboundedSender<ConfirmResponse>>>>,
+    ask_user_txs: Arc<Mutex<HashMap<(String, String), UnboundedSender<String>>>>,
     cancel_tokens: Arc<Mutex<HashMap<(String, String), tokio_util::sync::CancellationToken>>>,
     pending_confirmations: Arc<Mutex<HashMap<(String, String), PendingConfirmation>>>,
     session_permission_rules: Arc<Mutex<HashMap<String, Vec<PermissionRule>>>>,
@@ -83,6 +84,7 @@ impl DesktopRuntime {
             permission_mode: Mutex::new(default_mode),
             seq: AtomicU64::new(1),
             confirm_txs: Arc::new(Mutex::new(HashMap::new())),
+            ask_user_txs: Arc::new(Mutex::new(HashMap::new())),
             cancel_tokens: Arc::new(Mutex::new(HashMap::new())),
             pending_confirmations: Arc::new(Mutex::new(HashMap::new())),
             session_permission_rules: Arc::new(Mutex::new(HashMap::new())),
@@ -142,6 +144,23 @@ impl DesktopRuntime {
         Ok(self.map_session(session, None))
     }
 
+    pub fn sessions_messages(&self, session_id: String) -> Result<Vec<DesktopMessage>> {
+        Ok(self
+            .db
+            .load_messages(&session_id)?
+            .into_iter()
+            .map(|message| DesktopMessage {
+                id: message.id,
+                role: message.role,
+                content: message.content,
+                reasoning: message.reasoning,
+                tool_calls_json: message.tool_calls_json,
+                tool_call_id: message.tool_call_id,
+                created_at: message.created_at.to_rfc3339(),
+            })
+            .collect())
+    }
+
     pub fn sessions_delete(&self, session_id: String) -> Result<()> {
         self.db.delete_session(&session_id)?;
         Ok(())
@@ -153,16 +172,21 @@ impl DesktopRuntime {
             .lock()
             .map_err(|_| anyhow::anyhow!("permission mode lock poisoned"))?
             .clone();
+        let active_turns = self
+            .cancel_tokens
+            .lock()
+            .map_err(|_| anyhow::anyhow!("cancel token lock poisoned"))?
+            .len();
         Ok(RuntimeState {
             active_session_id: self
                 .active_session_id
                 .lock()
                 .map_err(|_| anyhow::anyhow!("active session lock poisoned"))?
                 .clone(),
-            status: "idle".to_string(),
+            status: if active_turns > 0 { "running" } else { "idle" }.to_string(),
             permission_mode,
-            context_percent: 31,
-            tool_calls: "0 / 0".to_string(),
+            context_percent: 0,
+            tool_calls: format!("{} active", active_turns),
         })
     }
 
@@ -173,6 +197,41 @@ impl DesktopRuntime {
             .map_err(|_| anyhow::anyhow!("permission mode lock poisoned"))?;
         *active_mode = mode;
         Ok(())
+    }
+
+    pub fn terminal_run(&self, command: String) -> Result<String> {
+        let trimmed = command.trim();
+        if trimmed.is_empty() {
+            return Ok(String::new());
+        }
+
+        let output = std::process::Command::new("sh")
+            .arg("-lc")
+            .arg(trimmed)
+            .current_dir(&self.workspace_path)
+            .output()
+            .with_context(|| format!("failed to run terminal command '{}'", trimmed))?;
+
+        let mut text = String::new();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if !stdout.trim().is_empty() {
+            text.push_str(stdout.trim_end());
+        }
+        if !stderr.trim().is_empty() {
+            if !text.is_empty() {
+                text.push('\n');
+            }
+            text.push_str(stderr.trim_end());
+        }
+        if text.is_empty() {
+            text.push_str(if output.status.success() {
+                "命令执行完成，无输出。"
+            } else {
+                "命令执行失败，无输出。"
+            });
+        }
+        Ok(text)
     }
 
     pub fn turn_send_message(
@@ -223,8 +282,6 @@ impl DesktopRuntime {
         };
 
         self.set_active_session(session.id.clone())?;
-        self.db
-            .save_message(&session.id, "user", Some(&content), None, None, None)?;
         self.db.touch_session(&session.id)?;
         let accepted_session = self.map_session(session.clone(), Some(session.id.as_str()));
 
@@ -240,7 +297,14 @@ impl DesktopRuntime {
                 anyhow::anyhow!("Provider '{}' not found in registry", session.provider)
             })?;
 
-        let mut permissions = configure_desktop_permissions(&self.config, &self.workspace_path);
+        let turn_workspace_path = session
+            .project_root
+            .as_deref()
+            .filter(|root| !root.trim().is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| self.workspace_path.clone());
+
+        let mut permissions = configure_desktop_permissions(&self.config, &turn_workspace_path);
         if let Ok(active_mode_guard) = self.permission_mode.lock() {
             if let Ok(mode) = active_mode_guard.parse::<yode_core::permission::PermissionMode>() {
                 permissions.set_mode(mode);
@@ -253,7 +317,7 @@ impl DesktopRuntime {
         }
         let mut context = AgentContext::resume(
             session.id.clone(),
-            self.workspace_path.clone(),
+            turn_workspace_path,
             session.provider.clone(),
             session.model.clone(),
         );
@@ -279,6 +343,20 @@ impl DesktopRuntime {
             txs.insert((session_id.clone(), emit_turn_id.clone()), confirm_tx);
         }
 
+        let (ask_user_query_tx, mut ask_user_query_rx) =
+            unbounded_channel::<yode_tools::tool::UserQuery>();
+        let (ask_user_answer_tx, ask_user_answer_rx) = unbounded_channel::<String>();
+        {
+            let mut txs = self
+                .ask_user_txs
+                .lock()
+                .map_err(|_| anyhow::anyhow!("poisoned"))?;
+            txs.insert(
+                (session_id.clone(), emit_turn_id.clone()),
+                ask_user_answer_tx,
+            );
+        }
+
         let cancel_token = tokio_util::sync::CancellationToken::new();
         {
             let mut tokens = self
@@ -292,6 +370,7 @@ impl DesktopRuntime {
         }
 
         let confirm_txs_clone = self.confirm_txs.clone();
+        let ask_user_txs_clone = self.ask_user_txs.clone();
         let cancel_tokens_clone = self.cancel_tokens.clone();
         let pending_confirmations_clone = self.pending_confirmations.clone();
 
@@ -310,6 +389,15 @@ impl DesktopRuntime {
                     Ok(db) => db,
                     Err(err) => {
                         tracing::error!("Failed to open database in background thread: {}", err);
+                        let desktop_event = DesktopEvent {
+                            session_id: session_id.clone(),
+                            turn_id: emit_turn_id.clone(),
+                            seq: seq_base,
+                            kind: "error".to_string(),
+                            timestamp: Utc::now().to_rfc3339(),
+                            payload: json!({ "body": err.to_string() }),
+                        };
+                        let _ = app.emit("desktop-event", desktop_event);
                         return;
                     }
                 };
@@ -317,6 +405,7 @@ impl DesktopRuntime {
                 if let Some(mcp) = mcp_resource_provider {
                     engine.set_mcp_resource_provider(mcp);
                 }
+                engine.set_ask_user_channels(ask_user_query_tx, ask_user_answer_rx);
                 engine.set_mcp_resource_policy(yode_tools::tool::McpResourcePolicy {
                     allow: config.mcp.resource_allow.clone(),
                     deny: config.mcp.resource_deny.clone(),
@@ -328,6 +417,7 @@ impl DesktopRuntime {
                 let session_id_str = session_id.clone();
                 let turn_id_str = emit_turn_id.clone();
 
+                let error_event_tx = event_tx.clone();
                 let handle = tokio::spawn(async move {
                     if let Err(err) = engine
                         .run_turn_streaming(
@@ -340,15 +430,49 @@ impl DesktopRuntime {
                         .await
                     {
                         tracing::error!("AgentEngine run_turn_streaming failed: {}", err);
+                        let _ = error_event_tx.send(EngineEvent::Error(err.to_string()));
                     }
                 });
 
                 let mut seq = seq_base;
-                while let Some(event) = event_rx.recv().await {
+                loop {
+                    let event = tokio::select! {
+                        Some(query) = ask_user_query_rx.recv() => {
+                            let first_question = query.questions.first();
+                            let desktop_event = DesktopEvent {
+                                session_id: session_id_str.clone(),
+                                turn_id: turn_id_str.clone(),
+                                seq,
+                                kind: "ask_user".to_string(),
+                                timestamp: Utc::now().to_rfc3339(),
+                                payload: json!({
+                                    "id": query.id,
+                                    "title": first_question.map(|question| question.header.clone()).unwrap_or_else(|| "需要用户输入".to_string()),
+                                    "body": first_question.map(|question| question.question.clone()).unwrap_or_else(|| "请在输入框回复。".to_string()),
+                                    "query": query
+                                }),
+                            };
+                            let _ = app.emit("desktop-event", desktop_event);
+                            seq += 1;
+                            continue;
+                        }
+                        Some(event) = event_rx.recv() => event,
+                        else => break,
+                    };
                     let (kind, payload) = match event {
                         EngineEvent::Thinking => {
                             ("turn_started", json!({ "title": "思考中...", "body": "" }))
                         }
+                        EngineEvent::UsageUpdate(usage) => (
+                            "usage_update",
+                            json!({
+                                "title": "用量更新",
+                                "body": format!("输入 {}，输出 {}", usage.prompt_tokens, usage.completion_tokens),
+                                "inputTokens": usage.prompt_tokens,
+                                "outputTokens": usage.completion_tokens,
+                                "status": "running"
+                            }),
+                        ),
                         EngineEvent::TextDelta(text) => {
                             ("assistant_text_delta", json!({ "body": text }))
                         }
@@ -408,14 +532,16 @@ impl DesktopRuntime {
                                 "id": id,
                                 "tool": name,
                                 "title": format!("工具进度: {}", name),
-                                "body": progress.message
+                                "body": progress.message,
+                                "percent": progress.percent,
+                                "status": "running"
                             }),
                         ),
                         EngineEvent::ToolResult { id, name, result } => {
                             let (status, body) = if result.is_error {
-                                ("blocked", format!("错误: {:?}", result))
+                                ("blocked", result.content.clone())
                             } else {
-                                ("success", format!("{:?}", result))
+                                ("success", result.content.clone())
                             };
                             (
                                 "tool_result",
@@ -424,7 +550,11 @@ impl DesktopRuntime {
                                     "tool": name,
                                     "title": format!("工具返回: {}", name),
                                     "body": body,
-                                    "status": status
+                                    "status": status,
+                                    "errorType": result.error_type.map(|kind| format!("{:?}", kind)),
+                                    "recoverable": result.recoverable,
+                                    "suggestion": result.suggestion,
+                                    "metadata": result.metadata
                                 }),
                             )
                         }
@@ -432,12 +562,168 @@ impl DesktopRuntime {
                             "turn_completed",
                             json!({
                                 "status": "completed",
-                                "toolCalls": format!("{}", response.usage.completion_tokens),
+                                "body": response.message.content.unwrap_or_default(),
+                                "reasoning": response.message.reasoning.unwrap_or_default(),
+                                "hasToolCalls": !response.message.tool_calls.is_empty(),
+                                "toolCallCount": response.message.tool_calls.len(),
+                                "model": response.model,
+                                "stopReason": response.stop_reason.map(|reason| format!("{:?}", reason)),
+                                "inputTokens": response.usage.prompt_tokens,
+                                "outputTokens": response.usage.completion_tokens,
+                                "totalTokens": response.usage.total_tokens,
                                 "contextPercent": 0
                             }),
                         ),
                         EngineEvent::Error(err_msg) => ("error", json!({ "body": err_msg })),
-                        _ => continue,
+                        EngineEvent::Retrying {
+                            error_message,
+                            attempt,
+                            max_attempts,
+                            delay_secs,
+                        } => (
+                            "retrying",
+                            json!({
+                                "title": "正在重试",
+                                "body": error_message,
+                                "attempt": attempt,
+                                "maxAttempts": max_attempts,
+                                "delaySecs": delay_secs,
+                                "status": "running"
+                            }),
+                        ),
+                        EngineEvent::AskUser { id, question } => (
+                            "ask_user",
+                            json!({
+                                "id": id,
+                                "title": "需要用户输入",
+                                "body": question,
+                                "tool": "ask_user",
+                                "meta": "等待用户回答"
+                            }),
+                        ),
+                        EngineEvent::Done => (
+                            "done",
+                            json!({
+                                "title": "完成",
+                                "body": "本轮已完成。",
+                                "status": "completed"
+                            }),
+                        ),
+                        EngineEvent::SubAgentStart { description } => (
+                            "subagent_started",
+                            json!({
+                                "title": "子代理启动",
+                                "body": description,
+                                "tool": "agent",
+                                "status": "running"
+                            }),
+                        ),
+                        EngineEvent::SubAgentComplete { result } => (
+                            "subagent_completed",
+                            json!({
+                                "title": "子代理完成",
+                                "body": result,
+                                "tool": "agent",
+                                "status": "success"
+                            }),
+                        ),
+                        EngineEvent::PlanModeEntered => (
+                            "plan_mode_entered",
+                            json!({ "title": "计划模式", "body": "已进入计划模式。" }),
+                        ),
+                        EngineEvent::PlanApprovalRequired { plan_content } => (
+                            "plan_approval_required",
+                            json!({
+                                "title": "计划需要确认",
+                                "body": plan_content,
+                                "tool": "plan",
+                                "meta": "等待确认"
+                            }),
+                        ),
+                        EngineEvent::PlanModeExited => (
+                            "plan_mode_exited",
+                            json!({ "title": "计划模式", "body": "已退出计划模式。" }),
+                        ),
+                        EngineEvent::ContextCompactionStarted { mode } => (
+                            "context_compaction_started",
+                            json!({
+                                "title": "上下文压缩开始",
+                                "body": mode,
+                                "status": "running"
+                            }),
+                        ),
+                        EngineEvent::ContextCompressed {
+                            mode,
+                            removed,
+                            tool_results_truncated,
+                            summary,
+                            session_memory_path,
+                            transcript_path,
+                        } => (
+                            "context_compressed",
+                            json!({
+                                "title": "上下文已压缩",
+                                "body": summary.unwrap_or_else(|| format!("模式 {}，移除 {} 条，截断 {} 个工具结果。", mode, removed, tool_results_truncated)),
+                                "mode": mode,
+                                "removed": removed,
+                                "toolResultsTruncated": tool_results_truncated,
+                                "sessionMemoryPath": session_memory_path,
+                                "transcriptPath": transcript_path
+                            }),
+                        ),
+                        EngineEvent::CostUpdate {
+                            estimated_cost,
+                            input_tokens,
+                            output_tokens,
+                            cache_write_tokens,
+                            cache_read_tokens,
+                        } => (
+                            "cost_update",
+                            json!({
+                                "title": "成本更新",
+                                "body": format!("${:.4}，输入 {}，输出 {}", estimated_cost, input_tokens, output_tokens),
+                                "estimatedCost": estimated_cost,
+                                "inputTokens": input_tokens,
+                                "outputTokens": output_tokens,
+                                "cacheWriteTokens": cache_write_tokens,
+                                "cacheReadTokens": cache_read_tokens
+                            }),
+                        ),
+                        EngineEvent::BudgetExceeded { cost, limit } => (
+                            "budget_exceeded",
+                            json!({
+                                "title": "预算已超出",
+                                "body": format!("当前成本 ${:.4}，限制 ${:.4}", cost, limit),
+                                "status": "blocked"
+                            }),
+                        ),
+                        EngineEvent::SuggestionReady { suggestion } => (
+                            "suggestion_ready",
+                            json!({ "title": "建议", "body": suggestion }),
+                        ),
+                        EngineEvent::SessionMemoryUpdated {
+                            path,
+                            generated_summary,
+                        } => (
+                            "session_memory_updated",
+                            json!({
+                                "title": "会话记忆已更新",
+                                "body": path,
+                                "generatedSummary": generated_summary
+                            }),
+                        ),
+                        EngineEvent::UpdateAvailable(version) => (
+                            "update_available",
+                            json!({ "title": "发现更新", "body": version }),
+                        ),
+                        EngineEvent::UpdateDownloading => (
+                            "update_downloading",
+                            json!({ "title": "正在下载更新", "body": "" }),
+                        ),
+                        EngineEvent::UpdateDownloaded(version) => (
+                            "update_downloaded",
+                            json!({ "title": "更新已下载", "body": version }),
+                        ),
                     };
 
                     let desktop_event = DesktopEvent {
@@ -456,6 +742,9 @@ impl DesktopRuntime {
                 let _ = handle.await;
 
                 if let Ok(mut txs) = confirm_txs_clone.lock() {
+                    txs.remove(&(session_id.clone(), emit_turn_id.clone()));
+                }
+                if let Ok(mut txs) = ask_user_txs_clone.lock() {
                     txs.remove(&(session_id.clone(), emit_turn_id.clone()));
                 }
                 if let Ok(mut tokens) = cancel_tokens_clone.lock() {
@@ -515,6 +804,22 @@ impl DesktopRuntime {
                 ConfirmResponse::Deny
             };
             let _ = tx.send(response);
+        }
+        Ok(())
+    }
+
+    pub fn ask_user_respond(
+        &self,
+        session_id: String,
+        turn_id: String,
+        answer: String,
+    ) -> Result<()> {
+        let txs = self
+            .ask_user_txs
+            .lock()
+            .map_err(|_| anyhow::anyhow!("poisoned"))?;
+        if let Some(tx) = txs.get(&(session_id, turn_id)) {
+            let _ = tx.send(answer);
         }
         Ok(())
     }

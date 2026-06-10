@@ -71,6 +71,18 @@ impl OpenAiProvider {
             return Err(err);
         }
 
+        let content_type = resp
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .to_string();
+        if content_type.contains("text/html") {
+            return Err(anyhow!(
+                "模型接口返回了网页内容，不是 OpenAI 兼容流式响应。请检查 base_url 是否指向 API 地址，通常需要以 /v1 结尾。"
+            ));
+        }
+
         let mut event_stream = resp.bytes_stream().eventsource();
         let mut state = OpenAiStreamState::new(request.model.clone());
 

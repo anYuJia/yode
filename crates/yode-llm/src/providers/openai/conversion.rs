@@ -141,9 +141,33 @@ pub(super) fn tool_to_openai(tool: &ToolDefinition) -> OpenAiTool {
         function: OpenAiToolFunction {
             name: tool.name.clone(),
             description: tool.description.clone(),
-            parameters: tool.parameters.clone(),
+            parameters: sanitize_openai_schema(tool.parameters.clone()),
         },
     }
+}
+
+fn sanitize_openai_schema(mut value: Value) -> Value {
+    match &mut value {
+        Value::Object(map) => {
+            map.retain(|_, child| !child.is_null());
+            for child in map.values_mut() {
+                *child = sanitize_openai_schema(std::mem::take(child));
+            }
+            if map.get("type").and_then(Value::as_str) == Some("object") {
+                map.entry("properties".to_string())
+                    .or_insert_with(|| Value::Object(Default::default()));
+                map.entry("required".to_string())
+                    .or_insert_with(|| Value::Array(Vec::new()));
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                *item = sanitize_openai_schema(std::mem::take(item));
+            }
+        }
+        _ => {}
+    }
+    value
 }
 
 pub(super) fn openai_usage_to_usage(usage: &OpenAiUsage) -> Usage {
@@ -163,11 +187,11 @@ pub(super) fn openai_usage_to_usage(usage: &OpenAiUsage) -> Usage {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::Value;
+    use serde_json::{json, Value};
 
-    use crate::types::{ImageData, Message};
+    use crate::types::{ImageData, Message, ToolDefinition};
 
-    use super::{message_to_openai, openai_content_text};
+    use super::{message_to_openai, openai_content_text, tool_to_openai};
 
     #[test]
     fn message_to_openai_preserves_user_images_as_content_parts() {
@@ -188,6 +212,30 @@ mod tests {
         assert_eq!(
             parts[1]["image_url"]["url"],
             "data:image/png;base64,ZmFrZQ=="
+        );
+    }
+
+    #[test]
+    fn tool_to_openai_adds_empty_required_for_object_schemas() {
+        let tool = ToolDefinition {
+            name: "project_map".to_string(),
+            description: "map".to_string(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "depth": {
+                        "type": "integer",
+                        "description": "depth"
+                    }
+                }
+            }),
+            annotations: Default::default(),
+        };
+
+        let converted = tool_to_openai(&tool);
+        assert_eq!(
+            converted.function.parameters.get("required"),
+            Some(&Value::Array(Vec::new()))
         );
     }
 

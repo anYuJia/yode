@@ -19,6 +19,7 @@ import {
   Paperclip,
   Pause,
   FolderPlus,
+  Plus,
   Search,
   Send,
   Settings,
@@ -47,6 +48,7 @@ import { createPortal } from "react-dom";
 import {
   Bootstrap,
   DesktopEvent,
+  DesktopMessage,
   fallbackBootstrap,
   SessionSummary,
   sessions,
@@ -58,6 +60,11 @@ import { SettingsShell } from "./components/SettingsShell";
 import { TerminalDrawer } from "./components/TerminalDrawer";
 
 type ViewMode = "chat" | "settings";
+type PendingUserQuestion = {
+  sessionId: string;
+  turnId: string;
+  question: string;
+};
 
 const PROJECT_ROOTS_STORAGE_KEY = "yode-project-roots";
 const PROJECT_ORDER_STORAGE_KEY = "yode-project-order";
@@ -152,6 +159,12 @@ export function App() {
   const [messageQueue, setMessageQueue] = useState<string[]>([]);
   const [currentTurnId, setCurrentTurnId] = useState<string | null>(null);
   const [permissionMode, setPermissionMode] = useState<string>("default");
+  const [pendingUserQuestion, setPendingUserQuestion] = useState<PendingUserQuestion | null>(null);
+  const activeSessionIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    activeSessionIdRef.current = activeSessionId;
+  }, [activeSessionId]);
 
   const handlePermissionModeChange = (mode: string) => {
     setPermissionMode(mode);
@@ -334,6 +347,7 @@ export function App() {
         );
 
         const activeSessions = visibleSessions(nextBootstrap.sessions);
+        const activeSessionId = activeSessions.find((session) => session.active)?.id ?? null;
 
         setSessionItems(activeSessions);
         setProjectRoots((current) =>
@@ -342,15 +356,30 @@ export function App() {
             ...activeSessions.map((session) => session.projectRoot),
           ])
         );
-        setActiveSessionId(activeSessions.find((session) => session.active)?.id ?? null);
+        activeSessionIdRef.current = activeSessionId;
+        setActiveSessionId(activeSessionId);
+        if (activeSessionId && "__TAURI_INTERNALS__" in window) {
+          invoke<DesktopMessage[]>("sessions_messages", {
+            sessionId: activeSessionId,
+            session_id: activeSessionId
+          })
+            .then((messages) => {
+              if (activeSessionIdRef.current === activeSessionId) {
+                setTimelineItems(messagesToTimelineItems(messages));
+              }
+            })
+            .catch(console.error);
+        }
       })
       .catch(() => {
         setBootstrap(fallbackBootstrap);
         if (!("__TAURI_INTERNALS__" in window)) {
           const activeSessions = visibleSessions(sessions);
+          const activeSessionId = activeSessions.find((session) => session.active)?.id ?? null;
 
           setSessionItems(activeSessions);
-          setActiveSessionId(activeSessions.find((session) => session.active)?.id ?? null);
+          activeSessionIdRef.current = activeSessionId;
+          setActiveSessionId(activeSessionId);
           setSelectedProjectRoot((current) =>
             current === undefined ? fallbackBootstrap.workspacePath : current
           );
@@ -394,14 +423,29 @@ export function App() {
       const payload = event.payload;
       const outer = (payload as any).kind ? (payload as DesktopEvent) : null;
       const kind = outer ? outer.kind : (event as any).kind;
+      const eventSessionId = outer?.sessionId ?? (payload as any).sessionId;
+      if (
+        eventSessionId &&
+        activeSessionIdRef.current &&
+        eventSessionId !== activeSessionIdRef.current
+      ) {
+        return;
+      }
 
       if (kind === "turn_started") {
         setIsProcessing(true);
         if (outer) {
           setCurrentTurnId(outer.turnId);
         }
+      } else if (kind === "ask_user" && eventSessionId && (outer?.turnId ?? (payload as any).turnId)) {
+        setPendingUserQuestion({
+          sessionId: eventSessionId,
+          turnId: outer?.turnId ?? (payload as any).turnId,
+          question: String((payload as any).payload?.body ?? "请回复问题")
+        });
       } else if (kind === "turn_completed" || kind === "error") {
         setIsProcessing(false);
+        setPendingUserQuestion(null);
       }
 
       setTimelineItems((items) =>
@@ -487,13 +531,17 @@ export function App() {
     });
   };
 
-  function handleCreateSession() {
+  function handleCreateSession(projectRoot?: string | null) {
     setActiveSessionId(null);
     setCurrentTurnId(null);
     setMessageQueue([]);
     setIsProcessing(false);
+    setPendingUserQuestion(null);
     setSessionItems((items) => items.map((item) => ({ ...item, active: false })));
     setTimelineItems([]);
+    if (projectRoot !== undefined) {
+      setSelectedProjectRoot(projectRoot);
+    }
   }
 
   async function handleAddProject() {
@@ -510,6 +558,41 @@ export function App() {
   async function handleSendMessage() {
     if (!draft.trim()) return;
     const content = draft.trim();
+
+    if (pendingUserQuestion) {
+      setDraft("");
+      setTimelineItems((items) => [
+        ...items,
+        {
+          id: `ask-answer-${Date.now()}`,
+          kind: "user",
+          title: "用户",
+          body: content
+        }
+      ]);
+      await invoke("ask_user_respond", {
+        sessionId: pendingUserQuestion.sessionId,
+        session_id: pendingUserQuestion.sessionId,
+        turnId: pendingUserQuestion.turnId,
+        turn_id: pendingUserQuestion.turnId,
+        answer: content
+      }).catch((err) => {
+        console.error(err);
+        setTimelineItems((items) => [
+          ...items,
+          {
+            id: `ask-answer-error-${Date.now()}`,
+            kind: "assistant",
+            title: "错误",
+            body: "发送问题回复失败。",
+            meta: "stream complete"
+          }
+        ]);
+      });
+      setPendingUserQuestion(null);
+      return;
+    }
+
     const sessionIdAtSend = activeSession?.id ?? null;
     const projectRootAtSend = selectedProjectRoot === undefined ? bootstrap.workspacePath : selectedProjectRoot;
     setDraft("");
@@ -551,6 +634,7 @@ export function App() {
         }
       });
       setCurrentTurnId(res.turnId);
+      activeSessionIdRef.current = res.sessionId;
       setActiveSessionId(res.sessionId);
       setSessionItems((items) => upsertActiveSession(items, res.session));
     } catch (err) {
@@ -586,6 +670,7 @@ export function App() {
         }
       }).then((res) => {
         setCurrentTurnId(res.turnId);
+        activeSessionIdRef.current = res.sessionId;
         setSessionItems((items) => upsertActiveSession(items, res.session));
       }).catch((err) => {
         console.error(err);
@@ -601,6 +686,43 @@ export function App() {
         turnId: currentTurnId
       }).catch(console.error);
       setIsProcessing(false);
+    }
+  }
+
+  async function handleSelectSession(sessionId: string) {
+    const nextSession = sessionItems.find((item) => item.id === sessionId);
+    activeSessionIdRef.current = sessionId;
+    setActiveSessionId(sessionId);
+    setSelectedProjectRoot(nextSession?.projectRoot ?? null);
+    setIsProcessing(false);
+    setCurrentTurnId(null);
+    setMessageQueue([]);
+    setPendingUserQuestion(null);
+
+    if (!("__TAURI_INTERNALS__" in window)) {
+      setTimelineItems(timeline);
+      return;
+    }
+
+    try {
+      const messages = await invoke<DesktopMessage[]>("sessions_messages", {
+        sessionId,
+        session_id: sessionId
+      });
+      if (activeSessionIdRef.current !== sessionId) return;
+      setTimelineItems(messagesToTimelineItems(messages));
+    } catch (err) {
+      if (activeSessionIdRef.current !== sessionId) return;
+      console.error(err);
+      setTimelineItems([
+        {
+          id: `history-error-${Date.now()}`,
+          kind: "assistant",
+          title: "错误",
+          body: "加载历史对话失败。",
+          meta: "stream complete"
+        }
+      ]);
     }
   }
 
@@ -656,6 +778,14 @@ export function App() {
     setSessionItems(prev => prev.filter(s => s.id !== sessionId));
   };
 
+  const isStandalone = activeSession
+    ? !activeSession.projectRoot
+    : selectedProjectRoot === null;
+
+  const displayedWorkspacePath = isStandalone
+    ? null
+    : (activeSession?.projectRoot ?? selectedProjectRoot ?? bootstrap.workspacePath);
+
   return (
     <main className="app-shell">
       <Sidebar
@@ -666,9 +796,7 @@ export function App() {
         onChangeView={handleSetViewMode}
         onCreateSession={handleCreateSession}
         onSelectSession={(sessionId) => {
-          const nextSession = sessionItems.find((item) => item.id === sessionId);
-          setActiveSessionId(sessionId);
-          setSelectedProjectRoot(nextSession?.projectRoot ?? null);
+          void handleSelectSession(sessionId);
         }}
         onAddProject={handleAddProject}
         onProjectReorder={handleProjectReorder}
@@ -678,7 +806,9 @@ export function App() {
         <Topbar
           bootstrap={bootstrap}
           sessionTitle={activeSession?.title ?? (appLang === "zh" ? "新对话" : "New chat")}
+          workspacePath={displayedWorkspacePath}
           inspectorOpen={inspectorOpen}
+          isProcessing={isProcessing && !pendingUserQuestion}
           onToggleInspector={() => setInspectorOpen(!inspectorOpen)}
           terminalOpen={terminalOpen}
           onToggleTerminal={() => setTerminalOpen(!terminalOpen)}
@@ -724,7 +854,7 @@ function Sidebar({
   activeSessionId: string | null;
   viewMode: ViewMode;
   onChangeView: (mode: ViewMode) => void;
-  onCreateSession: () => void;
+  onCreateSession: (projectRoot?: string | null) => void;
   onSelectSession: (sessionId: string) => void;
   onAddProject: () => Promise<void>;
   onProjectReorder: (draggedRoot: string, targetRoot: string, placement?: "before" | "after") => void;
@@ -866,12 +996,16 @@ function Sidebar({
   }, [pinnedSessionIds, projectOptions, sessions]);
 
   projectGroupsRef.current = projectGroups;
+  const projectLayoutKey = useMemo(
+    () => projectGroups.map((group) => group.id).join("\n"),
+    [projectGroups]
+  );
 
   useLayoutEffect(() => {
     const previousRects = projectFlipRectsRef.current;
     const nextRects = new Map<string, DOMRect>();
 
-    projectGroups.forEach((group) => {
+    projectGroupsRef.current.forEach((group) => {
       const node = projectNodeRefs.current.get(group.id);
       if (!node) return;
       const nextRect = node.getBoundingClientRect();
@@ -895,11 +1029,12 @@ function Sidebar({
     });
 
     projectFlipRectsRef.current = nextRects;
-  }, [projectGroups, draggingProjectId]);
+  }, [projectLayoutKey, draggingProjectId]);
 
   useEffect(() => {
-    const nextKnownProjectIds = new Set(projectGroups.map((group) => group.id));
-    const newlyDiscoveredProjectIds = projectGroups
+    const currentProjectGroups = projectGroupsRef.current;
+    const nextKnownProjectIds = new Set(currentProjectGroups.map((group) => group.id));
+    const newlyDiscoveredProjectIds = currentProjectGroups
       .filter((group) => !knownProjectIdsRef.current.has(group.id))
       .map((group) => group.id);
     knownProjectIdsRef.current = nextKnownProjectIds;
@@ -912,7 +1047,7 @@ function Sidebar({
       ];
       return next;
     });
-  }, [projectGroups]);
+  }, [projectLayoutKey]);
 
   // Helper render method for a session item
   const renderSessionItem = (session: SessionSummary) => {
@@ -1083,6 +1218,7 @@ function Sidebar({
         }}
         style={style}
       >
+      <div className="project-header-wrapper" style={{ position: "relative" }}>
         <button
           className={`project-button ${hasActiveSession ? "active" : ""}`}
           onPointerDown={(event) => {
@@ -1102,10 +1238,26 @@ function Sidebar({
           type="button"
         >
           <Folder size={16} />
-          <span>{group.name}</span>
-          <em>{group.sessions.length}</em>
+          <span>
+            {group.name}
+            <em>{group.sessions.length}</em>
+          </span>
           <ChevronDown className={expanded ? "expanded" : ""} size={15} />
         </button>
+        <div className="project-actions-overlay">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onCreateSession(group.id);
+            }}
+            type="button"
+            className="action-icon-btn"
+            title={t("新建对话", "New chat")}
+          >
+            <Plus size={13} />
+          </button>
+        </div>
+      </div>
         <div
           className={`project-sessions-shell ${expanded ? "expanded" : "collapsed"}`}
           aria-hidden={!expanded}
@@ -1133,7 +1285,7 @@ function Sidebar({
         </div>
       </div>
 
-      <button className="primary-action" onClick={onCreateSession} type="button">
+      <button className="primary-action" onClick={() => onCreateSession()} type="button">
         <MessageSquarePlus size={17} />
         {t("新对话", "New chat")}
       </button>
@@ -1225,8 +1377,10 @@ function Sidebar({
         >
           <div className="project-drag-ghost-head">
             <Folder size={16} />
-            <span>{dragGhost.name}</span>
-            <em>{dragGhost.count}</em>
+            <span>
+              {dragGhost.name}
+              <em>{dragGhost.count}</em>
+            </span>
           </div>
           {dragGhost.expanded ? (
             <div className="project-drag-ghost-sessions">
@@ -1274,14 +1428,18 @@ function NavButton({ icon, label }: { icon: React.ReactNode; label: string }) {
 function Topbar({
   bootstrap,
   sessionTitle,
+  workspacePath,
   inspectorOpen,
+  isProcessing,
   onToggleInspector,
   terminalOpen,
   onToggleTerminal
 }: {
   bootstrap: Bootstrap;
   sessionTitle: string;
+  workspacePath: string | null;
   inspectorOpen: boolean;
+  isProcessing: boolean;
   onToggleInspector: () => void;
   terminalOpen: boolean;
   onToggleTerminal: () => void;
@@ -1290,16 +1448,18 @@ function Topbar({
     <header className="topbar" data-tauri-drag-region>
       <div className="title-stack" data-tauri-drag-region>
         <div className="session-heading" data-tauri-drag-region>{sessionTitle}</div>
-        <div className="workspace-path" data-tauri-drag-region>
-          <span data-tauri-drag-region>{bootstrap.workspacePath}</span>
-          <span>main</span>
-        </div>
+        {workspacePath && (
+          <div className="workspace-path" data-tauri-drag-region>
+            <span data-tauri-drag-region>{workspacePath}</span>
+            <span>main</span>
+          </div>
+        )}
       </div>
       <div className="runtime-strip" aria-label="运行状态">
         <StatusPill icon={<Bot size={14} />} label={bootstrap.provider} tone="quiet" />
         <StatusPill icon={<Code2 size={14} />} label={bootstrap.model} tone="quiet" />
         <StatusPill icon={<ShieldCheck size={14} />} label={bootstrap.permissionMode} tone="quiet" />
-        <StatusPill icon={<CircleDot size={14} />} label="运行中" tone="live" />
+        <StatusPill icon={<CircleDot size={14} />} label={isProcessing ? "运行中" : "闲置"} tone={isProcessing ? "live" : "quiet"} />
         <button className="icon-button" type="button" title="更多">
           <MoreHorizontal size={18} />
         </button>
@@ -1389,49 +1549,144 @@ function ChatWorkspace({
     return false;
   }, [timelineItems]);
 
-  // Collapsible toggle for folded intermediate steps
-  const [isCollapsed, setIsCollapsed] = useState(true);
+  // Track expanded turn IDs separately
+  const [expandedTurnIds, setExpandedTurnIds] = useState<string[]>([]);
 
-  // Group items by turns or separate them. 
-  // Intermediate steps: tool, reasoning, permission, boundary.
-  // We want to hide them when NOT streaming, unless the user toggles to show them.
-  const processedItems = useMemo(() => {
-    const withoutActivePermission = timelineItems.filter((item) => item.kind !== "permission");
+  const turns = useMemo(() => {
+    const list: Array<{
+      id: string;
+      userItem: TimelineItem | null;
+      items: TimelineItem[];
+      hasIntermediate: boolean;
+    }> = [];
 
-    if (isStreaming || !isCollapsed) {
-      return withoutActivePermission;
+    let currentTurn: typeof list[number] = {
+      id: "welcome",
+      userItem: null,
+      items: [],
+      hasIntermediate: false
+    };
+
+    timelineItems.forEach((item) => {
+      if (item.kind === "user") {
+        if (currentTurn.userItem || currentTurn.items.length > 0) {
+          list.push(currentTurn);
+        }
+        currentTurn = {
+          id: item.id,
+          userItem: item,
+          items: [],
+          hasIntermediate: false
+        };
+      } else {
+        currentTurn.items.push(item);
+        if (item.kind === "tool" || item.kind === "reasoning" || (item.kind === "assistant" && isIntermediateAssistantItem(item))) {
+          currentTurn.hasIntermediate = true;
+        }
+      }
+    });
+
+    if (currentTurn.userItem || currentTurn.items.length > 0) {
+      list.push(currentTurn);
     }
 
-    // When NOT streaming and collapsed, filter out tool, reasoning, permission, boundary
-    // and keep only user and final assistant responses.
-    return withoutActivePermission.filter(item => item.kind === "user" || item.kind === "assistant");
-  }, [timelineItems, isStreaming, isCollapsed]);
+    return list;
+  }, [timelineItems]);
 
-  const hiddenCount = timelineItems.length - processedItems.length;
   const activePermission = [...timelineItems]
     .reverse()
     .find((item): item is Extract<TimelineItem, { kind: "permission" }> => item.kind === "permission");
+  const timelinePanelRef = useRef<HTMLElement | null>(null);
+  const shouldStickToBottomRef = useRef(true);
+  const lastTimelineLengthRef = useRef(0);
+
+  const scrollTimelineToBottom = (behavior: ScrollBehavior = "smooth") => {
+    const panel = timelinePanelRef.current;
+    if (!panel) return;
+    panel.scrollTo({
+      top: panel.scrollHeight,
+      behavior
+    });
+  };
+
+  const handleTimelineScroll = () => {
+    const panel = timelinePanelRef.current;
+    if (!panel) return;
+    const distanceToBottom = panel.scrollHeight - panel.scrollTop - panel.clientHeight;
+    shouldStickToBottomRef.current = distanceToBottom < 120;
+  };
+
+  useLayoutEffect(() => {
+    if (!shouldStickToBottomRef.current) return;
+    const itemAdded = timelineItems.length > lastTimelineLengthRef.current;
+    lastTimelineLengthRef.current = timelineItems.length;
+    const frame = window.requestAnimationFrame(() => {
+      scrollTimelineToBottom(itemAdded && !isStreaming ? "smooth" : "auto");
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [timelineItems.length, isStreaming]);
 
   return (
     <div className={`chat-layout ${inspectorOpen ? "" : "inspector-collapsed"}`}>
       <div className="conversation-column">
-        <section className="timeline-panel" aria-label="会话时间线">
+        <section
+          className="timeline-panel"
+          aria-label="会话时间线"
+          ref={timelinePanelRef}
+          onScroll={handleTimelineScroll}
+        >
           <div className="timeline-header">
             <span>RUN LOG</span>
-            <strong>desktop-scaffold</strong>
+            <strong>desktop-runtime</strong>
             <em>{timelineItems.length} events</em>
           </div>
           
-          {processedItems.map((item, index) => {
-            // Insert a divider toggle after the first "user" message if we hid any events
-            const showToggle = !isStreaming && hiddenCount > 0 && item.kind === "user" && index === 0;
+          {turns.map((turn, turnIndex) => {
+            const isExpanded = expandedTurnIds.includes(turn.id);
+            const isLastTurn = turnIndex === turns.length - 1;
+
+            const visibleItems = turn.items.filter((item) => {
+              if (item.kind === "permission") return false;
+
+              const isIntermediate = item.kind === "tool" || item.kind === "reasoning" || (item.kind === "assistant" && isIntermediateAssistantItem(item));
+              if (isIntermediate) {
+                return isExpanded;
+              }
+
+              if (item.kind === "assistant" && !isIntermediateAssistantItem(item)) {
+                if (isProcessing && isLastTurn) {
+                  return false;
+                }
+              }
+
+              return true;
+            });
+
+            const foldableCount = turn.items.filter(
+              (item) => item.kind === "tool" || item.kind === "reasoning" || (item.kind === "assistant" && isIntermediateAssistantItem(item))
+            ).length;
+
+            const isFoldable = foldableCount > 0;
+            const toggleText = isExpanded
+              ? `已展开 ${foldableCount} 个思考与执行步骤`
+              : (isProcessing && isLastTurn)
+                ? `正在处理，已折叠 ${foldableCount} 个思考与执行步骤...`
+                : `已省略 ${foldableCount} 个中间思考与执行步骤...`;
+            const actionText = isExpanded ? "收起详情" : "展开详情";
 
             return (
-              <React.Fragment key={item.id}>
-                <TimelineNode item={item} appLang={appLang} />
-                {showToggle && (
+              <React.Fragment key={turn.id}>
+                {turn.userItem && <TimelineNode item={turn.userItem} appLang={appLang} />}
+                
+                {isFoldable && (
                   <div 
-                    onClick={() => setIsCollapsed(false)}
+                    onClick={() => {
+                      if (isExpanded) {
+                        setExpandedTurnIds(prev => prev.filter(id => id !== turn.id));
+                      } else {
+                        setExpandedTurnIds(prev => [...prev, turn.id]);
+                      }
+                    }}
                     style={{
                       margin: "8px auto 14px",
                       maxWidth: "760px",
@@ -1463,27 +1718,18 @@ function ChatWorkspace({
                         borderRadius: "50%",
                         background: "var(--accent)"
                       }} />
-                      <span>已省略 {hiddenCount} 个中间思考与执行步骤...</span>
+                      <span>{toggleText}</span>
                     </div>
-                    <span style={{ fontWeight: "600", fontSize: "11px", color: "var(--accent)" }}>展开详情</span>
+                    <span style={{ fontWeight: "600", fontSize: "11px", color: "var(--accent)" }}>{actionText}</span>
                   </div>
                 )}
+
+                {visibleItems.map((item) => (
+                  <TimelineNode key={item.id} item={item} appLang={appLang} />
+                ))}
               </React.Fragment>
             );
           })}
-
-          {!isCollapsed && hiddenCount > 0 && (
-            <div style={{ display: "flex", justifyContent: "center", marginBlock: "10px" }}>
-              <button
-                onClick={() => setIsCollapsed(true)}
-                type="button"
-                className="secondary-button"
-                style={{ fontSize: "11.5px", paddingInline: "12px", height: "26px", color: "var(--text-soft)" }}
-              >
-                收起思考与执行步骤
-              </button>
-            </div>
-          )}
         </section>
         {activePermission ? (
           <div className="permission-dock" aria-label="执行确认">
@@ -1509,7 +1755,11 @@ function ChatWorkspace({
           onAddProject={onAddProject}
         />
       </div>
-      <RunInspector />
+      <RunInspector
+        isProcessing={isProcessing}
+        permissionMode={permissionMode}
+        timelineItems={timelineItems}
+      />
     </div>
   );
 }
@@ -1588,12 +1838,209 @@ function TimelineNode({ item, appLang }: { item: TimelineItem; appLang: string }
           <h2>{item.title}</h2>
           {"meta" in item && item.meta ? <span>{item.meta}</span> : null}
         </div>
-        <p>{item.body}</p>
+        {item.kind === "assistant" ? (
+          <MarkdownContent text={item.body} />
+        ) : (
+          <p>{item.body}</p>
+        )}
         {item.kind === "tool" ? <ToolMeta item={item} /> : null}
         {item.kind === "permission" ? <PermissionActions item={item} appLang={appLang} /> : null}
       </div>
     </article>
   );
+}
+
+function isIntermediateAssistantItem(item: TimelineItem) {
+  if (item.kind !== "assistant") return false;
+  const body = item.body.trim();
+  return item.meta === "intermediate" || body === "" || body === "." || body === "..." || body === "…";
+}
+
+function MarkdownContent({ text }: { text: string }) {
+  const blocks = useMemo(() => parseMarkdownBlocks(text), [text]);
+  return (
+    <div className="markdown-content">
+      {blocks.map((block, index) => {
+        if (block.type === "heading") {
+          const Tag = `h${Math.min(block.level, 4)}` as keyof JSX.IntrinsicElements;
+          return <Tag key={index}>{renderInlineMarkdown(block.text)}</Tag>;
+        }
+        if (block.type === "code") {
+          return <pre key={index}><code>{block.text}</code></pre>;
+        }
+        if (block.type === "list") {
+          return (
+            <ul key={index}>
+              {block.items.map((item, itemIndex) => (
+                <li key={itemIndex}>{renderInlineMarkdown(item)}</li>
+              ))}
+            </ul>
+          );
+        }
+        if (block.type === "table") {
+          return (
+            <div key={index} className="markdown-table-wrapper" style={{ overflowX: "auto", margin: "12px 0" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+                <thead>
+                  <tr style={{ borderBottom: "2px solid var(--line)" }}>
+                    {block.headers.map((h, i) => (
+                      <th key={i} style={{ padding: "8px", textAlign: "left", fontWeight: "bold" }}>
+                        {renderInlineMarkdown(h)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {block.rows.map((row, ri) => (
+                    <tr key={ri} style={{ borderBottom: "1px solid var(--line-soft)" }}>
+                      {row.map((cell, ci) => (
+                        <td key={ci} style={{ padding: "8px" }}>
+                          {renderInlineMarkdown(cell)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        }
+        if (block.type === "divider") {
+          return <hr key={index} style={{ border: "0", borderTop: "1px solid var(--line-soft)", margin: "16px 0" }} />;
+        }
+        return <p key={index}>{renderInlineMarkdown(block.text)}</p>;
+      })}
+    </div>
+  );
+}
+
+type MarkdownBlock =
+  | { type: "heading"; level: number; text: string }
+  | { type: "code"; text: string }
+  | { type: "list"; items: string[] }
+  | { type: "table"; headers: string[]; rows: string[][] }
+  | { type: "divider" }
+  | { type: "paragraph"; text: string };
+
+function parseMarkdownBlocks(text: string): MarkdownBlock[] {
+  const blocks: MarkdownBlock[] = [];
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  let paragraph: string[] = [];
+  let list: string[] = [];
+  let tableRows: string[][] = [];
+  let code: string[] | null = null;
+
+  const flushParagraph = () => {
+    if (paragraph.length > 0) {
+      blocks.push({ type: "paragraph", text: paragraph.join(" ") });
+      paragraph = [];
+    }
+  };
+  const flushList = () => {
+    if (list.length > 0) {
+      blocks.push({ type: "list", items: list });
+      list = [];
+    }
+  };
+  const flushTable = () => {
+    if (tableRows.length > 0) {
+      if (tableRows.length >= 2 && tableRows[1].every(cell => /^:?-+:?$/.test(cell.trim()))) {
+        const headers = tableRows[0];
+        const rows = tableRows.slice(2);
+        blocks.push({ type: "table", headers, rows });
+      } else {
+        for (const row of tableRows) {
+          paragraph.push("|" + row.join("|") + "|");
+        }
+      }
+      tableRows = [];
+    }
+  };
+
+  for (const line of lines) {
+    if (line.trim().startsWith("```")) {
+      if (code) {
+        blocks.push({ type: "code", text: code.join("\n") });
+        code = null;
+      } else {
+        flushParagraph();
+        flushList();
+        flushTable();
+        code = [];
+      }
+      continue;
+    }
+
+    if (code) {
+      code.push(line);
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,4})\s+(.+)$/);
+    if (heading) {
+      flushParagraph();
+      flushList();
+      flushTable();
+      blocks.push({ type: "heading", level: heading[1].length, text: heading[2].trim() });
+      continue;
+    }
+
+    const listItem = line.match(/^\s*[-*]\s+(.+)$/);
+    if (listItem) {
+      flushParagraph();
+      flushTable();
+      list.push(listItem[1].trim());
+      continue;
+    }
+
+    const isDivider = /^(?:-{3,}|\*{3,}|_{3,})$/.test(line.trim());
+    if (isDivider) {
+      flushParagraph();
+      flushList();
+      flushTable();
+      blocks.push({ type: "divider" });
+      continue;
+    }
+
+    const isTableRow = line.trim().startsWith("|") && line.trim().endsWith("|");
+    if (isTableRow) {
+      flushParagraph();
+      flushList();
+      const cells = line.split("|").map(c => c.trim()).slice(1, -1);
+      tableRows.push(cells);
+      continue;
+    }
+
+    if (!line.trim()) {
+      flushParagraph();
+      flushList();
+      flushTable();
+      continue;
+    }
+
+    flushList();
+    flushTable();
+    paragraph.push(line.trim());
+  }
+
+  if (code) blocks.push({ type: "code", text: code.join("\n") });
+  flushParagraph();
+  flushList();
+  flushTable();
+  return blocks.length > 0 ? blocks : [{ type: "paragraph", text }];
+}
+
+function renderInlineMarkdown(text: string) {
+  const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*)/g).filter(Boolean);
+  return parts.map((part, index) => {
+    if (part.startsWith("`") && part.endsWith("`")) {
+      return <code key={index}>{part.slice(1, -1)}</code>;
+    }
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return <strong key={index}>{part.slice(2, -2)}</strong>;
+    }
+    return <React.Fragment key={index}>{part}</React.Fragment>;
+  });
 }
 
 function ToolMeta({ item }: { item: Extract<TimelineItem, { kind: "tool" }> }) {
@@ -1722,6 +2169,102 @@ function statusLabel(status: "running" | "success" | "blocked") {
   return "阻塞";
 }
 
+function messagesToTimelineItems(messages: DesktopMessage[]): TimelineItem[] {
+  return messages.flatMap((message): TimelineItem[] => {
+    const content = message.content?.trim();
+    const reasoning = message.reasoning?.trim();
+    const timestamp = formatHistoryTimestamp(message.createdAt);
+
+    if (message.role === "user") {
+      return content
+        ? [{
+            id: `history-${message.id}`,
+            kind: "user",
+            title: "用户",
+            body: content,
+            meta: timestamp
+          }]
+        : [];
+    }
+
+    if (message.role === "assistant") {
+      const items: TimelineItem[] = [];
+      if (reasoning) {
+        items.push({
+          id: `history-${message.id}-reasoning`,
+          kind: "reasoning",
+          title: "思考",
+          body: reasoning,
+          meta: "complete"
+        });
+      }
+      if (content) {
+        items.push({
+          id: `history-${message.id}`,
+          kind: "assistant",
+          title: "Yode",
+          body: content,
+          meta: "stream complete"
+        });
+      }
+      parseToolCalls(message.toolCallsJson).forEach((toolCall, index) => {
+        items.push({
+          id: `history-${message.id}-tool-call-${index}`,
+          kind: "tool",
+          title: `调用工具: ${toolCall.name}`,
+          body: toolCall.arguments,
+          tool: toolCall.name,
+          status: "success",
+          meta: "history"
+        });
+      });
+      return items;
+    }
+
+    if (message.role === "tool") {
+      return [{
+        id: `history-${message.id}`,
+        kind: "tool",
+        title: "工具结果",
+        body: content || message.toolCallId || "",
+        tool: message.toolCallId || "tool",
+        status: "success"
+      }];
+    }
+
+    return [];
+  });
+}
+
+function parseToolCalls(raw: string | null | undefined): Array<{ name: string; arguments: string }> {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((item) => {
+      const name = stringValue(item?.name) ?? stringValue(item?.function?.name);
+      const args =
+        stringValue(item?.arguments) ??
+        stringValue(item?.function?.arguments) ??
+        JSON.stringify(item?.arguments ?? item?.function?.arguments ?? {});
+      return name ? [{ name, arguments: args }] : [];
+    });
+  } catch {
+    return [];
+  }
+}
+
+function formatHistoryTimestamp(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return undefined;
+  return date.toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
 function projectLabelFromPath(path: string) {
   const trimmed = path.trim();
   if (!trimmed) return "项目";
@@ -1739,10 +2282,17 @@ function upsertActiveSession(items: SessionSummary[], session: SessionSummary) {
   const nextSession = { ...session, active: true };
   const exists = items.some((item) => item.id === session.id);
   if (!exists) {
-    return [nextSession, ...items.map((item) => ({ ...item, active: false }))];
+    return [
+      nextSession,
+      ...items.map((item) => item.active ? { ...item, active: false } : item)
+    ];
   }
   return items.map((item) =>
-    item.id === session.id ? nextSession : { ...item, active: false }
+    item.id === session.id
+      ? nextSession
+      : item.active
+        ? { ...item, active: false }
+        : item
   );
 }
 
@@ -2069,6 +2619,7 @@ function desktopEventToTimelineItem(
   const turnId = outer ? outer.turnId : undefined;
 
   const kind = eventKind ?? stringValue(outer?.kind) ?? stringValue(inner?.kind) ?? stringValue(inner?.type);
+  const eventId = stringValue(inner?.id);
   const tool = stringValue(inner?.tool) ?? "desktop";
   const title = stringValue(inner?.title) ?? "Yode";
   const body = stringValue(inner?.body) ?? "";
@@ -2077,7 +2628,7 @@ function desktopEventToTimelineItem(
 
   if (kind === "turn_started") {
     return {
-      id: `event-${Date.now()}-${Math.random()}`,
+      id: turnId ? `turn-${turnId}-thinking` : `event-${Date.now()}-${Math.random()}`,
       kind: "reasoning",
       title: title || "思考中",
       body: body || "",
@@ -2085,9 +2636,9 @@ function desktopEventToTimelineItem(
     };
   }
 
-  if (kind === "permission" || kind === "tool_confirm_required") {
+  if (kind === "permission" || kind === "tool_confirm_required" || kind === "plan_approval_required") {
     return {
-      id: `event-${Date.now()}-${Math.random()}`,
+      id: eventId ? `permission-${turnId}-${eventId}` : `event-${Date.now()}-${Math.random()}`,
       kind: "permission",
       title: title || "需要授权确认",
       body: body || `工具 "${tool}" 请求执行。`,
@@ -2098,9 +2649,19 @@ function desktopEventToTimelineItem(
     };
   }
 
-  if (kind === "tool_started" || kind === "tool_result" || inner?.tool) {
+  if (kind === "ask_user") {
     return {
-      id: `event-${Date.now()}-${Math.random()}`,
+      id: eventId ? `ask-${turnId}-${eventId}` : `event-${Date.now()}-${Math.random()}`,
+      kind: "assistant",
+      title,
+      body,
+      meta: "waiting for input"
+    };
+  }
+
+  if (kind === "tool_started" || kind === "tool_progress" || kind === "tool_result" || kind === "subagent_started" || kind === "subagent_completed" || inner?.tool) {
+    return {
+      id: eventId ? `tool-${turnId}-${eventId}` : `event-${Date.now()}-${Math.random()}`,
       kind: "tool",
       title,
       body,
@@ -2117,6 +2678,36 @@ function desktopEventToTimelineItem(
       title,
       body,
       meta
+    };
+  }
+
+  if (
+    kind === "retrying" ||
+    kind === "usage_update" ||
+    kind === "cost_update" ||
+    kind === "context_compaction_started"
+  ) {
+    return {
+      id: `event-${Date.now()}-${Math.random()}`,
+      kind: "reasoning",
+      title,
+      body,
+      meta: status === "running" ? "running" : meta
+    };
+  }
+
+  if (
+    kind === "context_compressed" ||
+    kind === "done" ||
+    kind === "plan_mode_entered" ||
+    kind === "plan_mode_exited" ||
+    kind === "session_memory_updated"
+  ) {
+    return {
+      id: `event-${Date.now()}-${Math.random()}`,
+      kind: "boundary",
+      title,
+      body
     };
   }
 
@@ -2138,22 +2729,62 @@ function applyDesktopEventToTimelineItems(
   const inner = outer ? outer.payload : payload;
   const kind = eventKind ?? stringValue(outer?.kind) ?? stringValue(inner?.kind) ?? stringValue(inner?.type);
   const body = stringValue(inner?.body) ?? "";
+  const reasoning = stringValue(inner?.reasoning) ?? "";
+  const turnId = stringValue(outer?.turnId);
+  const assistantId = turnId ? `assistant-${turnId}` : undefined;
+  const reasoningId = turnId ? `reasoning-${turnId}` : undefined;
+  const eventId = stringValue(inner?.id);
+  const status = stringValue(inner?.status);
+  const hasToolCalls = Boolean(inner?.hasToolCalls);
+
+  if (kind === "tool_started" || kind === "tool_progress" || kind === "tool_result" || kind === "subagent_started" || kind === "subagent_completed") {
+    const nextItem = desktopEventToTimelineItem(payload, eventKind);
+    const existingIndex = items.findIndex((item) => item.id === nextItem.id);
+    if (existingIndex >= 0 && nextItem.kind === "tool") {
+      return items.map((item, index) =>
+        index === existingIndex && item.kind === "tool"
+          ? {
+              ...item,
+              title: nextItem.title || item.title,
+              body: nextItem.body || item.body,
+              status: nextItem.status,
+              meta: nextItem.meta ?? item.meta
+            }
+          : item
+      );
+    }
+    return [...items, nextItem];
+  }
+
+  if (kind === "turn_started") {
+    const thinkingId = turnId ? `turn-${turnId}-thinking` : undefined;
+    if (
+      items.some((item) =>
+        thinkingId
+          ? item.id === thinkingId
+          : item.kind === "reasoning" && item.meta === "running"
+      )
+    ) {
+      return items;
+    }
+    return [...items, desktopEventToTimelineItem(payload, eventKind)];
+  }
 
   if (kind === "assistant_text_delta") {
-    const last = items[items.length - 1];
-    if (last?.kind === "assistant" && last.meta !== "stream complete") {
-      return [
-        ...items.slice(0, -1),
-        {
-          ...last,
-          body: `${last.body}${body}`
-        }
-      ];
+    const existingIndex = assistantId
+      ? items.findIndex((item) => item.id === assistantId)
+      : items.findIndex((item) => item.kind === "assistant" && item.meta !== "stream complete");
+    if (existingIndex >= 0) {
+      return items.map((item, index) =>
+        index === existingIndex && item.kind === "assistant"
+          ? { ...item, body: mergeStreamingText(item.body, body), meta: "streaming" }
+          : item
+      );
     }
     return [
       ...items,
       {
-        id: `event-${Date.now()}-${Math.random()}`,
+        id: assistantId ?? `event-${Date.now()}-${Math.random()}`,
         kind: "assistant",
         title: "Yode",
         body,
@@ -2163,52 +2794,156 @@ function applyDesktopEventToTimelineItems(
   }
 
   if (kind === "assistant_text_complete") {
-    const last = items[items.length - 1];
-    if (last?.kind === "assistant") {
+    const existingIndex = assistantId
+      ? items.findIndex((item) => item.id === assistantId)
+      : items.findIndex((item) => item.kind === "assistant" && item.meta !== "stream complete");
+    if (existingIndex >= 0) {
+      return items.map((item, index) =>
+        index === existingIndex && item.kind === "assistant"
+          ? { ...item, body: body || item.body, meta: "stream complete" }
+          : item
+      );
+    }
+    if (body) {
       return [
-        ...items.slice(0, -1),
+        ...items,
         {
-          ...last,
-          body: body || last.body,
+          id: assistantId ?? `event-${Date.now()}-${Math.random()}`,
+          kind: "assistant",
+          title: "Yode",
+          body,
           meta: "stream complete"
         }
       ];
     }
+    return items;
   }
 
   if (kind === "assistant_reasoning_delta") {
-    const last = items[items.length - 1];
-    if (last?.kind === "reasoning" && last.meta === "running") {
-      return [
-        ...items.slice(0, -1),
-        {
-          ...last,
-          body: `${last.body}${body}`
-        }
-      ];
+    const existingIndex = reasoningId
+      ? items.findIndex((item) => item.id === reasoningId)
+      : items.findIndex((item) => item.kind === "reasoning" && item.meta === "running");
+    if (existingIndex >= 0) {
+      return items.map((item, index) =>
+        index === existingIndex && item.kind === "reasoning"
+          ? { ...item, body: mergeStreamingText(item.body, body) }
+          : item
+      );
     }
+    return [
+      ...items,
+      {
+        id: reasoningId ?? `event-${Date.now()}-${Math.random()}`,
+        kind: "reasoning",
+        title: "思考",
+        body,
+        meta: "running"
+      }
+    ];
+  }
+
+  if (kind === "retrying" || kind === "usage_update" || kind === "cost_update" || kind === "context_compaction_started") {
+    const nextItem = desktopEventToTimelineItem(payload, eventKind);
+    if (eventId) {
+      const existingIndex = items.findIndex((item) => item.id === nextItem.id);
+      if (existingIndex >= 0) {
+        return items.map((item, index) => index === existingIndex ? nextItem : item);
+      }
+    }
+    return [...items, nextItem];
   }
 
   if (kind === "assistant_reasoning_complete") {
-    const last = items[items.length - 1];
-    if (last?.kind === "reasoning") {
-      return [
-        ...items.slice(0, -1),
-        {
-          ...last,
-          body: body || last.body,
-          meta: "complete"
-        }
-      ];
+    const existingIndex = reasoningId
+      ? items.findIndex((item) => item.id === reasoningId)
+      : items.findIndex((item) => item.kind === "reasoning" && item.meta === "running");
+    if (existingIndex >= 0) {
+      return items.map((item, index) =>
+        index === existingIndex && item.kind === "reasoning"
+          ? { ...item, body: body || item.body, meta: "complete" }
+          : item
+      );
     }
+    return [
+      ...items,
+      {
+        id: `event-${Date.now()}-${Math.random()}`,
+        kind: "reasoning",
+        title: "思考",
+        body,
+        meta: "complete"
+      }
+    ];
   }
 
   if (kind === "turn_completed") {
-    return items.map((item, index) =>
-      index === items.length - 1 && item.kind === "assistant"
-        ? { ...item, meta: "stream complete" }
-        : item
-    );
+    let hasAssistantForTurn = false;
+    let hasReasoningForTurn = false;
+    const settledItems = items.map((item, index) => {
+      if (item.kind === "reasoning" && (item.meta === "running" || item.id === reasoningId)) {
+        hasReasoningForTurn = true;
+        return { ...item, body: reasoning || item.body, meta: "complete" };
+      }
+      if (item.kind === "tool" && item.status === "running") {
+        return { ...item, status: "success" as const };
+      }
+      if (item.kind === "assistant" && (item.id === assistantId || index === items.length - 1)) {
+        hasAssistantForTurn = true;
+        return { ...item, body: body || item.body, meta: hasToolCalls ? "intermediate" : "stream complete" };
+      }
+      if (item.kind === "assistant" && item.meta === "stream complete" && body && item.body === body) {
+        hasAssistantForTurn = true;
+      }
+      if (item.kind === "reasoning" && reasoning && item.body === reasoning) {
+        hasReasoningForTurn = true;
+      }
+      return item;
+    });
+    const fallbackItems: TimelineItem[] = [];
+    if (reasoning && !hasReasoningForTurn) {
+      fallbackItems.push({
+        id: `event-${Date.now()}-${Math.random()}`,
+        kind: "reasoning",
+        title: "思考",
+        body: reasoning,
+        meta: "complete"
+      });
+    }
+    if (body && !hasAssistantForTurn) {
+      fallbackItems.push({
+        id: `event-${Date.now()}-${Math.random()}`,
+        kind: "assistant",
+        title: "Yode",
+        body,
+        meta: hasToolCalls ? "intermediate" : "stream complete"
+      });
+    }
+    return fallbackItems.length > 0 ? [...settledItems, ...fallbackItems] : settledItems;
+  }
+
+  if (kind === "error") {
+    const settledItems = items.map((item) => {
+      if (item.kind === "reasoning" && item.meta === "running") {
+        return { ...item, meta: "complete" };
+      }
+      if (item.kind === "tool" && item.status === "running") {
+        return { ...item, status: "blocked" as const };
+      }
+      if (item.kind === "assistant" && item.meta !== "stream complete") {
+        return { ...item, meta: "stream complete" };
+      }
+      return item;
+    });
+    return [
+      ...settledItems,
+      {
+        id: `event-${Date.now()}-${Math.random()}`,
+        kind: "assistant",
+        title: "错误",
+        body: body || "本轮执行失败，请稍后重试。",
+        meta: "stream complete"
+      }
+    ];
   }
 
   return [...items, desktopEventToTimelineItem(payload, eventKind)];
@@ -2218,45 +2953,58 @@ function stringValue(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-function RunInspector() {
+function mergeStreamingText(current: string, incoming: string): string {
+  if (!incoming) return current;
+  if (!current || incoming.startsWith(current)) return incoming;
+  if (current.endsWith(incoming)) return current;
+
+  const maxOverlap = Math.min(current.length, incoming.length);
+  for (let overlap = maxOverlap; overlap > 0; overlap -= 1) {
+    if (current.endsWith(incoming.slice(0, overlap))) {
+      return `${current}${incoming.slice(overlap)}`;
+    }
+  }
+  return `${current}${incoming}`;
+}
+
+function RunInspector({
+  isProcessing,
+  permissionMode,
+  timelineItems
+}: {
+  isProcessing: boolean;
+  permissionMode: string;
+  timelineItems: TimelineItem[];
+}) {
+  const toolItems = timelineItems.filter((item) => item.kind === "tool");
+  const completedToolItems = toolItems.filter((item) => item.status !== "running");
   return (
     <aside className="run-inspector" aria-label="运行详情">
       <div className="inspector-head">
         <span>TURN</span>
-        <strong>mock-001</strong>
+        <strong>{timelineItems.length} events</strong>
       </div>
       <div className="inspector-section">
         <div className="metric-row">
           <span>状态</span>
-          <strong className="state-live">streaming</strong>
+          <strong className={isProcessing ? "state-live" : ""}>{isProcessing ? "streaming" : "idle"}</strong>
         </div>
         <div className="metric-row">
           <span>权限</span>
-          <strong>default</strong>
+          <strong>{permissionMode}</strong>
         </div>
         <div className="metric-row">
           <span>上下文</span>
-          <strong>31%</strong>
+          <strong>{timelineItems.length > 0 ? "active" : "empty"}</strong>
         </div>
         <div className="metric-row">
           <span>工具</span>
-          <strong>2 / 3</strong>
+          <strong>{completedToolItems.length} / {toolItems.length}</strong>
         </div>
       </div>
       <div className="inspector-section">
-        <span className="inspector-label">FILES</span>
-        <button className="file-row" type="button">
-          <FileCode2 size={14} />
-          <span>apps/yode-desktop/src/App.tsx</span>
-        </button>
-        <button className="file-row" type="button">
-          <FileCode2 size={14} />
-          <span>src/styles/app.css</span>
-        </button>
-      </div>
-      <div className="inspector-section">
         <span className="inspector-label">NEXT</span>
-        <p>第 2 批接入 DesktopRuntime 和 EngineEvent bridge。</p>
+        <p>{isProcessing ? "正在等待模型或工具返回。" : "选择会话或发送消息继续。"}</p>
       </div>
     </aside>
   );

@@ -88,16 +88,49 @@ impl AgentEngine {
                 });
         }
 
-        assistant_msg.normalize_in_place();
-        self.push_and_persist_assistant_message(&assistant_msg);
-
         if !buffers.tool_calls.is_empty() {
+            assistant_msg.normalize_in_place();
+            self.push_and_persist_assistant_message(&assistant_msg);
             self.execute_stream_tool_calls(&buffers.tool_calls, event_tx, confirm_rx, cancel_token)
                 .await?;
             return Ok(StreamFinalizeAction::Continue);
         }
 
         if let Some(mut response) = buffers.final_response {
+            if response.message.content.is_none()
+                && response.message.reasoning.is_none()
+                && response.message.tool_calls.is_empty()
+                && buffers.full_text.is_empty()
+                && buffers.full_reasoning.is_empty()
+            {
+                warn!("Streaming response completed without content; retrying with non-streaming chat");
+                let fallback_request = self.build_chat_request();
+                match self
+                    .call_llm_with_retry_notify(fallback_request, Some(event_tx))
+                    .await
+                {
+                    Ok(fallback) => {
+                        response = fallback;
+                        if let Some(text) = response.message.content.clone() {
+                            let _ = event_tx.send(EngineEvent::TextComplete(text));
+                        }
+                        if let Some(reasoning) = response.message.reasoning.clone() {
+                            let _ = event_tx.send(EngineEvent::ReasoningComplete(reasoning));
+                        }
+                    }
+                    Err(err) => {
+                        let _ = event_tx.send(EngineEvent::Error(format!(
+                            "流式响应为空，非流式补偿也失败: {}",
+                            err
+                        )));
+                        self.complete_tool_turn_artifact();
+                        self.complete_turn_runtime_artifact(response.stop_reason.as_ref());
+                        let _ = event_tx.send(EngineEvent::Done);
+                        return Ok(StreamFinalizeAction::Break);
+                    }
+                }
+            }
+
             if response.message.tool_calls.is_empty() {
                 if let Some(content) = response.message.content.clone() {
                     if content.len() > 3000 {
