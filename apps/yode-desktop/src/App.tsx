@@ -41,7 +41,7 @@ import {
   Pin,
   Trash2
 } from "lucide-react";
-import React, { useEffect, useMemo, useState, useRef } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useState, useRef } from "react";
 import { createPortal } from "react-dom";
 
 import {
@@ -669,9 +669,6 @@ export function App() {
           const nextSession = sessionItems.find((item) => item.id === sessionId);
           setActiveSessionId(sessionId);
           setSelectedProjectRoot(nextSession?.projectRoot ?? null);
-          setSessionItems((items) =>
-            items.map((item) => ({ ...item, active: item.id === sessionId }))
-          );
         }}
         onAddProject={handleAddProject}
         onProjectReorder={handleProjectReorder}
@@ -744,6 +741,8 @@ function Sidebar({
   const [dragGhost, setDragGhost] = useState<{
     name: string;
     count: number;
+    sessions: SessionSummary[];
+    expanded: boolean;
     left: number;
     width: number;
     height: number;
@@ -756,10 +755,17 @@ function Sidebar({
   const hoverTimerRef = useRef<number | null>(null);
   const projectGroupsRef = useRef<Array<{ id: string; name: string; sessions: SessionSummary[] }>>([]);
   const projectNodeRefs = useRef(new Map<string, HTMLDivElement>());
+  const projectFlipRectsRef = useRef(new Map<string, DOMRect>());
+  const knownProjectIdsRef = useRef(new Set<string>());
   const dragStateRef = useRef<{
     id: string;
     name: string;
     count: number;
+    sessions: SessionSummary[];
+    expanded: boolean;
+    left: number;
+    width: number;
+    height: number;
     offsetY: number;
     startY: number;
     hasMoved: boolean;
@@ -857,72 +863,56 @@ function Sidebar({
         })),
       standaloneSessions: sortSessions(standalone)
     };
-  }, [activeSessionId, pinnedSessionIds, projectOptions, sessions]);
+  }, [pinnedSessionIds, projectOptions, sessions]);
 
   projectGroupsRef.current = projectGroups;
 
+  useLayoutEffect(() => {
+    const previousRects = projectFlipRectsRef.current;
+    const nextRects = new Map<string, DOMRect>();
+
+    projectGroups.forEach((group) => {
+      const node = projectNodeRefs.current.get(group.id);
+      if (!node) return;
+      const nextRect = node.getBoundingClientRect();
+      nextRects.set(group.id, nextRect);
+      if (group.id === draggingProjectId) return;
+      const previousRect = previousRects.get(group.id);
+      if (!previousRect) return;
+      const deltaY = previousRect.top - nextRect.top;
+      if (Math.abs(deltaY) < 0.5) return;
+      if (document.body.classList.contains("reduce-motion")) return;
+      node.animate(
+        [
+          { transform: `translateY(${deltaY}px)` },
+          { transform: "translateY(0)" }
+        ],
+        {
+          duration: 260,
+          easing: "cubic-bezier(0.16, 1, 0.3, 1)"
+        }
+      );
+    });
+
+    projectFlipRectsRef.current = nextRects;
+  }, [projectGroups, draggingProjectId]);
+
   useEffect(() => {
+    const nextKnownProjectIds = new Set(projectGroups.map((group) => group.id));
+    const newlyDiscoveredProjectIds = projectGroups
+      .filter((group) => !knownProjectIdsRef.current.has(group.id))
+      .map((group) => group.id);
+    knownProjectIdsRef.current = nextKnownProjectIds;
+
     setExpandedProjectIds((current) => {
-      const known = new Set(projectGroups.map((group) => group.id));
-      const kept = current.filter((id) => known.has(id));
-      const missing = projectGroups
-        .filter((group) => !kept.includes(group.id))
-        .map((group) => group.id);
-      return [...kept, ...missing];
+      const kept = current.filter((id) => nextKnownProjectIds.has(id));
+      const next = [
+        ...kept,
+        ...newlyDiscoveredProjectIds.filter((id) => !kept.includes(id))
+      ];
+      return next;
     });
   }, [projectGroups]);
-
-  useEffect(() => {
-    if (!draggingProjectId) return;
-
-    const handlePointerMove = (event: PointerEvent) => {
-      const dragState = dragStateRef.current;
-      if (!dragState) return;
-      event.preventDefault();
-      const nextY = event.clientY - dragState.offsetY;
-      const moved = Math.abs(event.clientY - dragState.startY) > 3;
-      if (moved) {
-        dragState.hasMoved = true;
-        suppressProjectClickRef.current = true;
-      }
-      setDragGhost((current) => current ? { ...current, y: nextY } : current);
-
-      const groups = projectGroupsRef.current.filter((group) => group.id !== dragState.id);
-      if (groups.length === 0) return;
-
-      let targetId = groups[groups.length - 1].id;
-      let placement: "before" | "after" = "after";
-      for (const group of groups) {
-        const node = projectNodeRefs.current.get(group.id);
-        if (!node) continue;
-        const rect = node.getBoundingClientRect();
-        if (event.clientY < rect.top + rect.height / 2) {
-          targetId = group.id;
-          placement = "before";
-          break;
-        }
-      }
-      onProjectReorder(dragState.id, targetId, placement);
-    };
-
-    const handlePointerUp = () => {
-      dragStateRef.current = null;
-      setDraggingProjectId(null);
-      setDragGhost(null);
-      window.setTimeout(() => {
-        suppressProjectClickRef.current = false;
-      }, 0);
-    };
-
-    window.addEventListener("pointermove", handlePointerMove, { passive: false });
-    window.addEventListener("pointerup", handlePointerUp);
-    window.addEventListener("pointercancel", handlePointerUp);
-    return () => {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerUp);
-      window.removeEventListener("pointercancel", handlePointerUp);
-    };
-  }, [draggingProjectId, onProjectReorder]);
 
   // Helper render method for a session item
   const renderSessionItem = (session: SessionSummary) => {
@@ -987,10 +977,91 @@ function Sidebar({
     );
   };
 
+  const beginProjectPointerTracking = (
+    group: { id: string; name: string; sessions: SessionSummary[] },
+    event: React.PointerEvent<HTMLButtonElement>
+  ) => {
+    if (event.button !== 0) return;
+    const groupNode = projectNodeRefs.current.get(group.id);
+    const rect = (groupNode ?? event.currentTarget).getBoundingClientRect();
+    const isExpandedAtStart = expandedProjectIds.includes(group.id);
+    dragStateRef.current = {
+      id: group.id,
+      name: group.name,
+      count: group.sessions.length,
+      sessions: group.sessions,
+      expanded: isExpandedAtStart,
+      left: rect.left,
+      width: rect.width,
+      height: rect.height,
+      offsetY: event.clientY - rect.top,
+      startY: event.clientY,
+      hasMoved: false
+    };
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const dragState = dragStateRef.current;
+      if (!dragState) return;
+      const moved = Math.abs(moveEvent.clientY - dragState.startY) > 4;
+      if (!dragState.hasMoved) {
+        if (!moved) return;
+        dragState.hasMoved = true;
+        suppressProjectClickRef.current = true;
+        setDraggingProjectId(dragState.id);
+        setDragGhost({
+          name: dragState.name,
+          count: dragState.count,
+          sessions: dragState.sessions,
+          expanded: dragState.expanded,
+          left: dragState.left,
+          width: dragState.width,
+          height: dragState.height,
+          y: moveEvent.clientY - dragState.offsetY
+        });
+      }
+
+      moveEvent.preventDefault();
+      setDragGhost((current) =>
+        current ? { ...current, y: moveEvent.clientY - dragState.offsetY } : current
+      );
+
+      const groups = projectGroupsRef.current.filter((item) => item.id !== dragState.id);
+      if (groups.length === 0) return;
+
+      let targetId = groups[groups.length - 1].id;
+      let placement: "before" | "after" = "after";
+      for (const item of groups) {
+        const node = projectNodeRefs.current.get(item.id);
+        if (!node) continue;
+        const itemRect = node.getBoundingClientRect();
+        if (moveEvent.clientY < itemRect.top + itemRect.height / 2) {
+          targetId = item.id;
+          placement = "before";
+          break;
+        }
+      }
+      onProjectReorder(dragState.id, targetId, placement);
+    };
+
+    const finishPointerTracking = () => {
+      dragStateRef.current = null;
+      setDraggingProjectId(null);
+      setDragGhost(null);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", finishPointerTracking);
+      window.removeEventListener("pointercancel", finishPointerTracking);
+      window.setTimeout(() => {
+        suppressProjectClickRef.current = false;
+      }, 0);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove, { passive: false });
+    window.addEventListener("pointerup", finishPointerTracking);
+    window.addEventListener("pointercancel", finishPointerTracking);
+  };
+
   const renderProjectGroup = (group: { id: string; name: string; sessions: SessionSummary[] }) => {
-    const isDraggingActive = draggingProjectId !== null;
-    // Collapse all group items during dragging to maintain uniform 36px height
-    const expanded = isDraggingActive ? false : expandedProjectIds.includes(group.id);
+    const expanded = expandedProjectIds.includes(group.id);
     const hasActiveSession = group.sessions.some((session) => session.id === activeSessionId);
     const isDragging = draggingProjectId === group.id;
 
@@ -1015,28 +1086,10 @@ function Sidebar({
         <button
           className={`project-button ${hasActiveSession ? "active" : ""}`}
           onPointerDown={(event) => {
-            if (event.button !== 0) return;
-            const rect = event.currentTarget.getBoundingClientRect();
-            setDraggingProjectId(group.id);
-            dragStateRef.current = {
-              id: group.id,
-              name: group.name,
-              count: group.sessions.length,
-              offsetY: event.clientY - rect.top,
-              startY: event.clientY,
-              hasMoved: false
-            };
-            setDragGhost({
-              name: group.name,
-              count: group.sessions.length,
-              left: rect.left,
-              width: rect.width,
-              height: rect.height,
-              y: rect.top
-            });
+            beginProjectPointerTracking(group, event);
           }}
           onClick={(event) => {
-            if (suppressProjectClickRef.current || dragStateRef.current?.hasMoved) {
+            if (suppressProjectClickRef.current) {
               event.preventDefault();
               return;
             }
@@ -1053,14 +1106,19 @@ function Sidebar({
           <em>{group.sessions.length}</em>
           <ChevronDown className={expanded ? "expanded" : ""} size={15} />
         </button>
-        {expanded ? (
-          <div className="project-sessions">
-            {group.sessions.map(renderSessionItem)}
+        <div
+          className={`project-sessions-shell ${expanded ? "expanded" : "collapsed"}`}
+          aria-hidden={!expanded}
+        >
+          <div className="project-sessions-inner">
+            <div className="project-sessions">
+              {group.sessions.map(renderSessionItem)}
+            </div>
+            {group.sessions.length === 0 ? (
+              <div className="project-empty">{t("暂无会话", "No chats yet")}</div>
+            ) : null}
           </div>
-        ) : null}
-        {expanded && group.sessions.length === 0 ? (
-          <div className="project-empty">{t("暂无会话", "No chats yet")}</div>
-        ) : null}
+        </div>
       </div>
     );
   };
@@ -1157,7 +1215,7 @@ function Sidebar({
 
       {dragGhost && createPortal(
         <div
-          className="project-drag-ghost"
+          className={`project-drag-ghost ${dragGhost.expanded ? "expanded" : ""}`}
           style={{
             left: dragGhost.left,
             top: dragGhost.y,
@@ -1165,23 +1223,30 @@ function Sidebar({
             height: dragGhost.height
           }}
         >
-          <Folder size={16} />
-          <span>{dragGhost.name}</span>
-          <em>{dragGhost.count}</em>
+          <div className="project-drag-ghost-head">
+            <Folder size={16} />
+            <span>{dragGhost.name}</span>
+            <em>{dragGhost.count}</em>
+          </div>
+          {dragGhost.expanded ? (
+            <div className="project-drag-ghost-sessions">
+              {dragGhost.sessions.length > 0 ? (
+                dragGhost.sessions.map((session) => (
+                  <div className="project-drag-ghost-session" key={session.id}>
+                    <span>{session.title}</span>
+                    <em>{session.updatedAt}</em>
+                  </div>
+                ))
+              ) : (
+                <div className="project-drag-ghost-empty">{t("暂无会话", "No chats yet")}</div>
+              )}
+            </div>
+          ) : null}
         </div>,
         document.body
       )}
 
       <div className="sidebar-footer">
-        <button
-          className={`footer-button ${viewMode === "chat" ? "active" : ""}`}
-          onClick={() => onChangeView("chat")}
-          type="button"
-          title={t("对话", "Chat")}
-        >
-          <Bot size={17} />
-          {t("对话", "Chat")}
-        </button>
         <button
           className={`footer-button ${viewMode === "settings" ? "active" : ""}`}
           onClick={() => onChangeView("settings")}

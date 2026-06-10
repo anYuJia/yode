@@ -313,7 +313,7 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 }
 
 .project-group.dragging {
-  opacity: 0.32;
+  opacity: 0.18;
   cursor: grabbing;
 }
 
@@ -325,8 +325,7 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   position: fixed;
   z-index: 10000;
   display: flex;
-  align-items: center;
-  gap: 9px;
+  flex-direction: column;
   padding: 4px 8px;
   border: 1px solid var(--line-soft);
   border-radius: var(--radius);
@@ -335,20 +334,53 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   box-shadow: var(--shadow-raised);
   pointer-events: none;
   opacity: 0.96;
+  overflow: hidden;
 }
 
-.project-drag-ghost span {
+.project-drag-ghost-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 28px;
+}
+
+.project-drag-ghost-head span,
+.project-drag-ghost-session span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.project-drag-ghost em {
+.project-drag-ghost-head em,
+.project-drag-ghost-session em {
   margin-left: auto;
   color: var(--text-soft);
   font-size: 10.5px;
   font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.project-drag-ghost-sessions {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 1px 0 5px 18px;
+}
+
+.project-drag-ghost-session {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.project-drag-ghost-empty {
+  margin: 2px 8px 6px 0;
+  color: var(--text-soft);
+  font-size: 10.5px;
 }
 
 .project-button span {
@@ -413,10 +445,35 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   flex-direction: column;
   gap: 1px;
   transition:
-    opacity 140ms ease,
-    transform 160ms cubic-bezier(0.2, 0, 0, 1),
-    background-color 160ms ease;
+    opacity 180ms ease,
+    background-color 220ms ease;
   will-change: transform;
+}
+
+.project-sessions-shell {
+  display: grid;
+  grid-template-rows: 0fr;
+  min-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(-3px);
+  pointer-events: none;
+  transition:
+    grid-template-rows 260ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 210ms ease,
+    transform 260ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.project-sessions-shell.expanded {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.project-sessions-inner {
+  min-height: 0;
+  overflow: hidden;
 }
 
 .project-sessions {
