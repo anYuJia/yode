@@ -40,6 +40,7 @@ import {
   Pin
 } from "lucide-react";
 import React, { useEffect, useMemo, useState, useRef } from "react";
+import { createPortal } from "react-dom";
 
 import {
   Bootstrap,
@@ -650,7 +651,7 @@ function Sidebar({
       </div>
 
       {/* Hover info popover card */}
-      {hoveredSessionId && hoverPosition && (
+      {hoveredSessionId && hoverPosition && createPortal(
         <div
           className="session-popover"
           style={{
@@ -697,7 +698,8 @@ function Sidebar({
               </div>
             );
           })()}
-        </div>
+        </div>,
+        document.body
       )}
 
       <div className="sidebar-footer">
