@@ -421,6 +421,7 @@ export function App() {
           onCancelMessage={handleCancelMessage}
           permissionMode={permissionMode}
           onPermissionModeChange={handlePermissionModeChange}
+          appLang={appLang}
         />
         <TerminalDrawer isOpen={terminalOpen} onClose={() => setTerminalOpen(false)} />
       </section>
@@ -814,7 +815,8 @@ function ChatWorkspace({
   isProcessing,
   onCancelMessage,
   permissionMode,
-  onPermissionModeChange
+  onPermissionModeChange,
+  appLang
 }: {
   draft: string;
   timelineItems: TimelineItem[];
@@ -825,6 +827,7 @@ function ChatWorkspace({
   onCancelMessage: () => void;
   permissionMode: string;
   onPermissionModeChange: (mode: string) => void;
+  appLang: string;
 }) {
   // Check if assistant is currently streaming (has any running status or last item kind is not fully completed)
   const isStreaming = useMemo(() => {
@@ -880,7 +883,7 @@ function ChatWorkspace({
 
             return (
               <React.Fragment key={item.id}>
-                <TimelineNode item={item} />
+                <TimelineNode item={item} appLang={appLang} />
                 {showToggle && (
                   <div 
                     onClick={() => setIsCollapsed(false)}
@@ -939,7 +942,7 @@ function ChatWorkspace({
         </section>
         {activePermission ? (
           <div className="permission-dock" aria-label="执行确认">
-            <PermissionActions item={activePermission} />
+            <PermissionActions item={activePermission} appLang={appLang} />
           </div>
         ) : null}
         <Composer
@@ -950,6 +953,7 @@ function ChatWorkspace({
           onCancelMessage={onCancelMessage}
           permissionMode={permissionMode}
           onPermissionModeChange={onPermissionModeChange}
+          appLang={appLang}
         />
       </div>
       <RunInspector />
@@ -957,7 +961,7 @@ function ChatWorkspace({
   );
 }
 
-function TimelineNode({ item }: { item: TimelineItem }) {
+function TimelineNode({ item, appLang }: { item: TimelineItem; appLang: string }) {
   if (item.kind === "boundary") {
     return (
       <div className="boundary-node">
@@ -1033,7 +1037,7 @@ function TimelineNode({ item }: { item: TimelineItem }) {
         </div>
         <p>{item.body}</p>
         {item.kind === "tool" ? <ToolMeta item={item} /> : null}
-        {item.kind === "permission" ? <PermissionActions item={item} /> : null}
+        {item.kind === "permission" ? <PermissionActions item={item} appLang={appLang} /> : null}
       </div>
     </article>
   );
@@ -1052,25 +1056,29 @@ function ToolMeta({ item }: { item: Extract<TimelineItem, { kind: "tool" }> }) {
 }
 
 function PermissionActions({
-  item
+  item,
+  appLang
 }: {
   item: Extract<TimelineItem, { kind: "permission" }>;
+  appLang: string;
 }) {
+  const isZh = appLang === "zh";
+
   const options = [
     {
       id: "allow_once",
-      label: "Yes, allow this time",
-      description: "仅允许本次执行"
+      label: isZh ? "允许本次执行" : "Yes, allow this time",
+      description: isZh ? "仅允许本次执行" : "Only allow this execution"
     },
     {
       id: "always_allow",
-      label: "Yes, always allow this command",
-      description: "后续同类命令不再询问"
+      label: isZh ? "总是允许此命令" : "Yes, always allow this command",
+      description: isZh ? "后续同类命令不再询问" : "Do not ask again for similar commands"
     },
     {
       id: "deny",
-      label: "No",
-      description: "告诉 agent 改用其他方式"
+      label: isZh ? "拒绝并改用其他方式" : "No",
+      description: isZh ? "告诉 agent 改用其他方式" : "Tell agent to use another way"
     }
   ] as const;
 
@@ -1115,7 +1123,7 @@ function PermissionActions({
     <div className="permission-prompt">
       <div className="permission-prompt-title">
         <TerminalSquare size={16} />
-        <span>Allow running this command?</span>
+        <span>{isZh ? "允许运行此命令吗？" : "Allow running this command?"}</span>
       </div>
       <pre className="permission-command">{item.body || item.tool}</pre>
       <div className="permission-option-list">
@@ -1131,6 +1139,7 @@ function PermissionActions({
               respond(option.id);
             }}
             type="button"
+            style={{ outline: "none", boxShadow: "none" }}
           >
             <kbd>{index + 1}</kbd>
             <span>{option.label}</span>
@@ -1139,11 +1148,11 @@ function PermissionActions({
         ))}
       </div>
       <div className="permission-prompt-footer">
-        <button className="permission-skip" onClick={() => respond("deny")} type="button">
-          Skip
+        <button className="permission-skip" onClick={() => respond("deny")} type="button" style={{ outline: "none", boxShadow: "none" }}>
+          {isZh ? "跳过" : "Skip"}
         </button>
-        <button className="permission-submit" onClick={() => respond(selectedOption.id)} type="button">
-          Submit
+        <button className="permission-submit" onClick={() => respond(selectedOption.id)} type="button" style={{ outline: "none", boxShadow: "none" }}>
+          {isZh ? "提交" : "Submit"}
           <span>↵</span>
         </button>
       </div>
@@ -1164,7 +1173,8 @@ function Composer({
   isProcessing,
   onCancelMessage,
   permissionMode,
-  onPermissionModeChange
+  onPermissionModeChange,
+  appLang
 }: {
   draft: string;
   onDraftChange: (value: string) => void;
@@ -1173,27 +1183,30 @@ function Composer({
   onCancelMessage: () => void;
   permissionMode: string;
   onPermissionModeChange: (mode: string) => void;
+  appLang: string;
 }) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  const isZh = appLang === "zh";
+
   const OPTIONS = [
     {
       key: "default",
-      label: "Ask for approval",
-      description: "Always ask to edit external files and use the internet",
+      label: isZh ? "每次询问" : "Ask for approval",
+      description: isZh ? "修改外部文件及使用网络时，总是需要确认" : "Always ask to edit external files and use the internet",
       icon: <Hand size={15} />
     },
     {
       key: "auto",
-      label: "Approve for me",
-      description: "Only ask for actions detected as potentially unsafe",
+      label: isZh ? "自动授权安全操作" : "Approve for me",
+      description: isZh ? "仅对检测到存在潜在风险的操作进行询问" : "Only ask for actions detected as potentially unsafe",
       icon: <Shield size={15} />
     },
     {
       key: "bypass",
-      label: "Full access",
-      description: "Unrestricted access to the internet and any file on your computer",
+      label: isZh ? "完全信任" : "Full access",
+      description: isZh ? "不受限制地访问网络及您计算机上的任何文件" : "Unrestricted access to the internet and any file on your computer",
       icon: <AlertCircle size={15} />
     }
   ];
@@ -1220,7 +1233,7 @@ function Composer({
     <footer className="composer" style={{ position: "relative" }}>
       <textarea
         aria-label="消息"
-        placeholder="输入仓库任务..."
+        placeholder={isZh ? "输入仓库任务..." : "Enter repository task..."}
         value={draft}
         onChange={(event) => onDraftChange(event.target.value)}
         onKeyDown={(event) => {
@@ -1248,7 +1261,7 @@ function Composer({
       />
       <div className="composer-toolbar">
         <div className="composer-tools" style={{ position: "relative" }}>
-          <button className="icon-button" type="button" title="附件">
+          <button className="icon-button" type="button" title={isZh ? "附件" : "Attachment"} style={{ outline: "none", boxShadow: "none" }}>
             <Paperclip size={17} />
           </button>
           
@@ -1262,7 +1275,9 @@ function Composer({
                 alignItems: "center",
                 gap: "6px",
                 cursor: "pointer",
-                position: "relative"
+                position: "relative",
+                outline: "none",
+                boxShadow: "none"
               }}
             >
               {currentOption.icon}
@@ -1303,7 +1318,7 @@ function Composer({
                       fontWeight: 500
                     }}
                   >
-                    How should Codex actions be approved?
+                    {isZh ? "如何授权 Codex 的操作？" : "How should Codex actions be approved?"}
                   </span>
                   <a
                     href="#"
@@ -1314,7 +1329,7 @@ function Composer({
                       textDecoration: "underline"
                     }}
                   >
-                    Learn more
+                    {isZh ? "了解更多" : "Learn more"}
                   </a>
                 </div>
 
@@ -1340,7 +1355,9 @@ function Composer({
                           borderRadius: "6px",
                           textAlign: "left",
                           cursor: "pointer",
-                          transition: "background 0.2s"
+                          transition: "background 0.2s",
+                          outline: "none",
+                          boxShadow: "none"
                         }}
                         className="dropdown-option-btn"
                       >
@@ -1366,18 +1383,18 @@ function Composer({
             )}
           </div>
 
-          <button className="mode-chip" type="button">
+          <button className="mode-chip" type="button" style={{ outline: "none", boxShadow: "none" }}>
             <Bot size={15} />
             sonnet
           </button>
         </div>
         <div className="composer-actions">
           {isProcessing ? (
-            <button className="send-button stop-button" onClick={onCancelMessage} type="button" title="终止" style={{ background: "color-mix(in oklch, var(--error), transparent 30%)", borderColor: "color-mix(in oklch, var(--error), transparent 10%)" }}>
+            <button className="send-button stop-button" onClick={onCancelMessage} type="button" title={isZh ? "终止" : "Stop"} style={{ background: "color-mix(in oklch, var(--error), transparent 30%)", borderColor: "color-mix(in oklch, var(--error), transparent 10%)", outline: "none", boxShadow: "none" }}>
               <Pause size={17} />
             </button>
           ) : (
-            <button className="send-button" onClick={onSendMessage} type="button" title="发送">
+            <button className="send-button" onClick={onSendMessage} type="button" title={isZh ? "发送" : "Send"} style={{ outline: "none", boxShadow: "none" }}>
               <Send size={17} />
             </button>
           )}
