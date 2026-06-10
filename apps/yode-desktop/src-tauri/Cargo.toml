@@ -27,5 +27,5 @@ yode-mcp = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
-
+rfd = "0.15"
 

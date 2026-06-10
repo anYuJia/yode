@@ -9,15 +9,15 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde_json::json;
 use tauri::{AppHandle, Emitter};
-use uuid::Uuid;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
+use uuid::Uuid;
 
 use yode_core::config::Config;
-use yode_core::db::{Database, StoredMessage};
-use yode_core::session::Session;
 use yode_core::context::AgentContext;
+use yode_core::db::{Database, StoredMessage};
 use yode_core::engine::{AgentEngine, ConfirmResponse, EngineEvent};
 use yode_core::permission::{PermissionManager, PermissionRule, RuleBehavior, RuleSource};
+use yode_core::session::Session;
 use yode_llm::registry::ProviderRegistry;
 use yode_tools::registry::ToolRegistry;
 use yode_tools::tool::McpResourceProvider;
@@ -58,14 +58,18 @@ impl DesktopRuntime {
             .join(".yode")
             .join("sessions.db");
 
-        let config = Config::load().unwrap_or_else(|_| {
-            Config::load_from(None).expect("failed to load default config")
-        });
+        let config = Config::load()
+            .unwrap_or_else(|_| Config::load_from(None).expect("failed to load default config"));
 
         let provider_registry = bootstrap_providers(&config);
-        let (tool_registry, mcp_resource_provider) = setup_desktop_tooling(&config, &workspace_path);
+        let (tool_registry, mcp_resource_provider) =
+            setup_desktop_tooling(&config, &workspace_path);
 
-        let default_mode = config.permissions.default_mode.clone().unwrap_or_else(|| "Default".to_string());
+        let default_mode = config
+            .permissions
+            .default_mode
+            .clone()
+            .unwrap_or_else(|| "Default".to_string());
 
         Ok(Self {
             config,
@@ -123,8 +127,12 @@ impl DesktopRuntime {
             id: Uuid::new_v4().to_string(),
             name: request.title.or_else(|| Some("桌面端会话".to_string())),
             project_root: request.project_root,
-            provider: request.provider.unwrap_or_else(|| self.config.llm.default_provider.clone()),
-            model: request.model.unwrap_or_else(|| self.config.llm.default_model.clone()),
+            provider: request
+                .provider
+                .unwrap_or_else(|| self.config.llm.default_provider.clone()),
+            model: request
+                .model
+                .unwrap_or_else(|| self.config.llm.default_model.clone()),
             created_at: now,
             updated_at: now,
         };
@@ -172,23 +180,60 @@ impl DesktopRuntime {
             anyhow::bail!("message content cannot be empty");
         }
 
-        let session = self
-            .db
-            .get_session(&request.session_id)?
-            .with_context(|| format!("session '{}' not found", request.session_id))?;
+        let now = Utc::now();
+        let session = if let Some(session_id) = request
+            .session_id
+            .as_deref()
+            .filter(|id| !id.trim().is_empty())
+        {
+            self.db
+                .get_session(session_id)?
+                .with_context(|| format!("session '{}' not found", session_id))?
+        } else {
+            let session = Session {
+                id: Uuid::new_v4().to_string(),
+                name: request
+                    .title
+                    .filter(|title| !title.trim().is_empty())
+                    .or_else(|| Some(title_from_content(&content))),
+                project_root: if request.standalone.unwrap_or(false) {
+                    None
+                } else {
+                    request
+                        .project_root
+                        .filter(|root| !root.trim().is_empty())
+                        .or_else(|| Some(self.workspace_path.display().to_string()))
+                },
+                provider: request
+                    .provider
+                    .unwrap_or_else(|| self.config.llm.default_provider.clone()),
+                model: request
+                    .model
+                    .unwrap_or_else(|| self.config.llm.default_model.clone()),
+                created_at: now,
+                updated_at: now,
+            };
+            self.db.create_session(&session)?;
+            session
+        };
 
         self.set_active_session(session.id.clone())?;
         self.db
             .save_message(&session.id, "user", Some(&content), None, None, None)?;
         self.db.touch_session(&session.id)?;
+        let accepted_session = self.map_session(session.clone(), Some(session.id.as_str()));
 
         let turn_id = Uuid::new_v4().to_string();
         let session_id = session.id.clone();
         let emit_turn_id = turn_id.clone();
         let seq_base = self.seq.fetch_add(100, Ordering::SeqCst);
 
-        let provider = self.provider_registry.get(&session.provider)
-            .ok_or_else(|| anyhow::anyhow!("Provider '{}' not found in registry", session.provider))?;
+        let provider = self
+            .provider_registry
+            .get(&session.provider)
+            .ok_or_else(|| {
+                anyhow::anyhow!("Provider '{}' not found in registry", session.provider)
+            })?;
 
         let mut permissions = configure_desktop_permissions(&self.config, &self.workspace_path);
         if let Ok(active_mode_guard) = self.permission_mode.lock() {
@@ -222,14 +267,23 @@ impl DesktopRuntime {
 
         let (confirm_tx, confirm_rx) = unbounded_channel::<ConfirmResponse>();
         {
-            let mut txs = self.confirm_txs.lock().map_err(|_| anyhow::anyhow!("poisoned"))?;
+            let mut txs = self
+                .confirm_txs
+                .lock()
+                .map_err(|_| anyhow::anyhow!("poisoned"))?;
             txs.insert((session_id.clone(), emit_turn_id.clone()), confirm_tx);
         }
 
         let cancel_token = tokio_util::sync::CancellationToken::new();
         {
-            let mut tokens = self.cancel_tokens.lock().map_err(|_| anyhow::anyhow!("poisoned"))?;
-            tokens.insert((session_id.clone(), emit_turn_id.clone()), cancel_token.clone());
+            let mut tokens = self
+                .cancel_tokens
+                .lock()
+                .map_err(|_| anyhow::anyhow!("poisoned"))?;
+            tokens.insert(
+                (session_id.clone(), emit_turn_id.clone()),
+                cancel_token.clone(),
+            );
         }
 
         let confirm_txs_clone = self.confirm_txs.clone();
@@ -268,15 +322,18 @@ impl DesktopRuntime {
 
                 let session_id_str = session_id.clone();
                 let turn_id_str = emit_turn_id.clone();
-                
+
                 let handle = tokio::spawn(async move {
-                    if let Err(err) = engine.run_turn_streaming(
-                        &content,
-                        yode_core::context::QuerySource::User,
-                        event_tx,
-                        confirm_rx,
-                        Some(cancel_token),
-                    ).await {
+                    if let Err(err) = engine
+                        .run_turn_streaming(
+                            &content,
+                            yode_core::context::QuerySource::User,
+                            event_tx,
+                            confirm_rx,
+                            Some(cancel_token),
+                        )
+                        .await
+                    {
                         tracing::error!("AgentEngine run_turn_streaming failed: {}", err);
                     }
                 });
@@ -290,71 +347,91 @@ impl DesktopRuntime {
                         EngineEvent::TextDelta(text) => {
                             ("assistant_text_delta", json!({ "body": text }))
                         }
-                        EngineEvent::TextComplete(text) => {
-                            ("assistant_text_complete", json!({ "body": text, "status": "completed" }))
-                        }
+                        EngineEvent::TextComplete(text) => (
+                            "assistant_text_complete",
+                            json!({ "body": text, "status": "completed" }),
+                        ),
                         EngineEvent::ReasoningDelta(reasoning) => {
                             ("assistant_reasoning_delta", json!({ "body": reasoning }))
                         }
-                        EngineEvent::ReasoningComplete(reasoning) => {
-                            ("assistant_reasoning_complete", json!({ "body": reasoning, "status": "completed" }))
-                        }
-                        EngineEvent::ToolCallStart { id, name, arguments } => {
-                            ("tool_started", json!({
+                        EngineEvent::ReasoningComplete(reasoning) => (
+                            "assistant_reasoning_complete",
+                            json!({ "body": reasoning, "status": "completed" }),
+                        ),
+                        EngineEvent::ToolCallStart {
+                            id,
+                            name,
+                            arguments,
+                        } => (
+                            "tool_started",
+                            json!({
                                 "id": id,
                                 "tool": name,
                                 "title": format!("调用工具: {}", name),
                                 "body": arguments,
                                 "status": "running"
-                            }))
-                        }
-                        EngineEvent::ToolConfirmRequired { id, name, arguments } => {
+                            }),
+                        ),
+                        EngineEvent::ToolConfirmRequired {
+                            id,
+                            name,
+                            arguments,
+                        } => {
                             if let Ok(mut pending) = pending_confirmations_clone.lock() {
-                                pending.insert((session_id_str.clone(), turn_id_str.clone()), PendingConfirmation {
-                                    tool_name: name.clone(),
-                                    command: extract_command_for_permission(&name, &arguments),
-                                });
+                                pending.insert(
+                                    (session_id_str.clone(), turn_id_str.clone()),
+                                    PendingConfirmation {
+                                        tool_name: name.clone(),
+                                        command: extract_command_for_permission(&name, &arguments),
+                                    },
+                                );
                             }
-                            ("tool_confirm_required", json!({
-                                "id": id,
-                                "tool": name,
-                                "title": format!("请求执行工具: {}", name),
-                                "body": arguments,
-                                "meta": "危险操作需要授权"
-                            }))
+                            (
+                                "tool_confirm_required",
+                                json!({
+                                    "id": id,
+                                    "tool": name,
+                                    "title": format!("请求执行工具: {}", name),
+                                    "body": arguments,
+                                    "meta": "危险操作需要授权"
+                                }),
+                            )
                         }
-                        EngineEvent::ToolProgress { id, name, progress } => {
-                            ("tool_progress", json!({
+                        EngineEvent::ToolProgress { id, name, progress } => (
+                            "tool_progress",
+                            json!({
                                 "id": id,
                                 "tool": name,
                                 "title": format!("工具进度: {}", name),
                                 "body": progress.message
-                            }))
-                        }
+                            }),
+                        ),
                         EngineEvent::ToolResult { id, name, result } => {
                             let (status, body) = if result.is_error {
                                 ("blocked", format!("错误: {:?}", result))
                             } else {
                                 ("success", format!("{:?}", result))
                             };
-                            ("tool_result", json!({
-                                "id": id,
-                                "tool": name,
-                                "title": format!("工具返回: {}", name),
-                                "body": body,
-                                "status": status
-                            }))
+                            (
+                                "tool_result",
+                                json!({
+                                    "id": id,
+                                    "tool": name,
+                                    "title": format!("工具返回: {}", name),
+                                    "body": body,
+                                    "status": status
+                                }),
+                            )
                         }
-                        EngineEvent::TurnComplete(response) => {
-                            ("turn_completed", json!({
+                        EngineEvent::TurnComplete(response) => (
+                            "turn_completed",
+                            json!({
                                 "status": "completed",
                                 "toolCalls": format!("{}", response.usage.completion_tokens),
                                 "contextPercent": 0
-                            }))
-                        }
-                        EngineEvent::Error(err_msg) => {
-                            ("error", json!({ "body": err_msg }))
-                        }
+                            }),
+                        ),
+                        EngineEvent::Error(err_msg) => ("error", json!({ "body": err_msg })),
                         _ => continue,
                     };
 
@@ -377,7 +454,8 @@ impl DesktopRuntime {
                     txs.remove(&(session_id.clone(), emit_turn_id.clone()));
                 }
                 if let Ok(mut tokens) = cancel_tokens_clone.lock() {
-                    let _: Option<tokio_util::sync::CancellationToken> = tokens.remove(&(session_id.clone(), emit_turn_id.clone()));
+                    let _: Option<tokio_util::sync::CancellationToken> =
+                        tokens.remove(&(session_id.clone(), emit_turn_id.clone()));
                 }
                 if let Ok(mut pending) = pending_confirmations_clone.lock() {
                     pending.remove(&(session_id.clone(), emit_turn_id.clone()));
@@ -388,10 +466,17 @@ impl DesktopRuntime {
         Ok(TurnAccepted {
             session_id: session.id,
             turn_id,
+            session: accepted_session,
         })
     }
 
-    pub fn permission_respond(&self, session_id: String, turn_id: String, allow: bool, always_allow: bool) -> Result<()> {
+    pub fn permission_respond(
+        &self,
+        session_id: String,
+        turn_id: String,
+        allow: bool,
+        always_allow: bool,
+    ) -> Result<()> {
         if allow && always_allow {
             if let Ok(mut pending) = self.pending_confirmations.lock() {
                 if let Some(request) = pending.remove(&(session_id.clone(), turn_id.clone())) {
@@ -412,7 +497,10 @@ impl DesktopRuntime {
             }
         }
 
-        let mut txs = self.confirm_txs.lock().map_err(|_| anyhow::anyhow!("poisoned"))?;
+        let mut txs = self
+            .confirm_txs
+            .lock()
+            .map_err(|_| anyhow::anyhow!("poisoned"))?;
         if let Some(tx) = txs.remove(&(session_id, turn_id)) {
             let response = if allow && always_allow {
                 ConfirmResponse::AllowAlways
@@ -427,7 +515,10 @@ impl DesktopRuntime {
     }
 
     pub fn turn_cancel(&self, session_id: String, turn_id: String) -> Result<()> {
-        let mut tokens = self.cancel_tokens.lock().map_err(|_| anyhow::anyhow!("poisoned"))?;
+        let mut tokens = self
+            .cancel_tokens
+            .lock()
+            .map_err(|_| anyhow::anyhow!("poisoned"))?;
         if let Some(token) = tokens.remove(&(session_id, turn_id)) {
             let token: tokio_util::sync::CancellationToken = token;
             token.cancel();
@@ -454,6 +545,7 @@ impl DesktopRuntime {
                 .project_root
                 .as_deref()
                 .and_then(project_label_from_root),
+            project_root: session.project_root.clone(),
             provider: session.provider,
             model: session.model,
             updated_at: relative_time(session.updated_at),
@@ -504,7 +596,11 @@ fn bootstrap_providers(config: &Config) -> Arc<ProviderRegistry> {
 
         match p_config.format.as_str() {
             "anthropic" => {
-                registry.register(Arc::new(yode_llm::providers::anthropic::AnthropicProvider::new(name, &api_key, &base_url)));
+                registry.register(Arc::new(
+                    yode_llm::providers::anthropic::AnthropicProvider::new(
+                        name, &api_key, &base_url,
+                    ),
+                ));
             }
             "gemini" => {
                 let mut provider = yode_llm::providers::gemini::GeminiProvider::new(&api_key);
@@ -514,17 +610,22 @@ fn bootstrap_providers(config: &Config) -> Arc<ProviderRegistry> {
                 registry.register(Arc::new(provider));
             }
             _ => {
-                registry.register(Arc::new(yode_llm::providers::openai::OpenAiProvider::new(name, &api_key, &base_url)));
+                registry.register(Arc::new(yode_llm::providers::openai::OpenAiProvider::new(
+                    name, &api_key, &base_url,
+                )));
             }
         }
     }
     Arc::new(registry)
 }
 
-fn setup_desktop_tooling(config: &Config, workdir: &std::path::Path) -> (Arc<ToolRegistry>, Option<Arc<dyn McpResourceProvider>>) {
+fn setup_desktop_tooling(
+    config: &Config,
+    workdir: &std::path::Path,
+) -> (Arc<ToolRegistry>, Option<Arc<dyn McpResourceProvider>>) {
     let tool_registry = ToolRegistry::new();
     yode_tools::builtin::register_builtin_tools(&tool_registry);
-    
+
     let mut mcp_clients = Vec::new();
     for (name, server_config) in &config.mcp.servers {
         if server_config.disabled {
@@ -536,29 +637,34 @@ fn setup_desktop_tooling(config: &Config, workdir: &std::path::Path) -> (Arc<Too
                 yode_core::config::McpTransportConfig::Stdio => yode_mcp::McpTransportConfig::Stdio,
                 yode_core::config::McpTransportConfig::Sse => yode_mcp::McpTransportConfig::Sse,
                 yode_core::config::McpTransportConfig::Http => yode_mcp::McpTransportConfig::Http,
-                yode_core::config::McpTransportConfig::Websocket => yode_mcp::McpTransportConfig::Websocket,
+                yode_core::config::McpTransportConfig::Websocket => {
+                    yode_mcp::McpTransportConfig::Websocket
+                }
             },
             command: server_config.command.clone(),
             args: server_config.args.clone(),
             env: server_config.env.clone(),
             url: server_config.url.clone(),
-            auth: server_config.auth.as_ref().map(|auth| yode_mcp::McpAuthConfig {
-                oauth: auth.oauth.as_ref().map(|oauth| yode_mcp::McpOAuthConfig {
-                    client_id: oauth.client_id.clone(),
-                    authorization_url: oauth.authorization_url.clone(),
-                    token_url: oauth.token_url.clone(),
-                    scopes: oauth.scopes.clone(),
+            auth: server_config
+                .auth
+                .as_ref()
+                .map(|auth| yode_mcp::McpAuthConfig {
+                    oauth: auth.oauth.as_ref().map(|oauth| yode_mcp::McpOAuthConfig {
+                        client_id: oauth.client_id.clone(),
+                        authorization_url: oauth.authorization_url.clone(),
+                        token_url: oauth.token_url.clone(),
+                        scopes: oauth.scopes.clone(),
+                    }),
+                    bearer_token_env: auth.bearer_token_env.clone(),
                 }),
-                bearer_token_env: auth.bearer_token_env.clone(),
-            }),
         };
-        
+
         if let Ok(client) = tauri::async_runtime::block_on(async {
             yode_mcp::McpClient::connect(name, &mcp_config).await
         }) {
-            if let Ok(wrappers) = tauri::async_runtime::block_on(async {
-                client.discover_wrapped_tools().await
-            }) {
+            if let Ok(wrappers) =
+                tauri::async_runtime::block_on(async { client.discover_wrapped_tools().await })
+            {
                 for wrapper in wrappers {
                     tool_registry.register(wrapper);
                 }
@@ -592,7 +698,10 @@ fn setup_desktop_tooling(config: &Config, workdir: &std::path::Path) -> (Arc<Too
     yode_tools::builtin::register_skill_tool(&tool_registry, store);
 
     let mcp_resource_provider = if !mcp_clients.is_empty() {
-        Some(Arc::new(yode_mcp::McpClientResourceProvider::new(mcp_clients)) as Arc<dyn McpResourceProvider>)
+        Some(
+            Arc::new(yode_mcp::McpClientResourceProvider::new(mcp_clients))
+                as Arc<dyn McpResourceProvider>,
+        )
     } else {
         None
     };
@@ -601,7 +710,8 @@ fn setup_desktop_tooling(config: &Config, workdir: &std::path::Path) -> (Arc<Too
 }
 
 fn configure_desktop_permissions(config: &Config, _workdir: &std::path::Path) -> PermissionManager {
-    let mut permissions = PermissionManager::from_confirmation_list(config.tools.require_confirmation.clone());
+    let mut permissions =
+        PermissionManager::from_confirmation_list(config.tools.require_confirmation.clone());
     if let Some(mode_str) = &config.permissions.default_mode {
         if let Ok(mode) = mode_str.parse::<yode_core::permission::PermissionMode>() {
             permissions.set_mode(mode);
@@ -657,6 +767,22 @@ fn project_label_from_root(project_root: &str) -> Option<String> {
         .and_then(|name| name.to_str())
         .filter(|name| !name.trim().is_empty())
         .map(str::to_string)
+}
+
+fn title_from_content(content: &str) -> String {
+    let title = content
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(28)
+        .collect::<String>();
+
+    if title.is_empty() {
+        "新对话".to_string()
+    } else {
+        title
+    }
 }
 
 fn stored_message_to_message(message: StoredMessage) -> Option<yode_llm::types::Message> {

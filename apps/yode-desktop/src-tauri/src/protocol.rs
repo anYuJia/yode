@@ -18,6 +18,7 @@ pub struct DesktopSession {
     pub id: String,
     pub title: String,
     pub project: Option<String>,
+    pub project_root: Option<String>,
     pub provider: String,
     pub model: String,
     pub updated_at: String,
@@ -36,8 +37,13 @@ pub struct CreateSessionRequest {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SendMessageRequest {
-    pub session_id: String,
+    pub session_id: Option<String>,
     pub content: String,
+    pub project_root: Option<String>,
+    pub standalone: Option<bool>,
+    pub title: Option<String>,
+    pub provider: Option<String>,
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -45,6 +51,7 @@ pub struct SendMessageRequest {
 pub struct TurnAccepted {
     pub session_id: String,
     pub turn_id: String,
+    pub session: DesktopSession,
 }
 
 #[derive(Debug, Clone, Serialize)]

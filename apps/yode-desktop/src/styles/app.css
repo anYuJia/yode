@@ -262,6 +262,33 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   text-transform: uppercase;
 }
 
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-right: 2px;
+}
+
+.section-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 22px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-soft);
+  padding: 2px 6px;
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+.section-action:hover {
+  background: color-mix(in oklch, var(--text), transparent 94%);
+  color: var(--text);
+}
+
 .nav-button,
 .project-button,
 .footer-button,
@@ -278,6 +305,15 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 
 .project-button {
   justify-content: flex-start;
+}
+
+.project-drag-icon {
+  color: var(--text-soft);
+  opacity: 0.6;
+}
+
+.project-group.dragging {
+  opacity: 0.58;
 }
 
 .project-button span {
@@ -350,6 +386,12 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   padding: 1px 0 5px 18px;
 }
 
+.project-empty {
+  margin: 2px 8px 6px 18px;
+  color: var(--text-soft);
+  font-size: 10.5px;
+}
+
 .project-sessions .session-button {
   min-height: 32px;
 }
@@ -380,7 +422,13 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 }
 
 .session-item-wrapper:hover .session-actions-overlay {
-  display: flex !important;
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(-50%) scale(1);
+}
+
+.session-item-wrapper:hover .session-time {
+  opacity: 0;
 }
 
 .session-button {
@@ -389,18 +437,16 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   justify-content: space-between;
   gap: 8px;
   min-height: 36px;
-  padding: 5px 9px 5px 7px;
+  padding: 5px 68px 5px 8px;
   background: transparent;
   color: var(--text-muted);
   text-align: left;
-  border-left: 2px solid transparent;
   width: 100%;
 }
 
 .session-button.active {
-  background: color-mix(in oklch, var(--accent-muted), transparent 50%);
+  background: color-mix(in oklch, var(--text), transparent 93%);
   color: var(--text);
-  border-left-color: var(--accent);
 }
 
 .session-title {
@@ -412,13 +458,49 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 }
 
 .session-time {
+  flex: 0 0 auto;
+  margin-left: 4px;
+  color: var(--text-soft);
+  font-size: 10.5px;
   font-variant-numeric: tabular-nums;
   opacity: 0.85;
+  transition: opacity 140ms ease;
+}
+
+.session-actions-overlay,
+.delete-confirm-overlay {
+  position: absolute;
+  right: 7px;
+  top: 50%;
+  display: flex;
+  gap: 4px;
+  transform: translateY(-50%) scale(0.96);
+}
+
+.session-actions-overlay {
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 140ms cubic-bezier(0.2, 0, 0, 1),
+    transform 140ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.delete-confirm-overlay {
+  pointer-events: auto;
 }
 
 .action-icon-btn {
-  transition: color 0.15s ease, background 0.15s ease;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 0;
   border-radius: 4px;
+  background: transparent;
+  color: var(--text-soft);
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.15s ease, background 0.15s ease;
 }
 
 .action-icon-btn:hover {
@@ -427,6 +509,17 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 }
 
 .confirm-delete-btn {
+  display: flex;
+  align-items: center;
+  height: 22px;
+  border: 0;
+  border-radius: 4px;
+  background: oklch(60% 0.16 30);
+  color: #fff;
+  cursor: pointer;
+  padding: 2px 8px;
+  font-size: 10.5px;
+  font-weight: 600;
   transition: background 0.15s ease, transform 0.1s ease;
 }
 
@@ -1034,6 +1127,57 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   display: flex;
   align-items: center;
   gap: 5px;
+}
+
+.context-dropdown {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 1000;
+  display: grid;
+  width: 240px;
+  gap: 3px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  padding: 6px;
+}
+
+.context-dropdown-divider {
+  height: 1px;
+  margin: 4px 2px;
+  background: color-mix(in oklch, var(--line-soft), transparent 20%);
+}
+
+.context-option {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 5px 7px;
+  text-align: left;
+}
+
+.context-option:hover,
+.context-option.selected {
+  background: color-mix(in oklch, var(--text), transparent 94%);
+  color: var(--text);
+}
+
+.context-option-action {
+  color: var(--accent);
+}
+
+.context-option span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .send-button {

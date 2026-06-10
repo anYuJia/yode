@@ -26,6 +26,13 @@ fn sessions_create(
 }
 
 #[tauri::command]
+fn project_folder_pick() -> Option<String> {
+    rfd::FileDialog::new()
+        .pick_folder()
+        .map(|path| path.display().to_string())
+}
+
+#[tauri::command]
 fn runtime_state_get(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
 ) -> Result<protocol::RuntimeState, String> {
@@ -86,6 +93,7 @@ pub fn run() {
             app_get_bootstrap,
             sessions_list,
             sessions_create,
+            project_folder_pick,
             runtime_state_get,
             turn_send_message,
             permission_respond,

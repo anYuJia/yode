@@ -11,6 +11,9 @@ export type SessionSummary = {
   id: string;
   title: string;
   project?: string | null;
+  projectRoot?: string | null;
+  provider?: string;
+  model?: string;
   updatedAt: string;
   active?: boolean;
 };
@@ -62,6 +65,7 @@ export type DesktopEvent = {
 export type TurnAccepted = {
   sessionId: string;
   turnId: string;
+  session: SessionSummary;
 };
 
 export const fallbackBootstrap: Bootstrap = {
@@ -78,6 +82,7 @@ export const sessions: SessionSummary[] = [
     id: "s-1",
     title: "桌面端迁移计划",
     project: "yode",
+    projectRoot: "/Users/pyu/code/yode",
     updatedAt: "刚刚",
     active: true
   },
@@ -85,12 +90,14 @@ export const sessions: SessionSummary[] = [
     id: "s-2",
     title: "权限治理审查",
     project: "yode",
+    projectRoot: "/Users/pyu/code/yode",
     updatedAt: "14:18"
   },
   {
     id: "s-3",
     title: "AgentEngine event bridge",
     project: "yode",
+    projectRoot: "/Users/pyu/code/yode",
     updatedAt: "昨天"
   },
   {
