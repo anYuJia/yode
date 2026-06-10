@@ -542,7 +542,7 @@ function Sidebar({
           <span className="session-title" style={{ flex: 1, textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }}>
             {session.title}
           </span>
-          {!isDeleting && (
+          {!isDeleting && hoveredSessionId !== session.id && (
             <span className="session-time" style={{ fontSize: "10.5px", color: "var(--text-soft)", marginLeft: "4px" }}>
               {session.updatedAt}
             </span>
@@ -664,7 +664,10 @@ function Sidebar({
             left: hoverPosition.left,
             zIndex: 9999,
             width: "220px",
-            background: "var(--panel-raised)",
+            background: "var(--bg, #282a36)",
+            backgroundColor: "#282a36",
+            opacity: 1,
+            backdropFilter: "blur(20px)",
             border: "1px solid var(--line-soft)",
             borderRadius: "var(--radius)",
             padding: "10px",

@@ -614,14 +614,6 @@ fn stored_message_to_message(message: StoredMessage) -> Option<yode_llm::types::
 }
 
 fn relative_time(updated_at: DateTime<Utc>) -> String {
-    let delta = Utc::now().signed_duration_since(updated_at);
-    if delta.num_seconds() < 60 {
-        "刚刚".to_string()
-    } else if delta.num_minutes() < 60 {
-        format!("{} 分钟前", delta.num_minutes())
-    } else if delta.num_hours() < 24 {
-        format!("{} 小时前", delta.num_hours())
-    } else {
-        updated_at.format("%m-%d").to_string()
-    }
+    let local_time = updated_at.with_timezone(&chrono::Local);
+    local_time.format("%m月%d日 %H:%M").to_string()
 }
