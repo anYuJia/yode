@@ -84,6 +84,16 @@ fn permission_mode_set(
         .map_err(|err| err.to_string())
 }
 
+#[tauri::command]
+fn sessions_delete(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    session_id: String,
+) -> Result<(), String> {
+    runtime
+        .sessions_delete(session_id)
+        .map_err(|err| err.to_string())
+}
+
 pub fn run() {
     let runtime = runtime::DesktopRuntime::new().expect("failed to initialize desktop runtime");
 
@@ -98,7 +108,8 @@ pub fn run() {
             turn_send_message,
             permission_respond,
             turn_cancel,
-            permission_mode_set
+            permission_mode_set,
+            sessions_delete
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Yode desktop app");

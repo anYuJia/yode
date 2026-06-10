@@ -1,5 +1,10 @@
 import React, { useState } from "react";
 import { Search, Trash2 } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
+
+const ARCHIVED_SESSION_IDS_STORAGE_KEY = "yode-archived-session-ids";
+const ARCHIVED_CHATS_STORAGE_KEY = "yode-archived-chats";
+const DELETED_SESSION_IDS_STORAGE_KEY = "yode-deleted-session-ids";
 
 export interface ArchivedChatInfo {
   id: string;
@@ -16,46 +21,76 @@ export function ArchivedChatsSettingsSettings({
   t: (zh: string, en: string) => string;
 }) {
   const [searchQuery, setSearchQuery] = useState("");
+  const [deletingChatId, setDeletingChatId] = useState<string | null>(null);
   const [chats, setChats] = useState<ArchivedChatInfo[]>(() => {
-    const saved = localStorage.getItem("yode-archived-chats");
+    const saved = localStorage.getItem(ARCHIVED_CHATS_STORAGE_KEY);
     if (saved) {
       try {
         return JSON.parse(saved);
       } catch (e) {
-        // use defaults
+        // use empty list
       }
     }
-    return [
-      { id: "1", title: "排查 Rust 下载串视频问题", date: "2026年6月5日, 16:39", project: "douyin" },
-      { id: "2", title: "评估好友聊天功能支持", date: "2026年6月5日, 14:44", project: "douyin" },
-      { id: "3", title: "修复 CI/CD Clippy 报错", date: "2026年6月5日, 9:32", project: "douyin" },
-      { id: "4", title: "提交并推送到服务器", date: "2026年6月5日, 9:01", project: "douyin" },
-      { id: "5", title: "检查项目差异与UI优化", date: "2026年6月4日, 15:41", project: "douyin" },
-      { id: "6", title: "解析 get_user_message 请求", date: "2026年6月4日, 14:07", project: "douyin" },
-      { id: "7", title: "hi", date: "2026年6月4日, 9:05", project: "douyin" },
-      { id: "8", title: "拉取服务器最新版本", date: "2026年6月3日, 11:22", project: "douyin" },
-      { id: "9", title: "优化菜单栏结构", date: "2026年6月3日, 9:45", project: "lh" },
-      { id: "10", title: "创建仓库并提交推送", date: "2026年5月28日, 14:06", project: "lh" },
-      { id: "11", title: "审阅 analysis_results 报告", date: "2026年5月28日, 10:20", project: "yode" }
-    ];
+    return [];
   });
 
   const saveChats = (list: ArchivedChatInfo[]) => {
     setChats(list);
-    localStorage.setItem("yode-archived-chats", JSON.stringify(list));
+    localStorage.setItem(ARCHIVED_CHATS_STORAGE_KEY, JSON.stringify(list));
   };
 
   const handleUnarchive = (id: string, title: string) => {
+    // 1. Remove from yode-archived-session-ids
+    const savedIds = localStorage.getItem(ARCHIVED_SESSION_IDS_STORAGE_KEY);
+    if (savedIds) {
+      try {
+        const ids = JSON.parse(savedIds) as string[];
+        const updatedIds = ids.filter(x => x !== id);
+        localStorage.setItem(ARCHIVED_SESSION_IDS_STORAGE_KEY, JSON.stringify(updatedIds));
+      } catch (e) {}
+    }
+
+    // 2. Remove from yode-archived-chats
     const updated = chats.filter(c => c.id !== id);
     saveChats(updated);
-    alert(t(`对话 "${title}" 已成功取消归档，并已放回主会话列表中！`, `Chat "${title}" has been unarchived and restored to the main sessions list!`));
+
+    // 3. Notify App.tsx to reload sessions
+    window.dispatchEvent(new CustomEvent("yode-session-unarchived", { detail: { sessionId: id } }));
+
+    alert(t(`对话 "${title}" 已成功恢复，已放回主会话列表中！`, `Chat "${title}" has been successfully restored to the main sessions list!`));
   };
 
-  const handleDelete = (id: string, title: string) => {
-    if (confirm(t(`确定要永久删除已归档对话 "${title}" 吗？此操作无法撤销。`, `Are you sure you want to permanently delete archived chat "${title}"? This action cannot be undone.`))) {
-      const updated = chats.filter(c => c.id !== id);
-      saveChats(updated);
+  const handleDelete = async (id: string, title: string) => {
+    // Delete in the backend first. If it fails, keep a local tombstone so it does not reappear.
+    if ("__TAURI_INTERNALS__" in window) {
+      try {
+        await invoke("sessions_delete", { sessionId: id, session_id: id });
+      } catch (err) {
+        console.error("Failed to delete session from database:", err);
+      }
     }
+
+    try {
+      const deletedIds = JSON.parse(localStorage.getItem(DELETED_SESSION_IDS_STORAGE_KEY) || "[]") as string[];
+      if (!deletedIds.includes(id)) {
+        localStorage.setItem(DELETED_SESSION_IDS_STORAGE_KEY, JSON.stringify([...deletedIds, id]));
+      }
+    } catch {
+      localStorage.setItem(DELETED_SESSION_IDS_STORAGE_KEY, JSON.stringify([id]));
+    }
+
+    const savedIds = localStorage.getItem(ARCHIVED_SESSION_IDS_STORAGE_KEY);
+    if (savedIds) {
+      try {
+        const ids = JSON.parse(savedIds) as string[];
+        localStorage.setItem(ARCHIVED_SESSION_IDS_STORAGE_KEY, JSON.stringify(ids.filter(x => x !== id)));
+      } catch (e) {}
+    }
+
+    const updated = chats.filter(c => c.id !== id);
+    saveChats(updated);
+
+    window.dispatchEvent(new CustomEvent("yode-session-deleted-permanently", { detail: { sessionId: id } }));
   };
 
   const filteredChats = chats.filter(c =>
@@ -89,7 +124,7 @@ export function ArchivedChatsSettingsSettings({
       </div>
 
       {/* Main chats container */}
-      <div className="theme-card" style={{ padding: "8px 0", maxHeight: "68vh", overflowY: "auto" }}>
+      <div className="theme-card" style={{ padding: "8px 0", maxHeight: "calc(100vh - 150px)", overflowY: "auto" }}>
         {filteredChats.length === 0 ? (
           <div style={{ paddingBlock: "32px", textAlign: "center", color: "var(--text-soft)", fontSize: "13px" }}>
             {t("没有找到归档的对话", "No archived chats found")}
@@ -118,40 +153,79 @@ export function ArchivedChatsSettingsSettings({
 
                 {/* Actions */}
                 <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                  {/* Delete Button */}
-                  <button
-                    onClick={() => handleDelete(chat.id, chat.title)}
-                    type="button"
-                    style={{
-                      background: "transparent",
-                      border: "none",
-                      cursor: "pointer",
-                      color: "var(--text-soft)",
-                      padding: "4px",
-                      display: "flex",
-                      alignItems: "center"
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.color = "oklch(67% 0.15 28)"}
-                    onMouseLeave={(e) => e.currentTarget.style.color = "var(--text-soft)"}
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                  {deletingChatId === chat.id ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <button
+                        onClick={() => {
+                          handleDelete(chat.id, chat.title);
+                          setDeletingChatId(null);
+                        }}
+                        type="button"
+                        style={{
+                          background: "oklch(60% 0.16 30)",
+                          color: "#fff",
+                          border: "none",
+                          borderRadius: "4px",
+                          padding: "4px 8px",
+                          fontSize: "11px",
+                          fontWeight: "600",
+                          cursor: "pointer"
+                        }}
+                      >
+                        {t("确认删除", "Confirm")}
+                      </button>
+                      <button
+                        onClick={() => setDeletingChatId(null)}
+                        type="button"
+                        style={{
+                          background: "transparent",
+                          color: "var(--text-soft)",
+                          border: "none",
+                          cursor: "pointer",
+                          fontSize: "11px"
+                        }}
+                      >
+                        {t("取消", "Cancel")}
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Delete Button */}
+                      <button
+                        onClick={() => setDeletingChatId(chat.id)}
+                        type="button"
+                        style={{
+                          background: "transparent",
+                          border: "none",
+                          cursor: "pointer",
+                          color: "var(--text-soft)",
+                          padding: "4px",
+                          display: "flex",
+                          alignItems: "center"
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.color = "oklch(67% 0.15 28)"}
+                        onMouseLeave={(e) => e.currentTarget.style.color = "var(--text-soft)"}
+                      >
+                        <Trash2 size={14} />
+                      </button>
 
-                  {/* Unarchive Button */}
-                  <button
-                    onClick={() => handleUnarchive(chat.id, chat.title)}
-                    type="button"
-                    className="secondary-button"
-                    style={{
-                      paddingInline: "14px",
-                      height: "26px",
-                      fontSize: "11.5px",
-                      fontWeight: "600",
-                      cursor: "pointer"
-                    }}
-                  >
-                    {t("取消归档", "Unarchive")}
-                  </button>
+                      {/* Unarchive Button */}
+                      <button
+                        onClick={() => handleUnarchive(chat.id, chat.title)}
+                        type="button"
+                        className="secondary-button"
+                        style={{
+                          paddingInline: "14px",
+                          height: "26px",
+                          fontSize: "11.5px",
+                          fontWeight: "600",
+                          cursor: "pointer"
+                        }}
+                      >
+                        {t("取消归档", "Unarchive")}
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             </div>

@@ -142,6 +142,11 @@ impl DesktopRuntime {
         Ok(self.map_session(session, None))
     }
 
+    pub fn sessions_delete(&self, session_id: String) -> Result<()> {
+        self.db.delete_session(&session_id)?;
+        Ok(())
+    }
+
     pub fn runtime_state(&self) -> Result<RuntimeState> {
         let permission_mode = self
             .permission_mode

@@ -19,7 +19,6 @@ import {
   Paperclip,
   Pause,
   FolderPlus,
-  GripVertical,
   Search,
   Send,
   Settings,
@@ -63,6 +62,8 @@ type ViewMode = "chat" | "settings";
 const PROJECT_ROOTS_STORAGE_KEY = "yode-project-roots";
 const PROJECT_ORDER_STORAGE_KEY = "yode-project-order";
 const SELECTED_PROJECT_ROOT_STORAGE_KEY = "yode-selected-project-root";
+const ARCHIVED_SESSION_IDS_STORAGE_KEY = "yode-archived-session-ids";
+const DELETED_SESSION_IDS_STORAGE_KEY = "yode-deleted-session-ids";
 const STANDALONE_PROJECT_SENTINEL = "__standalone__";
 
 function loadStoredProjectRoots(): string[] {
@@ -110,6 +111,26 @@ function dedupeProjectRoots(roots: Array<string | null | undefined>) {
     unique.push(normalized);
   });
   return unique;
+}
+
+function loadStoredStringArray(key: string): string[] {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((value): value is string => typeof value === "string");
+  } catch {
+    return [];
+  }
+}
+
+function visibleSessions(sessions: SessionSummary[]) {
+  const hiddenIds = new Set([
+    ...loadStoredStringArray(ARCHIVED_SESSION_IDS_STORAGE_KEY),
+    ...loadStoredStringArray(DELETED_SESSION_IDS_STORAGE_KEY),
+  ]);
+  return sessions.filter((session) => !hiddenIds.has(session.id));
 }
 
 export function App() {
@@ -301,7 +322,7 @@ export function App() {
     });
   }, [viewMode]);
 
-  useEffect(() => {
+  const loadBootstrap = () => {
     invoke<Bootstrap>("app_get_bootstrap")
       .then((nextBootstrap) => {
         setBootstrap(nextBootstrap);
@@ -311,26 +332,56 @@ export function App() {
             ? nextBootstrap.workspacePath
             : current
         );
-        setSessionItems(nextBootstrap.sessions);
+
+        const activeSessions = visibleSessions(nextBootstrap.sessions);
+
+        setSessionItems(activeSessions);
         setProjectRoots((current) =>
           dedupeProjectRoots([
             ...current,
-            ...nextBootstrap.sessions.map((session) => session.projectRoot),
+            ...activeSessions.map((session) => session.projectRoot),
           ])
         );
-        setActiveSessionId(nextBootstrap.sessions.find((session) => session.active)?.id ?? null);
+        setActiveSessionId(activeSessions.find((session) => session.active)?.id ?? null);
       })
       .catch(() => {
         setBootstrap(fallbackBootstrap);
         if (!("__TAURI_INTERNALS__" in window)) {
-          setSessionItems(sessions);
-          setActiveSessionId(sessions.find((session) => session.active)?.id ?? null);
+          const activeSessions = visibleSessions(sessions);
+
+          setSessionItems(activeSessions);
+          setActiveSessionId(activeSessions.find((session) => session.active)?.id ?? null);
           setSelectedProjectRoot((current) =>
             current === undefined ? fallbackBootstrap.workspacePath : current
           );
           setTimelineItems(timeline);
         }
       });
+  };
+
+  useEffect(() => {
+    loadBootstrap();
+  }, []);
+
+  useEffect(() => {
+    const handleUnarchive = () => {
+      loadBootstrap();
+    };
+    const handlePermanentDelete = (event: Event) => {
+      const sessionId = (event as CustomEvent<{ sessionId?: string }>).detail?.sessionId;
+      if (!sessionId) {
+        loadBootstrap();
+        return;
+      }
+      setSessionItems((items) => items.filter((session) => session.id !== sessionId));
+      setActiveSessionId((current) => current === sessionId ? null : current);
+    };
+    window.addEventListener("yode-session-unarchived", handleUnarchive);
+    window.addEventListener("yode-session-deleted-permanently", handlePermanentDelete);
+    return () => {
+      window.removeEventListener("yode-session-unarchived", handleUnarchive);
+      window.removeEventListener("yode-session-deleted-permanently", handlePermanentDelete);
+    };
   }, []);
 
   useEffect(() => {
@@ -413,7 +464,7 @@ export function App() {
     });
   }, [projectOptions, projectOrder]);
 
-  const handleProjectReorder = (draggedRoot: string, targetRoot: string) => {
+  const handleProjectReorder = (draggedRoot: string, targetRoot: string, placement: "before" | "after" = "before") => {
     if (draggedRoot === targetRoot) return;
     setProjectOrder((current) => {
       const roots = projectOptions
@@ -424,11 +475,14 @@ export function App() {
         ...roots.filter((root) => !current.includes(root)),
       ];
       const from = base.indexOf(draggedRoot);
-      const to = base.indexOf(targetRoot);
+      const targetIndex = base.indexOf(targetRoot);
+      if (from < 0 || targetIndex < 0) return base;
+      const withoutDragged = base.filter((root) => root !== draggedRoot);
+      const to = withoutDragged.indexOf(targetRoot);
       if (from < 0 || to < 0) return base;
-      const next = [...base];
-      const [moved] = next.splice(from, 1);
-      next.splice(to, 0, moved);
+      const insertIndex = placement === "after" ? to + 1 : to;
+      const next = [...withoutDragged];
+      next.splice(insertIndex, 0, draggedRoot);
       return next;
     });
   };
@@ -564,6 +618,41 @@ export function App() {
   }
 
   const handleDeleteSession = (sessionId: string) => {
+    const session = sessionItems.find(s => s.id === sessionId);
+    if (!session) return;
+
+    // 1. Get and update yode-archived-session-ids
+    const savedIds = localStorage.getItem(ARCHIVED_SESSION_IDS_STORAGE_KEY);
+    let archivedIds: string[] = [];
+    if (savedIds) {
+      try {
+        archivedIds = JSON.parse(savedIds);
+      } catch (e) {}
+    }
+    if (!archivedIds.includes(sessionId)) {
+      archivedIds.push(sessionId);
+    }
+    localStorage.setItem(ARCHIVED_SESSION_IDS_STORAGE_KEY, JSON.stringify(archivedIds));
+
+    // 2. Get and update yode-archived-chats
+    const savedChats = localStorage.getItem("yode-archived-chats");
+    let archivedChats: any[] = [];
+    if (savedChats) {
+      try {
+        archivedChats = JSON.parse(savedChats);
+      } catch (e) {}
+    }
+    if (!archivedChats.some(c => c.id === sessionId)) {
+      archivedChats.push({
+        id: sessionId,
+        title: session.title,
+        date: session.updatedAt,
+        project: session.project || "default"
+      });
+    }
+    localStorage.setItem("yode-archived-chats", JSON.stringify(archivedChats));
+
+    // 3. Filter state
     setSessionItems(prev => prev.filter(s => s.id !== sessionId));
   };
 
@@ -641,7 +730,7 @@ function Sidebar({
   onCreateSession: () => void;
   onSelectSession: (sessionId: string) => void;
   onAddProject: () => Promise<void>;
-  onProjectReorder: (draggedRoot: string, targetRoot: string) => void;
+  onProjectReorder: (draggedRoot: string, targetRoot: string, placement?: "before" | "after") => void;
   onDeleteSession: (sessionId: string) => void;
 }) {
   const lang = localStorage.getItem("yode-language") || "zh";
@@ -652,11 +741,30 @@ function Sidebar({
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const [expandedProjectIds, setExpandedProjectIds] = useState<string[]>([]);
   const [draggingProjectId, setDraggingProjectId] = useState<string | null>(null);
+  const [dragGhost, setDragGhost] = useState<{
+    name: string;
+    count: number;
+    left: number;
+    width: number;
+    height: number;
+    y: number;
+  } | null>(null);
   
   // Hover information popover state
   const [hoveredSessionId, setHoveredSessionId] = useState<string | null>(null);
   const [hoverPosition, setHoverPosition] = useState<{ top: number; left: number } | null>(null);
   const hoverTimerRef = useRef<number | null>(null);
+  const projectGroupsRef = useRef<Array<{ id: string; name: string; sessions: SessionSummary[] }>>([]);
+  const projectNodeRefs = useRef(new Map<string, HTMLDivElement>());
+  const dragStateRef = useRef<{
+    id: string;
+    name: string;
+    count: number;
+    offsetY: number;
+    startY: number;
+    hasMoved: boolean;
+  } | null>(null);
+  const suppressProjectClickRef = useRef(false);
 
   const handleMouseEnter = (sessionId: string, e: React.MouseEvent) => {
     // Clear any active timer
@@ -751,6 +859,8 @@ function Sidebar({
     };
   }, [activeSessionId, pinnedSessionIds, projectOptions, sessions]);
 
+  projectGroupsRef.current = projectGroups;
+
   useEffect(() => {
     setExpandedProjectIds((current) => {
       const known = new Set(projectGroups.map((group) => group.id));
@@ -761,6 +871,58 @@ function Sidebar({
       return [...kept, ...missing];
     });
   }, [projectGroups]);
+
+  useEffect(() => {
+    if (!draggingProjectId) return;
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const dragState = dragStateRef.current;
+      if (!dragState) return;
+      event.preventDefault();
+      const nextY = event.clientY - dragState.offsetY;
+      const moved = Math.abs(event.clientY - dragState.startY) > 3;
+      if (moved) {
+        dragState.hasMoved = true;
+        suppressProjectClickRef.current = true;
+      }
+      setDragGhost((current) => current ? { ...current, y: nextY } : current);
+
+      const groups = projectGroupsRef.current.filter((group) => group.id !== dragState.id);
+      if (groups.length === 0) return;
+
+      let targetId = groups[groups.length - 1].id;
+      let placement: "before" | "after" = "after";
+      for (const group of groups) {
+        const node = projectNodeRefs.current.get(group.id);
+        if (!node) continue;
+        const rect = node.getBoundingClientRect();
+        if (event.clientY < rect.top + rect.height / 2) {
+          targetId = group.id;
+          placement = "before";
+          break;
+        }
+      }
+      onProjectReorder(dragState.id, targetId, placement);
+    };
+
+    const handlePointerUp = () => {
+      dragStateRef.current = null;
+      setDraggingProjectId(null);
+      setDragGhost(null);
+      window.setTimeout(() => {
+        suppressProjectClickRef.current = false;
+      }, 0);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove, { passive: false });
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerUp);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
+    };
+  }, [draggingProjectId, onProjectReorder]);
 
   // Helper render method for a session item
   const renderSessionItem = (session: SessionSummary) => {
@@ -784,11 +946,11 @@ function Sidebar({
           <span className="session-title">
             {session.title}
           </span>
-          {!isDeleting ? (
-            <span className="session-time">
+          {!isDeleting && (
+            <span className="session-time" style={{ fontSize: "10.5px", color: "var(--text-soft)", marginLeft: "4px" }}>
               {session.updatedAt}
             </span>
-          ) : null}
+          )}
         </button>
 
         {isDeleting ? (
@@ -826,37 +988,58 @@ function Sidebar({
   };
 
   const renderProjectGroup = (group: { id: string; name: string; sessions: SessionSummary[] }) => {
-    const expanded = expandedProjectIds.includes(group.id);
+    const isDraggingActive = draggingProjectId !== null;
+    // Collapse all group items during dragging to maintain uniform 36px height
+    const expanded = isDraggingActive ? false : expandedProjectIds.includes(group.id);
     const hasActiveSession = group.sessions.some((session) => session.id === activeSessionId);
     const isDragging = draggingProjectId === group.id;
+
+    const style: React.CSSProperties = {
+      position: "relative",
+      zIndex: isDragging ? 10 : 1
+    };
 
     return (
       <div
         className={`project-group ${hasActiveSession ? "active" : ""} ${isDragging ? "dragging" : ""}`}
         key={group.id}
-        onDragOver={(event) => {
-          event.preventDefault();
-          event.dataTransfer.dropEffect = "move";
-        }}
-        onDrop={(event) => {
-          event.preventDefault();
-          const draggedRoot = event.dataTransfer.getData("text/plain");
-          if (draggedRoot) {
-            onProjectReorder(draggedRoot, group.id);
+        ref={(node) => {
+          if (node) {
+            projectNodeRefs.current.set(group.id, node);
+          } else {
+            projectNodeRefs.current.delete(group.id);
           }
-          setDraggingProjectId(null);
         }}
-        onDragEnd={() => setDraggingProjectId(null)}
+        style={style}
       >
         <button
           className={`project-button ${hasActiveSession ? "active" : ""}`}
-          draggable
-          onDragStart={(event) => {
+          onPointerDown={(event) => {
+            if (event.button !== 0) return;
+            const rect = event.currentTarget.getBoundingClientRect();
             setDraggingProjectId(group.id);
-            event.dataTransfer.effectAllowed = "move";
-            event.dataTransfer.setData("text/plain", group.id);
+            dragStateRef.current = {
+              id: group.id,
+              name: group.name,
+              count: group.sessions.length,
+              offsetY: event.clientY - rect.top,
+              startY: event.clientY,
+              hasMoved: false
+            };
+            setDragGhost({
+              name: group.name,
+              count: group.sessions.length,
+              left: rect.left,
+              width: rect.width,
+              height: rect.height,
+              y: rect.top
+            });
           }}
-          onClick={() => {
+          onClick={(event) => {
+            if (suppressProjectClickRef.current || dragStateRef.current?.hasMoved) {
+              event.preventDefault();
+              return;
+            }
             setExpandedProjectIds((current) =>
               current.includes(group.id)
                 ? current.filter((id) => id !== group.id)
@@ -865,7 +1048,6 @@ function Sidebar({
           }}
           type="button"
         >
-          <GripVertical className="project-drag-icon" size={13} aria-hidden />
           <Folder size={16} />
           <span>{group.name}</span>
           <em>{group.sessions.length}</em>
@@ -969,6 +1151,23 @@ function Sidebar({
               </div>
             );
           })()}
+        </div>,
+        document.body
+      )}
+
+      {dragGhost && createPortal(
+        <div
+          className="project-drag-ghost"
+          style={{
+            left: dragGhost.left,
+            top: dragGhost.y,
+            width: dragGhost.width,
+            height: dragGhost.height
+          }}
+        >
+          <Folder size={16} />
+          <span>{dragGhost.name}</span>
+          <em>{dragGhost.count}</em>
         </div>,
         document.body
       )}

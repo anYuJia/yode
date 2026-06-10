@@ -190,4 +190,15 @@ impl Database {
         )?;
         Ok(())
     }
+
+    /// Delete session and all its related messages/artifacts
+    pub fn delete_session(&self, session_id: &str) -> Result<()> {
+        let mut conn = self.lock_connection()?;
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM session_artifacts WHERE session_id = ?1", params![session_id])?;
+        tx.execute("DELETE FROM messages WHERE session_id = ?1", params![session_id])?;
+        tx.execute("DELETE FROM sessions WHERE id = ?1", params![session_id])?;
+        tx.commit()?;
+        Ok(())
+    }
 }

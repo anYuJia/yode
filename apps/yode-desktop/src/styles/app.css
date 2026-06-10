@@ -313,7 +313,42 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 }
 
 .project-group.dragging {
-  opacity: 0.58;
+  opacity: 0.32;
+  cursor: grabbing;
+}
+
+.project-group.dragging .project-button {
+  cursor: grabbing;
+}
+
+.project-drag-ghost {
+  position: fixed;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 4px 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: var(--panel-raised);
+  color: var(--text);
+  box-shadow: var(--shadow-raised);
+  pointer-events: none;
+  opacity: 0.96;
+}
+
+.project-drag-ghost span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-drag-ghost em {
+  margin-left: auto;
+  color: var(--text-soft);
+  font-size: 10.5px;
+  font-style: normal;
 }
 
 .project-button span {
@@ -355,7 +390,7 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 }
 
 .project-button.active svg:first-child {
-  color: var(--accent);
+  color: var(--text-muted);
 }
 
 .sessions {
@@ -377,6 +412,11 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   display: flex;
   flex-direction: column;
   gap: 1px;
+  transition:
+    opacity 140ms ease,
+    transform 160ms cubic-bezier(0.2, 0, 0, 1),
+    background-color 160ms ease;
+  will-change: transform;
 }
 
 .project-sessions {
@@ -437,7 +477,7 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   justify-content: space-between;
   gap: 8px;
   min-height: 36px;
-  padding: 5px 68px 5px 8px;
+  padding: 5px 8px 5px 8px;
   background: transparent;
   color: var(--text-muted);
   text-align: left;
@@ -447,6 +487,21 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 .session-button.active {
   background: color-mix(in oklch, var(--text), transparent 93%);
   color: var(--text);
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.session-item-wrapper.active,
+.project-group.active {
+  border-left: 0;
+  box-shadow: none;
+}
+
+.session-item-wrapper.active::before,
+.session-item-wrapper.active::after,
+.project-group.active::before,
+.project-group.active::after {
+  content: none;
 }
 
 .session-title {
@@ -475,6 +530,8 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   display: flex;
   gap: 4px;
   transform: translateY(-50%) scale(0.96);
+  background: var(--panel-raised);
+  padding-left: 12px;
 }
 
 .session-actions-overlay {
