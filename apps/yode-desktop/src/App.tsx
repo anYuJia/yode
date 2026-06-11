@@ -896,6 +896,9 @@ export function App() {
           selectedProjectRoot={selectedProjectRoot === undefined ? bootstrap.workspacePath : selectedProjectRoot}
           onProjectRootChange={setSelectedProjectRoot}
           onAddProject={handleAddProject}
+          currentProvider={currentProvider}
+          currentModel={currentModel}
+          onModelChange={handleUpdateModel}
         />
         <TerminalDrawer isOpen={terminalOpen} onClose={() => setTerminalOpen(false)} />
       </section>
@@ -1569,27 +1572,19 @@ function Topbar({
       </div>
       <div className="runtime-strip" aria-label="运行状态" style={{ display: "flex", gap: "8px", alignItems: "center" }}>
         <DropdownPill
-          icon={<Bot size={14} />}
-          label={currentProvider}
+          icon={<TopbarProviderIcon id={currentProvider} />}
+          label={getProviderName(currentProvider)}
           value={currentProvider}
           options={providerOptions}
           onChange={onProviderChange}
         />
-        <DropdownPill
-          icon={<Code2 size={14} />}
-          label={currentModel}
-          value={currentModel}
-          options={modelOptions}
-          onChange={onModelChange}
-        />
-        <StatusPill icon={<ShieldCheck size={14} />} label={bootstrap.permissionMode} tone="quiet" />
-        <StatusPill icon={<CircleDot size={14} />} label={isProcessing ? "运行中" : "闲置"} tone={isProcessing ? "live" : "quiet"} />
-        <button className="icon-button" type="button" title="更多">
+        <button className="icon-button" type="button" data-tauri-no-drag title="更多">
           <MoreHorizontal size={18} />
         </button>
         <button
           className={`icon-button ${terminalOpen ? "active" : ""}`}
           onClick={onToggleTerminal}
+          data-tauri-no-drag
           type="button"
           title={terminalOpen ? "收起终端" : "打开终端"}
         >
@@ -1598,6 +1593,7 @@ function Topbar({
         <button
           className="icon-button"
           onClick={onToggleInspector}
+          data-tauri-no-drag
           type="button"
           title={inspectorOpen ? "收起运行详情" : "展开运行详情"}
         >
@@ -1606,6 +1602,45 @@ function Topbar({
       </div>
     </header>
   );
+}
+
+function TopbarProviderIcon({ id }: { id: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return <Bot size={14} />;
+  }
+  const aliases: Record<string, string> = {
+    baidu: "baidu-qianfan",
+    ali: "dashscope-coding",
+    qwen: "qwen",
+    google: "gemini"
+  };
+  const iconId = aliases[id] || id;
+  const src = `/provider-icons/${iconId}.png`;
+  return (
+    <img
+      src={src}
+      alt=""
+      style={{ width: "14px", height: "14px", objectFit: "contain", borderRadius: "2px", display: "block" }}
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
+function getProviderName(providerId: string) {
+  const saved = localStorage.getItem("yode-llm-providers");
+  if (saved) {
+    try {
+      const data = JSON.parse(saved);
+      const list = Array.isArray(data) ? data : Object.values(data);
+      const found = list.find((p: any) => p.id === providerId);
+      if (found && found.name) {
+        return found.name;
+      }
+    } catch (e) {}
+  }
+  const preset = PROVIDERS_META.find(p => p.id === providerId);
+  return preset?.name || providerId;
 }
 
 function DropdownPill({
@@ -1640,6 +1675,7 @@ function DropdownPill({
     <div ref={ref} style={{ position: "relative" }}>
       <button
         type="button"
+        data-tauri-no-drag
         disabled={disabled}
         onClick={() => setIsOpen(!isOpen)}
         className="status-pill quiet"
@@ -1698,6 +1734,7 @@ function DropdownPill({
               <button
                 key={opt.value}
                 type="button"
+                data-tauri-no-drag
                 onClick={() => {
                   onChange(opt.value);
                   setIsOpen(false);
@@ -1772,7 +1809,10 @@ function ChatWorkspace({
   projectOptions,
   selectedProjectRoot,
   onProjectRootChange,
-  onAddProject
+  onAddProject,
+  currentProvider,
+  currentModel,
+  onModelChange
 }: {
   draft: string;
   timelineItems: TimelineItem[];
@@ -1789,6 +1829,9 @@ function ChatWorkspace({
   selectedProjectRoot: string | null;
   onProjectRootChange: (root: string | null) => void;
   onAddProject: () => Promise<void>;
+  currentProvider: string;
+  currentModel: string;
+  onModelChange: (model: string) => void;
 }) {
   // Check if assistant is currently streaming (has any running status or last item kind is not fully completed)
   const isStreaming = useMemo(() => {
@@ -2010,6 +2053,9 @@ function ChatWorkspace({
           selectedProjectRoot={selectedProjectRoot}
           onProjectRootChange={onProjectRootChange}
           onAddProject={onAddProject}
+          currentProvider={currentProvider}
+          currentModel={currentModel}
+          onModelChange={onModelChange}
         />
       </div>
       <RunInspector
@@ -2565,7 +2611,10 @@ function Composer({
   projectOptions,
   selectedProjectRoot,
   onProjectRootChange,
-  onAddProject
+  onAddProject,
+  currentProvider,
+  currentModel,
+  onModelChange
 }: {
   draft: string;
   onDraftChange: (value: string) => void;
@@ -2579,13 +2628,36 @@ function Composer({
   selectedProjectRoot: string | null;
   onProjectRootChange: (root: string | null) => void;
   onAddProject: () => Promise<void>;
+  currentProvider: string;
+  currentModel: string;
+  onModelChange: (model: string) => void;
 }) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
+  const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const projectDropdownRef = useRef<HTMLDivElement>(null);
+  const modelDropdownRef = useRef<HTMLDivElement>(null);
 
   const isZh = appLang === "zh";
+
+  const modelOptions = useMemo(() => {
+    const saved = localStorage.getItem("yode-llm-providers");
+    let models: string[] = [];
+    if (saved) {
+      try {
+        const data = JSON.parse(saved);
+        if (data[currentProvider]?.models) {
+          models = data[currentProvider].models;
+        }
+      } catch (e) {}
+    }
+    if (models.length === 0) {
+      const meta = PROVIDERS_META.find((p) => p.id === currentProvider);
+      models = meta ? meta.defaultModels : [];
+    }
+    return models;
+  }, [currentProvider]);
 
   const OPTIONS = [
     {
@@ -2634,14 +2706,20 @@ function Composer({
       ) {
         setProjectDropdownOpen(false);
       }
+      if (
+        modelDropdownRef.current &&
+        !modelDropdownRef.current.contains(event.target as Node)
+      ) {
+        setModelDropdownOpen(false);
+      }
     }
-    if (dropdownOpen || projectDropdownOpen) {
+    if (dropdownOpen || projectDropdownOpen || modelDropdownOpen) {
       document.addEventListener("mousedown", handleClickOutside);
     }
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [dropdownOpen, projectDropdownOpen]);
+  }, [dropdownOpen, projectDropdownOpen, modelDropdownOpen]);
 
   return (
     <footer className="composer" style={{ position: "relative" }}>
@@ -2845,10 +2923,77 @@ function Composer({
             )}
           </div>
 
-          <button className="mode-chip" type="button" style={{ outline: "none", boxShadow: "none" }}>
-            <Bot size={15} />
-            sonnet
-          </button>
+          <div ref={modelDropdownRef} style={{ display: "inline-block", position: "relative" }}>
+            <button
+              className="mode-chip"
+              type="button"
+              onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                cursor: "pointer",
+                outline: "none",
+                boxShadow: "none"
+              }}
+            >
+              <Bot size={15} />
+              <span>{currentModel || (isZh ? "选择模型" : "Select model")}</span>
+              <ChevronDown size={11} style={{ opacity: 0.7, transform: modelDropdownOpen ? "rotate(180deg)" : "none", transition: "transform 150ms" }} />
+            </button>
+
+            {modelDropdownOpen && (
+              <div className="context-dropdown model-dropdown" style={{
+                position: "absolute",
+                bottom: "100%",
+                left: "0",
+                marginBottom: "8px",
+                zIndex: 1000,
+                background: "var(--panel-raised)",
+                border: "1px solid var(--line)",
+                borderRadius: "var(--radius)",
+                boxShadow: "0 10px 30px rgba(0, 0, 0, 0.4)",
+                minWidth: "160px",
+                maxHeight: "220px",
+                overflowY: "auto",
+                padding: "4px",
+                backdropFilter: "blur(12px)"
+              }}>
+                {modelOptions.map((model) => {
+                  const selected = model === currentModel;
+                  return (
+                    <button
+                      key={model}
+                      type="button"
+                      className={`context-option ${selected ? "selected" : ""}`}
+                      onClick={() => {
+                        onModelChange(model);
+                        setModelDropdownOpen(false);
+                      }}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        width: "100%",
+                        padding: "6px 10px",
+                        border: "none",
+                        background: selected ? "var(--accent-muted)" : "transparent",
+                        color: selected ? "var(--text)" : "var(--text-soft)",
+                        borderRadius: "calc(var(--radius) - 2px)",
+                        fontSize: "12px",
+                        cursor: "pointer",
+                        textAlign: "left",
+                        transition: "background 100ms, color 100ms"
+                      }}
+                    >
+                      <Bot size={14} style={{ marginRight: "6px" }} />
+                      <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{model}</span>
+                      {selected ? <Check size={14} style={{ color: "var(--accent)" }} /> : null}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
         <div className="composer-actions">
           {isProcessing ? (
