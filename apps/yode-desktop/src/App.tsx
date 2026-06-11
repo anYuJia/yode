@@ -1522,42 +1522,29 @@ function Topbar({
 }) {
   const providerOptions = useMemo(() => {
     const saved = localStorage.getItem("yode-llm-providers");
-    let enabledIds: string[] = [];
+    let list: any[] = [];
     if (saved) {
       try {
         const data = JSON.parse(saved);
-        enabledIds = Object.keys(data).filter((k) => data[k]?.enabled);
-      } catch (e) {}
-    }
-    if (enabledIds.length === 0) {
-      enabledIds = ["anthropic", "openai", "google", "deepseek", "ollama"];
-    }
-    return PROVIDERS_META.filter((p) => enabledIds.includes(p.id)).map((p) => ({
-      value: p.id,
-      label: p.nameEn
-    }));
-  }, []);
-
-  const modelOptions = useMemo(() => {
-    const saved = localStorage.getItem("yode-llm-providers");
-    let models: string[] = [];
-    if (saved) {
-      try {
-        const data = JSON.parse(saved);
-        if (data[currentProvider]?.models) {
-          models = data[currentProvider].models;
+        if (Array.isArray(data)) {
+          list = data;
+        } else if (data && typeof data === "object") {
+          list = Object.values(data);
         }
       } catch (e) {}
     }
-    if (models.length === 0) {
-      const meta = PROVIDERS_META.find((p) => p.id === currentProvider);
-      models = meta ? meta.defaultModels : [];
+    const enabledProviders = list.filter((p: any) => p && p.enabled);
+    if (enabledProviders.length === 0) {
+      return PROVIDERS_META.map((p) => ({
+        value: p.id,
+        label: p.nameEn
+      }));
     }
-    return models.map((m) => ({
-      value: m,
-      label: m
+    return enabledProviders.map((p: any) => ({
+      value: p.id,
+      label: p.name || p.id
     }));
-  }, [currentProvider]);
+  }, []);
 
   return (
     <header className="topbar" data-tauri-drag-region>
@@ -2643,20 +2630,23 @@ function Composer({
 
   const modelOptions = useMemo(() => {
     const saved = localStorage.getItem("yode-llm-providers");
-    let models: string[] = [];
+    let list: any[] = [];
     if (saved) {
       try {
         const data = JSON.parse(saved);
-        if (data[currentProvider]?.models) {
-          models = data[currentProvider].models;
+        if (Array.isArray(data)) {
+          list = data;
+        } else if (data && typeof data === "object") {
+          list = Object.values(data);
         }
       } catch (e) {}
     }
-    if (models.length === 0) {
-      const meta = PROVIDERS_META.find((p) => p.id === currentProvider);
-      models = meta ? meta.defaultModels : [];
+    const found = list.find((p: any) => p && p.id === currentProvider);
+    if (found && Array.isArray(found.models) && found.models.length > 0) {
+      return found.models;
     }
-    return models;
+    const meta = PROVIDERS_META.find((p) => p.id === currentProvider);
+    return meta ? meta.defaultModels : [];
   }, [currentProvider]);
 
   const OPTIONS = [
@@ -2959,7 +2949,7 @@ function Composer({
                 padding: "4px",
                 backdropFilter: "blur(12px)"
               }}>
-                {modelOptions.map((model) => {
+                {modelOptions.map((model: string) => {
                   const selected = model === currentModel;
                   return (
                     <button
