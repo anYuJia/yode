@@ -1401,6 +1401,76 @@ function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean, appLa
   return enrichedResult;
 }
 
+type ConversationTurn = {
+  id: string;
+  userItem: TimelineItem | null;
+  items: TimelineItem[];
+  hasIntermediate: boolean;
+};
+
+function isFinalAssistantItem(item: TimelineItem) {
+  return item.kind === "assistant" && !isIntermediateAssistantItem(item);
+}
+
+function splitTurnVisibleItems(items: TimelineItem[]) {
+  let finalAssistantIndex = -1;
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    if (isFinalAssistantItem(items[index])) {
+      finalAssistantIndex = index;
+      break;
+    }
+  }
+
+  if (finalAssistantIndex === -1) {
+    return {
+      processItems: items,
+      answerItems: [] as TimelineItem[]
+    };
+  }
+
+  return {
+    processItems: items.filter((_, index) => index !== finalAssistantIndex),
+    answerItems: [items[finalAssistantIndex]]
+  };
+}
+
+function parseDurationFromTitle(title?: string) {
+  if (!title) return null;
+  const minuteSecond = title.match(/(\d+)\s*(?:分|m|min|分钟)\s*(\d+)?\s*(?:秒|s)?/i);
+  if (minuteSecond) {
+    return Number(minuteSecond[1]) * 60 + Number(minuteSecond[2] || 0);
+  }
+  const seconds = title.match(/(\d+)\s*(?:秒|s|sec|seconds?)/i);
+  if (seconds) return Number(seconds[1]);
+  return null;
+}
+
+function turnStaticDurationSeconds(turn: ConversationTurn) {
+  for (const item of turn.items) {
+    if (item.kind === "reasoning") {
+      const parsed = parseDurationFromTitle(item.title);
+      if (parsed !== null) return parsed;
+    }
+  }
+
+  const createdTimes = [turn.userItem, ...turn.items]
+    .map((item) => (item as any)?.createdAt)
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  if (createdTimes.length >= 2) {
+    return Math.max(1, Math.round((Math.max(...createdTimes) - Math.min(...createdTimes)) / 1000));
+  }
+  return 0;
+}
+
+function formatDurationZh(totalSeconds: number) {
+  const safeSeconds = Math.max(0, Math.round(totalSeconds));
+  const minutes = Math.floor(safeSeconds / 60);
+  const seconds = safeSeconds % 60;
+  if (minutes <= 0) return `${seconds} 秒`;
+  if (seconds <= 0) return `${minutes} 分钟`;
+  return `${minutes} 分 ${seconds} 秒`;
+}
+
 export function App() {
   const [bootstrap, setBootstrap] = useState<Bootstrap>(fallbackBootstrap);
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
@@ -3093,16 +3163,12 @@ function ChatWorkspace({
   // Track expanded turn IDs separately
   const [expandedTurnIds, setExpandedTurnIds] = useState<string[]>([]);
   const [expandedActionIds, setExpandedActionIds] = useState<string[]>([]);
+  const previousStreamingRef = useRef(false);
 
   const turns = useMemo(() => {
-    const list: Array<{
-      id: string;
-      userItem: TimelineItem | null;
-      items: TimelineItem[];
-      hasIntermediate: boolean;
-    }> = [];
+    const list: ConversationTurn[] = [];
 
-    let currentTurn: typeof list[number] = {
+    let currentTurn: ConversationTurn = {
       id: "welcome",
       userItem: null,
       items: [],
@@ -3151,6 +3217,15 @@ function ChatWorkspace({
         if (prev.includes(lastTurnId)) return prev;
         return [...prev, lastTurnId];
       });
+    }
+  }, [isStreaming, turns]);
+
+  useEffect(() => {
+    const wasStreaming = previousStreamingRef.current;
+    previousStreamingRef.current = isStreaming;
+    if (wasStreaming && !isStreaming && turns.length > 0) {
+      const lastTurnId = turns[turns.length - 1].id;
+      setExpandedTurnIds((prev) => prev.filter((id) => id !== lastTurnId));
     }
   }, [isStreaming, turns]);
 
@@ -3239,11 +3314,36 @@ function ChatWorkspace({
               const isLastTurn = turnIndex === turns.length - 1;
               const isTurnActive = isStreaming && isLastTurn;
               const visibleItems = compileInlineItems(turn.items, isTurnActive, appLang);
+              const { processItems, answerItems } = splitTurnVisibleItems(visibleItems);
+              const hasProcessItems = processItems.length > 0;
+              const isProcessExpanded = isTurnActive || expandedTurnIds.includes(turn.id);
+              const durationSeconds = turnStaticDurationSeconds(turn);
 
               return (
                 <React.Fragment key={turn.id}>
                   {turn.userItem && <TimelineNode item={turn.userItem} appLang={appLang} isTurnActive={isTurnActive} />}
-                  {visibleItems.map((item) => (
+                  {hasProcessItems ? (
+                    <TurnProcessSummary
+                      turnId={turn.id}
+                      isActive={isTurnActive}
+                      isExpanded={isProcessExpanded}
+                      durationSeconds={durationSeconds}
+                      processCount={processItems.length}
+                      appLang={appLang}
+                      onToggle={() => {
+                        if (isTurnActive) return;
+                        setExpandedTurnIds((prev) =>
+                          prev.includes(turn.id)
+                            ? prev.filter((id) => id !== turn.id)
+                            : [...prev, turn.id]
+                        );
+                      }}
+                    />
+                  ) : null}
+                  {(hasProcessItems && !isProcessExpanded ? [] : processItems).map((item) => (
+                    <TimelineNode key={item.id} item={item} appLang={appLang} isTurnActive={isTurnActive} />
+                  ))}
+                  {answerItems.map((item) => (
                     <TimelineNode key={item.id} item={item} appLang={appLang} isTurnActive={isTurnActive} />
                   ))}
                 </React.Fragment>
@@ -3287,25 +3387,27 @@ function ChatWorkspace({
   );
 }
 
-function LiveDurationHeader({ turnId, isActive, isExpanded, onToggle, staticDuration, startTime }: {
+function TurnProcessSummary({ turnId, isActive, isExpanded, onToggle, durationSeconds, processCount, appLang }: {
   turnId: string;
   isActive: boolean;
   isExpanded: boolean;
   onToggle: () => void;
-  staticDuration: number;
-  startTime?: number;
+  durationSeconds: number;
+  processCount: number;
+  appLang: string;
 }) {
-  const [elapsed, setElapsed] = useState(staticDuration);
+  const [elapsed, setElapsed] = useState(durationSeconds);
   const startRef = useRef<number | null>(null);
+  const isZh = appLang === "zh";
 
   useEffect(() => {
     if (!isActive) {
-      setElapsed(staticDuration);
+      setElapsed(durationSeconds);
       return;
     }
 
     if (startRef.current === null) {
-      startRef.current = startTime || Date.now();
+      startRef.current = Date.now() - durationSeconds * 1000;
     }
     const start = startRef.current;
 
@@ -3316,40 +3418,42 @@ function LiveDurationHeader({ turnId, isActive, isExpanded, onToggle, staticDura
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [turnId, isActive, staticDuration, startTime]);
+  }, [turnId, isActive, durationSeconds]);
 
-
-  let durationText: string;
-  if (elapsed < 60) {
-    durationText = `${elapsed}s`;
-  } else {
-    durationText = `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`;
-  }
+  const durationText = isZh ? formatDurationZh(elapsed) : `${elapsed}s`;
+  const title = isActive
+    ? isZh
+      ? `正在处理，已用 ${durationText}`
+      : `Working for ${durationText}`
+    : isZh
+      ? `任务完成，耗时 ${durationText}`
+      : `Task finished in ${durationText}`;
+  const detail = isActive
+    ? isZh
+      ? "过程正在展开"
+      : "Process is visible"
+    : isExpanded
+      ? (isZh ? "收起过程" : "Collapse process")
+      : (isZh ? `展开过程（${processCount} 项）` : `Show process (${processCount})`);
 
   return (
-    <div
+    <button
       onClick={onToggle}
-      style={{
-        background: "transparent",
-        border: "none",
-        cursor: "pointer",
-        fontSize: "12px",
-        color: "var(--text-soft)",
-        display: "inline-flex",
-        alignItems: "center",
-        gap: "6px",
-        userSelect: "none",
-      }}
-      onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
-      onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-soft)"; }}
+      className={`turn-process-summary ${isActive ? "running" : "complete"} ${isExpanded ? "expanded" : "collapsed"}`}
+      type="button"
+      aria-expanded={isExpanded}
+      aria-label={detail}
     >
-      <span>{`Worked for ${durationText}`}</span>
+      <span className="turn-process-summary-icon">
+        {isActive ? <CircleDot size={10} className="glowing-logo" /> : <Check size={12} />}
+      </span>
+      <span className="turn-process-summary-main">{title}</span>
+      <span className="turn-process-summary-detail">{detail}</span>
       <ChevronDown size={13} style={{
         opacity: 0.7,
-        transform: isExpanded ? "none" : "rotate(-90deg)",
-        transition: "transform 150ms ease"
+        transform: isExpanded ? "none" : "rotate(-90deg)"
       }} />
-    </div>
+    </button>
   );
 }
 
@@ -4848,7 +4952,9 @@ function applyDesktopEventToTimelineItems(
     const settledItems = items.map((item, index) => {
       if (item.kind === "reasoning" && (item.meta === "running" || item.id === reasoningId)) {
         hasReasoningForTurn = true;
-        return { ...item, body: "", meta: "complete" };
+        const start = (item as any).createdAt || Date.now();
+        const duration = Math.max(1, Math.round((Date.now() - start) / 1000));
+        return { ...item, body: "", meta: "complete", title: `已思考 ${duration} 秒` };
       }
       if (item.kind === "tool" && item.status === "running") {
         return { ...item, status: "success" as const };
