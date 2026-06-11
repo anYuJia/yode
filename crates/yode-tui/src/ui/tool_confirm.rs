@@ -224,7 +224,7 @@ fn confirmation_title(app: &App, tool_name: &str, args_json: &str) -> String {
 
 fn confirmation_section_title(tool_name: &str, tool_label: &str) -> String {
     match tool_name {
-        "bash" => "Bash command".to_string(),
+        "bash" => "命令 command".to_string(),
         "powershell" => "PowerShell command".to_string(),
         "agent" | "send_message" | "team_create" => "Delegation".to_string(),
         _ => format!("{} request", tool_label),
@@ -570,7 +570,7 @@ fn shell_command_preview(command: &str) -> String {
     let lines = command.lines().collect::<Vec<_>>();
     let head = lines.first().copied().unwrap_or("command");
     if lines.len() > 1 {
-        format!("cmd · {} ↳ +{} more lines", head, lines.len() - 1)
+        format!("cmd · {} ↳ +{} 还有", head, lines.len() - 1)
     } else {
         format!("cmd · {}", head)
     }
@@ -581,7 +581,7 @@ fn shell_command_activity_summary(command: &str) -> String {
     let head = lines.first().copied().unwrap_or("command");
     if lines.len() > 1 {
         format!(
-            "Run · {} ↳ +{} more lines",
+            "Run · {} ↳ +{} 还有",
             truncate_str(head, 60),
             lines.len() - 1
         )
@@ -632,7 +632,7 @@ mod tests {
         let app = test_app();
         let summary =
             tool_activity_summary(&app, "read_file", r#"{"file_path":"/tmp/src/main.rs"}"#);
-        assert_eq!(summary, "Reading .../src/main.rs");
+        assert_eq!(summary, "正在读取 .../src/main.rs");
     }
 
     #[test]
@@ -643,7 +643,7 @@ mod tests {
             "bash",
             r#"{"command":"python main.py\npytest -q\ncargo test"}"#,
         );
-        assert_eq!(summary, "Run · python main.py ↳ +2 more lines");
+        assert_eq!(summary, "Run · python main.py ↳ +2 还有");
     }
 
     #[test]
@@ -695,7 +695,7 @@ mod tests {
         let lines = option_list_lines(
             &[
                 "Allow once (default)".to_string(),
-                "Always allow: Bash (session)".to_string(),
+                "Always allow: 命令 (session)".to_string(),
                 "Deny (skip this tool)".to_string(),
             ],
             0,
@@ -736,7 +736,7 @@ mod tests {
             "bash",
             r#"{"command":"python main.py\npytest -q\ncargo test"}"#,
         );
-        assert_eq!(preview, "cmd · python main.py ↳ +2 more lines");
+        assert_eq!(preview, "cmd · python main.py ↳ +2 还有");
     }
 
     #[test]
@@ -753,23 +753,23 @@ mod tests {
         let lines = option_list_lines(
             &[
                 "Allow once (default)".to_string(),
-                "Always allow: Bash (session)".to_string(),
+                "Always allow: 命令 (session)".to_string(),
                 "Deny (skip this tool)".to_string(),
             ],
             1,
         );
         let selected = lines[1].to_string();
         assert!(
-            selected.contains("❯ 2. Always allow: Bash (session)")
-                || selected.contains("❯ 2. 始终允许: Bash (session)")
+            selected.contains("❯ 2. Always allow: 命令 (session)")
+                || selected.contains("❯ 2. 始终允许: 命令 (session)")
         );
         assert!(lines[0].to_string().contains("1. Allow once (default)"));
     }
 
     #[test]
     fn confirmation_option_labels_explain_scope() {
-        let label = tool_allow_option_label("bash", r#"{"command":"python main.py"}"#, "Bash");
-        assert!(label == "Always allow: Bash (session)" || label == "始终允许: Bash (session)");
+        let label = tool_allow_option_label("bash", r#"{"command":"python main.py"}"#, "命令");
+        assert!(label == "Always allow: 命令 (session)" || label == "始终允许: 命令 (session)");
         let allow_once = allow_once_option_label();
         assert!(allow_once.contains("Allow once") || allow_once.contains("允许一次"));
         let deny = deny_option_label();

@@ -172,8 +172,9 @@ impl LlmProvider for OpenAiProvider {
             ));
         }
 
-        let api_resp: OpenAiResponse = serde_json::from_str(&response_text)
-            .context("模型接口返回内容无法解析为 OpenAI 兼容 JSON，请检查 base_url 和 provider format")?;
+        let api_resp: OpenAiResponse = serde_json::from_str(&response_text).context(
+            "模型接口返回内容无法解析为 OpenAI 兼容 JSON，请检查 base_url 和 provider format",
+        )?;
 
         let choice = api_resp
             .choices

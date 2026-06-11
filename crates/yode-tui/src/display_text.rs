@@ -9,16 +9,16 @@ pub(crate) fn compact_path_tail(path: &str) -> String {
 
 pub(crate) fn human_tool_display_name(tool_name: &str) -> String {
     match tool_name {
-        "bash" => "Bash".to_string(),
+        "bash" => "命令".to_string(),
         "powershell" => "PowerShell".to_string(),
         "lsp" => "LSP".to_string(),
-        "read_file" => "Read".to_string(),
-        "write_file" => "Write".to_string(),
-        "edit_file" => "Edit".to_string(),
-        "project_map" => "Project Map".to_string(),
-        "web_search" => "Web Search".to_string(),
-        "web_fetch" => "Web Fetch".to_string(),
-        "discover_skills" => "Discover Skills".to_string(),
+        "read_file" => "读取".to_string(),
+        "write_file" => "写入".to_string(),
+        "edit_file" => "编辑".to_string(),
+        "project_map" => "项目结构".to_string(),
+        "web_search" => "网页搜索".to_string(),
+        "web_fetch" => "读取网页".to_string(),
+        "discover_skills" => "发现技能".to_string(),
         other => other
             .split('_')
             .filter(|segment| !segment.is_empty())
@@ -46,8 +46,8 @@ mod tests {
 
     #[test]
     fn human_tool_display_name_uses_consistent_capitalization() {
-        assert_eq!(human_tool_display_name("read_file"), "Read");
-        assert_eq!(human_tool_display_name("web_search"), "Web Search");
+        assert_eq!(human_tool_display_name("read_file"), "读取");
+        assert_eq!(human_tool_display_name("web_search"), "网页搜索");
         assert_eq!(human_tool_display_name("custom_tool"), "Custom Tool");
     }
 }

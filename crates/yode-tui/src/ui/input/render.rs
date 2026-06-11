@@ -33,10 +33,11 @@ pub fn render_input(frame: &mut Frame, area: Rect, app: &App) {
             prompt_color,
             app.input.ghost_text.as_deref(),
             input_hint_text(app),
+            &app.session.model,
         ));
         frame.render_widget(paragraph, area);
         if !app.is_thinking && app.pending_confirmation.is_none() {
-            frame.set_cursor_position((empty_input_cursor_x(area), area.y));
+            frame.set_cursor_position((empty_input_cursor_x(area, &app.session.model), area.y));
         }
     } else {
         render_wrapped_input(frame, area, app, prompt_color);
@@ -51,7 +52,12 @@ fn ghost_or_hint_line(
     prompt_color: Color,
     ghost_text: Option<&str>,
     fallback_hint: String,
+    model: &str,
 ) -> Line<'static> {
+    let model_badge = Span::styled(
+        format!("[{}] ", model),
+        Style::default().fg(crate::ui::palette::SELECT_ACCENT),
+    );
     let prompt = Span::styled(
         "❯ ",
         Style::default()
@@ -60,19 +66,22 @@ fn ghost_or_hint_line(
     );
     if let Some(ghost) = ghost_text {
         Line::from(vec![
+            model_badge,
             prompt,
             Span::styled(ghost.to_string(), Style::default().fg(GHOST_COLOR)),
         ])
     } else {
         Line::from(vec![
+            model_badge,
             prompt,
             Span::styled(fallback_hint, Style::default().fg(HINT_COLOR)),
         ])
     }
 }
 
-fn empty_input_cursor_x(area: Rect) -> u16 {
-    area.x + 2.min(area.width.saturating_sub(1))
+fn empty_input_cursor_x(area: Rect, model: &str) -> u16 {
+    let prefix_width = (model.len() + 5) as u16;
+    area.x + prefix_width.min(area.width.saturating_sub(1))
 }
 
 fn input_hint_text(app: &App) -> String {
@@ -182,15 +191,15 @@ mod tests {
     #[test]
     fn empty_input_cursor_stays_inside_prompt_area() {
         assert_eq!(
-            empty_input_cursor_x(ratatui::layout::Rect::new(4, 0, 80, 1)),
-            6
+            empty_input_cursor_x(ratatui::layout::Rect::new(4, 0, 80, 1), "model"),
+            14
         );
         assert_eq!(
-            empty_input_cursor_x(ratatui::layout::Rect::new(4, 0, 1, 1)),
+            empty_input_cursor_x(ratatui::layout::Rect::new(4, 0, 1, 1), "model"),
             4
         );
         assert_eq!(
-            empty_input_cursor_x(ratatui::layout::Rect::new(4, 0, 0, 1)),
+            empty_input_cursor_x(ratatui::layout::Rect::new(4, 0, 0, 1), "model"),
             4
         );
     }

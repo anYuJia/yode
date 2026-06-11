@@ -77,8 +77,7 @@ pub(super) async fn handle_stream_chunk(
 
         if let Some(reasoning) = &delta.reasoning_content {
             if !reasoning.is_empty() {
-                let Some(reasoning_delta) =
-                    streaming_delta(&state.full_reasoning, reasoning)
+                let Some(reasoning_delta) = streaming_delta(&state.full_reasoning, reasoning)
                 else {
                     continue;
                 };
@@ -170,8 +169,7 @@ fn streaming_delta(current: &str, incoming: &str) -> Option<String> {
 
     let max_overlap = current.len().min(incoming.len());
     for overlap in (1..=max_overlap).rev() {
-        if !current.is_char_boundary(current.len() - overlap)
-            || !incoming.is_char_boundary(overlap)
+        if !current.is_char_boundary(current.len() - overlap) || !incoming.is_char_boundary(overlap)
         {
             continue;
         }

@@ -25,11 +25,21 @@ pub fn build_wrapped_input_layout(
     let mut cursor_col_x = 0usize;
 
     for (line_index, logical_line) in app.input.lines.iter().enumerate() {
-        let prefix_str = if line_index == 0 { "❯ " } else { "  " };
-        let prefix_width = 2usize;
-
-        let mut items: Vec<(String, Style, usize)> =
-            vec![(prefix_str.to_string(), prompt_style, prefix_width)];
+        let mut items: Vec<(String, Style, usize)> = Vec::new();
+        let prefix_width = if line_index == 0 {
+            let model_badge = format!("[{}] ", app.session.model);
+            let model_width = model_badge.len();
+            items.push((
+                model_badge,
+                Style::default().fg(crate::ui::palette::SELECT_ACCENT),
+                model_width,
+            ));
+            items.push(("❯ ".to_string(), prompt_style, 2));
+            model_width + 2
+        } else {
+            items.push(("  ".to_string(), prompt_style, 2));
+            2
+        };
         let mut buffer = String::new();
         for ch in logical_line.chars() {
             if ch == PLACEHOLDER {

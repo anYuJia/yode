@@ -87,7 +87,7 @@ pub(crate) fn render_tool_call(
         }
     }
     title_spans.push(Span::styled(
-        " (ctrl+o to inspect)",
+        "（Ctrl+O 查看）",
         Style::default().fg(DIM).add_modifier(Modifier::ITALIC),
     ));
 
@@ -180,7 +180,7 @@ pub(crate) fn render_grouped_tool_call(
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            " (ctrl+o to expand)",
+            "（Ctrl+O 展开）",
             Style::default().fg(DIM).add_modifier(Modifier::ITALIC),
         ),
     ]));
@@ -230,7 +230,7 @@ pub(crate) fn render_standalone_result(lines: &mut Vec<Line<'static>>, entry: &C
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                " (ctrl+o to inspect)",
+                "（Ctrl+O 查看）",
                 Style::default().fg(DIM).add_modifier(Modifier::ITALIC),
             ),
         ]));
@@ -375,8 +375,8 @@ mod tests {
 
         assert!(lines[0]
             .to_string()
-            .contains("Searched for 1 pattern, read 1 file, listed 1 directory"));
-        assert!(lines[0].to_string().contains("ctrl+o to expand"));
+            .contains("已搜索 1次搜索，已读取 1个文件，已列出 1个目录"));
+        assert!(lines[0].to_string().contains("Ctrl+O 展开"));
         assert_eq!(lines.len(), 1);
     }
 
@@ -432,8 +432,8 @@ mod tests {
 
         assert!(lines[0]
             .to_string()
-            .contains("Searched the web for 1 query, inspected 1 symbol"));
-        assert!(lines[0].to_string().contains("ctrl+o to expand"));
+            .contains("已完成 1次联网搜索，已查看 1个符号"));
+        assert!(lines[0].to_string().contains("Ctrl+O 展开"));
         assert_eq!(lines.len(), 1);
     }
 
@@ -493,8 +493,8 @@ mod tests {
             None,
             call.timestamp,
         );
-        assert!(lines[0].to_string().contains("Read .../src/main.rs"));
-        assert!(lines[0].to_string().contains("ctrl+o to inspect"));
+        assert!(lines[0].to_string().contains("已读取 .../src/main.rs"));
+        assert!(lines[0].to_string().contains("Ctrl+O 查看"));
         assert!(!lines[0].to_string().contains("Read_file"));
     }
 
@@ -514,7 +514,7 @@ mod tests {
         }));
         let mut lines: Vec<Line<'static>> = Vec::new();
         render_standalone_result(&mut lines, &entry);
-        assert!(lines[0].to_string().contains("ctrl+o to inspect"));
+        assert!(lines[0].to_string().contains("Ctrl+O 查看"));
         assert!(lines
             .iter()
             .any(|line| line.to_string().contains("read-only: validated git status")));
@@ -535,7 +535,7 @@ mod tests {
         );
         let mut lines: Vec<Line<'static>> = Vec::new();
         render_standalone_result(&mut lines, &entry);
-        assert!(lines[0].to_string().contains("Bash"));
+        assert!(lines[0].to_string().contains("命令"));
         assert!(lines
             .iter()
             .all(|line| !line.to_string().contains("stdout")));

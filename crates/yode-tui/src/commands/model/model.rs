@@ -110,7 +110,7 @@ fn render_model_inventory(
     )
 }
 
-fn build_model_picker_wizard(
+pub(crate) fn build_model_picker_wizard(
     provider_name: &str,
     current_model: &str,
     provider_models: &[String],
@@ -321,6 +321,8 @@ fn build_add_model_wizard(provider_name: &str, current_model: &str) -> Wizard {
                             .then(|| info.default_base_url.to_string()),
                         api_key: None,
                         models: Vec::new(),
+                        enabled: None,
+                        gradient: None,
                     },
                 );
             }

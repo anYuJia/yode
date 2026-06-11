@@ -1312,7 +1312,7 @@ mod tests {
         assert!(doc.panels[0]
             .lines
             .iter()
-            .any(|line| line.contains("Reading .../src/main.rs")));
+            .any(|line| line.contains("正在读取 .../src/main.rs")));
         assert!(doc.panels[1]
             .lines
             .iter()

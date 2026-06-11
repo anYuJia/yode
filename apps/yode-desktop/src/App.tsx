@@ -4,6 +4,7 @@ import {
   Archive,
   Bot,
   ChevronDown,
+  ChevronRight,
   CircleDot,
   Clock3,
   Code2,
@@ -40,10 +41,60 @@ import {
   AlertCircle,
   Check,
   Pin,
-  Trash2
+  Trash2,
+  Square
 } from "lucide-react";
-import React, { useEffect, useLayoutEffect, useMemo, useState, useRef } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState, useRef } from "react";
 import { createPortal } from "react-dom";
+import hljs from "highlight.js/lib/core";
+// 按需注册常用语言（轻量化）
+import langBash from "highlight.js/lib/languages/bash";
+import langPython from "highlight.js/lib/languages/python";
+import langRust from "highlight.js/lib/languages/rust";
+import langTypescript from "highlight.js/lib/languages/typescript";
+import langJavascript from "highlight.js/lib/languages/javascript";
+import langJson from "highlight.js/lib/languages/json";
+import langTOML from "highlight.js/lib/languages/ini";
+import langYaml from "highlight.js/lib/languages/yaml";
+import langCSS from "highlight.js/lib/languages/css";
+import langHTML from "highlight.js/lib/languages/xml";
+import langSQL from "highlight.js/lib/languages/sql";
+import langC from "highlight.js/lib/languages/c";
+import langCpp from "highlight.js/lib/languages/cpp";
+import langGo from "highlight.js/lib/languages/go";
+import langJava from "highlight.js/lib/languages/java";
+import langMarkdown from "highlight.js/lib/languages/markdown";
+import langDiff from "highlight.js/lib/languages/diff";
+hljs.registerLanguage("bash", langBash);
+hljs.registerLanguage("sh", langBash);
+hljs.registerLanguage("shell", langBash);
+hljs.registerLanguage("zsh", langBash);
+hljs.registerLanguage("python", langPython);
+hljs.registerLanguage("py", langPython);
+hljs.registerLanguage("rust", langRust);
+hljs.registerLanguage("rs", langRust);
+hljs.registerLanguage("typescript", langTypescript);
+hljs.registerLanguage("ts", langTypescript);
+hljs.registerLanguage("tsx", langTypescript);
+hljs.registerLanguage("javascript", langJavascript);
+hljs.registerLanguage("js", langJavascript);
+hljs.registerLanguage("jsx", langJavascript);
+hljs.registerLanguage("json", langJson);
+hljs.registerLanguage("toml", langTOML);
+hljs.registerLanguage("ini", langTOML);
+hljs.registerLanguage("yaml", langYaml);
+hljs.registerLanguage("yml", langYaml);
+hljs.registerLanguage("css", langCSS);
+hljs.registerLanguage("html", langHTML);
+hljs.registerLanguage("xml", langHTML);
+hljs.registerLanguage("sql", langSQL);
+hljs.registerLanguage("c", langC);
+hljs.registerLanguage("cpp", langCpp);
+hljs.registerLanguage("go", langGo);
+hljs.registerLanguage("java", langJava);
+hljs.registerLanguage("md", langMarkdown);
+hljs.registerLanguage("markdown", langMarkdown);
+hljs.registerLanguage("diff", langDiff);
 
 import {
   Bootstrap,
@@ -139,6 +190,1215 @@ function visibleSessions(sessions: SessionSummary[]) {
     ...loadStoredStringArray(DELETED_SESSION_IDS_STORAGE_KEY),
   ]);
   return sessions.filter((session) => !hiddenIds.has(session.id));
+}
+
+interface AgentAction {
+  id: string;
+  type: "explore" | "edit" | "run" | "reasoning";
+  label: string;
+  items: TimelineItem[];
+}
+
+function compileTurnActions(items: TimelineItem[]): AgentAction[] {
+  const actions: AgentAction[] = [];
+  const toolsRun = items.filter((item): item is Extract<TimelineItem, { kind: "tool" }> => item.kind === "tool");
+  
+  // Helper to match tools
+  const isExploreTool = (toolName: string, title: string) => {
+    const t = (toolName || "").toLowerCase();
+    const ttl = (title || "").toLowerCase();
+    return t.includes("read") || t.includes("view") || t.includes("list") || 
+           t.includes("grep") || t.includes("map") || t.includes("glob") || 
+           t.includes("ls") || t.includes("find") || t.includes("locate") ||
+           ttl.includes("read") || ttl.includes("view") || ttl.includes("list") || 
+           ttl.includes("grep") || ttl.includes("map") || ttl.includes("glob") || 
+           ttl.includes("ls") || ttl.includes("find") || ttl.includes("locate") ||
+           ttl.includes("探索") || ttl.includes("查看") || ttl.includes("搜索") || ttl.includes("读取");
+  };
+
+  const isEditTool = (toolName: string, title: string) => {
+    const t = (toolName || "").toLowerCase();
+    const ttl = (title || "").toLowerCase();
+    return t.includes("write") || t.includes("edit") || t.includes("replace") || 
+           t.includes("create") || t.includes("patch") || t.includes("modify") ||
+           ttl.includes("write") || ttl.includes("edit") || ttl.includes("replace") || 
+           ttl.includes("create") || ttl.includes("patch") || ttl.includes("modify") ||
+           ttl.includes("写入") || ttl.includes("修改") || ttl.includes("编辑") || ttl.includes("替换");
+  };
+
+  const isRunTool = (toolName: string, title: string) => {
+    const t = (toolName || "").toLowerCase();
+    const ttl = (title || "").toLowerCase();
+    return t.includes("run") || t.includes("command") || t.includes("bash") || 
+           t.includes("execute") || t.includes("cmd") || t.includes("sh") ||
+           ttl.includes("run") || ttl.includes("command") || ttl.includes("bash") || 
+           ttl.includes("execute") || ttl.includes("cmd") || ttl.includes("sh") ||
+           ttl.includes("运行") || ttl.includes("执行");
+  };
+
+  // 1. Thought / Reasoning
+  const hasReasoning = items.some(item => item.kind === "reasoning");
+  const isThinking = items.some(item => item.kind === "reasoning" && (item as any).meta === "running");
+  if (hasReasoning) {
+    const reasoningItems = items.filter(item => item.kind === "reasoning");
+    const completedItem = reasoningItems.find(item => (item as any).meta !== "running");
+    let label = "已思考";
+    if (isThinking) {
+      label = "正在思考...";
+    } else if (completedItem) {
+      label = (completedItem as any).title || "已思考";
+    }
+    actions.push({
+      id: "reasoning",
+      type: "reasoning",
+      label,
+      items: reasoningItems
+    });
+  }
+
+  // 2. Exploration
+  const readTools = toolsRun.filter(item => isExploreTool(item.tool || "", item.title || ""));
+  if (readTools.length > 0) {
+    const isRunning = readTools.some(item => item.status === "running");
+    actions.push({
+      id: "explore",
+      type: "explore",
+      label: isRunning ? "正在探索..." : "正在探索",
+      items: readTools
+    });
+  }
+
+  // 3. Edits
+  const writeTools = toolsRun.filter(item => isEditTool(item.tool || "", item.title || ""));
+  if (writeTools.length > 0) {
+    const isRunning = writeTools.some(item => item.status === "running");
+    actions.push({
+      id: "edit",
+      type: "edit",
+      label: isRunning ? "正在修改..." : "正在修改",
+      items: writeTools
+    });
+  }
+
+  // 4. Commands
+  const runTools = toolsRun.filter(item => isRunTool(item.tool || "", item.title || ""));
+  if (runTools.length > 0) {
+    const isRunning = runTools.some(item => item.status === "running");
+    actions.push({
+      id: "run",
+      type: "run",
+      label: isRunning ? "正在运行..." : "正在运行",
+      items: runTools
+    });
+  }
+
+  // 5. Fallback for other tools (if not matched above)
+  const otherTools = toolsRun.filter(item => 
+    !isExploreTool(item.tool || "", item.title || "") && 
+    !isEditTool(item.tool || "", item.title || "") && 
+    !isRunTool(item.tool || "", item.title || "")
+  );
+  if (otherTools.length > 0) {
+    const isRunning = otherTools.some(item => item.status === "running");
+    actions.push({
+      id: "other_tools",
+      type: "run",
+      label: isRunning ? "正在执行..." : "正在执行",
+      items: otherTools
+    });
+  }
+
+  // 6. Total tool usage count
+  const uniqueToolCalls = toolsRun.filter(item => item.title !== "工具结果");
+  if (uniqueToolCalls.length > 0) {
+    actions.push({
+      id: "total_tools",
+      type: "run",
+      label: `工具调用次数: ${uniqueToolCalls.length}`,
+      items: uniqueToolCalls
+    });
+  }
+
+  return actions;
+}
+
+function getFileIcon(filename: string) {
+  const ext = filename.split('.').pop()?.toLowerCase();
+  switch (ext) {
+    case "tsx":
+    case "jsx":
+      return <span style={{ color: "#61dafb", marginRight: "4px" }}>⚛️</span>;
+    case "ts":
+    case "js":
+      return <span style={{ color: "#3178c6", marginRight: "4px" }}>📄</span>;
+    case "rs":
+      return <span style={{ color: "#dea584", marginRight: "4px" }}>🦀</span>;
+    case "json":
+      return <span style={{ color: "#cbcb41", marginRight: "4px" }}>⚙️</span>;
+    case "css":
+    case "scss":
+      return <span style={{ color: "#563d7c", marginRight: "4px" }}>🎨</span>;
+    case "md":
+      return <span style={{ color: "#858585", marginRight: "4px" }}>📝</span>;
+    default:
+      return <span style={{ color: "#858585", marginRight: "4px" }}>📄</span>;
+  }
+}
+
+function isRuntimeNoticeText(text?: string) {
+  if (!text) return false;
+  return /limit instead of re-reading|budget notice|checkpoint:|tool calls used|summariz(?:e|ing) current findings|most efficient next step/i.test(text);
+}
+
+function parseToolDetails(item: { tool: string; body: string; title: string }) {
+  let filename = "";
+  let lineRange = "";
+  let diff = "";
+  let command = "";
+
+  const body = (item.body || "").trim();
+  const title = (item.title || "").trim();
+
+  if (isRuntimeNoticeText(body) || isRuntimeNoticeText(title)) {
+    return { filename, lineRange, diff, command };
+  }
+
+  try {
+    const parsed = JSON.parse(body);
+    const rawPath = parsed.file_path || parsed.TargetFile || parsed.AbsolutePath || parsed.Path || parsed.Target || parsed.SearchPath || parsed.TargetContentFile;
+    if (rawPath && typeof rawPath === "string") {
+      filename = rawPath.substring(rawPath.lastIndexOf('/') + 1);
+    }
+
+    const start = parsed.StartLine;
+    const end = parsed.EndLine;
+    if (start !== undefined && end !== undefined) {
+      lineRange = `#L${start}-${end}`;
+    } else if (start !== undefined) {
+      lineRange = `#L${start}`;
+    }
+
+    if (parsed.CommandLine) {
+      command = parsed.CommandLine;
+    }
+
+    if (item.tool?.includes("replace") || item.tool?.includes("write") || item.tool?.includes("edit")) {
+      const target = parsed.TargetContent || parsed.targetContent || "";
+      const replacement = parsed.ReplacementContent || parsed.replacementContent || parsed.CodeContent || parsed.codeContent || "";
+      if (target || replacement) {
+        const targetLines = target ? target.split("\n").length : 0;
+        const replacementLines = replacement ? replacement.split("\n").length : 0;
+        diff = `+${replacementLines} -${targetLines}`;
+      }
+    }
+  } catch (e) {
+    const pathMatch = body.match(/"(?:file_path|AbsolutePath|TargetFile|Path|SearchPath)"\s*:\s*"([^"]+)"/);
+    if (pathMatch) {
+      const rawPath = pathMatch[1];
+      filename = rawPath.substring(rawPath.lastIndexOf('/') + 1);
+    }
+
+    const startMatch = body.match(/"StartLine"\s*:\s*(\d+)/);
+    const endMatch = body.match(/"EndLine"\s*:\s*(\d+)/);
+    if (startMatch && endMatch) {
+      lineRange = `#L${startMatch[1]}-${endMatch[1]}`;
+    } else if (startMatch) {
+      lineRange = `#L${startMatch[1]}`;
+    }
+
+    const cmdMatch = body.match(/"CommandLine"\s*:\s*"([^"]+)"/);
+    if (cmdMatch) {
+      command = cmdMatch[1];
+    }
+
+    if (item.tool?.includes("replace") || item.tool?.includes("write") || item.tool?.includes("edit")) {
+      const targetMatch = body.match(/"(?:TargetContent|targetContent)"\s*:\s*"([\s\S]*?)"/);
+      const replacementMatch = body.match(/"(?:ReplacementContent|replacementContent|CodeContent|codeContent)"\s*:\s*"([\s\S]*?)"/);
+      if (targetMatch || replacementMatch) {
+        const target = targetMatch ? targetMatch[1] : "";
+        const replacement = replacementMatch ? replacementMatch[1] : "";
+        const targetLines = target ? target.split("\\n").length : 0;
+        const replacementLines = replacement ? replacement.split("\\n").length : 0;
+        diff = `+${replacementLines} -${targetLines}`;
+      }
+    }
+  }
+
+  if (!filename && (item.tool?.includes("view") || item.tool?.includes("read") || item.tool?.includes("grep"))) {
+    if (body && !body.startsWith('{') && (body.includes('/') || body.includes('\\') || body.includes('.'))) {
+      filename = body.substring(Math.max(body.lastIndexOf('/'), body.lastIndexOf('\\')) + 1);
+    }
+  }
+
+  if (!command && (item.tool?.includes("run") || item.tool?.includes("command") || item.tool?.includes("bash"))) {
+    if (body && !body.startsWith('{') && looksLikeShellCommand(body)) {
+      command = body;
+    }
+  }
+
+  if (!filename && title) {
+    const parts = item.title.split(/[\s/\\]+/);
+    const lastPart = parts[parts.length - 1];
+    if (lastPart && lastPart.includes(".") && !lastPart.includes("]")) {
+      filename = lastPart;
+    }
+  }
+
+  return { filename, lineRange, diff, command };
+}
+
+function displayToolName(tool?: string) {
+  const name = (tool || "").trim();
+  if (!name) return "工具";
+  if (name === "project_map") return "项目结构";
+  if (name === "glob") return "文件匹配";
+  if (name === "grep" || name === "rg") return "内容搜索";
+  if (name === "ls") return "目录列表";
+  if (name === "tauri command") return "桌面命令";
+  return name;
+}
+
+function looksLikeShellCommand(text: string) {
+  const clean = text.trim();
+  if (!clean || clean.length > 160) return false;
+  if (/[\u4e00-\u9fff]/.test(clean)) return false;
+  return /^(cargo|pnpm|npm|yarn|bun|git|rg|grep|find|ls|cat|sed|awk|bash|zsh|sh|python|node|deno|make|cmake|go|rustc|tsc|vite)\b/.test(clean) ||
+    /(\s&&\s|\s\|\s|\s;\s|^\.\/|^\w+=\S+\s+\w+)/.test(clean);
+}
+
+function shouldHideActivityItem(item: any) {
+  return isRuntimeNoticeText(item?.title) || isRuntimeNoticeText(item?.body) || isRuntimeNoticeText(item?.result);
+}
+
+function isThinkingStatusTitle(title?: string) {
+  return /思考|thinking|thought/i.test(title || "");
+}
+
+function summarizeActivityItems(items: any[]) {
+  const summarized: any[] = [];
+  const seen = new Map<string, any>();
+
+  for (const item of items) {
+    if (shouldHideActivityItem(item)) continue;
+
+    if (item.kind !== "tool") {
+      summarized.push(item);
+      continue;
+    }
+
+    const parsed = parseToolDetails(item);
+    const key = [
+      item.kind,
+      item.tool || "",
+      parsed.filename || parsed.command || "",
+    ].join(":");
+
+    const existing = seen.get(key);
+    if (existing) {
+      existing.count = (existing.count || 1) + 1;
+      if (item.status === "running") existing.status = "running";
+      if (!existing.result && item.result) existing.result = item.result;
+      continue;
+    }
+
+    const next = { ...item, count: 1 };
+    seen.set(key, next);
+    summarized.push(next);
+  }
+
+  return summarized;
+}
+
+function activityItemSummary(item: any) {
+  if (item.kind !== "tool") return "";
+  const parsed = parseToolDetails(item);
+  if (parsed.filename) return parsed.filename;
+  if (parsed.command) return parsed.command;
+  return displayToolName(item.tool);
+}
+
+function activityGroupPreview(items: any[], appLang: string) {
+  const isZh = appLang === "zh";
+  const labels: string[] = [];
+
+  for (const item of items) {
+    const label = activityItemSummary(item);
+    if (label && !labels.includes(label)) labels.push(label);
+    if (labels.length >= 4) break;
+  }
+
+  if (labels.length === 0) {
+    return isZh ? "点击展开查看活动明细" : "Expand to view activity details";
+  }
+
+  const suffix = items.length > labels.length
+    ? (isZh ? ` 等 ${items.length} 项` : ` and ${items.length - labels.length} more`)
+    : "";
+  return `${labels.join("、")}${suffix}`;
+}
+
+function ActivityLeafNode({ item, appLang }: { item: any; appLang: string }) {
+  const isZh = appLang === "zh";
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  const hasBodyOrResult = !!(item.body || item.result);
+
+  if (item.kind === "reasoning") {
+    let displayTitle = item.title || "";
+    if (displayTitle.includes("已思考")) {
+      const match = displayTitle.match(/\d+/);
+      const seconds = match ? match[0] : "0";
+      displayTitle = isZh ? `思考了 ${seconds} 秒` : `Thought for ${seconds}s`;
+    } else if (item.meta === "running") {
+      displayTitle = isZh ? "正在思考..." : "Thinking...";
+    }
+    
+    return (
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        <div 
+          onClick={() => item.body && setIsExpanded(!isExpanded)}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "4px",
+            cursor: item.body ? "pointer" : "default",
+            color: "var(--text-soft)",
+            fontSize: "12px"
+          }}
+        >
+          <span>{displayTitle}</span>
+          {item.body && (
+            isExpanded ? <ChevronDown size={11} style={{ opacity: 0.6 }} /> : <ChevronRight size={11} style={{ opacity: 0.6 }} />
+          )}
+        </div>
+        {isExpanded && item.body && (
+          <div style={{
+            marginTop: "4px",
+            padding: "8px 12px",
+            background: "color-mix(in oklch, var(--field), transparent 2%)",
+            borderRadius: "6px",
+            fontSize: "11px",
+            color: "var(--text-soft)",
+            whiteSpace: "pre-wrap",
+            fontFamily: "var(--font-code)",
+            border: "1px solid var(--line-soft)",
+            maxWidth: "600px"
+          }}>
+            {item.body}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (item.kind === "tool") {
+    const parsed = parseToolDetails(item);
+    const isRunning = item.status === "running";
+    
+    let label = "";
+    if (item.tool?.includes("view") || item.tool?.includes("read") || item.tool?.includes("grep") || item.tool?.includes("glob") || item.tool?.includes("list")) {
+      label = isRunning 
+        ? (isZh ? "正在分析" : "Analyzing") 
+        : (isZh ? "已分析" : "Analyzed");
+    } else if (item.tool?.includes("run") || item.tool?.includes("command") || item.tool?.includes("bash")) {
+      label = isRunning 
+        ? (isZh ? "正在运行命令" : "Running command") 
+        : (isZh ? "已运行命令" : "Ran command");
+    } else {
+      label = isRunning
+        ? (isZh ? "正在执行" : "Executing")
+        : (isZh ? "已执行" : "Executed");
+    }
+
+    return (
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        <div 
+          onClick={() => hasBodyOrResult && setIsExpanded(!isExpanded)}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "4px",
+            cursor: hasBodyOrResult ? "pointer" : "default",
+            color: "var(--text-soft)",
+            fontSize: "12px"
+          }}
+        >
+          <span>{label}</span>
+          {parsed.filename && getFileIcon(parsed.filename)}
+          {(parsed.filename || parsed.command) ? (
+            <span style={{ color: "var(--text)", fontWeight: "500" }}>
+              {parsed.filename ? `${parsed.filename}${parsed.lineRange}` : parsed.command}
+            </span>
+          ) : (
+            <span style={{ color: "var(--text)", fontWeight: "500" }}>
+              {displayToolName(item.tool)}
+            </span>
+          )}
+          {item.count > 1 && (
+            <span style={{ color: "var(--text-soft)", fontSize: "11px" }}>x{item.count}</span>
+          )}
+          {hasBodyOrResult && (
+            isExpanded ? <ChevronDown size={11} style={{ opacity: 0.6 }} /> : <ChevronRight size={11} style={{ opacity: 0.6 }} />
+          )}
+        </div>
+        
+        {isExpanded && (
+          <div style={{
+            marginTop: "4px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "6px",
+            paddingLeft: "10px",
+            borderLeft: "1.5px solid var(--line-soft)",
+            maxWidth: "600px"
+          }}>
+            {item.body && (
+              <div>
+                <pre style={{
+                  margin: 0,
+                  padding: "6px 10px",
+                  background: "color-mix(in oklch, var(--field), transparent 4%)",
+                  borderRadius: "4px",
+                  overflowX: "auto",
+                  fontFamily: "var(--font-code)",
+                  fontSize: "11px",
+                  color: "var(--text-soft)",
+                  border: "1px solid var(--line-soft)"
+                }}>
+                  {item.body}
+                </pre>
+              </div>
+            )}
+            {item.result && (
+              <div>
+                <pre style={{
+                  margin: 0,
+                  padding: "6px 10px",
+                  background: "color-mix(in oklch, var(--field), transparent 2%)",
+                  borderRadius: "4px",
+                  overflowX: "auto",
+                  maxHeight: "150px",
+                  fontFamily: "var(--font-code)",
+                  fontSize: "11px",
+                  color: "var(--text-muted)",
+                  border: "1px solid var(--line-soft)"
+                }}>
+                  {item.result}
+                </pre>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return null;
+}
+
+function ActivityGroupNode({ group, appLang, isTurnActive }: { group: any; appLang: string; isTurnActive?: boolean }) {
+  const isZh = appLang === "zh";
+  const visibleItems = useMemo(() => summarizeActivityItems(group.items || []), [group.items]);
+  const isRunning = group.status === "running";
+  const shouldAutoExpand = visibleItems.length > 0 && visibleItems.length <= 4;
+  const [isExpanded, setIsExpanded] = useState(shouldAutoExpand);
+
+  useEffect(() => {
+    setIsExpanded(shouldAutoExpand);
+  }, [group.id, shouldAutoExpand]);
+
+  if (visibleItems.length === 0 && !isRunning) return null;
+
+  const count = visibleItems.filter((item: any) => item.kind === "tool").length || 1;
+  const displayedItems = isExpanded && visibleItems.length > 8
+    ? [...visibleItems.slice(0, 4), ...visibleItems.slice(-3)]
+    : visibleItems;
+  const hiddenCount = isExpanded && visibleItems.length > displayedItems.length
+    ? visibleItems.length - displayedItems.length
+    : 0;
+  
+  let label = group.label;
+  if (group.type === "explore") {
+    const files = new Set<string>();
+    visibleItems.forEach((t: any) => {
+      if (t.kind === "tool") {
+        const parsed = parseToolDetails(t);
+        if (parsed.filename) files.add(parsed.filename);
+      }
+    });
+    const uniqueFilesCount = files.size;
+    if (isZh) {
+      label = uniqueFilesCount > 0
+        ? (isRunning ? `正在探索 ${uniqueFilesCount} 个文件` : `已探索 ${uniqueFilesCount} 个文件`)
+        : (isRunning ? `正在探索 ${count} 项` : `已探索 ${count} 项`);
+    } else {
+      label = uniqueFilesCount > 0
+        ? (isRunning ? `Exploring ${uniqueFilesCount} file${uniqueFilesCount > 1 ? "s" : ""}` : `Explored ${uniqueFilesCount} file${uniqueFilesCount > 1 ? "s" : ""}`)
+        : (isRunning ? `Exploring ${count} item${count > 1 ? "s" : ""}` : `Explored ${count} item${count > 1 ? "s" : ""}`);
+    }
+  } else if (group.type === "search") {
+    if (isZh) {
+      label = isRunning ? `正在搜索网页...` : `已搜索网页 ${count} 次`;
+    } else {
+      label = isRunning ? `Searching web...` : `Searched web ${count} time${count > 1 ? "s" : ""}`;
+    }
+  } else if (group.type === "run") {
+    if (isZh) {
+      label = isRunning ? `正在运行 ${count} 个命令` : `已运行 ${count} 个命令`;
+    } else {
+      label = isRunning ? `Running ${count} command${count > 1 ? "s" : ""}` : `Ran ${count} command${count > 1 ? "s" : ""}`;
+    }
+  } else {
+    if (isZh) {
+      label = isRunning ? `正在执行...` : `已执行 ${count} 个操作`;
+    } else {
+      label = isRunning ? `Working...` : `Executed ${count} action${count > 1 ? "s" : ""}`;
+    }
+  }
+
+  return (
+    <div style={{
+      maxWidth: "760px",
+      width: "100%",
+      margin: "4px auto 8px",
+      paddingLeft: "33px",
+      fontSize: "12.5px",
+      color: "var(--text-soft)",
+      userSelect: "none"
+    }}>
+      <div 
+        onClick={() => setIsExpanded(!isExpanded)}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "6px",
+          cursor: "pointer",
+          transition: "color 0.15s ease",
+          fontWeight: "500",
+        }}
+        onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
+        onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-soft)"; }}
+      >
+        <span>{label}</span>
+        {isExpanded ? <ChevronDown size={12} style={{ opacity: 0.8 }} /> : <ChevronRight size={12} style={{ opacity: 0.8 }} />}
+      </div>
+
+      {!isExpanded && visibleItems.length > 0 && (
+        <div style={{
+          marginTop: "5px",
+          paddingLeft: "16px",
+          color: "var(--text)",
+          fontSize: "12px",
+          lineHeight: 1.45,
+          maxWidth: "68ch"
+        }}>
+          {activityGroupPreview(visibleItems, appLang)}
+        </div>
+      )}
+
+      {isExpanded && (
+        <div style={{
+          marginTop: "6px",
+          paddingLeft: "16px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "6px",
+        }}>
+          {displayedItems.map((item: any, idx: number) => (
+            <ActivityLeafNode key={idx} item={item} appLang={appLang} />
+          ))}
+          {hiddenCount > 0 && (
+            <div style={{ color: "var(--text-soft)", fontSize: "12px" }}>
+              {isZh ? `已折叠 ${hiddenCount} 条重复/低优先级活动` : `${hiddenCount} repeated or low-priority activities hidden`}
+            </div>
+          )}
+          {isRunning && (() => {
+            const runningItem = visibleItems.find((item: any) => item.status === "running" || item.meta === "running");
+            let statusText = isZh ? "正在处理..." : "Working..";
+            if (runningItem) {
+              if (runningItem.kind === "reasoning") {
+                statusText = isZh ? "正在思考..." : "Thinking...";
+              } else if (runningItem.kind === "tool") {
+                const parsed = parseToolDetails(runningItem);
+                if (runningItem.tool?.includes("run") || runningItem.tool?.includes("command") || runningItem.tool?.includes("bash")) {
+                  statusText = parsed.command
+                    ? (isZh ? `正在运行命令 ${parsed.command}...` : `Running command ${parsed.command}...`)
+                    : (isZh ? "正在运行命令..." : "Running command...");
+                } else if (parsed.filename) {
+                  statusText = isZh ? `正在分析 ${parsed.filename}...` : `Analyzing ${parsed.filename}...`;
+                } else {
+                  statusText = isZh ? `正在执行 ${displayToolName(runningItem.tool)}...` : `Executing ${displayToolName(runningItem.tool)}...`;
+                }
+              }
+            }
+            return (
+              <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "var(--accent)", fontSize: "12px", fontStyle: "italic" }}>
+                <CircleDot size={10} className="glowing-logo" style={{ animation: "pulse 2s infinite" }} />
+                <span>{statusText}</span>
+              </div>
+            );
+          })()}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ActivityItemNode({ node, appLang }: { node: any; appLang: string }) {
+  const isZh = appLang === "zh";
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  const isRunning = node.status === "running";
+  const label = isRunning 
+    ? (isZh ? "正在修改" : "Editing") 
+    : (isZh ? "已修改" : "Edited");
+
+  let addCount = "";
+  let delCount = "";
+  if (node.diff) {
+    const parts = node.diff.split(" ");
+    addCount = parts[0] || "";
+    delCount = parts[1] || "";
+  }
+
+  return (
+    <div style={{
+      maxWidth: "760px",
+      width: "100%",
+      margin: "4px auto 8px",
+      paddingLeft: "33px",
+      fontSize: "12.5px",
+      color: "var(--text-soft)",
+      userSelect: "none"
+    }}>
+      <div 
+        onClick={() => node.body && setIsExpanded(!isExpanded)}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "6px",
+          cursor: node.body ? "pointer" : "default",
+          transition: "color 0.15s ease",
+          fontWeight: "500",
+        }}
+        onMouseEnter={(e) => { if (node.body) e.currentTarget.style.color = "var(--text)"; }}
+        onMouseLeave={(e) => { if (node.body) e.currentTarget.style.color = "var(--text-soft)"; }}
+      >
+        <span>{label}</span>
+        {node.filename && getFileIcon(node.filename)}
+        {node.filename && (
+          <span style={{ color: "var(--text)", fontWeight: "500" }}>{node.filename}</span>
+        )}
+        {addCount && <span style={{ color: "#34d399", fontWeight: "600", marginLeft: "4px" }}>{addCount}</span>}
+        {delCount && <span style={{ color: "#f87171", fontWeight: "600", marginLeft: "2px" }}>{delCount}</span>}
+        {node.body && (
+          isExpanded ? <ChevronDown size={12} style={{ opacity: 0.8 }} /> : <ChevronRight size={12} style={{ opacity: 0.8 }} />
+        )}
+      </div>
+
+      {isExpanded && node.body && (
+        <div style={{
+          marginTop: "6px",
+          paddingLeft: "16px",
+        }}>
+          <pre style={{
+            padding: "8px 12px",
+            background: "color-mix(in oklch, var(--field), transparent 2%)",
+            borderRadius: "6px",
+            overflowX: "auto",
+            maxHeight: "150px",
+            whiteSpace: "pre-wrap",
+            fontFamily: "var(--font-code)",
+            fontSize: "11px",
+            color: "var(--text-muted)",
+            border: "1px solid var(--line-soft)",
+            maxWidth: "600px"
+          }}>
+            {node.body}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function normalizeProcessNoteText(text: string) {
+  return text
+    .replace(/\s+/g, " ")
+    .replace(/\s+([,.;:!?，。；：！？])/g, "$1")
+    .trim();
+}
+
+function splitProcessNotes(text: string) {
+  return text
+    .split(/\n{2,}|\n(?=(?:I will|I'll|Let me|Next|Now|我会|我先|接下来|现在|然后|下一步))/i)
+    .map(normalizeProcessNoteText)
+    .filter((line) => line && line !== "." && line !== "..." && line !== "…")
+    .slice(0, 6);
+}
+
+function looksLikeProcessNarration(text: string) {
+  const clean = normalizeProcessNoteText(text);
+  if (!clean || clean.length > 520) return false;
+  if (isRuntimeNoticeText(clean)) return false;
+  if (/^#{1,6}\s|```|\|.+\||^\s*[-*]\s/m.test(text)) return false;
+  if (/\b(the user|user hasn't|asked for|I've provided|wait for the user|user's response|want to dive deeper)\b/i.test(clean)) {
+    return false;
+  }
+  return /^(I will|I'll|Let me|Next|Now|I need to|I’m going to|I'm going to|我会|我先|接下来|现在|然后|下一步|先)/i.test(clean) ||
+    /(读取|查看|搜索|检查|运行|验证|修改|分析|探索).*(文件|项目|代码|目录|结构|实现|结果)/i.test(clean);
+}
+
+function isMostlyEnglishText(text: string) {
+  const latin = (text.match(/[A-Za-z]/g) || []).length;
+  const cjk = (text.match(/[\u4e00-\u9fff]/g) || []).length;
+  return latin > 40 && cjk === 0;
+}
+
+function localizeProcessNoteText(text: string, appLang: string) {
+  if (appLang !== "zh") return text;
+
+  const clean = normalizeProcessNoteText(text);
+  if (!clean || isRuntimeNoticeText(clean)) return "";
+  if (/\b(the user|user hasn't|asked for|I've provided|wait for the user|user's response|want to dive deeper)\b/i.test(clean)) {
+    return "";
+  }
+  if (/project structure/i.test(clean) && /source files/i.test(clean)) {
+    return "我已经看到了项目结构，接下来继续查看关键源文件。";
+  }
+  if (/JS and CSS files|frontend/i.test(clean)) {
+    return "我会继续检查 JS/CSS 等前端文件，补齐前端结构理解。";
+  }
+  if (/src subdirectories|key files/i.test(clean)) {
+    return "我先查看 src 子目录和关键文件，理解项目结构。";
+  }
+  if (/source files/i.test(clean)) {
+    return "我会继续查看源代码文件，理解项目实现。";
+  }
+  if (/comprehensive understanding/i.test(clean)) {
+    return "我已经基本了解项目结构，接下来补充检查关键文件。";
+  }
+
+  const localized = clean
+    .replace(/^I will read\b/i, "我会读取")
+    .replace(/^I'll read\b/i, "我会读取")
+    .replace(/^Let me read\b/i, "我先读取")
+    .replace(/^Let me explore\b/i, "我先探索")
+    .replace(/^Let me look at\b/i, "我先查看")
+    .replace(/^Let me also check\b/i, "我再检查")
+    .replace(/^I will search for\b/i, "我会搜索")
+    .replace(/^I'll search for\b/i, "我会搜索")
+    .replace(/^Let me search for\b/i, "我先搜索")
+    .replace(/^I will inspect\b/i, "我会检查")
+    .replace(/^I'll inspect\b/i, "我会检查")
+    .replace(/^Let me inspect\b/i, "我先检查")
+    .replace(/^I will run\b/i, "我会运行")
+    .replace(/^I'll run\b/i, "我会运行")
+    .replace(/^Let me run\b/i, "我先运行")
+    .replace(/^I need to\b/i, "我需要")
+    .replace(/^I’m going to\b/i, "我会")
+    .replace(/^I'm going to\b/i, "我会")
+    .replace(/^Next,\s*/i, "接下来，")
+    .replace(/^Now,\s*/i, "现在，")
+    .replace(/\bto see\b/i, "，确认")
+    .replace(/\bto inspect\b/i, "，检查")
+    .replace(/\bto understand\b/i, "，理解")
+    .replace(/\bwhere it is defined\b/i, "它的定义位置")
+    .replace(/\bhow\b/i, "如何");
+
+  if (isMostlyEnglishText(localized)) {
+    return "";
+  }
+  return localized;
+}
+
+function ProcessNoteNode({ note, appLang }: { note: Extract<TimelineItem, { kind: "process_note" }>; appLang: string }) {
+  const isZh = appLang === "zh";
+  const isRunning = note.status === "running";
+  const title = note.title || (isRunning ? (isZh ? "正在思考" : "Thinking") : "");
+  const body = localizeProcessNoteText(note.body, appLang);
+
+  if (!body && !title) return null;
+
+  return (
+    <div
+      style={{
+        maxWidth: "760px",
+        width: "100%",
+        margin: "6px auto 10px",
+        paddingLeft: "33px",
+        color: "var(--text)",
+      }}
+    >
+      {title && (
+        <div
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "6px",
+            marginBottom: body ? "8px" : 0,
+            color: isRunning ? "var(--accent)" : "var(--text-soft)",
+            fontSize: "12.5px",
+            fontWeight: 560,
+          }}
+        >
+          {isRunning ? (
+            <CircleDot size={10} className="glowing-logo" />
+          ) : null}
+          <span>{title}</span>
+          {!isRunning ? <ChevronRight size={12} style={{ opacity: 0.55 }} /> : null}
+        </div>
+      )}
+      {body && (
+        <div
+          style={{
+            maxWidth: "72ch",
+            color: "var(--text)",
+            fontSize: "14.5px",
+            lineHeight: 1.58,
+            fontWeight: 500,
+          }}
+        >
+          {renderInlineMarkdown(body)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function hasVisibleProcessBody(item: TimelineItem | undefined) {
+  return item?.kind === "process_note" && Boolean(item.body.trim());
+}
+
+function processNote(
+  id: string,
+  body: string
+): Extract<TimelineItem, { kind: "process_note" }> {
+  return {
+    id,
+    kind: "process_note",
+    body,
+    status: "success"
+  };
+}
+
+function syntheticNarrationForActivity(item: TimelineItem, appLang: string) {
+  const isZh = appLang === "zh";
+  if (!isZh) return "";
+
+  if (item.kind === "activity_group") {
+    const visibleItems = summarizeActivityItems(item.items || []);
+    const preview = activityGroupPreview(visibleItems, appLang);
+    if (item.type === "explore") {
+      return `我先查看 ${preview}，确认项目结构、关键文件和后续分析入口。`;
+    }
+    if (item.type === "search") {
+      return `我先搜索 ${preview}，缩小需要继续查看的范围。`;
+    }
+    if (item.type === "run") {
+      return `我会运行 ${preview}，用实际输出验证当前判断。`;
+    }
+    return `我会执行 ${preview}，把结果用于下一步判断。`;
+  }
+
+  if (item.kind === "activity_item") {
+    return item.filename
+      ? `我会修改 ${item.filename}，然后用构建或测试确认改动是否生效。`
+      : "我会完成这处修改，然后继续验证效果。";
+  }
+
+  return "";
+}
+
+function syntheticNarrationBeforeAssistant(previous: TimelineItem | undefined, appLang: string) {
+  if (appLang !== "zh") return "";
+  if (!previous || (previous.kind !== "activity_group" && previous.kind !== "activity_item")) return "";
+  if (previous.kind === "activity_group") {
+    if (previous.type === "explore") {
+      return "我已经完成基础探索，下面根据看到的结构和文件内容整理结论。";
+    }
+    if (previous.type === "run") {
+      return "验证命令已经返回，下面结合结果给出结论。";
+    }
+  }
+  if (previous.kind === "activity_item") {
+    return "修改已经完成，下面总结改动和验证结果。";
+  }
+  return "";
+}
+
+function addSyntheticProcessNarration(items: TimelineItem[], appLang: string) {
+  const next: TimelineItem[] = [];
+
+  items.forEach((item) => {
+    const previous = next[next.length - 1];
+
+    if ((item.kind === "activity_group" || item.kind === "activity_item") && !hasVisibleProcessBody(previous)) {
+      const body = syntheticNarrationForActivity(item, appLang);
+      if (body) {
+        next.push(processNote(`${item.id}-auto-process-before`, body));
+      }
+    }
+
+    if (item.kind === "assistant" && !isIntermediateAssistantItem(item) && !hasVisibleProcessBody(previous)) {
+      const body = syntheticNarrationBeforeAssistant(previous, appLang);
+      if (body) {
+        next.push(processNote(`${item.id}-auto-process-before`, body));
+      }
+    }
+
+    next.push(item);
+  });
+
+  return next;
+}
+
+function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean, appLang = "zh"): TimelineItem[] {
+  const result: TimelineItem[] = [];
+  let buffer: Array<Extract<TimelineItem, { kind: "tool" }>> = [];
+
+  const getToolType = (toolName: string, title: string) => {
+    const t = (toolName || "").toLowerCase();
+    const ttl = (title || "").toLowerCase();
+    if (t.includes("search") || t.includes("url") || ttl.includes("search") || ttl.includes("url") || ttl.includes("搜索") || ttl.includes("网页")) {
+      return "search";
+    }
+    if (
+      t.includes("read") || t.includes("view") || t.includes("list") || 
+      t.includes("grep") || t.includes("map") || t.includes("glob") || 
+      t.includes("ls") || t.includes("find") || t.includes("locate") ||
+      ttl.includes("read") || ttl.includes("view") || ttl.includes("list") || 
+      ttl.includes("grep") || ttl.includes("map") || ttl.includes("glob") || 
+      ttl.includes("ls") || ttl.includes("find") || ttl.includes("locate") ||
+      ttl.includes("探索") || ttl.includes("查看") || ttl.includes("读取")
+    ) {
+      return "explore";
+    }
+    if (
+      t.includes("write") || t.includes("edit") || t.includes("replace") || 
+      t.includes("create") || t.includes("patch") || t.includes("modify") ||
+      ttl.includes("write") || ttl.includes("edit") || ttl.includes("replace") || 
+      ttl.includes("create") || ttl.includes("patch") || ttl.includes("modify") ||
+      ttl.includes("写入") || ttl.includes("修改") || ttl.includes("编辑") || ttl.includes("替换")
+    ) {
+      return "edit";
+    }
+    if (
+      t.includes("run") || t.includes("command") || t.includes("bash") || 
+      t.includes("execute") || t.includes("cmd") || t.includes("sh") ||
+      ttl.includes("run") || ttl.includes("command") || ttl.includes("bash") || 
+      ttl.includes("execute") || ttl.includes("cmd") || ttl.includes("sh") ||
+      ttl.includes("运行") || ttl.includes("执行")
+    ) {
+      return "run";
+    }
+    return "other";
+  };
+
+  const flushBuffer = () => {
+    if (buffer.length === 0) return;
+    
+    let groupType: "explore" | "search" | "run" | "other" = "explore";
+    const tools = buffer.filter(item => item.kind === "tool");
+    const visibleTools = tools.filter(item => !shouldHideActivityItem(item));
+    
+    const runTools = visibleTools.filter(t => getToolType(t.tool || "", t.title || "") === "run");
+    const searchTools = visibleTools.filter(t => getToolType(t.tool || "", t.title || "") === "search");
+    const exploreTools = visibleTools.filter(t => getToolType(t.tool || "", t.title || "") === "explore");
+    
+    if (runTools.length > 0) {
+      groupType = "run";
+    } else if (searchTools.length > 0) {
+      groupType = "search";
+    } else if (exploreTools.length > 0) {
+      groupType = "explore";
+    } else if (visibleTools.length > 0) {
+      groupType = "other";
+    } else {
+      groupType = "explore";
+    }
+    
+    const isRunning = buffer.some(item => item.status === "running" || item.meta === "running");
+    
+    let count = 0;
+    if (groupType === "explore") {
+      const files = new Set<string>();
+      visibleTools.forEach(t => {
+        const parsed = parseToolDetails(t);
+        if (parsed.filename) {
+          files.add(parsed.filename);
+        }
+      });
+      count = files.size || visibleTools.length || 1;
+    } else {
+      count = visibleTools.length || 1;
+    }
+    
+    let label = "";
+    if (groupType === "explore") {
+      label = isRunning ? "Exploring" : "Explored";
+      label += ` ${count} file${count > 1 ? "s" : ""}`;
+    } else if (groupType === "search") {
+      label = isRunning ? "Searching web" : "Searched web";
+      label += ` ${count} time${count > 1 ? "s" : ""}`;
+    } else if (groupType === "run") {
+      label = isRunning ? "Running" : "Ran";
+      label += ` ${count} command${count > 1 ? "s" : ""}`;
+    } else {
+      label = isRunning ? "Executing" : "Executed";
+      label += ` ${count} action${count > 1 ? "s" : ""}`;
+    }
+    
+    result.push({
+      id: `group-${buffer[0].id}`,
+      kind: "activity_group",
+      type: groupType,
+      status: isRunning ? "running" : "success",
+      label,
+      items: [...buffer]
+    });
+    
+    buffer = [];
+  };
+
+  const pushProcessNotes = (item: TimelineItem, title?: string, status?: "running" | "success") => {
+    const notes = splitProcessNotes((item as any).body || "");
+    if (notes.length === 0 && status !== "running") return;
+    flushBuffer();
+    if (notes.length === 0) {
+      result.push({
+        id: `${item.id}-process`,
+        kind: "process_note",
+        title,
+        body: "",
+        status: status || "success"
+      });
+      return;
+    }
+    notes.forEach((body, index) => {
+      result.push({
+        id: `${item.id}-process-${index}`,
+        kind: "process_note",
+        title: index === 0 ? title : undefined,
+        body,
+        status: status || "success"
+      });
+    });
+  };
+
+  for (let itemIndex = 0; itemIndex < items.length; itemIndex += 1) {
+    const item = items[itemIndex];
+    if (item.kind === "assistant") {
+      const body = item.body.trim();
+      const isEmpty = body === "" || body === "." || body === "..." || body === "…";
+      if (!isEmpty) {
+        const followedByWork = items
+          .slice(itemIndex + 1)
+          .some((next) => next.kind === "tool" || next.kind === "reasoning");
+        if (item.meta === "intermediate" || ((isTurnActive || followedByWork) && looksLikeProcessNarration(body))) {
+          pushProcessNotes(item);
+        } else {
+          flushBuffer();
+          result.push(item);
+        }
+      }
+    } else if (item.kind === "permission" || item.kind === "boundary") {
+      flushBuffer();
+      result.push(item);
+    } else if (item.kind === "tool") {
+      if (item.title === "工具结果") {
+        let found = false;
+        for (let i = buffer.length - 1; i >= 0; i--) {
+          if (buffer[i].kind === "tool") {
+            buffer[i].result = item.body;
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          for (let i = result.length - 1; i >= 0; i--) {
+            const resultItem = result[i];
+            if (resultItem.kind === "activity_item" && resultItem.tool) {
+              resultItem.result = item.body;
+              found = true;
+              break;
+            } else if (resultItem.kind === "activity_group") {
+              const groupItems = resultItem.items;
+              for (let j = groupItems.length - 1; j >= 0; j--) {
+                const groupItem = groupItems[j];
+                if (groupItem.kind === "tool") {
+                  groupItem.result = item.body;
+                  found = true;
+                  break;
+                }
+              }
+              if (found) break;
+            }
+          }
+        }
+        continue;
+      }
+
+      const type = getToolType(item.tool || "", item.title || "");
+      if (type === "edit") {
+        flushBuffer();
+        const parsed = parseToolDetails(item);
+        result.push({
+          id: item.id,
+          kind: "activity_item",
+          type: "edit",
+          tool: item.tool,
+          title: item.title,
+          body: item.body,
+          status: item.status,
+          filename: parsed.filename,
+          diff: parsed.diff
+        });
+      } else {
+        buffer.push(item);
+      }
+    } else if (item.kind === "reasoning") {
+      flushBuffer();
+      if (item.meta === "running" && isTurnActive) {
+        result.push({
+          id: `${item.id}-process`,
+          kind: "process_note",
+          title: item.title || "正在思考",
+          body: "",
+          status: "running"
+        });
+      } else if (isThinkingStatusTitle(item.title)) {
+        result.push({
+          id: `${item.id}-process`,
+          kind: "process_note",
+          title: item.title,
+          body: "",
+          status: "success"
+        });
+      }
+    }
+  }
+  flushBuffer();
+  const enrichedResult = addSyntheticProcessNarration(result, appLang);
+
+  let lastAssistantIdx = -1;
+  for (let i = enrichedResult.length - 1; i >= 0; i--) {
+    if (enrichedResult[i].kind === "assistant") {
+      lastAssistantIdx = i;
+      break;
+    }
+  }
+
+  if (!isTurnActive && lastAssistantIdx !== -1) {
+    return enrichedResult.filter((item, idx) => {
+      if ((item.kind === "activity_group" || item.kind === "activity_item" || item.kind === "process_note") && idx > lastAssistantIdx) {
+        return false;
+      }
+      return true;
+    });
+  }
+
+  return enrichedResult;
 }
 
 export function App() {
@@ -483,8 +1743,11 @@ export function App() {
       return;
     }
 
-    let unlisten: (() => void) | undefined;
+    let active = true;
+    let disposeFn: (() => void) | undefined;
+
     listen<DesktopEvent>("desktop-event", (event) => {
+      if (!active) return;
       const payload = event.payload;
       const outer = (payload as any).kind ? (payload as DesktopEvent) : null;
       const kind = outer ? outer.kind : (event as any).kind;
@@ -522,11 +1785,20 @@ export function App() {
       );
     })
       .then((dispose) => {
-        unlisten = dispose;
+        if (!active) {
+          dispose();
+        } else {
+          disposeFn = dispose;
+        }
       })
       .catch(console.error);
 
-    return () => unlisten?.();
+    return () => {
+      active = false;
+      if (disposeFn) {
+        disposeFn();
+      }
+    };
   }, []);
 
   const activeSession = useMemo(
@@ -634,7 +1906,8 @@ export function App() {
           id: `ask-answer-${Date.now()}`,
           kind: "user",
           title: "用户",
-          body: content
+          body: content,
+          createdAt: Date.now()
         }
       ]);
       await invoke("ask_user_respond", {
@@ -672,7 +1945,8 @@ export function App() {
           id: `local-queued-${Date.now()}`,
           kind: "user",
           title: "用户 (等待中...)",
-          body: content
+          body: content,
+          createdAt: Date.now()
         }
       ]);
       return;
@@ -685,9 +1959,11 @@ export function App() {
         id: `local-${Date.now()}`,
         kind: "user",
         title: "用户",
-        body: content
+        body: content,
+        createdAt: Date.now()
       }
     ]);
+
     try {
       const res = await invoke<TurnAccepted>("turn_send_message", {
         request: {
@@ -1797,21 +3073,26 @@ function ChatWorkspace({
 }) {
   // Check if assistant is currently streaming (has any running status or last item kind is not fully completed)
   const isStreaming = useMemo(() => {
+    if (isProcessing) return true;
+
     // If there is any item with status === 'running', it is still streaming/running.
     const hasRunningTool = timelineItems.some(item => item.kind === "tool" && item.status === "running");
     if (hasRunningTool) return true;
     
-    // Fallback: if last item is reasoning or assistant without stream complete metadata, consider it active
     const lastItem = timelineItems[timelineItems.length - 1];
     if (!lastItem) return false;
+    if (lastItem.kind === "reasoning" && lastItem.meta === "running") {
+      return true;
+    }
     if (lastItem.kind === "assistant" && lastItem.meta !== "stream complete") {
       return true;
     }
     return false;
-  }, [timelineItems]);
+  }, [timelineItems, isProcessing]);
 
   // Track expanded turn IDs separately
   const [expandedTurnIds, setExpandedTurnIds] = useState<string[]>([]);
+  const [expandedActionIds, setExpandedActionIds] = useState<string[]>([]);
 
   const turns = useMemo(() => {
     const list: Array<{
@@ -1841,7 +3122,12 @@ function ChatWorkspace({
         };
       } else {
         currentTurn.items.push(item);
-        if (item.kind === "tool" || item.kind === "reasoning" || (item.kind === "assistant" && isIntermediateAssistantItem(item))) {
+        if (
+          item.kind === "tool" ||
+          item.kind === "reasoning" ||
+          (item as any).kind === "process_note" ||
+          (item.kind === "assistant" && isIntermediateAssistantItem(item))
+        ) {
           currentTurn.hasIntermediate = true;
         }
       }
@@ -1857,6 +3143,17 @@ function ChatWorkspace({
   const activePermission = [...timelineItems]
     .reverse()
     .find((item): item is Extract<TimelineItem, { kind: "permission" }> => item.kind === "permission");
+
+  useEffect(() => {
+    if (isStreaming && turns.length > 0) {
+      const lastTurnId = turns[turns.length - 1].id;
+      setExpandedTurnIds((prev) => {
+        if (prev.includes(lastTurnId)) return prev;
+        return [...prev, lastTurnId];
+      });
+    }
+  }, [isStreaming, turns]);
+
   const timelinePanelRef = useRef<HTMLElement | null>(null);
   const shouldStickToBottomRef = useRef(true);
   const lastTimelineLengthRef = useRef(0);
@@ -1896,102 +3193,63 @@ function ChatWorkspace({
           ref={timelinePanelRef}
           onScroll={handleTimelineScroll}
         >
-          <div className="timeline-header">
-            <span>RUN LOG</span>
-            <strong>desktop-runtime</strong>
-            <em>{timelineItems.length} events</em>
-          </div>
+          {/* Removed RUN LOG header to clean up space */}
           
-          {turns.map((turn, turnIndex) => {
-            const isExpanded = expandedTurnIds.includes(turn.id);
-            const isLastTurn = turnIndex === turns.length - 1;
+          {turns.length === 0 ? (
+            <div className="welcome-dashboard">
+              <div className="welcome-logo">
+                <Bot size={44} className="glowing-logo" style={{ color: "var(--accent)" }} />
+              </div>
+              <h1 className="welcome-title">{appLang === "zh" ? "今天想构建点什么？" : "What would you like to build today?"}</h1>
+              <p className="welcome-subtitle">
+                {appLang === "zh" 
+                  ? "输入仓库任务以开始，我将帮助你分析、编写和调试代码。" 
+                  : "Enter a repository task to start. I'll help you analyze, write, and debug code."}
+              </p>
+              
+              <div className="welcome-cards">
+                <button 
+                  type="button"
+                  className="welcome-card"
+                  onClick={() => onDraftChange(appLang === "zh" ? "解释当前项目的主要架构 and 目录结构" : "Explain the main architecture and directory structure of this project")}
+                >
+                  <h3>🔍 {appLang === "zh" ? "分析项目" : "Analyze Project"}</h3>
+                  <p>{appLang === "zh" ? "解释当前项目的主要架构和目录结构" : "Explain the main architecture and directory structure of this project"}</p>
+                </button>
+                <button 
+                  type="button"
+                  className="welcome-card"
+                  onClick={() => onDraftChange(appLang === "zh" ? "帮我找出当前代码中可以优化性能的模块" : "Help me find modules in the current code that can be optimized for performance")}
+                >
+                  <h3>🛠️ {appLang === "zh" ? "代码优化" : "Code Optimization"}</h3>
+                  <p>{appLang === "zh" ? "帮我找出当前代码中可以优化性能的模块" : "Help me find modules in the current code that can be optimized for performance"}</p>
+                </button>
+                <button 
+                  type="button"
+                  className="welcome-card"
+                  onClick={() => onDraftChange(appLang === "zh" ? "为最近修改的 Rust 模块生成单元测试" : "Generate unit tests for the recently modified Rust modules")}
+                >
+                  <h3>📝 {appLang === "zh" ? "编写测试" : "Write Tests"}</h3>
+                  <p>{appLang === "zh" ? "为最近修改的 Rust 模块生成单元测试" : "Generate unit tests for the recently modified Rust modules"}</p>
+                </button>
+              </div>
+            </div>
+          ) : (
+            turns.map((turn, turnIndex) => {
+              const isLastTurn = turnIndex === turns.length - 1;
+              const isTurnActive = isStreaming && isLastTurn;
+              const visibleItems = compileInlineItems(turn.items, isTurnActive, appLang);
 
-            const visibleItems = turn.items.filter((item) => {
-              if (item.kind === "permission") return false;
-              if (item.kind === "boundary") return false;
-
-              const isIntermediate = item.kind === "tool" || item.kind === "reasoning" || (item.kind === "assistant" && isIntermediateAssistantItem(item));
-              if (isIntermediate) {
-                return isExpanded;
-              }
-
-              if (item.kind === "assistant" && !isIntermediateAssistantItem(item)) {
-                if (isProcessing && isLastTurn) {
-                  return false;
-                }
-              }
-
-              return true;
-            });
-
-            const foldableCount = turn.items.filter(
-              (item) => item.kind === "tool" || item.kind === "reasoning" || (item.kind === "assistant" && isIntermediateAssistantItem(item))
-            ).length;
-
-            const isFoldable = foldableCount > 0;
-            const toggleText = isExpanded
-              ? `已展开 ${foldableCount} 个思考与执行步骤`
-              : (isProcessing && isLastTurn)
-                ? `正在处理，已折叠 ${foldableCount} 个思考与执行步骤...`
-                : `已省略 ${foldableCount} 个中间思考与执行步骤...`;
-            const actionText = isExpanded ? "收起详情" : "展开详情";
-
-            return (
-              <React.Fragment key={turn.id}>
-                {turn.userItem && <TimelineNode item={turn.userItem} appLang={appLang} />}
-                
-                {isFoldable && (
-                  <div 
-                    onClick={() => {
-                      if (isExpanded) {
-                        setExpandedTurnIds(prev => prev.filter(id => id !== turn.id));
-                      } else {
-                        setExpandedTurnIds(prev => [...prev, turn.id]);
-                      }
-                    }}
-                    style={{
-                      margin: "8px auto 14px",
-                      maxWidth: "760px",
-                      background: "var(--field)",
-                      border: "1px dashed var(--line-soft)",
-                      borderRadius: "var(--radius)",
-                      padding: "8px 12px",
-                      cursor: "pointer",
-                      fontSize: "11.5px",
-                      color: "var(--text-soft)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      transition: "all 0.15s ease",
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = "var(--accent)";
-                      e.currentTarget.style.color = "var(--text)";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = "var(--line-soft)";
-                      e.currentTarget.style.color = "var(--text-soft)";
-                    }}
-                  >
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                      <span style={{
-                        width: "6px",
-                        height: "6px",
-                        borderRadius: "50%",
-                        background: "var(--accent)"
-                      }} />
-                      <span>{toggleText}</span>
-                    </div>
-                    <span style={{ fontWeight: "600", fontSize: "11px", color: "var(--accent)" }}>{actionText}</span>
-                  </div>
-                )}
-
-                {visibleItems.map((item) => (
-                  <TimelineNode key={item.id} item={item} appLang={appLang} />
-                ))}
-              </React.Fragment>
-            );
-          })}
+              return (
+                <React.Fragment key={turn.id}>
+                  {turn.userItem && <TimelineNode item={turn.userItem} appLang={appLang} isTurnActive={isTurnActive} />}
+                  {visibleItems.map((item) => (
+                    <TimelineNode key={item.id} item={item} appLang={appLang} isTurnActive={isTurnActive} />
+                  ))}
+                </React.Fragment>
+              );
+            })
+          )}
         </section>
         {activePermission ? (
           <div className="permission-dock" aria-label="执行确认">
@@ -2029,13 +3287,210 @@ function ChatWorkspace({
   );
 }
 
-function TimelineNode({ item, appLang }: { item: TimelineItem; appLang: string }) {
-  if (item.kind === "boundary") {
-    return (
-      <div className="boundary-node">
-        <span>{item.title}</span>
-        <p>{item.body}</p>
+function LiveDurationHeader({ turnId, isActive, isExpanded, onToggle, staticDuration, startTime }: {
+  turnId: string;
+  isActive: boolean;
+  isExpanded: boolean;
+  onToggle: () => void;
+  staticDuration: number;
+  startTime?: number;
+}) {
+  const [elapsed, setElapsed] = useState(staticDuration);
+  const startRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!isActive) {
+      setElapsed(staticDuration);
+      return;
+    }
+
+    if (startRef.current === null) {
+      startRef.current = startTime || Date.now();
+    }
+    const start = startRef.current;
+
+    setElapsed(Math.floor((Date.now() - start) / 1000));
+
+    const timer = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - start) / 1000));
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [turnId, isActive, staticDuration, startTime]);
+
+
+  let durationText: string;
+  if (elapsed < 60) {
+    durationText = `${elapsed}s`;
+  } else {
+    durationText = `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`;
+  }
+
+  return (
+    <div
+      onClick={onToggle}
+      style={{
+        background: "transparent",
+        border: "none",
+        cursor: "pointer",
+        fontSize: "12px",
+        color: "var(--text-soft)",
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "6px",
+        userSelect: "none",
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
+      onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-soft)"; }}
+    >
+      <span>{`Worked for ${durationText}`}</span>
+      <ChevronDown size={13} style={{
+        opacity: 0.7,
+        transform: isExpanded ? "none" : "rotate(-90deg)",
+        transition: "transform 150ms ease"
+      }} />
+    </div>
+  );
+}
+
+function InlineToolGroup({ label, items, appLang }: { label: string; items: any[]; appLang: string }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  return (
+    <div style={{
+      maxWidth: "760px",
+      width: "100%",
+      margin: "4px auto 8px",
+      paddingLeft: "33px",
+      fontSize: "12px",
+      color: "var(--text-soft)",
+      userSelect: "none"
+    }}>
+      <div 
+        onClick={() => setIsExpanded(!isExpanded)}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "6px",
+          cursor: "pointer",
+          transition: "color 0.15s ease",
+        }}
+        onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
+        onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-soft)"; }}
+      >
+        <span>{label}</span>
+        <ChevronDown size={11} style={{
+          opacity: 0.7,
+          transform: isExpanded ? "none" : "rotate(-90deg)",
+          transition: "transform 150ms ease"
+        }} />
       </div>
+      
+      {isExpanded && items && items.length > 0 && (
+        <div style={{
+          marginTop: "6px",
+          paddingLeft: "10px",
+          borderLeft: "1.5px solid var(--line-soft)",
+          display: "flex",
+          flexDirection: "column",
+          gap: "6px",
+          fontSize: "11.5px"
+        }}>
+          {items.map((item, idx) => (
+            <div key={idx} style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+              <div style={{ fontWeight: "600", color: "var(--text)" }}>{item.title}</div>
+              {item.body && (
+                <pre style={{
+                  margin: "2px 0 0",
+                  padding: "6px",
+                  background: "color-mix(in oklch, var(--field), transparent 4%)",
+                  borderRadius: "4px",
+                  overflowX: "auto",
+                  maxHeight: "80px",
+                  whiteSpace: "pre-wrap",
+                  fontFamily: "var(--font-code)",
+                  fontSize: "10.5px",
+                  color: "var(--text-muted)",
+                  border: "1px solid var(--line-soft)"
+                }}>
+                  {item.body.length > 300 ? item.body.substring(0, 300) + "..." : item.body}
+                </pre>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TimelineNode({ item, appLang, isTurnActive }: { item: TimelineItem; appLang: string; isTurnActive?: boolean }) {
+  if (item.kind === "boundary" || item.kind === "permission") {
+    return null;
+  }
+
+  if (item.kind === "process_note") {
+    return <ProcessNoteNode note={item} appLang={appLang} />;
+  }
+
+  if (item.kind === "activity_group") {
+    return (
+      <ActivityGroupNode 
+        group={item} 
+        appLang={appLang} 
+        isTurnActive={isTurnActive}
+      />
+    );
+  }
+
+  if (item.kind === "activity_item") {
+    return (
+      <ActivityItemNode 
+        node={item} 
+        appLang={appLang} 
+      />
+    );
+  }
+
+  if (item.kind === "reasoning" && item.id === "retrying-attempt") {
+    return (
+      <div 
+        style={{ 
+          maxWidth: "760px",
+          width: "100%",
+          margin: "8px auto 12px",
+          padding: "8px 0 8px 33px",
+          fontSize: "12px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "4px",
+          userSelect: "none"
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: "500", color: "var(--warning)" }}>
+          <Clock3 size={13} style={{ animation: "pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite" }} />
+          <span>{item.title}</span>
+        </div>
+        {item.body && (
+          <div style={{ color: "var(--text-soft)", fontSize: "11.5px", whiteSpace: "pre-wrap", marginTop: "2px" }}>
+            {item.body}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (item.kind === "tool" || item.kind === "reasoning") {
+    return null;
+  }
+
+  if (item.kind === "tool_group") {
+    return (
+      <InlineToolGroup 
+        label={item.label} 
+        items={item.items || []} 
+        appLang={appLang} 
+      />
     );
   }
 
@@ -2054,7 +3509,6 @@ function TimelineNode({ item, appLang }: { item: TimelineItem; appLang: string }
       >
         <div 
           className="user-chat-bubble"
-          title={item.body}
           style={{
             background: "color-mix(in oklch, var(--accent), transparent 85%)",
             border: "none",
@@ -2071,9 +3525,8 @@ function TimelineNode({ item, appLang }: { item: TimelineItem; appLang: string }
             color: "var(--text)", 
             fontSize: "13px", 
             lineHeight: "1.45", 
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis"
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word"
           }}>
             {item.body}
           </p>
@@ -2082,16 +3535,27 @@ function TimelineNode({ item, appLang }: { item: TimelineItem; appLang: string }
     );
   }
 
-  const icon =
-    item.kind === "tool" ? (
-      <Hammer size={18} />
-    ) : item.kind === "permission" ? (
-      <ShieldCheck size={18} />
-    ) : item.kind === "reasoning" ? (
-      <TerminalSquare size={18} />
-    ) : (
-      <Bot size={18} />
+  // Intermediate assistant messages: render as clean inline text (no icon, no header)
+  if (item.kind === "assistant" && (item.meta === "intermediate" || item.meta === "streaming")) {
+    return (
+      <div 
+        style={{ 
+          maxWidth: "760px",
+          width: "100%",
+          margin: "4px auto 12px",
+          paddingLeft: "33px",
+        }}
+      >
+        <MarkdownContent text={item.body} />
+      </div>
     );
+  }
+
+  if (item.kind !== "assistant") {
+    return null;
+  }
+
+  const icon = <Bot size={18} />;
 
   return (
     <article className={`timeline-node ${item.kind}`}>
@@ -2105,20 +3569,134 @@ function TimelineNode({ item, appLang }: { item: TimelineItem; appLang: string }
         </div>
         {item.kind === "assistant" ? (
           <MarkdownContent text={item.body} />
-        ) : (
-          <p>{item.body}</p>
-        )}
-        {item.kind === "tool" ? <ToolMeta item={item} /> : null}
-        {item.kind === "permission" ? <PermissionActions item={item} appLang={appLang} /> : null}
+        ) : "body" in item ? (
+          <p>{(item as any).body}</p>
+        ) : null}
       </div>
     </article>
   );
 }
 
+function CodeBlock({ text, lang }: { text: string; lang: string }) {
+  const [copied, setCopied] = useState(false);
+
+  // Check for truncated message line
+  const lines = text.split("\n");
+  const truncateIndex = lines.findIndex(line => 
+    line.includes("Output truncated by runtime guard") || 
+    line.includes("truncated by runtime guard")
+  );
+
+  let cleanText = text;
+  let isTruncated = false;
+  if (truncateIndex !== -1) {
+    isTruncated = true;
+    cleanText = lines.slice(0, truncateIndex).join("\n");
+  }
+
+  const highlighted = useMemo(() => {
+    try {
+      if (lang && hljs.getLanguage(lang)) {
+        return hljs.highlight(cleanText, { language: lang, ignoreIllegals: true }).value;
+      }
+      return hljs.highlightAuto(cleanText).value;
+    } catch (e) {
+      return cleanText
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+  }, [cleanText, lang]);
+
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(cleanText);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [cleanText]);
+
+  return (
+    <div className="code-block-container" style={{ 
+      margin: "12px 0", 
+      border: "1px solid var(--line-soft)", 
+      borderRadius: "var(--radius)", 
+      overflow: "hidden", 
+      background: "color-mix(in oklch, var(--field), transparent 8%)",
+      display: "flex",
+      flexDirection: "column"
+    }}>
+      <div className="code-block-header" style={{ 
+        display: "flex", 
+        justifyContent: "space-between", 
+        alignItems: "center", 
+        padding: "6px 12px", 
+        borderBottom: "1px solid var(--line-soft)", 
+        background: "color-mix(in oklch, var(--field), transparent 4%)", 
+        fontSize: "11px", 
+        color: "var(--text-soft)",
+        userSelect: "none"
+      }}>
+        <span style={{ fontFamily: "var(--font-code)", textTransform: "uppercase" }}>{lang || "code"}</span>
+        <button onClick={handleCopy} style={{ 
+          display: "flex", 
+          alignItems: "center", 
+          gap: "4px", 
+          background: "transparent", 
+          border: "none", 
+          color: "var(--text-soft)", 
+          cursor: "pointer", 
+          padding: "2px 6px", 
+          borderRadius: "4px" 
+        }}>
+          {copied ? <Check size={12} /> : <Copy size={12} />}
+          <span>{copied ? "已复制" : "复制"}</span>
+        </button>
+      </div>
+      <pre className="hljs" style={{ 
+        margin: 0, 
+        padding: "12px", 
+        overflowX: "auto", 
+        display: "block", 
+        background: "transparent",
+        whiteSpace: "pre",
+        wordBreak: "normal",
+        wordWrap: "normal"
+      }}>
+        <code dangerouslySetInnerHTML={{ __html: highlighted }} style={{
+          border: 0,
+          padding: 0,
+          background: "transparent",
+          fontFamily: "var(--font-code)",
+          fontSize: "12px",
+          lineHeight: "1.5"
+        }} />
+      </pre>
+      {isTruncated && (
+        <div style={{ 
+          padding: "8px 12px", 
+          borderTop: "1px solid var(--line-soft)", 
+          background: "color-mix(in oklch, var(--warning), transparent 95%)", 
+          color: "var(--text-soft)", 
+          fontSize: "11.5px", 
+          display: "flex", 
+          alignItems: "center", 
+          gap: "6px" 
+        }}>
+          <AlertCircle size={13} style={{ color: "var(--warning)" }} />
+          <span>输出已被安全守护截断，可输入“继续”以获取完整内容。</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function isIntermediateAssistantItem(item: TimelineItem) {
-  if (item.kind !== "assistant") return false;
-  const body = item.body.trim();
-  return item.meta === "intermediate" || body === "" || body === "." || body === "..." || body === "…";
+  if (item.kind === "assistant") {
+    const body = item.body.trim();
+    return item.meta === "intermediate" || body === "" || body === "." || body === "..." || body === "…";
+  }
+  return false;
 }
 
 function MarkdownContent({ text }: { text: string }) {
@@ -2131,7 +3709,7 @@ function MarkdownContent({ text }: { text: string }) {
           return <Tag key={index}>{renderInlineMarkdown(block.text)}</Tag>;
         }
         if (block.type === "code") {
-          return <pre key={index}><code>{block.text}</code></pre>;
+          return <CodeBlock key={index} text={block.text} lang={block.lang} />;
         }
         if (block.type === "list") {
           return (
@@ -2181,7 +3759,7 @@ function MarkdownContent({ text }: { text: string }) {
 
 type MarkdownBlock =
   | { type: "heading"; level: number; text: string }
-  | { type: "code"; text: string }
+  | { type: "code"; text: string; lang: string }
   | { type: "list"; items: string[] }
   | { type: "table"; headers: string[]; rows: string[][] }
   | { type: "divider" }
@@ -2194,7 +3772,6 @@ function parseMarkdownBlocks(text: string): MarkdownBlock[] {
   let list: string[] = [];
   let tableRows: string[][] = [];
   let code: string[] | null = null;
-
   const flushParagraph = () => {
     if (paragraph.length > 0) {
       blocks.push({ type: "paragraph", text: paragraph.join(" ") });
@@ -2221,16 +3798,19 @@ function parseMarkdownBlocks(text: string): MarkdownBlock[] {
       tableRows = [];
     }
   };
-
+  let codeLang = "";
   for (const line of lines) {
-    if (line.trim().startsWith("```")) {
+    const fenceMatch = line.trim().match(/^```(.*)$/);
+    if (fenceMatch) {
       if (code) {
-        blocks.push({ type: "code", text: code.join("\n") });
+        blocks.push({ type: "code", text: code.join("\n"), lang: codeLang });
         code = null;
+        codeLang = "";
       } else {
         flushParagraph();
         flushList();
         flushTable();
+        codeLang = fenceMatch[1].trim().toLowerCase();
         code = [];
       }
       continue;
@@ -2288,7 +3868,7 @@ function parseMarkdownBlocks(text: string): MarkdownBlock[] {
     paragraph.push(line.trim());
   }
 
-  if (code) blocks.push({ type: "code", text: code.join("\n") });
+  if (code) blocks.push({ type: "code", text: code.join("\n"), lang: codeLang });
   flushParagraph();
   flushList();
   flushTable();
@@ -2447,7 +4027,8 @@ function messagesToTimelineItems(messages: DesktopMessage[]): TimelineItem[] {
             kind: "user",
             title: "用户",
             body: content,
-            meta: timestamp
+            meta: timestamp,
+            createdAt: new Date(message.createdAt).getTime()
           }]
         : [];
     }
@@ -2458,18 +4039,19 @@ function messagesToTimelineItems(messages: DesktopMessage[]): TimelineItem[] {
         items.push({
           id: `history-${message.id}-reasoning`,
           kind: "reasoning",
-          title: "思考",
-          body: reasoning,
+          title: "已思考",
+          body: "",
           meta: "complete"
         });
       }
       if (content) {
+        const hasTools = parseToolCalls(message.toolCallsJson).length > 0;
         items.push({
           id: `history-${message.id}`,
           kind: "assistant",
           title: "Yode",
           body: content,
-          meta: "stream complete"
+          meta: hasTools ? "intermediate" : "stream complete"
         });
       }
       parseToolCalls(message.toolCallsJson).forEach((toolCall, index) => {
@@ -2933,8 +4515,31 @@ function Composer({
         </div>
         <div className="composer-actions">
           {isProcessing ? (
-            <button className="send-button stop-button" onClick={onCancelMessage} type="button" title={isZh ? "终止" : "Stop"} style={{ background: "color-mix(in oklch, var(--error), transparent 30%)", borderColor: "color-mix(in oklch, var(--error), transparent 10%)", outline: "none", boxShadow: "none" }}>
-              <Pause size={17} />
+            <button 
+              className="send-button stop-button" 
+              onClick={onCancelMessage} 
+              type="button" 
+              title={isZh ? "终止" : "Stop"} 
+              style={{ 
+                background: "transparent", 
+                border: "none", 
+                color: "var(--error)", 
+                outline: "none", 
+                boxShadow: "none",
+                display: "inline-grid",
+                placeItems: "center",
+                transition: "color 0.15s ease",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "transparent";
+                e.currentTarget.style.color = "color-mix(in oklch, var(--error), var(--text) 20%)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "transparent";
+                e.currentTarget.style.color = "var(--error)";
+              }}
+            >
+              <Square size={13} fill="currentColor" style={{ borderRadius: "1px" }} />
             </button>
           ) : (
             <button className="send-button" onClick={onSendMessage} type="button" title={isZh ? "发送" : "Send"} style={{ outline: "none", boxShadow: "none" }}>
@@ -2970,7 +4575,8 @@ function desktopEventToTimelineItem(
       kind: "reasoning",
       title: title || "思考中",
       body: body || "",
-      meta: "running"
+      meta: "running",
+      createdAt: Date.now()
     };
   }
 
@@ -3014,7 +4620,7 @@ function desktopEventToTimelineItem(
       id: `event-${Date.now()}-${Math.random()}`,
       kind: "reasoning",
       title,
-      body,
+      body: "",
       meta
     };
   }
@@ -3023,8 +4629,8 @@ function desktopEventToTimelineItem(
     return {
       id: "retrying-attempt",
       kind: "reasoning",
-      title: `连接重试中 (${inner?.attempt}/${inner?.max_attempts})`,
-      body: `倒计时 ${inner?.delay_secs} 秒后重试...\n\n${inner?.error_message || ""}`,
+      title: `正在重试... (当前次数: ${inner?.attempt}/${inner?.maxAttempts || "?"})`,
+      body: `下次重试倒计时: ${inner?.delaySecs || 0} 秒\n\n报错原因: ${inner?.body || ""}`,
       meta: "running"
     };
   }
@@ -3173,7 +4779,7 @@ function applyDesktopEventToTimelineItems(
     if (existingIndex >= 0) {
       return items.map((item, index) =>
         index === existingIndex && item.kind === "reasoning"
-          ? { ...item, body: mergeStreamingText(item.body, body) }
+          ? item
           : item
       );
     }
@@ -3182,14 +4788,19 @@ function applyDesktopEventToTimelineItems(
       {
         id: reasoningId ?? `event-${Date.now()}-${Math.random()}`,
         kind: "reasoning",
-        title: "思考",
-        body,
-        meta: "running"
+        title: "思考中...",
+        body: "",
+        meta: "running",
+        createdAt: Date.now()
       }
     ];
   }
 
-  if (kind === "retrying" || kind === "usage_update" || kind === "cost_update" || kind === "context_compaction_started") {
+  if (kind === "usage_update" || kind === "cost_update") {
+    return items;
+  }
+
+  if (kind === "retrying" || kind === "context_compaction_started") {
     const nextItem = desktopEventToTimelineItem(payload, eventKind);
     if (eventId || nextItem.id === "retrying-attempt") {
       const existingIndex = items.findIndex((item) => item.id === nextItem.id);
@@ -3205,19 +4816,27 @@ function applyDesktopEventToTimelineItems(
       ? items.findIndex((item) => item.id === reasoningId)
       : items.findIndex((item) => item.kind === "reasoning" && item.meta === "running");
     if (existingIndex >= 0) {
-      return items.map((item, index) =>
-        index === existingIndex && item.kind === "reasoning"
-          ? { ...item, body: body || item.body, meta: "complete" }
-          : item
-      );
+      return items.map((item, index) => {
+        if (index === existingIndex && item.kind === "reasoning") {
+          const start = (item as any).createdAt || Date.now();
+          const duration = Math.max(1, Math.round((Date.now() - start) / 1000));
+          return { 
+            ...item, 
+            body: "", 
+            meta: "complete",
+            title: `已思考 ${duration} 秒`
+          };
+        }
+        return item;
+      });
     }
     return [
       ...items,
       {
         id: `event-${Date.now()}-${Math.random()}`,
         kind: "reasoning",
-        title: "思考",
-        body,
+        title: "已思考",
+        body: "",
         meta: "complete"
       }
     ];
@@ -3229,7 +4848,7 @@ function applyDesktopEventToTimelineItems(
     const settledItems = items.map((item, index) => {
       if (item.kind === "reasoning" && (item.meta === "running" || item.id === reasoningId)) {
         hasReasoningForTurn = true;
-        return { ...item, body: reasoning || item.body, meta: "complete" };
+        return { ...item, body: "", meta: "complete" };
       }
       if (item.kind === "tool" && item.status === "running") {
         return { ...item, status: "success" as const };
@@ -3252,7 +4871,7 @@ function applyDesktopEventToTimelineItems(
         id: `event-${Date.now()}-${Math.random()}`,
         kind: "reasoning",
         title: "思考",
-        body: reasoning,
+        body: "",
         meta: "complete"
       });
     }
@@ -3282,13 +4901,40 @@ function applyDesktopEventToTimelineItems(
       }
       return item;
     });
+
+    const errorId = turnId ? `error-${turnId}` : `event-${Date.now()}-${Math.random()}`;
+    const errorMessage = body || "本轮执行失败，请稍后重试。";
+
+    const existingIndex = settledItems.findIndex((item) => item.id === errorId);
+    if (existingIndex >= 0) {
+      return settledItems.map((item, index) => {
+        if (index === existingIndex) {
+          const existingBody = (item as any).body || "";
+          let newBody = errorMessage;
+          if (existingBody.includes(errorMessage)) {
+            newBody = existingBody;
+          } else if (errorMessage.includes(existingBody)) {
+            newBody = errorMessage;
+          } else {
+            newBody = `${existingBody}\n${errorMessage}`;
+          }
+          return {
+            ...item,
+            body: newBody,
+            meta: "stream complete"
+          };
+        }
+        return item;
+      });
+    }
+
     return [
       ...settledItems,
       {
-        id: `event-${Date.now()}-${Math.random()}`,
+        id: errorId,
         kind: "assistant",
         title: "错误",
-        body: body || "本轮执行失败，请稍后重试。",
+        body: errorMessage,
         meta: "stream complete"
       }
     ];

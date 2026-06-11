@@ -140,7 +140,9 @@ fn sessions_update_llm(
 fn config_get_providers(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
 ) -> Result<Vec<protocol::DesktopProvider>, String> {
-    runtime.config_get_providers().map_err(|err: anyhow::Error| err.to_string())
+    runtime
+        .config_get_providers()
+        .map_err(|err: anyhow::Error| err.to_string())
 }
 
 #[tauri::command]
@@ -148,7 +150,9 @@ fn config_save_providers(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
     providers: Vec<protocol::DesktopProvider>,
 ) -> Result<(), String> {
-    runtime.config_save_providers(providers).map_err(|err: anyhow::Error| err.to_string())
+    runtime
+        .config_save_providers(providers)
+        .map_err(|err: anyhow::Error| err.to_string())
 }
 
 #[tauri::command]
@@ -156,7 +160,10 @@ async fn config_test_provider(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
     provider: protocol::DesktopProvider,
 ) -> Result<(), String> {
-    runtime.config_test_provider(provider).await.map_err(|err: anyhow::Error| err.to_string())
+    runtime
+        .config_test_provider(provider)
+        .await
+        .map_err(|err: anyhow::Error| err.to_string())
 }
 
 pub fn run() {

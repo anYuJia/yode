@@ -151,7 +151,7 @@ pub(crate) fn tool_batch_summary_text(batch: &ToolBatch) -> String {
         ));
     }
 
-    let text = parts.join(", ");
+    let text = parts.join("，");
     if batch.is_active {
         format!("{}...", text)
     } else {
@@ -259,7 +259,7 @@ pub(crate) fn summarize_batch_invocations(
         ));
     }
 
-    let text = parts.join(", ");
+    let text = parts.join("，");
     Some((
         if is_active {
             format!("{}...", text)
@@ -278,7 +278,11 @@ pub(crate) fn describe_tool_call(tool_name: &str, args: &Value, is_active: bool)
     match tool_name {
         "edit_file" | "multi_edit" => Some(format!(
             "{} {}",
-            if is_active { "Editing" } else { "Edited" },
+            if is_active {
+                "正在编辑"
+            } else {
+                "已编辑"
+            },
             compact_path(
                 args.get("file_path")
                     .and_then(Value::as_str)
@@ -287,7 +291,11 @@ pub(crate) fn describe_tool_call(tool_name: &str, args: &Value, is_active: bool)
         )),
         "write_file" => Some(format!(
             "{} {}",
-            if is_active { "Writing" } else { "Wrote" },
+            if is_active {
+                "正在写入"
+            } else {
+                "已写入"
+            },
             compact_path(
                 args.get("file_path")
                     .and_then(Value::as_str)
@@ -296,7 +304,11 @@ pub(crate) fn describe_tool_call(tool_name: &str, args: &Value, is_active: bool)
         )),
         "bash" | "powershell" => Some(format!(
             "{} {}",
-            if is_active { "Running" } else { "Ran" },
+            if is_active {
+                "正在执行"
+            } else {
+                "已执行"
+            },
             truncate_words(
                 args.get("command")
                     .and_then(Value::as_str)
@@ -312,8 +324,12 @@ pub(crate) fn describe_tool_call(tool_name: &str, args: &Value, is_active: bool)
                 .map(|(summary, _)| summary)
                 .unwrap_or_else(|| {
                     format!(
-                        "{} {} tools in parallel",
-                        if is_active { "Running" } else { "Ran" },
+                        "{} {} 个工具并行任务",
+                        if is_active {
+                            "正在执行"
+                        } else {
+                            "已执行"
+                        },
                         args.get("invocations")
                             .and_then(Value::as_array)
                             .map(|items| items.len())
@@ -325,9 +341,9 @@ pub(crate) fn describe_tool_call(tool_name: &str, args: &Value, is_active: bool)
         "agent" | "coordinator" => Some(format!(
             "{} {}",
             if is_active {
-                "Running agent"
+                "正在运行子代理"
             } else {
-                "Ran agent"
+                "已运行子代理"
             },
             truncate_words(
                 args.get("description")
@@ -339,8 +355,12 @@ pub(crate) fn describe_tool_call(tool_name: &str, args: &Value, is_active: bool)
             )
         )),
         "notebook_edit" => Some(format!(
-            "{} notebook {}",
-            if is_active { "Editing" } else { "Edited" },
+            "{}笔记本 {}",
+            if is_active {
+                "正在编辑"
+            } else {
+                "已编辑"
+            },
             compact_path(
                 args.get("notebook_path")
                     .and_then(Value::as_str)
@@ -348,8 +368,12 @@ pub(crate) fn describe_tool_call(tool_name: &str, args: &Value, is_active: bool)
             )
         )),
         "web_browser" => Some(format!(
-            "{} browser {}",
-            if is_active { "Using" } else { "Used" },
+            "{}浏览器 {}",
+            if is_active {
+                "正在操作"
+            } else {
+                "已操作"
+            },
             args.get("action")
                 .and_then(Value::as_str)
                 .unwrap_or("action")
@@ -361,7 +385,7 @@ pub(crate) fn describe_tool_call(tool_name: &str, args: &Value, is_active: bool)
                 .unwrap_or("manage");
             let name = args.get("name").and_then(Value::as_str).unwrap_or("memory");
             Some(format!(
-                "{} memory {}",
+                "{}记忆 {}",
                 describe_memory_action(action, is_active),
                 name
             ))
@@ -379,7 +403,11 @@ pub(crate) fn describe_groupable_tool_call(
     Some(match kind {
         ToolBatchItemKind::ReadFile => format!(
             "{} {}",
-            if is_active { "Reading" } else { "Read" },
+            if is_active {
+                "正在读取"
+            } else {
+                "已读取"
+            },
             compact_path(
                 args.get("file_path")
                     .and_then(Value::as_str)
@@ -389,9 +417,9 @@ pub(crate) fn describe_groupable_tool_call(
         ToolBatchItemKind::SearchPattern => format!(
             "{} {}",
             if is_active {
-                "Searching for"
+                "正在搜索"
             } else {
-                "Searched for"
+                "已搜索"
             },
             args.get("pattern")
                 .and_then(Value::as_str)
@@ -400,18 +428,18 @@ pub(crate) fn describe_groupable_tool_call(
         ToolBatchItemKind::SearchWeb => format!(
             "{} {}",
             if is_active {
-                "Searching the web for"
+                "正在联网搜索"
             } else {
-                "Searched the web for"
+                "已联网搜索"
             },
             args.get("query").and_then(Value::as_str).unwrap_or("query")
         ),
         ToolBatchItemKind::SearchSymbol => format!(
             "{} {}",
             if is_active {
-                "Searching references in"
+                "正在查找引用"
             } else {
-                "Searched references in"
+                "已查找引用"
             },
             compact_path(
                 args.get("filePath")
@@ -421,41 +449,65 @@ pub(crate) fn describe_groupable_tool_call(
         ),
         ToolBatchItemKind::ReadMemory => format!(
             "{} {}",
-            if is_active { "Recalling" } else { "Recalled" },
+            if is_active {
+                "正在读取记忆"
+            } else {
+                "已读取记忆"
+            },
             args.get("name").and_then(Value::as_str).unwrap_or("memory")
         ),
         ToolBatchItemKind::ReadSkill => format!(
-            "{} skill {}",
-            if is_active { "Reading" } else { "Read" },
+            "{}技能 {}",
+            if is_active {
+                "正在读取"
+            } else {
+                "已读取"
+            },
             args.get("name").and_then(Value::as_str).unwrap_or("skill")
         ),
         ToolBatchItemKind::ListDirectory => format!(
             "{} {}",
-            if is_active { "Listing" } else { "Listed" },
+            if is_active {
+                "正在列出"
+            } else {
+                "已列出"
+            },
             compact_path(args.get("path").and_then(Value::as_str).unwrap_or("."))
         ),
         ToolBatchItemKind::ListMemory => format!(
-            "{} {} memories",
-            if is_active { "Listing" } else { "Listed" },
+            "{} {} 条记忆",
+            if is_active {
+                "正在列出"
+            } else {
+                "已列出"
+            },
             args.get("scope")
                 .and_then(Value::as_str)
                 .unwrap_or("project")
         ),
         ToolBatchItemKind::ListSkill => {
             if is_active {
-                "Listing available skills".to_string()
+                "正在列出可用技能".to_string()
             } else {
-                "Listed available skills".to_string()
+                "已列出可用技能".to_string()
             }
         }
         ToolBatchItemKind::FetchPage => format!(
             "{} {}",
-            if is_active { "Fetching" } else { "Fetched" },
+            if is_active {
+                "正在读取网页"
+            } else {
+                "已读取网页"
+            },
             args.get("url").and_then(Value::as_str).unwrap_or("page")
         ),
         ToolBatchItemKind::InspectSymbol => format!(
-            "{} {} in {}",
-            if is_active { "Inspecting" } else { "Inspected" },
+            "{}{}：{}",
+            if is_active {
+                "正在查看"
+            } else {
+                "已查看"
+            },
             lsp_inspect_label(
                 args.get("operation")
                     .and_then(Value::as_str)
@@ -469,9 +521,9 @@ pub(crate) fn describe_groupable_tool_call(
         ),
         ToolBatchItemKind::AnalyzeProject => {
             if is_active {
-                "Analyzing project structure".to_string()
+                "正在分析项目结构".to_string()
             } else {
-                "Analyzed project structure".to_string()
+                "已分析项目结构".to_string()
             }
         }
     })
@@ -676,97 +728,135 @@ fn summary_part_for_kind(
     match kind {
         ToolBatchItemKind::SearchPattern => action_summary_part(
             count,
-            "pattern",
-            "patterns",
+            "次搜索",
+            "次搜索",
             is_active,
             is_first,
-            "Searching for",
-            "searching for",
-            "Searched for",
-            "searched for",
+            "正在搜索",
+            "正在搜索",
+            "已搜索",
+            "已搜索",
         ),
         ToolBatchItemKind::SearchSymbol => action_summary_part(
             count,
-            "symbol",
-            "symbols",
+            "个符号",
+            "个符号",
             is_active,
             is_first,
-            "Searching for",
-            "searching for",
-            "Searched for",
-            "searched for",
+            "正在查找",
+            "正在查找",
+            "已查找",
+            "已查找",
         ),
         ToolBatchItemKind::SearchWeb => action_summary_part(
             count,
-            "query",
-            "queries",
+            "次联网搜索",
+            "次联网搜索",
             is_active,
             is_first,
-            "Searching the web for",
-            "searching the web for",
-            "Searched the web for",
-            "searched the web for",
+            "正在进行",
+            "正在进行",
+            "已完成",
+            "已完成",
         ),
         ToolBatchItemKind::ReadFile => action_summary_part(
-            count, "file", "files", is_active, is_first, "Reading", "reading", "Read", "read",
+            count,
+            "个文件",
+            "个文件",
+            is_active,
+            is_first,
+            "正在读取",
+            "正在读取",
+            "已读取",
+            "已读取",
         ),
         ToolBatchItemKind::ReadMemory => action_summary_part(
             count,
-            "memory",
-            "memories",
+            "条记忆",
+            "条记忆",
             is_active,
             is_first,
-            "Recalling",
-            "recalling",
-            "Recalled",
-            "recalled",
+            "正在读取",
+            "正在读取",
+            "已读取",
+            "已读取",
         ),
         ToolBatchItemKind::ReadSkill => action_summary_part(
-            count, "skill", "skills", is_active, is_first, "Reading", "reading", "Read", "read",
+            count,
+            "个技能",
+            "个技能",
+            is_active,
+            is_first,
+            "正在读取",
+            "正在读取",
+            "已读取",
+            "已读取",
         ),
         ToolBatchItemKind::ListDirectory => action_summary_part(
             count,
-            "directory",
-            "directories",
+            "个目录",
+            "个目录",
             is_active,
             is_first,
-            "Listing",
-            "listing",
-            "Listed",
-            "listed",
+            "正在列出",
+            "正在列出",
+            "已列出",
+            "已列出",
         ),
         ToolBatchItemKind::ListMemory => action_summary_part(
-            count, "memory", "memories", is_active, is_first, "Listing", "listing", "Listed",
-            "listed",
+            count,
+            "条记忆",
+            "条记忆",
+            is_active,
+            is_first,
+            "正在列出",
+            "正在列出",
+            "已列出",
+            "已列出",
         ),
         ToolBatchItemKind::ListSkill => action_summary_part(
-            count, "skill", "skills", is_active, is_first, "Listing", "listing", "Listed", "listed",
+            count,
+            "个技能",
+            "个技能",
+            is_active,
+            is_first,
+            "正在列出",
+            "正在列出",
+            "已列出",
+            "已列出",
         ),
         ToolBatchItemKind::FetchPage => action_summary_part(
-            count, "page", "pages", is_active, is_first, "Fetching", "fetching", "Fetched",
-            "fetched",
+            count,
+            "个网页",
+            "个网页",
+            is_active,
+            is_first,
+            "正在读取",
+            "正在读取",
+            "已读取",
+            "已读取",
         ),
         ToolBatchItemKind::InspectSymbol => action_summary_part(
             count,
-            "symbol",
-            "symbols",
+            "个符号",
+            "个符号",
             is_active,
             is_first,
-            "Inspecting",
-            "inspecting",
-            "Inspected",
-            "inspected",
+            "正在查看",
+            "正在查看",
+            "已查看",
+            "已查看",
         ),
         ToolBatchItemKind::AnalyzeProject => action_summary_part(
             count,
-            "project",
-            "projects",
+            "个项目",
+            "个项目",
             is_active,
             is_first,
-            "Analyzing",
-            "analyzing",
-            "Analyzed",
-            "analyzed",
+            "正在分析",
+            "正在分析",
+            "已分析",
+            "已分析",
         ),
     }
 }
@@ -794,15 +884,15 @@ fn action_summary_part(
         done_rest
     };
     let noun = if count == 1 { singular } else { plural };
-    format!("{} {} {}", verb, count, noun)
+    format!("{} {}{}", verb, count, noun)
 }
 
 fn lsp_inspect_label(operation: &str) -> &'static str {
     match operation {
         "hover" => "hover",
-        "goToDefinition" => "definition",
-        "documentSymbol" => "document symbols",
-        _ => "symbol",
+        "goToDefinition" => "定义",
+        "documentSymbol" => "文档符号",
+        _ => "符号",
     }
 }
 
@@ -815,16 +905,16 @@ fn truncate_words(text: &str, max_chars: usize) -> String {
 
 fn describe_memory_action(action: &str, is_active: bool) -> &'static str {
     match (action, is_active) {
-        ("save", true) => "Saving",
-        ("save", false) => "Saved",
-        ("delete", true) => "Deleting",
-        ("delete", false) => "Deleted",
-        ("list", true) => "Listing",
-        ("list", false) => "Listed",
-        ("read", true) => "Recalling",
-        ("read", false) => "Recalled",
-        (_, true) => "Managing",
-        (_, false) => "Managed",
+        ("save", true) => "正在保存",
+        ("save", false) => "已保存",
+        ("delete", true) => "正在删除",
+        ("delete", false) => "已删除",
+        ("list", true) => "正在列出",
+        ("list", false) => "已列出",
+        ("read", true) => "正在读取",
+        ("read", false) => "已读取",
+        (_, true) => "正在处理",
+        (_, false) => "已处理",
     }
 }
 
@@ -970,7 +1060,7 @@ mod tests {
         assert_eq!(batch.next_index, 6);
         assert_eq!(
             tool_batch_summary_text(&batch),
-            "Searched for 1 pattern, read 1 file, listed 1 directory"
+            "已搜索 1次搜索，已读取 1个文件，已列出 1个目录"
         );
     }
 
@@ -1045,7 +1135,7 @@ mod tests {
         assert_eq!(batch.items[1].kind, ToolBatchItemKind::InspectSymbol);
         assert_eq!(
             tool_batch_summary_text(&batch),
-            "Searching the web for 1 query, inspecting 1 symbol..."
+            "正在进行 1次联网搜索，正在查看 1个符号..."
         );
     }
 
@@ -1090,7 +1180,7 @@ mod tests {
         assert_eq!(batch.items[1].kind, ToolBatchItemKind::ReadSkill);
         assert_eq!(
             tool_batch_summary_text(&batch),
-            "Recalled 1 memory, read 1 skill"
+            "已读取 1条记忆，已读取 1个技能"
         );
     }
 
@@ -1127,8 +1217,8 @@ mod tests {
             true,
         )
         .unwrap();
-        assert_eq!(read, "Read .../src/main.rs");
-        assert_eq!(search, "Searching the web for ratatui status summary");
+        assert_eq!(read, "已读取 .../src/main.rs");
+        assert_eq!(search, "正在联网搜索 ratatui status summary");
     }
 
     #[test]
@@ -1151,9 +1241,9 @@ mod tests {
             true,
         )
         .unwrap();
-        assert_eq!(edit, "Editing .../src/main.rs");
-        assert_eq!(shell, "Ran cargo test -p yode-tui");
-        assert_eq!(agent, "Running agent Analyze Yode architecture");
+        assert_eq!(edit, "正在编辑 .../src/main.rs");
+        assert_eq!(shell, "已执行 cargo test -p yode-tui");
+        assert_eq!(agent, "正在运行子代理 Analyze Yode architecture");
     }
 
     #[test]
@@ -1267,7 +1357,7 @@ mod tests {
             true,
         )
         .unwrap();
-        assert_eq!(summary, "Searching for 1 pattern, reading 2 files...");
+        assert_eq!(summary, "正在搜索 1次搜索，正在读取 2个文件...");
         assert_eq!(target.as_deref(), Some("\"showDialog\""));
     }
 
@@ -1300,7 +1390,7 @@ mod tests {
         let batch = detect_groupable_tool_batch(&entries, 0).unwrap();
         assert_eq!(
             tool_batch_hint_text(&entries, &batch).as_deref(),
-            Some("Reading .../src/main.rs")
+            Some("正在读取 .../src/main.rs")
         );
     }
 

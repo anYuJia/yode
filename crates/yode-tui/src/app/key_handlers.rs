@@ -19,6 +19,13 @@ pub(super) fn handle_char(app: &mut App, key: KeyEvent, c: char) {
                 app.chat_entries.clear();
                 app.printed_count = 0;
             }
+            't' => {
+                app.wizard = Some(crate::commands::model::model::build_model_picker_wizard(
+                    &app.provider_name,
+                    &app.session.model,
+                    &app.provider_models,
+                ));
+            }
             'j' => app.input.insert_newline(),
             'r' => app.history.enter_search(),
             'p' => browse_history_prev(app),

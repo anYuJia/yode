@@ -21,10 +21,7 @@ pub(super) fn render_folded_result_lines(
     }
     if preview_lines.len() > 1 {
         lines.push(Line::from(Span::styled(
-            format!(
-                "     … {} more lines (ctrl+o to expand)",
-                preview_lines.len() - 1
-            ),
+            format!("     … 还有 {} 行（Ctrl+O 展开）", preview_lines.len() - 1),
             Style::default().fg(ratatui::style::Color::Gray),
         )));
     }
@@ -62,14 +59,14 @@ pub(super) fn render_shell_result_lines(
         )));
     } else if let Some(exit_code) = sections.exit_code {
         lines.push(Line::from(Span::styled(
-            format!("  ⎿  exit code {}", exit_code),
+            format!("  ⎿  退出码 {}", exit_code),
             exit_style,
         )));
     }
 
     if total_lines > 1 {
         lines.push(Line::from(Span::styled(
-            format!("     … {} more lines (ctrl+o to expand)", total_lines - 1),
+            format!("     … 还有 {} 行（Ctrl+O 展开）", total_lines - 1),
             Style::default().fg(ratatui::style::Color::Gray),
         )));
     }
@@ -92,7 +89,7 @@ pub(super) fn render_write_preview_lines(
         }
         if line_count > 5 {
             lines.push(Line::from(Span::styled(
-                format!("     … {} more lines", line_count - 5),
+                format!("     … 还有 {} 行", line_count - 5),
                 Style::default().fg(ratatui::style::Color::Gray),
             )));
         }
@@ -110,7 +107,7 @@ pub(super) fn render_edit_preview_lines(
     for (index, line) in old.lines().enumerate() {
         if index >= max_diff {
             lines.push(Line::from(Span::styled(
-                format!("     … {} more removed", old.lines().count() - max_diff),
+                format!("     … 还有 {} 行删除", old.lines().count() - max_diff),
                 remove_style,
             )));
             break;
@@ -123,7 +120,7 @@ pub(super) fn render_edit_preview_lines(
     for (index, line) in new.lines().enumerate() {
         if index >= max_diff {
             lines.push(Line::from(Span::styled(
-                format!("     … {} more added", new.lines().count() - max_diff),
+                format!("     … 还有 {} 行新增", new.lines().count() - max_diff),
                 add_style,
             )));
             break;
@@ -155,7 +152,7 @@ mod tests {
             .first()
             .unwrap()
             .content
-            .contains("more lines"));
+            .contains("还有"));
     }
 
     #[test]
@@ -169,6 +166,6 @@ mod tests {
             ratatui::style::Style::default(),
         );
         assert_eq!(lines[0].to_string(), "  ⎿  ok");
-        assert!(lines[1].to_string().contains("more lines"));
+        assert!(lines[1].to_string().contains("还有"));
     }
 }

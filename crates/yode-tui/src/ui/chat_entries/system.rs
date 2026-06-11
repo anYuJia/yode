@@ -76,7 +76,7 @@ pub(crate) fn render_system_entry(lines: &mut Vec<Line<'static>>, entry: &ChatEn
     lines.push(Line::from(vec![
         Span::styled("    ".to_string(), Style::default().fg(MUTED)),
         Span::styled(
-            "ctrl+o to inspect",
+            "Ctrl+O 查看",
             Style::default().fg(MUTED).add_modifier(Modifier::ITALIC),
         ),
     ]));
@@ -113,7 +113,7 @@ pub(crate) fn render_grouped_system_entries(
             Style::default().fg(LIGHT).add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            " (ctrl+o to inspect)".to_string(),
+            "（Ctrl+O 查看）".to_string(),
             Style::default().fg(MUTED).add_modifier(Modifier::ITALIC),
         ),
     ]));
@@ -321,7 +321,7 @@ mod tests {
         let mut lines = Vec::new();
         render_grouped_system_entries(&mut lines, &entries, &batch);
         assert!(lines[0].to_string().contains("Status updates(2)"));
-        assert!(lines[0].to_string().contains("ctrl+o to inspect"));
+        assert!(lines[0].to_string().contains("Ctrl+O 查看"));
         assert_eq!(lines.len(), 1);
     }
 
@@ -348,7 +348,7 @@ mod tests {
         let mut lines = Vec::new();
         render_grouped_system_entries(&mut lines, &entries, &batch);
         assert!(lines[0].to_string().contains("Task updates(2)"));
-        assert!(lines[0].to_string().contains("ctrl+o to inspect"));
+        assert!(lines[0].to_string().contains("Ctrl+O 查看"));
     }
 
     #[test]

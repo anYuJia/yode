@@ -137,7 +137,7 @@ pub(crate) fn format_entry_as_strings(
                 if view.detail_lines.len() > 1 {
                     result.push((
                         format!(
-                            "    … +{} more lines (ctrl+o to inspect)",
+                            "    … 还有 {} 行（Ctrl+O 查看）",
                             view.detail_lines.len() - 1
                         ),
                         ratatui::style::Style::default().fg(Color::Gray),
@@ -146,7 +146,7 @@ pub(crate) fn format_entry_as_strings(
             }
             if latest_error_index == Some(index) {
                 result.push((
-                    "    ctrl+o to inspect".to_string(),
+                    "    Ctrl+O 查看".to_string(),
                     ratatui::style::Style::default()
                         .fg(Color::Gray)
                         .add_modifier(Modifier::ITALIC),
@@ -228,12 +228,10 @@ mod tests {
         assert!(rendered
             .iter()
             .any(|(line, _)| line.contains("something odd happened")));
+        assert!(rendered.iter().any(|(line, _)| line.contains("还有 1 行")));
         assert!(rendered
             .iter()
-            .any(|(line, _)| line.contains("+1 more lines")));
-        assert!(rendered
-            .iter()
-            .any(|(line, _)| line.contains("ctrl+o to inspect")));
+            .any(|(line, _)| line.contains("Ctrl+O 查看")));
         assert!(rendered.iter().all(|(line, _)| !line.contains("╭─ Error")));
     }
 
@@ -259,7 +257,7 @@ mod tests {
         let tool_rendered = format_entry_as_strings(&tool_entries[0], &tool_entries, 0);
         assert!(tool_rendered
             .iter()
-            .any(|(line, _)| line.contains("ctrl+o to inspect")));
+            .any(|(line, _)| line.contains("Ctrl+O 查看")));
 
         let system_entries = vec![
             ChatEntry::new(
@@ -290,7 +288,7 @@ mod tests {
         );
         assert!(system_rendered
             .iter()
-            .any(|(line, _)| line.contains("ctrl+o to inspect")));
+            .any(|(line, _)| line.contains("Ctrl+O 查看")));
 
         let error_entry = ChatEntry::new(
             ChatRole::Error,
@@ -301,7 +299,7 @@ mod tests {
             format_entry_as_strings(&error_entry, std::slice::from_ref(&error_entry), 0);
         assert!(error_rendered
             .iter()
-            .any(|(line, _)| line.contains("ctrl+o to inspect")));
+            .any(|(line, _)| line.contains("Ctrl+O 查看")));
     }
 
     #[test]
@@ -440,7 +438,7 @@ mod tests {
             .any(|(line, _)| line.contains("/tmp/latest.md")));
         assert!(latest_system
             .iter()
-            .any(|(line, _)| line.contains("+1 more lines")));
+            .any(|(line, _)| line.contains("还有 1 行")));
         assert!(older_error
             .iter()
             .all(|(line, _)| !line.contains("hidden detail")));

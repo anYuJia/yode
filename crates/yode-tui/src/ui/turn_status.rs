@@ -93,7 +93,7 @@ pub fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &
             let turn_out = app.session.turn_output_tokens;
             let mut spans = vec![Span::styled(
                 format!(
-                    "  ⚡ Completed · {} ({})",
+                    "  ⚡ 已完成 · {} ({})",
                     elapsed_str,
                     compact_output_token_phrase(turn_out)
                 ),
@@ -103,7 +103,7 @@ pub fn render_turn_status(frame: &mut Frame, area: ratatui::layout::Rect, app: &
                 spans.push(Span::styled(" · ", Style::default().fg(Color::DarkGray)));
                 spans.push(Span::styled(
                     match density {
-                        crate::ui::responsive::Density::Wide => format!("{} tools", tools),
+                        crate::ui::responsive::Density::Wide => format!("{} 个工具", tools),
                         crate::ui::responsive::Density::Medium
                         | crate::ui::responsive::Density::Narrow => format!("t{}", tools),
                     },
@@ -280,9 +280,9 @@ fn compact_last_turn_status(message: &str) -> String {
     message
         .lines()
         .find(|line| !line.trim().is_empty())
-        .unwrap_or("Turn completed")
+        .unwrap_or("回合已完成")
         .trim()
-        .replacen("Turn completed", "Completed", 1)
+        .replacen("Turn completed", "已完成", 1)
 }
 
 #[cfg(test)]
@@ -336,7 +336,7 @@ mod tests {
 
         assert_eq!(
             active_working_label(&app, "Working"),
-            "Searching the web for 1 query, reading 1 file..."
+            "正在进行 1次联网搜索，正在读取 1个文件..."
         );
     }
 
@@ -358,7 +358,7 @@ mod tests {
             "Turn completed · 2.0s · 3 tools · 10↑ 20↓ tok\nsession · 30 total tok · 3 tools",
         );
 
-        assert_eq!(status, "Completed · 2.0s · 3 tools · 10↑ 20↓ tok");
+        assert_eq!(status, "已完成 · 2.0s · 3 tools · 10↑ 20↓ tok");
     }
 
     #[test]
@@ -372,10 +372,7 @@ mod tests {
             "{}".to_string(),
         )];
 
-        assert_eq!(
-            active_working_label(&app, "Working"),
-            "Analyzing 1 project..."
-        );
+        assert_eq!(active_working_label(&app, "Working"), "正在分析 1个项目...");
     }
 
     #[test]
@@ -403,7 +400,7 @@ mod tests {
 
         assert_eq!(
             active_working_label(&app, "Working"),
-            "Editing .../tmp/demo.rs…"
+            "正在编辑 .../tmp/demo.rs…"
         );
     }
 
@@ -437,7 +434,7 @@ mod tests {
 
         assert_eq!(
             active_working_hint(&app).as_deref(),
-            Some("Reading .../src/main.rs")
+            Some("正在读取 .../src/main.rs")
         );
     }
 }

@@ -8,7 +8,7 @@ pub(crate) fn format_retry_delay_summary(
     attempt: u32,
     max_attempts: u32,
 ) -> String {
-    format!("retry in {}s ({}/{})", delay_secs, attempt, max_attempts)
+    format!("{} 秒后重试（{}/{}）", delay_secs, attempt, max_attempts)
 }
 
 pub(crate) fn format_context_compressed_message(
@@ -19,29 +19,29 @@ pub(crate) fn format_context_compressed_message(
     session_memory_path: Option<&str>,
     transcript_path: Option<&str>,
 ) -> String {
-    let mut parts = vec!["Context compacted".to_string(), mode.to_string()];
+    let mut parts = vec!["上下文已压缩".to_string(), mode.to_string()];
     if removed > 0 {
-        parts.push(format!("-{} msgs", removed));
+        parts.push(format!("移除 {} 条消息", removed));
     }
     if tool_results_truncated > 0 {
-        parts.push(format!("{} tool results truncated", tool_results_truncated));
+        parts.push(format!("截断 {} 个工具结果", tool_results_truncated));
     }
 
     let mut content = parts.join(" · ");
     if let Some(summary) = summary.filter(|summary| !summary.trim().is_empty()) {
-        content.push_str("\nsummary · ");
+        content.push_str("\n摘要 · ");
         content.push_str(summary.trim());
     };
     if let Some(path) = session_memory_path {
-        content.push_str("\nmemory · ");
+        content.push_str("\n记忆 · ");
         content.push_str(&compact_runtime_path(path));
     }
     if let Some(path) = transcript_path {
-        content.push_str("\ntranscript · ");
+        content.push_str("\n记录 · ");
         content.push_str(&compact_runtime_path(path));
     }
     content.push_str(
-        "\ninspect · /context | /inspect artifact latest-post-compact-restore | /inspect artifact latest-post-compact-restore-diff",
+        "\n查看 · /context | /inspect artifact latest-post-compact-restore | /inspect artifact latest-post-compact-restore-diff",
     );
 
     content
@@ -49,7 +49,7 @@ pub(crate) fn format_context_compressed_message(
 
 pub(crate) fn format_session_memory_update_message(path: &str, generated_summary: bool) -> String {
     format!(
-        "Session memory updated · {} · {}",
+        "会话记忆已更新 · {} · {}",
         if generated_summary {
             "summary"
         } else {
@@ -60,7 +60,7 @@ pub(crate) fn format_session_memory_update_message(path: &str, generated_summary
 }
 
 pub(crate) fn format_budget_exceeded_message(cost: f64, limit: f64) -> String {
-    format!("Budget exceeded · ${:.4} / ${:.2}", cost, limit)
+    format!("预算已超出 · ${:.4} / ${:.2}", cost, limit)
 }
 
 pub(crate) fn format_tool_progress_summary(
@@ -76,7 +76,7 @@ pub(crate) fn format_tool_progress_summary(
         (Some(tool), None, None) => tool.to_string(),
         (None, Some(message), Some(at)) => format!("{} @ {}", message, at),
         (None, Some(message), None) => message.to_string(),
-        (None, None, Some(at)) => format!("updated @ {}", at),
+        (None, None, Some(at)) => format!("更新于 {}", at),
     }
 }
 
@@ -115,8 +115,8 @@ pub(crate) fn fold_recovery_breadcrumbs(breadcrumbs: &[String], max_items: usize
 pub(crate) fn format_turn_artifact_status(path: Option<&str>) -> String {
     match path {
         None => "none".to_string(),
-        Some(path) if Path::new(path).exists() => format!("present: {}", path),
-        Some(path) => format!("missing: {}", path),
+        Some(path) if Path::new(path).exists() => format!("存在：{}", path),
+        Some(path) => format!("缺失：{}", path),
     }
 }
 
@@ -130,32 +130,32 @@ pub(crate) fn format_turn_completed_message(
     runtime: Option<&EngineRuntimeState>,
 ) -> String {
     let mut content = format!(
-        "Turn completed · {} · {} · {}↑ {}↓ tok",
+        "回合已完成 · {} · {} · {}↑ {}↓ tok",
         format_turn_elapsed(elapsed),
         tool_count_label(tools),
         format_token_count(turn_input_tokens as u64),
         format_token_count(turn_output_tokens as u64),
     );
-    content.push_str("\nsession · ");
+    content.push_str("\n会话 · ");
     content.push_str(&format!(
-        "{} total tok · {}",
+        "累计 {} tok · {}",
         format_token_count(session_total_tokens as u64),
         tool_count_label(session_tool_count)
     ));
 
     if let Some(runtime) = runtime {
         if let Some(cache_line) = format_turn_cache_summary(runtime) {
-            content.push_str("\ncache · ");
+            content.push_str("\n缓存 · ");
             content.push_str(&cache_line);
         }
         if let Some(stop_reason) = runtime.last_turn_stop_reason.as_deref() {
             if stop_reason != "none" {
-                content.push_str("\nstop · ");
+                content.push_str("\n停止原因 · ");
                 content.push_str(stop_reason);
             }
         }
         if let Some(path) = runtime.last_turn_artifact_path.as_deref() {
-            content.push_str("\nartifact · ");
+            content.push_str("\n产物 · ");
             content.push_str(&compact_runtime_path(path));
         }
     }
@@ -208,7 +208,7 @@ fn format_turn_elapsed(elapsed: Duration) -> String {
 }
 
 fn tool_count_label(count: u32) -> String {
-    format!("{} {}", count, if count == 1 { "tool" } else { "tools" })
+    format!("{} 个工具", count)
 }
 
 fn format_token_count(value: u64) -> String {
@@ -370,7 +370,7 @@ mod tests {
 
     #[test]
     fn retry_delay_summary_formats_attempts() {
-        assert_eq!(format_retry_delay_summary(5, 2, 5), "retry in 5s (2/5)");
+        assert_eq!(format_retry_delay_summary(5, 2, 5), "5 秒后重试（2/5）");
     }
 
     #[test]
@@ -384,7 +384,7 @@ mod tests {
                 Some("/tmp/memory.md"),
                 Some("/tmp/transcript.md"),
             ),
-            "Context compacted · auto · -4 msgs · 2 tool results truncated\nsummary · trimmed older turns\nmemory · .../tmp/memory.md\ntranscript · .../tmp/transcript.md\ninspect · /context | /inspect artifact latest-post-compact-restore | /inspect artifact latest-post-compact-restore-diff"
+            "上下文已压缩 · auto · 移除 4 条消息 · 截断 2 个工具结果\n摘要 · trimmed older turns\n记忆 · .../tmp/memory.md\n记录 · .../tmp/transcript.md\n查看 · /context | /inspect artifact latest-post-compact-restore | /inspect artifact latest-post-compact-restore-diff"
         );
     }
 
@@ -400,7 +400,7 @@ mod tests {
     fn turn_artifact_status_reports_missing_paths() {
         assert_eq!(
             format_turn_artifact_status(Some("/definitely/missing/artifact.md")),
-            "missing: /definitely/missing/artifact.md"
+            "缺失：/definitely/missing/artifact.md"
         );
     }
 
@@ -414,15 +414,15 @@ mod tests {
             Some("/Users/pyu/code/yode/.yode/memory/session.live.md"),
             Some("/Users/pyu/code/yode/.yode/transcripts/session.md"),
         );
-        assert!(message.contains("memory · .../memory/session.live.md"));
-        assert!(message.contains("transcript · .../transcripts/session.md"));
+        assert!(message.contains("记忆 · .../memory/session.live.md"));
+        assert!(message.contains("记录 · .../transcripts/session.md"));
     }
 
     #[test]
     fn session_memory_update_message_is_compact() {
         assert_eq!(
             super::format_session_memory_update_message("/tmp/live.md", true),
-            "Session memory updated · summary · .../tmp/live.md"
+            "会话记忆已更新 · summary · .../tmp/live.md"
         );
     }
 
@@ -430,7 +430,7 @@ mod tests {
     fn budget_exceeded_message_is_compact() {
         assert_eq!(
             super::format_budget_exceeded_message(0.3456, 0.20),
-            "Budget exceeded · $0.3456 / $0.20"
+            "预算已超出 · $0.3456 / $0.20"
         );
     }
 
@@ -458,9 +458,9 @@ mod tests {
             34,
             Some(&runtime),
         );
-        assert!(message.contains("Turn completed · 1.4s · 3 tools · 1.2k↑ 180↓ tok"));
-        assert!(message.contains("session · 15.4k total tok · 34 tools"));
-        assert!(message.contains("cache · hit+write"));
-        assert!(message.contains("artifact · .../tmp/turn.md"));
+        assert!(message.contains("回合已完成 · 1.4s · 3 个工具 · 1.2k↑ 180↓ tok"));
+        assert!(message.contains("会话 · 累计 15.4k tok · 34 个工具"));
+        assert!(message.contains("缓存 · hit+write"));
+        assert!(message.contains("产物 · .../tmp/turn.md"));
     }
 }

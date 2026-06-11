@@ -76,7 +76,7 @@ fn summarize_failed_tool_result(
                     .and_then(|(_, rest)| rest.split_once('\'').map(|(name, _)| name))
                     .unwrap_or("batch tool");
                 lines.push(ToolSummaryLine {
-                    text: format!("batch denied: {} not allowed", denied_tool),
+                    text: format!("批量调用被拒绝：{} 不允许", denied_tool),
                     tone: ToolSummaryTone::Warning,
                 });
                 return ToolResultSummary {
@@ -91,17 +91,17 @@ fn summarize_failed_tool_result(
         let sections = parse_shell_output_sections(result_content);
         if let Some(exit_code) = sections.exit_code {
             lines.push(ToolSummaryLine {
-                text: format!("failed with exit code {}", exit_code),
+                text: format!("执行失败，退出码 {}", exit_code),
                 tone: ToolSummaryTone::Warning,
             });
         } else if let Some(first_stderr) = sections.stderr_lines.first() {
             lines.push(ToolSummaryLine {
-                text: truncate_for_summary(first_stderr, 72),
+                text: format!("错误：{}", truncate_for_summary(first_stderr, 64)),
                 tone: ToolSummaryTone::Warning,
             });
         } else if let Some(first_stdout) = sections.stdout_lines.first() {
             lines.push(ToolSummaryLine {
-                text: truncate_for_summary(first_stdout, 72),
+                text: format!("输出：{}", truncate_for_summary(first_stdout, 64)),
                 tone: ToolSummaryTone::Warning,
             });
         }
@@ -135,7 +135,7 @@ fn summarize_failed_tool_result(
         .unwrap_or(false)
     {
         lines.push(ToolSummaryLine {
-            text: "recoverable error".to_string(),
+            text: "可恢复错误".to_string(),
             tone: ToolSummaryTone::Neutral,
         });
     }
@@ -167,14 +167,13 @@ fn append_runtime_summary_lines(summary: &mut ToolResultSummary, metadata: Optio
         .unwrap_or(original.saturating_sub(kept));
     summary.lines.push(ToolSummaryLine {
         text: format!(
-            "output truncated: kept {} of {} bytes, omitted {}",
+            "输出已截断：保留 {} / {} 字节，省略 {}",
             kept, original, omitted
         ),
         tone: ToolSummaryTone::Warning,
     });
     summary.lines.push(ToolSummaryLine {
-        text: "re-run with a narrower query or use targeted read offset/limit for exact content"
-            .to_string(),
+        text: "请缩小查询范围，或使用更精确的偏移/长度重新读取".to_string(),
         tone: ToolSummaryTone::Neutral,
     });
     summary.hide_body_by_default = true;
@@ -209,13 +208,16 @@ fn summarize_read_file(args: &Value, metadata: Option<&Value>) -> ToolResultSumm
     let line_count = end_line.saturating_sub(start_line).saturating_add(1);
 
     let primary = if total_lines == 0 {
-        "read 0 lines".to_string()
+        "读取 0 行".to_string()
     } else if was_truncated || start_line > 1 || end_line < total_lines {
-        format!("read lines {}-{} of {}", start_line, end_line, total_lines)
+        format!(
+            "读取第 {}-{} 行，共 {} 行",
+            start_line, end_line, total_lines
+        )
     } else if line_count == 1 {
-        "read 1 line".to_string()
+        "读取 1 行".to_string()
     } else {
-        format!("read {} lines", line_count)
+        format!("读取 {} 行", line_count)
     };
 
     let mut lines = vec![ToolSummaryLine {
@@ -244,7 +246,7 @@ fn summarize_grep(
     if result_content.trim() == "No matches found." {
         return ToolResultSummary {
             lines: vec![ToolSummaryLine {
-                text: "no matches found".to_string(),
+                text: "未找到匹配".to_string(),
                 tone: ToolSummaryTone::Neutral,
             }],
             hide_body_by_default: true,
@@ -282,25 +284,25 @@ fn summarize_grep(
     let primary = match output_mode {
         "count" => {
             if file_count > 0 {
-                format!("matched {} hits in {} files", match_count, file_count)
+                format!("命中 {} 处，分布在 {} 个文件", match_count, file_count)
             } else {
-                format!("matched {} hits", match_count)
+                format!("命中 {} 处", match_count)
             }
         }
         "content" => {
             if file_count > 1 {
-                format!("matched {} lines in {} files", line_count, file_count)
+                format!("匹配 {} 行，分布在 {} 个文件", line_count, file_count)
             } else if line_count == 1 {
-                "matched 1 line".to_string()
+                "匹配 1 行".to_string()
             } else {
-                format!("matched {} lines", line_count)
+                format!("匹配 {} 行", line_count)
             }
         }
         _ => {
             if file_count == 1 {
-                "matched 1 file".to_string()
+                "匹配 1 个文件".to_string()
             } else {
-                format!("matched {} files", file_count)
+                format!("匹配 {} 个文件", file_count)
             }
         }
     };
@@ -319,7 +321,7 @@ fn summarize_grep(
 
     if !pattern.is_empty() {
         lines.push(ToolSummaryLine {
-            text: format!("pattern: {}", truncate_for_summary(pattern, 48)),
+            text: format!("模式：{}", truncate_for_summary(pattern, 48)),
             tone: ToolSummaryTone::Neutral,
         });
     }
@@ -353,9 +355,9 @@ fn summarize_glob(
         .unwrap_or("");
 
     let primary = if match_count == 1 {
-        "matched 1 file".to_string()
+        "匹配 1 个文件".to_string()
     } else {
-        format!("matched {} files", match_count)
+        format!("匹配 {} 个文件", match_count)
     };
 
     let mut lines = vec![ToolSummaryLine {
@@ -365,7 +367,7 @@ fn summarize_glob(
 
     if !pattern.is_empty() {
         lines.push(ToolSummaryLine {
-            text: format!("pattern: {}", truncate_for_summary(pattern, 48)),
+            text: format!("模式：{}", truncate_for_summary(pattern, 48)),
             tone: ToolSummaryTone::Neutral,
         });
     }
@@ -410,12 +412,12 @@ fn summarize_ls(args: &Value, metadata: Option<&Value>, result_content: &str) ->
         });
 
     let primary = match (file_count, dir_count) {
-        (0, 0) => "listed empty directory".to_string(),
-        (1, 0) => "listed 1 file".to_string(),
-        (files, 0) => format!("listed {} files", files),
-        (0, 1) => "listed 1 directory".to_string(),
-        (0, dirs) => format!("listed {} directories", dirs),
-        (files, dirs) => format!("listed {} files and {} directories", files, dirs),
+        (0, 0) => "列出空目录".to_string(),
+        (1, 0) => "列出 1 个文件".to_string(),
+        (files, 0) => format!("列出 {} 个文件", files),
+        (0, 1) => "列出 1 个目录".to_string(),
+        (0, dirs) => format!("列出 {} 个目录", dirs),
+        (files, dirs) => format!("列出 {} 个文件和 {} 个目录", files, dirs),
     };
 
     let mut lines = vec![ToolSummaryLine {
@@ -430,7 +432,7 @@ fn summarize_ls(args: &Value, metadata: Option<&Value>, result_content: &str) ->
 
     if recursive {
         lines.push(ToolSummaryLine {
-            text: "recursive view".to_string(),
+            text: "递归查看".to_string(),
             tone: ToolSummaryTone::Warning,
         });
     }
@@ -465,7 +467,7 @@ fn summarize_memory(
     match action {
         "read" => {
             let mut lines = vec![ToolSummaryLine {
-                text: "recalled 1 memory".to_string(),
+                text: "读取 1 条记忆".to_string(),
                 tone: ToolSummaryTone::Success,
             }];
             if !name.is_empty() {
@@ -494,14 +496,14 @@ fn summarize_memory(
                 lines: vec![
                     ToolSummaryLine {
                         text: if count == 1 {
-                            "listed 1 memory".to_string()
+                            "列出 1 条记忆".to_string()
                         } else {
-                            format!("listed {} memories", count)
+                            format!("列出 {} 条记忆", count)
                         },
                         tone: ToolSummaryTone::Success,
                     },
                     ToolSummaryLine {
-                        text: format!("scope: {}", scope),
+                        text: format!("范围：{}", scope),
                         tone: ToolSummaryTone::Neutral,
                     },
                 ],
@@ -537,9 +539,9 @@ fn summarize_skill(
             ToolResultSummary {
                 lines: vec![ToolSummaryLine {
                     text: if count == 1 {
-                        "listed 1 skill".to_string()
+                        "列出 1 个技能".to_string()
                     } else {
-                        format!("listed {} skills", count)
+                        format!("列出 {} 个技能", count)
                     },
                     tone: ToolSummaryTone::Success,
                 }],
@@ -553,7 +555,7 @@ fn summarize_skill(
                 .or_else(|| args.get("name").and_then(Value::as_str))
                 .unwrap_or("");
             let mut lines = vec![ToolSummaryLine {
-                text: "read 1 skill".to_string(),
+                text: "读取 1 个技能".to_string(),
                 tone: ToolSummaryTone::Success,
             }];
             if !name.is_empty() {
@@ -580,11 +582,11 @@ fn summarize_discover_skills(result_content: &str) -> ToolResultSummary {
     ToolResultSummary {
         lines: vec![ToolSummaryLine {
             text: if count == 0 {
-                "listed 0 skills".to_string()
+                "列出 0 个技能".to_string()
             } else if count == 1 {
-                "listed 1 skill".to_string()
+                "列出 1 个技能".to_string()
             } else {
-                format!("listed {} skills", count)
+                format!("列出 {} 个技能", count)
             },
             tone: ToolSummaryTone::Success,
         }],
@@ -615,11 +617,11 @@ fn summarize_lsp(args: &Value, metadata: Option<&Value>) -> ToolResultSummary {
         .unwrap_or(0);
 
     let primary = match operation {
-        "hover" => "inspected symbol hover".to_string(),
-        "goToDefinition" => "jumped to definition".to_string(),
-        "findReferences" => "found symbol references".to_string(),
-        "documentSymbol" => "listed document symbols".to_string(),
-        _ => format!("ran lsp {}", operation),
+        "hover" => "查看符号悬浮信息".to_string(),
+        "goToDefinition" => "跳转到定义".to_string(),
+        "findReferences" => "查找符号引用".to_string(),
+        "documentSymbol" => "列出文档符号".to_string(),
+        _ => format!("执行 LSP {}", operation),
     };
     let mut lines = vec![ToolSummaryLine {
         text: primary,
@@ -659,11 +661,11 @@ fn summarize_web_search(args: &Value, metadata: Option<&Value>) -> ToolResultSum
         .unwrap_or("");
 
     let primary = if result_count == 0 {
-        "found no web results".to_string()
+        "未找到网页结果".to_string()
     } else if result_count == 1 {
-        "found 1 web result".to_string()
+        "找到 1 条网页结果".to_string()
     } else {
-        format!("found {} web results", result_count)
+        format!("找到 {} 条网页结果", result_count)
     };
 
     let mut lines = vec![ToolSummaryLine {
@@ -672,7 +674,7 @@ fn summarize_web_search(args: &Value, metadata: Option<&Value>) -> ToolResultSum
     }];
     if !query.is_empty() {
         lines.push(ToolSummaryLine {
-            text: format!("query: {}", truncate_for_summary(query, 56)),
+            text: format!("查询：{}", truncate_for_summary(query, 56)),
             tone: ToolSummaryTone::Neutral,
         });
     }
@@ -704,7 +706,7 @@ fn summarize_web_fetch(args: &Value, metadata: Option<&Value>) -> ToolResultSumm
 
     let mut lines = vec![ToolSummaryLine {
         text: format!(
-            "fetched {} of {}",
+            "读取 {}，类型 {}",
             human_readable_size(original_length),
             truncate_for_summary(content_type, 28)
         ),
@@ -744,11 +746,11 @@ fn summarize_project_map(metadata: Option<&Value>) -> ToolResultSummary {
     ToolResultSummary {
         lines: vec![
             ToolSummaryLine {
-                text: format!("mapped {} project", project_type.to_ascii_lowercase()),
+                text: format!("分析 {} 项目", project_type.to_ascii_lowercase()),
                 tone: ToolSummaryTone::Success,
             },
             ToolSummaryLine {
-                text: format!("{} files · {} lines", file_count, total_lines),
+                text: format!("{} 个文件 · {} 行", file_count, total_lines),
                 tone: ToolSummaryTone::Neutral,
             },
         ],
@@ -768,7 +770,7 @@ fn summarize_batch(args: &Value, metadata: Option<&Value>) -> ToolResultSummary 
         .unwrap_or(0);
 
     let (summary, first_target) = summarize_batch_invocations(args, false)
-        .unwrap_or_else(|| (format!("ran {} tools in parallel", invocation_count), None));
+        .unwrap_or_else(|| (format!("已并行执行 {} 个工具", invocation_count), None));
 
     let mut lines = vec![ToolSummaryLine {
         text: summary,
@@ -802,12 +804,12 @@ fn summarize_agent_tool(
     let mut lines = Vec::new();
     if let Some(task_id) = parse_background_agent_task_id(result_content) {
         lines.push(ToolSummaryLine {
-            text: format!("background task {} launched", task_id),
+            text: format!("后台任务 {} 已启动", task_id),
             tone: ToolSummaryTone::Success,
         });
     } else {
         lines.push(ToolSummaryLine {
-            text: "sub-agent finished".to_string(),
+            text: "子代理已完成".to_string(),
             tone: ToolSummaryTone::Success,
         });
     }
@@ -871,15 +873,15 @@ fn parse_exit_code_line(line: &str) -> Option<i32> {
 
 fn humanize_error_type(error_type: &str) -> String {
     match error_type {
-        "Validation" => "validation error".to_string(),
-        "Protocol" => "protocol error".to_string(),
-        "NotFound" => "not found".to_string(),
-        "PermissionDeny" => "permission denied".to_string(),
-        "Permission" => "permission error".to_string(),
-        "Execution" => "execution failed".to_string(),
-        "QuotaExceeded" => "quota exceeded".to_string(),
-        "Timeout" => "timed out".to_string(),
-        "Unknown" => "unknown error".to_string(),
+        "Validation" => "校验错误".to_string(),
+        "Protocol" => "协议错误".to_string(),
+        "NotFound" => "未找到".to_string(),
+        "PermissionDeny" => "权限被拒绝".to_string(),
+        "Permission" => "权限错误".to_string(),
+        "Execution" => "执行失败".to_string(),
+        "QuotaExceeded" => "额度已超限".to_string(),
+        "Timeout" => "执行超时".to_string(),
+        "Unknown" => "未知错误".to_string(),
         other => other.to_ascii_lowercase(),
     }
 }
@@ -888,10 +890,10 @@ fn format_window_summary(limit: Option<u64>, offset: Option<u64>) -> Option<Stri
     match (limit, offset) {
         (None, None) | (Some(0), None) | (Some(0), Some(0)) => None,
         (Some(limit), Some(offset)) if offset > 0 => {
-            Some(format!("showing {} results after offset {}", limit, offset))
+            Some(format!("显示偏移 {} 后的 {} 条结果", offset, limit))
         }
-        (Some(limit), _) => Some(format!("showing first {} results", limit)),
-        (None, Some(offset)) if offset > 0 => Some(format!("skipped first {} results", offset)),
+        (Some(limit), _) => Some(format!("显示前 {} 条结果", limit)),
+        (None, Some(offset)) if offset > 0 => Some(format!("跳过前 {} 条结果", offset)),
         _ => None,
     }
 }
@@ -944,7 +946,7 @@ mod tests {
 
         assert_eq!(summary.lines.len(), 1);
         assert_eq!(summary.lines[0].tone, ToolSummaryTone::Warning);
-        assert!(summary.lines[0].text.contains("batch denied"));
+        assert!(summary.lines[0].text.contains("批量调用被拒绝"));
         assert!(summary.lines[0].text.contains("project_map"));
     }
 
@@ -960,7 +962,7 @@ mod tests {
         });
         let summary = summarize_tool_result("read_file", &args, Some(&metadata), "body", false);
         assert!(summary.hide_body_by_default);
-        assert_eq!(summary.lines[0].text, "read lines 21-40 of 120");
+        assert_eq!(summary.lines[0].text, "读取第 21-40 行，共 120 行");
     }
 
     #[test]
@@ -982,11 +984,11 @@ mod tests {
         assert!(summary
             .lines
             .iter()
-            .any(|line| line.text.contains("output truncated")));
+            .any(|line| line.text.contains("输出已截断")));
         assert!(summary
             .lines
             .iter()
-            .any(|line| line.text.contains("offset/limit")));
+            .any(|line| line.text.contains("偏移/长度")));
     }
 
     #[test]
@@ -1001,7 +1003,7 @@ mod tests {
         });
         let summary = summarize_tool_result("grep", &args, Some(&metadata), "body", false);
         assert!(summary.hide_body_by_default);
-        assert_eq!(summary.lines[0].text, "matched 7 lines in 3 files");
+        assert_eq!(summary.lines[0].text, "匹配 7 行，分布在 3 个文件");
         assert_eq!(summary.lines[1].tone, ToolSummaryTone::Warning);
     }
 
@@ -1017,8 +1019,8 @@ mod tests {
         let summary =
             summarize_tool_result("ls", &args, Some(&metadata), "src/\nsrc/main.rs", false);
         assert!(summary.hide_body_by_default);
-        assert_eq!(summary.lines[0].text, "listed 3 files and 2 directories");
-        assert_eq!(summary.lines[2].text, "recursive view");
+        assert_eq!(summary.lines[0].text, "列出 3 个文件和 2 个目录");
+        assert_eq!(summary.lines[2].text, "递归查看");
     }
 
     #[test]
@@ -1039,7 +1041,7 @@ mod tests {
         assert!(summary.hide_body_by_default);
         assert_eq!(
             summary.lines[0].text,
-            "fetched 4.0 KB of text/html; charset=utf-8"
+            "读取 4.0 KB，类型 text/html; charset=utf-8"
         );
     }
 
@@ -1058,8 +1060,8 @@ mod tests {
             false,
         );
         assert!(summary.hide_body_by_default);
-        assert_eq!(summary.lines[0].text, "mapped rust project");
-        assert_eq!(summary.lines[1].text, "12 files · 840 lines");
+        assert_eq!(summary.lines[0].text, "分析 rust 项目");
+        assert_eq!(summary.lines[1].text, "12 个文件 · 840 行");
     }
 
     #[test]
@@ -1072,7 +1074,7 @@ mod tests {
             false,
         );
         assert!(summary.hide_body_by_default);
-        assert_eq!(summary.lines[0].text, "recalled 1 memory");
+        assert_eq!(summary.lines[0].text, "读取 1 条记忆");
         assert_eq!(summary.lines[1].text, "plan (project)");
     }
 
@@ -1088,7 +1090,7 @@ mod tests {
             false,
         );
         assert!(summary.hide_body_by_default);
-        assert_eq!(summary.lines[0].text, "inspected symbol hover");
+        assert_eq!(summary.lines[0].text, "查看符号悬浮信息");
         assert!(summary.lines[1].text.contains(".../src/main.rs:5:3"));
     }
 
@@ -1118,7 +1120,7 @@ mod tests {
         );
 
         assert!(summary.hide_body_by_default);
-        assert_eq!(summary.lines[0].text, "background task task-2 launched");
+        assert_eq!(summary.lines[0].text, "后台任务 task-2 已启动");
         assert_eq!(summary.lines[1].text, "Analyze Yode architecture");
     }
 
@@ -1143,9 +1145,9 @@ mod tests {
             true,
         );
         assert!(summary.hide_body_by_default);
-        assert_eq!(summary.lines[0].text, "validation error");
+        assert_eq!(summary.lines[0].text, "校验错误");
         assert_eq!(summary.lines[1].text, "File is too large to read at once.");
-        assert_eq!(summary.lines[2].text, "recoverable error");
+        assert_eq!(summary.lines[2].text, "可恢复错误");
     }
 
     #[test]
@@ -1159,7 +1161,7 @@ mod tests {
             "ok\n[stderr]\nwarn\n[exit code: 2]",
             true,
         );
-        assert_eq!(summary.lines[0].text, "failed with exit code 2");
+        assert_eq!(summary.lines[0].text, "执行失败，退出码 2");
     }
 
     #[test]
@@ -1180,10 +1182,7 @@ mod tests {
             false,
         );
         assert!(summary.hide_body_by_default);
-        assert_eq!(
-            summary.lines[0].text,
-            "Searched for 1 pattern, read 2 files"
-        );
+        assert_eq!(summary.lines[0].text, "已搜索 1次搜索，已读取 2个文件");
         assert_eq!(summary.lines[1].text, "\"showDialog\"");
     }
 }

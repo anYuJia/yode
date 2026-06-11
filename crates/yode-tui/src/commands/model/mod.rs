@@ -1,5 +1,5 @@
 mod effort;
-mod model;
+pub(crate) mod model;
 mod provider;
 
 pub use effort::EffortCommand;

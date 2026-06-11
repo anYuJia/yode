@@ -52,14 +52,14 @@ pub(super) fn render_system_entry(entry: &ChatEntry, show_detail: bool) -> Vec<(
         if view.detail_lines.len() > 1 {
             result.push((
                 format!(
-                    "    … +{} more lines (ctrl+o to inspect)",
+                    "    … 还有 {} 行（Ctrl+O 查看）",
                     view.detail_lines.len() - 1
                 ),
                 Style::default().fg(Color::Gray),
             ));
         }
         result.push((
-            "    ctrl+o to inspect".to_string(),
+            "    Ctrl+O 查看".to_string(),
             Style::default()
                 .fg(Color::Gray)
                 .add_modifier(ratatui::style::Modifier::ITALIC),
@@ -74,7 +74,7 @@ pub(super) fn render_grouped_system_entries(
 ) -> Vec<(String, Style)> {
     let mut result = vec![(
         format!(
-            "  ≡ {}({}) (ctrl+o to inspect)",
+            "  ≡ {}({})（Ctrl+O 查看）",
             grouped_batch_title(all_entries, batch),
             batch.items.len()
         ),
@@ -101,7 +101,7 @@ pub(super) fn render_grouped_system_entries(
     }
     if batch.items.len() > max_items {
         result.push((
-            format!("     … +{} earlier events", batch.items.len() - max_items),
+            format!("     … 还有 {} 个较早事件", batch.items.len() - max_items),
             Style::default().fg(Color::Gray),
         ));
     }
@@ -233,8 +233,8 @@ mod tests {
         let lines = render_system_entry(&entry, true);
         assert!(lines[0].0.contains("Session memory updated"));
         assert!(lines[1].0.contains("/tmp/live.md"));
-        assert!(lines[2].0.contains("+1 more lines"));
-        assert!(lines[3].0.contains("ctrl+o to inspect"));
+        assert!(lines[2].0.contains("还有 1 行"));
+        assert!(lines[3].0.contains("Ctrl+O 查看"));
     }
 
     #[test]
@@ -265,7 +265,7 @@ mod tests {
         };
         let lines = render_grouped_system_entries(&entries, &batch);
         assert!(lines[0].0.contains("Status updates(2)"));
-        assert!(lines[0].0.contains("ctrl+o to inspect"));
+        assert!(lines[0].0.contains("Ctrl+O 查看"));
         assert!(lines[1].0.contains("Context compacted"));
     }
 
@@ -291,7 +291,7 @@ mod tests {
         };
         let lines = render_grouped_system_entries(&entries, &batch);
         assert!(lines[0].0.contains("Task updates(2)"));
-        assert!(lines[0].0.contains("ctrl+o to inspect"));
+        assert!(lines[0].0.contains("Ctrl+O 查看"));
     }
 
     #[test]
@@ -382,7 +382,7 @@ mod tests {
             .all(|line| !line.contains("Session resumed.")));
         assert!(rendered
             .iter()
-            .any(|line| line.contains("+1 earlier events")));
+            .any(|line| line.contains("还有 1 个较早事件")));
     }
 
     #[test]

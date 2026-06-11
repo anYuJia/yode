@@ -25,6 +25,7 @@ export type TimelineItem =
       title: string;
       body: string;
       meta?: string;
+      createdAt?: number;
     }
   | {
       id: string;
@@ -34,6 +35,7 @@ export type TimelineItem =
       status: "running" | "success" | "blocked";
       tool: string;
       meta?: string;
+      result?: string;
     }
 
   | {
@@ -51,6 +53,42 @@ export type TimelineItem =
       kind: "boundary";
       title: string;
       body: string;
+    }
+  | {
+      id: string;
+      kind: "process_note";
+      title?: string;
+      body: string;
+      status: "running" | "success";
+    }
+  | {
+      id: string;
+      kind: "activity_group";
+      label: string;
+      type: "explore" | "search" | "run" | "other";
+      status: "running" | "success";
+      items: TimelineItem[];
+    }
+  | {
+      id: string;
+      kind: "activity_item";
+      type: "edit";
+      tool: string;
+      title: string;
+      body: string;
+      status: "running" | "success" | "blocked";
+      filename?: string;
+      diff?: string;
+      result?: string;
+    }
+  | {
+      id: string;
+      kind: "tool_group";
+      label: string;
+      icon: string;
+      type: "explore" | "search" | "edit" | "run" | "other";
+      status: "running" | "success";
+      items?: any[];
     };
 
 export type DesktopEvent = {

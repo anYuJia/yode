@@ -954,6 +954,9 @@ mod tests {
             let actual = rx.recv().await;
             match expected {
                 ConfirmResponse::Allow => assert!(matches!(actual, Some(ConfirmResponse::Allow))),
+                ConfirmResponse::AllowAlways => {
+                    assert!(matches!(actual, Some(ConfirmResponse::AllowAlways)))
+                }
                 ConfirmResponse::Deny => assert!(matches!(actual, Some(ConfirmResponse::Deny))),
             }
             assert!(app.pending_confirmation.is_none());

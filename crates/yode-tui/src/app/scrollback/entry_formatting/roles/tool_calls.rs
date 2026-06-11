@@ -63,7 +63,7 @@ pub(super) fn render_tool_call(
         let show_inspector_hint = show_detail || is_error || tool_result.is_none();
         result.push((
             if show_inspector_hint {
-                format!("⏺ {}{} (ctrl+o to inspect)", title, timing)
+                format!("⏺ {}{}（Ctrl+O 查看）", title, timing)
             } else {
                 format!("⏺ {}{}", title, timing)
             },
@@ -112,10 +112,7 @@ pub(super) fn render_tool_call(
                 }
                 if preview_lines.len() > 1 {
                     result.push((
-                        format!(
-                            "     … +{} lines (ctrl+o to expand)",
-                            preview_lines.len() - 1
-                        ),
+                        format!("     … 还有 {} 行（Ctrl+O 展开）", preview_lines.len() - 1),
                         dim,
                     ));
                 }
@@ -173,7 +170,7 @@ pub(super) fn render_grouped_tool_call(
     accent: ratatui::style::Style,
 ) {
     result.push((
-        format!("⏺ {} (ctrl+o to expand)", tool_batch_summary_text(batch)),
+        format!("⏺ {}（Ctrl+O 展开）", tool_batch_summary_text(batch)),
         if batch.is_active { dim } else { accent },
     ));
     if batch.is_active {
@@ -209,7 +206,7 @@ pub(super) fn render_standalone_result(
     let show_inspector_hint = show_detail || *is_error;
     result.push((
         if show_inspector_hint {
-            format!("⏺ {} (ctrl+o to inspect)", tool_display_name(name))
+            format!("⏺ {}（Ctrl+O 查看）", tool_display_name(name))
         } else {
             format!("⏺ {}", tool_display_name(name))
         },
@@ -246,10 +243,7 @@ pub(super) fn render_standalone_result(
             }
             if preview_lines.len() > 1 {
                 result.push((
-                    format!(
-                        "     … +{} lines (ctrl+o to expand)",
-                        preview_lines.len() - 1
-                    ),
+                    format!("     … 还有 {} 行（Ctrl+O 展开）", preview_lines.len() - 1),
                     dim,
                 ));
             }
@@ -289,14 +283,14 @@ fn render_shell_output_lines(
         ));
     } else if let Some(exit_code) = sections.exit_code {
         result.push((
-            format!("  ⎿  exit code {}", exit_code),
+            format!("  ⎿  退出码 {}", exit_code),
             ratatui::style::Style::default().fg(Color::Yellow),
         ));
     }
 
     if total_lines > 1 {
         result.push((
-            format!("     … +{} lines (ctrl+o to expand)", total_lines - 1),
+            format!("     … 还有 {} 行（Ctrl+O 展开）", total_lines - 1),
             stdout_style,
         ));
     }
@@ -317,11 +311,11 @@ fn render_edit_file(
     let added = new_lines.len();
     let removed = old_lines.len();
     let summary = if added > 0 && removed > 0 {
-        format!("Added {} lines, removed {} lines", added, removed)
+        format!("新增 {} 行，删除 {} 行", added, removed)
     } else if added > 0 {
-        format!("Added {} lines", added)
+        format!("新增 {} 行", added)
     } else {
-        format!("Removed {} lines", removed)
+        format!("删除 {} 行", removed)
     };
 
     result.push((format!("⏺ Update({}){}", display_path, timing), accent));
@@ -333,7 +327,7 @@ fn render_edit_file(
     for line in &old_lines {
         if shown >= max_diff {
             result.push((
-                format!("     … +{} lines (ctrl+o to expand)", total - shown),
+                format!("     … 还有 {} 行（Ctrl+O 展开）", total - shown),
                 dim,
             ));
             break;
@@ -345,7 +339,7 @@ fn render_edit_file(
         for line in &new_lines {
             if shown >= max_diff {
                 result.push((
-                    format!("     … +{} lines (ctrl+o to expand)", total - shown),
+                    format!("     … 还有 {} 行（Ctrl+O 展开）", total - shown),
                     dim,
                 ));
                 break;
@@ -367,14 +361,14 @@ fn render_write_file(
     let display_path = display_file_path(args["file_path"].as_str().unwrap_or("???"));
     let content = args["content"].as_str().unwrap_or("");
     let total_lines = content.lines().count();
-    result.push((format!("⏺ Write({}){}", display_path, timing), accent));
-    result.push((format!("  ⎿  {} lines written", total_lines), dim));
+    result.push((format!("⏺ 写入({}){}", display_path, timing), accent));
+    result.push((format!("  ⎿  已写入 {} 行", total_lines), dim));
     let max_preview = 3;
     for (index, line) in content.lines().enumerate() {
         if index >= max_preview {
             result.push((
                 format!(
-                    "     … +{} lines (ctrl+o to expand)",
+                    "     … 还有 {} 行（Ctrl+O 展开）",
                     total_lines - max_preview
                 ),
                 dim,
@@ -477,7 +471,7 @@ fn render_summary_lines(
     }
     if summary_lines_need_expansion(lines) {
         result.push((
-            format!("     … +{} more lines (ctrl+o to inspect)", lines.len() - 1),
+            format!("     … 还有 {} 行（Ctrl+O 查看）", lines.len() - 1),
             dim,
         ));
     }
@@ -596,7 +590,7 @@ mod tests {
             Style::default(),
         );
 
-        assert!(result[0].0.contains("Searched for 1 pattern, read 1 file"));
+        assert!(result[0].0.contains("已搜索 1次搜索，已读取 1个文件"));
         assert_eq!(result.len(), 1);
     }
 
@@ -656,10 +650,8 @@ mod tests {
             Style::default(),
         );
 
-        assert!(result[0]
-            .0
-            .contains("Searched the web for 1 query, inspected 1 symbol"));
-        assert!(result[0].0.contains("ctrl+o to expand"));
+        assert!(result[0].0.contains("已完成 1次联网搜索，已查看 1个符号"));
+        assert!(result[0].0.contains("Ctrl+O 展开"));
         assert_eq!(result.len(), 1);
     }
 
@@ -729,8 +721,8 @@ mod tests {
             Style::default(),
             true,
         );
-        assert!(result[0].0.contains("⏺ Read .../src/main.rs"));
-        assert!(result[0].0.contains("ctrl+o to inspect"));
+        assert!(result[0].0.contains("⏺ 已读取 .../src/main.rs"));
+        assert!(result[0].0.contains("Ctrl+O 查看"));
         assert!(!result[0].0.contains("Read_file"));
     }
 
@@ -804,7 +796,7 @@ mod tests {
             true,
         );
         assert!(result[0].0.contains("PowerShell"));
-        assert!(result[0].0.contains("ctrl+o to inspect"));
+        assert!(result[0].0.contains("Ctrl+O 查看"));
         assert!(result
             .iter()
             .any(|line| line.0.contains("read-only: validated git status")));
@@ -838,7 +830,7 @@ mod tests {
             Style::default(),
         );
         assert_eq!(result[0].0, "  ⎿  first");
-        assert!(result[1].0.contains("+2 more lines (ctrl+o to inspect)"));
+        assert!(result[1].0.contains("还有 2 行（Ctrl+O 查看）"));
     }
 
     #[test]
@@ -886,7 +878,7 @@ mod tests {
             Style::default(),
             true,
         );
-        assert!(result[0].0.contains("Bash"));
+        assert!(result[0].0.contains("命令"));
         assert!(result.iter().all(|line| !line.0.contains("stdout")));
         assert!(result.iter().all(|line| !line.0.contains("stderr")));
         assert!(result.iter().all(|line| !line.0.contains("exit code 2")));
