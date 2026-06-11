@@ -1699,20 +1699,13 @@ function DropdownPill({
 
       {isOpen && (
         <div
+          className="context-dropdown"
           style={{
             position: "absolute",
             top: "calc(100% + 6px)",
+            bottom: "auto",
             left: 0,
-            zIndex: 9999,
-            background: "var(--panel-raised)",
-            border: "1px solid var(--line)",
-            borderRadius: "var(--radius)",
-            boxShadow: "0 10px 30px rgba(0, 0, 0, 0.4)",
-            minWidth: "160px",
-            maxHeight: "220px",
-            overflowY: "auto",
-            padding: "4px",
-            backdropFilter: "blur(12px)"
+            width: "200px"
           }}
         >
           {options.map((opt) => {
@@ -1722,39 +1715,15 @@ function DropdownPill({
                 key={opt.value}
                 type="button"
                 data-tauri-no-drag
+                className={`context-option ${isSelected ? "selected" : ""}`}
                 onClick={() => {
                   onChange(opt.value);
                   setIsOpen(false);
                 }}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  width: "100%",
-                  padding: "6px 10px",
-                  border: "none",
-                  background: isSelected ? "var(--accent-muted)" : "transparent",
-                  color: isSelected ? "var(--text)" : "var(--text-soft)",
-                  borderRadius: "calc(var(--radius) - 2px)",
-                  fontSize: "12px",
-                  cursor: "pointer",
-                  textAlign: "left",
-                  transition: "background 100ms, color 100ms"
-                }}
-                onMouseEnter={(e) => {
-                  if (!isSelected) {
-                    e.currentTarget.style.background = "var(--field)";
-                    e.currentTarget.style.color = "var(--text)";
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!isSelected) {
-                    e.currentTarget.style.background = "transparent";
-                    e.currentTarget.style.color = "var(--text-soft)";
-                  }
-                }}
               >
-                <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{opt.label}</span>
-                {isSelected && <Check size={12} style={{ color: "var(--accent)", marginLeft: "8px" }} />}
+                <TopbarProviderIcon id={opt.value} />
+                <span>{opt.label}</span>
+                {isSelected ? <Check size={14} style={{ color: "var(--accent)" }} /> : <span />}
               </button>
             );
           })}
@@ -2927,28 +2896,13 @@ function Composer({
                 boxShadow: "none"
               }}
             >
-              <Bot size={15} />
+              <TopbarProviderIcon id={currentProvider} />
               <span>{currentModel || (isZh ? "选择模型" : "Select model")}</span>
               <ChevronDown size={11} style={{ opacity: 0.7, transform: modelDropdownOpen ? "rotate(180deg)" : "none", transition: "transform 150ms" }} />
             </button>
 
             {modelDropdownOpen && (
-              <div className="context-dropdown model-dropdown" style={{
-                position: "absolute",
-                bottom: "100%",
-                left: "0",
-                marginBottom: "8px",
-                zIndex: 1000,
-                background: "var(--panel-raised)",
-                border: "1px solid var(--line)",
-                borderRadius: "var(--radius)",
-                boxShadow: "0 10px 30px rgba(0, 0, 0, 0.4)",
-                minWidth: "160px",
-                maxHeight: "220px",
-                overflowY: "auto",
-                padding: "4px",
-                backdropFilter: "blur(12px)"
-              }}>
+              <div className="context-dropdown model-dropdown">
                 {modelOptions.map((model: string) => {
                   const selected = model === currentModel;
                   return (
@@ -2960,24 +2914,10 @@ function Composer({
                         onModelChange(model);
                         setModelDropdownOpen(false);
                       }}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        width: "100%",
-                        padding: "6px 10px",
-                        border: "none",
-                        background: selected ? "var(--accent-muted)" : "transparent",
-                        color: selected ? "var(--text)" : "var(--text-soft)",
-                        borderRadius: "calc(var(--radius) - 2px)",
-                        fontSize: "12px",
-                        cursor: "pointer",
-                        textAlign: "left",
-                        transition: "background 100ms, color 100ms"
-                      }}
                     >
-                      <Bot size={14} style={{ marginRight: "6px" }} />
-                      <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{model}</span>
-                      {selected ? <Check size={14} style={{ color: "var(--accent)" }} /> : null}
+                      <TopbarProviderIcon id={currentProvider} />
+                      <span>{model}</span>
+                      {selected ? <Check size={14} style={{ color: "var(--accent)" }} /> : <span />}
                     </button>
                   );
                 })}

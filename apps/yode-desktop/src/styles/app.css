@@ -1396,6 +1396,35 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   background: var(--panel);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
   padding: 6px;
+  animation: dropdown-slide-up 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: bottom left;
+}
+
+.context-dropdown[style*="top:"] {
+  transform-origin: top left;
+  animation: dropdown-slide-down 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes dropdown-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes dropdown-slide-down {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .context-dropdown-divider {
