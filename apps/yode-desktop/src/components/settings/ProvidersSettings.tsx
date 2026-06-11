@@ -400,6 +400,16 @@ export function ProvidersSettings({
   const [visibleKey, setVisibleKey] = useState(false);
   const [checkState, setCheckState] = useState<"idle" | "checking" | "success" | "error">("idle");
   const [checkMessage, setCheckMessage] = useState("");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (deletingId) {
+      const timer = setTimeout(() => {
+        setDeletingId(null);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [deletingId]);
 
   useEffect(() => {
     if ("__TAURI_INTERNALS__" in window) {
@@ -565,8 +575,11 @@ export function ProvidersSettings({
   };
 
   const handleDeleteProvider = (provider: ProviderConfigData) => {
-    if (confirm(t(`确认删除“${provider.name}”？`, `Delete "${provider.name}"?`))) {
+    if (deletingId === provider.id) {
       saveProviders(providers.filter((p) => p.id !== provider.id));
+      setDeletingId(null);
+    } else {
+      setDeletingId(provider.id);
     }
   };
 
@@ -704,8 +717,13 @@ export function ProvidersSettings({
                 <button type="button" className="provider-icon-button" title={t("编辑", "Edit")} onClick={() => openEditModal(provider)}>
                   <Edit2 size={15} />
                 </button>
-                <button type="button" className="provider-icon-button danger" title={t("删除", "Delete")} onClick={() => handleDeleteProvider(provider)}>
-                  <Trash2 size={15} />
+                <button
+                  type="button"
+                  className={`provider-icon-button danger ${deletingId === provider.id ? "confirming" : ""}`}
+                  title={deletingId === provider.id ? t("再次点击确认删除", "Click again to confirm delete") : t("删除", "Delete")}
+                  onClick={() => handleDeleteProvider(provider)}
+                >
+                  {deletingId === provider.id ? <Check size={15} /> : <Trash2 size={15} />}
                 </button>
               </div>
             </div>

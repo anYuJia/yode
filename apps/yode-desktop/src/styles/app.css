@@ -2195,8 +2195,8 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   color: color-mix(in oklch, var(--text), var(--bg) 4%);
   font-size: 10px;
   font-weight: 780;
-  background: color-mix(in oklch, var(--field), var(--text) 4%) !important;
-  box-shadow: 0 1px 2px color-mix(in oklch, var(--bg), transparent 74%);
+  background: transparent !important;
+  box-shadow: none;
 }
 
 .provider-mark img {
@@ -2328,6 +2328,16 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 
 .provider-icon-button.danger:hover {
   color: var(--error);
+}
+
+.provider-icon-button.danger.confirming {
+  background: var(--error) !important;
+  color: #ffffff !important;
+}
+
+.provider-icon-button.danger.confirming:hover {
+  background: color-mix(in oklch, var(--error), var(--text) 10%) !important;
+  color: #ffffff !important;
 }
 
 .provider-switch {
