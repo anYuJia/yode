@@ -404,14 +404,15 @@ function fileIconMeta(filename: string): FileIconMeta {
 
 function getFileIcon(filename: string) {
   const meta = fileIconMeta(filename);
+  const label = /^[A-Z0-9+]+$/.test(meta.label) ? meta.label.toLowerCase() : meta.label;
   return (
     <span
-      className={`file-type-icon ${meta.tone || "plain"}`}
+      className={`file-type-icon ${meta.tone || "plain"} ${label.length > 3 ? "wide" : ""}`}
       style={{ "--file-icon-color": meta.color } as React.CSSProperties}
       aria-hidden="true"
       title={filename}
     >
-      {meta.label}
+      {label}
     </span>
   );
 }
