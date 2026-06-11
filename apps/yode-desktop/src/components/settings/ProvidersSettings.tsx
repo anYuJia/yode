@@ -401,6 +401,7 @@ export function ProvidersSettings({
   const [checkState, setCheckState] = useState<"idle" | "checking" | "success" | "error">("idle");
   const [checkMessage, setCheckMessage] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (deletingId) {
@@ -410,6 +411,15 @@ export function ProvidersSettings({
       return () => clearTimeout(timer);
     }
   }, [deletingId]);
+
+  useEffect(() => {
+    if (toastMessage) {
+      const timer = setTimeout(() => {
+        setToastMessage(null);
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [toastMessage]);
 
   useEffect(() => {
     if ("__TAURI_INTERNALS__" in window) {
@@ -791,6 +801,7 @@ export function ProvidersSettings({
                           e.preventDefault();
                           e.stopPropagation();
                           navigator.clipboard.writeText(model);
+                          setToastMessage(t(`已复制模型名称 “${model}”`, `Model name "${model}" copied`));
                         }}
                         title={t("点击复制到剪贴板", "Click to copy to clipboard")}
                         style={{ cursor: "pointer" }}
@@ -855,6 +866,11 @@ export function ProvidersSettings({
               </div>
             </div>
           </div>
+        </div>
+      )}
+      {toastMessage && (
+        <div className="provider-toast">
+          {toastMessage}
         </div>
       )}
     </div>

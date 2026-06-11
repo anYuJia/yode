@@ -2939,3 +2939,31 @@ html:has(meta[name="dummy"]) .sidebar { /* fallback styling using CSS property c
   background: transparent !important;
   color: var(--text) !important;
 }
+
+.provider-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--accent);
+  color: #ffffff;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 550;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 9999;
+  pointer-events: none;
+  animation: toast-fade-in-out 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes toast-fade-in-out {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
