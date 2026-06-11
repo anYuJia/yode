@@ -3019,8 +3019,17 @@ function desktopEventToTimelineItem(
     };
   }
 
+  if (kind === "retrying") {
+    return {
+      id: "retrying-attempt",
+      kind: "reasoning",
+      title: `连接重试中 (${inner?.attempt}/${inner?.max_attempts})`,
+      body: `倒计时 ${inner?.delay_secs} 秒后重试...\n\n${inner?.error_message || ""}`,
+      meta: "running"
+    };
+  }
+
   if (
-    kind === "retrying" ||
     kind === "usage_update" ||
     kind === "cost_update" ||
     kind === "context_compaction_started"
@@ -3182,7 +3191,7 @@ function applyDesktopEventToTimelineItems(
 
   if (kind === "retrying" || kind === "usage_update" || kind === "cost_update" || kind === "context_compaction_started") {
     const nextItem = desktopEventToTimelineItem(payload, eventKind);
-    if (eventId) {
+    if (eventId || nextItem.id === "retrying-attempt") {
       const existingIndex = items.findIndex((item) => item.id === nextItem.id);
       if (existingIndex >= 0) {
         return items.map((item, index) => index === existingIndex ? nextItem : item);
@@ -3260,7 +3269,8 @@ function applyDesktopEventToTimelineItems(
   }
 
   if (kind === "error") {
-    const settledItems = items.map((item) => {
+    const filteredItems = items.filter((item) => item.id !== "retrying-attempt");
+    const settledItems = filteredItems.map((item) => {
       if (item.kind === "reasoning" && item.meta === "running") {
         return { ...item, meta: "complete" };
       }
