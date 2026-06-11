@@ -181,6 +181,16 @@ impl Database {
         Ok(())
     }
 
+    /// Update session provider and model
+    pub fn update_session_llm(&self, session_id: &str, provider: &str, model: &str) -> Result<()> {
+        let conn = self.lock_connection()?;
+        conn.execute(
+            "UPDATE sessions SET provider = ?1, model = ?2, updated_at = ?3 WHERE id = ?4",
+            params![provider, model, Utc::now().to_rfc3339(), session_id],
+        )?;
+        Ok(())
+    }
+
     /// Update session name
     pub fn update_session_name(&self, session_id: &str, name: &str) -> Result<()> {
         let conn = self.lock_connection()?;
@@ -195,8 +205,14 @@ impl Database {
     pub fn delete_session(&self, session_id: &str) -> Result<()> {
         let mut conn = self.lock_connection()?;
         let tx = conn.transaction()?;
-        tx.execute("DELETE FROM session_artifacts WHERE session_id = ?1", params![session_id])?;
-        tx.execute("DELETE FROM messages WHERE session_id = ?1", params![session_id])?;
+        tx.execute(
+            "DELETE FROM session_artifacts WHERE session_id = ?1",
+            params![session_id],
+        )?;
+        tx.execute(
+            "DELETE FROM messages WHERE session_id = ?1",
+            params![session_id],
+        )?;
         tx.execute("DELETE FROM sessions WHERE id = ?1", params![session_id])?;
         tx.commit()?;
         Ok(())

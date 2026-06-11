@@ -105,6 +105,8 @@ pub struct AgentContext {
     pub effort: EffortLevel,
     /// Output style: "default", "explanatory", "learning"
     pub output_style: String,
+    /// Whether project-scoped memory should be loaded and refreshed for this session.
+    pub project_memory_enabled: bool,
 }
 
 impl AgentContext {
@@ -122,6 +124,7 @@ impl AgentContext {
             member_id: None,
             effort: EffortLevel::Medium,
             output_style: "default".to_string(),
+            project_memory_enabled: true,
         }
     }
 
@@ -156,6 +159,7 @@ impl AgentContext {
             member_id: None,
             effort: EffortLevel::Medium,
             output_style: "default".to_string(),
+            project_memory_enabled: true,
         }
     }
 

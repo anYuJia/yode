@@ -58,6 +58,7 @@ import {
 } from "./lib/mock";
 import { SettingsShell } from "./components/SettingsShell";
 import { TerminalDrawer } from "./components/TerminalDrawer";
+import { PROVIDERS_META } from "./components/settings/ProvidersSettings";
 
 type ViewMode = "chat" | "settings";
 type PendingUserQuestion = {
@@ -170,6 +171,64 @@ export function App() {
     setPermissionMode(mode);
     setBootstrap(prev => ({ ...prev, permissionMode: mode }));
     invoke("permission_mode_set", { mode }).catch(console.error);
+  };
+
+  const handleUpdateProvider = async (provider: string) => {
+    const saved = localStorage.getItem("yode-llm-providers");
+    let models: string[] = [];
+    if (saved) {
+      try {
+        const data = JSON.parse(saved);
+        if (data[provider]?.models) {
+          models = data[provider].models;
+        }
+      } catch (e) {}
+    }
+    if (models.length === 0) {
+      const meta = PROVIDERS_META.find(p => p.id === provider);
+      models = meta ? meta.defaultModels : [];
+    }
+    const defaultModel = models[0] || "";
+
+    if (activeSessionId) {
+      setSessionItems((items) =>
+        items.map((s) =>
+          s.id === activeSessionId ? { ...s, provider, model: defaultModel } : s
+        )
+      );
+      try {
+        await invoke("sessions_update_llm", {
+          sessionId: activeSessionId,
+          provider,
+          model: defaultModel
+        });
+      } catch (err) {
+        console.error(err);
+      }
+    } else {
+      setBootstrap((prev) => ({ ...prev, provider, model: defaultModel }));
+    }
+  };
+
+  const handleUpdateModel = async (model: string) => {
+    if (activeSessionId) {
+      setSessionItems((items) =>
+        items.map((s) =>
+          s.id === activeSessionId ? { ...s, model } : s
+        )
+      );
+      try {
+        await invoke("sessions_update_llm", {
+          sessionId: activeSessionId,
+          provider: currentProvider,
+          model
+        });
+      } catch (err) {
+        console.error(err);
+      }
+    } else {
+      setBootstrap((prev) => ({ ...prev, model }));
+    }
   };
 
   useEffect(() => {
@@ -471,6 +530,8 @@ export function App() {
         : null,
     [activeSessionId, sessionItems]
   );
+  const currentProvider = activeSession?.provider ?? bootstrap.provider;
+  const currentModel = activeSession?.model ?? bootstrap.model;
 
   const projectOptions = useMemo(() => {
     const roots = dedupeProjectRoots([
@@ -629,8 +690,8 @@ export function App() {
           projectRoot: sessionIdAtSend ? undefined : projectRootAtSend,
           standalone: sessionIdAtSend ? undefined : projectRootAtSend === null,
           title: sessionIdAtSend ? undefined : deriveSessionTitle(content),
-          provider: sessionIdAtSend ? undefined : bootstrap.provider,
-          model: sessionIdAtSend ? undefined : bootstrap.model
+          provider: currentProvider,
+          model: currentModel
         }
       });
       setCurrentTurnId(res.turnId);
@@ -812,6 +873,10 @@ export function App() {
           onToggleInspector={() => setInspectorOpen(!inspectorOpen)}
           terminalOpen={terminalOpen}
           onToggleTerminal={() => setTerminalOpen(!terminalOpen)}
+          currentProvider={currentProvider}
+          currentModel={currentModel}
+          onProviderChange={handleUpdateProvider}
+          onModelChange={handleUpdateModel}
         />
         <ChatWorkspace
           draft={draft}
@@ -1433,7 +1498,11 @@ function Topbar({
   isProcessing,
   onToggleInspector,
   terminalOpen,
-  onToggleTerminal
+  onToggleTerminal,
+  currentProvider,
+  currentModel,
+  onProviderChange,
+  onModelChange
 }: {
   bootstrap: Bootstrap;
   sessionTitle: string;
@@ -1443,7 +1512,50 @@ function Topbar({
   onToggleInspector: () => void;
   terminalOpen: boolean;
   onToggleTerminal: () => void;
+  currentProvider: string;
+  currentModel: string;
+  onProviderChange: (provider: string) => void;
+  onModelChange: (model: string) => void;
 }) {
+  const providerOptions = useMemo(() => {
+    const saved = localStorage.getItem("yode-llm-providers");
+    let enabledIds: string[] = [];
+    if (saved) {
+      try {
+        const data = JSON.parse(saved);
+        enabledIds = Object.keys(data).filter((k) => data[k]?.enabled);
+      } catch (e) {}
+    }
+    if (enabledIds.length === 0) {
+      enabledIds = ["anthropic", "openai", "google", "deepseek", "ollama"];
+    }
+    return PROVIDERS_META.filter((p) => enabledIds.includes(p.id)).map((p) => ({
+      value: p.id,
+      label: p.nameEn
+    }));
+  }, []);
+
+  const modelOptions = useMemo(() => {
+    const saved = localStorage.getItem("yode-llm-providers");
+    let models: string[] = [];
+    if (saved) {
+      try {
+        const data = JSON.parse(saved);
+        if (data[currentProvider]?.models) {
+          models = data[currentProvider].models;
+        }
+      } catch (e) {}
+    }
+    if (models.length === 0) {
+      const meta = PROVIDERS_META.find((p) => p.id === currentProvider);
+      models = meta ? meta.defaultModels : [];
+    }
+    return models.map((m) => ({
+      value: m,
+      label: m
+    }));
+  }, [currentProvider]);
+
   return (
     <header className="topbar" data-tauri-drag-region>
       <div className="title-stack" data-tauri-drag-region>
@@ -1455,9 +1567,21 @@ function Topbar({
           </div>
         )}
       </div>
-      <div className="runtime-strip" aria-label="运行状态">
-        <StatusPill icon={<Bot size={14} />} label={bootstrap.provider} tone="quiet" />
-        <StatusPill icon={<Code2 size={14} />} label={bootstrap.model} tone="quiet" />
+      <div className="runtime-strip" aria-label="运行状态" style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+        <DropdownPill
+          icon={<Bot size={14} />}
+          label={currentProvider}
+          value={currentProvider}
+          options={providerOptions}
+          onChange={onProviderChange}
+        />
+        <DropdownPill
+          icon={<Code2 size={14} />}
+          label={currentModel}
+          value={currentModel}
+          options={modelOptions}
+          onChange={onModelChange}
+        />
         <StatusPill icon={<ShieldCheck size={14} />} label={bootstrap.permissionMode} tone="quiet" />
         <StatusPill icon={<CircleDot size={14} />} label={isProcessing ? "运行中" : "闲置"} tone={isProcessing ? "live" : "quiet"} />
         <button className="icon-button" type="button" title="更多">
@@ -1481,6 +1605,138 @@ function Topbar({
         </button>
       </div>
     </header>
+  );
+}
+
+function DropdownPill({
+  icon,
+  label,
+  options,
+  value,
+  onChange,
+  disabled
+}: {
+  icon: React.ReactNode;
+  label: string;
+  options: { value: string; label: string }[];
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (ref.current && !ref.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setIsOpen(!isOpen)}
+        className="status-pill quiet"
+        style={{
+          cursor: disabled ? "default" : "pointer",
+          display: "flex",
+          alignItems: "center",
+          gap: "6px",
+          border: "none",
+          background: "var(--field)",
+          padding: "4px 8px",
+          borderRadius: "var(--radius)",
+          color: "var(--text-soft)",
+          fontSize: "12px",
+          transition: "background 150ms, color 150ms"
+        }}
+        onMouseEnter={(e) => {
+          if (!disabled) {
+            e.currentTarget.style.background = "color-mix(in oklch, var(--accent-muted), transparent 60%)";
+            e.currentTarget.style.color = "var(--text)";
+          }
+        }}
+        onMouseLeave={(e) => {
+          if (!disabled) {
+            e.currentTarget.style.background = "var(--field)";
+            e.currentTarget.style.color = "var(--text-soft)";
+          }
+        }}
+      >
+        {icon}
+        <span>{label}</span>
+        {!disabled && <ChevronDown size={11} style={{ opacity: 0.7, transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 150ms" }} />}
+      </button>
+
+      {isOpen && (
+        <div
+          style={{
+            position: "absolute",
+            top: "calc(100% + 6px)",
+            left: 0,
+            zIndex: 9999,
+            background: "var(--panel-raised)",
+            border: "1px solid var(--line)",
+            borderRadius: "var(--radius)",
+            boxShadow: "0 10px 30px rgba(0, 0, 0, 0.4)",
+            minWidth: "160px",
+            maxHeight: "220px",
+            overflowY: "auto",
+            padding: "4px",
+            backdropFilter: "blur(12px)"
+          }}
+        >
+          {options.map((opt) => {
+            const isSelected = opt.value === value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => {
+                  onChange(opt.value);
+                  setIsOpen(false);
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  width: "100%",
+                  padding: "6px 10px",
+                  border: "none",
+                  background: isSelected ? "var(--accent-muted)" : "transparent",
+                  color: isSelected ? "var(--text)" : "var(--text-soft)",
+                  borderRadius: "calc(var(--radius) - 2px)",
+                  fontSize: "12px",
+                  cursor: "pointer",
+                  textAlign: "left",
+                  transition: "background 100ms, color 100ms"
+                }}
+                onMouseEnter={(e) => {
+                  if (!isSelected) {
+                    e.currentTarget.style.background = "var(--field)";
+                    e.currentTarget.style.color = "var(--text)";
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isSelected) {
+                    e.currentTarget.style.background = "transparent";
+                    e.currentTarget.style.color = "var(--text-soft)";
+                  }
+                }}
+              >
+                <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{opt.label}</span>
+                {isSelected && <Check size={12} style={{ color: "var(--accent)", marginLeft: "8px" }} />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 

@@ -64,8 +64,10 @@ impl AgentEngine {
             push_segment("Instruction memory", instruction_content);
         }
 
-        if let Some(memory_content) = load_memory_context(&cwd) {
-            push_segment("Persistent memory", memory_content);
+        if context.project_memory_enabled {
+            if let Some(memory_content) = load_memory_context(&cwd) {
+                push_segment("Persistent memory", memory_content);
+            }
         }
 
         if context.output_style != "default" {

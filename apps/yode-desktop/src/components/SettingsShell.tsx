@@ -54,6 +54,7 @@ import {
 import {
   ArchivedChatsSettingsSettings
 } from "./settings/ArchivedChatsSettings";
+import { ProvidersSettings } from "./settings/ProvidersSettings";
 
 export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; onClose: () => void }) {
   const [activeTab, setActiveTab] = useState(() => localStorage.getItem("yode-active-tab") || "常规");
@@ -110,6 +111,7 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
         { id: "常规", label: t("常规", "General"), icon: Settings },
         { id: "外观", label: t("外观", "Appearance"), icon: Eye },
         { id: "配置", label: t("配置", "Configuration"), icon: Sliders },
+        { id: "模型提供商", label: t("模型提供商", "Model providers"), icon: Bot },
         { id: "个性化", label: t("个性化", "Personalization"), icon: Sparkles },
         { id: "键盘快捷键", label: t("键盘快捷键", "Keyboard shortcuts"), icon: Command }
       ]
@@ -806,7 +808,11 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
             <ArchivedChatsSettingsSettings isZh={isZh} t={t} />
           )}
 
-          {activeTab !== "常规" && activeTab !== "外观" && activeTab !== "配置" && activeTab !== "个性化" && activeTab !== "键盘快捷键" && activeTab !== "MCP 服务器" && activeTab !== "浏览器" && activeTab !== "计算机使用" && activeTab !== "钩子" && activeTab !== "Git" && activeTab !== "环境" && activeTab !== "工作树" && activeTab !== "已归档对话" && (
+          {activeTab === "模型提供商" && (
+            <ProvidersSettings isZh={isZh} t={t} />
+          )}
+
+          {activeTab !== "常规" && activeTab !== "外观" && activeTab !== "配置" && activeTab !== "模型提供商" && activeTab !== "个性化" && activeTab !== "键盘快捷键" && activeTab !== "MCP 服务器" && activeTab !== "浏览器" && activeTab !== "计算机使用" && activeTab !== "钩子" && activeTab !== "Git" && activeTab !== "环境" && activeTab !== "工作树" && activeTab !== "已归档对话" && (
             <div className="settings-group compact">
               <div className="empty-state">
                 <Bot size={20} />

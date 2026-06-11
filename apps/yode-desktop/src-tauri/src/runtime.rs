@@ -23,8 +23,8 @@ use yode_tools::registry::ToolRegistry;
 use yode_tools::tool::McpResourceProvider;
 
 use crate::protocol::{
-    Bootstrap, CreateSessionRequest, DesktopEvent, DesktopMessage, DesktopProvider, DesktopSession, RuntimeState,
-    SendMessageRequest, TurnAccepted,
+    Bootstrap, CreateSessionRequest, DesktopEvent, DesktopMessage, DesktopProvider, DesktopSession,
+    RuntimeState, SendMessageRequest, TurnAccepted,
 };
 
 pub struct DesktopRuntime {
@@ -98,7 +98,10 @@ impl DesktopRuntime {
             .lock()
             .map_err(|_| anyhow::anyhow!("permission mode lock poisoned"))?
             .clone();
-        let config = self.config.lock().map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
+        let config = self
+            .config
+            .lock()
+            .map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
         Ok(Bootstrap {
             app_version: env!("CARGO_PKG_VERSION"),
             workspace_path: self.workspace_path.display().to_string(),
@@ -126,7 +129,10 @@ impl DesktopRuntime {
 
     pub fn sessions_create(&self, request: CreateSessionRequest) -> Result<DesktopSession> {
         let now = Utc::now();
-        let config = self.config.lock().map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
+        let config = self
+            .config
+            .lock()
+            .map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
         let session = Session {
             id: Uuid::new_v4().to_string(),
             name: request.title.or_else(|| Some("桌面端会话".to_string())),
@@ -168,7 +174,12 @@ impl DesktopRuntime {
         Ok(())
     }
 
-    pub fn sessions_update_llm(&self, session_id: String, provider: String, model: String) -> Result<()> {
+    pub fn sessions_update_llm(
+        &self,
+        session_id: String,
+        provider: String,
+        model: String,
+    ) -> Result<()> {
         self.db.update_session_llm(&session_id, &provider, &model)?;
         Ok(())
     }
@@ -246,7 +257,10 @@ impl DesktopRuntime {
         app: AppHandle,
         request: SendMessageRequest,
     ) -> Result<TurnAccepted> {
-        let config = self.config.lock().map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
+        let config = self
+            .config
+            .lock()
+            .map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
         let content = request.content.trim().to_string();
         if content.is_empty() {
             anyhow::bail!("message content cannot be empty");
@@ -258,10 +272,11 @@ impl DesktopRuntime {
             .as_deref()
             .filter(|id| !id.trim().is_empty())
         {
-            let mut s = self.db
+            let mut s = self
+                .db
                 .get_session(session_id)?
                 .with_context(|| format!("session '{}' not found", session_id))?;
-            
+
             let mut changed = false;
             if let Some(ref req_provider) = request.provider {
                 if s.provider != *req_provider {
@@ -896,7 +911,10 @@ impl DesktopRuntime {
     }
 
     pub fn config_get_providers(&self) -> Result<Vec<DesktopProvider>> {
-        let config = self.config.lock().map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
+        let config = self
+            .config
+            .lock()
+            .map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
         let mut providers = Vec::new();
         for (id, p) in &config.llm.providers {
             let name = match id.as_str() {
@@ -918,61 +936,121 @@ impl DesktopRuntime {
                 gradient: p.gradient.clone(),
             });
         }
-        let order = ["anthropic", "openai", "google", "deepseek", "ollama"];
-        providers.sort_by_key(|p| {
-            order.iter().position(|&x| x == p.id).unwrap_or(99)
-        });
+        let order = [
+            "openai",
+            "anthropic",
+            "gemini",
+            "google",
+            "deepseek",
+            "ollama",
+        ];
+        providers.sort_by_key(|p| order.iter().position(|&x| x == p.id).unwrap_or(99));
         Ok(providers)
     }
 
     pub fn config_save_providers(&self, providers: Vec<DesktopProvider>) -> Result<()> {
-        let mut config = self.config.lock().map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
+        let mut config = self
+            .config
+            .lock()
+            .map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
         let mut new_providers = std::collections::HashMap::new();
         for p in providers {
-            new_providers.insert(p.id, yode_core::config::ProviderConfig {
-                format: p.format,
-                base_url: if p.base_url.is_empty() { None } else { Some(p.base_url) },
-                api_key: if p.api_key.is_empty() { None } else { Some(p.api_key) },
-                models: p.models,
-                enabled: Some(p.enabled),
-                gradient: p.gradient,
-            });
+            new_providers.insert(
+                p.id,
+                yode_core::config::ProviderConfig {
+                    format: p.format,
+                    base_url: if p.base_url.is_empty() {
+                        None
+                    } else {
+                        Some(p.base_url)
+                    },
+                    api_key: if p.api_key.is_empty() {
+                        None
+                    } else {
+                        Some(p.api_key)
+                    },
+                    models: p.models,
+                    enabled: Some(p.enabled),
+                    gradient: p.gradient,
+                },
+            );
         }
         config.llm.providers = new_providers;
         config.save()?;
 
         let new_registry = bootstrap_providers(&config);
-        let mut reg_guard = self.provider_registry.lock().map_err(|_| anyhow::anyhow!("registry lock poisoned"))?;
+        let mut reg_guard = self
+            .provider_registry
+            .lock()
+            .map_err(|_| anyhow::anyhow!("registry lock poisoned"))?;
         *reg_guard = new_registry;
 
         Ok(())
     }
 
     pub async fn config_test_provider(&self, p: DesktopProvider) -> Result<()> {
-        let api_key = p.api_key.trim().to_string();
-        let base_url = p.base_url.trim().to_string();
+        let api_key = resolve_provider_api_key(&p.id, &p.format, p.api_key.trim());
+        let base_url = resolve_provider_base_url(&p.id, &p.format, p.base_url.trim());
         let provider: Arc<dyn yode_llm::provider::LlmProvider> = match p.format.as_str() {
-            "anthropic" => {
-                Arc::new(yode_llm::providers::anthropic::AnthropicProvider::new(
-                    &p.id, &api_key, &base_url,
-                ))
-            }
+            "anthropic" => Arc::new(yode_llm::providers::anthropic::AnthropicProvider::new(
+                &p.id, &api_key, &base_url,
+            )),
             "gemini" => {
                 let mut provider = yode_llm::providers::gemini::GeminiProvider::new(&api_key);
-                if !base_url.is_empty() && base_url != "https://generativelanguage.googleapis.com/v1beta" {
+                if base_url != "https://generativelanguage.googleapis.com/v1beta" {
                     provider = provider.with_base_url(&base_url);
                 }
                 Arc::new(provider)
             }
-            _ => {
-                Arc::new(yode_llm::providers::openai::OpenAiProvider::new(
-                    &p.id, &api_key, &base_url,
-                ))
-            }
+            _ => Arc::new(yode_llm::providers::openai::OpenAiProvider::new(
+                &p.id, &api_key, &base_url,
+            )),
         };
 
         let _models = provider.list_models().await?;
         Ok(())
+    }
+}
+
+fn resolve_provider_api_key(id: &str, format: &str, configured: &str) -> String {
+    if !configured.is_empty() {
+        return configured.to_string();
+    }
+
+    let env_prefix = id.to_uppercase().replace('-', "_");
+    let mut candidates = vec![format!("{}_API_KEY", env_prefix)];
+    candidates.extend(match (id, format) {
+        ("anthropic", _) | (_, "anthropic") => vec![
+            "ANTHROPIC_API_KEY".to_string(),
+            "ANTHROPIC_AUTH_TOKEN".to_string(),
+        ],
+        ("gemini", _) | ("google", _) | (_, "gemini") => {
+            vec!["GOOGLE_API_KEY".to_string(), "GEMINI_API_KEY".to_string()]
+        }
+        ("deepseek", _) => vec!["DEEPSEEK_API_KEY".to_string()],
+        ("openai", _) => vec!["OPENAI_API_KEY".to_string()],
+        _ => Vec::new(),
+    });
+
+    candidates
+        .into_iter()
+        .find_map(|key| std::env::var(key).ok())
+        .unwrap_or_default()
+}
+
+fn resolve_provider_base_url(id: &str, format: &str, configured: &str) -> String {
+    let env_prefix = id.to_uppercase().replace('-', "_");
+    let override_base = format!("{}_BASE_URL", env_prefix);
+    if let Ok(url) = std::env::var(override_base) {
+        return url;
+    }
+    if !configured.is_empty() {
+        return configured.to_string();
+    }
+    match format {
+        "anthropic" => "https://api.anthropic.com".to_string(),
+        "gemini" => "https://generativelanguage.googleapis.com/v1beta".to_string(),
+        _ => "https://api.openai.com/v1".to_string(),
     }
 }
 

@@ -756,6 +756,8 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 
 .title-stack {
   min-width: 0;
+  flex: 1;
+  max-width: calc(100% - 440px);
 }
 
 .session-heading {
@@ -1956,6 +1958,576 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   font-size: 12px;
   outline: none;
   width: 100%;
+}
+
+/* Model providers */
+.providers-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(760px, 100%);
+  margin: 0 auto;
+}
+
+.providers-toolbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.providers-kicker {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.providers-summary {
+  margin: 3px 0 0;
+  color: var(--text-soft);
+  font-size: 11px;
+}
+
+.providers-add-button,
+.provider-modal-footer .primary-button,
+.provider-modal-footer .secondary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 0 12px;
+}
+
+.provider-add-menu {
+  position: relative;
+  display: inline-flex;
+  justify-content: flex-end;
+  padding-bottom: 8px;
+  margin-bottom: -8px;
+}
+
+.provider-add-dropdown {
+  position: absolute;
+  top: calc(100% + 2px);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 388px;
+  max-height: min(520px, calc(100vh - 172px));
+  overflow-y: auto;
+  border: 0;
+  border-radius: 9px;
+  background: color-mix(in oklch, var(--panel), var(--bg) 10%);
+  box-shadow:
+    0 18px 42px color-mix(in oklch, var(--bg), transparent 58%),
+    0 0 0 1px color-mix(in oklch, var(--text), transparent 94%);
+  padding: 7px;
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease;
+}
+
+.provider-add-menu:hover .provider-add-dropdown,
+.provider-add-menu:focus-within .provider-add-dropdown {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.provider-add-dropdown-label {
+  padding: 8px 6px 5px;
+  color: color-mix(in oklch, var(--text), var(--bg) 48%);
+  font-size: 10px;
+  font-weight: 720;
+  letter-spacing: 0;
+}
+
+.provider-add-section + .provider-add-section {
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 0;
+  box-shadow: 0 -1px 0 color-mix(in oklch, var(--text), transparent 94%);
+}
+
+.provider-add-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  min-height: 46px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  padding: 7px;
+  text-align: left;
+}
+
+.provider-add-option:hover,
+.provider-add-option:focus-visible {
+  background: color-mix(in oklch, var(--field), var(--text) 3%);
+}
+
+.provider-add-option-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.provider-add-option-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.provider-add-option-title strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-add-option-title strong {
+  color: color-mix(in oklch, var(--text), var(--bg) 4%);
+  font-size: 12.5px;
+  font-weight: 710;
+}
+
+.provider-add-option-title em {
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 5px;
+  background: color-mix(in oklch, var(--field), var(--text) 4%);
+  color: color-mix(in oklch, var(--text), var(--bg) 42%);
+  font-size: 9.5px;
+  font-style: normal;
+  line-height: 1;
+  padding: 3px 5px;
+}
+
+.provider-add-option small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: color-mix(in oklch, var(--text), var(--bg) 44%);
+  font-size: 10.8px;
+}
+
+.provider-add-option.custom {
+  background: color-mix(in oklch, var(--field), var(--text) 3%);
+}
+
+.provider-add-option.custom + .provider-add-section {
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 0;
+  box-shadow: 0 -1px 0 color-mix(in oklch, var(--text), transparent 93%);
+}
+
+.providers-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  border: 0;
+  border-radius: var(--radius);
+  background: color-mix(in oklch, var(--field), var(--text) 2%);
+  color: color-mix(in oklch, var(--text), var(--bg) 42%);
+  padding: 0 11px;
+}
+
+.providers-search:focus-within {
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--accent), transparent 42%);
+}
+
+.providers-search input,
+.provider-form input,
+.provider-secret-field input,
+.provider-model-add input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+}
+
+.provider-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.provider-row {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 13px;
+  min-height: 62px;
+  border: 0;
+  border-radius: 8px;
+  background: color-mix(in oklch, var(--panel), var(--text) 2%);
+  padding: 10px 12px;
+}
+
+.provider-row:hover {
+  background: color-mix(in oklch, var(--panel-raised), var(--text) 2%);
+}
+
+.provider-mark {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  overflow: hidden;
+  color: color-mix(in oklch, var(--text), var(--bg) 4%);
+  font-size: 10px;
+  font-weight: 780;
+  background: color-mix(in oklch, var(--field), var(--text) 4%) !important;
+  box-shadow: 0 1px 2px color-mix(in oklch, var(--bg), transparent 74%);
+}
+
+.provider-mark img {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+}
+
+.provider-mark img + span {
+  display: none;
+}
+
+.provider-mark.custom {
+  background: var(--field);
+  color: var(--accent);
+}
+
+.provider-main {
+  min-width: 0;
+}
+
+.provider-title-line,
+.provider-meta,
+.provider-models,
+.provider-actions {
+  display: flex;
+  align-items: center;
+}
+
+.provider-title-line {
+  gap: 8px;
+}
+
+.provider-title-line strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: color-mix(in oklch, var(--text), var(--bg) 3%);
+  font-size: 13px;
+  font-weight: 710;
+}
+
+.provider-state {
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 5px;
+  background: color-mix(in oklch, var(--field), var(--text) 4%);
+  color: color-mix(in oklch, var(--text), var(--bg) 42%);
+  font-size: 10px;
+  padding: 2px 5px;
+}
+
+.provider-state.active {
+  background: color-mix(in oklch, var(--success), transparent 86%);
+  color: var(--success);
+}
+
+.provider-meta {
+  gap: 9px;
+  min-width: 0;
+  margin-top: 4px;
+  color: color-mix(in oklch, var(--text), var(--bg) 43%);
+  font-size: 11px;
+}
+
+.provider-meta span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-meta span + span::before {
+  content: "";
+  display: inline-block;
+  width: 3px;
+  height: 3px;
+  margin-right: 9px;
+  border-radius: 50%;
+  background: color-mix(in oklch, var(--text), var(--bg) 48%);
+  vertical-align: middle;
+}
+
+.provider-models {
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 7px;
+}
+
+.provider-models code,
+.provider-model-editor code {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 210px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 0;
+  border-radius: 5px;
+  background: color-mix(in oklch, var(--field), var(--text) 4%);
+  color: color-mix(in oklch, var(--text), var(--bg) 34%);
+  padding: 2px 6px;
+}
+
+.provider-models span {
+  color: color-mix(in oklch, var(--text), var(--bg) 44%);
+  font-size: 10.5px;
+}
+
+.provider-actions {
+  gap: 8px;
+}
+
+.provider-icon-button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: color-mix(in oklch, var(--text), var(--bg) 42%);
+}
+
+.provider-icon-button:hover {
+  background: var(--panel-raised);
+  color: var(--text);
+}
+
+.provider-icon-button.danger:hover {
+  color: var(--error);
+}
+
+.provider-switch {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--field), var(--text) 5%);
+  padding: 0;
+}
+
+.provider-switch span {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: color-mix(in oklch, var(--text), var(--bg) 44%);
+  transition: transform 160ms ease, background-color 160ms ease;
+}
+
+.provider-switch.active {
+  background: color-mix(in oklch, var(--accent-muted), var(--field) 28%);
+}
+
+.provider-switch.active span {
+  transform: translateX(14px);
+  background: var(--accent);
+}
+
+.provider-empty {
+  min-height: 86px;
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  color: var(--text-soft);
+}
+
+.provider-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background: color-mix(in oklch, var(--bg), transparent 18%);
+}
+
+.provider-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(620px, 100%);
+  max-height: min(760px, 90vh);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: var(--shadow-raised);
+}
+
+.provider-modal-header,
+.provider-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+}
+
+.provider-modal-header {
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.provider-modal-header h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 15px;
+}
+
+.provider-modal-header p {
+  margin: 4px 0 0;
+  color: var(--text-soft);
+  font-size: 11px;
+}
+
+.provider-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  overflow-y: auto;
+  padding: 14px 18px;
+}
+
+.provider-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.provider-form label:nth-child(3),
+.provider-form label:nth-child(5) {
+  grid-column: 1 / -1;
+}
+
+.provider-form label > span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-soft);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.provider-form label > input,
+.provider-secret-field,
+.provider-model-add {
+  min-height: 32px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: var(--field);
+  padding: 0 10px;
+}
+
+.provider-form label > input:focus,
+.provider-secret-field:focus-within,
+.provider-model-add:focus-within {
+  border-color: color-mix(in oklch, var(--accent), transparent 30%);
+}
+
+.provider-form input:disabled {
+  color: var(--text-soft);
+  cursor: not-allowed;
+}
+
+.provider-secret-field,
+.provider-model-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.provider-secret-field button,
+.provider-model-add button,
+.provider-model-editor button {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: var(--text-soft);
+  padding: 0;
+}
+
+.provider-model-editor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 96px;
+  overflow-y: auto;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: color-mix(in oklch, var(--field), transparent 16%);
+  padding: 8px;
+}
+
+.provider-check-message {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 18px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: var(--field);
+  color: var(--text-muted);
+  padding: 9px 10px;
+  font-size: 11.5px;
+}
+
+.provider-check-message.success {
+  border-color: color-mix(in oklch, var(--success), transparent 55%);
+  color: var(--success);
+}
+
+.provider-check-message.error {
+  border-color: color-mix(in oklch, var(--error), transparent 55%);
+  color: var(--error);
+}
+
+.provider-modal-footer {
+  border-top: 1px solid var(--line-soft);
+}
+
+.provider-modal-footer > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .text-input.color-text {

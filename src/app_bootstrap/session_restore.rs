@@ -198,6 +198,7 @@ pub(crate) fn ensure_session_exists(db: &Database, context: &AgentContext) -> Re
     let session = Session {
         id: context.session_id.clone(),
         name: None,
+        project_root: None,
         provider: context.provider.clone(),
         model: context.model.clone(),
         created_at: chrono::Utc::now(),

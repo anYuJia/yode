@@ -5,6 +5,10 @@ impl AgentEngine {
         &mut self,
         event_tx: Option<&mpsc::UnboundedSender<EngineEvent>>,
     ) {
+        if !self.context.project_memory_enabled {
+            return;
+        }
+
         self.session_tool_calls_total = self
             .session_tool_calls_total
             .saturating_add(self.tool_call_count);
@@ -163,6 +167,10 @@ impl AgentEngine {
 
     pub(in crate::engine) fn flush_live_session_memory_on_shutdown(&mut self) {
         self.invalidate_live_session_memory_updates();
+
+        if !self.context.project_memory_enabled {
+            return;
+        }
 
         if self.messages.len() <= 1 {
             return;

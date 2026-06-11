@@ -33,6 +33,35 @@ fn test_live_session_memory_refresh_writes_snapshot() {
 }
 
 #[test]
+fn test_project_memory_disabled_skips_memory_prompt_and_live_snapshot() {
+    let mut engine = make_engine(vec![], vec![]);
+    let project_root = engine.context().working_dir_compat();
+    let memory_dir = project_root.join(".yode").join("memory");
+    std::fs::create_dir_all(&memory_dir).unwrap();
+    std::fs::write(memory_dir.join("notes.md"), "project-only memory marker").unwrap();
+
+    engine.rebuild_system_prompt();
+    assert!(engine.system_prompt.contains("project-only memory marker"));
+
+    engine.context.project_memory_enabled = false;
+    engine.rebuild_system_prompt();
+    assert!(!engine.system_prompt.contains("project-only memory marker"));
+
+    let big = "x".repeat(9_000);
+    engine.messages = vec![
+        Message::system("system"),
+        Message::user(format!("Standalone session should stay isolated {}", big)),
+        Message::assistant("No project memory should be written."),
+    ];
+    engine.tool_call_count = 3;
+
+    engine.maybe_refresh_live_session_memory(None);
+
+    let live_path = crate::session_memory::live_session_memory_path(&project_root);
+    assert!(!live_path.exists());
+}
+
+#[test]
 fn test_record_response_usage_tracks_prompt_cache_telemetry() {
     let mut engine = make_engine(vec![], vec![]);
     let (tx, _rx) = mpsc::unbounded_channel();
