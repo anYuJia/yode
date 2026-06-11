@@ -745,11 +745,11 @@ export function ProvidersSettings({
             </div>
 
             <div className="provider-form">
-              <label>
+              <div className="form-group">
                 <span><Bot size={12} />{t("名称", "Name")}</span>
                 <input value={formName} onChange={(event) => setFormName(event.target.value)} disabled={modalMode === "edit"} placeholder="Moonshot AI" />
-              </label>
-              <label>
+              </div>
+              <div className="form-group">
                 <span><Globe size={12} />{t("接口格式", "Format")}</span>
                 <CustomSelect
                   value={formFormat}
@@ -761,12 +761,12 @@ export function ProvidersSettings({
                   ]}
                   style={{ width: "100%" }}
                 />
-              </label>
-              <label>
+              </div>
+              <div className="form-group">
                 <span><Globe size={12} />{t("接口地址", "Base URL")}</span>
                 <input value={formBaseUrl} onChange={(event) => setFormBaseUrl(event.target.value)} placeholder="https://api.example.com/v1" />
-              </label>
-              <label>
+              </div>
+              <div className="form-group">
                 <span><KeyRound size={12} />API Key</span>
                 <div className="provider-secret-field">
                   <input
@@ -779,15 +779,31 @@ export function ProvidersSettings({
                     {visibleKey ? <EyeOff size={14} /> : <Eye size={14} />}
                   </button>
                 </div>
-              </label>
-              <label>
+              </div>
+              <div className="form-group">
                 <span><Bot size={12} />{t("模型", "Models")}</span>
                 {formModels.length > 0 && (
                   <div className="provider-model-editor">
                     {formModels.map((model) => (
-                      <code key={model}>
+                      <code
+                        key={model}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          navigator.clipboard.writeText(model);
+                        }}
+                        title={t("点击复制到剪贴板", "Click to copy to clipboard")}
+                        style={{ cursor: "pointer" }}
+                      >
                         {model}
-                        <button type="button" onClick={() => setFormModels(formModels.filter((item) => item !== model))}>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setFormModels(formModels.filter((item) => item !== model));
+                          }}
+                        >
                           <X size={10} />
                         </button>
                       </code>
@@ -805,12 +821,16 @@ export function ProvidersSettings({
                       }
                     }}
                     placeholder="gpt-4.1"
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
                   />
                   <button type="button" className="secondary-button" onClick={handleAddModelTag}>
                     <Plus size={13} />
                   </button>
                 </div>
-              </label>
+              </div>
             </div>
 
             {checkMessage && (

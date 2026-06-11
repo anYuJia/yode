@@ -2285,8 +2285,7 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   margin-top: 7px;
 }
 
-.provider-models code,
-.provider-model-editor code {
+.provider-models code {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -2299,6 +2298,53 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   background: color-mix(in oklch, var(--field), var(--text) 4%);
   color: color-mix(in oklch, var(--text), var(--bg) 34%);
   padding: 2px 6px;
+}
+
+.provider-model-editor code {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  max-width: 210px;
+  border: 0;
+  border-radius: 5px;
+  background: color-mix(in oklch, var(--field), var(--text) 4%);
+  color: color-mix(in oklch, var(--text), var(--bg) 34%);
+  padding: 3px 18px 3px 8px;
+  user-select: none;
+  transition: all 0.2s ease;
+  overflow: visible;
+}
+
+.provider-model-editor code:hover {
+  background: color-mix(in oklch, var(--field), var(--text) 10%);
+  color: var(--text);
+}
+
+.provider-model-editor code button {
+  position: absolute;
+  top: 50% !important;
+  right: 2px !important;
+  transform: translateY(-50%) !important;
+  display: grid !important;
+  place-items: center !important;
+  width: 14px !important;
+  height: 14px !important;
+  border-radius: 50% !important;
+  background: transparent !important;
+  color: var(--text-soft) !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease !important;
+}
+
+.provider-model-editor code:hover button {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+
+.provider-model-editor code button:hover {
+  background: var(--error) !important;
+  color: #ffffff !important;
 }
 
 .provider-models span {
@@ -2434,7 +2480,8 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   padding: 14px 18px;
 }
 
-.provider-form label {
+.provider-form label,
+.provider-form .form-group {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -2442,11 +2489,14 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 }
 
 .provider-form label:nth-child(3),
-.provider-form label:nth-child(5) {
+.provider-form label:nth-child(5),
+.provider-form .form-group:nth-child(3),
+.provider-form .form-group:nth-child(5) {
   grid-column: 1 / -1;
 }
 
-.provider-form label > span {
+.provider-form label > span,
+.provider-form .form-group > span {
   display: flex;
   align-items: center;
   gap: 5px;
@@ -2456,6 +2506,7 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 }
 
 .provider-form label > input,
+.provider-form .form-group > input,
 .provider-secret-field,
 .provider-model-add {
   min-height: 32px;
@@ -2466,6 +2517,7 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 }
 
 .provider-form label > input:focus,
+.provider-form .form-group > input:focus,
 .provider-secret-field:focus-within,
 .provider-model-add:focus-within {
   border-color: color-mix(in oklch, var(--accent), transparent 30%);
