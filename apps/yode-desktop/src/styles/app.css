@@ -1391,6 +1391,61 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   white-space: nowrap;
 }
 
+.file-type-icon {
+  --file-icon-color: var(--text-muted);
+  position: relative;
+  display: inline-grid;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 17px;
+  place-items: center;
+  margin-right: 2px;
+  border: 1px solid color-mix(in oklch, var(--file-icon-color), transparent 48%);
+  border-radius: 4px;
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in oklch, var(--file-icon-color), transparent 72%),
+      color-mix(in oklch, var(--field), transparent 10%)
+    );
+  color: color-mix(in oklch, var(--file-icon-color), var(--text) 18%);
+  font-family: var(--font-code);
+  font-size: 7.5px;
+  font-weight: 760;
+  line-height: 1;
+  letter-spacing: 0;
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--text), transparent 92%);
+}
+
+.file-type-icon::after {
+  content: "";
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  width: 6px;
+  height: 6px;
+  border-left: 1px solid color-mix(in oklch, var(--file-icon-color), transparent 52%);
+  border-bottom: 1px solid color-mix(in oklch, var(--file-icon-color), transparent 58%);
+  border-radius: 0 3px 0 3px;
+  background: color-mix(in oklch, var(--panel), var(--file-icon-color) 12%);
+}
+
+.file-type-icon.command {
+  width: 19px;
+  color: var(--text-soft);
+  border-color: color-mix(in oklch, var(--line), transparent 20%);
+  background: color-mix(in oklch, var(--field), transparent 8%);
+}
+
+.file-type-icon.command::after {
+  display: none;
+}
+
+.file-type-icon.command svg {
+  width: 12px;
+  height: 12px;
+}
+
 .inspector-section p {
   margin: 6px 0 0;
   color: var(--text-muted);

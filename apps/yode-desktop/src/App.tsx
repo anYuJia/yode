@@ -322,27 +322,106 @@ function compileTurnActions(items: TimelineItem[]): AgentAction[] {
   return actions;
 }
 
-function getFileIcon(filename: string) {
-  const ext = filename.split('.').pop()?.toLowerCase();
+type FileIconMeta = {
+  label: string;
+  color: string;
+  tone?: "code" | "config" | "doc" | "asset" | "data" | "plain";
+};
+
+function fileIconMeta(filename: string): FileIconMeta {
+  const clean = filename.trim();
+  const lower = clean.toLowerCase();
+  const ext = clean.includes(".") ? clean.split(".").pop()?.toLowerCase() : "";
+
+  if (lower === "package.json") return { label: "PKG", color: "oklch(0.78 0.14 90)", tone: "config" };
+  if (lower === "cargo.toml" || lower === "cargo.lock") return { label: "RS", color: "oklch(0.72 0.14 58)", tone: "config" };
+  if (lower === "pnpm-lock.yaml" || lower === "yarn.lock" || lower === "package-lock.json") return { label: "LOCK", color: "oklch(0.70 0.11 165)", tone: "config" };
+  if (lower === "dockerfile" || lower.endsWith(".dockerfile")) return { label: "DO", color: "oklch(0.70 0.15 240)", tone: "config" };
+  if (lower === "makefile") return { label: "MK", color: "oklch(0.76 0.10 78)", tone: "config" };
+  if (lower === ".gitignore" || lower === ".gitattributes") return { label: "GIT", color: "oklch(0.70 0.15 35)", tone: "config" };
+  if (lower === ".env" || lower.startsWith(".env.")) return { label: "ENV", color: "oklch(0.74 0.13 145)", tone: "config" };
+  if (lower === "readme.md") return { label: "MD", color: "oklch(0.74 0.06 250)", tone: "doc" };
+  if (lower === "license") return { label: "TXT", color: "oklch(0.72 0.04 250)", tone: "doc" };
+
   switch (ext) {
-    case "tsx":
-    case "jsx":
-      return <span style={{ color: "#61dafb", marginRight: "4px" }}>⚛️</span>;
-    case "ts":
+    case "tsx": return { label: "TSX", color: "oklch(0.74 0.16 220)", tone: "code" };
+    case "jsx": return { label: "JSX", color: "oklch(0.82 0.14 190)", tone: "code" };
+    case "ts": return { label: "TS", color: "oklch(0.69 0.17 248)", tone: "code" };
     case "js":
-      return <span style={{ color: "#3178c6", marginRight: "4px" }}>📄</span>;
-    case "rs":
-      return <span style={{ color: "#dea584", marginRight: "4px" }}>🦀</span>;
-    case "json":
-      return <span style={{ color: "#cbcb41", marginRight: "4px" }}>⚙️</span>;
-    case "css":
+    case "mjs":
+    case "cjs": return { label: "JS", color: "oklch(0.82 0.16 95)", tone: "code" };
+    case "rs": return { label: "RS", color: "oklch(0.72 0.14 58)", tone: "code" };
+    case "py": return { label: "PY", color: "oklch(0.74 0.13 250)", tone: "code" };
+    case "go": return { label: "GO", color: "oklch(0.76 0.13 205)", tone: "code" };
+    case "java": return { label: "JV", color: "oklch(0.67 0.16 35)", tone: "code" };
+    case "c": return { label: "C", color: "oklch(0.69 0.13 255)", tone: "code" };
+    case "cc":
+    case "cpp":
+    case "cxx":
+    case "hpp": return { label: "C++", color: "oklch(0.68 0.16 268)", tone: "code" };
+    case "swift": return { label: "SW", color: "oklch(0.72 0.18 42)", tone: "code" };
+    case "kt":
+    case "kts": return { label: "KT", color: "oklch(0.70 0.17 305)", tone: "code" };
+    case "rb": return { label: "RB", color: "oklch(0.65 0.17 25)", tone: "code" };
+    case "php": return { label: "PHP", color: "oklch(0.69 0.11 278)", tone: "code" };
+    case "css": return { label: "CSS", color: "oklch(0.70 0.17 250)", tone: "asset" };
     case "scss":
-      return <span style={{ color: "#563d7c", marginRight: "4px" }}>🎨</span>;
+    case "sass": return { label: "SAS", color: "oklch(0.74 0.16 340)", tone: "asset" };
+    case "html":
+    case "htm": return { label: "HTM", color: "oklch(0.70 0.18 38)", tone: "asset" };
+    case "json": return { label: "{}", color: "oklch(0.82 0.14 94)", tone: "data" };
+    case "toml": return { label: "TOM", color: "oklch(0.74 0.12 64)", tone: "config" };
+    case "yaml":
+    case "yml": return { label: "YML", color: "oklch(0.74 0.13 28)", tone: "config" };
+    case "xml": return { label: "XML", color: "oklch(0.76 0.13 70)", tone: "data" };
+    case "sql": return { label: "SQL", color: "oklch(0.72 0.13 225)", tone: "data" };
+    case "sqlite":
+    case "db": return { label: "DB", color: "oklch(0.70 0.13 215)", tone: "data" };
     case "md":
-      return <span style={{ color: "#858585", marginRight: "4px" }}>📝</span>;
-    default:
-      return <span style={{ color: "#858585", marginRight: "4px" }}>📄</span>;
+    case "mdx": return { label: "MD", color: "oklch(0.74 0.06 250)", tone: "doc" };
+    case "txt":
+    case "log": return { label: "TXT", color: "oklch(0.72 0.04 250)", tone: "plain" };
+    case "png":
+    case "jpg":
+    case "jpeg":
+    case "gif":
+    case "webp":
+    case "svg": return { label: "IMG", color: "oklch(0.76 0.15 330)", tone: "asset" };
+    case "pdf": return { label: "PDF", color: "oklch(0.68 0.18 26)", tone: "doc" };
+    case "doc":
+    case "docx": return { label: "DOC", color: "oklch(0.68 0.15 248)", tone: "doc" };
+    case "xls":
+    case "xlsx":
+    case "csv": return { label: "XLS", color: "oklch(0.69 0.14 155)", tone: "data" };
+    case "ppt":
+    case "pptx": return { label: "PPT", color: "oklch(0.70 0.16 42)", tone: "doc" };
+    case "sh":
+    case "bash":
+    case "zsh": return { label: "SH", color: "oklch(0.72 0.12 150)", tone: "code" };
+    default: return { label: ext ? ext.slice(0, 3).toUpperCase() : "FILE", color: "oklch(0.70 0.04 250)", tone: "plain" };
   }
+}
+
+function getFileIcon(filename: string) {
+  const meta = fileIconMeta(filename);
+  return (
+    <span
+      className={`file-type-icon ${meta.tone || "plain"}`}
+      style={{ "--file-icon-color": meta.color } as React.CSSProperties}
+      aria-hidden="true"
+      title={filename}
+    >
+      {meta.label}
+    </span>
+  );
+}
+
+function getCommandIcon() {
+  return (
+    <span className="file-type-icon command" aria-hidden="true">
+      <TerminalSquare size={12} />
+    </span>
+  );
 }
 
 function isRuntimeNoticeText(text?: string) {
@@ -624,7 +703,7 @@ function ActivityLeafNode({ item, appLang }: { item: any; appLang: string }) {
           }}
         >
           <span>{label}</span>
-          {parsed.filename && getFileIcon(parsed.filename)}
+          {parsed.filename ? getFileIcon(parsed.filename) : parsed.command ? getCommandIcon() : null}
           {(parsed.filename || parsed.command) ? (
             <span style={{ color: "var(--text)", fontWeight: "500" }}>
               {parsed.filename ? `${parsed.filename}${parsed.lineRange}` : parsed.command}
@@ -885,7 +964,7 @@ function ActivityItemNode({ node, appLang }: { node: any; appLang: string }) {
         onMouseLeave={(e) => { if (node.body) e.currentTarget.style.color = "var(--text-soft)"; }}
       >
         <span>{label}</span>
-        {node.filename && getFileIcon(node.filename)}
+        {node.filename ? getFileIcon(node.filename) : null}
         {node.filename && (
           <span style={{ color: "var(--text)", fontWeight: "500" }}>{node.filename}</span>
         )}
