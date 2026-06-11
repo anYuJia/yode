@@ -179,8 +179,10 @@ export function App() {
     if (saved) {
       try {
         const data = JSON.parse(saved);
-        if (data[provider]?.models) {
-          models = data[provider].models;
+        const list = Array.isArray(data) ? data : Object.values(data);
+        const found = list.find((p: any) => p && p.id === provider);
+        if (found && Array.isArray(found.models)) {
+          models = found.models;
         }
       } catch (e) {}
     }
@@ -188,7 +190,9 @@ export function App() {
       const meta = PROVIDERS_META.find(p => p.id === provider);
       models = meta ? meta.defaultModels : [];
     }
-    const defaultModel = models[0] || "";
+    const lastModelKey = `yode-last-model-${provider}`;
+    const lastUsedModel = localStorage.getItem(lastModelKey);
+    const defaultModel = (lastUsedModel && models.includes(lastUsedModel)) ? lastUsedModel : (models[0] || "");
 
     if (activeSessionId) {
       setSessionItems((items) =>
@@ -211,6 +215,8 @@ export function App() {
   };
 
   const handleUpdateModel = async (model: string) => {
+    localStorage.setItem(`yode-last-model-${currentProvider}`, model);
+
     if (activeSessionId) {
       setSessionItems((items) =>
         items.map((s) =>
@@ -1594,7 +1600,7 @@ function Topbar({
 function TopbarProviderIcon({ id }: { id: string }) {
   const [failed, setFailed] = useState(false);
   if (failed) {
-    return <Bot size={14} />;
+    return <span style={{ width: "14px", height: "14px", display: "inline-block" }} />;
   }
   const aliases: Record<string, string> = {
     baidu: "baidu-qianfan",
