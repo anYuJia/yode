@@ -1,5 +1,5 @@
 use rusqlite::params;
-use yode_llm::types::{Message, Role};
+use yode_llm::types::{ImageData, Message, Role};
 
 use super::*;
 
@@ -13,11 +13,36 @@ impl Database {
         tool_calls_json: Option<&str>,
         tool_call_id: Option<&str>,
     ) -> Result<i64> {
+        self.save_message_with_images(
+            session_id,
+            role,
+            content,
+            reasoning,
+            tool_calls_json,
+            tool_call_id,
+            None,
+        )
+    }
+
+    pub fn save_message_with_images(
+        &self,
+        session_id: &str,
+        role: &str,
+        content: Option<&str>,
+        reasoning: Option<&str>,
+        tool_calls_json: Option<&str>,
+        tool_call_id: Option<&str>,
+        images: Option<&[ImageData]>,
+    ) -> Result<i64> {
         let conn = self.lock_connection()?;
         let now = Utc::now().to_rfc3339();
+        let images_json = match images {
+            Some(images) if !images.is_empty() => Some(serde_json::to_string(images)?),
+            _ => None,
+        };
         conn.execute(
-            "INSERT INTO messages (session_id, role, content, reasoning, tool_calls_json, tool_call_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![session_id, role, content, reasoning, tool_calls_json, tool_call_id, now],
+            "INSERT INTO messages (session_id, role, content, reasoning, tool_calls_json, tool_call_id, images_json, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![session_id, role, content, reasoning, tool_calls_json, tool_call_id, images_json.as_deref(), now],
         )?;
         Ok(conn.last_insert_rowid())
     }
@@ -25,7 +50,7 @@ impl Database {
     pub fn load_messages(&self, session_id: &str) -> Result<Vec<StoredMessage>> {
         let conn = self.lock_connection()?;
         let mut stmt = conn.prepare(
-            "SELECT id, session_id, role, content, reasoning, tool_calls_json, tool_call_id, created_at FROM messages WHERE session_id = ?1 ORDER BY id ASC",
+            "SELECT id, session_id, role, content, reasoning, tool_calls_json, tool_call_id, images_json, created_at FROM messages WHERE session_id = ?1 ORDER BY id ASC",
         )?;
 
         let messages = stmt
@@ -38,7 +63,8 @@ impl Database {
                     reasoning: row.get(4)?,
                     tool_calls_json: row.get(5)?,
                     tool_call_id: row.get(6)?,
-                    created_at: parse_rfc3339_or_now(row.get::<_, String>(7).unwrap_or_default()),
+                    images_json: row.get(7)?,
+                    created_at: parse_rfc3339_or_now(row.get::<_, String>(8).unwrap_or_default()),
                 })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -57,7 +83,7 @@ impl Database {
         let now = Utc::now().to_rfc3339();
         {
             let mut stmt = tx.prepare(
-                "INSERT INTO messages (session_id, role, content, reasoning, tool_calls_json, tool_call_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                "INSERT INTO messages (session_id, role, content, reasoning, tool_calls_json, tool_call_id, images_json, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             )?;
 
             for message in messages {
@@ -65,6 +91,11 @@ impl Database {
                     None
                 } else {
                     Some(serde_json::to_string(&message.tool_calls)?)
+                };
+                let images_json = if message.images.is_empty() {
+                    None
+                } else {
+                    Some(serde_json::to_string(&message.images)?)
                 };
 
                 stmt.execute(params![
@@ -74,6 +105,7 @@ impl Database {
                     message.reasoning.as_deref(),
                     tool_calls_json.as_deref(),
                     message.tool_call_id.as_deref(),
+                    images_json.as_deref(),
                     now,
                 ])?;
             }

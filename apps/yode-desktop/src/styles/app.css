@@ -1665,6 +1665,11 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   border-color: color-mix(in oklch, var(--accent), transparent 58%);
 }
 
+.composer.dragging-image {
+  border-color: color-mix(in oklch, var(--accent), transparent 38%);
+  background: color-mix(in oklch, var(--accent), var(--panel) 92%);
+}
+
 .composer textarea {
   width: 100%;
   min-height: 30px;
@@ -1679,6 +1684,76 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 
 .composer textarea::placeholder {
   color: var(--text-soft);
+}
+
+.composer-attachments {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 8px 8px 2px;
+}
+
+.composer-attachment-notice {
+  color: var(--text-soft);
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 4px 10px 0;
+}
+
+.composer-image-chip {
+  position: relative;
+  display: grid;
+  width: 92px;
+  gap: 4px;
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.composer-image-chip img {
+  width: 92px;
+  height: 68px;
+  object-fit: cover;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: color-mix(in oklch, var(--text), transparent 96%);
+}
+
+.composer-image-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-image-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 1px solid color-mix(in oklch, var(--line), transparent 20%);
+  border-radius: 50%;
+  background: color-mix(in oklch, var(--panel), transparent 8%);
+  color: var(--text);
+  padding: 0;
+}
+
+.message-image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  gap: 7px;
+  margin-top: 8px;
+  max-width: 360px;
+}
+
+.message-image-grid img {
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid color-mix(in oklch, var(--line), transparent 15%);
 }
 
 .composer-toolbar {

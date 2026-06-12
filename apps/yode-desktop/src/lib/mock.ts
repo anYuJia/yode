@@ -29,6 +29,7 @@ export type TimelineItem =
       kind: "user" | "assistant" | "reasoning";
       title: string;
       body: string;
+      attachments?: ImageAttachment[];
       meta?: string;
       createdAt?: number;
       reasoningStartedAt?: number;
@@ -131,6 +132,10 @@ export type DesktopMessage = {
   reasoning?: string | null;
   toolCallsJson?: string | null;
   toolCallId?: string | null;
+  images?: Array<{
+    base64: string;
+    mediaType: string;
+  }>;
   createdAt: string;
 };
 
@@ -138,6 +143,15 @@ export type TurnAccepted = {
   sessionId: string;
   turnId: string;
   session: SessionSummary;
+};
+
+export type ImageAttachment = {
+  id: string;
+  name: string;
+  mediaType: string;
+  base64: string;
+  dataUrl: string;
+  size: number;
 };
 
 export const fallbackBootstrap: Bootstrap = {

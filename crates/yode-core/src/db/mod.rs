@@ -55,6 +55,7 @@ impl Database {
                 reasoning TEXT,
                 tool_calls_json TEXT,
                 tool_call_id TEXT,
+                images_json TEXT,
                 created_at TEXT NOT NULL,
                 FOREIGN KEY (session_id) REFERENCES sessions(id)
             );
@@ -76,6 +77,7 @@ impl Database {
         )?;
 
         let _ = conn.execute("ALTER TABLE messages ADD COLUMN reasoning TEXT", []);
+        let _ = conn.execute("ALTER TABLE messages ADD COLUMN images_json TEXT", []);
         let _ = conn.execute("ALTER TABLE sessions ADD COLUMN project_root TEXT", []);
         let _ = conn.execute(
             "ALTER TABLE session_artifacts ADD COLUMN last_compact_boundary_json TEXT",

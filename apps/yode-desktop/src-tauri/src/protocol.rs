@@ -54,6 +54,7 @@ pub struct DesktopMessage {
     pub reasoning: Option<String>,
     pub tool_calls_json: Option<String>,
     pub tool_call_id: Option<String>,
+    pub images: Vec<DesktopImageOutput>,
     pub created_at: String,
 }
 
@@ -71,11 +72,27 @@ pub struct CreateSessionRequest {
 pub struct SendMessageRequest {
     pub session_id: Option<String>,
     pub content: String,
+    #[serde(default)]
+    pub images: Vec<DesktopImageInput>,
     pub project_root: Option<String>,
     pub standalone: Option<bool>,
     pub title: Option<String>,
     pub provider: Option<String>,
     pub model: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopImageInput {
+    pub base64: String,
+    pub media_type: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopImageOutput {
+    pub base64: String,
+    pub media_type: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

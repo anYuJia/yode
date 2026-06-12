@@ -105,7 +105,8 @@ import {
   sessions,
   TimelineItem,
   timeline,
-  TurnAccepted
+  TurnAccepted,
+  ImageAttachment
 } from "./lib/mock";
 import { SettingsShell } from "./components/SettingsShell";
 import { TerminalDrawer } from "./components/TerminalDrawer";
@@ -157,6 +158,14 @@ function loadStoredSelectedProjectRoot(): string | null | undefined {
   const raw = localStorage.getItem(SELECTED_PROJECT_ROOT_STORAGE_KEY);
   if (raw === null) return undefined;
   return raw === STANDALONE_PROJECT_SENTINEL ? null : raw;
+}
+
+function imageToRequestPayload(image: ImageAttachment) {
+  return {
+    base64: image.base64,
+    mediaType: image.mediaType,
+    name: image.name
+  };
 }
 
 function normalizeProjectRoot(root: string | null | undefined) {
@@ -249,7 +258,8 @@ export function App() {
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [messageQueue, setMessageQueue] = useState<string[]>([]);
+  const [messageQueue, setMessageQueue] = useState<Array<{ content: string; images: ImageAttachment[] }>>([]);
+  const [composerImages, setComposerImages] = useState<ImageAttachment[]>([]);
   const [currentTurnId, setCurrentTurnId] = useState<string | null>(null);
   const [permissionMode, setPermissionMode] = useState<string>("default");
   const [pendingUserQuestion, setPendingUserQuestion] = useState<PendingUserQuestion | null>(null);
@@ -792,11 +802,13 @@ export function App() {
   }
 
   async function handleSendMessage() {
-    if (!draft.trim()) return;
+    if (!draft.trim() && composerImages.length === 0) return;
     const content = draft.trim();
+    const imagesAtSend = composerImages;
 
     if (pendingUserQuestion) {
       setDraft("");
+      setComposerImages([]);
       setTimelineItems((items) => [
         ...items,
         {
@@ -833,9 +845,10 @@ export function App() {
     const sessionIdAtSend = activeSession?.id ?? null;
     const projectRootAtSend = selectedProjectRoot === undefined ? bootstrap.workspacePath : selectedProjectRoot;
     setDraft("");
+    setComposerImages([]);
 
     if (isProcessing) {
-      setMessageQueue((prev) => [...prev, content]);
+      setMessageQueue((prev) => [...prev, { content, images: imagesAtSend }]);
       setTimelineItems((items) => [
         ...items,
         {
@@ -843,6 +856,7 @@ export function App() {
           kind: "user",
           title: "用户 (等待中...)",
           body: content,
+          attachments: imagesAtSend,
           createdAt: Date.now()
         }
       ]);
@@ -857,6 +871,7 @@ export function App() {
         kind: "user",
         title: "用户",
         body: content,
+        attachments: imagesAtSend,
         createdAt: Date.now()
       }
     ]);
@@ -866,9 +881,16 @@ export function App() {
         request: {
           sessionId: sessionIdAtSend,
           content,
+          images: imagesAtSend.map(imageToRequestPayload),
           projectRoot: sessionIdAtSend ? undefined : projectRootAtSend,
           standalone: sessionIdAtSend ? undefined : projectRootAtSend === null,
-          title: sessionIdAtSend ? undefined : deriveSessionTitle(content),
+          title: sessionIdAtSend
+            ? undefined
+            : content
+              ? deriveSessionTitle(content)
+              : imagesAtSend.length > 1
+                ? `${imagesAtSend.length} 张图片`
+                : "图片",
           provider: currentProvider,
           model: currentModel
         }
@@ -881,12 +903,14 @@ export function App() {
       console.error(err);
       setIsProcessing(false);
       setDraft(content);
+      setComposerImages(imagesAtSend);
     }
   }
 
   useEffect(() => {
     if (!isProcessing && messageQueue.length > 0 && activeSession?.id) {
-      const nextContent = messageQueue[0];
+      const nextMessage = messageQueue[0];
+      const nextContent = nextMessage.content;
       setMessageQueue((prev) => prev.slice(1));
       setIsProcessing(true);
       
@@ -902,6 +926,7 @@ export function App() {
         request: {
           sessionId: activeSession.id,
           content: nextContent,
+          images: nextMessage.images.map(imageToRequestPayload),
           projectRoot: undefined,
           standalone: undefined,
           title: undefined,
@@ -1084,6 +1109,8 @@ export function App() {
           draft={draft}
           timelineItems={timelineItems}
           onDraftChange={setDraft}
+          images={composerImages}
+          onImagesChange={setComposerImages}
           onSendMessage={handleSendMessage}
           inspectorOpen={inspectorOpen}
           isProcessing={isProcessing}

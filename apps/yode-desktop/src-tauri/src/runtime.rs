@@ -23,8 +23,8 @@ use yode_tools::registry::ToolRegistry;
 use yode_tools::tool::McpResourceProvider;
 
 use crate::protocol::{
-    Bootstrap, CreateSessionRequest, DefaultLlm, DesktopEvent, DesktopMessage, DesktopProvider,
-    DesktopSession, RuntimeState, SendMessageRequest, TurnAccepted,
+    Bootstrap, CreateSessionRequest, DefaultLlm, DesktopEvent, DesktopImageOutput, DesktopMessage,
+    DesktopProvider, DesktopSession, RuntimeState, SendMessageRequest, TurnAccepted,
 };
 
 pub struct DesktopRuntime {
@@ -155,6 +155,13 @@ impl DesktopRuntime {
             .load_messages(&session_id)?
             .into_iter()
             .map(|message| DesktopMessage {
+                images: stored_images(&message)
+                    .into_iter()
+                    .map(|image| DesktopImageOutput {
+                        base64: image.base64,
+                        media_type: image.media_type,
+                    })
+                    .collect(),
                 id: message.id,
                 role: message.role,
                 content: message.content,
@@ -259,7 +266,18 @@ impl DesktopRuntime {
             .lock()
             .map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
         let content = request.content.trim().to_string();
-        if content.is_empty() {
+        let images = request
+            .images
+            .into_iter()
+            .filter(|image| {
+                !image.base64.trim().is_empty() && image.media_type.starts_with("image/")
+            })
+            .map(|image| yode_llm::types::ImageData {
+                base64: image.base64,
+                media_type: image.media_type,
+            })
+            .collect::<Vec<_>>();
+        if content.is_empty() && images.is_empty() {
             anyhow::bail!("message content cannot be empty");
         }
 
@@ -298,7 +316,7 @@ impl DesktopRuntime {
                 name: request
                     .title
                     .filter(|title| !title.trim().is_empty())
-                    .or_else(|| Some(title_from_content(&content))),
+                    .or_else(|| Some(title_from_content_or_images(&content, images.len()))),
                 project_root: if request.standalone.unwrap_or(false) {
                     None
                 } else {
@@ -461,8 +479,9 @@ impl DesktopRuntime {
                 let error_event_tx = event_tx.clone();
                 let handle = tokio::spawn(async move {
                     if let Err(err) = engine
-                        .run_turn_streaming(
+                        .run_turn_streaming_with_images(
                             &content,
+                            images,
                             yode_core::context::QuerySource::User,
                             event_tx,
                             confirm_rx,
@@ -1376,6 +1395,17 @@ fn title_from_content(content: &str) -> String {
     }
 }
 
+fn title_from_content_or_images(content: &str, image_count: usize) -> String {
+    if !content.trim().is_empty() {
+        return title_from_content(content);
+    }
+    if image_count > 1 {
+        format!("{} 张图片", image_count)
+    } else {
+        "图片".to_string()
+    }
+}
+
 fn stored_message_to_message(message: StoredMessage) -> Option<yode_llm::types::Message> {
     let role = match message.role.as_str() {
         "user" => yode_llm::types::Role::User,
@@ -1402,6 +1432,8 @@ fn stored_message_to_message(message: StoredMessage) -> Option<yode_llm::types::
         });
     }
 
+    let images = stored_images(&message);
+
     Some(
         yode_llm::types::Message {
             role,
@@ -1410,10 +1442,18 @@ fn stored_message_to_message(message: StoredMessage) -> Option<yode_llm::types::
             reasoning: message.reasoning,
             tool_calls,
             tool_call_id: message.tool_call_id,
-            images: Vec::new(),
+            images,
         }
         .normalized(),
     )
+}
+
+fn stored_images(message: &StoredMessage) -> Vec<yode_llm::types::ImageData> {
+    message
+        .images_json
+        .as_deref()
+        .and_then(|json| serde_json::from_str(json).ok())
+        .unwrap_or_default()
 }
 
 fn relative_time(updated_at: DateTime<Utc>) -> String {

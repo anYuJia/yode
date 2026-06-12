@@ -108,14 +108,27 @@ impl AgentEngine {
         tool_calls_json: Option<&str>,
         tool_call_id: Option<&str>,
     ) {
+        self.persist_message_with_images(role, content, reasoning, tool_calls_json, tool_call_id, None);
+    }
+
+    pub(in crate::engine) fn persist_message_with_images(
+        &self,
+        role: &str,
+        content: Option<&str>,
+        reasoning: Option<&str>,
+        tool_calls_json: Option<&str>,
+        tool_call_id: Option<&str>,
+        images: Option<&[yode_llm::types::ImageData]>,
+    ) {
         if let Some(db) = &self.db {
-            if let Err(err) = db.save_message(
+            if let Err(err) = db.save_message_with_images(
                 &self.context.session_id,
                 role,
                 content,
                 reasoning,
                 tool_calls_json,
                 tool_call_id,
+                images,
             ) {
                 warn!("Failed to persist message: {}", err);
             }

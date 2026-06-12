@@ -1,6 +1,6 @@
 import React, { useState, useRef, useMemo, useLayoutEffect, useEffect } from "react";
 import { Bot } from "lucide-react";
-import { TimelineItem } from "../lib/mock";
+import { ImageAttachment, TimelineItem } from "../lib/mock";
 import {
   isIntermediateAssistantItem,
   compileInlineItems,
@@ -25,6 +25,8 @@ interface ChatWorkspaceProps {
   draft: string;
   timelineItems: TimelineItem[];
   onDraftChange: (value: string) => void;
+  images: ImageAttachment[];
+  onImagesChange: (images: ImageAttachment[]) => void;
   onSendMessage: () => void;
   inspectorOpen: boolean;
   isProcessing: boolean;
@@ -48,6 +50,8 @@ export function ChatWorkspace({
   draft,
   timelineItems,
   onDraftChange,
+  images,
+  onImagesChange,
   onSendMessage,
   inspectorOpen,
   isProcessing,
@@ -353,6 +357,8 @@ export function ChatWorkspace({
         <Composer
           draft={draft}
           onDraftChange={onDraftChange}
+          images={images}
+          onImagesChange={onImagesChange}
           onSendMessage={onSendMessage}
           isProcessing={isProcessing}
           onCancelMessage={onCancelMessage}

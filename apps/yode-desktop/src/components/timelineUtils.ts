@@ -794,6 +794,29 @@ export function desktopEventToTimelineItem(
   };
 }
 
+function toolResultImageItem(
+  item: Extract<TimelineItem, { kind: "tool" }>,
+  turnId?: string
+): TimelineItem | null {
+  const metadata = item.metadata && typeof item.metadata === "object" ? item.metadata : null;
+  const imageUrl = metadata?.image_url || metadata?.imageUrl;
+  if (typeof imageUrl !== "string" || !imageUrl.startsWith("data:image/")) {
+    return null;
+  }
+  const label =
+    typeof metadata?.path === "string"
+      ? metadata.path.split(/[\\/]/).pop() || "image"
+      : "image";
+  return {
+    id: `tool-image-${turnId ?? "turn"}-${item.id}`,
+    kind: "assistant",
+    title: "Yode",
+    body: `![${label}](${imageUrl})`,
+    meta: "intermediate",
+    createdAt: item.createdAt
+  };
+}
+
 export function applyDesktopEventToTimelineItems(
   items: TimelineItem[],
   payload: any,
@@ -834,9 +857,13 @@ export function applyDesktopEventToTimelineItems(
 
   if (kind === "tool_started" || kind === "tool_progress" || kind === "tool_result" || kind === "subagent_started" || kind === "subagent_completed") {
     const nextItem = desktopEventToTimelineItem(payload, eventKind);
+    const imageItem =
+      kind === "tool_result" && nextItem.kind === "tool"
+        ? toolResultImageItem(nextItem, turnId)
+        : null;
     const existingIndex = items.findIndex((item) => item.id === nextItem.id);
     if (existingIndex >= 0 && nextItem.kind === "tool") {
-      return completeStreamingAssistants(
+      const updated = completeStreamingAssistants(
         items.map((item, index) =>
           index === existingIndex && item.kind === "tool"
             ? {
@@ -852,8 +879,12 @@ export function applyDesktopEventToTimelineItems(
         ),
         turnId
       );
+      return imageItem && !updated.some((item) => item.id === imageItem.id)
+        ? [...updated, imageItem]
+        : updated;
     }
-    return [...completeStreamingAssistants(items, turnId), nextItem];
+    const base = [...completeStreamingAssistants(items, turnId), nextItem];
+    return imageItem ? [...base, imageItem] : base;
   }
 
   if (kind === "turn_started") {
@@ -1133,6 +1164,19 @@ function historyReasoningTitle(turnStartMs?: number, messageCreatedAt?: number) 
   return seconds === null ? "已思考" : `已思考 ${seconds} 秒`;
 }
 
+function historyImageAttachments(message: DesktopMessage) {
+  return (message.images ?? [])
+    .filter((image) => image.base64 && image.mediaType?.startsWith("image/"))
+    .map((image, index) => ({
+      id: `history-${message.id}-image-${index}`,
+      name: `image-${index + 1}`,
+      mediaType: image.mediaType,
+      base64: image.base64,
+      dataUrl: `data:${image.mediaType};base64,${image.base64}`,
+      size: Math.floor((image.base64.length * 3) / 4)
+    }));
+}
+
 export function messagesToTimelineItems(messages: DesktopMessage[]): TimelineItem[] {
   const items: TimelineItem[] = [];
   let currentTurnStartMs: number | undefined;
@@ -1145,12 +1189,14 @@ export function messagesToTimelineItems(messages: DesktopMessage[]): TimelineIte
 
     if (message.role === "user") {
       currentTurnStartMs = createdAt;
-      if (content) {
+      const attachments = historyImageAttachments(message);
+      if (content || attachments.length > 0) {
         items.push({
           id: `history-${message.id}`,
           kind: "user",
           title: "用户",
-          body: content,
+          body: content ?? "",
+          attachments,
           meta: timestamp,
           createdAt
         });

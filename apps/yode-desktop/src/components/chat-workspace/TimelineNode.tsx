@@ -151,6 +151,18 @@ export function TimelineNode({ item, appLang, isTurnActive }: { item: TimelineIt
           }}>
             {item.body}
           </p>
+          {item.attachments && item.attachments.length > 0 ? (
+            <div className="message-image-grid">
+              {item.attachments.map((image) => (
+                <img
+                  key={image.id}
+                  src={image.dataUrl}
+                  alt={image.name}
+                  title={image.name}
+                />
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
     );

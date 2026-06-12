@@ -24,13 +24,35 @@ impl AgentEngine {
         user_input: &str,
         source: QuerySource,
         event_tx: mpsc::UnboundedSender<EngineEvent>,
+        confirm_rx: mpsc::UnboundedReceiver<ConfirmResponse>,
+        cancel_token: Option<CancellationToken>,
+    ) -> Result<()> {
+        self.run_turn_streaming_with_images(
+            user_input,
+            Vec::new(),
+            source,
+            event_tx,
+            confirm_rx,
+            cancel_token,
+        )
+        .await
+    }
+
+    /// Run one user turn with optional image inputs.
+    /// Accepts an optional CancellationToken for cooperative cancellation.
+    pub async fn run_turn_streaming_with_images(
+        &mut self,
+        user_input: &str,
+        images: Vec<yode_llm::types::ImageData>,
+        source: QuerySource,
+        event_tx: mpsc::UnboundedSender<EngineEvent>,
         mut confirm_rx: mpsc::UnboundedReceiver<ConfirmResponse>,
         cancel_token: Option<CancellationToken>,
     ) -> Result<()> {
         self.current_query_source = source;
         self.rebuild_system_prompt();
         self.append_turn_setup_context(user_input).await;
-        self.record_turn_user_input(user_input);
+        self.record_turn_user_input_with_images(user_input, images);
         self.reset_turn_runtime_state();
 
         loop {

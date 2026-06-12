@@ -1,6 +1,6 @@
 use chrono::Utc;
 use tempfile::tempdir;
-use yode_llm::types::Message;
+use yode_llm::types::{ImageData, Message};
 
 use super::{Database, SessionArtifacts};
 use crate::session::Session;
@@ -38,6 +38,40 @@ fn replace_messages_overwrites_previous_session_history() {
     assert_eq!(messages.len(), 2);
     assert_eq!(messages[0].content.as_deref(), Some("new user"));
     assert_eq!(messages[1].content.as_deref(), Some("new assistant"));
+}
+
+#[test]
+fn replace_messages_preserves_user_images() {
+    let temp = tempdir().unwrap();
+    let db = Database::open(&temp.path().join("sessions.db")).unwrap();
+    db.create_session(&Session {
+        id: "session-images".to_string(),
+        name: None,
+        project_root: None,
+        provider: "mock".to_string(),
+        model: "mock-model".to_string(),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    })
+    .unwrap();
+
+    db.replace_messages(
+        "session-images",
+        &[Message::user_with_images(
+            "inspect",
+            vec![ImageData {
+                base64: "ZmFrZQ==".to_string(),
+                media_type: "image/png".to_string(),
+            }],
+        )],
+    )
+    .unwrap();
+
+    let messages = db.load_messages("session-images").unwrap();
+    let images: Vec<ImageData> =
+        serde_json::from_str(messages[0].images_json.as_deref().unwrap()).unwrap();
+    assert_eq!(images[0].media_type, "image/png");
+    assert_eq!(images[0].base64, "ZmFrZQ==");
 }
 
 #[test]

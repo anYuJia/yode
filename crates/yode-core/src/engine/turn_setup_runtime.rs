@@ -53,8 +53,22 @@ impl AgentEngine {
     }
 
     pub(super) fn record_turn_user_input(&mut self, user_input: &str) {
-        self.messages.push(Message::user(user_input));
-        self.persist_message("user", Some(user_input), None, None, None);
+        self.record_turn_user_input_with_images(user_input, Vec::new());
+    }
+
+    pub(super) fn record_turn_user_input_with_images(
+        &mut self,
+        user_input: &str,
+        images: Vec<yode_llm::types::ImageData>,
+    ) {
+        if images.is_empty() {
+            self.messages.push(Message::user(user_input));
+            self.persist_message("user", Some(user_input), None, None, None);
+        } else {
+            self.messages
+                .push(Message::user_with_images(user_input, images.clone()));
+            self.persist_message_with_images("user", Some(user_input), None, None, None, Some(&images));
+        }
     }
 
     pub(super) fn reset_turn_runtime_state(&mut self) {
