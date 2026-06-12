@@ -377,34 +377,33 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
       result.push(item);
     } else if (item.kind === "tool") {
       if (item.title === "工具结果") {
+        const resultCallId = (item as any).callId || item.tool;
         let found = false;
-        for (let i = buffer.length - 1; i >= 0; i--) {
-          if (buffer[i].kind === "tool") {
-            buffer[i].result = item.body;
-            found = true;
-            break;
+
+        if (resultCallId) {
+          for (let i = buffer.length - 1; i >= 0; i--) {
+            if (buffer[i].kind === "tool" && (buffer[i] as any).callId === resultCallId) {
+              buffer[i].result = item.body;
+              found = true;
+              break;
+            }
+          }
+        }
+
+        if (!found) {
+          for (let i = buffer.length - 1; i >= 0; i--) {
+            if (buffer[i].kind === "tool") {
+              buffer[i].result = item.body;
+              found = true;
+              break;
+            }
           }
         }
         if (!found) {
-          for (let i = result.length - 1; i >= 0; i--) {
-            const resultItem = result[i];
-            if (resultItem.kind === "activity_item" && resultItem.tool) {
-              resultItem.result = item.body;
-              found = true;
-              break;
-            } else if (resultItem.kind === "activity_group") {
-              const groupItems = resultItem.items;
-              for (let j = groupItems.length - 1; j >= 0; j--) {
-                const groupItem = groupItems[j];
-                if (groupItem.kind === "tool") {
-                  groupItem.result = item.body;
-                  found = true;
-                  break;
-                }
-              }
-              if (found) break;
-            }
-          }
+          found = attachToolResultToRenderedItems(result, item.body, resultCallId);
+        }
+        if (!found) {
+          attachToolResultToRenderedItems(result, item.body);
         }
         continue;
       }
@@ -423,6 +422,7 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
           status: item.status,
           filename: parsed.filename,
           diff: parsed.diff,
+          callId: (item as any).callId,
           metadata: (item as any).metadata,
           result: item.result
         });
@@ -473,6 +473,32 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
   return enrichedResult;
 }
 
+function attachToolResultToRenderedItems(
+  items: TimelineItem[],
+  resultBody: string,
+  callId?: string
+) {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const resultItem = items[i];
+    if (resultItem.kind === "activity_item" && resultItem.tool) {
+      if (!callId || (resultItem as any).callId === callId) {
+        resultItem.result = resultBody;
+        return true;
+      }
+    } else if (resultItem.kind === "activity_group") {
+      const groupItems = resultItem.items;
+      for (let j = groupItems.length - 1; j >= 0; j--) {
+        const groupItem = groupItems[j];
+        if (groupItem.kind === "tool" && (!callId || (groupItem as any).callId === callId)) {
+          groupItem.result = resultBody;
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
 export type ConversationTurn = {
   id: string;
   userItem: TimelineItem | null;
@@ -518,16 +544,34 @@ export function parseDurationFromTitle(title?: string) {
 }
 
 export function turnStaticDurationSeconds(turn: ConversationTurn) {
-  for (const item of turn.items) {
-    if (item.kind === "reasoning") {
-      const parsed = parseDurationFromTitle(item.title);
-      if (parsed !== null) return parsed;
-    }
-  }
-
+  const hasRestoredSpan = turn.items.some((item) =>
+    item.kind !== "reasoning" &&
+    typeof (item as any)?.createdAt === "number" &&
+    Number.isFinite((item as any).createdAt)
+  );
   const createdTimes = [turn.userItem, ...turn.items]
     .map((item) => (item as any)?.createdAt)
     .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+
+  if (hasRestoredSpan && createdTimes.length >= 2) {
+    return Math.max(1, Math.round((Math.max(...createdTimes) - Math.min(...createdTimes)) / 1000));
+  }
+
+  let totalReasoningSecs = 0;
+  let hasParsedReasoning = false;
+  for (const item of turn.items) {
+    if (item.kind === "reasoning") {
+      const parsed = parseDurationFromTitle(item.title);
+      if (parsed !== null) {
+        totalReasoningSecs += parsed;
+        hasParsedReasoning = true;
+      }
+    }
+  }
+  if (hasParsedReasoning) {
+    return totalReasoningSecs;
+  }
+
   if (createdTimes.length >= 2) {
     return Math.max(1, Math.round((Math.max(...createdTimes) - Math.min(...createdTimes)) / 1000));
   }
@@ -601,18 +645,19 @@ export function statusLabel(status: "running" | "success" | "blocked") {
   return "阻塞";
 }
 
-export function parseToolCalls(raw: string | null | undefined): Array<{ name: string; arguments: string }> {
+export function parseToolCalls(raw: string | null | undefined): Array<{ id?: string; name: string; arguments: string }> {
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
     return parsed.flatMap((item) => {
+      const id = stringValue(item?.id);
       const name = stringValue(item?.name) ?? stringValue(item?.function?.name);
       const args =
         stringValue(item?.arguments) ??
         stringValue(item?.function?.arguments) ??
         JSON.stringify(item?.arguments ?? item?.function?.arguments ?? {});
-      return name ? [{ name, arguments: args }] : [];
+      return name ? [{ id, name, arguments: args }] : [];
     });
   } catch {
     return [];
@@ -1023,73 +1068,104 @@ export function applyDesktopEventToTimelineItems(
   return [...items, desktopEventToTimelineItem(payload, eventKind)];
 }
 
+function historyCreatedAtMs(value: string) {
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : undefined;
+}
+
+function historyElapsedSeconds(start?: number, end?: number) {
+  if (typeof start !== "number" || typeof end !== "number") return null;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
+  return Math.max(1, Math.round((end - start) / 1000));
+}
+
+function historyReasoningTitle(turnStartMs?: number, messageCreatedAt?: number) {
+  const seconds = historyElapsedSeconds(turnStartMs, messageCreatedAt);
+  return seconds === null ? "已思考" : `已思考 ${seconds} 秒`;
+}
+
 export function messagesToTimelineItems(messages: DesktopMessage[]): TimelineItem[] {
-  return messages.flatMap((message): TimelineItem[] => {
+  const items: TimelineItem[] = [];
+  let currentTurnStartMs: number | undefined;
+
+  messages.forEach((message) => {
     const content = message.content?.trim();
     const reasoning = message.reasoning?.trim();
     const timestamp = formatHistoryTimestamp(message.createdAt);
+    const createdAt = historyCreatedAtMs(message.createdAt);
 
     if (message.role === "user") {
-      return content
-        ? [{
-            id: `history-${message.id}`,
-            kind: "user",
-            title: "用户",
-            body: content,
-            meta: timestamp,
-            createdAt: new Date(message.createdAt).getTime()
-          }]
-        : [];
+      currentTurnStartMs = createdAt;
+      if (content) {
+        items.push({
+          id: `history-${message.id}`,
+          kind: "user",
+          title: "用户",
+          body: content,
+          meta: timestamp,
+          createdAt
+        });
+      }
+      return;
     }
 
     if (message.role === "assistant") {
-      const items: TimelineItem[] = [];
+      const toolCalls = parseToolCalls(message.toolCallsJson);
       if (reasoning) {
         items.push({
           id: `history-${message.id}-reasoning`,
           kind: "reasoning",
-          title: "已思考",
-          body: "",
-          meta: "complete"
+          title: historyReasoningTitle(currentTurnStartMs, createdAt),
+          body: reasoning,
+          meta: "complete",
+          createdAt
         });
       }
       if (content) {
-        const hasTools = parseToolCalls(message.toolCallsJson).length > 0;
+        const hasTools = toolCalls.length > 0;
         items.push({
           id: `history-${message.id}`,
           kind: "assistant",
           title: "Yode",
           body: content,
-          meta: hasTools ? "intermediate" : "stream complete"
+          meta: hasTools ? "intermediate" : "stream complete",
+          createdAt
         });
       }
-      parseToolCalls(message.toolCallsJson).forEach((toolCall, index) => {
+      toolCalls.forEach((toolCall, index) => {
         items.push({
           id: `history-${message.id}-tool-call-${index}`,
           kind: "tool",
           title: `调用工具: ${toolCall.name}`,
           body: toolCall.arguments,
           tool: toolCall.name,
+          callId: toolCall.id,
           status: "success",
-          meta: "history"
+          meta: "history",
+          createdAt
         });
       });
-      return items;
+      return;
     }
 
     if (message.role === "tool") {
-      return [{
+      items.push({
         id: `history-${message.id}`,
         kind: "tool",
         title: "工具结果",
         body: content || message.toolCallId || "",
-        tool: message.toolCallId || "tool",
-        status: "success"
-      }];
+        tool: "tool",
+        callId: message.toolCallId || undefined,
+        status: "success",
+        createdAt
+      });
+      return;
     }
 
-    return [];
+    return;
   });
+
+  return items;
 }
 
 

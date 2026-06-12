@@ -13,8 +13,9 @@ export function ActivityLeafNode({ item, appLang }: { item: any; appLang: string
     let displayTitle = item.title || "";
     if (displayTitle.includes("已思考")) {
       const match = displayTitle.match(/\d+/);
-      const seconds = match ? match[0] : "0";
-      displayTitle = isZh ? `思考了 ${seconds} 秒` : `Thought for ${seconds}s`;
+      displayTitle = match
+        ? (isZh ? `思考了 ${match[0]} 秒` : `Thought for ${match[0]}s`)
+        : (isZh ? "已思考" : "Thought");
     } else if (item.meta === "running") {
       displayTitle = isZh ? "正在思考..." : "Thinking...";
     }

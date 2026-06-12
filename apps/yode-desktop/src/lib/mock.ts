@@ -35,6 +35,8 @@ export type TimelineItem =
       body: string;
       status: "running" | "success" | "blocked";
       tool: string;
+      callId?: string;
+      createdAt?: number;
       meta?: string;
       result?: string;
       metadata?: any;
@@ -79,6 +81,7 @@ export type TimelineItem =
       title: string;
       body: string;
       status: "running" | "success" | "blocked";
+      callId?: string;
       filename?: string;
       diff?: string;
       result?: string;
