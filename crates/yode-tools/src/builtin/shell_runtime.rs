@@ -327,6 +327,7 @@ pub(crate) async fn execute_background_shell(
         ),
         serde_json::json!({
             "task_id": task.id,
+            "session_id": task.id,
             "task_kind": spec.task_kind,
             "output_path": output_path_str,
             "transcript_path": transcript_path,

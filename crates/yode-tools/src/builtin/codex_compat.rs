@@ -62,10 +62,35 @@ impl Tool for ExecCommandTool {
                     "type": "integer",
                     "description": timeout_ms_description()
                 },
+                "shell": {
+                    "type": "string",
+                    "description": "Optional shell binary to launch, for example bash, zsh, or sh. Defaults to Yode's standard shell runtime."
+                },
+                "login": {
+                    "type": "boolean",
+                    "description": "Whether to request login-shell semantics when shell is set. Accepted for Codex compatibility."
+                },
+                "tty": {
+                    "type": "boolean",
+                    "description": "Accepted for Codex compatibility. Yode background commands are pipe-based, not PTY-backed yet."
+                },
                 "run_in_background": {
                     "type": "boolean",
                     "default": false,
                     "description": "Whether to run the command in the background."
+                },
+                "sandbox_permissions": {
+                    "type": "string",
+                    "description": "Codex-compatible sandbox hint. Yode keeps its own permission and safety checks."
+                },
+                "justification": {
+                    "type": "string",
+                    "description": "User-facing approval justification when elevated permissions are requested."
+                },
+                "prefix_rule": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Codex-compatible approval prefix hint accepted for schema compatibility."
                 }
             },
             "required": ["cmd"]
@@ -85,9 +110,10 @@ impl Tool for ExecCommandTool {
             .get("cmd")
             .and_then(Value::as_str)
             .ok_or_else(|| anyhow::anyhow!("Missing required parameter: cmd"))?;
+        let effective_command = effective_exec_command(command, &params);
 
         let mut bash_params = json!({
-            "command": command,
+            "command": effective_command,
         });
         copy_if_present(&params, &mut bash_params, "timeout_ms");
         copy_if_present(&params, &mut bash_params, "run_in_background");
@@ -701,6 +727,28 @@ fn copy_if_present(from: &Value, to: &mut Value, key: &str) {
     }
 }
 
+fn effective_exec_command(command: &str, params: &Value) -> String {
+    let Some(shell) = params
+        .get("shell")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return command.to_string();
+    };
+
+    let flag = if params
+        .get("login")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        "-lc"
+    } else {
+        "-c"
+    };
+    format!("{} {} {}", shell_quote(shell), flag, shell_quote(command))
+}
+
 fn context_with_workdir(ctx: &ToolContext, workdir: Option<&str>) -> ToolContext {
     let Some(workdir) = workdir.filter(|value| !value.trim().is_empty()) else {
         return ctx.clone();
@@ -715,6 +763,13 @@ fn context_with_workdir(ctx: &ToolContext, workdir: Option<&str>) -> ToolContext
         path
     });
     scoped
+}
+
+fn shell_quote(value: &str) -> String {
+    if value.is_empty() {
+        return "''".to_string();
+    }
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
 async fn apply_codex_patch(patch: &str, cwd: &std::path::Path) -> Result<ToolResult> {
@@ -918,6 +973,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn exec_command_accepts_codex_shell_options() {
+        let result = ExecCommandTool
+            .execute(
+                json!({
+                    "cmd": "printf shell-ok",
+                    "shell": "sh",
+                    "login": false,
+                    "tty": false,
+                    "sandbox_permissions": "use_default",
+                    "justification": "test",
+                    "prefix_rule": ["printf"]
+                }),
+                &ToolContext::empty(),
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.is_error, "{}", result.content);
+        assert!(result.content.contains("shell-ok"));
+    }
+
+    #[tokio::test]
     async fn shell_command_uses_workdir() {
         let dir = tempfile::tempdir().unwrap();
         tokio::fs::write(dir.path().join("marker.txt"), "ok")
@@ -1096,6 +1173,10 @@ mod tests {
             .as_str()
             .unwrap()
             .to_string();
+        assert_eq!(
+            started.metadata.as_ref().unwrap()["session_id"].as_str(),
+            Some(task_id.as_str())
+        );
 
         let wrote = WriteStdinTool
             .execute(
