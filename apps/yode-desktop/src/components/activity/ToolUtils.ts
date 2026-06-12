@@ -26,6 +26,8 @@ export function displayToolName(tool?: string) {
   if (name === "invoke_subagent") return "启动子代理";
   if (name === "manage_subagents") return "管理子代理";
   if (name === "manage_task") return "管理任务";
+  if (name === "todo") return "任务列表";
+  if (name === "update_plan") return "更新计划";
   if (name === "schedule") return "计划任务";
   return name;
 }

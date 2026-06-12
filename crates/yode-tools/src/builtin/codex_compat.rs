@@ -7,6 +7,7 @@ use serde_json::{json, Value};
 
 use crate::builtin::bash::BashTool;
 use crate::builtin::shell_runtime::timeout_ms_description;
+use crate::state::TaskStatus;
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolErrorType, ToolResult};
 
 pub struct ExecCommandTool;
@@ -14,6 +15,7 @@ pub struct ShellCommandTool;
 pub struct ApplyPatchTool;
 pub struct ViewImageTool;
 pub struct GetContextRemainingTool;
+pub struct UpdatePlanTool;
 
 #[async_trait]
 impl Tool for ExecCommandTool {
@@ -368,6 +370,180 @@ impl Tool for GetContextRemainingTool {
     }
 }
 
+#[async_trait]
+impl Tool for UpdatePlanTool {
+    fn name(&self) -> &str {
+        "update_plan"
+    }
+
+    fn user_facing_name(&self) -> &str {
+        "Update Plan"
+    }
+
+    fn activity_description(&self, params: &Value) -> String {
+        let count = params
+            .get("plan")
+            .and_then(Value::as_array)
+            .map(|items| items.len())
+            .unwrap_or(0);
+        format!("Updating plan: {} step(s)", count)
+    }
+
+    fn description(&self) -> &str {
+        r#"Updates the task plan.
+Provide an optional explanation and a list of plan items, each with a step and status.
+At most one step can be in_progress at a time."#
+    }
+
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "explanation": {
+                    "type": "string",
+                    "description": "Optional explanation for this plan update."
+                },
+                "plan": {
+                    "type": "array",
+                    "description": "The list of steps.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "step": {
+                                "type": "string",
+                                "description": "Task step text."
+                            },
+                            "status": {
+                                "type": "string",
+                                "description": "Step status: pending, in_progress, or completed."
+                            }
+                        },
+                        "required": ["step", "status"]
+                    }
+                }
+            },
+            "required": ["plan"]
+        })
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            requires_confirmation: false,
+            supports_auto_execution: true,
+            read_only: false,
+        }
+    }
+
+    async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
+        let tasks = match &ctx.tasks {
+            Some(tasks) => tasks,
+            None => {
+                return Ok(ToolResult::error_typed(
+                    "Task store not available.".to_string(),
+                    ToolErrorType::Execution,
+                    true,
+                    Some("Retry in an agent session with task store support.".to_string()),
+                ));
+            }
+        };
+
+        let plan = params
+            .get("plan")
+            .and_then(Value::as_array)
+            .ok_or_else(|| anyhow::anyhow!("Missing required parameter: plan"))?;
+
+        let mut in_progress_count = 0usize;
+        let mut parsed_steps = Vec::with_capacity(plan.len());
+        for (index, item) in plan.iter().enumerate() {
+            let step = item
+                .get("step")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|step| !step.is_empty())
+                .ok_or_else(|| anyhow::anyhow!("plan[{}].step must be a non-empty string", index))?;
+            let status_label = item
+                .get("status")
+                .and_then(Value::as_str)
+                .ok_or_else(|| anyhow::anyhow!("plan[{}].status is required", index))?;
+            let status = match status_label {
+                "pending" => TaskStatus::Pending,
+                "in_progress" => {
+                    in_progress_count += 1;
+                    TaskStatus::InProgress
+                }
+                "completed" => TaskStatus::Completed,
+                other => {
+                    return Ok(ToolResult::error_typed(
+                        format!(
+                            "Invalid status for plan[{}]: {}. Use pending, in_progress, or completed.",
+                            index, other
+                        ),
+                        ToolErrorType::Validation,
+                        true,
+                        Some("Update the plan with valid Codex step statuses.".to_string()),
+                    ));
+                }
+            };
+            parsed_steps.push((step.to_string(), status));
+        }
+
+        if in_progress_count > 1 {
+            return Ok(ToolResult::error_typed(
+                "Invalid plan: at most one step can be in_progress.".to_string(),
+                ToolErrorType::Validation,
+                true,
+                Some("Mark only the current step as in_progress.".to_string()),
+            ));
+        }
+
+        let explanation = params
+            .get("explanation")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+
+        let mut store = tasks.lock().await;
+        store.clear();
+        let mut saved = Vec::with_capacity(parsed_steps.len());
+        for (step, status) in parsed_steps {
+            let task = store.create(step, String::new());
+            let id = task.id.clone();
+            let task = store
+                .update_status(&id, status)
+                .cloned()
+                .unwrap_or(task);
+            saved.push(task);
+        }
+
+        let content = if saved.is_empty() {
+            "Plan cleared.".to_string()
+        } else {
+            let mut lines = Vec::new();
+            if let Some(explanation) = explanation.as_deref() {
+                lines.push(explanation.to_string());
+            }
+            lines.extend(saved.iter().map(|task| {
+                let marker = match task.status {
+                    TaskStatus::Pending => "[ ]",
+                    TaskStatus::InProgress => "[~]",
+                    TaskStatus::Completed => "[x]",
+                };
+                format!("{} {}", marker, task.subject)
+            }));
+            lines.join("\n")
+        };
+
+        Ok(ToolResult::success_with_metadata(
+            content,
+            json!({
+                "explanation": explanation,
+                "plan": saved,
+            }),
+        ))
+    }
+}
+
 fn copy_if_present(from: &Value, to: &mut Value, key: &str) {
     if let Some(value) = from.get(key) {
         to[key] = value.clone();
@@ -573,7 +749,8 @@ mod tests {
     use crate::tool::{Tool, ToolContext};
 
     use super::{
-        ApplyPatchTool, ExecCommandTool, GetContextRemainingTool, ShellCommandTool, ViewImageTool,
+        ApplyPatchTool, ExecCommandTool, GetContextRemainingTool, ShellCommandTool, UpdatePlanTool,
+        ViewImageTool,
     };
 
     #[tokio::test]
@@ -687,5 +864,59 @@ mod tests {
 
         assert!(!result.is_error);
         assert_eq!(result.metadata.as_ref().unwrap()["tokens_left"], json!(65));
+    }
+
+    #[tokio::test]
+    async fn update_plan_replaces_task_store() {
+        let tasks = std::sync::Arc::new(tokio::sync::Mutex::new(crate::state::TaskStore::new()));
+        let mut ctx = ToolContext::empty();
+        ctx.tasks = Some(tasks.clone());
+
+        let result = UpdatePlanTool
+            .execute(
+                json!({
+                    "explanation": "梳理下一步",
+                    "plan": [
+                        { "step": "检查工具列表", "status": "completed" },
+                        { "step": "补齐兼容工具", "status": "in_progress" },
+                        { "step": "运行测试", "status": "pending" }
+                    ]
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.is_error, "{}", result.content);
+        assert!(result.content.contains("[~] 补齐兼容工具"));
+        let store = tasks.lock().await;
+        let all = store.list();
+        assert_eq!(all.len(), 3);
+        assert_eq!(all[0].status, crate::state::TaskStatus::Completed);
+        assert_eq!(all[1].status, crate::state::TaskStatus::InProgress);
+        assert_eq!(all[2].status, crate::state::TaskStatus::Pending);
+    }
+
+    #[tokio::test]
+    async fn update_plan_rejects_multiple_in_progress_steps() {
+        let tasks = std::sync::Arc::new(tokio::sync::Mutex::new(crate::state::TaskStore::new()));
+        let mut ctx = ToolContext::empty();
+        ctx.tasks = Some(tasks);
+
+        let result = UpdatePlanTool
+            .execute(
+                json!({
+                    "plan": [
+                        { "step": "one", "status": "in_progress" },
+                        { "step": "two", "status": "in_progress" }
+                    ]
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(result.is_error);
+        assert!(result.content.contains("at most one step"));
     }
 }

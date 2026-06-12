@@ -92,4 +92,9 @@ impl TaskStore {
     pub fn delete(&mut self, id: &str) -> bool {
         self.tasks.remove(id).is_some()
     }
+
+    pub fn clear(&mut self) {
+        self.tasks.clear();
+        self.next_id = 1;
+    }
 }
