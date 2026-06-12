@@ -418,6 +418,10 @@ impl AgentEngine {
     ) -> ToolContext {
         let cwd = self.context.runtime.lock().await.cwd.clone();
         let tool_pool_snapshot = self.build_tool_pool_snapshot();
+        let context_window_tokens = self.context_manager.context_window();
+        let estimated_context_tokens = self
+            .context_manager
+            .estimate_tokens_for_messages(&self.messages);
 
         ToolContext {
             registry: Some(Arc::clone(&self.tools)),
@@ -436,6 +440,8 @@ impl AgentEngine {
             member_id: self.context.member_id.clone(),
             provider: Some(self.context.provider.clone()),
             model: Some(self.context.model.clone()),
+            context_window_tokens: Some(context_window_tokens),
+            estimated_context_tokens: Some(estimated_context_tokens),
             sub_agent_runner: Some(Arc::new(SubAgentRunnerImpl {
                 provider: Arc::clone(&self.provider),
                 tools: Arc::clone(&self.tools),

@@ -2,14 +2,18 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use async_trait::async_trait;
+use base64::Engine;
 use serde_json::{json, Value};
 
 use crate::builtin::bash::BashTool;
 use crate::builtin::shell_runtime::timeout_ms_description;
-use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
+use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolErrorType, ToolResult};
 
 pub struct ExecCommandTool;
 pub struct ShellCommandTool;
+pub struct ApplyPatchTool;
+pub struct ViewImageTool;
+pub struct GetContextRemainingTool;
 
 #[async_trait]
 impl Tool for ExecCommandTool {
@@ -156,6 +160,214 @@ impl Tool for ShellCommandTool {
     }
 }
 
+#[async_trait]
+impl Tool for ApplyPatchTool {
+    fn name(&self) -> &str {
+        "apply_patch"
+    }
+
+    fn user_facing_name(&self) -> &str {
+        "Apply Patch"
+    }
+
+    fn activity_description(&self, _params: &Value) -> String {
+        "Applying patch".to_string()
+    }
+
+    fn description(&self) -> &str {
+        r#"Apply a Codex-style patch to local files. Pass the full patch text in the `patch` field, including `*** Begin Patch` and `*** End Patch`.
+
+This JSON wrapper exists because Yode currently exposes function tools; the accepted patch body follows Codex apply_patch syntax."#
+    }
+
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "patch": {
+                    "type": "string",
+                    "description": "Full Codex apply_patch text, including *** Begin Patch and *** End Patch."
+                }
+            },
+            "required": ["patch"]
+        })
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            requires_confirmation: true,
+            supports_auto_execution: false,
+            read_only: false,
+        }
+    }
+
+    async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
+        let patch = params
+            .get("patch")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow::anyhow!("Missing required parameter: patch"))?;
+        let cwd = ctx.working_dir.clone().unwrap_or_else(|| PathBuf::from("."));
+        apply_codex_patch(patch, &cwd).await
+    }
+}
+
+#[async_trait]
+impl Tool for ViewImageTool {
+    fn name(&self) -> &str {
+        "view_image"
+    }
+
+    fn user_facing_name(&self) -> &str {
+        "View Image"
+    }
+
+    fn activity_description(&self, params: &Value) -> String {
+        let path = params.get("path").and_then(Value::as_str).unwrap_or("");
+        format!("Viewing image: {}", path)
+    }
+
+    fn description(&self) -> &str {
+        "View a local image file from the filesystem when visual inspection is needed. Returns a data URL and image metadata for desktop/model integrations."
+    }
+
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Local filesystem path to an image file."
+                },
+                "detail": {
+                    "type": "string",
+                    "description": "Image detail level. Defaults to high; original preserves exact bytes.",
+                    "enum": ["high", "original"]
+                }
+            },
+            "required": ["path"]
+        })
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            requires_confirmation: false,
+            supports_auto_execution: true,
+            read_only: true,
+        }
+    }
+
+    async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
+        let raw_path = params
+            .get("path")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow::anyhow!("Missing required parameter: path"))?;
+        let detail = params
+            .get("detail")
+            .and_then(Value::as_str)
+            .unwrap_or("high");
+        if !matches!(detail, "high" | "original") {
+            return Ok(ToolResult::error_typed(
+                format!("view_image.detail only supports high or original, got {}", detail),
+                ToolErrorType::Validation,
+                true,
+                Some("Use detail=\"high\" or detail=\"original\".".to_string()),
+            ));
+        }
+        let path = resolve_path(ctx, raw_path);
+        let metadata = match tokio::fs::metadata(&path).await {
+            Ok(metadata) if metadata.is_file() => metadata,
+            Ok(_) => {
+                return Ok(ToolResult::error_typed(
+                    format!("Image path is not a file: {}", path.display()),
+                    ToolErrorType::Validation,
+                    true,
+                    Some("Pass a file path, not a directory.".to_string()),
+                ));
+            }
+            Err(error) => {
+                return Ok(ToolResult::error_typed(
+                    format!("Unable to locate image {}: {}", path.display(), error),
+                    ToolErrorType::NotFound,
+                    true,
+                    Some("Check the image path and try again.".to_string()),
+                ));
+            }
+        };
+        let mime_type = image_mime_type(&path).ok_or_else(|| {
+            anyhow::anyhow!("Unsupported image extension for {}", path.display())
+        })?;
+        let bytes = tokio::fs::read(&path).await?;
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        let data_url = format!("data:{};base64,{}", mime_type, encoded);
+        let content = format!(
+            "Loaded image: {}\nMIME: {}\nBytes: {}\nDetail: {}",
+            path.display(),
+            mime_type,
+            metadata.len(),
+            detail
+        );
+        Ok(ToolResult::success_with_metadata(
+            content,
+            json!({
+                "path": path.display().to_string(),
+                "mime_type": mime_type,
+                "byte_count": metadata.len(),
+                "detail": detail,
+                "image_url": data_url,
+            }),
+        ))
+    }
+}
+
+#[async_trait]
+impl Tool for GetContextRemainingTool {
+    fn name(&self) -> &str {
+        "get_context_remaining"
+    }
+
+    fn user_facing_name(&self) -> &str {
+        "Context Remaining"
+    }
+
+    fn description(&self) -> &str {
+        "Get the remaining tokens in the current context window."
+    }
+
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {}
+        })
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            requires_confirmation: false,
+            supports_auto_execution: true,
+            read_only: true,
+        }
+    }
+
+    async fn execute(&self, _params: Value, ctx: &ToolContext) -> Result<ToolResult> {
+        let tokens_left = match (ctx.context_window_tokens, ctx.estimated_context_tokens) {
+            (Some(window), Some(used)) => Some(window.saturating_sub(used)),
+            _ => None,
+        };
+        let content = match tokens_left {
+            Some(tokens) => format!("Context remaining: {} tokens", tokens),
+            None => "Context remaining: unknown".to_string(),
+        };
+        Ok(ToolResult::success_with_metadata(
+            content,
+            json!({
+                "tokens_left": tokens_left,
+                "context_window_tokens": ctx.context_window_tokens,
+                "estimated_context_tokens": ctx.estimated_context_tokens,
+            }),
+        ))
+    }
+}
+
 fn copy_if_present(from: &Value, to: &mut Value, key: &str) {
     if let Some(value) = from.get(key) {
         to[key] = value.clone();
@@ -178,13 +390,191 @@ fn context_with_workdir(ctx: &ToolContext, workdir: Option<&str>) -> ToolContext
     scoped
 }
 
+async fn apply_codex_patch(patch: &str, cwd: &std::path::Path) -> Result<ToolResult> {
+    let lines = patch.lines().collect::<Vec<_>>();
+    if lines.first() != Some(&"*** Begin Patch") || lines.last() != Some(&"*** End Patch") {
+        return Ok(ToolResult::error_typed(
+            "Invalid patch: expected *** Begin Patch and *** End Patch markers.".to_string(),
+            ToolErrorType::Validation,
+            true,
+            Some("Pass the complete Codex apply_patch body.".to_string()),
+        ));
+    }
+
+    let mut index = 1usize;
+    let mut changed = Vec::new();
+    while index + 1 < lines.len() {
+        let line = lines[index];
+        if let Some(path) = line.strip_prefix("*** Add File: ") {
+            index += 1;
+            let mut content = String::new();
+            while index + 1 < lines.len() && !lines[index].starts_with("*** ") {
+                let Some(rest) = lines[index].strip_prefix('+') else {
+                    return Ok(invalid_patch(format!(
+                        "Add File line must start with '+': {}",
+                        lines[index]
+                    )));
+                };
+                content.push_str(rest);
+                content.push('\n');
+                index += 1;
+            }
+            let target = cwd.join(path);
+            if let Some(parent) = target.parent() {
+                tokio::fs::create_dir_all(parent).await?;
+            }
+            tokio::fs::write(&target, content).await?;
+            changed.push(path.to_string());
+            continue;
+        }
+        if let Some(path) = line.strip_prefix("*** Delete File: ") {
+            let target = cwd.join(path);
+            tokio::fs::remove_file(&target).await?;
+            changed.push(path.to_string());
+            index += 1;
+            continue;
+        }
+        if let Some(path) = line.strip_prefix("*** Update File: ") {
+            index += 1;
+            let mut move_to = None;
+            if index + 1 < lines.len() {
+                if let Some(dest) = lines[index].strip_prefix("*** Move to: ") {
+                    move_to = Some(dest.to_string());
+                    index += 1;
+                }
+            }
+            let mut old = String::new();
+            let mut new = String::new();
+            while index + 1 < lines.len()
+                && (!lines[index].starts_with("*** ") || lines[index] == "*** End of File")
+            {
+                let current = lines[index];
+                if current.starts_with("@@") {
+                    index += 1;
+                    continue;
+                }
+                if current == "*** End of File" {
+                    index += 1;
+                    continue;
+                }
+                let Some(marker) = current.chars().next() else {
+                    index += 1;
+                    continue;
+                };
+                let body = &current[marker.len_utf8()..];
+                match marker {
+                    ' ' => {
+                        old.push_str(body);
+                        old.push('\n');
+                        new.push_str(body);
+                        new.push('\n');
+                    }
+                    '-' => {
+                        old.push_str(body);
+                        old.push('\n');
+                    }
+                    '+' => {
+                        new.push_str(body);
+                        new.push('\n');
+                    }
+                    _ => return Ok(invalid_patch(format!("Invalid update line: {}", current))),
+                }
+                index += 1;
+            }
+            let target = cwd.join(path);
+            let content = tokio::fs::read_to_string(&target).await?;
+            let updated = replace_patch_chunk(&content, &old, &new).ok_or_else(|| {
+                anyhow::anyhow!("Patch context not found in {}", target.display())
+            })?;
+            if let Some(dest) = move_to {
+                let dest_path = cwd.join(&dest);
+                if let Some(parent) = dest_path.parent() {
+                    tokio::fs::create_dir_all(parent).await?;
+                }
+                tokio::fs::write(&dest_path, updated).await?;
+                tokio::fs::remove_file(&target).await?;
+                changed.push(format!("{} -> {}", path, dest));
+            } else {
+                tokio::fs::write(&target, updated).await?;
+                changed.push(path.to_string());
+            }
+            continue;
+        }
+        return Ok(invalid_patch(format!("Unsupported patch directive: {}", line)));
+    }
+
+    Ok(ToolResult::success_with_metadata(
+        format!("Applied patch to {} file(s).", changed.len()),
+        json!({ "changed_files": changed }),
+    ))
+}
+
+fn replace_patch_chunk(content: &str, old: &str, new: &str) -> Option<String> {
+    if old.is_empty() {
+        return None;
+    }
+    if let Some(updated) = replace_once(content, old, new) {
+        return Some(updated);
+    }
+    let trimmed_old = old.strip_suffix('\n').unwrap_or(old);
+    let trimmed_new = new.strip_suffix('\n').unwrap_or(new);
+    replace_once(content, trimmed_old, trimmed_new)
+}
+
+fn replace_once(content: &str, old: &str, new: &str) -> Option<String> {
+    let index = content.find(old)?;
+    let mut updated = String::with_capacity(content.len() - old.len() + new.len());
+    updated.push_str(&content[..index]);
+    updated.push_str(new);
+    updated.push_str(&content[index + old.len()..]);
+    Some(updated)
+}
+
+fn invalid_patch(message: String) -> ToolResult {
+    ToolResult::error_typed(
+        message,
+        ToolErrorType::Validation,
+        true,
+        Some("Use Codex apply_patch syntax and include enough unchanged context.".to_string()),
+    )
+}
+
+fn resolve_path(ctx: &ToolContext, raw_path: &str) -> PathBuf {
+    let path = PathBuf::from(raw_path);
+    if path.is_absolute() {
+        path
+    } else if let Some(cwd) = &ctx.working_dir {
+        cwd.join(path)
+    } else {
+        path
+    }
+}
+
+fn image_mime_type(path: &std::path::Path) -> Option<&'static str> {
+    match path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| extension.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("png") => Some("image/png"),
+        Some("jpg") | Some("jpeg") => Some("image/jpeg"),
+        Some("gif") => Some("image/gif"),
+        Some("webp") => Some("image/webp"),
+        Some("bmp") => Some("image/bmp"),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
 
     use crate::tool::{Tool, ToolContext};
 
-    use super::{ExecCommandTool, ShellCommandTool};
+    use super::{
+        ApplyPatchTool, ExecCommandTool, GetContextRemainingTool, ShellCommandTool, ViewImageTool,
+    };
 
     #[tokio::test]
     async fn exec_command_runs_codex_style_cmd() {
@@ -193,7 +583,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(!result.is_error);
+        assert!(!result.is_error, "{}", result.content);
         assert!(result.content.contains("yode"));
     }
 
@@ -215,7 +605,87 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(!result.is_error);
+        assert!(!result.is_error, "{}", result.content);
         assert!(result.content.contains("marker.txt"));
+    }
+
+    #[tokio::test]
+    async fn apply_patch_updates_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("hello.txt");
+        tokio::fs::write(&file, "hello\nworld\n").await.unwrap();
+        let mut ctx = ToolContext::empty();
+        ctx.working_dir = Some(dir.path().to_path_buf());
+
+        let result = ApplyPatchTool
+            .execute(
+                json!({
+                    "patch": "*** Begin Patch\n*** Update File: hello.txt\n@@\n hello\n-world\n+yode\n*** End Patch"
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.is_error, "{}", result.content);
+        assert_eq!(tokio::fs::read_to_string(&file).await.unwrap(), "hello\nyode\n");
+    }
+
+    #[tokio::test]
+    async fn apply_patch_accepts_end_of_file_marker() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("hello.txt");
+        tokio::fs::write(&file, "hello\nworld\n").await.unwrap();
+        let mut ctx = ToolContext::empty();
+        ctx.working_dir = Some(dir.path().to_path_buf());
+
+        let result = ApplyPatchTool
+            .execute(
+                json!({
+                    "patch": "*** Begin Patch\n*** Update File: hello.txt\n@@\n hello\n-world\n+yode\n*** End of File\n*** End Patch"
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.is_error, "{}", result.content);
+        assert_eq!(tokio::fs::read_to_string(&file).await.unwrap(), "hello\nyode\n");
+    }
+
+    #[tokio::test]
+    async fn view_image_returns_data_url_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let image = dir.path().join("tiny.png");
+        tokio::fs::write(&image, b"fake").await.unwrap();
+        let mut ctx = ToolContext::empty();
+        ctx.working_dir = Some(dir.path().to_path_buf());
+
+        let result = ViewImageTool
+            .execute(json!({ "path": "tiny.png" }), &ctx)
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert_eq!(result.metadata.as_ref().unwrap()["mime_type"], json!("image/png"));
+        assert!(result.metadata.as_ref().unwrap()["image_url"]
+            .as_str()
+            .unwrap()
+            .starts_with("data:image/png;base64,"));
+    }
+
+    #[tokio::test]
+    async fn get_context_remaining_uses_context_metrics() {
+        let mut ctx = ToolContext::empty();
+        ctx.context_window_tokens = Some(100);
+        ctx.estimated_context_tokens = Some(35);
+
+        let result = GetContextRemainingTool
+            .execute(json!({}), &ctx)
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert_eq!(result.metadata.as_ref().unwrap()["tokens_left"], json!(65));
     }
 }

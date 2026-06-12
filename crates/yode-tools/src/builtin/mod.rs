@@ -75,6 +75,9 @@ pub fn register_builtin_tools(registry: &ToolRegistry) {
     registry.register(Arc::new(bash::BashTool));
     registry.register(Arc::new(codex_compat::ExecCommandTool));
     registry.register(Arc::new(codex_compat::ShellCommandTool));
+    registry.register(Arc::new(codex_compat::ApplyPatchTool));
+    registry.register(Arc::new(codex_compat::ViewImageTool));
+    registry.register(Arc::new(codex_compat::GetContextRemainingTool));
     registry.register(Arc::new(powershell::PowerShellTool));
     registry.register(Arc::new(glob::GlobTool));
     registry.register(Arc::new(grep::GrepTool));
@@ -163,5 +166,8 @@ mod tests {
 
         assert!(names.contains("exec_command"));
         assert!(names.contains("shell_command"));
+        assert!(names.contains("apply_patch"));
+        assert!(names.contains("view_image"));
+        assert!(names.contains("get_context_remaining"));
     }
 }

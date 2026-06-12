@@ -191,6 +191,10 @@ pub struct ToolContext {
     pub provider: Option<String>,
     /// Current model name.
     pub model: Option<String>,
+    /// Current model context window, in estimated tokens.
+    pub context_window_tokens: Option<usize>,
+    /// Current estimated context usage, in tokens.
+    pub estimated_context_tokens: Option<usize>,
     /// Sub-agent runner for the `agent` tool.
     pub sub_agent_runner: Option<Arc<dyn SubAgentRunner>>,
     /// MCP resource provider for list/read MCP resources.
