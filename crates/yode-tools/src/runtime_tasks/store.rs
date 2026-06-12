@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 
 const MAX_PROGRESS_HISTORY: usize = 8;
 const DEFAULT_MAX_COMPLETED_TASKS: usize = 20;
@@ -84,6 +84,7 @@ impl RuntimeTaskNotificationSeverity {
 pub struct RuntimeTaskStore {
     tasks: HashMap<String, RuntimeTask>,
     controls: HashMap<String, watch::Sender<bool>>,
+    stdin_writers: HashMap<String, mpsc::UnboundedSender<String>>,
     notifications: Vec<RuntimeTaskNotification>,
     next_id: u64,
 }
@@ -93,6 +94,7 @@ impl RuntimeTaskStore {
         Self {
             tasks: HashMap::new(),
             controls: HashMap::new(),
+            stdin_writers: HashMap::new(),
             notifications: Vec::new(),
             next_id: 1,
         }
@@ -214,6 +216,7 @@ impl RuntimeTaskStore {
             });
         }
         self.controls.remove(id);
+        self.stdin_writers.remove(id);
         self.prune_completed();
     }
 
@@ -237,6 +240,7 @@ impl RuntimeTaskStore {
             });
         }
         self.controls.remove(id);
+        self.stdin_writers.remove(id);
         self.prune_completed();
     }
 
@@ -259,6 +263,7 @@ impl RuntimeTaskStore {
             });
         }
         self.controls.remove(id);
+        self.stdin_writers.remove(id);
         self.prune_completed();
     }
 
@@ -269,6 +274,32 @@ impl RuntimeTaskStore {
         } else {
             false
         }
+    }
+
+    pub fn attach_stdin_writer(&mut self, id: &str, writer: mpsc::UnboundedSender<String>) -> bool {
+        if !self.tasks.contains_key(id) {
+            return false;
+        }
+        self.stdin_writers.insert(id.to_string(), writer);
+        true
+    }
+
+    pub fn write_stdin(&mut self, id: &str, input: String) -> Result<(), String> {
+        let Some(task) = self.tasks.get(id) else {
+            return Err(format!("Runtime task '{}' not found.", id));
+        };
+        if !matches!(
+            task.status,
+            RuntimeTaskStatus::Pending | RuntimeTaskStatus::Running
+        ) {
+            return Err(format!("Runtime task '{}' is not running.", id));
+        }
+        let Some(writer) = self.stdin_writers.get(id) else {
+            return Err(format!("Runtime task '{}' does not accept stdin.", id));
+        };
+        writer
+            .send(input)
+            .map_err(|_| format!("Runtime task '{}' stdin is closed.", id))
     }
 
     pub fn drain_notifications(&mut self) -> Vec<RuntimeTaskNotification> {

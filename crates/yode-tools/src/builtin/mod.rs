@@ -79,6 +79,7 @@ pub fn register_builtin_tools(registry: &ToolRegistry) {
     registry.register(Arc::new(codex_compat::ViewImageTool));
     registry.register(Arc::new(codex_compat::GetContextRemainingTool));
     registry.register(Arc::new(codex_compat::UpdatePlanTool));
+    registry.register(Arc::new(codex_compat::WriteStdinTool));
     registry.register(Arc::new(powershell::PowerShellTool));
     registry.register(Arc::new(glob::GlobTool));
     registry.register(Arc::new(grep::GrepTool));
@@ -171,5 +172,6 @@ mod tests {
         assert!(names.contains("view_image"));
         assert!(names.contains("get_context_remaining"));
         assert!(names.contains("update_plan"));
+        assert!(names.contains("write_stdin"));
     }
 }

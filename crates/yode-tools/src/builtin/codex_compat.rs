@@ -7,6 +7,7 @@ use serde_json::{json, Value};
 
 use crate::builtin::bash::BashTool;
 use crate::builtin::shell_runtime::timeout_ms_description;
+use crate::runtime_tasks::RuntimeTaskStatus;
 use crate::state::TaskStatus;
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolErrorType, ToolResult};
 
@@ -16,6 +17,7 @@ pub struct ApplyPatchTool;
 pub struct ViewImageTool;
 pub struct GetContextRemainingTool;
 pub struct UpdatePlanTool;
+pub struct WriteStdinTool;
 
 #[async_trait]
 impl Tool for ExecCommandTool {
@@ -544,6 +546,155 @@ At most one step can be in_progress at a time."#
     }
 }
 
+#[async_trait]
+impl Tool for WriteStdinTool {
+    fn name(&self) -> &str {
+        "write_stdin"
+    }
+
+    fn user_facing_name(&self) -> &str {
+        "Write Stdin"
+    }
+
+    fn activity_description(&self, params: &Value) -> String {
+        let target = params
+            .get("session_id")
+            .or_else(|| params.get("task_id"))
+            .and_then(Value::as_str)
+            .unwrap_or("latest");
+        format!("Writing stdin: {}", target)
+    }
+
+    fn description(&self) -> &str {
+        "Codex-compatible stdin writer for a running background command. Use this after starting exec_command/bash with run_in_background=true when the process is waiting for input."
+    }
+
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "session_id": {
+                    "type": "string",
+                    "description": "Codex-compatible running command session id. In Yode this is the runtime task id returned by exec_command/bash."
+                },
+                "task_id": {
+                    "type": "string",
+                    "description": "Yode runtime task id. If omitted, uses the latest running task that accepts stdin."
+                },
+                "chars": {
+                    "type": "string",
+                    "description": "Bytes/text to write to stdin. Include newline characters when the program is waiting for Enter."
+                },
+                "yield_time_ms": {
+                    "type": "integer",
+                    "description": "Codex-compatible wait hint accepted for schema compatibility."
+                },
+                "max_output_tokens": {
+                    "type": "integer",
+                    "description": "Codex-compatible output budget hint accepted for schema compatibility."
+                }
+            },
+            "required": ["chars"]
+        })
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            requires_confirmation: false,
+            supports_auto_execution: true,
+            read_only: false,
+        }
+    }
+
+    async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
+        let Some(runtime_tasks) = &ctx.runtime_tasks else {
+            return Ok(ToolResult::error_typed(
+                "Runtime task store not available.".to_string(),
+                ToolErrorType::Execution,
+                true,
+                Some("Start a background command in an agent session first.".to_string()),
+            ));
+        };
+        let chars = params
+            .get("chars")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow::anyhow!("Missing required parameter: chars"))?
+            .to_string();
+        let target = params
+            .get("session_id")
+            .or_else(|| params.get("task_id"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+
+        let task_id = {
+            let store = runtime_tasks.lock().await;
+            if let Some(target) = target {
+                target
+            } else {
+                store
+                    .list()
+                    .into_iter()
+                    .rev()
+                    .find(|task| {
+                        matches!(
+                            task.status,
+                            RuntimeTaskStatus::Pending | RuntimeTaskStatus::Running
+                        )
+                    })
+                    .map(|task| task.id)
+                    .ok_or_else(|| anyhow::anyhow!("No running runtime task found."))?
+            }
+        };
+
+        let mut last_error = None;
+        for attempt in 0..20 {
+            let write_result = runtime_tasks
+                .lock()
+                .await
+                .write_stdin(&task_id, chars.clone());
+            match write_result {
+                Ok(()) => {
+                    return Ok(ToolResult::success_with_metadata(
+                        format!("Wrote {} byte(s) to {}.", chars.len(), task_id),
+                        json!({
+                            "task_id": task_id,
+                            "session_id": task_id,
+                            "bytes": chars.len(),
+                        }),
+                    ));
+                }
+                Err(error) if error.contains("does not accept stdin") && attempt < 19 => {
+                    last_error = Some(error);
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                }
+                Err(error) => {
+                    last_error = Some(error);
+                    break;
+                }
+            }
+        }
+
+        match last_error {
+            None => Ok(ToolResult::success_with_metadata(
+                format!("Wrote {} byte(s) to {}.", chars.len(), task_id),
+                json!({
+                    "task_id": task_id,
+                    "session_id": task_id,
+                    "bytes": chars.len(),
+                }),
+            )),
+            Some(error) => Ok(ToolResult::error_typed(
+                error,
+                ToolErrorType::Execution,
+                true,
+                Some("Check task_output or /tasks to confirm the command is still running and accepts stdin.".to_string()),
+            )),
+        }
+    }
+}
+
 fn copy_if_present(from: &Value, to: &mut Value, key: &str) {
     if let Some(value) = from.get(key) {
         to[key] = value.clone();
@@ -746,11 +897,13 @@ fn image_mime_type(path: &std::path::Path) -> Option<&'static str> {
 mod tests {
     use serde_json::json;
 
+    use crate::builtin::task_output::TaskOutputTool;
+    use crate::runtime_tasks::RuntimeTaskStore;
     use crate::tool::{Tool, ToolContext};
 
     use super::{
         ApplyPatchTool, ExecCommandTool, GetContextRemainingTool, ShellCommandTool, UpdatePlanTool,
-        ViewImageTool,
+        ViewImageTool, WriteStdinTool,
     };
 
     #[tokio::test]
@@ -918,5 +1071,58 @@ mod tests {
 
         assert!(result.is_error);
         assert!(result.content.contains("at most one step"));
+    }
+
+    #[tokio::test]
+    async fn write_stdin_feeds_background_exec_command() {
+        let dir = tempfile::tempdir().unwrap();
+        let runtime_tasks = std::sync::Arc::new(tokio::sync::Mutex::new(RuntimeTaskStore::new()));
+        let mut ctx = ToolContext::empty();
+        ctx.working_dir = Some(dir.path().to_path_buf());
+        ctx.runtime_tasks = Some(runtime_tasks);
+
+        let started = ExecCommandTool
+            .execute(
+                json!({
+                    "cmd": "printf 'ready\\n'; IFS= read line; printf 'got:%s\\n' \"$line\"",
+                    "run_in_background": true
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+        assert!(!started.is_error, "{}", started.content);
+        let task_id = started.metadata.as_ref().unwrap()["task_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let wrote = WriteStdinTool
+            .execute(
+                json!({
+                    "session_id": task_id,
+                    "chars": "hello from stdin\n"
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+        assert!(!wrote.is_error, "{}", wrote.content);
+
+        let output = TaskOutputTool
+            .execute(
+                json!({
+                    "task_id": task_id,
+                    "block": true,
+                    "timeout": 5000
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(!output.is_error, "{}", output.content);
+        assert!(output.content.contains("ready"));
+        assert!(output.content.contains("got:hello from stdin"));
     }
 }

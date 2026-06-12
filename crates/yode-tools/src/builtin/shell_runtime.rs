@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use serde_json::Value;
+use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use uuid::Uuid;
 
@@ -235,6 +236,7 @@ pub(crate) async fn execute_background_shell(
 
         let mut child = match Command::new(&executable)
             .args(&args)
+            .stdin(Stdio::piped())
             .stdout(Stdio::from(stdout_file))
             .stderr(Stdio::from(stderr_file))
             .current_dir(&working_dir)
@@ -249,6 +251,35 @@ pub(crate) async fn execute_background_shell(
                 return;
             }
         };
+        if let Some(mut stdin) = child.stdin.take() {
+            let (stdin_tx, mut stdin_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+            let attached = runtime_tasks
+                .lock()
+                .await
+                .attach_stdin_writer(&task_id, stdin_tx);
+            if attached {
+                let stdin_task_id = task_id.clone();
+                let stdin_runtime_tasks = runtime_tasks.clone();
+                tokio::spawn(async move {
+                    while let Some(input) = stdin_rx.recv().await {
+                        if let Err(err) = stdin.write_all(input.as_bytes()).await {
+                            stdin_runtime_tasks.lock().await.update_progress(
+                                &stdin_task_id,
+                                format!("stdin closed: {}", err),
+                            );
+                            break;
+                        }
+                        if let Err(err) = stdin.flush().await {
+                            stdin_runtime_tasks.lock().await.update_progress(
+                                &stdin_task_id,
+                                format!("stdin flush failed: {}", err),
+                            );
+                            break;
+                        }
+                    }
+                });
+            }
+        }
 
         let (done_tx, done_rx) = tokio::sync::watch::channel(false);
         spawn_output_progress_monitor(
