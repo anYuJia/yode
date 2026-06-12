@@ -2,6 +2,7 @@ pub mod agent;
 pub mod ask_user;
 pub mod bash;
 pub mod batch;
+pub mod codex_compat;
 pub mod common;
 pub mod coordinator;
 pub mod cron;
@@ -72,6 +73,8 @@ pub fn register_builtin_tools(registry: &ToolRegistry) {
     registry.register(Arc::new(edit_file::EditFileTool));
     registry.register(Arc::new(edit_file::SnipTool));
     registry.register(Arc::new(bash::BashTool));
+    registry.register(Arc::new(codex_compat::ExecCommandTool));
+    registry.register(Arc::new(codex_compat::ShellCommandTool));
     registry.register(Arc::new(powershell::PowerShellTool));
     registry.register(Arc::new(glob::GlobTool));
     registry.register(Arc::new(grep::GrepTool));
@@ -142,4 +145,23 @@ pub fn register_skill_tool(registry: &ToolRegistry, store: Arc<Mutex<skill::Skil
         store: store.clone(),
     }));
     registry.register(Arc::new(skill::discover::DiscoverSkillsTool { store }));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builtin_registry_exposes_codex_compatible_shell_tools() {
+        let registry = ToolRegistry::new();
+        register_builtin_tools(&registry);
+        let names = registry
+            .definitions()
+            .into_iter()
+            .map(|definition| definition.name)
+            .collect::<std::collections::HashSet<_>>();
+
+        assert!(names.contains("exec_command"));
+        assert!(names.contains("shell_command"));
+    }
 }
