@@ -20,7 +20,13 @@ pub enum AppEvent {
 pub fn poll_event(timeout: Duration) -> Result<Option<AppEvent>> {
     if event::poll(timeout)? {
         match event::read()? {
-            Event::Key(key) => Ok(Some(AppEvent::Key(key))),
+            Event::Key(key) => {
+                if key.kind == event::KeyEventKind::Release {
+                    Ok(None)
+                } else {
+                    Ok(Some(AppEvent::Key(key)))
+                }
+            }
             Event::Paste(text) => Ok(Some(AppEvent::Paste(text))),
             Event::Resize(w, h) => Ok(Some(AppEvent::Resize(w, h))),
             Event::FocusGained | Event::FocusLost => Ok(None),
