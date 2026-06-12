@@ -27,6 +27,13 @@ pub struct DesktopProvider {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DefaultLlm {
+    pub provider: String,
+    pub model: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DesktopSession {
     pub id: String,
     pub title: String,

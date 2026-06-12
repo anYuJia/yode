@@ -17,6 +17,7 @@ import {
   X
 } from "lucide-react";
 import { CustomSelect } from "../CustomSelect";
+import { Bootstrap, DefaultLlm } from "../../lib/mock";
 
 interface ProviderConfigData {
   id: string;
@@ -360,9 +361,11 @@ function normalizeProvider(raw: any): ProviderConfigData {
 }
 
 export function ProvidersSettings({
+  bootstrap,
   isZh,
   t
 }: {
+  bootstrap: Bootstrap;
   isZh: boolean;
   t: (zh: string, en: string) => string;
 }) {
@@ -402,6 +405,10 @@ export function ProvidersSettings({
   const [checkMessage, setCheckMessage] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [defaultLlm, setDefaultLlm] = useState<DefaultLlm>({
+    provider: bootstrap.provider,
+    model: bootstrap.model
+  });
 
   useEffect(() => {
     if (deletingId) {
@@ -431,6 +438,14 @@ export function ProvidersSettings({
             localStorage.setItem("yode-llm-providers", JSON.stringify(normalized));
           }
         })
+        .catch(console.error);
+    }
+  }, []);
+
+  useEffect(() => {
+    if ("__TAURI_INTERNALS__" in window) {
+      invoke<DefaultLlm>("config_get_default_llm")
+        .then(setDefaultLlm)
         .catch(console.error);
     }
   }, []);
@@ -593,6 +608,35 @@ export function ProvidersSettings({
     }
   };
 
+  const handleSetDefaultProvider = async (provider: ProviderConfigData, model?: string) => {
+    const nextModel = model || provider.models[0] || defaultLlm.model;
+    if (!provider.enabled) {
+      setToastMessage(t("请先启用该提供商。", "Enable this provider first."));
+      return;
+    }
+    if (!nextModel) {
+      setToastMessage(t("请先添加一个模型。", "Add a model first."));
+      return;
+    }
+    const nextDefault = { provider: provider.id, model: nextModel };
+    setDefaultLlm(nextDefault);
+    localStorage.setItem(`yode-last-model-${provider.id}`, nextModel);
+    if ("__TAURI_INTERNALS__" in window) {
+      try {
+        const saved = await invoke<DefaultLlm>("config_set_default_llm", nextDefault);
+        setDefaultLlm(saved);
+        window.dispatchEvent(new CustomEvent("yode-default-llm-change", { detail: saved }));
+      } catch (err) {
+        console.error(err);
+        setToastMessage(String(err || t("设置默认模型失败。", "Failed to set default model.")));
+        return;
+      }
+    } else {
+      window.dispatchEvent(new CustomEvent("yode-default-llm-change", { detail: nextDefault }));
+    }
+    setToastMessage(t("已设为新对话默认模型。", "Default model for new chats updated."));
+  };
+
   const handleAddModelTag = () => {
     const next = newModelInput.trim();
     if (next && !formModels.includes(next)) {
@@ -610,8 +654,8 @@ export function ProvidersSettings({
           <p className="providers-kicker">{t("模型提供商", "Model providers")}</p>
           <p className="providers-summary">
             {t(
-              `${providers.length} 个配置，${enabledCount} 个启用。`,
-              `${providers.length} configured, ${enabledCount} enabled.`
+              `${providers.length} 个配置，${enabledCount} 个启用。默认：${defaultLlm.provider} / ${defaultLlm.model}`,
+              `${providers.length} configured, ${enabledCount} enabled. Default: ${defaultLlm.provider} / ${defaultLlm.model}`
             )}
           </p>
         </div>
@@ -703,13 +747,28 @@ export function ProvidersSettings({
                 {provider.models.length > 0 && (
                   <div className="provider-models">
                     {provider.models.slice(0, 4).map((model) => (
-                      <code key={model}>{model}</code>
+                      <code
+                        key={model}
+                        className={defaultLlm.provider === provider.id && defaultLlm.model === model ? "default" : ""}
+                        onClick={() => void handleSetDefaultProvider(provider, model)}
+                        title={t("点击设为新对话默认模型", "Click to set as default for new chats")}
+                      >
+                        {model}
+                      </code>
                     ))}
                     {provider.models.length > 4 && <span>+{provider.models.length - 4}</span>}
                   </div>
                 )}
               </div>
               <div className="provider-actions">
+                <button
+                  type="button"
+                  className={defaultLlm.provider === provider.id ? "provider-default-button active" : "provider-default-button"}
+                  onClick={() => void handleSetDefaultProvider(provider)}
+                  title={t("设为新对话默认", "Set as default for new chats")}
+                >
+                  {defaultLlm.provider === provider.id ? t("默认", "Default") : t("设默认", "Default")}
+                </button>
                 <button
                   type="button"
                   className={provider.enabled ? "provider-switch active" : "provider-switch"}

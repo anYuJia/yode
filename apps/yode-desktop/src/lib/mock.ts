@@ -7,6 +7,11 @@ export type Bootstrap = {
   sessions: SessionSummary[];
 };
 
+export type DefaultLlm = {
+  provider: string;
+  model: string;
+};
+
 export type SessionSummary = {
   id: string;
   title: string;

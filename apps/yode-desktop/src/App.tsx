@@ -553,6 +553,18 @@ export function App() {
     const handleUnarchive = () => {
       loadBootstrap();
     };
+    const handleDefaultLlmChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ provider?: string; model?: string }>).detail;
+      if (!detail?.provider || !detail?.model) {
+        loadBootstrap();
+        return;
+      }
+      setBootstrap((current) => ({
+        ...current,
+        provider: detail.provider!,
+        model: detail.model!
+      }));
+    };
     const handlePermanentDelete = (event: Event) => {
       const sessionId = (event as CustomEvent<{ sessionId?: string }>).detail?.sessionId;
       if (!sessionId) {
@@ -563,9 +575,11 @@ export function App() {
       setActiveSessionId((current) => current === sessionId ? null : current);
     };
     window.addEventListener("yode-session-unarchived", handleUnarchive);
+    window.addEventListener("yode-default-llm-change", handleDefaultLlmChange);
     window.addEventListener("yode-session-deleted-permanently", handlePermanentDelete);
     return () => {
       window.removeEventListener("yode-session-unarchived", handleUnarchive);
+      window.removeEventListener("yode-default-llm-change", handleDefaultLlmChange);
       window.removeEventListener("yode-session-deleted-permanently", handlePermanentDelete);
     };
   }, []);
@@ -703,6 +717,14 @@ export function App() {
   };
 
   function handleCreateSession(projectRoot?: string | null) {
+    const recentSession = sessionItems.find((session) => session.provider && session.model);
+    if (recentSession?.provider && recentSession.model) {
+      setBootstrap((current) => ({
+        ...current,
+        provider: recentSession.provider!,
+        model: recentSession.model!
+      }));
+    }
     setActiveSessionId(null);
     setCurrentTurnId(null);
     setMessageQueue([]);
@@ -1006,6 +1028,17 @@ export function App() {
 
     // 3. Filter state
     setSessionItems(prev => prev.filter(s => s.id !== sessionId));
+    if (activeSessionIdRef.current === sessionId) {
+      const nextProjectRoot = session.projectRoot ?? null;
+      activeSessionIdRef.current = null;
+      setActiveSessionId(null);
+      setCurrentTurnId(null);
+      setMessageQueue([]);
+      setIsProcessing(false);
+      setPendingUserQuestion(null);
+      setTimelineItems([]);
+      setSelectedProjectRoot(nextProjectRoot);
+    }
   };
 
   const isStandalone = activeSession

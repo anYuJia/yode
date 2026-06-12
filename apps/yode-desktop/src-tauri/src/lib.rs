@@ -156,6 +156,26 @@ fn config_save_providers(
 }
 
 #[tauri::command]
+fn config_get_default_llm(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+) -> Result<protocol::DefaultLlm, String> {
+    runtime
+        .config_get_default_llm()
+        .map_err(|err: anyhow::Error| err.to_string())
+}
+
+#[tauri::command]
+fn config_set_default_llm(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    provider: String,
+    model: String,
+) -> Result<protocol::DefaultLlm, String> {
+    runtime
+        .config_set_default_llm(provider, model)
+        .map_err(|err: anyhow::Error| err.to_string())
+}
+
+#[tauri::command]
 async fn config_test_provider(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
     provider: protocol::DesktopProvider,
@@ -188,6 +208,8 @@ pub fn run() {
             sessions_update_llm,
             config_get_providers,
             config_save_providers,
+            config_get_default_llm,
+            config_set_default_llm,
             config_test_provider
         ])
         .run(tauri::generate_context!())

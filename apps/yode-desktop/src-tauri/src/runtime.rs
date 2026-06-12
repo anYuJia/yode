@@ -23,8 +23,8 @@ use yode_tools::registry::ToolRegistry;
 use yode_tools::tool::McpResourceProvider;
 
 use crate::protocol::{
-    Bootstrap, CreateSessionRequest, DesktopEvent, DesktopMessage, DesktopProvider, DesktopSession,
-    RuntimeState, SendMessageRequest, TurnAccepted,
+    Bootstrap, CreateSessionRequest, DefaultLlm, DesktopEvent, DesktopMessage, DesktopProvider,
+    DesktopSession, RuntimeState, SendMessageRequest, TurnAccepted,
 };
 
 pub struct DesktopRuntime {
@@ -133,16 +133,13 @@ impl DesktopRuntime {
             .config
             .lock()
             .map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
+        let (default_provider, default_model) = self.default_llm_for_new_session(&config)?;
         let session = Session {
             id: Uuid::new_v4().to_string(),
             name: request.title.or_else(|| Some("桌面端会话".to_string())),
             project_root: request.project_root,
-            provider: request
-                .provider
-                .unwrap_or_else(|| config.llm.default_provider.clone()),
-            model: request
-                .model
-                .unwrap_or_else(|| config.llm.default_model.clone()),
+            provider: request.provider.unwrap_or(default_provider),
+            model: request.model.unwrap_or(default_model),
             created_at: now,
             updated_at: now,
         };
@@ -295,6 +292,7 @@ impl DesktopRuntime {
             }
             s
         } else {
+            let (default_provider, default_model) = self.default_llm_for_new_session(&config)?;
             let session = Session {
                 id: Uuid::new_v4().to_string(),
                 name: request
@@ -309,12 +307,8 @@ impl DesktopRuntime {
                         .filter(|root| !root.trim().is_empty())
                         .or_else(|| Some(self.workspace_path.display().to_string()))
                 },
-                provider: request
-                    .provider
-                    .unwrap_or_else(|| config.llm.default_provider.clone()),
-                model: request
-                    .model
-                    .unwrap_or_else(|| config.llm.default_model.clone()),
+                provider: request.provider.unwrap_or(default_provider),
+                model: request.model.unwrap_or(default_model),
                 created_at: now,
                 updated_at: now,
             };
@@ -948,6 +942,18 @@ impl DesktopRuntime {
         }
     }
 
+    fn default_llm_for_new_session(&self, config: &Config) -> Result<(String, String)> {
+        if let Some(session) = self.db.list_sessions(1)?.into_iter().next() {
+            if !session.provider.trim().is_empty() && !session.model.trim().is_empty() {
+                return Ok((session.provider, session.model));
+            }
+        }
+        Ok((
+            config.llm.default_provider.clone(),
+            config.llm.default_model.clone(),
+        ))
+    }
+
     pub fn config_get_providers(&self) -> Result<Vec<DesktopProvider>> {
         let config = self
             .config
@@ -986,6 +992,39 @@ impl DesktopRuntime {
         Ok(providers)
     }
 
+    pub fn config_get_default_llm(&self) -> Result<DefaultLlm> {
+        let config = self
+            .config
+            .lock()
+            .map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
+        Ok(DefaultLlm {
+            provider: config.llm.default_provider.clone(),
+            model: config.llm.default_model.clone(),
+        })
+    }
+
+    pub fn config_set_default_llm(&self, provider: String, model: String) -> Result<DefaultLlm> {
+        let provider = provider.trim().to_string();
+        let model = model.trim().to_string();
+        if provider.is_empty() || model.is_empty() {
+            anyhow::bail!("provider and model cannot be empty");
+        }
+        let mut config = self
+            .config
+            .lock()
+            .map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
+        if !config.llm.providers.contains_key(&provider) {
+            anyhow::bail!("Provider '{}' not found", provider);
+        }
+        config.llm.default_provider = provider;
+        config.llm.default_model = model;
+        config.save()?;
+        Ok(DefaultLlm {
+            provider: config.llm.default_provider.clone(),
+            model: config.llm.default_model.clone(),
+        })
+    }
+
     pub fn config_save_providers(&self, providers: Vec<DesktopProvider>) -> Result<()> {
         let mut config = self
             .config
@@ -1012,6 +1051,20 @@ impl DesktopRuntime {
                     gradient: p.gradient,
                 },
             );
+        }
+        if !new_providers.contains_key(&config.llm.default_provider) {
+            if let Some((provider, config_provider)) = new_providers
+                .iter()
+                .find(|(_, provider)| provider.enabled.unwrap_or(true))
+                .or_else(|| new_providers.iter().next())
+            {
+                config.llm.default_provider = provider.clone();
+                config.llm.default_model = config_provider
+                    .models
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| config.llm.default_model.clone());
+            }
         }
         config.llm.providers = new_providers;
         config.save()?;

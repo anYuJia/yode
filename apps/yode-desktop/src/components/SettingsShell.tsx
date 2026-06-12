@@ -809,7 +809,7 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
           )}
 
           {activeTab === "模型提供商" && (
-            <ProvidersSettings isZh={isZh} t={t} />
+            <ProvidersSettings bootstrap={bootstrap} isZh={isZh} t={t} />
           )}
 
           {activeTab !== "常规" && activeTab !== "外观" && activeTab !== "配置" && activeTab !== "模型提供商" && activeTab !== "个性化" && activeTab !== "键盘快捷键" && activeTab !== "MCP 服务器" && activeTab !== "浏览器" && activeTab !== "计算机使用" && activeTab !== "钩子" && activeTab !== "Git" && activeTab !== "环境" && activeTab !== "工作树" && activeTab !== "已归档对话" && (
