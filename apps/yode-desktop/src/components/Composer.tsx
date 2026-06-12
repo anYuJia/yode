@@ -1,0 +1,423 @@
+import React, { useState, useRef, useMemo, useEffect } from "react";
+import {
+  Paperclip,
+  Folder,
+  Check,
+  FolderPlus,
+  Hand,
+  Shield,
+  AlertCircle,
+  ChevronDown,
+  Send,
+  Square
+} from "lucide-react";
+import { PROVIDERS_META } from "./settings/ProvidersSettings";
+import { TopbarProviderIcon } from "./Topbar";
+
+interface ComposerProps {
+  draft: string;
+  onDraftChange: (value: string) => void;
+  onSendMessage: () => void;
+  isProcessing: boolean;
+  onCancelMessage: () => void;
+  permissionMode: string;
+  onPermissionModeChange: (mode: string) => void;
+  appLang: string;
+  projectOptions: Array<{ label: string; root: string | null }>;
+  selectedProjectRoot: string | null;
+  onProjectRootChange: (root: string | null) => void;
+  onAddProject: () => Promise<void>;
+  currentProvider: string;
+  currentModel: string;
+  onModelChange: (model: string) => void;
+}
+
+export function Composer({
+  draft,
+  onDraftChange,
+  onSendMessage,
+  isProcessing,
+  onCancelMessage,
+  permissionMode,
+  onPermissionModeChange,
+  appLang,
+  projectOptions,
+  selectedProjectRoot,
+  onProjectRootChange,
+  onAddProject,
+  currentProvider,
+  currentModel,
+  onModelChange
+}: ComposerProps) {
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
+  const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const projectDropdownRef = useRef<HTMLDivElement>(null);
+  const modelDropdownRef = useRef<HTMLDivElement>(null);
+
+  const isZh = appLang === "zh";
+
+  const modelOptions = useMemo(() => {
+    const saved = localStorage.getItem("yode-llm-providers");
+    let list: any[] = [];
+    if (saved) {
+      try {
+        const data = JSON.parse(saved);
+        if (Array.isArray(data)) {
+          list = data;
+        } else if (data && typeof data === "object") {
+          list = Object.values(data);
+        }
+      } catch (e) {}
+    }
+    const found = list.find((p: any) => p && p.id === currentProvider);
+    if (found && Array.isArray(found.models) && found.models.length > 0) {
+      return found.models;
+    }
+    const meta = PROVIDERS_META.find((p) => p.id === currentProvider);
+    return meta ? meta.defaultModels : [];
+  }, [currentProvider]);
+
+  const OPTIONS = [
+    {
+      key: "default",
+      label: isZh ? "每次询问" : "Ask for approval",
+      description: isZh ? "修改外部文件及使用网络时，总是需要确认" : "Always ask to edit external files and use the internet",
+      icon: <Hand size={15} />
+    },
+    {
+      key: "auto",
+      label: isZh ? "自动授权安全操作" : "Approve for me",
+      description: isZh ? "仅对检测到存在潜在风险的操作进行询问" : "Only ask for actions detected as potentially unsafe",
+      icon: <Shield size={15} />
+    },
+    {
+      key: "bypass",
+      label: isZh ? "完全信任" : "Full access",
+      description: isZh ? "不受限制地访问网络及您计算机上的任何文件" : "Unrestricted access to the internet and any file on your computer",
+      icon: <AlertCircle size={15} />
+    }
+  ];
+
+  const currentOption = OPTIONS.find(
+    (o) => o.key.toLowerCase() === (permissionMode || "default").toLowerCase()
+  ) || OPTIONS[0];
+  const currentProject =
+    selectedProjectRoot === null
+      ? projectOptions.find((option) => option.root === null) ?? {
+          label: isZh ? "独立对话" : "Standalone",
+          root: null
+        }
+      : projectOptions.find((option) => option.root === selectedProjectRoot) ??
+        projectOptions[0] ?? {
+          label: isZh ? "当前项目" : "Current project",
+          root: selectedProjectRoot ?? null
+        };
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setDropdownOpen(false);
+      }
+      if (
+        projectDropdownRef.current &&
+        !projectDropdownRef.current.contains(event.target as Node)
+      ) {
+        setProjectDropdownOpen(false);
+      }
+      if (
+        modelDropdownRef.current &&
+        !modelDropdownRef.current.contains(event.target as Node)
+      ) {
+        setModelDropdownOpen(false);
+      }
+    }
+    if (dropdownOpen || projectDropdownOpen || modelDropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [dropdownOpen, projectDropdownOpen, modelDropdownOpen]);
+
+  return (
+    <footer className="composer" style={{ position: "relative" }}>
+      <textarea
+        aria-label="消息"
+        placeholder={isZh ? "输入仓库任务..." : "Enter repository task..."}
+        value={draft}
+        onChange={(event) => onDraftChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.shiftKey) {
+            if (event.metaKey || event.ctrlKey) {
+              event.preventDefault();
+              const target = event.target as HTMLTextAreaElement;
+              const start = target.selectionStart;
+              const end = target.selectionEnd;
+              const val = target.value;
+              const nextVal = val.substring(0, start) + "\n" + val.substring(end);
+              onDraftChange(nextVal);
+              setTimeout(() => {
+                target.selectionStart = target.selectionEnd = start + 1;
+              }, 0);
+            } else {
+              event.preventDefault();
+              onSendMessage();
+            }
+          }
+        }}
+      />
+      <div className="composer-toolbar">
+        <div className="composer-tools" style={{ position: "relative" }}>
+          <button className="icon-button" type="button" title={isZh ? "附件" : "Attachment"} style={{ outline: "none", boxShadow: "none" }}>
+            <Paperclip size={17} />
+          </button>
+
+          <div ref={projectDropdownRef} style={{ display: "inline-block", position: "relative" }}>
+            <button
+              className="mode-chip"
+              type="button"
+              onClick={() => setProjectDropdownOpen(!projectDropdownOpen)}
+              title={currentProject.root ?? (isZh ? "独立对话" : "Standalone")}
+              style={{ outline: "none", boxShadow: "none", cursor: "pointer" }}
+            >
+              <Folder size={15} />
+              {currentProject.label}
+            </button>
+
+            {projectDropdownOpen && (
+              <div className="context-dropdown project-dropdown">
+                {projectOptions.map((option) => {
+                  const selected = option.root === selectedProjectRoot;
+                  return (
+                    <button
+                      key={option.root ?? "__standalone__"}
+                      type="button"
+                      className={`context-option ${selected ? "selected" : ""}`}
+                      onClick={() => {
+                        onProjectRootChange(option.root);
+                        setProjectDropdownOpen(false);
+                      }}
+                    >
+                      <Folder size={14} />
+                      <span>{option.label}</span>
+                      {selected ? <Check size={14} /> : null}
+                    </button>
+                  );
+                })}
+                <div className="context-dropdown-divider" />
+                <button
+                  type="button"
+                  className="context-option context-option-action"
+                  onClick={() => {
+                    setProjectDropdownOpen(false);
+                    void onAddProject();
+                  }}
+                >
+                  <FolderPlus size={14} />
+                  <span>{isZh ? "添加项目..." : "Add project..."}</span>
+                </button>
+              </div>
+            )}
+          </div>
+          
+          <div ref={dropdownRef} style={{ display: "inline-block" }}>
+            <button
+              className="mode-chip"
+              type="button"
+              onClick={() => setDropdownOpen(!dropdownOpen)}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                cursor: "pointer",
+                position: "relative",
+                outline: "none",
+                boxShadow: "none"
+              }}
+            >
+              {currentOption.icon}
+              {currentOption.label}
+            </button>
+
+            {dropdownOpen && (
+              <div
+                className="permission-dropdown"
+                style={{
+                  position: "absolute",
+                  bottom: "100%",
+                  left: "0",
+                  marginBottom: "8px",
+                  zIndex: 1000,
+                  width: "380px",
+                  background: "var(--panel)",
+                  border: "1px solid var(--line)",
+                  borderRadius: "8px",
+                  boxShadow: "0 4px 20px rgba(0, 0, 0, 0.3)",
+                  padding: "16px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "12px"
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center"
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: "12px",
+                      color: "var(--text-soft)",
+                      fontWeight: 500
+                    }}
+                  >
+                    {isZh ? "如何授权 Yode 的操作？" : "How should Yode actions be approved?"}
+                  </span>
+                  <a
+                    href="#"
+                    onClick={(e) => e.preventDefault()}
+                    style={{
+                      fontSize: "12px",
+                      color: "var(--text-soft)",
+                      textDecoration: "underline"
+                    }}
+                  >
+                    {isZh ? "了解更多" : "Learn more"}
+                  </a>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                  {OPTIONS.map((option) => {
+                    const isSelected = option.key.toLowerCase() === currentOption.key.toLowerCase();
+                    return (
+                      <button
+                        key={option.key}
+                        type="button"
+                        onClick={() => {
+                          onPermissionModeChange(option.key);
+                          setDropdownOpen(false);
+                        }}
+                        style={{
+                          display: "flex",
+                          alignItems: "flex-start",
+                          gap: "12px",
+                          width: "100%",
+                          padding: "10px",
+                          background: isSelected ? "rgba(255, 255, 255, 0.05)" : "transparent",
+                          border: "none",
+                          borderRadius: "6px",
+                          textAlign: "left",
+                          cursor: "pointer",
+                          transition: "background 0.2s",
+                          outline: "none",
+                          boxShadow: "none"
+                        }}
+                        className="dropdown-option-btn"
+                      >
+                        <div style={{ marginTop: "2px", color: isSelected ? "var(--accent)" : "var(--text-soft)" }}>
+                           {option.icon}
+                        </div>
+                        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "2px" }}>
+                          <span style={{ fontSize: "13px", fontWeight: 500, color: "var(--text)" }}>
+                            {option.label}
+                          </span>
+                          <span style={{ fontSize: "11px", color: "var(--text-soft)", lineHeight: "1.4" }}>
+                            {option.description}
+                          </span>
+                        </div>
+                        {isSelected && (
+                          <Check size={14} style={{ color: "var(--accent)", alignSelf: "center" }} />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div ref={modelDropdownRef} style={{ display: "inline-block", position: "relative" }}>
+            <button
+              className="mode-chip"
+              type="button"
+              onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                cursor: "pointer",
+                outline: "none",
+                boxShadow: "none"
+              }}
+            >
+              <TopbarProviderIcon id={currentProvider} />
+              <span>{currentModel || (isZh ? "选择模型" : "Select model")}</span>
+              <ChevronDown size={11} style={{ opacity: 0.7, transform: modelDropdownOpen ? "rotate(180deg)" : "none", transition: "transform 150ms" }} />
+            </button>
+
+            {modelDropdownOpen && (
+              <div className="context-dropdown model-dropdown">
+                {modelOptions.map((model: string) => {
+                  const selected = model === currentModel;
+                  return (
+                    <button
+                      key={model}
+                      type="button"
+                      className={`context-option ${selected ? "selected" : ""}`}
+                      onClick={() => {
+                        onModelChange(model);
+                        setModelDropdownOpen(false);
+                      }}
+                    >
+                      <TopbarProviderIcon id={currentProvider} />
+                      <span>{model}</span>
+                      {selected ? <Check size={14} style={{ color: "var(--accent)" }} /> : <span />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="composer-actions">
+          {isProcessing ? (
+            <button 
+              className="send-button stop-button" 
+              onClick={onCancelMessage} 
+              type="button" 
+              title={isZh ? "终止" : "Stop"} 
+              style={{ 
+                background: "transparent", 
+                border: "none", 
+                color: "var(--error)", 
+                outline: "none", 
+                boxShadow: "none",
+                display: "inline-grid",
+                placeItems: "center",
+                transition: "color 0.15s ease",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "transparent";
+                e.currentTarget.style.color = "color-mix(in oklch, var(--error), var(--text) 20%)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "transparent";
+                e.currentTarget.style.color = "var(--error)";
+              }}
+            >
+              <Square size={13} fill="currentColor" style={{ borderRadius: "1px" }} />
+            </button>
+          ) : (
+            <button className="send-button" onClick={onSendMessage} type="button" title={isZh ? "发送" : "Send"} style={{ outline: "none", boxShadow: "none" }}>
+              <Send size={17} />
+            </button>
+          )}
+        </div>
+      </div>
+    </footer>
+  );
+}

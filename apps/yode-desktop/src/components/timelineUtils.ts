@@ -1,0 +1,1095 @@
+import { TimelineItem, SessionSummary, DesktopMessage } from "../lib/mock";
+import {
+  isRuntimeNoticeText,
+  parseToolDetails,
+  shouldHideActivityItem,
+  isThinkingStatusTitle,
+  summarizeActivityItems,
+  activityGroupPreview
+} from "./activity/ToolUtils";
+
+export function normalizeProcessNoteText(text: string) {
+  return text
+    .replace(/\s+/g, " ")
+    .replace(/\s+([,.;:!?，。；：！？])/g, "$1")
+    .trim();
+}
+
+export function splitProcessNotes(text: string) {
+  return text
+    .split(/\n{2,}|\n(?=(?:I will|I'll|Let me|Next|Now|我会|我先|接下来|现在|然后|下一步))/i)
+    .map(normalizeProcessNoteText)
+    .filter((line) => line && line !== "." && line !== "..." && line !== "…")
+    .slice(0, 6);
+}
+
+export function looksLikeProcessNarration(text: string) {
+  const clean = normalizeProcessNoteText(text);
+  if (!clean || clean.length > 520) return false;
+  if (isRuntimeNoticeText(clean)) return false;
+  if (/\b(the user|user hasn't|asked for|I've provided|wait for the user|user's response|want to dive deeper)\b/i.test(clean)) {
+    return false;
+  }
+  return /^(I will|I'll|Let me|Next|Now|I need to|I’m going to|I'm going to|我会|我先|接下来|现在|然后|下一步|先)/i.test(clean) ||
+    /(读取|查看|搜索|检查|运行|验证|修改|分析|探索).*(文件|项目|代码|目录|结构|实现|结果)/i.test(clean);
+}
+
+export function isMostlyEnglishText(text: string) {
+  const latin = (text.match(/[A-Za-z]/g) || []).length;
+  const cjk = (text.match(/[\u4e00-\u9fff]/g) || []).length;
+  return latin > 40 && cjk === 0;
+}
+
+export function localizeProcessNoteText(text: string, appLang: string) {
+  if (appLang !== "zh") return text;
+
+  const clean = normalizeProcessNoteText(text);
+  if (!clean || isRuntimeNoticeText(clean)) return "";
+  if (/\b(the user|user hasn't|asked for|I've provided|wait for the user|user's response|want to dive deeper)\b/i.test(clean)) {
+    return "";
+  }
+  if (/project structure/i.test(clean) && /source files/i.test(clean)) {
+    return "我已经看到了项目结构，接下来继续查看关键源文件。";
+  }
+  if (/JS and CSS files|frontend/i.test(clean)) {
+    return "我会继续检查 JS/CSS 等前端文件，补齐前端结构理解。";
+  }
+  if (/src subdirectories|key files/i.test(clean)) {
+    return "我先查看 src 子目录 and 关键文件，理解项目结构。";
+  }
+  if (/source files/i.test(clean)) {
+    return "我会继续查看源代码文件，理解项目实现。";
+  }
+  if (/comprehensive understanding/i.test(clean)) {
+    return "我已经基本了解项目结构，接下来补充检查关键文件。";
+  }
+
+  const localized = clean
+    .replace(/^I will read\b/i, "我会读取")
+    .replace(/^I'll read\b/i, "我会读取")
+    .replace(/^Let me read\b/i, "我先读取")
+    .replace(/^Let me explore\b/i, "我先探索")
+    .replace(/^Let me look at\b/i, "我先查看")
+    .replace(/^Let me also check\b/i, "我再检查")
+    .replace(/^I will search for\b/i, "我会搜索")
+    .replace(/^I'll search for\b/i, "我会搜索")
+    .replace(/^Let me search for\b/i, "我先搜索")
+    .replace(/^I will inspect\b/i, "我会检查")
+    .replace(/^I'll inspect\b/i, "我会检查")
+    .replace(/^Let me inspect\b/i, "我先检查")
+    .replace(/^I will run\b/i, "我会运行")
+    .replace(/^I'll run\b/i, "我会运行")
+    .replace(/^Let me run\b/i, "我先运行")
+    .replace(/^I need to\b/i, "我需要")
+    .replace(/^I’m going to\b/i, "我会")
+    .replace(/^I'm going to\b/i, "我会")
+    .replace(/^Next,\s*/i, "接下来，")
+    .replace(/^Now,\s*/i, "现在，")
+    .replace(/\bto see\b/i, "，确认")
+    .replace(/\bto inspect\b/i, "，检查")
+    .replace(/\bto understand\b/i, "，理解")
+    .replace(/\bwhere it is defined\b/i, "它的定义位置")
+    .replace(/\bhow\b/i, "如何");
+
+  if (isMostlyEnglishText(localized)) {
+    return "";
+  }
+  return localized;
+}
+
+export function processNote(
+  id: string,
+  body: string
+): Extract<TimelineItem, { kind: "process_note" }> {
+  return {
+    id,
+    kind: "process_note",
+    body,
+    status: "success"
+  };
+}
+
+export function syntheticNarrationForActivity(item: TimelineItem, appLang: string) {
+  const isZh = appLang === "zh";
+  if (!isZh) return "";
+
+  if (item.kind === "activity_group") {
+    const visibleItems = summarizeActivityItems(item.items || []);
+    const preview = activityGroupPreview(visibleItems, appLang);
+    if (item.type === "explore") {
+      return `我先查看 ${preview}，确认项目结构、关键文件和后续分析入口。`;
+    }
+    if (item.type === "search") {
+      return `我先搜索 ${preview}，缩小需要继续查看的范围。`;
+    }
+    if (item.type === "run") {
+      return `我会运行 ${preview}，用实际输出验证当前判断。`;
+    }
+    return `我会执行 ${preview}，把结果用于下一步判断。`;
+  }
+
+  if (item.kind === "activity_item") {
+    return item.filename
+      ? `我会修改 ${item.filename}，然后用构建或测试确认改动是否生效。`
+      : "我会完成这处修改，然后继续验证效果。";
+  }
+
+  return "";
+}
+
+export function syntheticNarrationBeforeAssistant(previous: TimelineItem | undefined, appLang: string) {
+  if (appLang !== "zh") return "";
+  if (!previous || (previous.kind !== "activity_group" && previous.kind !== "activity_item")) return "";
+  if (previous.kind === "activity_group") {
+    if (previous.type === "explore") {
+      return "我已经完成基础探索，下面根据看到的结构和文件内容整理结论。";
+    }
+    if (previous.type === "run") {
+      return "验证命令已经返回，下面结合结果给出结论。";
+    }
+  }
+  if (previous.kind === "activity_item") {
+    return "修改已经完成，下面总结改动和验证结果。";
+  }
+  return "";
+}
+
+export function isIntermediateAssistantItem(item: TimelineItem) {
+  return item.kind === "assistant" && item.meta === "intermediate";
+}
+
+export function addSyntheticProcessNarration(items: TimelineItem[], appLang: string) {
+  const next: TimelineItem[] = [];
+
+  items.forEach((item) => {
+    const previous = next[next.length - 1];
+
+    if ((item.kind === "activity_group" || item.kind === "activity_item") && !hasVisibleProcessBody(previous)) {
+      const body = syntheticNarrationForActivity(item, appLang);
+      if (body) {
+        next.push(processNote(`${item.id}-auto-process-before`, body));
+      }
+    }
+
+    if (item.kind === "assistant" && !isIntermediateAssistantItem(item) && !hasVisibleProcessBody(previous)) {
+      const body = syntheticNarrationBeforeAssistant(previous, appLang);
+      if (body) {
+        next.push(processNote(`${item.id}-auto-process-before`, body));
+      }
+    }
+
+    next.push(item);
+  });
+
+  return next;
+}
+
+export function hasVisibleProcessBody(item: TimelineItem | undefined) {
+  return item?.kind === "process_note" && Boolean(item.body.trim());
+}
+
+export function groupEditSummaryItems(items: TimelineItem[]): TimelineItem[] {
+  const next: TimelineItem[] = [];
+  let buffer: Array<Extract<TimelineItem, { kind: "activity_item" }>> = [];
+
+  const flush = () => {
+    if (buffer.length === 0) return;
+    if (buffer.length === 1) {
+      next.push(buffer[0]);
+    } else {
+      next.push({
+        id: `edit-summary-${buffer[0].id}`,
+        kind: "edit_summary",
+        status: buffer.some((item) => item.status === "running")
+          ? "running"
+          : buffer.some((item) => item.status === "blocked")
+            ? "blocked"
+            : "success",
+        items: buffer
+      });
+    }
+    buffer = [];
+  };
+
+  items.forEach((item) => {
+    if (item.kind === "activity_item") {
+      buffer.push(item);
+      return;
+    }
+    flush();
+    next.push(item);
+  });
+  flush();
+  return next;
+}
+
+export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean, appLang = "zh"): TimelineItem[] {
+  const result: TimelineItem[] = [];
+  let buffer: Array<Extract<TimelineItem, { kind: "tool" }>> = [];
+
+  const getToolType = (toolName: string, title: string) => {
+    const t = (toolName || "").toLowerCase();
+    const ttl = (title || "").toLowerCase();
+    if (t.includes("search") || t.includes("url") || ttl.includes("search") || ttl.includes("url") || ttl.includes("搜索") || ttl.includes("网页")) {
+      return "search";
+    }
+    if (
+      t.includes("read") || t.includes("view") || t.includes("list") || 
+      t.includes("grep") || t.includes("map") || t.includes("glob") || 
+      t.includes("ls") || t.includes("find") || t.includes("locate") ||
+      ttl.includes("read") || ttl.includes("view") || ttl.includes("list") || 
+      ttl.includes("grep") || ttl.includes("map") || ttl.includes("glob") || 
+      ttl.includes("ls") || ttl.includes("find") || ttl.includes("locate") ||
+      ttl.includes("探索") || ttl.includes("查看") || ttl.includes("读取")
+    ) {
+      return "explore";
+    }
+    if (
+      t.includes("write") || t.includes("edit") || t.includes("replace") || 
+      t.includes("create") || t.includes("patch") || t.includes("modify") ||
+      ttl.includes("write") || ttl.includes("edit") || ttl.includes("replace") || 
+      ttl.includes("create") || ttl.includes("patch") || ttl.includes("modify") ||
+      ttl.includes("写入") || ttl.includes("修改") || ttl.includes("编辑") || ttl.includes("替换")
+    ) {
+      return "edit";
+    }
+    if (
+      t.includes("run") || t.includes("command") || t.includes("bash") || 
+      t.includes("execute") || t.includes("cmd") || t.includes("sh") ||
+      ttl.includes("run") || ttl.includes("command") || ttl.includes("bash") || 
+      ttl.includes("execute") || ttl.includes("cmd") || ttl.includes("sh") ||
+      ttl.includes("运行") || ttl.includes("执行")
+    ) {
+      return "run";
+    }
+    return "other";
+  };
+
+  const flushBuffer = () => {
+    if (buffer.length === 0) return;
+    
+    let groupType: "explore" | "search" | "run" | "other" = "explore";
+    const tools = buffer.filter(item => item.kind === "tool");
+    const visibleTools = tools.filter(item => !shouldHideActivityItem(item));
+    
+    const runTools = visibleTools.filter(t => getToolType(t.tool || "", t.title || "") === "run");
+    const searchTools = visibleTools.filter(t => getToolType(t.tool || "", t.title || "") === "search");
+    const exploreTools = visibleTools.filter(t => getToolType(t.tool || "", t.title || "") === "explore");
+    
+    if (runTools.length > 0) {
+      groupType = "run";
+    } else if (searchTools.length > 0) {
+      groupType = "search";
+    } else if (exploreTools.length > 0) {
+      groupType = "explore";
+    } else if (visibleTools.length > 0) {
+      groupType = "other";
+    } else {
+      groupType = "explore";
+    }
+    
+    const isRunning = buffer.some(item => item.status === "running" || item.meta === "running");
+    
+    let count = 0;
+    if (groupType === "explore") {
+      const files = new Set<string>();
+      visibleTools.forEach(t => {
+        const parsed = parseToolDetails(t);
+        if (parsed.filename) {
+          files.add(parsed.filename);
+        }
+      });
+      count = files.size || visibleTools.length || 1;
+    } else {
+      count = visibleTools.length || 1;
+    }
+    
+    let label = "";
+    if (groupType === "explore") {
+      label = isRunning ? "Exploring" : "Explored";
+      label += ` ${count} file${count > 1 ? "s" : ""}`;
+    } else if (groupType === "search") {
+      label = isRunning ? "Searching web" : "Searched web";
+      label += ` ${count} time${count > 1 ? "s" : ""}`;
+    } else if (groupType === "run") {
+      label = isRunning ? "Running" : "Ran";
+      label += ` ${count} command${count > 1 ? "s" : ""}`;
+    } else {
+      label = isRunning ? "Executing" : "Executed";
+      label += ` ${count} action${count > 1 ? "s" : ""}`;
+    }
+    
+    result.push({
+      id: `group-${buffer[0].id}`,
+      kind: "activity_group",
+      type: groupType,
+      status: isRunning ? "running" : "success",
+      label,
+      items: [...buffer]
+    });
+    
+    buffer = [];
+  };
+
+  const pushProcessNotes = (item: TimelineItem, title?: string, status?: "running" | "success") => {
+    const notes = splitProcessNotes((item as any).body || "");
+    if (notes.length === 0 && status !== "running") return;
+    flushBuffer();
+    if (notes.length === 0) {
+      result.push({
+        id: `${item.id}-process`,
+        kind: "process_note",
+        title,
+        body: "",
+        status: status || "success"
+      });
+      return;
+    }
+    notes.forEach((body, index) => {
+      result.push({
+        id: `${item.id}-process-${index}`,
+        kind: "process_note",
+        title: index === 0 ? title : undefined,
+        body,
+        status: status || "success"
+      });
+    });
+  };
+
+  for (let itemIndex = 0; itemIndex < items.length; itemIndex += 1) {
+    const item = items[itemIndex];
+    if (item.kind === "assistant") {
+      const body = item.body.trim();
+      const isEmpty = body === "" || body === "." || body === "..." || body === "…";
+      if (!isEmpty) {
+        const followedByWork = items
+          .slice(itemIndex + 1)
+          .some((next) => next.kind === "tool" || next.kind === "reasoning");
+        if (item.meta === "intermediate" || ((isTurnActive || followedByWork) && looksLikeProcessNarration(body))) {
+          pushProcessNotes(item);
+        } else {
+          flushBuffer();
+          result.push(item);
+        }
+      }
+    } else if (item.kind === "permission" || item.kind === "boundary") {
+      flushBuffer();
+      result.push(item);
+    } else if (item.kind === "tool") {
+      if (item.title === "工具结果") {
+        let found = false;
+        for (let i = buffer.length - 1; i >= 0; i--) {
+          if (buffer[i].kind === "tool") {
+            buffer[i].result = item.body;
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          for (let i = result.length - 1; i >= 0; i--) {
+            const resultItem = result[i];
+            if (resultItem.kind === "activity_item" && resultItem.tool) {
+              resultItem.result = item.body;
+              found = true;
+              break;
+            } else if (resultItem.kind === "activity_group") {
+              const groupItems = resultItem.items;
+              for (let j = groupItems.length - 1; j >= 0; j--) {
+                const groupItem = groupItems[j];
+                if (groupItem.kind === "tool") {
+                  groupItem.result = item.body;
+                  found = true;
+                  break;
+                }
+              }
+              if (found) break;
+            }
+          }
+        }
+        continue;
+      }
+
+      const type = getToolType(item.tool || "", item.title || "");
+      if (type === "edit") {
+        flushBuffer();
+        const parsed = parseToolDetails(item);
+        result.push({
+          id: item.id,
+          kind: "activity_item",
+          type: "edit",
+          tool: item.tool,
+          title: item.title,
+          body: item.body,
+          status: item.status,
+          filename: parsed.filename,
+          diff: parsed.diff,
+          metadata: (item as any).metadata,
+          result: item.result
+        });
+      } else {
+        buffer.push(item);
+      }
+    } else if (item.kind === "reasoning") {
+      flushBuffer();
+      if (item.meta === "running" && isTurnActive) {
+        result.push({
+          id: `${item.id}-process`,
+          kind: "process_note",
+          title: item.title || "正在思考",
+          body: "",
+          status: "running"
+        });
+      } else if (!isTurnActive && isThinkingStatusTitle(item.title)) {
+        result.push({
+          id: `${item.id}-process`,
+          kind: "process_note",
+          title: item.title,
+          body: "",
+          status: "success"
+        });
+      }
+    }
+  }
+  flushBuffer();
+  const enrichedResult = groupEditSummaryItems(addSyntheticProcessNarration(result, appLang));
+
+  let lastAssistantIdx = -1;
+  for (let i = enrichedResult.length - 1; i >= 0; i--) {
+    if (enrichedResult[i].kind === "assistant") {
+      lastAssistantIdx = i;
+      break;
+    }
+  }
+
+  if (!isTurnActive && lastAssistantIdx !== -1) {
+    return enrichedResult.filter((item, idx) => {
+      if ((item.kind === "activity_group" || item.kind === "activity_item" || item.kind === "edit_summary" || item.kind === "process_note") && idx > lastAssistantIdx) {
+        return false;
+      }
+      return true;
+    });
+  }
+
+  return enrichedResult;
+}
+
+export type ConversationTurn = {
+  id: string;
+  userItem: TimelineItem | null;
+  items: TimelineItem[];
+  hasIntermediate: boolean;
+};
+
+export function splitTurnVisibleItems(items: TimelineItem[]) {
+  let finalAssistantIndex = -1;
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    if (isFinalAssistantItem(items[index])) {
+      finalAssistantIndex = index;
+      break;
+    }
+  }
+
+  if (finalAssistantIndex === -1) {
+    return {
+      processItems: items,
+      answerItems: [] as TimelineItem[]
+    };
+  }
+
+  return {
+    processItems: items.filter((_, index) => index !== finalAssistantIndex),
+    answerItems: [items[finalAssistantIndex]]
+  };
+}
+
+export function isFinalAssistantItem(item: TimelineItem) {
+  return item.kind === "assistant" && !isIntermediateAssistantItem(item);
+}
+
+export function parseDurationFromTitle(title?: string) {
+  if (!title) return null;
+  const minuteSecond = title.match(/(\d+)\s*(?:分|m|min|分钟)\s*(\d+)?\s*(?:秒|s)?/i);
+  if (minuteSecond) {
+    return Number(minuteSecond[1]) * 60 + Number(minuteSecond[2] || 0);
+  }
+  const seconds = title.match(/(\d+)\s*(?:秒|s|sec|seconds?)/i);
+  if (seconds) return Number(seconds[1]);
+  return null;
+}
+
+export function turnStaticDurationSeconds(turn: ConversationTurn) {
+  for (const item of turn.items) {
+    if (item.kind === "reasoning") {
+      const parsed = parseDurationFromTitle(item.title);
+      if (parsed !== null) return parsed;
+    }
+  }
+
+  const createdTimes = [turn.userItem, ...turn.items]
+    .map((item) => (item as any)?.createdAt)
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  if (createdTimes.length >= 2) {
+    return Math.max(1, Math.round((Math.max(...createdTimes) - Math.min(...createdTimes)) / 1000));
+  }
+  return 0;
+}
+
+export function formatDurationZh(totalSeconds: number) {
+  const safeSeconds = Math.max(0, Math.round(totalSeconds));
+  const minutes = Math.floor(safeSeconds / 60);
+  const seconds = safeSeconds % 60;
+  if (minutes <= 0) return `${seconds} 秒`;
+  if (seconds <= 0) return `${minutes} 分钟`;
+  return `${minutes} 分 ${seconds} 秒`;
+}
+
+export function projectLabelFromPath(path: string) {
+  const trimmed = path.trim();
+  if (!trimmed) return "项目";
+  const parts = trimmed.split(/[\\/]+/).filter(Boolean);
+  return parts[parts.length - 1] || trimmed;
+}
+
+export function deriveSessionTitle(content: string) {
+  const normalized = content.replace(/\s+/g, " ").trim();
+  if (!normalized) return "新对话";
+  return normalized.length > 28 ? normalized.slice(0, 28) : normalized;
+}
+
+export function upsertActiveSession(items: SessionSummary[], session: SessionSummary) {
+  const nextSession = { ...session, active: true };
+  const exists = items.some((item) => item.id === session.id);
+  if (!exists) {
+    return [
+      nextSession,
+      ...items.map((item) => item.active ? { ...item, active: false } : item)
+    ];
+  }
+  return items.map((item) =>
+    item.id === session.id
+      ? nextSession
+      : item.active
+        ? { ...item, active: false }
+        : item
+  );
+}
+
+export function formatHistoryTimestamp(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return undefined;
+  return date.toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+export function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+export function mergeStreamingText(current: string, incoming: string): string {
+  if (!incoming) return current;
+  if (!current || incoming.startsWith(current)) return incoming;
+  return `${current}${incoming}`;
+}
+
+export function statusLabel(status: "running" | "success" | "blocked") {
+  if (status === "running") return "运行中";
+  if (status === "success") return "完成";
+  return "阻塞";
+}
+
+export function parseToolCalls(raw: string | null | undefined): Array<{ name: string; arguments: string }> {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((item) => {
+      const name = stringValue(item?.name) ?? stringValue(item?.function?.name);
+      const args =
+        stringValue(item?.arguments) ??
+        stringValue(item?.function?.arguments) ??
+        JSON.stringify(item?.arguments ?? item?.function?.arguments ?? {});
+      return name ? [{ name, arguments: args }] : [];
+    });
+  } catch {
+    return [];
+  }
+}
+
+export function desktopEventToTimelineItem(
+  payload: any,
+  eventKind?: string
+): TimelineItem {
+  const outer = payload && typeof payload === "object" && "payload" in payload ? payload : null;
+  const inner = outer ? outer.payload : payload;
+  const sessionId = outer ? outer.sessionId : undefined;
+  const turnId = outer ? outer.turnId : undefined;
+
+  const kind = eventKind ?? stringValue(outer?.kind) ?? stringValue(inner?.kind) ?? stringValue(inner?.type);
+  const eventId = stringValue(inner?.id);
+  const tool = stringValue(inner?.tool) ?? "desktop";
+  const title = stringValue(inner?.title) ?? "Yode";
+  const body = stringValue(inner?.body) ?? "";
+  const meta = stringValue(inner?.meta);
+  const status = stringValue(inner?.status);
+  const metadata = inner?.metadata && typeof inner.metadata === "object" ? inner.metadata : undefined;
+
+  if (kind === "turn_started") {
+    return {
+      id: turnId ? `reasoning-${turnId}` : `event-${Date.now()}-${Math.random()}`,
+      kind: "reasoning",
+      title: title || "思考中",
+      body: body || "",
+      meta: "running",
+      createdAt: Date.now()
+    };
+  }
+
+  if (kind === "permission" || kind === "tool_confirm_required" || kind === "plan_approval_required") {
+    return {
+      id: eventId ? `permission-${turnId}-${eventId}` : `event-${Date.now()}-${Math.random()}`,
+      kind: "permission",
+      title: title || "需要授权确认",
+      body: body || `工具 "${tool}" 请求执行。`,
+      tool: tool,
+      risk: meta || "中等风险",
+      sessionId,
+      turnId
+    };
+  }
+
+  if (kind === "ask_user") {
+    return {
+      id: eventId ? `ask-${turnId}-${eventId}` : `event-${Date.now()}-${Math.random()}`,
+      kind: "assistant",
+      title,
+      body,
+      meta: "waiting for input"
+    };
+  }
+
+  if (kind === "tool_started" || kind === "tool_progress" || kind === "tool_result" || kind === "subagent_started" || kind === "subagent_completed" || inner?.tool) {
+    return {
+      id: eventId ? `tool-${turnId}-${eventId}` : `event-${Date.now()}-${Math.random()}`,
+      kind: "tool",
+      title,
+      body,
+      tool,
+      status: status === "success" ? "success" : status === "blocked" ? "blocked" : "running",
+      meta,
+      metadata
+    };
+  }
+
+  if (kind === "assistant_reasoning_delta") {
+    return {
+      id: `event-${Date.now()}-${Math.random()}`,
+      kind: "reasoning",
+      title,
+      body: "",
+      meta
+    };
+  }
+
+  if (kind === "retrying") {
+    return {
+      id: "retrying-attempt",
+      kind: "reasoning",
+      title: `正在重试... (当前次数: ${inner?.attempt}/${inner?.maxAttempts || "?"})`,
+      body: `下次重试倒计时: ${inner?.delaySecs || 0} 秒\n\n报错原因: ${inner?.body || ""}`,
+      meta: "running"
+    };
+  }
+
+  if (
+    kind === "usage_update" ||
+    kind === "cost_update" ||
+    kind === "budget_exceeded" ||
+    kind === "context_compaction_started"
+  ) {
+    return {
+      id: `event-${Date.now()}-${Math.random()}`,
+      kind: "process_note",
+      title,
+      body,
+      status: status === "blocked" ? "success" : status === "running" ? "running" : "success"
+    };
+  }
+
+  if (
+    kind === "context_compressed" ||
+    kind === "done" ||
+    kind === "plan_mode_entered" ||
+    kind === "plan_mode_exited" ||
+    kind === "session_memory_updated"
+  ) {
+    return {
+      id: `event-${Date.now()}-${Math.random()}`,
+      kind: "boundary",
+      title,
+      body
+    };
+  }
+
+  return {
+    id: `event-${Date.now()}-${Math.random()}`,
+    kind: "assistant",
+    title,
+    body,
+    meta
+  };
+}
+
+export function applyDesktopEventToTimelineItems(
+  items: TimelineItem[],
+  payload: any,
+  eventKind?: string
+): TimelineItem[] {
+  const outer = payload && typeof payload === "object" && "payload" in payload ? payload : null;
+  const inner = outer ? outer.payload : payload;
+  const kind = eventKind ?? stringValue(outer?.kind) ?? stringValue(inner?.kind) ?? stringValue(inner?.type);
+  const body = stringValue(inner?.body) ?? "";
+  const reasoning = stringValue(inner?.reasoning) ?? "";
+  const turnId = stringValue(outer?.turnId);
+  const assistantId = turnId ? `assistant-${turnId}` : undefined;
+  const reasoningId = turnId ? `reasoning-${turnId}` : undefined;
+  const eventId = stringValue(inner?.id);
+  const hasToolCalls = Boolean(inner?.hasToolCalls);
+
+  if (kind === "tool_started" || kind === "tool_progress" || kind === "tool_result" || kind === "subagent_started" || kind === "subagent_completed") {
+    const nextItem = desktopEventToTimelineItem(payload, eventKind);
+    const existingIndex = items.findIndex((item) => item.id === nextItem.id);
+    if (existingIndex >= 0 && nextItem.kind === "tool") {
+      return items.map((item, index) =>
+        index === existingIndex && item.kind === "tool"
+          ? {
+              ...item,
+              title: nextItem.title || item.title,
+              body: kind === "tool_result" ? item.body : nextItem.body || item.body,
+              result: kind === "tool_result" ? nextItem.body || item.result : item.result,
+              status: nextItem.status,
+              meta: nextItem.meta ?? item.meta,
+              metadata: (nextItem as any).metadata ?? (item as any).metadata
+            }
+          : item
+      );
+    }
+    return [...items, nextItem];
+  }
+
+  if (kind === "turn_started") {
+    const thinkingId = turnId ? `reasoning-${turnId}` : undefined;
+    if (
+      items.some((item) =>
+        thinkingId
+          ? item.id === thinkingId
+          : item.kind === "reasoning" && item.meta === "running"
+      )
+    ) {
+      return items;
+    }
+    return [...items, desktopEventToTimelineItem(payload, eventKind)];
+  }
+
+  if (kind === "assistant_text_delta") {
+    const existingIndex = assistantId
+      ? items.findIndex((item) => item.id === assistantId)
+      : items.findIndex((item) => item.kind === "assistant" && item.meta !== "stream complete");
+    if (existingIndex >= 0) {
+      return items.map((item, index) =>
+        index === existingIndex && item.kind === "assistant"
+          ? { ...item, body: mergeStreamingText(item.body, body), meta: "streaming" }
+          : item
+      );
+    }
+    return [
+      ...items,
+      {
+        id: assistantId ?? `event-${Date.now()}-${Math.random()}`,
+        kind: "assistant",
+        title: "Yode",
+        body,
+        meta: "streaming"
+      }
+    ];
+  }
+
+  if (kind === "assistant_text_complete") {
+    const existingIndex = assistantId
+      ? items.findIndex((item) => item.id === assistantId)
+      : items.findIndex((item) => item.kind === "assistant" && item.meta !== "stream complete");
+    if (existingIndex >= 0) {
+      return items.map((item, index) =>
+        index === existingIndex && item.kind === "assistant"
+          ? { ...item, body: body || item.body, meta: "stream complete" }
+          : item
+      );
+    }
+    if (body) {
+      return [
+        ...items,
+        {
+          id: assistantId ?? `event-${Date.now()}-${Math.random()}`,
+          kind: "assistant",
+          title: "Yode",
+          body,
+          meta: "stream complete"
+        }
+      ];
+    }
+    return items;
+  }
+
+  if (kind === "assistant_reasoning_delta") {
+    const now = Date.now();
+    const existingIndex = reasoningId
+      ? items.findIndex((item) => item.id === reasoningId)
+      : items.findIndex((item) => item.kind === "reasoning" && item.meta === "running");
+    if (existingIndex >= 0) {
+      return items.map((item, index) =>
+        index === existingIndex && item.kind === "reasoning"
+          ? {
+              ...item,
+              title: item.title || "正在思考...",
+              meta: "running",
+              reasoningStartedAt: (item as any).reasoningStartedAt || now
+            }
+          : item
+      );
+    }
+    return [
+      ...items,
+      {
+        id: reasoningId ?? `event-${Date.now()}-${Math.random()}`,
+        kind: "reasoning",
+        title: "思考中...",
+        body: "",
+        meta: "running",
+        createdAt: now,
+        reasoningStartedAt: now
+      }
+    ];
+  }
+
+  if (kind === "usage_update" || kind === "cost_update") {
+    return items;
+  }
+
+  if (kind === "retrying" || kind === "context_compaction_started") {
+    const nextItem = desktopEventToTimelineItem(payload, eventKind);
+    if (eventId || nextItem.id === "retrying-attempt") {
+      const existingIndex = items.findIndex((item) => item.id === nextItem.id);
+      if (existingIndex >= 0) {
+        return items.map((item, index) => index === existingIndex ? nextItem : item);
+      }
+    }
+    return [...items, nextItem];
+  }
+
+  if (kind === "assistant_reasoning_complete") {
+    const existingIndex = reasoningId
+      ? items.findIndex((item) => item.id === reasoningId)
+      : items.findIndex((item) => item.kind === "reasoning" && item.meta === "running");
+    if (existingIndex >= 0) {
+      return items.map((item, index) => {
+        if (index === existingIndex && item.kind === "reasoning") {
+          const start = (item as any).reasoningStartedAt;
+          const duration = start ? Math.max(1, Math.round((Date.now() - start) / 1000)) : null;
+          return { 
+            ...item, 
+            body: "", 
+            meta: "complete",
+            title: duration ? `已思考 ${duration} 秒` : "已思考"
+          };
+        }
+        return item;
+      });
+    }
+    return [
+      ...items,
+      {
+        id: `event-${Date.now()}-${Math.random()}`,
+        kind: "reasoning",
+        title: "已思考",
+        body: "",
+        meta: "complete"
+      }
+    ];
+  }
+
+  if (kind === "turn_completed") {
+    let hasAssistantForTurn = false;
+    let hasReasoningForTurn = false;
+    const settledItems = items.map((item, index) => {
+      if (item.kind === "reasoning" && (item.meta === "running" || item.id === reasoningId)) {
+        hasReasoningForTurn = true;
+        const start = (item as any).reasoningStartedAt;
+        const duration = start ? Math.max(1, Math.round((Date.now() - start) / 1000)) : null;
+        return { ...item, body: "", meta: "complete", title: duration ? `已思考 ${duration} 秒` : "已思考" };
+      }
+      if (item.kind === "tool" && item.status === "running") {
+        return { ...item, status: "success" as const };
+      }
+      if (item.kind === "assistant" && (item.id === assistantId || index === items.length - 1)) {
+        hasAssistantForTurn = true;
+        return { ...item, body: body || item.body, meta: hasToolCalls ? "intermediate" : "stream complete" };
+      }
+      if (item.kind === "assistant" && item.meta === "stream complete" && body && item.body === body) {
+        hasAssistantForTurn = true;
+      }
+      if (item.kind === "reasoning" && reasoning && item.body === reasoning) {
+        hasReasoningForTurn = true;
+      }
+      return item;
+    });
+    const fallbackItems: TimelineItem[] = [];
+    if (reasoning && !hasReasoningForTurn) {
+      fallbackItems.push({
+        id: `event-${Date.now()}-${Math.random()}`,
+        kind: "reasoning",
+        title: "思考",
+        body: "",
+        meta: "complete"
+      });
+    }
+    if (body && !hasAssistantForTurn) {
+      fallbackItems.push({
+        id: `event-${Date.now()}-${Math.random()}`,
+        kind: "assistant",
+        title: "Yode",
+        body,
+        meta: hasToolCalls ? "intermediate" : "stream complete"
+      });
+    }
+    return fallbackItems.length > 0 ? [...settledItems, ...fallbackItems] : settledItems;
+  }
+
+  if (kind === "error") {
+    const filteredItems = items.filter((item) => item.id !== "retrying-attempt");
+    const settledItems = filteredItems.map((item) => {
+      if (item.kind === "reasoning" && item.meta === "running") {
+        return { ...item, meta: "complete" };
+      }
+      if (item.kind === "tool" && item.status === "running") {
+        return { ...item, status: "blocked" as const };
+      }
+      if (item.kind === "assistant" && item.meta !== "stream complete") {
+        return { ...item, meta: "stream complete" };
+      }
+      return item;
+    });
+
+    const errorId = turnId ? `error-${turnId}` : `event-${Date.now()}-${Math.random()}`;
+    const errorMessage = body || "本轮执行失败，请稍后重试。";
+
+    const existingIndex = settledItems.findIndex((item) => item.id === errorId);
+    if (existingIndex >= 0) {
+      return settledItems.map((item, index) => {
+        if (index === existingIndex) {
+          const existingBody = (item as any).body || "";
+          let newBody = errorMessage;
+          if (existingBody.includes(errorMessage)) {
+            newBody = existingBody;
+          } else if (errorMessage.includes(existingBody)) {
+            newBody = errorMessage;
+          } else {
+            newBody = `${existingBody}\n${errorMessage}`;
+          }
+          return {
+            ...item,
+            body: newBody,
+            meta: "stream complete"
+          };
+        }
+        return item;
+      });
+    }
+
+    return [
+      ...settledItems,
+      {
+        id: errorId,
+        kind: "assistant",
+        title: "错误",
+        body: errorMessage,
+        meta: "stream complete"
+      }
+    ];
+  }
+
+  return [...items, desktopEventToTimelineItem(payload, eventKind)];
+}
+
+export function messagesToTimelineItems(messages: DesktopMessage[]): TimelineItem[] {
+  return messages.flatMap((message): TimelineItem[] => {
+    const content = message.content?.trim();
+    const reasoning = message.reasoning?.trim();
+    const timestamp = formatHistoryTimestamp(message.createdAt);
+
+    if (message.role === "user") {
+      return content
+        ? [{
+            id: `history-${message.id}`,
+            kind: "user",
+            title: "用户",
+            body: content,
+            meta: timestamp,
+            createdAt: new Date(message.createdAt).getTime()
+          }]
+        : [];
+    }
+
+    if (message.role === "assistant") {
+      const items: TimelineItem[] = [];
+      if (reasoning) {
+        items.push({
+          id: `history-${message.id}-reasoning`,
+          kind: "reasoning",
+          title: "已思考",
+          body: "",
+          meta: "complete"
+        });
+      }
+      if (content) {
+        const hasTools = parseToolCalls(message.toolCallsJson).length > 0;
+        items.push({
+          id: `history-${message.id}`,
+          kind: "assistant",
+          title: "Yode",
+          body: content,
+          meta: hasTools ? "intermediate" : "stream complete"
+        });
+      }
+      parseToolCalls(message.toolCallsJson).forEach((toolCall, index) => {
+        items.push({
+          id: `history-${message.id}-tool-call-${index}`,
+          kind: "tool",
+          title: `调用工具: ${toolCall.name}`,
+          body: toolCall.arguments,
+          tool: toolCall.name,
+          status: "success",
+          meta: "history"
+        });
+      });
+      return items;
+    }
+
+    if (message.role === "tool") {
+      return [{
+        id: `history-${message.id}`,
+        kind: "tool",
+        title: "工具结果",
+        body: content || message.toolCallId || "",
+        tool: message.toolCallId || "tool",
+        status: "success"
+      }];
+    }
+
+    return [];
+  });
+}
+
+
