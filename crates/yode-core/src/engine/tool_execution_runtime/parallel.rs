@@ -75,6 +75,10 @@ impl AgentEngine {
                 continue;
             }
 
+            let action_narrative = strip_action_narrative_param(&mut params);
+            if tc.name == "batch" {
+                strip_nested_action_narrative_params(&mut params);
+            }
             let schema = tool.parameters_schema();
             if let Err(msg) = validation::validate_and_coerce(&schema, &mut params) {
                 let tc_clone = tc.clone();
@@ -103,6 +107,9 @@ impl AgentEngine {
             let effective_arguments =
                 serde_json::to_string(&params).unwrap_or_else(|_| tc.arguments.clone());
 
+            if let Some(narrative) = action_narrative {
+                let _ = event_tx.send(EngineEvent::ActionNarrative(narrative));
+            }
             let _ = event_tx.send(EngineEvent::ToolCallStart {
                 id: tc.id.clone(),
                 name: tc.name.clone(),

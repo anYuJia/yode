@@ -22,7 +22,8 @@ impl AgentEngine {
         let tag = Self::ACTION_NARRATIVE_OPEN;
         let max_len = text.len().min(tag.len().saturating_sub(1));
         for len in (1..=max_len).rev() {
-            if text.is_char_boundary(text.len() - len) && tag.starts_with(&text[text.len() - len..]) {
+            if text.is_char_boundary(text.len() - len) && tag.starts_with(&text[text.len() - len..])
+            {
                 return len;
             }
         }
@@ -128,6 +129,10 @@ impl AgentEngine {
         Self::strip_action_narratives(text).0
     }
 
+    pub(super) fn split_action_narratives_from_text(text: &str) -> (String, Vec<String>) {
+        Self::strip_action_narratives(text)
+    }
+
     /// Process a single stream event.
     pub(super) fn process_stream_event(
         event: StreamEvent,
@@ -155,11 +160,6 @@ impl AgentEngine {
                     name: name.clone(),
                     arguments: String::new(),
                 });
-                let _ = event_tx.send(EngineEvent::ToolCallStart {
-                    id,
-                    name,
-                    arguments: String::new(),
-                });
             }
             StreamEvent::ToolCallDelta { id, arguments } => {
                 if let Some(tc) = tool_calls.iter_mut().find(|t| t.id == id) {
@@ -176,7 +176,8 @@ impl AgentEngine {
                 if let Some(content) = response.message.content.as_ref() {
                     let clean = Self::sanitize_action_narratives_in_text(content);
                     if clean != *content {
-                        response.message.content = if clean.is_empty() { None } else { Some(clean) };
+                        response.message.content =
+                            if clean.is_empty() { None } else { Some(clean) };
                         response.message.normalize_in_place();
                     }
                 }

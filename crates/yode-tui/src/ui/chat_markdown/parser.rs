@@ -1,11 +1,11 @@
 use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
-use std::sync::LazyLock;
 use regex::Regex;
+use std::sync::LazyLock;
 
-use super::types::{MarkdownBlock, InlineNode, ListItem, TableCell, ContainerEnd, InlineEnd};
+use super::types::{ContainerEnd, InlineEnd, InlineNode, ListItem, MarkdownBlock, TableCell};
 use super::utils::{
-    heading_level_to_usize, inline_nodes_to_plain_text, is_container_end, is_list_end,
-    is_inline_end, is_inline_start_tag, is_inline_event
+    heading_level_to_usize, inline_nodes_to_plain_text, is_container_end, is_inline_end,
+    is_inline_event, is_inline_start_tag, is_list_end,
 };
 use crate::app::rendering::parse_code_language;
 
@@ -275,7 +275,9 @@ pub fn collapse_list_blank_lines(lines: Vec<String>) -> Vec<String> {
             .map(|candidate| candidate.trim())
             .unwrap_or("");
 
-        if super::utils::is_streaming_list_item_line(previous) && super::utils::is_streaming_list_item_line(next) {
+        if super::utils::is_streaming_list_item_line(previous)
+            && super::utils::is_streaming_list_item_line(next)
+        {
             continue;
         }
 

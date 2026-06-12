@@ -2,7 +2,6 @@ import React, { useState, useEffect } from "react";
 import { ChevronDown, ChevronRight, CircleDot, Brain } from "lucide-react";
 import { TimelineItem } from "../../lib/mock";
 import { MarkdownContent } from "./MarkdownContent";
-import { localizeVisibleProcessText } from "../timelineUtils";
 
 interface ReasoningNodeProps {
   item: any;

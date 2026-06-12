@@ -18,6 +18,9 @@ impl AgentEngine {
         match action {
             PermissionAction::Allow => {
                 info!("Executing tool: {} (auto-allowed)", tool_call.name);
+                if let Some(narrative) = prepared.action_narrative.as_ref() {
+                    let _ = event_tx.send(EngineEvent::ActionNarrative(narrative.clone()));
+                }
                 let _ = event_tx.send(EngineEvent::ToolCallStart {
                     id: tool_call.id.clone(),
                     name: tool_call.name.clone(),
@@ -73,6 +76,9 @@ impl AgentEngine {
         self.execute_advisory_hooks(HookEvent::PermissionRequest, permission_request_ctx)
             .await;
 
+        if let Some(narrative) = prepared.action_narrative.as_ref() {
+            let _ = event_tx.send(EngineEvent::ActionNarrative(narrative.clone()));
+        }
         let _ = event_tx.send(EngineEvent::ToolConfirmRequired {
             id: tool_call.id.clone(),
             name: tool_call.name.clone(),

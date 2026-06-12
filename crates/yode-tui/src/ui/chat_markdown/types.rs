@@ -1,5 +1,5 @@
-use ratatui::style::Color;
 use crate::app::rendering::CodeLanguage;
+use ratatui::style::Color;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MarkdownRenderOptions {

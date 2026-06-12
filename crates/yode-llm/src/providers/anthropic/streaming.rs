@@ -5,6 +5,7 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, warn};
 
 use crate::providers::retry::send_with_retry;
+use crate::providers::write_debug_artifact;
 use crate::types::{ChatRequest, StreamEvent};
 
 use super::streaming_support::{finalize_stream, handle_stream_event, AnthropicStreamState};
@@ -48,6 +49,14 @@ impl AnthropicProvider {
         );
 
         let body_json = serde_json::to_string(&body).context("Failed to serialize request")?;
+        write_debug_artifact(
+            &self.name,
+            "anthropic-stream-request",
+            serde_json::json!({
+                "url": self.messages_url(),
+                "body": serde_json::from_str::<serde_json::Value>(&body_json).ok(),
+            }),
+        );
 
         let resp = send_with_retry(
             || {
@@ -78,6 +87,7 @@ impl AnthropicProvider {
 
         let mut event_stream = resp.bytes_stream().eventsource();
         let mut state = AnthropicStreamState::new(request.model.clone());
+        let mut debug_events = Vec::new();
 
         while let Some(event_result) = event_stream.next().await {
             let event = match event_result {
@@ -90,6 +100,12 @@ impl AnthropicProvider {
             };
 
             let data = event.data;
+            if crate::providers::debug_requests_enabled() {
+                debug_events.push(serde_json::json!({
+                    "event": event.event,
+                    "data": &data,
+                }));
+            }
 
             let stream_event: AnthropicStreamEvent = match serde_json::from_str(&data) {
                 Ok(e) => e,
@@ -107,6 +123,13 @@ impl AnthropicProvider {
             }
         }
 
+        write_debug_artifact(
+            &self.name,
+            "anthropic-stream-events",
+            serde_json::json!({
+                "events": debug_events,
+            }),
+        );
         finalize_stream(state, &tx).await
     }
 }

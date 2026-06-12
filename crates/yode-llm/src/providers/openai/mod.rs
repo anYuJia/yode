@@ -21,6 +21,7 @@ use crate::providers::error_shared::format_api_error;
 use crate::providers::http_client::provider_http_client;
 use crate::providers::retry::send_with_retry;
 use crate::providers::streaming_shared::map_stop_reason;
+use crate::providers::write_debug_artifact;
 
 use crate::provider::LlmProvider;
 use crate::types::{ChatRequest, ChatResponse, ModelInfo, StreamEvent};
@@ -131,6 +132,14 @@ impl LlmProvider for OpenAiProvider {
 
         debug!("Sending chat request to {}", self.chat_url());
         trace!("Request body: {:?}", body);
+        write_debug_artifact(
+            &self.name,
+            "openai-chat-request",
+            serde_json::json!({
+                "url": self.chat_url(),
+                "body": &body,
+            }),
+        );
 
         let resp = send_with_retry(
             || {
@@ -166,6 +175,15 @@ impl LlmProvider for OpenAiProvider {
             .unwrap_or_default()
             .to_string();
         let response_text = resp.text().await.context("Failed to read chat response")?;
+        write_debug_artifact(
+            &self.name,
+            "openai-chat-response",
+            serde_json::json!({
+                "status": status.as_u16(),
+                "content_type": &content_type,
+                "body": &response_text,
+            }),
+        );
         if content_type.contains("text/html") || response_text.trim_start().starts_with("<!") {
             return Err(anyhow!(
                 "模型接口返回了网页内容，不是 OpenAI 兼容 JSON。请检查 base_url 是否指向 API 地址，通常需要以 /v1 结尾。"

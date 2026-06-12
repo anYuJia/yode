@@ -1,19 +1,23 @@
+use pulldown_cmark::{Event, HeadingLevel, Tag, TagEnd};
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use regex::Regex;
 use std::collections::{HashMap, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::sync::{LazyLock, Mutex};
-use regex::Regex;
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
 use unicode_width::UnicodeWidthStr;
-use pulldown_cmark::{Event, HeadingLevel, Tag, TagEnd};
 
-use super::types::{MarkdownBlock, InlineNode, ListItem, TableCell, MarkdownRenderOptions, ContainerEnd, InlineEnd};
+use super::types::{
+    ContainerEnd, InlineEnd, InlineNode, ListItem, MarkdownBlock, MarkdownRenderOptions, TableCell,
+};
+use crate::app::rendering::{
+    parse_code_language, tokenize_code_line_with_language, CodeLanguage, CodeTokenKind,
+};
 use crate::ui::chat::{CODE_BG, DIM, INLINE_CODE_BG, WHITE, YELLOW};
 use crate::ui::chat_layout::{manual_wrap, osc8_close_sequence, visible_text_width};
+use crate::ui::highlighted_code::render_highlighted_code_block;
 use crate::ui::palette::{BORDER_MUTED, INFO_COLOR, LIGHT, MUTED, PANEL_ACCENT};
 use crate::ui::structured_diff::render_structured_diff_block;
-use crate::ui::highlighted_code::render_highlighted_code_block;
-use crate::app::rendering::{parse_code_language, tokenize_code_line_with_language, CodeLanguage, CodeTokenKind};
 
 pub const MARKDOWN_BLOCK_CACHE_MAX: usize = 500;
 pub const TABLE_MAX_ROW_LINES: usize = 4;
@@ -35,7 +39,8 @@ pub(crate) static ISSUE_REF_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(^|[^\w./-])([A-Za-z0-9][\w-]*/[A-Za-z0-9][\w.-]*)#(\d+)\b").unwrap()
 });
 
-pub(crate) static URL_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"https?://[^\s<>"']+"#).unwrap());
+pub(crate) static URL_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"https?://[^\s<>"']+"#).unwrap());
 
 pub fn has_markdown_syntax(text: &str) -> bool {
     MD_SYNTAX_RE.is_match(text)

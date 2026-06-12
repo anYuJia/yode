@@ -538,7 +538,7 @@ fn test_system_prompt_runtime_state_tracks_segment_breakdown() {
         .any(|segment| segment.label == "Multi-agent coordination"));
     assert!(engine.system_prompt.contains("send_message"));
     assert!(engine.system_prompt.contains("<task-notification>"));
-    assert!(engine.system_prompt.contains("公开过程旁白"));
+    assert!(engine.system_prompt.contains("公开行动旁白"));
     assert!(engine
         .system_prompt
         .contains("visible reasoning/thinking summaries"));

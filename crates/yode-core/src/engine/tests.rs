@@ -163,6 +163,7 @@ pub(super) fn make_engine(tools: Vec<Arc<dyn Tool>>, confirm_tools: Vec<String>)
 fn stream_error_event_is_not_forwarded_directly_to_ui() {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let mut full_text = String::new();
+    let mut pending_text = String::new();
     let mut full_reasoning = String::new();
     let mut tool_calls = Vec::new();
     let mut final_response = None;
@@ -170,11 +171,167 @@ fn stream_error_event_is_not_forwarded_directly_to_ui() {
     AgentEngine::process_stream_event(
         yode_llm::types::StreamEvent::Error("connection reset".to_string()),
         &mut full_text,
+        &mut pending_text,
         &mut full_reasoning,
         &mut tool_calls,
         &mut final_response,
         &tx,
     );
 
+    assert!(rx.try_recv().is_err());
+}
+
+#[test]
+fn action_narrative_is_emitted_and_removed_from_text_stream() {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut full_text = String::new();
+    let mut pending_text = String::new();
+    let mut full_reasoning = String::new();
+    let mut tool_calls = Vec::new();
+    let mut final_response = None;
+
+    AgentEngine::process_stream_event(
+        yode_llm::types::StreamEvent::TextDelta(
+            "开始 <action_narrative>我先查看项目结构，确认入口".to_string(),
+        ),
+        &mut full_text,
+        &mut pending_text,
+        &mut full_reasoning,
+        &mut tool_calls,
+        &mut final_response,
+        &tx,
+    );
+    AgentEngine::process_stream_event(
+        yode_llm::types::StreamEvent::TextDelta("</action_narrative>继续".to_string()),
+        &mut full_text,
+        &mut pending_text,
+        &mut full_reasoning,
+        &mut tool_calls,
+        &mut final_response,
+        &tx,
+    );
+
+    assert_eq!(full_text, "开始 继续");
+    assert_eq!(pending_text, "");
+
+    match rx.try_recv().unwrap() {
+        EngineEvent::TextDelta(text) => assert_eq!(text, "开始 "),
+        other => panic!("expected text delta, got {:?}", other),
+    }
+    match rx.try_recv().unwrap() {
+        EngineEvent::ActionNarrative(text) => assert_eq!(text, "我先查看项目结构，确认入口"),
+        other => panic!("expected action narrative, got {:?}", other),
+    }
+    match rx.try_recv().unwrap() {
+        EngineEvent::TextDelta(text) => assert_eq!(text, "继续"),
+        other => panic!("expected text delta, got {:?}", other),
+    }
+    assert!(rx.try_recv().is_err());
+}
+
+#[test]
+fn action_narrative_is_removed_from_done_response_content() {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut full_text = String::new();
+    let mut pending_text = String::new();
+    let mut full_reasoning = String::new();
+    let mut tool_calls = Vec::new();
+    let mut final_response = None;
+
+    AgentEngine::process_stream_event(
+        yode_llm::types::stream_done(
+            yode_llm::types::Message::assistant(
+                "<action_narrative>我会验证构建结果。</action_narrative>完成",
+            ),
+            yode_llm::types::Usage::default(),
+            "mock".to_string(),
+            None,
+        ),
+        &mut full_text,
+        &mut pending_text,
+        &mut full_reasoning,
+        &mut tool_calls,
+        &mut final_response,
+        &tx,
+    );
+
+    assert!(rx.try_recv().is_err());
+    let response = final_response.expect("final response");
+    assert_eq!(response.message.content.as_deref(), Some("完成"));
+}
+
+#[test]
+fn action_narrative_tags_inside_reasoning_stay_private_reasoning() {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut full_text = String::new();
+    let mut pending_text = String::new();
+    let mut full_reasoning = String::new();
+    let mut tool_calls = Vec::new();
+    let mut final_response = None;
+
+    AgentEngine::process_stream_event(
+        yode_llm::types::StreamEvent::ReasoningDelta(
+            "<action_narrative>我先查看项目结构。</action_narrative>".to_string(),
+        ),
+        &mut full_text,
+        &mut pending_text,
+        &mut full_reasoning,
+        &mut tool_calls,
+        &mut final_response,
+        &tx,
+    );
+
+    assert_eq!(
+        full_reasoning,
+        "<action_narrative>我先查看项目结构。</action_narrative>"
+    );
+    match rx.try_recv().unwrap() {
+        EngineEvent::ReasoningDelta(text) => {
+            assert_eq!(
+                text,
+                "<action_narrative>我先查看项目结构。</action_narrative>"
+            )
+        }
+        other => panic!("expected reasoning delta, got {:?}", other),
+    }
+    assert!(rx.try_recv().is_err());
+}
+
+#[test]
+fn streaming_tool_call_start_is_not_forwarded_before_execution() {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut full_text = String::new();
+    let mut pending_text = String::new();
+    let mut full_reasoning = String::new();
+    let mut tool_calls = Vec::new();
+    let mut final_response = None;
+
+    AgentEngine::process_stream_event(
+        yode_llm::types::StreamEvent::ToolCallStart {
+            id: "call_1".to_string(),
+            name: "read_file".to_string(),
+        },
+        &mut full_text,
+        &mut pending_text,
+        &mut full_reasoning,
+        &mut tool_calls,
+        &mut final_response,
+        &tx,
+    );
+    AgentEngine::process_stream_event(
+        yode_llm::types::StreamEvent::ToolCallDelta {
+            id: "call_1".to_string(),
+            arguments: r#"{"file_path":"Cargo.toml","action_narrative":"我先看配置入口。"}"#.to_string(),
+        },
+        &mut full_text,
+        &mut pending_text,
+        &mut full_reasoning,
+        &mut tool_calls,
+        &mut final_response,
+        &tx,
+    );
+
+    assert_eq!(tool_calls.len(), 1);
+    assert!(tool_calls[0].arguments.contains("action_narrative"));
     assert!(rx.try_recv().is_err());
 }

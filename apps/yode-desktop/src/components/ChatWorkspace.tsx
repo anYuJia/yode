@@ -164,6 +164,8 @@ export function ChatWorkspace({
   const timelinePanelRef = useRef<HTMLElement | null>(null);
   const shouldStickToBottomRef = useRef(true);
   const lastTimelineLengthRef = useRef(0);
+  const lastScrollTopRef = useRef(0);
+  const touchStartYRef = useRef<number | null>(null);
 
   const scrollTimelineToBottom = (behavior: ScrollBehavior = "smooth") => {
     const panel = timelinePanelRef.current;
@@ -174,11 +176,52 @@ export function ChatWorkspace({
     });
   };
 
+  const isNearTimelineBottom = (panel: HTMLElement, threshold = 120) => {
+    const distanceToBottom = panel.scrollHeight - panel.scrollTop - panel.clientHeight;
+    return distanceToBottom < threshold;
+  };
+
   const handleTimelineScroll = () => {
     const panel = timelinePanelRef.current;
     if (!panel) return;
-    const distanceToBottom = panel.scrollHeight - panel.scrollTop - panel.clientHeight;
-    shouldStickToBottomRef.current = distanceToBottom < 120;
+    const scrollTop = panel.scrollTop;
+    const isScrollingUp = scrollTop < lastScrollTopRef.current - 1;
+    if (isScrollingUp) {
+      shouldStickToBottomRef.current = false;
+    } else if (isNearTimelineBottom(panel)) {
+      shouldStickToBottomRef.current = true;
+    }
+    lastScrollTopRef.current = scrollTop;
+  };
+
+  const handleTimelineWheel = (event: React.WheelEvent<HTMLElement>) => {
+    const panel = timelinePanelRef.current;
+    if (!panel) return;
+    if (event.deltaY < 0) {
+      shouldStickToBottomRef.current = false;
+      return;
+    }
+    if (event.deltaY > 0 && isNearTimelineBottom(panel, 160)) {
+      shouldStickToBottomRef.current = true;
+    }
+  };
+
+  const handleTimelineTouchStart = (event: React.TouchEvent<HTMLElement>) => {
+    touchStartYRef.current = event.touches[0]?.clientY ?? null;
+  };
+
+  const handleTimelineTouchMove = (event: React.TouchEvent<HTMLElement>) => {
+    const panel = timelinePanelRef.current;
+    const startY = touchStartYRef.current;
+    const currentY = event.touches[0]?.clientY;
+    if (!panel || startY == null || currentY == null) return;
+    if (currentY > startY + 2) {
+      shouldStickToBottomRef.current = false;
+      return;
+    }
+    if (currentY < startY - 2 && isNearTimelineBottom(panel, 160)) {
+      shouldStickToBottomRef.current = true;
+    }
   };
 
   const timelineContentHash = useMemo(() => {
@@ -186,7 +229,9 @@ export function ChatWorkspace({
   }, [timelineItems]);
 
   useLayoutEffect(() => {
-    if (!shouldStickToBottomRef.current) return;
+    const panel = timelinePanelRef.current;
+    if (!panel) return;
+    if (!shouldStickToBottomRef.current && !isNearTimelineBottom(panel, 80)) return;
     const itemAdded = timelineItems.length > lastTimelineLengthRef.current;
     lastTimelineLengthRef.current = timelineItems.length;
     const frame = window.requestAnimationFrame(() => {
@@ -203,6 +248,9 @@ export function ChatWorkspace({
           aria-label="会话时间线"
           ref={timelinePanelRef}
           onScroll={handleTimelineScroll}
+          onWheel={handleTimelineWheel}
+          onTouchStart={handleTimelineTouchStart}
+          onTouchMove={handleTimelineTouchMove}
         >
           {turns.length === 0 ? (
             <div className="welcome-dashboard">

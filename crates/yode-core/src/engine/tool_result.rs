@@ -41,8 +41,11 @@ pub(super) fn convert_tool_definitions(
         })
         .map(|td| LlmToolDefinition {
             name: td.name,
-            description: td.description,
-            parameters: td.parameters,
+            description: format!(
+                "{}\n\nAlways include `action_narrative`: a brief Simplified Chinese public phase update that the client shows before this tool runs. It must be model-written user-facing narration, not hidden reasoning and not a tool title. Use a natural Codex-style sentence about the immediate grouped purpose, for example “我先扫一遍入口和配置，确定项目脉络。”",
+                td.description
+            ),
+            parameters: with_action_narrative_parameter(td.parameters),
             annotations: LlmToolAnnotations {
                 read_only_hint: td.annotations.read_only_hint,
                 destructive_hint: td.annotations.destructive_hint,
@@ -50,6 +53,44 @@ pub(super) fn convert_tool_definitions(
             },
         })
         .collect()
+}
+
+fn with_action_narrative_parameter(mut schema: Value) -> Value {
+    let Some(object) = schema.as_object_mut() else {
+        return schema;
+    };
+    let properties = object
+        .entry("properties".to_string())
+        .or_insert_with(|| Value::Object(Map::new()));
+    let Some(properties) = properties.as_object_mut() else {
+        return schema;
+    };
+    properties.insert(
+        "action_narrative".to_string(),
+        json!({
+            "type": "string",
+            "minLength": 12,
+            "maxLength": 80,
+            "description": "Required public phase update shown before this tool runs. Write one brief, natural Simplified Chinese Codex-style sentence about the immediate grouped purpose. Good: “我先扫一遍入口和配置，确定项目脉络。” / “接着看核心模块，确认调用链路。” Bad: “查看 README”, “分析项目结构”, hidden reasoning, English self-talk, or fixed templates."
+        }),
+    );
+    match object.get_mut("required") {
+        Some(Value::Array(required)) => {
+            if !required
+                .iter()
+                .any(|value| value.as_str() == Some("action_narrative"))
+            {
+                required.push(Value::String("action_narrative".to_string()));
+            }
+        }
+        _ => {
+            object.insert(
+                "required".to_string(),
+                Value::Array(vec![Value::String("action_narrative".to_string())]),
+            );
+        }
+    }
+    schema
 }
 
 fn metadata_object(result: &mut ToolResult) -> &mut Map<String, Value> {
@@ -161,7 +202,11 @@ pub(super) fn truncate_tool_result(result: ToolResult, context_window_tokens: us
 
 #[cfg(test)]
 mod tests {
-    use super::{dynamic_single_tool_result_limit, dynamic_total_tool_results_limit};
+    use super::{
+        dynamic_single_tool_result_limit, dynamic_total_tool_results_limit,
+        with_action_narrative_parameter,
+    };
+    use serde_json::json;
 
     #[test]
     fn dynamic_tool_result_budgets_scale_with_context_window() {
@@ -172,5 +217,35 @@ mod tests {
         assert_eq!(dynamic_total_tool_results_limit(200_000), 80_000);
 
         assert_eq!(dynamic_total_tool_results_limit(1_000_000), 200 * 1024);
+    }
+
+    #[test]
+    fn action_narrative_is_required_public_preamble_in_tool_schema() {
+        let schema = with_action_narrative_parameter(json!({
+            "type": "object",
+            "properties": {
+                "file_path": { "type": "string" }
+            },
+            "required": ["file_path"]
+        }));
+
+        assert!(schema
+            .get("properties")
+            .and_then(|properties| properties.get("action_narrative"))
+            .is_some());
+        assert_eq!(
+            schema
+                .get("properties")
+                .and_then(|properties| properties.get("action_narrative"))
+                .and_then(|schema| schema.get("minLength"))
+                .and_then(|value| value.as_u64()),
+            Some(12)
+        );
+        assert!(schema
+            .get("required")
+            .and_then(|required| required.as_array())
+            .is_some_and(|required| required
+                .iter()
+                .any(|value| value.as_str() == Some("action_narrative"))));
     }
 }

@@ -10,6 +10,7 @@ use super::*;
 #[derive(Default)]
 pub(super) struct StreamTurnBuffers {
     pub(super) full_text: String,
+    pub(super) pending_text: String,
     pub(super) full_reasoning: String,
     pub(super) tool_calls: Vec<ToolCall>,
     pub(super) final_response: Option<ChatResponse>,

@@ -1,7 +1,7 @@
-mod types;
-mod utils;
 mod parser;
 mod renderer;
+mod types;
+mod utils;
 
 pub use types::MarkdownRenderOptions;
 pub use utils::line_to_ansi_string;
@@ -20,10 +20,7 @@ pub fn render_markdown_ansi_with_options(
         .collect()
 }
 
-pub fn streaming_markdown_advance_stable_boundary(
-    text: &str,
-    current_stable_len: usize,
-) -> usize {
+pub fn streaming_markdown_advance_stable_boundary(text: &str, current_stable_len: usize) -> usize {
     let stable_len = current_stable_len.min(text.len());
     stable_len + utils::stable_boundary_from_complete_lines(&text[stable_len..])
 }
@@ -50,12 +47,11 @@ pub fn render_markdown_impl(text: &str, default_fg: Option<Color>) -> Vec<Line<'
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        render_markdown_ansi_with_options, render_markdown_impl,
-        render_markdown_with_options, streaming_markdown_advance_stable_boundary,
-        MarkdownRenderOptions,
-    };
     use super::utils::line_display_width;
+    use super::{
+        render_markdown_ansi_with_options, render_markdown_impl, render_markdown_with_options,
+        streaming_markdown_advance_stable_boundary, MarkdownRenderOptions,
+    };
     use crate::ui::chat::WHITE;
     use ratatui::style::{Color, Modifier};
 

@@ -523,6 +523,10 @@ impl DesktopRuntime {
                         EngineEvent::TextDelta(text) => {
                             ("assistant_text_delta", json!({ "body": text }))
                         }
+                        EngineEvent::ActionNarrative(text) => (
+                            "action_narrative",
+                            json!({ "body": text, "status": "success" }),
+                        ),
                         EngineEvent::TextComplete(text) => (
                             "assistant_text_complete",
                             json!({ "body": text, "status": "completed" }),
@@ -772,6 +776,34 @@ impl DesktopRuntime {
                             json!({ "title": "更新已下载", "body": version }),
                         ),
                     };
+
+                    if std::env::var("YODE_ACTION_NARRATIVE_DEBUG")
+                        .is_ok_and(|value| value == "1")
+                        && matches!(
+                            kind,
+                            "assistant_text_delta"
+                                | "assistant_reasoning_delta"
+                                | "action_narrative"
+                                | "tool_started"
+                                | "assistant_text_complete"
+                                | "assistant_reasoning_complete"
+                                | "turn_completed"
+                        )
+                    {
+                        let preview = payload
+                            .get("body")
+                            .or_else(|| payload.get("reasoning"))
+                            .and_then(|value| value.as_str())
+                            .unwrap_or("")
+                            .chars()
+                            .take(120)
+                            .collect::<String>()
+                            .replace('\n', "\\n");
+                        eprintln!(
+                            "[action-narrative-debug] turn={} kind={} preview={:?}",
+                            turn_id_str, kind, preview
+                        );
+                    }
 
                     let desktop_event = DesktopEvent {
                         session_id: session_id_str.clone(),

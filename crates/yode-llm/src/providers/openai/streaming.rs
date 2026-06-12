@@ -7,6 +7,7 @@ use tracing::{debug, trace, warn};
 use crate::providers::error_shared::format_api_error;
 use crate::providers::retry::send_with_retry;
 use crate::providers::streaming_shared::emit_usage_update;
+use crate::providers::write_debug_artifact;
 use crate::types::{ChatRequest, StreamEvent, Usage};
 
 use super::conversion::{message_to_openai, tool_to_openai};
@@ -38,6 +39,14 @@ impl OpenAiProvider {
         };
 
         debug!("Sending streaming chat request to {}", self.chat_url());
+        write_debug_artifact(
+            &self.name,
+            "openai-stream-request",
+            serde_json::json!({
+                "url": self.chat_url(),
+                "body": &body,
+            }),
+        );
 
         let resp = send_with_retry(
             || {
@@ -85,6 +94,7 @@ impl OpenAiProvider {
 
         let mut event_stream = resp.bytes_stream().eventsource();
         let mut state = OpenAiStreamState::new(request.model.clone());
+        let mut debug_events = Vec::new();
 
         while let Some(event_result) = event_stream.next().await {
             let event = match event_result {
@@ -96,6 +106,12 @@ impl OpenAiProvider {
             };
 
             let data = event.data;
+            if crate::providers::debug_requests_enabled() {
+                debug_events.push(serde_json::json!({
+                    "event": event.event,
+                    "data": &data,
+                }));
+            }
             if data.trim() == "[DONE]" {
                 debug!("Stream completed with [DONE]");
                 state.saw_done_sentinel = true;
@@ -127,6 +143,13 @@ impl OpenAiProvider {
             }
         }
 
+        write_debug_artifact(
+            &self.name,
+            "openai-stream-events",
+            serde_json::json!({
+                "events": debug_events,
+            }),
+        );
         finalize_stream(state, &tx).await;
         Ok(())
     }

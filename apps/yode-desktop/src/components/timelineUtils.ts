@@ -14,6 +14,14 @@ export function normalizeProcessNoteText(text: string) {
     .trim();
 }
 
+export function looksLikeTerseToolTitle(text: string) {
+  const clean = normalizeProcessNoteText(text);
+  if (!clean) return true;
+  if (/[，。；：！？,.!?]/.test(clean)) return false;
+  if (clean.length > 14) return false;
+  return /^(查看|读取|分析|获取|检查|搜索|运行|验证|整理|梳理|确认|探索)[\p{L}\p{N}_/\-. ]{2,}$/u.test(clean);
+}
+
 export function splitProcessNotes(text: string, limit = 6) {
   return text
     .split(/\n{2,}|\n(?=(?:I will|I'll|Let me|Next|Now|我会|我先|接下来|现在|然后|下一步))/i)
@@ -319,6 +327,11 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
     } else if (item.kind === "permission" || item.kind === "boundary") {
       flushBuffer();
       result.push(item);
+    } else if (item.kind === "process_note") {
+      flushBuffer();
+      if (item.body.trim() || item.status === "running") {
+        result.push(item);
+      }
     } else if (item.kind === "tool") {
       if (item.title === "工具结果") {
         const resultCallId = (item as any).callId || item.tool;
@@ -403,6 +416,47 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
   }
 
   return enrichedResult;
+}
+
+function isStreamingAssistantForTurn(item: TimelineItem, turnId?: string) {
+  if (item.kind !== "assistant" || item.meta !== "streaming") return false;
+  if (!turnId) return true;
+  return item.id.startsWith(`assistant-${turnId}-`);
+}
+
+function assistantSegmentId(turnId: string | undefined, items: TimelineItem[]) {
+  if (!turnId) return `event-${Date.now()}-${Math.random()}`;
+  const segmentIndex = items.filter((item) => item.id.startsWith(`assistant-${turnId}-`)).length;
+  return `assistant-${turnId}-${segmentIndex}`;
+}
+
+function lastAssistantIndexForTurn(items: TimelineItem[], turnId?: string) {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    if (item.kind !== "assistant") continue;
+    if (!turnId || item.id.startsWith(`assistant-${turnId}-`)) return index;
+  }
+  return -1;
+}
+
+function completeStreamingAssistants(items: TimelineItem[], turnId?: string) {
+  return items.map((item) => {
+    if (!isStreamingAssistantForTurn(item, turnId)) return item;
+    return { ...item, meta: "intermediate" };
+  });
+}
+
+function hasRecentAssistantPreamble(items: TimelineItem[], turnId?: string) {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    if (item.kind === "tool" || item.kind === "activity_group" || item.kind === "activity_item" || item.kind === "edit_summary") {
+      return false;
+    }
+    if (item.kind !== "assistant") continue;
+    if (turnId && !item.id.startsWith(`assistant-${turnId}-`)) continue;
+    return Boolean(item.body.trim());
+  }
+  return false;
 }
 
 function attachToolResultToRenderedItems(
@@ -656,6 +710,16 @@ export function desktopEventToTimelineItem(
     };
   }
 
+  if (kind === "action_narrative") {
+    return {
+      id: eventId ? `action-narrative-${turnId}-${eventId}` : `event-${Date.now()}-${Math.random()}`,
+      kind: "process_note",
+      body,
+      status: "success",
+      createdAt
+    };
+  }
+
   if (kind === "tool_started" || kind === "tool_progress" || kind === "tool_result" || kind === "subagent_started" || kind === "subagent_completed" || inner?.tool) {
     return {
       id: eventId ? `tool-${turnId}-${eventId}` : `event-${Date.now()}-${Math.random()}`,
@@ -741,30 +805,55 @@ export function applyDesktopEventToTimelineItems(
   const body = stringValue(inner?.body) ?? "";
   const reasoning = stringValue(inner?.reasoning) ?? "";
   const turnId = stringValue(outer?.turnId);
-  const assistantId = turnId ? `assistant-${turnId}` : undefined;
   const reasoningId = turnId ? `reasoning-${turnId}` : undefined;
   const eventId = stringValue(inner?.id);
   const hasToolCalls = Boolean(inner?.hasToolCalls);
+
+  if (kind === "action_narrative") {
+    if (hasRecentAssistantPreamble(items, turnId)) {
+      return items;
+    }
+    const nextItem = desktopEventToTimelineItem(payload, eventKind);
+    if (nextItem.kind !== "process_note" || !nextItem.body.trim()) {
+      return items;
+    }
+    const noteText = nextItem.body.trim();
+    if (looksLikeTerseToolTitle(noteText)) {
+      return items;
+    }
+    const alreadyVisible = items.some((item) => {
+      if (item.kind !== "assistant" && item.kind !== "process_note") return false;
+      const visibleText = item.body.trim();
+      return visibleText === noteText || visibleText.includes(noteText);
+    });
+    if (alreadyVisible) {
+      return items;
+    }
+    return [...items, nextItem];
+  }
 
   if (kind === "tool_started" || kind === "tool_progress" || kind === "tool_result" || kind === "subagent_started" || kind === "subagent_completed") {
     const nextItem = desktopEventToTimelineItem(payload, eventKind);
     const existingIndex = items.findIndex((item) => item.id === nextItem.id);
     if (existingIndex >= 0 && nextItem.kind === "tool") {
-      return items.map((item, index) =>
-        index === existingIndex && item.kind === "tool"
-          ? {
-              ...item,
-              title: nextItem.title || item.title,
-              body: kind === "tool_result" ? item.body : nextItem.body || item.body,
-              result: kind === "tool_result" ? nextItem.body || item.result : item.result,
-              status: nextItem.status,
-              meta: nextItem.meta ?? item.meta,
-              metadata: (nextItem as any).metadata ?? (item as any).metadata
-            }
-          : item
+      return completeStreamingAssistants(
+        items.map((item, index) =>
+          index === existingIndex && item.kind === "tool"
+            ? {
+                ...item,
+                title: nextItem.title || item.title,
+                body: kind === "tool_result" ? item.body : nextItem.body || item.body,
+                result: kind === "tool_result" ? nextItem.body || item.result : item.result,
+                status: nextItem.status,
+                meta: nextItem.meta ?? item.meta,
+                metadata: (nextItem as any).metadata ?? (item as any).metadata
+              }
+            : item
+        ),
+        turnId
       );
     }
-    return [...items, nextItem];
+    return [...completeStreamingAssistants(items, turnId), nextItem];
   }
 
   if (kind === "turn_started") {
@@ -781,9 +870,10 @@ export function applyDesktopEventToTimelineItems(
   }
 
   if (kind === "assistant_text_delta") {
-    const existingIndex = assistantId
-      ? items.findIndex((item) => item.id === assistantId)
-      : items.findIndex((item) => item.kind === "assistant" && item.meta !== "stream complete");
+    if (!body || body === "." || body === "..." || body === "…") {
+      return items;
+    }
+    const existingIndex = items.findIndex((item) => isStreamingAssistantForTurn(item, turnId));
     if (existingIndex >= 0) {
       return items.map((item, index) =>
         index === existingIndex && item.kind === "assistant"
@@ -794,7 +884,7 @@ export function applyDesktopEventToTimelineItems(
     return [
       ...items,
       {
-        id: assistantId ?? `event-${Date.now()}-${Math.random()}`,
+        id: assistantSegmentId(turnId, items),
         kind: "assistant",
         title: "Yode",
         body,
@@ -805,12 +895,18 @@ export function applyDesktopEventToTimelineItems(
   }
 
   if (kind === "assistant_text_complete") {
-    const existingIndex = assistantId
-      ? items.findIndex((item) => item.id === assistantId)
-      : items.findIndex((item) => item.kind === "assistant" && item.meta !== "stream complete");
+    const existingIndex = items.findIndex((item) => isStreamingAssistantForTurn(item, turnId));
     if (existingIndex >= 0) {
       return items.map((item, index) =>
         index === existingIndex && item.kind === "assistant"
+          ? { ...item, body: body || item.body, meta: "stream complete" }
+          : item
+      );
+    }
+    const lastAssistantIndex = lastAssistantIndexForTurn(items, turnId);
+    if (lastAssistantIndex >= 0 && body) {
+      return items.map((item, index) =>
+        index === lastAssistantIndex && item.kind === "assistant"
           ? { ...item, body: body || item.body, meta: "stream complete" }
           : item
       );
@@ -819,7 +915,7 @@ export function applyDesktopEventToTimelineItems(
       return [
         ...items,
         {
-          id: assistantId ?? `event-${Date.now()}-${Math.random()}`,
+          id: assistantSegmentId(turnId, items),
           kind: "assistant",
           title: "Yode",
           body,
@@ -912,7 +1008,8 @@ export function applyDesktopEventToTimelineItems(
   if (kind === "turn_completed") {
     let hasAssistantForTurn = false;
     let hasReasoningForTurn = false;
-    const settledItems = items.map((item, index) => {
+    const lastAssistantIndex = lastAssistantIndexForTurn(items, turnId);
+    const settledItems = items.map((item) => {
       if (item.kind === "reasoning" && turnId && item.id.startsWith(`reasoning-${turnId}-`)) {
         hasReasoningForTurn = true;
         if (item.meta === "running") {
@@ -924,9 +1021,13 @@ export function applyDesktopEventToTimelineItems(
       if (item.kind === "tool" && item.status === "running") {
         return { ...item, status: "success" as const };
       }
-      if (item.kind === "assistant" && (item.id === assistantId || index === items.length - 1)) {
+      if (item.kind === "assistant" && (isStreamingAssistantForTurn(item, turnId) || Boolean(turnId && item.id.startsWith(`assistant-${turnId}-`)))) {
         hasAssistantForTurn = true;
-        return { ...item, body: body || item.body, meta: hasToolCalls ? "intermediate" : "stream complete" };
+        return {
+          ...item,
+          body: item.body || body,
+          meta: items.indexOf(item) === lastAssistantIndex ? "stream complete" : "intermediate"
+        };
       }
       if (item.kind === "assistant" && item.meta === "stream complete" && body && item.body === body) {
         hasAssistantForTurn = true;

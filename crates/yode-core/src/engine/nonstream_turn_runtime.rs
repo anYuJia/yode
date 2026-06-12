@@ -23,7 +23,7 @@ impl AgentEngine {
             self.apply_microcompact();
             let request = self.build_chat_request();
             self.record_prompt_cache_request_state(&request);
-            let response = match self.call_llm_with_retry(request).await {
+            let mut response = match self.call_llm_with_retry(request).await {
                 Ok(response) => response,
                 Err(err) if self.should_reactive_strip_media_error(&err) => {
                     if self.reactive_strip_old_media() {
@@ -142,15 +142,29 @@ impl AgentEngine {
                 continue;
             }
 
-            if let Some(text) = &response.message.content {
+            if let Some(text) = response.message.content.clone() {
+                let (clean_text, narratives) = Self::split_action_narratives_from_text(&text);
+                for narrative in narratives {
+                    let _ = event_tx.send(EngineEvent::ActionNarrative(narrative));
+                }
+                if clean_text != text {
+                    response.message.content = if clean_text.is_empty() {
+                        None
+                    } else {
+                        Some(clean_text.clone())
+                    };
+                    response.message.normalize_in_place();
+                }
+
+                let text = response.message.content.as_deref().unwrap_or("");
                 if self.consecutive_failures >= 2 && self.files_read.is_empty() {
                     let guarded = format!(
                         "{}\n\n[EVIDENCE GATE: Multiple failures occurred and no successful file reads were recorded in this turn. Summarize verified facts only and ask for directory/path confirmation before concluding.]",
                         text
                     );
                     let _ = event_tx.send(EngineEvent::TextComplete(guarded));
-                } else {
-                    let _ = event_tx.send(EngineEvent::TextComplete(text.clone()));
+                } else if !text.is_empty() {
+                    let _ = event_tx.send(EngineEvent::TextComplete(text.to_string()));
                 }
             }
 

@@ -111,7 +111,6 @@ impl AgentEngine {
                 ),
             );
         }
-
         let mut result = match tokio::time::timeout(
             std::time::Duration::from_secs(TOOL_EXECUTION_TIMEOUT_SECS),
             tool.execute(prepared.params, &ctx),

@@ -1,8 +1,7 @@
-use super::{CodeToken, CodeTokenKind};
 use super::languages::{
-    consume_quoted_string, is_word_char, starts_comment, CommentStyle,
-    is_shell_keyword,
+    consume_quoted_string, is_shell_keyword, is_word_char, starts_comment, CommentStyle,
 };
+use super::{CodeToken, CodeTokenKind};
 
 #[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -106,7 +105,10 @@ pub fn tokenize_shell_session_line(
     (kind, tokens, next_session_state)
 }
 
-pub(super) fn tokenize_shell_command_line(line: &str, prompt_prefix_len: Option<usize>) -> Vec<CodeToken> {
+pub(super) fn tokenize_shell_command_line(
+    line: &str,
+    prompt_prefix_len: Option<usize>,
+) -> Vec<CodeToken> {
     let mut tokens = Vec::new();
     let mut command_seen = false;
     let content = if let Some(prefix_len) = prompt_prefix_len {

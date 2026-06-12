@@ -68,6 +68,18 @@ impl AgentEngine {
             "message_count": request.messages.len(),
             "tool_count": request.tools.len(),
             "tool_names": request.tools.iter().map(|tool| tool.name.as_str()).collect::<Vec<_>>(),
+            "tools": request.tools.iter().map(|tool| {
+                json!({
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.parameters,
+                    "annotations": tool.annotations,
+                    "has_action_narrative": tool.parameters
+                        .get("properties")
+                        .and_then(|properties| properties.get("action_narrative"))
+                        .is_some(),
+                })
+            }).collect::<Vec<_>>(),
             "temperature": request.temperature,
             "max_tokens": request.max_tokens,
             "provider_hints": request.provider_hints,

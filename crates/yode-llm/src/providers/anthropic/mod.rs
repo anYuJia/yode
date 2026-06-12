@@ -18,6 +18,7 @@ use crate::providers::error_shared::format_api_error;
 use crate::providers::http_client::provider_http_client;
 use crate::providers::retry::send_with_retry;
 use crate::providers::streaming_shared::map_stop_reason;
+use crate::providers::write_debug_artifact;
 
 use crate::provider::LlmProvider;
 use crate::registry::KNOWN_PROVIDERS;
@@ -85,6 +86,14 @@ impl LlmProvider for AnthropicProvider {
         let body = self.build_request(&request, false);
 
         debug!("Sending Anthropic chat request to {}", self.messages_url());
+        write_debug_artifact(
+            &self.name,
+            "anthropic-chat-request",
+            serde_json::json!({
+                "url": self.messages_url(),
+                "body": &body,
+            }),
+        );
 
         let resp = send_with_retry(
             || {
@@ -108,9 +117,19 @@ impl LlmProvider for AnthropicProvider {
             return Err(format_api_error("Anthropic", status, parsed, &error_text));
         }
 
-        let api_resp: AnthropicResponse = resp
-            .json()
+        let response_text = resp
+            .text()
             .await
+            .context("Failed to read Anthropic response")?;
+        write_debug_artifact(
+            &self.name,
+            "anthropic-chat-response",
+            serde_json::json!({
+                "status": status.as_u16(),
+                "body": &response_text,
+            }),
+        );
+        let api_resp: AnthropicResponse = serde_json::from_str(&response_text)
             .context("Failed to parse Anthropic response")?;
 
         let mut text_content = String::new();

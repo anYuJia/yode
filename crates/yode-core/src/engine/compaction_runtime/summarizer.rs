@@ -1,6 +1,6 @@
-use std::path::Path;
-use std::collections::HashSet;
 use regex::Regex;
+use std::collections::HashSet;
+use std::path::Path;
 use yode_llm::types::{Message, Role};
 
 pub(super) const SESSION_MEMORY_SUMMARY_PREFIX: &str = "[Context summary]";
@@ -84,10 +84,7 @@ pub(super) fn parse_prompt_too_long_token_gap(text: &str) -> Option<usize> {
     actual.checked_sub(limit).filter(|gap| *gap > 0)
 }
 
-pub(super) fn display_compaction_memory_path(
-    project_root: &Path,
-    path: &Path,
-) -> String {
+pub(super) fn display_compaction_memory_path(project_root: &Path, path: &Path) -> String {
     path.strip_prefix(project_root)
         .map(|relative| relative.display().to_string())
         .unwrap_or_else(|_| path.display().to_string())
@@ -227,7 +224,10 @@ pub(super) fn message_excerpt_for_compaction(message: &Message, limit: usize) ->
     (!body.trim().is_empty()).then(|| format!("{}: {}", role, body.trim()))
 }
 
-pub(super) fn render_removed_messages_for_summary(messages: &[Message], char_budget: usize) -> String {
+pub(super) fn render_removed_messages_for_summary(
+    messages: &[Message],
+    char_budget: usize,
+) -> String {
     let mut rendered = String::new();
     for line in messages
         .iter()
@@ -242,7 +242,10 @@ pub(super) fn render_removed_messages_for_summary(messages: &[Message], char_bud
     rendered
 }
 
-pub(super) fn truncate_head_for_summary_retry(messages: &[Message], error_text: &str) -> Vec<Message> {
+pub(super) fn truncate_head_for_summary_retry(
+    messages: &[Message],
+    error_text: &str,
+) -> Vec<Message> {
     if messages.len() <= 2 {
         return Vec::new();
     }
@@ -355,4 +358,3 @@ pub(super) fn prompt_cache_value(value: Option<u32>) -> String {
 pub(super) fn prompt_cache_text_value(value: Option<&String>) -> &str {
     value.map(|value| value.as_str()).unwrap_or("none")
 }
-

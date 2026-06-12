@@ -56,6 +56,7 @@ impl AgentEngine {
                                 Self::process_stream_event(
                                     stream_event,
                                     &mut buffers.full_text,
+                                    &mut buffers.pending_text,
                                     &mut buffers.full_reasoning,
                                     &mut buffers.tool_calls,
                                     &mut buffers.final_response,
@@ -85,6 +86,7 @@ impl AgentEngine {
                         Self::process_stream_event(
                             stream_event,
                             &mut buffers.full_text,
+                            &mut buffers.pending_text,
                             &mut buffers.full_reasoning,
                             &mut buffers.tool_calls,
                             &mut buffers.final_response,

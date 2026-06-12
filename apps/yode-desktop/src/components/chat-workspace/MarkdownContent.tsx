@@ -5,13 +5,27 @@ import { marked } from "marked";
 
 type MarkdownVariant = "answer" | "process";
 
+function stripHeadingMarker(text: string): string {
+  return text.replace(/^\s{0,3}#{1,6}\s+/, "").replace(/\s+#{1,6}\s*$/, "");
+}
+
+function repairMarkdownBlockLine(line: string): string {
+  return line
+    .replace(/^\s{4,}(?=#{1,6}\s*[\p{L}\p{N}])/u, "")
+    .replace(/^\s{4,}(?=(?:[-*+]|\d+\.)\s*[\p{L}\p{N}])/u, "")
+    .replace(/([^\n#])(?=#{1,6}\s?[\p{L}\p{N}])/gu, "$1\n\n")
+    .replace(/(^|\n)(#{1,6})(?=\S)/g, "$1$2 ")
+    .replace(/(^|\n)([-*+])(?=\S)/g, "$1$2 ")
+    .replace(/(^|\n)(\d+\.)(?=\S)/g, "$1$2 ");
+}
+
 function preprocessMarkdown(text: string): string {
   const lines = text.split("\n");
   let inCodeBlock = false;
   const normalizedLines: string[] = [];
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+    let line = lines[i];
     const trimmed = line.trim();
     if (trimmed.startsWith("```") || trimmed.startsWith("｀｀｀")) {
       inCodeBlock = !inCodeBlock;
@@ -23,6 +37,7 @@ function preprocessMarkdown(text: string): string {
       continue;
     }
 
+    line = repairMarkdownBlockLine(line);
     if (trimmed.startsWith("|")) {
       // Replace double pipes (which represent collapsed rows)
       let temp = line.replace(/\|\|/g, "|\n|");
@@ -111,11 +126,8 @@ function RenderToken({ token }: { token: any }): React.ReactElement | null {
   switch (token.type) {
     case "heading": {
       const Tag = `h${Math.min(token.depth, 4)}` as keyof JSX.IntrinsicElements;
-      return (
-        <Tag>
-          <RenderTokens tokens={token.tokens} />
-        </Tag>
-      );
+      const text = typeof token.text === "string" ? stripHeadingMarker(token.text) : "";
+      return <Tag>{text || <RenderTokens tokens={token.tokens} />}</Tag>;
     }
     case "code": {
       return <CodeBlock text={token.text} lang={token.lang || ""} />;
@@ -172,6 +184,13 @@ function RenderToken({ token }: { token: any }): React.ReactElement | null {
       return <hr style={{ border: "0", borderTop: "1px solid var(--line-soft)", margin: "16px 0" }} />;
     }
     case "paragraph": {
+      const headingMatch = typeof token.text === "string"
+        ? token.text.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/)
+        : null;
+      if (headingMatch) {
+        const Tag = `h${Math.min(headingMatch[1].length, 4)}` as keyof JSX.IntrinsicElements;
+        return <Tag>{stripHeadingMarker(headingMatch[2])}</Tag>;
+      }
       return (
         <p>
           <RenderTokens tokens={token.tokens} />
@@ -267,59 +286,17 @@ function renderCodespan(rawText: string) {
 
   const isClassName = /^[A-Z][a-zA-Z0-9]+$/.test(codeText);
   if (isClassName) {
-    return (
-      <code style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: "4px",
-        verticalAlign: "middle",
-        padding: "1px 6px",
-        border: "1px solid color-mix(in oklch, var(--accent), transparent 75%)",
-        background: "color-mix(in oklch, var(--accent), transparent 94%)",
-        color: "var(--accent)"
-      }}>
-        <span style={{ fontSize: "9px", opacity: 0.6, fontWeight: 700, fontFamily: "system-ui" }}>cls</span>
-        <strong>{codeText}</strong>
-      </code>
-    );
+    return <code className="markdown-code-chip">{codeText}</code>;
   }
 
   const isFunction = /^[a-zA-Z_][a-zA-Z0-9_]*\s*\([^)]*\)$/.test(codeText);
   if (isFunction) {
-    return (
-      <code style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: "4px",
-        verticalAlign: "middle",
-        padding: "1px 6px",
-        border: "1px solid color-mix(in oklch, var(--info), transparent 75%)",
-        background: "color-mix(in oklch, var(--info), transparent 94%)",
-        color: "var(--info)"
-      }}>
-        <span style={{ fontSize: "9px", opacity: 0.6, fontWeight: 700, fontFamily: "system-ui" }}>fn</span>
-        <span>{codeText}</span>
-      </code>
-    );
+    return <code className="markdown-code-chip">{codeText}</code>;
   }
 
   const isVariable = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(codeText) && !/^[A-Z0-9_]+$/.test(codeText);
   if (isVariable) {
-    return (
-      <code style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: "4px",
-        verticalAlign: "middle",
-        padding: "1px 6px",
-        border: "1px solid color-mix(in oklch, var(--warning), transparent 75%)",
-        background: "color-mix(in oklch, var(--warning), transparent 94%)",
-        color: "var(--warning)"
-      }}>
-        <span style={{ fontSize: "9px", opacity: 0.6, fontWeight: 700, fontFamily: "system-ui" }}>var</span>
-        <span>{codeText}</span>
-      </code>
-    );
+    return <code className="markdown-code-chip">{codeText}</code>;
   }
 
   return <code>{codeText}</code>;

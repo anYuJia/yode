@@ -1,8 +1,8 @@
-use std::path::{Path, PathBuf};
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use serde::{Serialize, Deserialize};
+use std::path::{Path, PathBuf};
 
-use yode_llm::types::{Message, Role, RestoreSystemBlockHint};
+use yode_llm::types::{Message, RestoreSystemBlockHint, Role};
 use yode_tools::builtin::skill::SkillInvocation;
 use yode_tools::RuntimeTask;
 
@@ -66,7 +66,9 @@ pub(super) struct OwnedRestoreBlockArtifact {
     pub(super) _fingerprint: String,
 }
 
-pub(super) fn render_skill_invocation_restore_lines(invocations: &[SkillInvocation]) -> Vec<String> {
+pub(super) fn render_skill_invocation_restore_lines(
+    invocations: &[SkillInvocation],
+) -> Vec<String> {
     if invocations.is_empty() {
         return Vec::new();
     }
@@ -318,7 +320,10 @@ fn append_restore_budget_lines(lines: &mut Vec<String>, body_lines: &[&str]) {
     );
 }
 
-pub(super) fn sanitize_restore_block_for_request(kind: RestoreBlockKind, content: &str) -> Option<String> {
+pub(super) fn sanitize_restore_block_for_request(
+    kind: RestoreBlockKind,
+    content: &str,
+) -> Option<String> {
     let body_lines = content
         .lines()
         .skip(1)

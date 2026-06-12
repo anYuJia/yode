@@ -112,7 +112,22 @@ impl AgentEngine {
                     Ok(fallback) => {
                         response = fallback;
                         if let Some(text) = response.message.content.clone() {
-                            let _ = event_tx.send(EngineEvent::TextComplete(text));
+                            let (clean_text, narratives) =
+                                Self::split_action_narratives_from_text(&text);
+                            for narrative in narratives {
+                                let _ = event_tx.send(EngineEvent::ActionNarrative(narrative));
+                            }
+                            if clean_text != text {
+                                response.message.content = if clean_text.is_empty() {
+                                    None
+                                } else {
+                                    Some(clean_text.clone())
+                                };
+                                response.message.normalize_in_place();
+                            }
+                            if !clean_text.is_empty() {
+                                let _ = event_tx.send(EngineEvent::TextComplete(clean_text));
+                            }
                         }
                         if let Some(reasoning) = response.message.reasoning.clone() {
                             let _ = event_tx.send(EngineEvent::ReasoningComplete(reasoning));
@@ -130,7 +145,6 @@ impl AgentEngine {
                     }
                 }
             }
-
 
             if response.message.content.is_none() && !buffers.full_text.is_empty() {
                 response.message.content = Some(buffers.full_text.clone());

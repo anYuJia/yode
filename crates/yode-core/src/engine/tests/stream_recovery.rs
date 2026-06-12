@@ -6,6 +6,7 @@ async fn test_handle_interrupted_stream_persists_partial_message() {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let buffers = super::super::streaming_turn_runtime::StreamTurnBuffers {
         full_text: "partial text".to_string(),
+        pending_text: String::new(),
         full_reasoning: "partial reasoning".to_string(),
         tool_calls: Vec::new(),
         final_response: None,

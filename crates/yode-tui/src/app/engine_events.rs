@@ -48,6 +48,12 @@ pub(super) fn handle_engine_event(
             resume_working_after_retry(&mut app.turn_status);
             handle_text_delta(app, delta)
         }
+        EngineEvent::ActionNarrative(text) => {
+            resume_working_after_retry(&mut app.turn_status);
+            finalize_streaming(app);
+            app.chat_entries
+                .push(ChatEntry::new(ChatRole::Assistant, text));
+        }
         EngineEvent::ReasoningDelta(delta) => {
             resume_working_after_retry(&mut app.turn_status);
             handle_reasoning_delta(app, delta)

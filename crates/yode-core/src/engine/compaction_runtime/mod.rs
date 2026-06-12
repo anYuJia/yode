@@ -1,41 +1,39 @@
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
-use yode_llm::types::{ChatRequest, Message, Role, RestoreSystemBlockHint};
 use crate::context_manager::CompressionReport;
+use yode_llm::types::{ChatRequest, Message, RestoreSystemBlockHint, Role};
 
 use super::*;
 
-pub(super) mod budget;
 pub(super) mod blocks;
+pub(super) mod budget;
 pub(super) mod summarizer;
 
-use budget::apply_restore_budget;
 pub(super) use crate::engine::types::RestoreBudgetRuntimeState;
+use budget::apply_restore_budget;
 
 use blocks::{
-    ordered_restore_block_contents, restore_block_body, restore_block_kind_from_content,
-    sanitized_request_restore_block_contents, RestoreBlockKind,
-    POST_COMPACT_RUNTIME_PREFIX, POST_COMPACT_FILES_PREFIX, POST_COMPACT_PLAN_PREFIX,
-    POST_COMPACT_TOOLS_PREFIX, POST_COMPACT_PROMPT_CACHE_PREFIX,
-    POST_COMPACT_SKILLS_PREFIX, POST_COMPACT_MCP_PREFIX, POST_COMPACT_ARTIFACTS_PREFIX,
-    write_post_compact_restore_artifact, write_post_compact_restore_state_artifact,
-    write_post_compact_restore_diff_artifact, load_post_compact_restore_state_artifact,
-    collect_preserved_read_file_paths, render_post_compact_file_excerpts,
-    render_task_restore_lines, render_skill_invocation_restore_lines,
+    collect_preserved_read_file_paths, load_post_compact_restore_state_artifact,
+    ordered_restore_block_contents, render_post_compact_file_excerpts,
+    render_skill_invocation_restore_lines, render_task_restore_lines, restore_block_body,
+    restore_block_kind_from_content, sanitized_request_restore_block_contents,
+    write_post_compact_restore_artifact, write_post_compact_restore_diff_artifact,
+    write_post_compact_restore_state_artifact, RestoreBlockKind, POST_COMPACT_ARTIFACTS_PREFIX,
+    POST_COMPACT_FILES_PREFIX, POST_COMPACT_MCP_PREFIX, POST_COMPACT_PLAN_PREFIX,
+    POST_COMPACT_PROMPT_CACHE_PREFIX, POST_COMPACT_RUNTIME_PREFIX, POST_COMPACT_SKILLS_PREFIX,
+    POST_COMPACT_TOOLS_PREFIX,
 };
 use summarizer::{
-    build_session_memory_compaction_summary, compact_summary_fingerprint,
+    build_fallback_compaction_summary, build_session_memory_compaction_summary,
+    collect_assistant_tool_call_ids, collect_tool_result_ids, compact_summary_fingerprint,
     display_compaction_memory_path, format_llm_compaction_summary_content,
     is_media_size_error_text, is_prompt_too_long_text, parse_prompt_too_long_token_gap,
-    preserved_tail_range, push_artifact_path, render_removed_messages_for_summary,
-    summarize_string_entries, truncate_head_for_summary_retry,
-    build_fallback_compaction_summary, collect_assistant_tool_call_ids, collect_tool_result_ids,
-    CompactionMode, CompactionSummaryScope,
-    prompt_cache_value, prompt_cache_text_value,
-    SESSION_MEMORY_SUMMARY_PREFIX,
+    preserved_tail_range, prompt_cache_text_value, prompt_cache_value, push_artifact_path,
+    render_removed_messages_for_summary, summarize_string_entries, truncate_head_for_summary_retry,
+    CompactionMode, CompactionSummaryScope, LLM_COMPACTION_MAX_RETRIES,
     LLM_COMPACTION_SUMMARY_MAX_CHARS, LLM_COMPACTION_TRANSCRIPT_CHAR_BUDGET,
-    LLM_COMPACTION_MAX_RETRIES,
+    SESSION_MEMORY_SUMMARY_PREFIX,
 };
 
 const REACTIVE_GAP_SAFETY_TOKENS: usize = 2_000;
@@ -1321,9 +1319,12 @@ impl AgentEngine {
 mod tests {
     use yode_llm::types::Message;
 
-    use super::budget::apply_restore_budget;
-    use super::summarizer::{format_llm_compaction_summary_content, truncate_head_for_summary_retry, parse_prompt_too_long_token_gap};
     use super::blocks::RestoreBlockKind;
+    use super::budget::apply_restore_budget;
+    use super::summarizer::{
+        format_llm_compaction_summary_content, parse_prompt_too_long_token_gap,
+        truncate_head_for_summary_retry,
+    };
 
     #[test]
     fn parses_prompt_too_long_gap_from_error_text() {

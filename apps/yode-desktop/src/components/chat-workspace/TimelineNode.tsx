@@ -185,7 +185,6 @@ export function TimelineNode({ item, appLang, isTurnActive }: { item: TimelineIt
       <div className="node-content">
         <div className="node-header">
           <h2>{item.title}</h2>
-          {"meta" in item && item.meta ? <span>{item.meta}</span> : null}
         </div>
         {item.kind === "assistant" ? (
           <MarkdownContent text={item.body} variant="answer" />

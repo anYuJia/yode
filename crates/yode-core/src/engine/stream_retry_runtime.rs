@@ -93,6 +93,7 @@ impl AgentEngine {
             });
 
             let mut retry_cancelled = false;
+            let mut pending_text = String::new();
             loop {
                 if let Some(token) = cancel_token {
                     tokio::select! {
@@ -103,6 +104,7 @@ impl AgentEngine {
                                     Self::process_stream_event(
                                         ev,
                                         full_text,
+                                        &mut pending_text,
                                         full_reasoning,
                                         tool_calls,
                                         final_response,
@@ -128,6 +130,7 @@ impl AgentEngine {
                             Self::process_stream_event(
                                 ev,
                                 full_text,
+                                &mut pending_text,
                                 full_reasoning,
                                 tool_calls,
                                 final_response,

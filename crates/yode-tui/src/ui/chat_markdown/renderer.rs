@@ -2,13 +2,13 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use unicode_width::UnicodeWidthStr;
 
-use super::types::{MarkdownBlock, InlineNode, ListItem, TableCell, MarkdownRenderOptions};
+use super::types::{InlineNode, ListItem, MarkdownBlock, MarkdownRenderOptions, TableCell};
 use super::utils::{
-    block_spacing, keeps_following_block_tight, ensure_blank_line, normalize_blank_lines,
-    is_blank_line, line_display_width, pad_line_to_width, prepend_prefix, add_modifier_to_line,
-    render_code_block_header, render_code_block, number_to_letter, number_to_roman,
-    compact_table_cell_text, min_cell_width, inline_nodes_to_plain_text, render_plain_text_lines,
-    append_text_with_links, render_inline_code_spans, TABLE_MAX_ROW_LINES
+    add_modifier_to_line, append_text_with_links, block_spacing, compact_table_cell_text,
+    ensure_blank_line, inline_nodes_to_plain_text, is_blank_line, keeps_following_block_tight,
+    line_display_width, min_cell_width, normalize_blank_lines, number_to_letter, number_to_roman,
+    pad_line_to_width, prepend_prefix, render_code_block, render_code_block_header,
+    render_inline_code_spans, render_plain_text_lines, TABLE_MAX_ROW_LINES,
 };
 use crate::ui::chat::{DIM, WHITE, YELLOW};
 use crate::ui::chat_layout::manual_wrap;

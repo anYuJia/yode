@@ -1,16 +1,15 @@
-pub mod themes;
 pub mod languages;
 pub mod shell;
+pub mod themes;
 
-use themes::ANSI_THEME;
 use languages::{
-    tokenize_diff_line, tokenize_json_line, tokenize_generic_line,
-    SyntaxProfile, CommentStyle, is_rust_keyword, is_python_keyword,
-    is_plain_keyword,
+    is_plain_keyword, is_python_keyword, is_rust_keyword, tokenize_diff_line,
+    tokenize_generic_line, tokenize_json_line, CommentStyle, SyntaxProfile,
 };
+use shell::{shell_prompt_prefix, tokenize_shell_command_line};
 #[cfg(test)]
-pub use shell::{ShellSessionState, ShellLineKind, tokenize_shell_session_line};
-use shell::{tokenize_shell_command_line, shell_prompt_prefix};
+pub use shell::{tokenize_shell_session_line, ShellLineKind, ShellSessionState};
+use themes::ANSI_THEME;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CodeLanguage {

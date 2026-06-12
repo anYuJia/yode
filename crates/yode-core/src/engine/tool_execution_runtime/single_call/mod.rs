@@ -9,6 +9,7 @@ struct PreparedToolExecution {
     original_params: Value,
     params: Value,
     effective_arguments: String,
+    action_narrative: Option<String>,
     input_changed_by_hook: bool,
     command_content: Option<String>,
 }
@@ -20,12 +21,17 @@ impl PreparedToolExecution {
             params: original_params.clone(),
             original_params,
             effective_arguments: String::new(),
+            action_narrative: None,
             input_changed_by_hook: false,
             command_content: None,
         }
     }
 
     fn refresh_metadata(&mut self, tool_call: &ToolCall) {
+        self.action_narrative = strip_action_narrative_param(&mut self.params);
+        if tool_call.name == "batch" {
+            strip_nested_action_narrative_params(&mut self.params);
+        }
         self.command_content = if tool_call.name == "bash" {
             self.params
                 .get("command")

@@ -15,6 +15,7 @@ use self::types::{GeminiError, GeminiRequest, GeminiResponse, GenerationConfig};
 use crate::providers::error_shared::format_api_error;
 use crate::providers::http_client::provider_http_client;
 use crate::providers::retry::send_with_retry;
+use crate::providers::write_debug_artifact;
 
 use crate::provider::LlmProvider;
 use crate::types::{ChatRequest, ChatResponse, ModelInfo, StreamEvent};
@@ -108,6 +109,14 @@ impl LlmProvider for GeminiProvider {
         let body = self.build_request(&request);
         let url = self.generate_url(&request.model);
         debug!("Sending Gemini request to {}", url);
+        write_debug_artifact(
+            &self.name,
+            "gemini-chat-request",
+            serde_json::json!({
+                "url": &url,
+                "body": &body,
+            }),
+        );
 
         let resp = send_with_retry(
             || {
@@ -129,10 +138,17 @@ impl LlmProvider for GeminiProvider {
             return Err(format_api_error("Gemini", status, parsed, &text));
         }
 
-        let api_resp: GeminiResponse = resp
-            .json()
-            .await
-            .context("Failed to parse Gemini response")?;
+        let response_text = resp.text().await.context("Failed to read Gemini response")?;
+        write_debug_artifact(
+            &self.name,
+            "gemini-chat-response",
+            serde_json::json!({
+                "status": status.as_u16(),
+                "body": &response_text,
+            }),
+        );
+        let api_resp: GeminiResponse =
+            serde_json::from_str(&response_text).context("Failed to parse Gemini response")?;
         let (message, usage, stop_reason) = parse_response(&api_resp);
 
         Ok(ChatResponse {
@@ -147,6 +163,14 @@ impl LlmProvider for GeminiProvider {
         let body = self.build_request(&request);
         let url = self.stream_url(&request.model);
         debug!("Sending Gemini stream request to {}", url);
+        write_debug_artifact(
+            &self.name,
+            "gemini-stream-request",
+            serde_json::json!({
+                "url": &url,
+                "body": &body,
+            }),
+        );
 
         let resp = send_with_retry(
             || {
@@ -159,7 +183,7 @@ impl LlmProvider for GeminiProvider {
         )
         .await?;
 
-        stream_response(resp, request.model, tx).await
+        stream_response(resp, request.model, self.name.clone(), tx).await
     }
 
     async fn list_models(&self) -> Result<Vec<ModelInfo>> {

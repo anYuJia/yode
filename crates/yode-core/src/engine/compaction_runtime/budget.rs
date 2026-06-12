@@ -1,5 +1,5 @@
-use crate::engine::types::{RestoreBudgetEntryRuntimeState, RestoreBudgetRuntimeState};
 use super::blocks::RestoreBlockKind;
+use crate::engine::types::{RestoreBudgetEntryRuntimeState, RestoreBudgetRuntimeState};
 
 pub(super) const POST_COMPACT_RESTORE_TOTAL_BUDGET_TOKENS: u32 = 5_000;
 
@@ -78,7 +78,11 @@ pub(super) fn restore_block_cap_tokens(kind: RestoreBlockKind) -> u32 {
     }
 }
 
-pub(super) fn truncate_restore_block(kind: RestoreBlockKind, content: &str, cap_tokens: u32) -> String {
+pub(super) fn truncate_restore_block(
+    kind: RestoreBlockKind,
+    content: &str,
+    cap_tokens: u32,
+) -> String {
     let recovery = restore_recovery_instruction(kind);
     let marker = format!(
         "\n- Restore budget: truncated by {} token cap. {}",

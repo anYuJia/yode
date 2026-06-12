@@ -17,6 +17,7 @@ use crate::types::{StreamEvent, ToolCall, Usage};
 pub(super) async fn stream_response(
     resp: reqwest::Response,
     model: String,
+    provider_name: String,
     tx: mpsc::Sender<StreamEvent>,
 ) -> Result<()> {
     let status = resp.status();
@@ -37,6 +38,7 @@ pub(super) async fn stream_response(
     let mut final_usage = Usage::default();
     let mut tool_call_counter = 0u32;
     let mut stop_reason = None;
+    let mut debug_events = Vec::new();
 
     while let Some(event_result) = event_stream.next().await {
         let event = match event_result {
@@ -47,6 +49,12 @@ pub(super) async fn stream_response(
             }
         };
 
+        if crate::providers::debug_requests_enabled() {
+            debug_events.push(serde_json::json!({
+                "event": event.event,
+                "data": &event.data,
+            }));
+        }
         let chunk: GeminiResponse = match serde_json::from_str(&event.data) {
             Ok(chunk) => chunk,
             Err(err) => {
@@ -94,6 +102,13 @@ pub(super) async fn stream_response(
     if stop_reason.is_none() && !all_tool_calls.is_empty() {
         stop_reason = Some(crate::types::StopReason::ToolUse);
     }
+    crate::providers::write_debug_artifact(
+        &provider_name,
+        "gemini-stream-events",
+        serde_json::json!({
+            "events": debug_events,
+        }),
+    );
     let message = assistant_message(full_text, all_tool_calls);
     emit_done_event(&tx, message, final_usage, model, stop_reason).await;
     Ok(())

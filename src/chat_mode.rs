@@ -112,6 +112,9 @@ pub(crate) async fn run_noninteractive_chat(run: NoninteractiveChatRun<'_>) -> R
                 print!("{}", delta);
                 full_text.push_str(&delta);
             }
+            EngineEvent::ActionNarrative(text) => {
+                eprintln!("\x1b[90m{}\x1b[0m", text);
+            }
             EngineEvent::TextComplete(_) => {}
             EngineEvent::ToolCallStart {
                 name, arguments, ..
