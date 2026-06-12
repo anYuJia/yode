@@ -3,7 +3,6 @@ import {
   isRuntimeNoticeText,
   parseToolDetails,
   shouldHideActivityItem,
-  isThinkingStatusTitle,
   summarizeActivityItems,
   activityGroupPreview
 } from "./activity/ToolUtils";
@@ -159,29 +158,7 @@ export function isIntermediateAssistantItem(item: TimelineItem) {
 }
 
 export function addSyntheticProcessNarration(items: TimelineItem[], appLang: string) {
-  const next: TimelineItem[] = [];
-
-  items.forEach((item) => {
-    const previous = next[next.length - 1];
-
-    if ((item.kind === "activity_group" || item.kind === "activity_item") && !hasVisibleProcessBody(previous)) {
-      const body = syntheticNarrationForActivity(item, appLang);
-      if (body) {
-        next.push(processNote(`${item.id}-auto-process-before`, body));
-      }
-    }
-
-    if (item.kind === "assistant" && !isIntermediateAssistantItem(item) && !hasVisibleProcessBody(previous)) {
-      const body = syntheticNarrationBeforeAssistant(previous, appLang);
-      if (body) {
-        next.push(processNote(`${item.id}-auto-process-before`, body));
-      }
-    }
-
-    next.push(item);
-  });
-
-  return next;
+  return items;
 }
 
 export function hasVisibleProcessBody(item: TimelineItem | undefined) {
@@ -431,21 +408,14 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
       }
     } else if (item.kind === "reasoning") {
       flushBuffer();
-      if (item.meta === "running" && isTurnActive) {
+      const reasoningBody = item.body.trim();
+      if (reasoningBody) {
         result.push({
-          id: `${item.id}-process`,
-          kind: "process_note",
-          title: item.title || "正在思考",
-          body: "",
-          status: "running"
-        });
-      } else if (!isTurnActive && isThinkingStatusTitle(item.title)) {
-        result.push({
-          id: `${item.id}-process`,
-          kind: "process_note",
-          title: item.title,
-          body: "",
-          status: "success"
+          id: `${item.id}-reasoning-output`,
+          kind: "assistant",
+          title: "Yode",
+          body: reasoningBody,
+          meta: "intermediate"
         });
       }
     }
@@ -453,17 +423,17 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
   flushBuffer();
   const enrichedResult = groupEditSummaryItems(addSyntheticProcessNarration(result, appLang));
 
-  let lastAssistantIdx = -1;
+  let lastFinalAssistantIdx = -1;
   for (let i = enrichedResult.length - 1; i >= 0; i--) {
-    if (enrichedResult[i].kind === "assistant") {
-      lastAssistantIdx = i;
+    if (isFinalAssistantItem(enrichedResult[i])) {
+      lastFinalAssistantIdx = i;
       break;
     }
   }
 
-  if (!isTurnActive && lastAssistantIdx !== -1) {
+  if (!isTurnActive && lastFinalAssistantIdx !== -1) {
     return enrichedResult.filter((item, idx) => {
-      if ((item.kind === "activity_group" || item.kind === "activity_item" || item.kind === "edit_summary" || item.kind === "process_note") && idx > lastAssistantIdx) {
+      if ((item.kind === "activity_group" || item.kind === "activity_item" || item.kind === "edit_summary" || item.kind === "process_note") && idx > lastFinalAssistantIdx) {
         return false;
       }
       return true;
@@ -683,13 +653,15 @@ export function desktopEventToTimelineItem(
   const metadata = inner?.metadata && typeof inner.metadata === "object" ? inner.metadata : undefined;
 
   if (kind === "turn_started") {
+    const now = Date.now();
     return {
       id: turnId ? `reasoning-${turnId}` : `event-${Date.now()}-${Math.random()}`,
       kind: "reasoning",
       title: title || "思考中",
       body: body || "",
       meta: "running",
-      createdAt: Date.now()
+      createdAt: now,
+      reasoningStartedAt: now
     };
   }
 
@@ -826,17 +798,16 @@ export function applyDesktopEventToTimelineItems(
   }
 
   if (kind === "turn_started") {
-    const thinkingId = turnId ? `reasoning-${turnId}` : undefined;
-    if (
-      items.some((item) =>
-        thinkingId
-          ? item.id === thinkingId
-          : item.kind === "reasoning" && item.meta === "running"
-      )
-    ) {
+    const hasRunning = items.some((item) => item.kind === "reasoning" && item.meta === "running");
+    if (hasRunning) {
       return items;
     }
-    return [...items, desktopEventToTimelineItem(payload, eventKind)];
+    const nextIndex = items.filter(item => item.id.startsWith(`reasoning-${turnId}-`)).length;
+    const newItem = desktopEventToTimelineItem(payload, eventKind);
+    if (turnId) {
+      newItem.id = `reasoning-${turnId}-${nextIndex}`;
+    }
+    return [...items, newItem];
   }
 
   if (kind === "assistant_text_delta") {
@@ -890,9 +861,7 @@ export function applyDesktopEventToTimelineItems(
 
   if (kind === "assistant_reasoning_delta") {
     const now = Date.now();
-    const existingIndex = reasoningId
-      ? items.findIndex((item) => item.id === reasoningId)
-      : items.findIndex((item) => item.kind === "reasoning" && item.meta === "running");
+    const existingIndex = items.findIndex((item) => item.kind === "reasoning" && item.meta === "running");
     if (existingIndex >= 0) {
       return items.map((item, index) =>
         index === existingIndex && item.kind === "reasoning"
@@ -900,18 +869,21 @@ export function applyDesktopEventToTimelineItems(
               ...item,
               title: item.title || "正在思考...",
               meta: "running",
+              body: mergeStreamingText(item.body || "", reasoning),
               reasoningStartedAt: (item as any).reasoningStartedAt || now
             }
           : item
       );
     }
+    const nextIndex = items.filter(item => item.id.startsWith(`reasoning-${turnId}-`)).length;
+    const newId = turnId ? `reasoning-${turnId}-${nextIndex}` : `event-${Date.now()}-${Math.random()}`;
     return [
       ...items,
       {
-        id: reasoningId ?? `event-${Date.now()}-${Math.random()}`,
+        id: newId,
         kind: "reasoning",
         title: "思考中...",
-        body: "",
+        body: reasoning,
         meta: "running",
         createdAt: now,
         reasoningStartedAt: now
@@ -935,9 +907,7 @@ export function applyDesktopEventToTimelineItems(
   }
 
   if (kind === "assistant_reasoning_complete") {
-    const existingIndex = reasoningId
-      ? items.findIndex((item) => item.id === reasoningId)
-      : items.findIndex((item) => item.kind === "reasoning" && item.meta === "running");
+    const existingIndex = items.findIndex((item) => item.kind === "reasoning" && item.meta === "running");
     if (existingIndex >= 0) {
       return items.map((item, index) => {
         if (index === existingIndex && item.kind === "reasoning") {
@@ -945,21 +915,23 @@ export function applyDesktopEventToTimelineItems(
           const duration = start ? Math.max(1, Math.round((Date.now() - start) / 1000)) : null;
           return { 
             ...item, 
-            body: "", 
             meta: "complete",
+            body: reasoning || item.body,
             title: duration ? `已思考 ${duration} 秒` : "已思考"
           };
         }
         return item;
       });
     }
+    const nextIndex = items.filter(item => item.id.startsWith(`reasoning-${turnId}-`)).length;
+    const newId = turnId ? `reasoning-${turnId}-${nextIndex}` : `event-${Date.now()}-${Math.random()}`;
     return [
       ...items,
       {
-        id: `event-${Date.now()}-${Math.random()}`,
+        id: newId,
         kind: "reasoning",
         title: "已思考",
-        body: "",
+        body: reasoning,
         meta: "complete"
       }
     ];
@@ -969,11 +941,13 @@ export function applyDesktopEventToTimelineItems(
     let hasAssistantForTurn = false;
     let hasReasoningForTurn = false;
     const settledItems = items.map((item, index) => {
-      if (item.kind === "reasoning" && (item.meta === "running" || item.id === reasoningId)) {
+      if (item.kind === "reasoning" && turnId && item.id.startsWith(`reasoning-${turnId}-`)) {
         hasReasoningForTurn = true;
-        const start = (item as any).reasoningStartedAt;
-        const duration = start ? Math.max(1, Math.round((Date.now() - start) / 1000)) : null;
-        return { ...item, body: "", meta: "complete", title: duration ? `已思考 ${duration} 秒` : "已思考" };
+        if (item.meta === "running") {
+          const start = (item as any).reasoningStartedAt;
+          const duration = start ? Math.max(1, Math.round((Date.now() - start) / 1000)) : null;
+          return { ...item, meta: "complete", body: reasoning || item.body, title: duration ? `已思考 ${duration} 秒` : "已思考" };
+        }
       }
       if (item.kind === "tool" && item.status === "running") {
         return { ...item, status: "success" as const };
@@ -996,7 +970,7 @@ export function applyDesktopEventToTimelineItems(
         id: `event-${Date.now()}-${Math.random()}`,
         kind: "reasoning",
         title: "思考",
-        body: "",
+        body: reasoning,
         meta: "complete"
       });
     }
@@ -1167,5 +1141,3 @@ export function messagesToTimelineItems(messages: DesktopMessage[]): TimelineIte
 
   return items;
 }
-
-
