@@ -118,6 +118,23 @@ type PendingUserQuestion = {
   question: string;
 };
 
+interface UserQueryOption {
+  label: string;
+  description: string;
+  preview?: string;
+}
+
+interface UserQuestion {
+  question: string;
+  header: string;
+  options: UserQueryOption[];
+  multiSelect?: boolean;
+}
+
+interface UserQuery {
+  questions: UserQuestion[];
+}
+
 const PROJECT_ROOTS_STORAGE_KEY = "yode-project-roots";
 const PROJECT_ORDER_STORAGE_KEY = "yode-project-order";
 const SELECTED_PROJECT_ROOT_STORAGE_KEY = "yode-selected-project-root";
@@ -2431,6 +2448,49 @@ export function App() {
     setSelectedProjectRoot(normalized);
   }
 
+  async function handleAskUserResolve(answer: string) {
+    if (!pendingUserQuestion) return;
+    
+    let displayText = answer;
+    try {
+      const parsed = JSON.parse(answer);
+      displayText = Object.values(parsed).join(", ");
+    } catch (e) {}
+
+    setTimelineItems((items) => [
+      ...items,
+      {
+        id: `ask-answer-${Date.now()}`,
+        kind: "user",
+        title: "用户",
+        body: displayText,
+        createdAt: Date.now()
+      }
+    ]);
+
+    await invoke("ask_user_respond", {
+      sessionId: pendingUserQuestion.sessionId,
+      session_id: pendingUserQuestion.sessionId,
+      turnId: pendingUserQuestion.turnId,
+      turn_id: pendingUserQuestion.turnId,
+      answer: answer
+    }).catch((err) => {
+      console.error(err);
+      setTimelineItems((items) => [
+        ...items,
+        {
+          id: `ask-answer-error-${Date.now()}`,
+          kind: "assistant",
+          title: "错误",
+          body: "发送问题回复失败。",
+          meta: "stream complete"
+        }
+      ]);
+    });
+
+    setPendingUserQuestion(null);
+  }
+
   async function handleSendMessage() {
     if (!draft.trim()) return;
     const content = draft.trim();
@@ -2718,6 +2778,8 @@ export function App() {
           currentProvider={currentProvider}
           currentModel={currentModel}
           onModelChange={handleUpdateModel}
+          pendingUserQuestion={pendingUserQuestion}
+          onAskUserResolve={handleAskUserResolve}
         />
         <TerminalDrawer isOpen={terminalOpen} onClose={() => setTerminalOpen(false)} />
       </section>
@@ -3587,7 +3649,9 @@ function ChatWorkspace({
   onAddProject,
   currentProvider,
   currentModel,
-  onModelChange
+  onModelChange,
+  pendingUserQuestion,
+  onAskUserResolve
 }: {
   draft: string;
   timelineItems: TimelineItem[];
@@ -3607,6 +3671,8 @@ function ChatWorkspace({
   currentProvider: string;
   currentModel: string;
   onModelChange: (model: string) => void;
+  pendingUserQuestion: PendingUserQuestion | null;
+  onAskUserResolve: (answer: string) => void;
 }) {
   // Check if assistant is currently streaming (has any running status or last item kind is not fully completed)
   const isStreaming = useMemo(() => {
@@ -3676,6 +3742,17 @@ function ChatWorkspace({
   const activePermission = [...timelineItems]
     .reverse()
     .find((item): item is Extract<TimelineItem, { kind: "permission" }> => item.kind === "permission");
+
+  const parsedStructuredQuery = useMemo(() => {
+    if (!pendingUserQuestion) return null;
+    try {
+      const parsed = JSON.parse(pendingUserQuestion.question);
+      if (parsed && Array.isArray(parsed.questions)) {
+        return parsed as UserQuery;
+      }
+    } catch (e) {}
+    return null;
+  }, [pendingUserQuestion]);
 
   useEffect(() => {
     if (isStreaming && turns.length > 0) {
@@ -3818,7 +3895,15 @@ function ChatWorkspace({
             })
           )}
         </section>
-        {activePermission ? (
+        {parsedStructuredQuery ? (
+          <div className="permission-dock" aria-label="用户提问确认">
+            <AskUserActions
+              query={parsedStructuredQuery}
+              appLang={appLang}
+              onResolve={onAskUserResolve}
+            />
+          </div>
+        ) : activePermission ? (
           <div className="permission-dock" aria-label="执行确认">
             <PermissionActions
               item={activePermission}
@@ -4287,12 +4372,13 @@ function MarkdownContent({ text }: { text: string }) {
           return <CodeBlock key={index} text={block.text} lang={block.lang} />;
         }
         if (block.type === "list") {
+          const ListTag = block.ordered ? "ol" : "ul";
           return (
-            <ul key={index}>
+            <ListTag key={index} style={{ paddingLeft: "20px", listStyleType: block.ordered ? "decimal" : "disc" }}>
               {block.items.map((item, itemIndex) => (
                 <li key={itemIndex}>{renderInlineMarkdown(item)}</li>
               ))}
-            </ul>
+            </ListTag>
           );
         }
         if (block.type === "table") {
@@ -4335,7 +4421,7 @@ function MarkdownContent({ text }: { text: string }) {
 type MarkdownBlock =
   | { type: "heading"; level: number; text: string }
   | { type: "code"; text: string; lang: string }
-  | { type: "list"; items: string[] }
+  | { type: "list"; ordered: boolean; items: string[] }
   | { type: "table"; headers: string[]; rows: string[][] }
   | { type: "divider" }
   | { type: "paragraph"; text: string };
@@ -4344,7 +4430,11 @@ function parseMarkdownBlocks(text: string): MarkdownBlock[] {
   const blocks: MarkdownBlock[] = [];
   const lines = text.replace(/\r\n/g, "\n").split("\n");
   let paragraph: string[] = [];
-  let list: string[] = [];
+  
+  // Track list items, along with their order type (ordered vs unordered)
+  let currentListItems: string[] = [];
+  let currentListOrdered = false;
+
   let tableRows: string[][] = [];
   let code: string[] | null = null;
   const flushParagraph = () => {
@@ -4354,9 +4444,9 @@ function parseMarkdownBlocks(text: string): MarkdownBlock[] {
     }
   };
   const flushList = () => {
-    if (list.length > 0) {
-      blocks.push({ type: "list", items: list });
-      list = [];
+    if (currentListItems.length > 0) {
+      blocks.push({ type: "list", ordered: currentListOrdered, items: currentListItems });
+      currentListItems = [];
     }
   };
   const flushTable = () => {
@@ -4405,11 +4495,32 @@ function parseMarkdownBlocks(text: string): MarkdownBlock[] {
       continue;
     }
 
-    const listItem = line.match(/^\s*[-*]\s+(.+)$/);
-    if (listItem) {
+    // Match unordered list items (e.g. - item or * item)
+    const unorderedMatch = line.match(/^\s*[-*]\s+(.+)$/);
+    // Match ordered list items (e.g. 1. item or 2) item)
+    const orderedMatch = line.match(/^\s*(\d+)[.)]\s+(.+)$/);
+
+    if (unorderedMatch) {
       flushParagraph();
       flushTable();
-      list.push(listItem[1].trim());
+      // If we were previously collecting an ordered list, flush it first
+      if (currentListItems.length > 0 && currentListOrdered) {
+        flushList();
+      }
+      currentListOrdered = false;
+      currentListItems.push(unorderedMatch[1].trim());
+      continue;
+    }
+
+    if (orderedMatch) {
+      flushParagraph();
+      flushTable();
+      // If we were previously collecting an unordered list, flush it first
+      if (currentListItems.length > 0 && !currentListOrdered) {
+        flushList();
+      }
+      currentListOrdered = true;
+      currentListItems.push(orderedMatch[2].trim());
       continue;
     }
 
@@ -4454,7 +4565,96 @@ function renderInlineMarkdown(text: string) {
   const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*)/g).filter(Boolean);
   return parts.map((part, index) => {
     if (part.startsWith("`") && part.endsWith("`")) {
-      return <code key={index}>{part.slice(1, -1)}</code>;
+      let codeText = part.slice(1, -1);
+      
+      // Strip potential single or double quotes surrounding filenames (e.g. 'run.py' -> run.py)
+      if ((codeText.startsWith("'") && codeText.endsWith("'")) || (codeText.startsWith('"') && codeText.endsWith('"'))) {
+        codeText = codeText.slice(1, -1);
+      }
+      
+      // 1. Determine if this code snippet looks like a filename/filepath
+      const isFilename = /^[a-zA-Z0-9_\-./\\]+\.[a-zA-Z0-9]+$/.test(codeText) || codeText.startsWith(".") || codeText.includes("/.") || codeText.includes("\\.");
+      
+      if (isFilename) {
+        const parts = codeText.split(/[/\\]/);
+        const baseName = parts[parts.length - 1] || codeText;
+        const meta = fileIconMeta(baseName);
+        
+        return (
+          <code key={index} style={{ 
+            display: "inline-flex", 
+            alignItems: "center", 
+            gap: "4px",
+            verticalAlign: "middle",
+            padding: "1px 6px"
+          }}>
+            {getFileIcon(baseName)}
+            <span style={{ color: meta.color }}>{codeText}</span>
+          </code>
+        );
+      }
+
+      // 2. Class names: PascalCase (e.g. FeatureExtractor, SystemArchitecture)
+      const isClassName = /^[A-Z][a-zA-Z0-9]+$/.test(codeText);
+      if (isClassName) {
+        return (
+          <code key={index} style={{ 
+            display: "inline-flex", 
+            alignItems: "center", 
+            gap: "4px",
+            verticalAlign: "middle",
+            padding: "1px 6px",
+            border: "1px solid color-mix(in oklch, var(--accent), transparent 75%)",
+            background: "color-mix(in oklch, var(--accent), transparent 94%)",
+            color: "var(--accent)"
+          }}>
+            <span style={{ fontSize: "9px", opacity: 0.6, fontWeight: 700, fontFamily: "system-ui" }}>cls</span>
+            <strong>{codeText}</strong>
+          </code>
+        );
+      }
+
+      // 3. Functions / Methods: matches ending with () (e.g. initialize_ml_models(), make_classification())
+      const isFunction = /^[a-zA-Z_][a-zA-Z0-9_]*\s*\([^)]*\)$/.test(codeText);
+      if (isFunction) {
+        return (
+          <code key={index} style={{ 
+            display: "inline-flex", 
+            alignItems: "center", 
+            gap: "4px",
+            verticalAlign: "middle",
+            padding: "1px 6px",
+            border: "1px solid color-mix(in oklch, var(--info), transparent 75%)",
+            background: "color-mix(in oklch, var(--info), transparent 94%)",
+            color: "var(--info)"
+          }}>
+            <span style={{ fontSize: "9px", opacity: 0.6, fontWeight: 700, fontFamily: "system-ui" }}>fn</span>
+            <span>{codeText}</span>
+          </code>
+        );
+      }
+
+      // 4. Variables / Database paths: snake_case or camelCase or database arrays (e.g. alerts_db, devices_db, __main__)
+      const isVariable = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(codeText) && !/^[A-Z0-9_]+$/.test(codeText); // exclude constant values
+      if (isVariable) {
+        return (
+          <code key={index} style={{ 
+            display: "inline-flex", 
+            alignItems: "center", 
+            gap: "4px",
+            verticalAlign: "middle",
+            padding: "1px 6px",
+            border: "1px solid color-mix(in oklch, var(--warning), transparent 75%)",
+            background: "color-mix(in oklch, var(--warning), transparent 94%)",
+            color: "var(--warning)"
+          }}>
+            <span style={{ fontSize: "9px", opacity: 0.6, fontWeight: 700, fontFamily: "system-ui" }}>var</span>
+            <span>{codeText}</span>
+          </code>
+        );
+      }
+      
+      return <code key={index}>{codeText}</code>;
     }
     if (part.startsWith("**") && part.endsWith("**")) {
       return <strong key={index}>{part.slice(2, -2)}</strong>;
@@ -4581,6 +4781,129 @@ function PermissionActions({
           {isZh ? "跳过" : "Skip"}
         </button>
         <button className="permission-submit" onClick={() => respond(selectedOption.id)} type="button" style={{ outline: "none", boxShadow: "none" }}>
+          {isZh ? "提交" : "Submit"}
+          <span>↵</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AskUserActions({
+  query,
+  appLang,
+  onResolve
+}: {
+  query: UserQuery;
+  appLang: string;
+  onResolve: (answer: string) => void;
+}) {
+  const isZh = appLang === "zh";
+  const question = query.questions[0]; // Usually there's only one question
+
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [checkedIndices, setCheckedIndices] = useState<number[]>([]);
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  const handleToggle = (index: number) => {
+    if (question.multiSelect) {
+      setCheckedIndices((prev) =>
+        prev.includes(index) ? prev.filter((i) => i !== index) : [...prev, index]
+      );
+    } else {
+      setSelectedIndex(index);
+    }
+  };
+
+  const submitAnswer = (idx?: number) => {
+    const targetIdx = idx !== undefined ? idx : selectedIndex;
+    if (question.multiSelect) {
+      const selectedLabels = checkedIndices.map((i) => question.options[i].label);
+      const answerObj = { [question.header || question.question]: selectedLabels };
+      onResolve(JSON.stringify(answerObj));
+    } else {
+      const selectedOption = question.options[targetIdx];
+      const answerObj = { [question.header || question.question]: selectedOption.label };
+      onResolve(JSON.stringify(answerObj));
+    }
+  };
+
+  // Reset selectedIndex to 0 when a new query arrives
+  useEffect(() => {
+    setSelectedIndex(0);
+    setCheckedIndices([]);
+  }, [query]);
+
+  // Focus the option when selection index or query changes
+  useEffect(() => {
+    optionRefs.current[selectedIndex]?.focus();
+  }, [selectedIndex, query]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSelectedIndex((index) => (index - 1 + question.options.length) % question.options.length);
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSelectedIndex((index) => (index + 1) % question.options.length);
+      } else if (e.key === " ") {
+        if (question.multiSelect) {
+          e.preventDefault();
+          handleToggle(selectedIndex);
+        }
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        submitAnswer();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedIndex, checkedIndices, query, question]);
+
+  return (
+    <div className="permission-prompt">
+      <div className="permission-prompt-title">
+        <CircleDot size={16} />
+        <span>{question.header || (isZh ? "文件提问" : "Question")}</span>
+      </div>
+      <p style={{ margin: "9px 0 12px", fontSize: "13px", color: "var(--text)" }}>{question.question}</p>
+      <div className="permission-option-list">
+        {question.options.map((option, index) => {
+          const isSelected = selectedIndex === index;
+          const isChecked = question.multiSelect ? checkedIndices.includes(index) : isSelected;
+          return (
+            <button
+              className={`permission-option ${isChecked ? "selected" : ""}`}
+              key={option.label}
+              ref={(node) => {
+                optionRefs.current[index] = node;
+              }}
+              onClick={() => {
+                if (question.multiSelect) {
+                  handleToggle(index);
+                } else {
+                  submitAnswer(index);
+                }
+              }}
+              type="button"
+              style={{ outline: "none", boxShadow: "none", cursor: "pointer" }}
+            >
+              <kbd>{question.multiSelect ? (checkedIndices.includes(index) ? "✓" : " ") : index + 1}</kbd>
+              <span>{option.label}</span>
+              <em>{option.description}</em>
+            </button>
+          );
+        })}
+      </div>
+      <div className="permission-prompt-footer">
+        <button
+          className="permission-submit"
+          onClick={() => submitAnswer()}
+          type="button"
+          style={{ outline: "none", boxShadow: "none", cursor: "pointer" }}
+        >
           {isZh ? "提交" : "Submit"}
           <span>↵</span>
         </button>
