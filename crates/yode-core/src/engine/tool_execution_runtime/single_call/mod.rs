@@ -32,13 +32,18 @@ impl PreparedToolExecution {
         if tool_call.name == "batch" {
             strip_nested_action_narrative_params(&mut self.params);
         }
-        self.command_content = if tool_call.name == "bash" {
-            self.params
+        self.command_content = match tool_call.name.as_str() {
+            "bash" | "shell_command" => self
+                .params
                 .get("command")
                 .and_then(|value| value.as_str())
-                .map(str::to_string)
-        } else {
-            None
+                .map(str::to_string),
+            "exec_command" => self
+                .params
+                .get("cmd")
+                .and_then(|value| value.as_str())
+                .map(str::to_string),
+            _ => None,
         };
         self.effective_arguments =
             serde_json::to_string(&self.params).unwrap_or_else(|_| tool_call.arguments.clone());

@@ -175,7 +175,7 @@ pub fn tool_categories(tool_name: &str) -> Vec<&'static str> {
         | "cron_create" | "cron_delete" | "enter_worktree" | "exit_worktree" => {
             categories.push("write");
         }
-        "bash" => categories.push("shell"),
+        "bash" | "exec_command" | "shell_command" | "write_stdin" => categories.push("shell"),
         "agent" | "coordinate_agents" | "verification_agent" => {
             categories.push("agent");
             categories.push("team");
@@ -190,7 +190,7 @@ pub fn tool_categories(tool_name: &str) -> Vec<&'static str> {
     }
     if matches!(
         tool_name,
-        "task_output" | "cron_create" | "cron_list" | "cron_delete"
+        "task_output" | "write_stdin" | "cron_create" | "cron_list" | "cron_delete"
     ) {
         categories.push("background");
     }

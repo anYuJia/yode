@@ -21,7 +21,7 @@ impl AutoPermissionClassifier {
         tool_name: &str,
         content: Option<&str>,
     ) -> Option<AutoPermissionClassifierOutcome> {
-        if tool_name == "bash" {
+        if matches!(tool_name, "bash" | "exec_command" | "shell_command") {
             let command = content?;
             let analysis = CommandClassifier::analyze(command);
             let (action, risk, reason) = auto_mode_bash_decision(command)?;

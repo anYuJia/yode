@@ -213,11 +213,14 @@ impl DesktopRuntime {
     }
 
     pub fn permission_mode_set(&self, mode: String) -> Result<()> {
+        let parsed = mode
+            .parse::<yode_core::permission::PermissionMode>()
+            .map_err(|err| anyhow::anyhow!(err))?;
         let mut active_mode = self
             .permission_mode
             .lock()
             .map_err(|_| anyhow::anyhow!("permission mode lock poisoned"))?;
-        *active_mode = mode;
+        *active_mode = parsed.to_string();
         Ok(())
     }
 

@@ -5,6 +5,8 @@ use super::*;
 fn test_bypass_allows_all() {
     let pm = PermissionManager::new(PermissionMode::Bypass);
     assert_eq!(pm.check("bash"), PermissionAction::Allow);
+    assert_eq!(pm.check("exec_command"), PermissionAction::Allow);
+    assert_eq!(pm.check("shell_command"), PermissionAction::Allow);
     assert_eq!(pm.check("write_file"), PermissionAction::Allow);
     assert_eq!(pm.check("read_file"), PermissionAction::Allow);
 }
@@ -36,6 +38,14 @@ fn test_auto_mode_bash_classification() {
         PermissionAction::Allow
     );
     assert_eq!(
+        pm.check_with_content("exec_command", Some("git status")),
+        PermissionAction::Allow
+    );
+    assert_eq!(
+        pm.check_with_content("shell_command", Some("rm -rf /")),
+        PermissionAction::Deny
+    );
+    assert_eq!(
         pm.check_with_content("bash", Some("git status")),
         PermissionAction::Allow
     );
@@ -47,6 +57,14 @@ fn test_auto_mode_bash_classification() {
         pm.check_with_content("bash", Some("git push --force")),
         PermissionAction::Confirm
     );
+}
+
+#[test]
+fn test_legacy_bash_confirmation_covers_codex_shell_tools() {
+    let pm = PermissionManager::from_confirmation_list(vec!["bash".to_string()]);
+    assert_eq!(pm.check("bash"), PermissionAction::Confirm);
+    assert_eq!(pm.check("exec_command"), PermissionAction::Confirm);
+    assert_eq!(pm.check("shell_command"), PermissionAction::Confirm);
 }
 
 #[test]

@@ -107,7 +107,7 @@ export function Composer({
     {
       key: "bypass",
       label: isZh ? "完全信任" : "Full access",
-      description: isZh ? "不受限制地访问网络及您计算机上的任何文件" : "Unrestricted access to the internet and any file on your computer",
+      description: isZh ? "不再弹出权限确认，仍保留危险命令保护" : "Skip permission prompts while keeping destructive-command protection",
       icon: <AlertCircle size={15} />
     }
   ];

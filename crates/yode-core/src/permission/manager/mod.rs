@@ -83,14 +83,16 @@ impl PermissionManager {
     pub fn from_confirmation_list(require_confirmation: Vec<String>) -> Self {
         let mut manager = Self::new(PermissionMode::Default);
         for tool in &require_confirmation {
-            manager.rules.push(PermissionRule {
-                source: RuleSource::UserConfig,
-                behavior: RuleBehavior::Ask,
-                tool_name: tool.clone(),
-                category: None,
-                pattern: None,
-                description: None,
-            });
+            for tool_name in legacy_confirmation_tool_names(tool) {
+                manager.rules.push(PermissionRule {
+                    source: RuleSource::UserConfig,
+                    behavior: RuleBehavior::Ask,
+                    tool_name,
+                    category: None,
+                    pattern: None,
+                    description: None,
+                });
+            }
         }
         manager
     }
@@ -179,7 +181,7 @@ impl PermissionManager {
     }
 
     pub fn record_confirmation_request(&mut self, tool_name: &str, content: Option<&str>) {
-        if tool_name != "bash" {
+        if !matches!(tool_name, "bash" | "exec_command" | "shell_command") {
             return;
         }
         if let Some(prefix) = content.and_then(crate::permission::shell::command_prefix) {
@@ -344,6 +346,18 @@ impl PermissionManager {
         tools.sort();
         tools.dedup();
         tools
+    }
+}
+
+fn legacy_confirmation_tool_names(tool: &str) -> Vec<String> {
+    if tool.eq_ignore_ascii_case("bash") {
+        vec![
+            "bash".to_string(),
+            "exec_command".to_string(),
+            "shell_command".to_string(),
+        ]
+    } else {
+        vec![tool.to_string()]
     }
 }
 
