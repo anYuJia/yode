@@ -139,10 +139,21 @@ export function ActivityGroupNode({ group, appLang, isTurnActive }: { group: any
   const isRunning = group.status === "running";
   const shouldAutoExpand = visibleItems.length > 0 && visibleItems.length <= 4;
   const [isExpanded, setIsExpanded] = useState(shouldAutoExpand);
+  const [hasManuallyToggled, setHasManuallyToggled] = useState(false);
 
   useEffect(() => {
-    setIsExpanded(shouldAutoExpand);
-  }, [group.id, shouldAutoExpand]);
+    setHasManuallyToggled(false);
+  }, [group.id]);
+
+  useEffect(() => {
+    if (hasManuallyToggled) return;
+
+    if (isRunning) {
+      setIsExpanded(true);
+    } else {
+      setIsExpanded(false);
+    }
+  }, [group.id, isRunning, isTurnActive, hasManuallyToggled]);
 
   if (visibleItems.length === 0 && !isRunning) return null;
 
@@ -199,12 +210,15 @@ export function ActivityGroupNode({ group, appLang, isTurnActive }: { group: any
       width: "100%",
       margin: "4px auto 8px",
       paddingLeft: "33px",
-      fontSize: "12.5px",
+      fontSize: "12px",
       color: "var(--text-soft)",
       userSelect: "none"
     }}>
       <div 
-        onClick={() => setIsExpanded(!isExpanded)}
+        onClick={() => {
+          setIsExpanded(!isExpanded);
+          setHasManuallyToggled(true);
+        }}
         style={{
           display: "inline-flex",
           alignItems: "center",
@@ -213,7 +227,7 @@ export function ActivityGroupNode({ group, appLang, isTurnActive }: { group: any
           transition: "color 0.15s ease",
           fontWeight: "500",
         }}
-        onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
+        onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
         onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-soft)"; }}
       >
         <span>{label}</span>
@@ -224,9 +238,9 @@ export function ActivityGroupNode({ group, appLang, isTurnActive }: { group: any
         <div style={{
           marginTop: "5px",
           paddingLeft: "16px",
-          color: "var(--text)",
+          color: "var(--text-muted)",
           fontSize: "12px",
-          lineHeight: 1.45,
+          lineHeight: 1.5,
           maxWidth: "68ch"
         }}>
           {activityGroupPreview(visibleItems, appLang)}
@@ -269,7 +283,7 @@ export function ActivityGroupNode({ group, appLang, isTurnActive }: { group: any
               }
             }
             return (
-              <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "var(--accent)", fontSize: "12px", fontStyle: "italic" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "var(--accent)", fontSize: "11.75px", fontStyle: "italic" }}>
                 <CircleDot size={10} className="glowing-logo" style={{ animation: "pulse 2s infinite" }} />
                 <span>{statusText}</span>
               </div>
@@ -305,7 +319,7 @@ export function ActivityItemNode({ node, appLang }: { node: any; appLang: string
       width: "100%",
       margin: "4px auto 8px",
       paddingLeft: "33px",
-      fontSize: "12.5px",
+      fontSize: "12px",
       color: "var(--text-soft)",
       userSelect: "none"
     }}>
@@ -319,13 +333,13 @@ export function ActivityItemNode({ node, appLang }: { node: any; appLang: string
           transition: "color 0.15s ease",
           fontWeight: "500",
         }}
-        onMouseEnter={(e) => { if (node.body) e.currentTarget.style.color = "var(--text)"; }}
+        onMouseEnter={(e) => { if (node.body) e.currentTarget.style.color = "var(--text-muted)"; }}
         onMouseLeave={(e) => { if (node.body) e.currentTarget.style.color = "var(--text-soft)"; }}
       >
         <span>{label}</span>
         {(node.filename || parsed.filename) ? getFileIcon(node.filename || parsed.filename) : null}
         {(node.filename || parsed.filename) && (
-          <span style={{ color: "var(--text)", fontWeight: "500" }}>{node.filename || parsed.filename}</span>
+          <span style={{ color: "var(--text-muted)", fontWeight: "520" }}>{node.filename || parsed.filename}</span>
         )}
         {addCount && <span style={{ color: "#34d399", fontWeight: "600", marginLeft: "4px" }}>{addCount}</span>}
         {delCount && <span style={{ color: "#f87171", fontWeight: "600", marginLeft: "2px" }}>{delCount}</span>}

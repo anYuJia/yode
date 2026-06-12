@@ -528,11 +528,11 @@ impl DesktopRuntime {
                             json!({ "body": text, "status": "completed" }),
                         ),
                         EngineEvent::ReasoningDelta(reasoning) => {
-                            ("assistant_reasoning_delta", json!({ "body": reasoning }))
+                            ("assistant_reasoning_delta", json!({ "reasoning": reasoning }))
                         }
                         EngineEvent::ReasoningComplete(reasoning) => (
                             "assistant_reasoning_complete",
-                            json!({ "body": reasoning, "status": "completed" }),
+                            json!({ "reasoning": reasoning, "status": "completed" }),
                         ),
                         EngineEvent::ToolCallStart {
                             id,

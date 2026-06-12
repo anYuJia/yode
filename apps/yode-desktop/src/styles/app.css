@@ -1041,13 +1041,31 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 .markdown-content {
   max-width: 74ch;
   color: var(--text);
-  font-size: 13px;
+  font-size: 13.25px;
   line-height: 1.58;
   overflow-wrap: anywhere;
 }
 
+.markdown-content-answer {
+  color: var(--text);
+  font-size: 13.25px;
+  line-height: 1.6;
+}
+
+.markdown-content-process {
+  max-width: 70ch;
+  color: color-mix(in oklch, var(--text), var(--text-muted) 6%);
+  font-size: 14.5px;
+  font-weight: 560;
+  line-height: 1.62;
+}
+
 .markdown-content > * {
   margin: 0 0 8px;
+}
+
+.markdown-content-process > * {
+  margin-bottom: 12px;
 }
 
 .markdown-content > *:last-child {
@@ -1063,6 +1081,14 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   font-weight: 760;
   line-height: 1.35;
   margin-top: 12px;
+}
+
+.markdown-content-process h1,
+.markdown-content-process h2,
+.markdown-content-process h3,
+.markdown-content-process h4 {
+  font-size: 15.5px;
+  line-height: 1.4;
 }
 
 .markdown-content h1:first-child,
@@ -1087,7 +1113,43 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   background: color-mix(in oklch, var(--field), transparent 18%);
   color: var(--text);
   font-family: var(--font-code);
-  font-size: 0.92em;
+  font-size: 0.92em !important;
+  font-weight: 520;
+}
+
+.markdown-code-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  vertical-align: middle;
+  padding: 1px 6px;
+}
+
+.markdown-file-chip {
+  border-color: color-mix(in oklch, var(--chip-accent, var(--text-muted)), transparent 78%);
+  background: color-mix(in oklch, var(--field), var(--chip-accent, var(--text-muted)) 8%);
+  color: color-mix(in oklch, var(--text-muted), var(--chip-accent, var(--text-muted)) 24%);
+}
+
+.markdown-file-chip-icon {
+  display: inline-flex;
+  align-items: center;
+}
+
+.markdown-file-chip .file-type-icon {
+  width: 13px;
+  height: 13px;
+  color: color-mix(in oklch, var(--chip-accent, var(--text-muted)), var(--text-muted) 38%) !important;
+  opacity: 0.84;
+}
+
+.markdown-file-chip-text {
+  color: currentColor;
+}
+
+.markdown-content-process code {
+  background: color-mix(in oklch, var(--field), transparent 9%);
+  color: color-mix(in oklch, var(--text), var(--text-muted) 12%);
 }
 
 .markdown-content pre {

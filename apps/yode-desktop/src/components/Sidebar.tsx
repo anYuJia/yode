@@ -116,6 +116,18 @@ export function Sidebar({
     };
   }, []);
 
+  useEffect(() => {
+    const sessionIds = new Set(sessions.map((session) => session.id));
+
+    if (hoveredSessionId && !sessionIds.has(hoveredSessionId)) {
+      handleMouseLeave();
+    }
+
+    if (deletingSessionId && !sessionIds.has(deletingSessionId)) {
+      setDeletingSessionId(null);
+    }
+  }, [sessions, hoveredSessionId, deletingSessionId]);
+
   const handleTogglePin = (sessionId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setPinnedSessionIds(prev => 
@@ -132,6 +144,7 @@ export function Sidebar({
 
   const handleConfirmDelete = (sessionId: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    handleMouseLeave();
     onDeleteSession(sessionId);
     setDeletingSessionId(null);
   };
@@ -455,6 +468,10 @@ export function Sidebar({
     );
   };
 
+  const hoveredSession = hoveredSessionId
+    ? sessions.find((session) => session.id === hoveredSessionId)
+    : null;
+
   return (
     <aside className="sidebar" style={{ position: "relative" }}>
       <div className="brand-row" data-tauri-drag-region>
@@ -496,7 +513,7 @@ export function Sidebar({
         </div>
       </div>
 
-      {hoveredSessionId && hoverPosition && createPortal(
+      {hoveredSession && hoverPosition && createPortal(
         <div
           className="session-popover"
           style={{
@@ -515,31 +532,25 @@ export function Sidebar({
             animation: "fadeIn 0.15s ease-out"
           }}
         >
-          {(() => {
-            const s = sessions.find(x => x.id === hoveredSessionId);
-            if (!s) return null;
-            return (
-              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                <div style={{ fontSize: "12px", fontWeight: "700", color: "var(--accent)" }}>
-                  {s.title}
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: "3px", fontSize: "10.5px", color: "var(--text-muted)" }}>
-                  <div>
-                    <span style={{ color: "var(--text-soft)" }}>{t("项目：", "Project: ")}</span>
-                    <code>{s.project || (s.projectRoot ? projectLabelFromPath(s.projectRoot) : t("独立对话", "Standalone"))}</code>
-                  </div>
-                  <div>
-                    <span style={{ color: "var(--text-soft)" }}>{t("更新时间：", "Updated: ")}</span>
-                    {s.updatedAt}
-                  </div>
-                  <div>
-                    <span style={{ color: "var(--text-soft)" }}>{t("会话 ID：", "Session ID: ")}</span>
-                    <span style={{ fontFamily: "var(--font-code)", opacity: 0.8 }}>{s.id}</span>
-                  </div>
-                </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+            <div style={{ fontSize: "12px", fontWeight: "700", color: "var(--accent)" }}>
+              {hoveredSession.title}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "3px", fontSize: "10.5px", color: "var(--text-muted)" }}>
+              <div>
+                <span style={{ color: "var(--text-soft)" }}>{t("项目：", "Project: ")}</span>
+                <code>{hoveredSession.project || (hoveredSession.projectRoot ? projectLabelFromPath(hoveredSession.projectRoot) : t("独立对话", "Standalone"))}</code>
               </div>
-            );
-          })()}
+              <div>
+                <span style={{ color: "var(--text-soft)" }}>{t("更新时间：", "Updated: ")}</span>
+                {hoveredSession.updatedAt}
+              </div>
+              <div>
+                <span style={{ color: "var(--text-soft)" }}>{t("会话 ID：", "Session ID: ")}</span>
+                <span style={{ fontFamily: "var(--font-code)", opacity: 0.8 }}>{hoveredSession.id}</span>
+              </div>
+            </div>
+          </div>
         </div>,
         document.body
       )}

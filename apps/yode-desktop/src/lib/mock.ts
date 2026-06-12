@@ -51,12 +51,14 @@ export type TimelineItem =
       risk: string;
       sessionId?: string;
       turnId?: string;
+      createdAt?: number;
     }
   | {
       id: string;
       kind: "boundary";
       title: string;
       body: string;
+      createdAt?: number;
     }
   | {
       id: string;
@@ -64,6 +66,7 @@ export type TimelineItem =
       title?: string;
       body: string;
       status: "running" | "success";
+      createdAt?: number;
     }
   | {
       id: string;
@@ -72,6 +75,7 @@ export type TimelineItem =
       type: "explore" | "search" | "run" | "other";
       status: "running" | "success";
       items: TimelineItem[];
+      createdAt?: number;
     }
   | {
       id: string;
@@ -86,12 +90,14 @@ export type TimelineItem =
       diff?: string;
       result?: string;
       metadata?: any;
+      createdAt?: number;
     }
   | {
       id: string;
       kind: "edit_summary";
       status: "running" | "success" | "blocked";
       items: Array<Extract<TimelineItem, { kind: "activity_item" }>>;
+      createdAt?: number;
     }
   | {
       id: string;
@@ -101,6 +107,7 @@ export type TimelineItem =
       type: "explore" | "search" | "edit" | "run" | "other";
       status: "running" | "success";
       items?: any[];
+      createdAt?: number;
     };
 
 export type DesktopEvent = {

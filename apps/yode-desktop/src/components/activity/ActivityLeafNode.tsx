@@ -30,7 +30,7 @@ export function ActivityLeafNode({ item, appLang }: { item: any; appLang: string
             gap: "4px",
             cursor: item.body ? "pointer" : "default",
             color: "var(--text-soft)",
-            fontSize: "12px"
+            fontSize: "11.75px"
           }}
         >
           <span>{displayTitle}</span>
@@ -45,7 +45,7 @@ export function ActivityLeafNode({ item, appLang }: { item: any; appLang: string
             background: "color-mix(in oklch, var(--field), transparent 2%)",
             borderRadius: "6px",
             fontSize: "11px",
-            color: "var(--text-soft)",
+            color: "var(--text-muted)",
             whiteSpace: "pre-wrap",
             fontFamily: "var(--font-code)",
             border: "1px solid var(--line-soft)",
@@ -87,22 +87,22 @@ export function ActivityLeafNode({ item, appLang }: { item: any; appLang: string
             gap: "4px",
             cursor: hasBodyOrResult ? "pointer" : "default",
             color: "var(--text-soft)",
-            fontSize: "12px"
+            fontSize: "11.75px"
           }}
         >
           <span>{label}</span>
           {parsed.filename ? getFileIcon(parsed.filename) : parsed.command ? getCommandIcon() : null}
           {(parsed.filename || parsed.command) ? (
-            <span style={{ color: "var(--text)", fontWeight: "500" }}>
+            <span style={{ color: "var(--text-muted)", fontWeight: "520" }}>
               {parsed.filename ? `${parsed.filename}${parsed.lineRange}` : parsed.command}
             </span>
           ) : (
-            <span style={{ color: "var(--text)", fontWeight: "500" }}>
+            <span style={{ color: "var(--text-muted)", fontWeight: "520" }}>
               {displayToolName(item.tool)}
             </span>
           )}
           {item.count > 1 && (
-            <span style={{ color: "var(--text-soft)", fontSize: "11px" }}>x{item.count}</span>
+            <span style={{ color: "var(--text-soft)", fontSize: "10.75px" }}>x{item.count}</span>
           )}
           {hasBodyOrResult && (
             isExpanded ? <ChevronDown size={11} style={{ opacity: 0.6 }} /> : <ChevronRight size={11} style={{ opacity: 0.6 }} />
@@ -116,7 +116,7 @@ export function ActivityLeafNode({ item, appLang }: { item: any; appLang: string
             flexDirection: "column",
             gap: "6px",
             paddingLeft: "10px",
-            borderLeft: "1.5px solid var(--line-soft)",
+            borderLeft: "1px solid var(--line-soft)",
             maxWidth: "600px"
           }}>
             {item.body && (

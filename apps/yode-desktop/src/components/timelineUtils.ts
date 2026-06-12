@@ -680,16 +680,18 @@ export function desktopEventToTimelineItem(
   const status = stringValue(inner?.status);
   const metadata = inner?.metadata && typeof inner.metadata === "object" ? inner.metadata : undefined;
 
+  const eventTime = outer?.timestamp ? new Date(outer.timestamp).getTime() : Date.now();
+  const createdAt = Number.isFinite(eventTime) ? eventTime : Date.now();
+
   if (kind === "turn_started") {
-    const now = Date.now();
     return {
       id: turnId ? `reasoning-${turnId}` : `event-${Date.now()}-${Math.random()}`,
       kind: "reasoning",
       title: title || "思考中",
       body: body || "",
       meta: "running",
-      createdAt: now,
-      reasoningStartedAt: now
+      createdAt,
+      reasoningStartedAt: createdAt
     };
   }
 
@@ -702,7 +704,8 @@ export function desktopEventToTimelineItem(
       tool: tool,
       risk: meta || "中等风险",
       sessionId,
-      turnId
+      turnId,
+      createdAt
     };
   }
 
@@ -712,7 +715,8 @@ export function desktopEventToTimelineItem(
       kind: "assistant",
       title,
       body,
-      meta: "waiting for input"
+      meta: "waiting for input",
+      createdAt
     };
   }
 
@@ -725,7 +729,8 @@ export function desktopEventToTimelineItem(
       tool,
       status: status === "success" ? "success" : status === "blocked" ? "blocked" : "running",
       meta,
-      metadata
+      metadata,
+      createdAt
     };
   }
 
@@ -735,7 +740,8 @@ export function desktopEventToTimelineItem(
       kind: "reasoning",
       title,
       body: "",
-      meta
+      meta,
+      createdAt
     };
   }
 
@@ -856,7 +862,8 @@ export function applyDesktopEventToTimelineItems(
         kind: "assistant",
         title: "Yode",
         body,
-        meta: "streaming"
+        meta: "streaming",
+        createdAt: Date.now()
       }
     ];
   }
@@ -880,7 +887,8 @@ export function applyDesktopEventToTimelineItems(
           kind: "assistant",
           title: "Yode",
           body,
-          meta: "stream complete"
+          meta: "stream complete",
+          createdAt: Date.now()
         }
       ];
     }
@@ -999,7 +1007,8 @@ export function applyDesktopEventToTimelineItems(
         kind: "reasoning",
         title: "思考",
         body: reasoning,
-        meta: "complete"
+        meta: "complete",
+        createdAt: Date.now()
       });
     }
     if (body && !hasAssistantForTurn) {
@@ -1008,7 +1017,8 @@ export function applyDesktopEventToTimelineItems(
         kind: "assistant",
         title: "Yode",
         body,
-        meta: hasToolCalls ? "intermediate" : "stream complete"
+        meta: hasToolCalls ? "intermediate" : "stream complete",
+        createdAt: Date.now()
       });
     }
     return fallbackItems.length > 0 ? [...settledItems, ...fallbackItems] : settledItems;

@@ -131,17 +131,7 @@ impl AgentEngine {
                 }
             }
 
-            if response.message.tool_calls.is_empty() {
-                if let Some(content) = response.message.content.clone() {
-                    if content.len() > 3000 {
-                        let trimmed: String = content.chars().take(1800).collect();
-                        response.message.content = Some(format!(
-                            "{}\n\n[Output truncated by runtime guard to keep response responsive. Ask to continue if you want more details.]",
-                            trimmed
-                        ));
-                    }
-                }
-            }
+
             if response.message.content.is_none() && !buffers.full_text.is_empty() {
                 response.message.content = Some(buffers.full_text.clone());
             }

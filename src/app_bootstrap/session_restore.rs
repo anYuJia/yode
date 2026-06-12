@@ -306,6 +306,7 @@ theme = "dark"
             name: None,
             provider: "anthropic".to_string(),
             model: "claude".to_string(),
+            project_root: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         })
@@ -361,6 +362,7 @@ theme = "dark"
             name: None,
             provider: "anthropic".to_string(),
             model: "claude".to_string(),
+            project_root: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         })
