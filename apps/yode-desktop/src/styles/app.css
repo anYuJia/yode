@@ -1393,60 +1393,235 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 
 .file-type-icon {
   --file-icon-color: var(--text-muted);
-  position: relative;
-  display: inline-grid;
+  display: block;
   flex: 0 0 auto;
-  width: 18px;
-  height: 20px;
-  place-items: center;
+  width: 20px;
+  height: 22px;
   margin-right: 1px;
-  padding: 0;
-  border: 1px solid color-mix(in oklch, var(--file-icon-color), var(--line) 74%);
-  border-radius: 3px;
-  background: color-mix(in oklch, var(--panel), var(--file-icon-color) 4%);
-  color: color-mix(in oklch, var(--file-icon-color), var(--text-muted) 44%);
-  font-family: var(--font-code);
-  font-size: 6.5px;
-  font-weight: 720;
-  line-height: 1;
-  letter-spacing: 0;
-  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--text), transparent 96%);
-  transform: translateY(0.5px);
+  overflow: visible;
+  transform: translateY(1px);
 }
 
 .file-type-icon.wide {
-  width: 22px;
-  font-size: 6px;
+  width: 20px;
 }
 
-.file-type-icon::after {
-  content: "";
-  position: absolute;
-  top: -1px;
-  right: -1px;
-  width: 5px;
-  height: 5px;
-  border-left: 1px solid color-mix(in oklch, var(--file-icon-color), var(--line) 78%);
-  border-bottom: 1px solid color-mix(in oklch, var(--file-icon-color), var(--line) 82%);
-  border-radius: 0 2px 0 2px;
-  background: color-mix(in oklch, var(--chrome), var(--file-icon-color) 5%);
+.file-type-icon-sheet {
+  fill: color-mix(in oklch, var(--panel), var(--file-icon-color) 3%);
+  stroke: color-mix(in oklch, var(--text), transparent 86%);
+  stroke-width: 1.2;
+}
+
+.file-type-icon-fold {
+  stroke: color-mix(in oklch, var(--text), transparent 86%);
+  stroke-width: 1.2;
+  stroke-linejoin: round;
+}
+
+.file-type-icon-text {
+  fill: color-mix(in oklch, var(--file-icon-color), var(--text-muted) 28%);
+  font-family: var(--font-code);
+  font-size: 7px;
+  font-weight: 720;
+  letter-spacing: 0;
+}
+
+.file-type-icon.wide .file-type-icon-text {
+  font-size: 5.8px;
+}
+
+.file-type-icon-glyph {
+  fill: none;
+  stroke: color-mix(in oklch, var(--file-icon-color), var(--text-muted) 24%);
+  stroke-width: 1.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.file-type-icon-dot {
+  fill: color-mix(in oklch, var(--file-icon-color), var(--text-muted) 24%);
 }
 
 .file-type-icon.command {
+  display: inline-grid;
   width: 19px;
   height: 19px;
+  place-items: center;
   color: var(--text-soft);
+  border: 1px solid color-mix(in oklch, var(--line), transparent 20%);
+  border-radius: 4px;
   border-color: color-mix(in oklch, var(--line), transparent 20%);
   background: color-mix(in oklch, var(--field), transparent 8%);
-}
-
-.file-type-icon.command::after {
-  display: none;
+  transform: translateY(0.5px);
 }
 
 .file-type-icon.command svg {
   width: 12px;
   height: 12px;
+}
+
+.edit-summary-card {
+  width: min(100%, 760px);
+  margin: 8px auto 14px;
+  border: 1px solid color-mix(in oklch, var(--line), transparent 8%);
+  border-radius: 9px;
+  overflow: hidden;
+  background: color-mix(in oklch, var(--panel), var(--bg) 16%);
+  color: var(--text);
+}
+
+.edit-summary-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-bottom: 1px solid color-mix(in oklch, var(--line-soft), transparent 18%);
+}
+
+.edit-summary-badge {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 9px;
+  background: color-mix(in oklch, var(--field), var(--bg) 18%);
+  color: var(--text-muted);
+}
+
+.edit-summary-title {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.edit-summary-title strong {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 720;
+}
+
+.edit-summary-title span,
+.edit-summary-file-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-code);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 680;
+}
+
+.diff-add {
+  color: var(--success);
+  font-style: normal;
+}
+
+.diff-del {
+  color: var(--error);
+  font-style: normal;
+}
+
+.edit-summary-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.edit-summary-actions button {
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 0 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.edit-summary-actions button:hover,
+.edit-summary-actions button:focus-visible {
+  border-color: var(--line);
+  background: color-mix(in oklch, var(--field), transparent 12%);
+  color: var(--text);
+  outline: none;
+}
+
+.edit-summary-files {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 0;
+}
+
+.edit-summary-file {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 36px;
+  padding: 0 16px 0 24px;
+}
+
+.edit-summary-file-name {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 560;
+}
+
+.edit-summary-file-name span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.edit-summary-diffs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid color-mix(in oklch, var(--line-soft), transparent 24%);
+  padding: 10px 14px 14px;
+}
+
+.edit-diff {
+  border: 1px solid color-mix(in oklch, var(--line-soft), transparent 20%);
+  border-radius: 8px;
+  background: color-mix(in oklch, var(--field), transparent 8%);
+}
+
+.edit-diff summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 10px;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.edit-diff summary::-webkit-details-marker {
+  display: none;
+}
+
+.edit-diff pre {
+  max-height: 240px;
+  margin: 0;
+  overflow: auto;
+  border-top: 1px solid color-mix(in oklch, var(--line-soft), transparent 28%);
+  padding: 10px 12px;
+  color: var(--text-muted);
+  font-family: var(--font-code);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
 }
 
 .inspector-section p {

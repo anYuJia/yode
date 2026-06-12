@@ -26,6 +26,7 @@ export type TimelineItem =
       body: string;
       meta?: string;
       createdAt?: number;
+      reasoningStartedAt?: number;
     }
   | {
       id: string;
@@ -36,6 +37,7 @@ export type TimelineItem =
       tool: string;
       meta?: string;
       result?: string;
+      metadata?: any;
     }
 
   | {
@@ -80,6 +82,13 @@ export type TimelineItem =
       filename?: string;
       diff?: string;
       result?: string;
+      metadata?: any;
+    }
+  | {
+      id: string;
+      kind: "edit_summary";
+      status: "running" | "success" | "blocked";
+      items: Array<Extract<TimelineItem, { kind: "activity_item" }>>;
     }
   | {
       id: string;

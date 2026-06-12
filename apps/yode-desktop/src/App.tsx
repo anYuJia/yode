@@ -326,6 +326,7 @@ type FileIconMeta = {
   label: string;
   color: string;
   tone?: "code" | "config" | "doc" | "asset" | "data" | "plain";
+  glyph?: "lock" | "image";
 };
 
 function fileIconMeta(filename: string): FileIconMeta {
@@ -335,7 +336,7 @@ function fileIconMeta(filename: string): FileIconMeta {
 
   if (lower === "package.json") return { label: "PKG", color: "oklch(0.78 0.14 90)", tone: "config" };
   if (lower === "cargo.toml" || lower === "cargo.lock") return { label: "RS", color: "oklch(0.72 0.14 58)", tone: "config" };
-  if (lower === "pnpm-lock.yaml" || lower === "yarn.lock" || lower === "package-lock.json") return { label: "LOCK", color: "oklch(0.70 0.11 165)", tone: "config" };
+  if (lower === "pnpm-lock.yaml" || lower === "yarn.lock" || lower === "package-lock.json") return { label: "LOCK", color: "oklch(0.82 0.04 250)", tone: "config", glyph: "lock" };
   if (lower === "dockerfile" || lower.endsWith(".dockerfile")) return { label: "DO", color: "oklch(0.70 0.15 240)", tone: "config" };
   if (lower === "makefile") return { label: "MK", color: "oklch(0.76 0.10 78)", tone: "config" };
   if (lower === ".gitignore" || lower === ".gitattributes") return { label: "GIT", color: "oklch(0.70 0.15 35)", tone: "config" };
@@ -386,7 +387,7 @@ function fileIconMeta(filename: string): FileIconMeta {
     case "jpeg":
     case "gif":
     case "webp":
-    case "svg": return { label: "IMG", color: "oklch(0.76 0.15 330)", tone: "asset" };
+    case "svg": return { label: "IMG", color: "oklch(0.76 0.15 330)", tone: "asset", glyph: "image" };
     case "pdf": return { label: "PDF", color: "oklch(0.68 0.18 26)", tone: "doc" };
     case "doc":
     case "docx": return { label: "DOC", color: "oklch(0.68 0.15 248)", tone: "doc" };
@@ -405,15 +406,43 @@ function fileIconMeta(filename: string): FileIconMeta {
 function getFileIcon(filename: string) {
   const meta = fileIconMeta(filename);
   const label = /^[A-Z0-9+]+$/.test(meta.label) ? meta.label.toLowerCase() : meta.label;
+  const isWideLabel = label.length > 3 || label === "{}";
   return (
-    <span
-      className={`file-type-icon ${meta.tone || "plain"} ${label.length > 3 ? "wide" : ""}`}
+    <svg
+      className={`file-type-icon ${meta.tone || "plain"} ${isWideLabel ? "wide" : ""}`}
+      viewBox="0 0 20 22"
+      fill="none"
       style={{ "--file-icon-color": meta.color } as React.CSSProperties}
       aria-hidden="true"
-      title={filename}
+      focusable="false"
     >
-      {label}
-    </span>
+      <title>{filename}</title>
+      <path
+        className="file-type-icon-sheet"
+        d="M2.5 2.5C2.5 1.67157 3.17157 1 4 1H13.5L17.5 5V19.5C17.5 20.3284 16.8284 21 16 21H4C3.17157 21 2.5 20.3284 2.5 19.5V2.5Z"
+      />
+      <path className="file-type-icon-fold" d="M13.5 1V5H17.5" />
+      {meta.glyph === "lock" ? (
+        <>
+          <rect className="file-type-icon-glyph" x="7" y="12" width="6" height="5" rx="1" />
+          <path className="file-type-icon-glyph" d="M8 12V10C8 8.89543 8.89543 8 10 8C11.1046 8 12 8.89543 12 10V12" />
+        </>
+      ) : meta.glyph === "image" ? (
+        <>
+          <path className="file-type-icon-glyph" d="M5 17L9 11L12 15L15 12.5L16.5 14.5" />
+          <circle className="file-type-icon-dot" cx="7.5" cy="8.5" r="1" />
+        </>
+      ) : (
+        <text
+          className="file-type-icon-text"
+          x="10"
+          y="14.5"
+          textAnchor="middle"
+        >
+          {label}
+        </text>
+      )}
+    </svg>
   );
 }
 
@@ -427,20 +456,47 @@ function getCommandIcon() {
 
 function isRuntimeNoticeText(text?: string) {
   if (!text) return false;
-  return /limit instead of re-reading|budget notice|checkpoint:|tool calls used|summariz(?:e|ing) current findings|most efficient next step/i.test(text);
+  return /limit instead of re-reading|budget notice|budget warning|checkpoint:|tool calls used|工具调用提醒|summariz(?:e|ing) current findings|most efficient next step/i.test(text);
 }
 
-function parseToolDetails(item: { tool: string; body: string; title: string }) {
+function parseToolDetails(item: { tool: string; body: string; title: string; metadata?: any }) {
   let filename = "";
   let lineRange = "";
   let diff = "";
   let command = "";
+  let diffPreview = "";
 
   const body = (item.body || "").trim();
   const title = (item.title || "").trim();
+  const metadata = item.metadata && typeof item.metadata === "object" ? item.metadata : null;
 
   if (isRuntimeNoticeText(body) || isRuntimeNoticeText(title)) {
-    return { filename, lineRange, diff, command };
+    return { filename, lineRange, diff, command, diffPreview };
+  }
+
+  if (metadata) {
+    const rawPath = metadata.file_path || metadata.TargetFile || metadata.AbsolutePath || metadata.Path || metadata.Target || metadata.SearchPath || metadata.TargetContentFile;
+    if (rawPath && typeof rawPath === "string") {
+      filename = rawPath.substring(Math.max(rawPath.lastIndexOf('/'), rawPath.lastIndexOf('\\')) + 1);
+    }
+
+    const preview = metadata.diff_preview;
+    if (preview && typeof preview === "object") {
+      const removed = Array.isArray(preview.removed) ? preview.removed.map(String) : [];
+      const added = Array.isArray(preview.added) ? preview.added.map(String) : [];
+      const moreRemoved = Number(preview.more_removed || 0);
+      const moreAdded = Number(preview.more_added || 0);
+      const removedCount = removed.length + (Number.isFinite(moreRemoved) ? moreRemoved : 0);
+      const addedCount = added.length + (Number.isFinite(moreAdded) ? moreAdded : 0);
+      diff = `+${addedCount} -${removedCount}`;
+      diffPreview = [
+        ...removed.map((line: string) => `-${line}`),
+        ...added.map((line: string) => `+${line}`)
+      ].join("\n");
+      if (moreRemoved > 0 || moreAdded > 0) {
+        diffPreview += `\n... 还有 ${moreRemoved + moreAdded} 行未显示`;
+      }
+    }
   }
 
   try {
@@ -524,7 +580,7 @@ function parseToolDetails(item: { tool: string; body: string; title: string }) {
     }
   }
 
-  return { filename, lineRange, diff, command };
+  return { filename, lineRange, diff, command, diffPreview };
 }
 
 function displayToolName(tool?: string) {
@@ -929,14 +985,15 @@ function ActivityItemNode({ node, appLang }: { node: any; appLang: string }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   const isRunning = node.status === "running";
+  const parsed = parseToolDetails(node);
   const label = isRunning 
     ? (isZh ? "正在修改" : "Editing") 
     : (isZh ? "已修改" : "Edited");
 
   let addCount = "";
   let delCount = "";
-  if (node.diff) {
-    const parts = node.diff.split(" ");
+  if (node.diff || parsed.diff) {
+    const parts = (node.diff || parsed.diff).split(" ");
     addCount = parts[0] || "";
     delCount = parts[1] || "";
   }
@@ -965,9 +1022,9 @@ function ActivityItemNode({ node, appLang }: { node: any; appLang: string }) {
         onMouseLeave={(e) => { if (node.body) e.currentTarget.style.color = "var(--text-soft)"; }}
       >
         <span>{label}</span>
-        {node.filename ? getFileIcon(node.filename) : null}
-        {node.filename && (
-          <span style={{ color: "var(--text)", fontWeight: "500" }}>{node.filename}</span>
+        {(node.filename || parsed.filename) ? getFileIcon(node.filename || parsed.filename) : null}
+        {(node.filename || parsed.filename) && (
+          <span style={{ color: "var(--text)", fontWeight: "500" }}>{node.filename || parsed.filename}</span>
         )}
         {addCount && <span style={{ color: "#34d399", fontWeight: "600", marginLeft: "4px" }}>{addCount}</span>}
         {delCount && <span style={{ color: "#f87171", fontWeight: "600", marginLeft: "2px" }}>{delCount}</span>}
@@ -976,7 +1033,7 @@ function ActivityItemNode({ node, appLang }: { node: any; appLang: string }) {
         )}
       </div>
 
-      {isExpanded && node.body && (
+      {isExpanded && (node.body || parsed.diffPreview) && (
         <div style={{
           marginTop: "6px",
           paddingLeft: "16px",
@@ -994,10 +1051,92 @@ function ActivityItemNode({ node, appLang }: { node: any; appLang: string }) {
             border: "1px solid var(--line-soft)",
             maxWidth: "600px"
           }}>
-            {node.body}
+            {parsed.diffPreview || node.body}
           </pre>
         </div>
       )}
+    </div>
+  );
+}
+
+function diffCountsForEdit(item: Extract<TimelineItem, { kind: "activity_item" }>) {
+  const parsed = parseToolDetails(item as any);
+  const raw = item.diff || parsed.diff || "";
+  const add = Number(raw.match(/\+(\d+)/)?.[1] || 0);
+  const del = Number(raw.match(/-(\d+)/)?.[1] || 0);
+  return { add, del, parsed };
+}
+
+function EditSummaryNode({ node, appLang }: { node: Extract<TimelineItem, { kind: "edit_summary" }>; appLang: string }) {
+  const isZh = appLang === "zh";
+  const [isExpanded, setIsExpanded] = useState(true);
+  const rows = node.items.map((item) => ({
+    item,
+    ...diffCountsForEdit(item)
+  }));
+  const totalAdd = rows.reduce((sum, row) => sum + row.add, 0);
+  const totalDel = rows.reduce((sum, row) => sum + row.del, 0);
+  const editedLabel = isZh ? `已编辑 ${rows.length} 个文件` : `Edited ${rows.length} files`;
+
+  return (
+    <div className="edit-summary-card">
+      <div className="edit-summary-head">
+        <div className="edit-summary-badge">
+          <FileCode2 size={18} />
+        </div>
+        <div className="edit-summary-title">
+          <strong>{editedLabel}</strong>
+          <span>
+            <em className="diff-add">+{totalAdd}</em>
+            <em className="diff-del">-{totalDel}</em>
+          </span>
+        </div>
+        <div className="edit-summary-actions">
+          <button type="button" title={isZh ? "撤销暂未接入" : "Undo is not connected yet"}>
+            {isZh ? "撤销" : "Undo"}
+          </button>
+          <button type="button" title={isZh ? "查看改动" : "Review changes"} onClick={() => setIsExpanded((value) => !value)}>
+            {isZh ? "审核" : "Review"}
+          </button>
+        </div>
+      </div>
+
+      <div className="edit-summary-files">
+        {rows.map(({ item, parsed, add, del }) => {
+          const filename = item.filename || parsed.filename || displayToolName(item.tool);
+          return (
+            <div className="edit-summary-file" key={item.id}>
+              <span className="edit-summary-file-name">
+                {filename ? getFileIcon(filename) : null}
+                <span>{filename}</span>
+              </span>
+              <span className="edit-summary-file-stats">
+                <em className="diff-add">+{add}</em>
+                <em className="diff-del">-{del}</em>
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      {isExpanded ? (
+        <div className="edit-summary-diffs">
+          {rows.map(({ item, parsed }) => {
+            const filename = item.filename || parsed.filename || displayToolName(item.tool);
+            const diffText = parsed.diffPreview || item.result || item.body;
+            if (!diffText) return null;
+            return (
+              <details className="edit-diff" key={`${item.id}-diff`}>
+                <summary>
+                  {filename ? getFileIcon(filename) : null}
+                  <span>{filename}</span>
+                </summary>
+                <pre>{diffText}</pre>
+              </details>
+            );
+          })}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1233,6 +1372,41 @@ function addSyntheticProcessNarration(items: TimelineItem[], appLang: string) {
   return next;
 }
 
+function groupEditSummaryItems(items: TimelineItem[]): TimelineItem[] {
+  const next: TimelineItem[] = [];
+  let buffer: Array<Extract<TimelineItem, { kind: "activity_item" }>> = [];
+
+  const flush = () => {
+    if (buffer.length === 0) return;
+    if (buffer.length === 1) {
+      next.push(buffer[0]);
+    } else {
+      next.push({
+        id: `edit-summary-${buffer[0].id}`,
+        kind: "edit_summary",
+        status: buffer.some((item) => item.status === "running")
+          ? "running"
+          : buffer.some((item) => item.status === "blocked")
+            ? "blocked"
+            : "success",
+        items: buffer
+      });
+    }
+    buffer = [];
+  };
+
+  items.forEach((item) => {
+    if (item.kind === "activity_item") {
+      buffer.push(item);
+      return;
+    }
+    flush();
+    next.push(item);
+  });
+  flush();
+  return next;
+}
+
 function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean, appLang = "zh"): TimelineItem[] {
   const result: TimelineItem[] = [];
   let buffer: Array<Extract<TimelineItem, { kind: "tool" }>> = [];
@@ -1432,7 +1606,9 @@ function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean, appLa
           body: item.body,
           status: item.status,
           filename: parsed.filename,
-          diff: parsed.diff
+          diff: parsed.diff,
+          metadata: (item as any).metadata,
+          result: item.result
         });
       } else {
         buffer.push(item);
@@ -1447,7 +1623,7 @@ function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean, appLa
           body: "",
           status: "running"
         });
-      } else if (isThinkingStatusTitle(item.title)) {
+      } else if (!isTurnActive && isThinkingStatusTitle(item.title)) {
         result.push({
           id: `${item.id}-process`,
           kind: "process_note",
@@ -1459,7 +1635,7 @@ function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean, appLa
     }
   }
   flushBuffer();
-  const enrichedResult = addSyntheticProcessNarration(result, appLang);
+  const enrichedResult = groupEditSummaryItems(addSyntheticProcessNarration(result, appLang));
 
   let lastAssistantIdx = -1;
   for (let i = enrichedResult.length - 1; i >= 0; i--) {
@@ -1471,7 +1647,7 @@ function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean, appLa
 
   if (!isTurnActive && lastAssistantIdx !== -1) {
     return enrichedResult.filter((item, idx) => {
-      if ((item.kind === "activity_group" || item.kind === "activity_item" || item.kind === "process_note") && idx > lastAssistantIdx) {
+      if ((item.kind === "activity_group" || item.kind === "activity_item" || item.kind === "edit_summary" || item.kind === "process_note") && idx > lastAssistantIdx) {
         return false;
       }
       return true;
@@ -3636,6 +3812,10 @@ function TimelineNode({ item, appLang, isTurnActive }: { item: TimelineItem; app
     );
   }
 
+  if (item.kind === "edit_summary") {
+    return <EditSummaryNode node={item} appLang={appLang} />;
+  }
+
   if (item.kind === "reasoning" && item.id === "retrying-attempt") {
     return (
       <div 
@@ -4752,6 +4932,7 @@ function desktopEventToTimelineItem(
   const body = stringValue(inner?.body) ?? "";
   const meta = stringValue(inner?.meta);
   const status = stringValue(inner?.status);
+  const metadata = inner?.metadata && typeof inner.metadata === "object" ? inner.metadata : undefined;
 
   if (kind === "turn_started") {
     return {
@@ -4795,7 +4976,8 @@ function desktopEventToTimelineItem(
       body,
       tool,
       status: status === "success" ? "success" : status === "blocked" ? "blocked" : "running",
-      meta
+      meta,
+      metadata
     };
   }
 
@@ -4822,14 +5004,15 @@ function desktopEventToTimelineItem(
   if (
     kind === "usage_update" ||
     kind === "cost_update" ||
+    kind === "budget_exceeded" ||
     kind === "context_compaction_started"
   ) {
     return {
       id: `event-${Date.now()}-${Math.random()}`,
-      kind: "reasoning",
+      kind: "process_note",
       title,
       body,
-      meta: status === "running" ? "running" : meta
+      status: status === "blocked" ? "success" : status === "running" ? "running" : "success"
     };
   }
 
@@ -4883,9 +5066,11 @@ function applyDesktopEventToTimelineItems(
           ? {
               ...item,
               title: nextItem.title || item.title,
-              body: nextItem.body || item.body,
+              body: kind === "tool_result" ? item.body : nextItem.body || item.body,
+              result: kind === "tool_result" ? nextItem.body || item.result : item.result,
               status: nextItem.status,
-              meta: nextItem.meta ?? item.meta
+              meta: nextItem.meta ?? item.meta,
+              metadata: (nextItem as any).metadata ?? (item as any).metadata
             }
           : item
       );
@@ -4957,13 +5142,19 @@ function applyDesktopEventToTimelineItems(
   }
 
   if (kind === "assistant_reasoning_delta") {
+    const now = Date.now();
     const existingIndex = reasoningId
       ? items.findIndex((item) => item.id === reasoningId)
       : items.findIndex((item) => item.kind === "reasoning" && item.meta === "running");
     if (existingIndex >= 0) {
       return items.map((item, index) =>
         index === existingIndex && item.kind === "reasoning"
-          ? item
+          ? {
+              ...item,
+              title: item.title || "正在思考...",
+              meta: "running",
+              reasoningStartedAt: (item as any).reasoningStartedAt || now
+            }
           : item
       );
     }
@@ -4975,7 +5166,8 @@ function applyDesktopEventToTimelineItems(
         title: "思考中...",
         body: "",
         meta: "running",
-        createdAt: Date.now()
+        createdAt: now,
+        reasoningStartedAt: now
       }
     ];
   }
@@ -5002,13 +5194,13 @@ function applyDesktopEventToTimelineItems(
     if (existingIndex >= 0) {
       return items.map((item, index) => {
         if (index === existingIndex && item.kind === "reasoning") {
-          const start = (item as any).createdAt || Date.now();
-          const duration = Math.max(1, Math.round((Date.now() - start) / 1000));
+          const start = (item as any).reasoningStartedAt;
+          const duration = start ? Math.max(1, Math.round((Date.now() - start) / 1000)) : null;
           return { 
             ...item, 
             body: "", 
             meta: "complete",
-            title: `已思考 ${duration} 秒`
+            title: duration ? `已思考 ${duration} 秒` : "已思考"
           };
         }
         return item;
@@ -5032,9 +5224,9 @@ function applyDesktopEventToTimelineItems(
     const settledItems = items.map((item, index) => {
       if (item.kind === "reasoning" && (item.meta === "running" || item.id === reasoningId)) {
         hasReasoningForTurn = true;
-        const start = (item as any).createdAt || Date.now();
-        const duration = Math.max(1, Math.round((Date.now() - start) / 1000));
-        return { ...item, body: "", meta: "complete", title: `已思考 ${duration} 秒` };
+        const start = (item as any).reasoningStartedAt;
+        const duration = start ? Math.max(1, Math.round((Date.now() - start) / 1000)) : null;
+        return { ...item, body: "", meta: "complete", title: duration ? `已思考 ${duration} 秒` : "已思考" };
       }
       if (item.kind === "tool" && item.status === "running") {
         return { ...item, status: "success" as const };
