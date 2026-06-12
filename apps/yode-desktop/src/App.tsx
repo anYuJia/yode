@@ -903,6 +903,18 @@ export function App() {
         sessionId: activeSession.id,
         turnId: currentTurnId
       }).catch(console.error);
+
+      setTimelineItems((items) => [
+        ...items,
+        {
+          id: `cancel-${currentTurnId}-${Date.now()}`,
+          kind: "boundary",
+          title: "已手动终止",
+          body: "用户已取消此轮运行。",
+          createdAt: Date.now()
+        }
+      ]);
+
       setIsProcessing(false);
     }
   }

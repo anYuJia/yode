@@ -8,6 +8,37 @@ import { MarkdownContent } from "./MarkdownContent";
 import { ReasoningNode } from "./ReasoningNode";
 
 export function TimelineNode({ item, appLang, isTurnActive }: { item: TimelineItem; appLang: string; isTurnActive?: boolean }) {
+  if (item.kind === "boundary" && item.id.startsWith("cancel-")) {
+    return (
+      <div
+        style={{
+          maxWidth: "760px",
+          width: "100%",
+          margin: "12px auto",
+          paddingLeft: "33px",
+        }}
+      >
+        <div
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "8px",
+            padding: "6px 12px",
+            background: "color-mix(in oklch, var(--warning), transparent 93%)",
+            border: "1px solid color-mix(in oklch, var(--warning), transparent 80%)",
+            borderRadius: "6px",
+            color: "var(--warning)",
+            fontSize: "12px",
+            fontWeight: "500",
+          }}
+        >
+          <span style={{ display: "inline-block", width: "6px", height: "6px", borderRadius: "50%", background: "var(--warning)" }}></span>
+          <span>{item.title}: {item.body}</span>
+        </div>
+      </div>
+    );
+  }
+
   if (item.kind === "boundary" || item.kind === "permission") {
     return null;
   }

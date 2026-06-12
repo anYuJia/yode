@@ -29,6 +29,7 @@ pub enum EngineEvent {
     Thinking,
     UsageUpdate(yode_llm::types::Usage),
     TextDelta(String),
+    ActionNarrative(String),
     ReasoningDelta(String),
     TextComplete(String),
     ReasoningComplete(String),
