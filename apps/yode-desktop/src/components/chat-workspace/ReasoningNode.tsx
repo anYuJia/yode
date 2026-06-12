@@ -23,7 +23,7 @@ export function ReasoningNode({ item, appLang }: ReasoningNodeProps) {
   return (
     <div
       style={{
-        maxWidth: "760px",
+        maxWidth: "1064px",
         width: "100%",
         margin: "4px auto 8px",
         paddingLeft: "33px",

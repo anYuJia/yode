@@ -872,7 +872,7 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   display: flex;
   align-items: center;
   gap: 10px;
-  max-width: 760px;
+  max-width: 1064px;
   margin: 0 auto 8px;
   color: var(--text-soft);
   font-size: 11px;
@@ -901,7 +901,7 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr);
   gap: 9px;
-  max-width: 760px;
+  max-width: 1064px;
   margin: 0 auto 6px;
 }
 
@@ -986,7 +986,7 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   display: flex;
   align-items: center;
   gap: 8px;
-  width: min(100%, 760px);
+  width: min(100%, 1064px);
   min-height: 28px;
   margin: 0 auto 8px;
   padding: 0 0 0 33px;
@@ -1039,21 +1039,26 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 }
 
 .markdown-content {
-  max-width: 74ch;
+  width: 100%;
+  max-width: 100%;
   color: var(--text);
   font-size: 13.25px;
   line-height: 1.58;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 .markdown-content-answer {
+  width: 100%;
+  max-width: 100%;
   color: var(--text);
   font-size: 13.25px;
   line-height: 1.6;
 }
 
 .markdown-content-process {
-  max-width: 70ch;
+  width: 100%;
+  max-width: 100%;
   color: color-mix(in oklch, var(--text), var(--text-muted) 6%);
   font-size: 14.5px;
   font-weight: 560;
@@ -1062,6 +1067,10 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 
 .markdown-content > * {
   margin: 0 0 8px;
+}
+
+.markdown-content p {
+  max-width: none;
 }
 
 .markdown-content-process > * {
@@ -1098,12 +1107,31 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   margin-top: 0;
 }
 
-.markdown-content ul {
-  padding-left: 18px;
+.markdown-content ul,
+.markdown-content ol {
+  padding-left: 1.15em;
+  margin-left: 0;
+}
+
+.markdown-content ul ul,
+.markdown-content ul ol,
+.markdown-content ol ul,
+.markdown-content ol ol {
+  padding-left: 1.35em;
+  margin-top: 4px;
 }
 
 .markdown-content li {
-  margin: 3px 0;
+  margin: 4px 0;
+  padding-left: 0.15em;
+}
+
+.markdown-content li > p {
+  margin: 0;
+}
+
+.markdown-content li > p + p {
+  margin-top: 6px;
 }
 
 .markdown-content code {
@@ -1153,11 +1181,18 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 }
 
 .markdown-content pre {
+  width: 100%;
+  max-width: 100%;
   overflow: auto;
   border: 1px solid var(--line-soft);
   border-radius: var(--radius);
   padding: 9px 10px;
   background: color-mix(in oklch, var(--field), transparent 8%);
+}
+
+.markdown-content .code-block-container {
+  width: 100%;
+  max-width: 100%;
 }
 
 .markdown-content pre code {

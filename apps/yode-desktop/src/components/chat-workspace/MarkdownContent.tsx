@@ -19,16 +19,55 @@ function repairMarkdownBlockLine(line: string): string {
     .replace(/(^|\n)(\d+\.)(?=\S)/g, "$1$2 ");
 }
 
+function codeFenceInfo(line: string) {
+  const trimmed = line.trim();
+  const match = trimmed.match(/^(`{3,}|｀{3,})(.*)$/);
+  if (!match) return null;
+  return {
+    marker: match[1],
+    lang: match[2].trim().toLowerCase()
+  };
+}
+
+function isBrokenFenceClose(line: string) {
+  return /^(`{2}|｀{2})\s*$/.test(line.trim());
+}
+
+function looksLikeMarkdownAfterTextFence(line: string) {
+  const trimmed = line.trim();
+  return /^#{1,6}\s+\S/.test(trimmed) ||
+    /^(?:[-*+]|\d+\.)\s+\S/.test(trimmed) ||
+    /^>\s+\S/.test(trimmed);
+}
+
+function isLooseTextFence(lang: string) {
+  return !lang || /^(text|txt|plain|plaintext|markdown|md)$/i.test(lang);
+}
+
 function preprocessMarkdown(text: string): string {
   const lines = text.split("\n");
   let inCodeBlock = false;
+  let codeBlockLang = "";
   const normalizedLines: string[] = [];
 
   for (let i = 0; i < lines.length; i++) {
     let line = lines[i];
     const trimmed = line.trim();
-    if (trimmed.startsWith("```") || trimmed.startsWith("｀｀｀")) {
+    if (inCodeBlock && isBrokenFenceClose(line)) {
+      inCodeBlock = false;
+      codeBlockLang = "";
+      normalizedLines.push("```");
+      continue;
+    }
+    if (inCodeBlock && isLooseTextFence(codeBlockLang) && looksLikeMarkdownAfterTextFence(line)) {
+      inCodeBlock = false;
+      codeBlockLang = "";
+      normalizedLines.push("```");
+    }
+    const fence = codeFenceInfo(line);
+    if (fence) {
       inCodeBlock = !inCodeBlock;
+      codeBlockLang = inCodeBlock ? fence.lang : "";
       normalizedLines.push(line);
       continue;
     }
@@ -53,12 +92,26 @@ function preprocessMarkdown(text: string): string {
   }
 
   inCodeBlock = false;
+  codeBlockLang = "";
   const finalLines: string[] = [];
   for (let i = 0; i < normalizedLines.length; i++) {
     const line = normalizedLines[i];
     const trimmed = line.trim();
-    if (trimmed.startsWith("```") || trimmed.startsWith("｀｀｀")) {
+    if (inCodeBlock && isBrokenFenceClose(line)) {
+      inCodeBlock = false;
+      codeBlockLang = "";
+      finalLines.push("```");
+      continue;
+    }
+    if (inCodeBlock && isLooseTextFence(codeBlockLang) && looksLikeMarkdownAfterTextFence(line)) {
+      inCodeBlock = false;
+      codeBlockLang = "";
+      finalLines.push("```");
+    }
+    const fence = codeFenceInfo(line);
+    if (fence) {
       inCodeBlock = !inCodeBlock;
+      codeBlockLang = inCodeBlock ? fence.lang : "";
       finalLines.push(line);
       continue;
     }

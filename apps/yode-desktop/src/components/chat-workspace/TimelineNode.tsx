@@ -12,7 +12,7 @@ export function TimelineNode({ item, appLang, isTurnActive }: { item: TimelineIt
     return (
       <div
         style={{
-          maxWidth: "760px",
+          maxWidth: "1064px",
           width: "100%",
           margin: "12px auto",
           paddingLeft: "33px",
@@ -75,7 +75,7 @@ export function TimelineNode({ item, appLang, isTurnActive }: { item: TimelineIt
       return (
         <div
           style={{
-            maxWidth: "760px",
+            maxWidth: "1064px",
             width: "100%",
             margin: "8px auto 12px",
             padding: "8px 0 8px 33px",
@@ -123,7 +123,7 @@ export function TimelineNode({ item, appLang, isTurnActive }: { item: TimelineIt
           display: "flex",
           justifyContent: "flex-end",
           width: "100%",
-          maxWidth: "760px",
+          maxWidth: "1064px",
           margin: "0 auto 12px",
           paddingLeft: "24px"
         }}
@@ -172,7 +172,7 @@ export function TimelineNode({ item, appLang, isTurnActive }: { item: TimelineIt
     return (
       <div
         style={{
-          maxWidth: "760px",
+          maxWidth: "1064px",
           width: "100%",
           margin: "4px auto 12px",
           paddingLeft: "33px",

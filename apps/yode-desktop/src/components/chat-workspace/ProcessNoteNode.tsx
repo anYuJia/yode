@@ -29,7 +29,7 @@ export function ProcessNoteNode({ note, appLang }: { note: Extract<TimelineItem,
     return (
       <div
         style={{
-          maxWidth: "760px",
+          maxWidth: "1064px",
           width: "100%",
           margin: "6px auto 10px",
           paddingLeft: "33px",
@@ -92,7 +92,7 @@ export function ProcessNoteNode({ note, appLang }: { note: Extract<TimelineItem,
   return (
     <div
       style={{
-        maxWidth: "760px",
+        maxWidth: "1064px",
         width: "100%",
         margin: "6px auto 10px",
         paddingLeft: "33px",
@@ -122,10 +122,10 @@ export function ProcessNoteNode({ note, appLang }: { note: Extract<TimelineItem,
         <div
           style={{
             maxWidth: "72ch",
-            color: "var(--text)",
-            fontSize: "14.5px",
-            lineHeight: 1.58,
-            fontWeight: 500,
+            color: isRunning ? "var(--accent)" : "var(--text-soft)",
+            fontSize: "13px",
+            lineHeight: 1.55,
+            fontWeight: 450,
           }}
         >
           {renderInlineMarkdown(body)}

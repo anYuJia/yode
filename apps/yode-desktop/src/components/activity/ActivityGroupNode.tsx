@@ -206,7 +206,7 @@ export function ActivityGroupNode({ group, appLang, isTurnActive }: { group: any
 
   return (
     <div style={{
-      maxWidth: "760px",
+      maxWidth: "1064px",
       width: "100%",
       margin: "4px auto 8px",
       paddingLeft: "33px",
@@ -315,7 +315,7 @@ export function ActivityItemNode({ node, appLang }: { node: any; appLang: string
 
   return (
     <div style={{
-      maxWidth: "760px",
+      maxWidth: "1064px",
       width: "100%",
       margin: "4px auto 8px",
       paddingLeft: "33px",

@@ -6,7 +6,7 @@ export function InlineToolGroup({ label, items, appLang }: { label: string; item
 
   return (
     <div style={{
-      maxWidth: "760px",
+      maxWidth: "1064px",
       width: "100%",
       margin: "4px auto 8px",
       paddingLeft: "33px",

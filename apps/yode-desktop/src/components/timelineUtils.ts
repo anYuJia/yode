@@ -83,6 +83,14 @@ export function processNote(
   };
 }
 
+function isActionNarrativeItem(item: TimelineItem) {
+  return item.kind === "process_note" && item.id.startsWith("action-narrative-");
+}
+
+function actionNarrativePrefix(turnId?: string) {
+  return `action-narrative-${turnId || "current"}-`;
+}
+
 export function syntheticNarrationForActivity(item: TimelineItem, appLang: string) {
   const isZh = appLang === "zh";
   if (!isZh) return "";
@@ -330,6 +338,23 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
     } else if (item.kind === "process_note") {
       flushBuffer();
       if (item.body.trim() || item.status === "running") {
+        if (isActionNarrativeItem(item)) {
+          let visibleInRun = 1;
+          for (let nextIndex = itemIndex + 1; nextIndex < items.length; nextIndex += 1) {
+            const next = items[nextIndex];
+            if (next.kind === "process_note" && isActionNarrativeItem(next)) {
+              visibleInRun += 1;
+              continue;
+            }
+            if (next.kind === "assistant" && next.meta === "intermediate") {
+              continue;
+            }
+            break;
+          }
+          if (visibleInRun > 4) {
+            continue;
+          }
+        }
         result.push(item);
       }
     } else if (item.kind === "tool") {
@@ -846,13 +871,19 @@ export function applyDesktopEventToTimelineItems(
     }
     const alreadyVisible = items.some((item) => {
       if (item.kind !== "assistant" && item.kind !== "process_note") return false;
+      if (isActionNarrativeItem(item)) return false;
       const visibleText = item.body.trim();
       return visibleText === noteText || visibleText.includes(noteText);
     });
     if (alreadyVisible) {
       return items;
     }
-    return [...items, nextItem];
+    const prefix = actionNarrativePrefix(turnId);
+    const stableItem = {
+      ...nextItem,
+      id: `${prefix}${eventId || Date.now()}`
+    };
+    return [...items, stableItem];
   }
 
   if (kind === "tool_started" || kind === "tool_progress" || kind === "tool_result" || kind === "subagent_started" || kind === "subagent_completed") {
