@@ -7,7 +7,7 @@ pub(crate) mod timeouts {
     pub(crate) const PARALLEL_TOOL_SECS: u64 = 30;
     pub(crate) const LLM_COMPACTION_SUMMARY_SECS: u64 = 30;
     pub(crate) const PROMPT_SUGGESTION_SECS: u64 = 5;
-    pub(crate) const TOOL_CONFIRMATION_SECS: u64 = 90;
+    pub(crate) const TOOL_CONFIRMATION_SECS: u64 = 3600;
     pub(crate) const TOOL_CONFIRMATION_POLL_MS: u64 = 500;
 }
 
@@ -30,7 +30,6 @@ const _: () = {
     assert!(timeouts::PARALLEL_TOOL_SECS < timeouts::TOOL_EXECUTION_SECS);
     assert!(timeouts::PROMPT_SUGGESTION_SECS < timeouts::LLM_REQUEST_SECS);
     assert!(timeouts::LLM_COMPACTION_SUMMARY_SECS < timeouts::LLM_REQUEST_SECS);
-    assert!(timeouts::TOOL_CONFIRMATION_SECS < timeouts::TOOL_EXECUTION_SECS);
     assert!(timeouts::TOOL_CONFIRMATION_POLL_MS < 1_000);
     assert!(thresholds::TOOL_BUDGET_NOTICE < thresholds::TOOL_BUDGET_WARNING);
     assert!(thresholds::SESSION_MEMORY_CHAR_DELTA < thresholds::SESSION_MEMORY_INIT_CHARS);

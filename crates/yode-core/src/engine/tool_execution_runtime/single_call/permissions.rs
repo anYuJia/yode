@@ -180,7 +180,12 @@ impl AgentEngine {
                     return Ok(Some(Self::immediate_tool_outcome(
                         tool_call,
                         &prepared.started_at,
-                        ToolResult::error("Tool execution denied by user.".to_string()),
+                        ToolResult::error_typed(
+                            "Tool execution denied by user.".to_string(),
+                            ToolErrorType::PermissionDeny,
+                            false,
+                            Some("The user explicitly denied execution of this tool. Do not retry this tool or attempt to bypass this denial. You must explain the denial to the user in your message, and ask for further instructions or propose a safer alternative (e.g. read-only commands).".to_string()),
+                        ),
                     )));
                 }
                 Ok(None) => {
