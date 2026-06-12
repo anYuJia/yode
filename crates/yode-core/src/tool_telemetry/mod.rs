@@ -602,7 +602,7 @@ impl AgentEngine {
         if self.tool_call_count >= TOOL_BUDGET_WARNING && !self.current_turn_budget_warning_emitted
         {
             let message =
-                "Budget warning: 25 tool calls used. Stop exploring and produce your report.";
+                "工具调用提醒：本轮已使用 25 次工具调用。请停止继续探索，直接用中文总结已完成、未完成、修改文件和建议下一步；不要只说预算耗尽。";
             self.current_turn_budget_warning_emitted = true;
             self.tool_budget_warning_count = self.tool_budget_warning_count.saturating_add(1);
             self.last_tool_budget_warning = Some(message.to_string());
@@ -611,7 +611,7 @@ impl AgentEngine {
 
         if self.tool_call_count >= TOOL_BUDGET_NOTICE && !self.current_turn_budget_notice_emitted {
             let message =
-                "Budget notice: 15 tool calls used. Consider summarizing current findings before continuing.";
+                "工具调用提醒：本轮已使用 15 次工具调用。继续前请优先收敛任务，必要时用中文简短总结当前发现和下一步。";
             self.current_turn_budget_notice_emitted = true;
             self.tool_budget_notice_count = self.tool_budget_notice_count.saturating_add(1);
             self.last_tool_budget_warning = Some(message.to_string());
