@@ -100,7 +100,7 @@ impl AgentEngine {
                     self.recent_file_reads.push(path.clone());
                 }
                 "edit_file" | "write_file" | "multi_edit" if !result.is_error => {
-                    self.files_modified.push(path.clone());
+                    self.record_file_modified(path);
                 }
                 _ => {}
             }

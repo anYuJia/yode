@@ -11,6 +11,22 @@ export function displayToolName(tool?: string) {
   if (name === "grep" || name === "rg") return "内容搜索";
   if (name === "ls") return "目录列表";
   if (name === "tauri command") return "桌面命令";
+  if (name === "view_file") return "查看文件";
+  if (name === "replace_file_content") return "编辑文件";
+  if (name === "multi_replace_file_content") return "多处编辑文件";
+  if (name === "write_to_file") return "创建文件";
+  if (name === "run_command") return "运行命令";
+  if (name === "grep_search") return "搜索内容";
+  if (name === "list_dir") return "列出目录";
+  if (name === "ask_permission") return "申请权限";
+  if (name === "ask_question") return "提出问题";
+  if (name === "search_web") return "网络搜索";
+  if (name === "read_url_content") return "读取网页";
+  if (name === "define_subagent") return "定义子代理";
+  if (name === "invoke_subagent") return "启动子代理";
+  if (name === "manage_subagents") return "管理子代理";
+  if (name === "manage_task") return "管理任务";
+  if (name === "schedule") return "计划任务";
   return name;
 }
 
@@ -36,19 +52,29 @@ export function parseToolDetails(item: { tool: string; body: string; title: stri
   let diff = "";
   let command = "";
   let diffPreview = "";
+  let modifiedFiles: string[] = [];
 
   const body = (item.body || "").trim();
   const title = (item.title || "").trim();
   const metadata = item.metadata && typeof item.metadata === "object" ? item.metadata : null;
 
   if (isRuntimeNoticeText(body) || isRuntimeNoticeText(title)) {
-    return { filename, lineRange, diff, command, diffPreview };
+    return { filename, lineRange, diff, command, diffPreview, modifiedFiles };
   }
 
   if (metadata) {
     const rawPath = metadata.file_path || metadata.TargetFile || metadata.AbsolutePath || metadata.Path || metadata.Target || metadata.SearchPath || metadata.TargetContentFile;
     if (rawPath && typeof rawPath === "string") {
       filename = rawPath.substring(Math.max(rawPath.lastIndexOf('/'), rawPath.lastIndexOf('\\')) + 1);
+    }
+
+    if (Array.isArray(metadata.modified_files)) {
+      modifiedFiles = metadata.modified_files.filter(
+        (value: unknown): value is string => typeof value === "string" && value.trim().length > 0
+      );
+      if (!filename && modifiedFiles.length === 1) {
+        filename = modifiedFiles[0];
+      }
     }
 
     const preview = metadata.diff_preview;
@@ -151,7 +177,7 @@ export function parseToolDetails(item: { tool: string; body: string; title: stri
     }
   }
 
-  return { filename, lineRange, diff, command, diffPreview };
+  return { filename, lineRange, diff, command, diffPreview, modifiedFiles };
 }
 
 export function summarizeActivityItems(items: any[]) {

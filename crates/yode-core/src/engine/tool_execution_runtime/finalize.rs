@@ -8,6 +8,12 @@ impl AgentEngine {
         }
 
         if let Some(ref metadata) = result.metadata {
+            if let Some(files) = metadata.get("modified_files").and_then(|v| v.as_array()) {
+                for file_path in files.iter().filter_map(|value| value.as_str()) {
+                    self.record_file_modified(file_path);
+                }
+            }
+
             if let Some(new_cwd) = metadata.get("cwd").and_then(|v| v.as_str()) {
                 let runtime = self.context.runtime.clone();
                 let new_path = std::path::PathBuf::from(new_cwd);
@@ -33,7 +39,7 @@ impl AgentEngine {
                         self.recent_file_reads.push(file_path.to_string());
                     }
                     "edit_file" | "write_file" | "multi_edit" | "notebook_edit" => {
-                        self.files_modified.push(file_path.to_string());
+                        self.record_file_modified(file_path);
                     }
                     _ => {}
                 }

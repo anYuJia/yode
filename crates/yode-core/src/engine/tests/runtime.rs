@@ -539,7 +539,9 @@ fn test_system_prompt_runtime_state_tracks_segment_breakdown() {
     assert!(engine.system_prompt.contains("send_message"));
     assert!(engine.system_prompt.contains("<task-notification>"));
     assert!(engine.system_prompt.contains("公开过程旁白"));
-    assert!(engine.system_prompt.contains("visible reasoning/thinking summaries"));
+    assert!(engine
+        .system_prompt
+        .contains("visible reasoning/thinking summaries"));
 }
 
 #[test]
@@ -876,6 +878,31 @@ async fn test_tool_runtime_state_and_artifact_are_recorded() {
     assert!(std::path::Path::new(&path).exists());
     let content = std::fs::read_to_string(path).unwrap();
     assert!(content.contains("## Tool Pool"));
+}
+
+#[tokio::test]
+async fn test_modified_files_metadata_updates_runtime_count_once() {
+    let mut engine = make_engine(vec![], vec![]);
+    engine.reset_tool_turn_runtime();
+
+    let tool_call = ToolCall {
+        id: "tc-modified-files".into(),
+        name: "bash".into(),
+        arguments: r#"{"command":"printf hi > src/lib.rs"}"#.into(),
+    };
+    let raw_result = ToolResult::success_with_metadata(
+        "ok".to_string(),
+        serde_json::json!({
+            "modified_files": ["src/lib.rs", "src/lib.rs"],
+            "modified_file_count": 2
+        }),
+    );
+
+    let _final = engine
+        .finalize_tool_result(&tool_call, raw_result, None, 5, 0, None)
+        .await;
+
+    assert_eq!(engine.files_modified, vec!["src/lib.rs".to_string()]);
 }
 
 #[test]

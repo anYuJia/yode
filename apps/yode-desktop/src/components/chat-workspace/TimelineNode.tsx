@@ -5,6 +5,7 @@ import { ProcessNoteNode } from "./ProcessNoteNode";
 import { ActivityGroupNode, ActivityItemNode, EditSummaryNode } from "../activity/ActivityGroupNode";
 import { InlineToolGroup } from "./InlineToolGroup";
 import { MarkdownContent } from "./MarkdownContent";
+import { ReasoningNode } from "./ReasoningNode";
 
 export function TimelineNode({ item, appLang, isTurnActive }: { item: TimelineItem; appLang: string; isTurnActive?: boolean }) {
   if (item.kind === "boundary" || item.kind === "permission") {
@@ -17,9 +18,9 @@ export function TimelineNode({ item, appLang, isTurnActive }: { item: TimelineIt
 
   if (item.kind === "activity_group") {
     return (
-      <ActivityGroupNode 
-        group={item} 
-        appLang={appLang} 
+      <ActivityGroupNode
+        group={item}
+        appLang={appLang}
         isTurnActive={isTurnActive}
       />
     );
@@ -27,9 +28,9 @@ export function TimelineNode({ item, appLang, isTurnActive }: { item: TimelineIt
 
   if (item.kind === "activity_item") {
     return (
-      <ActivityItemNode 
-        node={item} 
-        appLang={appLang} 
+      <ActivityItemNode
+        node={item}
+        appLang={appLang}
       />
     );
   }
@@ -38,62 +39,65 @@ export function TimelineNode({ item, appLang, isTurnActive }: { item: TimelineIt
     return <EditSummaryNode node={item} appLang={appLang} />;
   }
 
-  if (item.kind === "reasoning" && item.id === "retrying-attempt") {
-    return (
-      <div 
-        style={{ 
-          maxWidth: "760px",
-          width: "100%",
-          margin: "8px auto 12px",
-          padding: "8px 0 8px 33px",
-          fontSize: "12px",
-          display: "flex",
-          flexDirection: "column",
-          gap: "4px",
-          userSelect: "none"
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: "500", color: "var(--warning)" }}>
-          <Clock3 size={13} style={{ animation: "pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite" }} />
-          <span>{item.title}</span>
-        </div>
-        {item.body && (
-          <div style={{ color: "var(--text-soft)", fontSize: "11.5px", whiteSpace: "pre-wrap", marginTop: "2px" }}>
-            {item.body}
+  if (item.kind === "reasoning") {
+    if (item.id === "retrying-attempt") {
+      return (
+        <div
+          style={{
+            maxWidth: "760px",
+            width: "100%",
+            margin: "8px auto 12px",
+            padding: "8px 0 8px 33px",
+            fontSize: "12px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "4px",
+            userSelect: "none"
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: "500", color: "var(--warning)" }}>
+            <Clock3 size={13} style={{ animation: "pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite" }} />
+            <span>{item.title}</span>
           </div>
-        )}
-      </div>
-    );
+          {item.body && (
+            <div style={{ color: "var(--text-soft)", fontSize: "11.5px", whiteSpace: "pre-wrap", marginTop: "2px" }}>
+              {item.body}
+            </div>
+          )}
+        </div>
+      );
+    }
+    return <ReasoningNode item={item} appLang={appLang} />;
   }
 
-  if (item.kind === "tool" || item.kind === "reasoning") {
+  if (item.kind === "tool") {
     return null;
   }
 
   if (item.kind === "tool_group") {
     return (
-      <InlineToolGroup 
-        label={item.label} 
-        items={item.items || []} 
-        appLang={appLang} 
+      <InlineToolGroup
+        label={item.label}
+        items={item.items || []}
+        appLang={appLang}
       />
     );
   }
 
   if (item.kind === "user") {
     return (
-      <div 
-        className="timeline-node user-bubble-container" 
-        style={{ 
-          display: "flex", 
-          justifyContent: "flex-end", 
-          width: "100%", 
+      <div
+        className="timeline-node user-bubble-container"
+        style={{
+          display: "flex",
+          justifyContent: "flex-end",
+          width: "100%",
           maxWidth: "760px",
           margin: "0 auto 12px",
           paddingLeft: "24px"
         }}
       >
-        <div 
+        <div
           className="user-chat-bubble"
           style={{
             background: "color-mix(in oklch, var(--accent), transparent 85%)",
@@ -106,11 +110,11 @@ export function TimelineNode({ item, appLang, isTurnActive }: { item: TimelineIt
             overflow: "hidden"
           }}
         >
-          <p style={{ 
-            margin: 0, 
-            color: "var(--text)", 
-            fontSize: "13px", 
-            lineHeight: "1.45", 
+          <p style={{
+            margin: 0,
+            color: "var(--text)",
+            fontSize: "13px",
+            lineHeight: "1.45",
             whiteSpace: "pre-wrap",
             wordBreak: "break-word"
           }}>
@@ -123,8 +127,8 @@ export function TimelineNode({ item, appLang, isTurnActive }: { item: TimelineIt
 
   if (item.kind === "assistant" && (item.meta === "intermediate" || item.meta === "streaming")) {
     return (
-      <div 
-        style={{ 
+      <div
+        style={{
           maxWidth: "760px",
           width: "100%",
           margin: "4px auto 12px",

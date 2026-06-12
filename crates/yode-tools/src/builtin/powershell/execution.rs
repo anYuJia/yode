@@ -7,7 +7,7 @@ use serde_json::json;
 use tokio::process::Command;
 
 use crate::builtin::shell_runtime::{
-    command_timeout_secs, execute_background_shell, BackgroundShellSpec,
+    command_timeout_secs, execute_background_shell, BackgroundShellSpec, GitChangeSnapshot,
 };
 use crate::tool::{ToolContext, ToolErrorType, ToolResult};
 
@@ -49,6 +49,7 @@ pub(super) async fn execute_powershell_command(
         return execute_background(&executable, command, working_dir, ctx).await;
     }
 
+    let before_changes = GitChangeSnapshot::capture(working_dir).await;
     let child = Command::new(&executable)
         .arg("-NoProfile")
         .arg("-Command")
@@ -81,7 +82,17 @@ pub(super) async fn execute_powershell_command(
             }
         };
 
-    format_output(&executable, command, working_dir, output)
+    let modified_files = if output.status.success() {
+        if let Some(before) = before_changes.as_ref() {
+            before.changed_files_since(working_dir).await
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+
+    format_output(&executable, command, working_dir, output, modified_files)
 }
 
 fn format_output(
@@ -89,6 +100,7 @@ fn format_output(
     command: &str,
     working_dir: &Path,
     output: std::process::Output,
+    modified_files: Vec<String>,
 ) -> Result<ToolResult> {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -133,6 +145,10 @@ fn format_output(
     let suggestion = analysis.suggestion;
     if let Some(rewrite) = suggestion.as_deref() {
         metadata["rewrite_suggestion"] = json!(rewrite);
+    }
+    if !modified_files.is_empty() {
+        metadata["modified_file_count"] = json!(modified_files.len());
+        metadata["modified_files"] = json!(modified_files);
     }
     Ok(ToolResult {
         content: combined,

@@ -6,6 +6,7 @@ impl BashTool {
         command: &str,
         working_dir: &Path,
         output: std::process::Output,
+        modified_files: Vec<String>,
     ) -> Result<ToolResult> {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -60,6 +61,10 @@ impl BashTool {
         let rewrite_suggestion = suggest_safe_rewrite(command, cmd_base);
         if let Some(suggestion) = rewrite_suggestion.as_deref() {
             metadata["rewrite_suggestion"] = json!(suggestion);
+        }
+        if !modified_files.is_empty() {
+            metadata["modified_file_count"] = json!(modified_files.len());
+            metadata["modified_files"] = json!(modified_files);
         }
 
         Ok(ToolResult {

@@ -1,3 +1,5 @@
+use std::collections::{hash_map::DefaultHasher, BTreeMap};
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
@@ -30,6 +32,122 @@ pub(crate) fn timeout_ms_description() -> String {
         MAX_COMMAND_TIMEOUT_SECS * 1000,
         DEFAULT_COMMAND_TIMEOUT_SECS * 1000
     )
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum FileFingerprint {
+    Missing,
+    File { len: u64, hash: u64 },
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct GitChangeSnapshot {
+    root: PathBuf,
+    files: BTreeMap<String, FileFingerprint>,
+}
+
+impl GitChangeSnapshot {
+    pub(crate) async fn capture(working_dir: &Path) -> Option<Self> {
+        let root = git_root(working_dir).await?;
+        let paths = git_status_paths(&root).await?;
+        let mut files = BTreeMap::new();
+        for path in paths {
+            let fingerprint = file_fingerprint(&root.join(&path)).await;
+            files.insert(path, fingerprint);
+        }
+        Some(Self { root, files })
+    }
+
+    pub(crate) async fn changed_files_since(&self, working_dir: &Path) -> Vec<String> {
+        let Some(after) = Self::capture(working_dir).await else {
+            return Vec::new();
+        };
+        if after.root != self.root {
+            return Vec::new();
+        }
+
+        after
+            .files
+            .into_iter()
+            .filter_map(|(path, fingerprint)| {
+                (self.files.get(&path) != Some(&fingerprint)).then_some(path)
+            })
+            .collect()
+    }
+}
+
+async fn git_root(working_dir: &Path) -> Option<PathBuf> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(working_dir)
+        .arg("rev-parse")
+        .arg("--show-toplevel")
+        .output()
+        .await
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let root = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    (!root.is_empty()).then(|| PathBuf::from(root))
+}
+
+async fn git_status_paths(root: &Path) -> Option<Vec<String>> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .arg("status")
+        .arg("--porcelain=v1")
+        .arg("-z")
+        .arg("--untracked-files=all")
+        .output()
+        .await
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    Some(parse_porcelain_paths(&output.stdout))
+}
+
+fn parse_porcelain_paths(output: &[u8]) -> Vec<String> {
+    let mut paths = Vec::new();
+    let mut entries = output
+        .split(|byte| *byte == 0)
+        .filter(|entry| !entry.is_empty());
+
+    while let Some(entry) = entries.next() {
+        if entry.len() < 4 {
+            continue;
+        }
+        let status_x = entry[0] as char;
+        let path = String::from_utf8_lossy(&entry[3..]).to_string();
+        if !path.is_empty() {
+            paths.push(path);
+        }
+        if matches!(status_x, 'R' | 'C') {
+            let _ = entries.next();
+        }
+    }
+
+    paths
+}
+
+async fn file_fingerprint(path: &Path) -> FileFingerprint {
+    let Ok(metadata) = tokio::fs::metadata(path).await else {
+        return FileFingerprint::Missing;
+    };
+    if !metadata.is_file() {
+        return FileFingerprint::Missing;
+    }
+    let Ok(bytes) = tokio::fs::read(path).await else {
+        return FileFingerprint::Missing;
+    };
+    let mut hasher = DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    FileFingerprint::File {
+        len: metadata.len(),
+        hash: hasher.finish(),
+    }
 }
 
 pub(crate) struct BackgroundShellSpec<'a> {

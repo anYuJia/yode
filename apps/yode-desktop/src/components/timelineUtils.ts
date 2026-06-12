@@ -9,8 +9,8 @@ import {
 
 export function normalizeProcessNoteText(text: string) {
   return text
-    .replace(/\s+/g, " ")
-    .replace(/\s+([,.;:!?，。；：！？])/g, "$1")
+    .replace(/[ \t]+/g, " ")
+    .replace(/[ \t]+([,.;:!?，。；：！？])/g, "$1")
     .trim();
 }
 
@@ -33,85 +33,24 @@ export function looksLikeProcessNarration(text: string) {
     /(读取|查看|搜索|检查|运行|验证|修改|分析|探索).*(文件|项目|代码|目录|结构|实现|结果)/i.test(clean);
 }
 
-export function isMostlyEnglishText(text: string) {
-  const latin = (text.match(/[A-Za-z]/g) || []).length;
-  const cjk = (text.match(/[\u4e00-\u9fff]/g) || []).length;
-  return latin > 40 && cjk === 0;
-}
-
+/**
+ * 处理过程旁白文本。
+ * 不做任何模板翻译 —— AI 由系统提示词引导原生输出中文旁白。
+ * 仅过滤掉 runtime notice 和关于用户意图的元叙述（不应展示给用户）。
+ */
 export function localizeProcessNoteText(text: string, appLang: string) {
   if (appLang !== "zh") return text;
 
   const clean = normalizeProcessNoteText(text);
   if (!clean || isRuntimeNoticeText(clean)) return "";
-  if (/getting a project map/i.test(clean) && /key files/i.test(clean)) {
-    return "我先查看项目结构和关键文件，理解整体结构。";
-  }
-  if (/^the user wants me to (analyze|inspect|review)/i.test(clean)) {
-    return "我先梳理项目结构和关键文件，建立整体理解。";
-  }
+
+  // 过滤掉关于用户意图的内部分析，这类内容不适合展示
   if (/\b(the user|user hasn't|asked for|I've provided|wait for the user|user's response|want to dive deeper)\b/i.test(clean)) {
     return "";
   }
-  if (/get a better understanding/i.test(clean) && /key files/i.test(clean)) {
-    return "我继续读取关键文件，补齐对项目结构的理解。";
-  }
-  if (/main application entry point/i.test(clean) && /key modules/i.test(clean)) {
-    return "我继续查看主入口和关键模块，确认整体架构。";
-  }
-  if (/remaining key files/i.test(clean) && /complete the analysis/i.test(clean)) {
-    return "我再查看剩余关键文件，补齐分析。";
-  }
-  if (/comprehensive (understanding|view)/i.test(clean) && /analy[sz]e/i.test(clean)) {
-    return "我已经对项目有了较完整的理解，接下来系统整理分析。";
-  }
-  if (/project structure/i.test(clean) && /source files/i.test(clean)) {
-    return "我已经看到了项目结构，接下来继续查看关键源文件。";
-  }
-  if (/JS and CSS files|frontend/i.test(clean)) {
-    return "我会继续检查 JS/CSS 等前端文件，补齐前端结构理解。";
-  }
-  if (/src subdirectories|key files/i.test(clean)) {
-    return "我先查看 src 子目录和关键文件，理解项目结构。";
-  }
-  if (/source files/i.test(clean)) {
-    return "我会继续查看源代码文件，理解项目实现。";
-  }
-  if (/comprehensive understanding/i.test(clean)) {
-    return "我已经基本了解项目结构，接下来补充检查关键文件。";
-  }
 
-  const localized = clean
-    .replace(/^I will read\b/i, "我会读取")
-    .replace(/^I'll read\b/i, "我会读取")
-    .replace(/^Let me read\b/i, "我先读取")
-    .replace(/^Let me explore\b/i, "我先探索")
-    .replace(/^Let me look at\b/i, "我先查看")
-    .replace(/^Let me also check\b/i, "我再检查")
-    .replace(/^I will search for\b/i, "我会搜索")
-    .replace(/^I'll search for\b/i, "我会搜索")
-    .replace(/^Let me search for\b/i, "我先搜索")
-    .replace(/^I will inspect\b/i, "我会检查")
-    .replace(/^I'll inspect\b/i, "我会检查")
-    .replace(/^Let me inspect\b/i, "我先检查")
-    .replace(/^I will run\b/i, "我会运行")
-    .replace(/^I'll run\b/i, "我会运行")
-    .replace(/^Let me run\b/i, "我先运行")
-    .replace(/^I need to\b/i, "我需要")
-    .replace(/^I’m going to\b/i, "我会")
-    .replace(/^I'm going to\b/i, "我会")
-    .replace(/^Next,\s*/i, "接下来，")
-    .replace(/^Now,\s*/i, "现在，")
-    .replace(/\bto see\b/i, "，确认")
-    .replace(/\bto inspect\b/i, "，检查")
-    .replace(/\bto understand\b/i, "，理解")
-    .replace(/\bwhere it is defined\b/i, "它的定义位置")
-    .replace(/\bhow\b/i, "如何");
-
-  if (isMostlyEnglishText(localized)) {
-    return "";
-  }
-  return localized;
+  // 原生显示 AI 返回的内容
+  return clean;
 }
 
 export function localizeProcessNotes(text: string, appLang: string, limit = 6) {
@@ -413,39 +352,34 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
         continue;
       }
 
-      const type = getToolType(item.tool || "", item.title || "");
+      const parsed = parseToolDetails(item);
+      const modifiedFiles = parsed.modifiedFiles || [];
+      const type = modifiedFiles.length > 0 ? "edit" : getToolType(item.tool || "", item.title || "");
       if (type === "edit") {
         flushBuffer();
-        const parsed = parseToolDetails(item);
-        result.push({
-          id: item.id,
-          kind: "activity_item",
-          type: "edit",
-          tool: item.tool,
-          title: item.title,
-          body: item.body,
-          status: item.status,
-          filename: parsed.filename,
-          diff: parsed.diff,
-          callId: (item as any).callId,
-          metadata: (item as any).metadata,
-          result: item.result
+        const files = modifiedFiles.length > 0 ? modifiedFiles : [parsed.filename];
+        files.forEach((filename, index) => {
+          result.push({
+            id: modifiedFiles.length > 0 ? `${item.id}-modified-${index}` : item.id,
+            kind: "activity_item",
+            type: "edit",
+            tool: item.tool,
+            title: item.title,
+            body: item.body,
+            status: item.status,
+            filename,
+            diff: parsed.diff,
+            callId: (item as any).callId,
+            metadata: (item as any).metadata,
+            result: item.result
+          });
         });
       } else {
         buffer.push(item);
       }
     } else if (item.kind === "reasoning") {
       flushBuffer();
-      const reasoningBody = localizeVisibleProcessText(item.body, appLang);
-      if (reasoningBody) {
-        result.push({
-          id: `${item.id}-reasoning-output`,
-          kind: "assistant",
-          title: "Yode",
-          body: reasoningBody,
-          meta: "intermediate"
-        });
-      }
+      result.push(item);
     }
   }
   flushBuffer();
@@ -690,8 +624,10 @@ export function desktopEventToTimelineItem(
       title: title || "思考中",
       body: body || "",
       meta: "running",
-      createdAt,
-      reasoningStartedAt: createdAt
+      createdAt
+      // 不在 turn_started 设置 reasoningStartedAt，
+      // 而是在第一个 assistant_reasoning_delta 到达时设置，
+      // 避免思考耗时包含工具执行等非思考时间
     };
   }
 

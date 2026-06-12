@@ -14,7 +14,9 @@ use serde_json::{json, Value};
 use tokio::process::Command;
 use tokio::sync::mpsc;
 
-use crate::builtin::shell_runtime::{command_timeout_secs, timeout_ms_description};
+use crate::builtin::shell_runtime::{
+    command_timeout_secs, timeout_ms_description, GitChangeSnapshot,
+};
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolErrorType, ToolProgress, ToolResult};
 
 const STALL_CHECK_INTERVAL_MS: u64 = 5_000;
@@ -215,6 +217,7 @@ While the bash tool can do similar things, it's better to use the built-in tools
             return self.execute_background(command, working_dir, ctx).await;
         }
 
+        let before_changes = GitChangeSnapshot::capture(working_dir).await;
         let timeout_duration = Duration::from_secs(timeout_secs);
 
         let mut child = Command::new("sh")
@@ -231,7 +234,16 @@ While the bash tool can do similar things, it's better to use the built-in tools
 
         match stall_check {
             watchdog::StallResult::Completed(output) => {
-                self.format_output(command, working_dir, output)
+                let modified_files = if output.status.success() {
+                    if let Some(before) = before_changes.as_ref() {
+                        before.changed_files_since(working_dir).await
+                    } else {
+                        Vec::new()
+                    }
+                } else {
+                    Vec::new()
+                };
+                self.format_output(command, working_dir, output, modified_files)
             }
             watchdog::StallResult::Stalled(partial_output) => {
                 let _ = child.kill().await;

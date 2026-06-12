@@ -181,6 +181,10 @@ export function ChatWorkspace({
     shouldStickToBottomRef.current = distanceToBottom < 120;
   };
 
+  const timelineContentHash = useMemo(() => {
+    return timelineItems.map(item => `${item.id}-${(item as any).body?.length || 0}`).join("|");
+  }, [timelineItems]);
+
   useLayoutEffect(() => {
     if (!shouldStickToBottomRef.current) return;
     const itemAdded = timelineItems.length > lastTimelineLengthRef.current;
@@ -189,7 +193,7 @@ export function ChatWorkspace({
       scrollTimelineToBottom(itemAdded && !isStreaming ? "smooth" : "auto");
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [timelineItems.length, isStreaming]);
+  }, [timelineContentHash, isStreaming]);
 
   return (
     <div className={`chat-layout ${inspectorOpen ? "" : "inspector-collapsed"}`}>

@@ -462,6 +462,16 @@ impl AgentEngine {
         self.context.runtime.lock().await.cwd.display().to_string()
     }
 
+    pub(super) fn record_file_modified(&mut self, file_path: impl AsRef<str>) {
+        let file_path = file_path.as_ref().trim();
+        if file_path.is_empty() {
+            return;
+        }
+        if !self.files_modified.iter().any(|path| path == file_path) {
+            self.files_modified.push(file_path.to_string());
+        }
+    }
+
     pub(super) fn parse_tool_input(arguments: &str) -> Value {
         serde_json::from_str(arguments).unwrap_or_else(|_| Value::Object(Map::new()))
     }
