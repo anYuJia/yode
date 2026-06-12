@@ -644,14 +644,17 @@ impl Tool for SendMessageTool {
         json!({
             "type": "object",
             "properties": {
-                "team_id": { "type": "string" },
+                "team_id": {
+                    "type": "string",
+                    "description": "Team runtime id. Provide either team_id, team_name, or to."
+                },
                 "team_name": {
                     "type": "string",
-                    "description": "Alias for team_id. Use this for a reusable named team."
+                    "description": "Alias for team_id. Provide either team_id, team_name, or to."
                 },
                 "to": {
                     "type": "string",
-                    "description": "Claude-compatible recipient alias. Can be a team member id, runtime task id, or * for all in the latest team."
+                    "description": "Claude-compatible recipient alias. Can be a team member id, runtime task id, or * for all in the latest team. Provide either team_id, team_name, or to."
                 },
                 "target": { "type": "string", "default": "all" },
                 "summary": {
@@ -661,10 +664,7 @@ impl Tool for SendMessageTool {
                 "message": { "type": "string" },
                 "kind": { "type": "string", "default": "message" }
             },
-            "required": ["message"],
-            "allOf": [
-                { "anyOf": [{ "required": ["team_id"] }, { "required": ["team_name"] }, { "required": ["to"] }] }
-            ]
+            "required": ["message"]
         })
     }
 
@@ -733,23 +733,25 @@ impl Tool for TeamReceiveTool {
         json!({
             "type": "object",
             "properties": {
-                "team_id": { "type": "string" },
+                "team_id": {
+                    "type": "string",
+                    "description": "Team runtime id. Provide either team_id or team_name."
+                },
                 "team_name": {
                     "type": "string",
-                    "description": "Alias for team_id. Use this for a reusable named team."
+                    "description": "Alias for team_id. Provide either team_id or team_name."
                 },
-                "member_id": { "type": "string" },
+                "member_id": {
+                    "type": "string",
+                    "description": "Team member id. Provide either member_id or name."
+                },
                 "name": {
                     "type": "string",
-                    "description": "Alias for member_id. Use this for the addressable member name."
+                    "description": "Alias for member_id. Provide either member_id or name."
                 },
                 "max_items": { "type": "integer", "minimum": 1, "default": 8 },
                 "consume": { "type": "boolean", "default": true }
-            },
-            "allOf": [
-                { "anyOf": [{ "required": ["team_id"] }, { "required": ["team_name"] }] },
-                { "anyOf": [{ "required": ["member_id"] }, { "required": ["name"] }] }
-            ]
+            }
         })
     }
 
@@ -906,10 +908,13 @@ impl Tool for TeamRunReadyTool {
         json!({
             "type": "object",
             "properties": {
-                "team_id": { "type": "string" },
+                "team_id": {
+                    "type": "string",
+                    "description": "Team runtime id. Provide either team_id or team_name."
+                },
                 "team_name": {
                     "type": "string",
-                    "description": "Alias for team_id. Use this for a reusable named team."
+                    "description": "Alias for team_id. Provide either team_id or team_name."
                 },
                 "max_steps": {
                     "type": "integer",
@@ -917,10 +922,7 @@ impl Tool for TeamRunReadyTool {
                     "default": 1,
                     "description": "Maximum ready members to run in this call."
                 }
-            },
-            "allOf": [
-                { "anyOf": [{ "required": ["team_id"] }, { "required": ["team_name"] }] }
-            ]
+            }
         })
     }
 

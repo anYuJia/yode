@@ -141,17 +141,39 @@ pub(super) fn tool_to_openai(tool: &ToolDefinition) -> OpenAiTool {
         function: OpenAiToolFunction {
             name: tool.name.clone(),
             description: tool.description.clone(),
-            parameters: sanitize_openai_schema(tool.parameters.clone()),
+            parameters: sanitize_openai_tool_parameters(tool.parameters.clone()),
         },
     }
 }
 
-fn sanitize_openai_schema(mut value: Value) -> Value {
+fn sanitize_openai_tool_parameters(value: Value) -> Value {
+    let mut value = sanitize_openai_schema(value, true);
+    if !matches!(value.get("type").and_then(Value::as_str), Some("object")) {
+        value = json!({
+            "type": "object",
+            "properties": {},
+            "required": []
+        });
+    }
+    if let Value::Object(map) = &mut value {
+        strip_openai_top_level_schema_keywords(map);
+        map.entry("properties".to_string())
+            .or_insert_with(|| Value::Object(Default::default()));
+        map.entry("required".to_string())
+            .or_insert_with(|| Value::Array(Vec::new()));
+    }
+    value
+}
+
+fn sanitize_openai_schema(mut value: Value, is_root: bool) -> Value {
     match &mut value {
         Value::Object(map) => {
+            if is_root {
+                strip_openai_top_level_schema_keywords(map);
+            }
             map.retain(|_, child| !child.is_null());
             for child in map.values_mut() {
-                *child = sanitize_openai_schema(std::mem::take(child));
+                *child = sanitize_openai_schema(std::mem::take(child), false);
             }
             if map.get("type").and_then(Value::as_str) == Some("object") {
                 map.entry("properties".to_string())
@@ -162,12 +184,18 @@ fn sanitize_openai_schema(mut value: Value) -> Value {
         }
         Value::Array(items) => {
             for item in items {
-                *item = sanitize_openai_schema(std::mem::take(item));
+                *item = sanitize_openai_schema(std::mem::take(item), false);
             }
         }
         _ => {}
     }
     value
+}
+
+fn strip_openai_top_level_schema_keywords(map: &mut serde_json::Map<String, Value>) {
+    for key in ["oneOf", "anyOf", "allOf", "enum", "const", "not"] {
+        map.remove(key);
+    }
 }
 
 pub(super) fn openai_usage_to_usage(usage: &OpenAiUsage) -> Usage {
@@ -237,6 +265,56 @@ mod tests {
             converted.function.parameters.get("required"),
             Some(&Value::Array(Vec::new()))
         );
+    }
+
+    #[test]
+    fn tool_to_openai_removes_top_level_combination_keywords() {
+        let tool = ToolDefinition {
+            name: "team_run_ready".to_string(),
+            description: "run ready team steps".to_string(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "team_id": { "type": "string" },
+                    "team_name": { "type": "string" }
+                },
+                "allOf": [
+                    { "anyOf": [{ "required": ["team_id"] }, { "required": ["team_name"] }] }
+                ]
+            }),
+            annotations: Default::default(),
+        };
+
+        let parameters = tool_to_openai(&tool).function.parameters;
+        assert_eq!(parameters["type"], "object");
+        assert!(parameters.get("allOf").is_none());
+        assert!(parameters.get("anyOf").is_none());
+        assert!(parameters.get("properties").is_some());
+        assert_eq!(
+            parameters.get("required"),
+            Some(&Value::Array(Vec::new()))
+        );
+    }
+
+    #[test]
+    fn tool_to_openai_replaces_non_object_root_schema() {
+        let tool = ToolDefinition {
+            name: "bad_root".to_string(),
+            description: "bad root".to_string(),
+            parameters: json!({
+                "oneOf": [
+                    { "type": "object", "properties": { "path": { "type": "string" } } },
+                    { "type": "object", "properties": { "url": { "type": "string" } } }
+                ]
+            }),
+            annotations: Default::default(),
+        };
+
+        let parameters = tool_to_openai(&tool).function.parameters;
+        assert_eq!(parameters["type"], "object");
+        assert_eq!(parameters["properties"], json!({}));
+        assert_eq!(parameters["required"], json!([]));
+        assert!(parameters.get("oneOf").is_none());
     }
 
     #[test]
