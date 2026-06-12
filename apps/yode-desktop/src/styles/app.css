@@ -1392,54 +1392,13 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 }
 
 .file-type-icon {
-  --file-icon-color: var(--text-muted);
-  display: block;
+  display: inline-block;
   flex: 0 0 auto;
-  width: 20px;
-  height: 22px;
-  margin-right: 1px;
+  width: 14px;
+  height: 14px;
+  margin-right: 6px;
+  vertical-align: middle;
   overflow: visible;
-  transform: translateY(1px);
-}
-
-.file-type-icon.wide {
-  width: 20px;
-}
-
-.file-type-icon-sheet {
-  fill: color-mix(in oklch, var(--panel), var(--file-icon-color) 3%);
-  stroke: color-mix(in oklch, var(--text), transparent 86%);
-  stroke-width: 1.2;
-}
-
-.file-type-icon-fold {
-  stroke: color-mix(in oklch, var(--text), transparent 86%);
-  stroke-width: 1.2;
-  stroke-linejoin: round;
-}
-
-.file-type-icon-text {
-  fill: color-mix(in oklch, var(--file-icon-color), var(--text-muted) 28%);
-  font-family: var(--font-code);
-  font-size: 7px;
-  font-weight: 720;
-  letter-spacing: 0;
-}
-
-.file-type-icon.wide .file-type-icon-text {
-  font-size: 5.8px;
-}
-
-.file-type-icon-glyph {
-  fill: none;
-  stroke: color-mix(in oklch, var(--file-icon-color), var(--text-muted) 24%);
-  stroke-width: 1.2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.file-type-icon-dot {
-  fill: color-mix(in oklch, var(--file-icon-color), var(--text-muted) 24%);
 }
 
 .file-type-icon.command {

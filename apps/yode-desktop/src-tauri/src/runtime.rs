@@ -818,31 +818,37 @@ impl DesktopRuntime {
         allow: bool,
         always_allow: bool,
     ) -> Result<()> {
+        let pending_request = self
+            .pending_confirmations
+            .lock()
+            .ok()
+            .and_then(|mut pending| pending.remove(&(session_id.clone(), turn_id.clone())));
+
         if allow && always_allow {
-            if let Ok(mut pending) = self.pending_confirmations.lock() {
-                if let Some(request) = pending.remove(&(session_id.clone(), turn_id.clone())) {
-                    let rule = PermissionRule {
-                        source: RuleSource::Session,
-                        behavior: RuleBehavior::Allow,
-                        tool_name: request.tool_name,
-                        category: None,
-                        pattern: request.command,
-                        description: Some("Allowed from desktop confirmation prompt".to_string()),
-                    };
-                    let mut rules = self
-                        .session_permission_rules
-                        .lock()
-                        .map_err(|_| anyhow::anyhow!("poisoned"))?;
-                    rules.entry(session_id.clone()).or_default().push(rule);
-                }
+            if let Some(request) = pending_request {
+                let rule = PermissionRule {
+                    source: RuleSource::Session,
+                    behavior: RuleBehavior::Allow,
+                    tool_name: request.tool_name,
+                    category: None,
+                    pattern: request.command,
+                    description: Some("Allowed from desktop confirmation prompt".to_string()),
+                };
+                let mut rules = self
+                    .session_permission_rules
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("poisoned"))?;
+                rules.entry(session_id.clone()).or_default().push(rule);
             }
         }
 
-        let mut txs = self
+        let tx = self
             .confirm_txs
             .lock()
-            .map_err(|_| anyhow::anyhow!("poisoned"))?;
-        if let Some(tx) = txs.remove(&(session_id, turn_id)) {
+            .map_err(|_| anyhow::anyhow!("poisoned"))?
+            .get(&(session_id, turn_id))
+            .cloned();
+        if let Some(tx) = tx {
             let response = if allow && always_allow {
                 ConfirmResponse::AllowAlways
             } else if allow {
