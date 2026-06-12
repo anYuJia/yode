@@ -539,6 +539,7 @@ fn test_system_prompt_runtime_state_tracks_segment_breakdown() {
     assert!(engine.system_prompt.contains("send_message"));
     assert!(engine.system_prompt.contains("<task-notification>"));
     assert!(engine.system_prompt.contains("公开过程旁白"));
+    assert!(engine.system_prompt.contains("visible reasoning/thinking summaries"));
 }
 
 #[test]

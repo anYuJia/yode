@@ -14,12 +14,12 @@ export function normalizeProcessNoteText(text: string) {
     .trim();
 }
 
-export function splitProcessNotes(text: string) {
+export function splitProcessNotes(text: string, limit = 6) {
   return text
     .split(/\n{2,}|\n(?=(?:I will|I'll|Let me|Next|Now|我会|我先|接下来|现在|然后|下一步))/i)
     .map(normalizeProcessNoteText)
     .filter((line) => line && line !== "." && line !== "..." && line !== "…")
-    .slice(0, 6);
+    .slice(0, limit);
 }
 
 export function looksLikeProcessNarration(text: string) {
@@ -44,8 +44,26 @@ export function localizeProcessNoteText(text: string, appLang: string) {
 
   const clean = normalizeProcessNoteText(text);
   if (!clean || isRuntimeNoticeText(clean)) return "";
+  if (/getting a project map/i.test(clean) && /key files/i.test(clean)) {
+    return "我先查看项目结构和关键文件，理解整体结构。";
+  }
+  if (/^the user wants me to (analyze|inspect|review)/i.test(clean)) {
+    return "我先梳理项目结构和关键文件，建立整体理解。";
+  }
   if (/\b(the user|user hasn't|asked for|I've provided|wait for the user|user's response|want to dive deeper)\b/i.test(clean)) {
     return "";
+  }
+  if (/get a better understanding/i.test(clean) && /key files/i.test(clean)) {
+    return "我继续读取关键文件，补齐对项目结构的理解。";
+  }
+  if (/main application entry point/i.test(clean) && /key modules/i.test(clean)) {
+    return "我继续查看主入口和关键模块，确认整体架构。";
+  }
+  if (/remaining key files/i.test(clean) && /complete the analysis/i.test(clean)) {
+    return "我再查看剩余关键文件，补齐分析。";
+  }
+  if (/comprehensive (understanding|view)/i.test(clean) && /analy[sz]e/i.test(clean)) {
+    return "我已经对项目有了较完整的理解，接下来系统整理分析。";
   }
   if (/project structure/i.test(clean) && /source files/i.test(clean)) {
     return "我已经看到了项目结构，接下来继续查看关键源文件。";
@@ -54,7 +72,7 @@ export function localizeProcessNoteText(text: string, appLang: string) {
     return "我会继续检查 JS/CSS 等前端文件，补齐前端结构理解。";
   }
   if (/src subdirectories|key files/i.test(clean)) {
-    return "我先查看 src 子目录 and 关键文件，理解项目结构。";
+    return "我先查看 src 子目录和关键文件，理解项目结构。";
   }
   if (/source files/i.test(clean)) {
     return "我会继续查看源代码文件，理解项目实现。";
@@ -94,6 +112,16 @@ export function localizeProcessNoteText(text: string, appLang: string) {
     return "";
   }
   return localized;
+}
+
+export function localizeProcessNotes(text: string, appLang: string, limit = 6) {
+  return splitProcessNotes(text, limit)
+    .map((note) => localizeProcessNoteText(note, appLang))
+    .filter(Boolean);
+}
+
+export function localizeVisibleProcessText(text: string, appLang: string) {
+  return localizeProcessNotes(text, appLang, 12).join("\n\n");
 }
 
 export function processNote(
@@ -309,7 +337,7 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
   };
 
   const pushProcessNotes = (item: TimelineItem, title?: string, status?: "running" | "success") => {
-    const notes = splitProcessNotes((item as any).body || "");
+    const notes = localizeProcessNotes((item as any).body || "", appLang);
     if (notes.length === 0 && status !== "running") return;
     flushBuffer();
     if (notes.length === 0) {
@@ -408,7 +436,7 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
       }
     } else if (item.kind === "reasoning") {
       flushBuffer();
-      const reasoningBody = item.body.trim();
+      const reasoningBody = localizeVisibleProcessText(item.body, appLang);
       if (reasoningBody) {
         result.push({
           id: `${item.id}-reasoning-output`,
