@@ -1134,7 +1134,8 @@ export function App() {
         <TerminalDrawer
           isOpen={terminalOpen}
           onClose={() => setTerminalOpen(false)}
-          workspacePath={bootstrap.workspacePath}
+          workspacePath={displayedWorkspacePath ?? bootstrap.workspacePath}
+          conversationId={activeSessionId}
         />
       </section>
     </main>

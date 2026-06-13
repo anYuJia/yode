@@ -27,10 +27,16 @@ type TerminalTab = {
   historyIndex: number | null;
 };
 
+type TerminalSession = {
+  tabs: TerminalTab[];
+  activeTabId: string;
+};
+
 type TerminalDrawerProps = {
   isOpen: boolean;
   onClose: () => void;
   workspacePath: string;
+  conversationId: string | null;
 };
 
 const SESSION_START = "Yode Terminal Session Started. Ready to execute local tasks.";
@@ -58,6 +64,14 @@ function createTab(workspacePath: string, index: number): TerminalTab {
   };
 }
 
+function createSession(workspacePath: string): TerminalSession {
+  const firstTab = createTab(workspacePath, 1);
+  return {
+    tabs: [firstTab],
+    activeTabId: firstTab.id
+  };
+}
+
 function basename(path: string) {
   return path.split("/").filter(Boolean).pop() || "yode";
 }
@@ -72,7 +86,7 @@ function displayCwd(cwd: string) {
   return cwd;
 }
 
-function promptFor(cwd: string, workspacePath: string) {
+function promptFor(cwd: string) {
   return `yode@local:${displayCwd(cwd)}$`;
 }
 
@@ -85,12 +99,27 @@ function splitOutput(text: string) {
   return text.replace(/\r\n/g, "\n").split("\n");
 }
 
-export function TerminalDrawer({ isOpen, onClose, workspacePath }: TerminalDrawerProps) {
-  const [tabs, setTabs] = useState<TerminalTab[]>(() => [createTab(workspacePath, 1)]);
-  const [activeTabId, setActiveTabId] = useState(() => tabs[0]?.id || "");
+export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId }: TerminalDrawerProps) {
+  const sessionKey = conversationId || "__draft__";
+  const [sessions, setSessions] = useState<Record<string, TerminalSession>>(() => ({
+    [sessionKey]: createSession(workspacePath)
+  }));
   const bodyElRef = useRef<HTMLDivElement>(null);
   const inputElRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    setSessions((current) => {
+      if (current[sessionKey]) return current;
+      return {
+        ...current,
+        [sessionKey]: createSession(workspacePath)
+      };
+    });
+  }, [sessionKey, workspacePath]);
+
+  const currentSession = sessions[sessionKey];
+  const tabs = currentSession?.tabs || [];
+  const activeTabId = currentSession?.activeTabId || tabs[0]?.id || "";
   const activeTab = useMemo(
     () => tabs.find((tab) => tab.id === activeTabId) || tabs[0],
     [activeTabId, tabs]
@@ -108,23 +137,49 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath }: TerminalDrawe
     }
   }, [isOpen, activeTabId]);
 
+  const backendSessionId = (tabId: string) => `${sessionKey}::${tabId}`;
+
+  const updateSession = (updater: (session: TerminalSession) => TerminalSession) => {
+    setSessions((current) => {
+      const session = current[sessionKey] || createSession(workspacePath);
+      return {
+        ...current,
+        [sessionKey]: updater(session)
+      };
+    });
+  };
+
   const updateTab = (id: string, updater: (tab: TerminalTab) => TerminalTab) => {
-    setTabs((current) => current.map((tab) => (tab.id === id ? updater(tab) : tab)));
+    updateSession((session) => ({
+      ...session,
+      tabs: session.tabs.map((tab) => (tab.id === id ? updater(tab) : tab))
+    }));
+  };
+
+  const setActiveTabId = (id: string) => {
+    updateSession((session) => ({
+      ...session,
+      activeTabId: id
+    }));
   };
 
   const addTab = () => {
     const next = createTab(workspacePath, tabs.length + 1);
-    setTabs((current) => [...current, next]);
-    setActiveTabId(next.id);
+    updateSession((session) => ({
+      tabs: [...session.tabs, next],
+      activeTabId: next.id
+    }));
   };
 
   const closeTab = async (tabId: string) => {
     if (tabs.length <= 1) {
       const replacement = createTab(workspacePath, 1);
-      setTabs([replacement]);
-      setActiveTabId(replacement.id);
+      updateSession(() => ({
+        tabs: [replacement],
+        activeTabId: replacement.id
+      }));
       try {
-        await invoke("terminal_close", { sessionId: tabId });
+        await invoke("terminal_close", { sessionId: backendSessionId(tabId) });
       } catch {
         // Closing a local terminal tab should never interrupt the UI.
       }
@@ -133,13 +188,16 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath }: TerminalDrawe
 
     const index = tabs.findIndex((tab) => tab.id === tabId);
     const nextTabs = tabs.filter((tab) => tab.id !== tabId);
-    setTabs(nextTabs);
-    if (activeTabId === tabId) {
-      setActiveTabId(nextTabs[Math.max(0, index - 1)]?.id || nextTabs[0]?.id || "");
-    }
+    updateSession((session) => ({
+      tabs: nextTabs,
+      activeTabId:
+        session.activeTabId === tabId
+          ? nextTabs[Math.max(0, index - 1)]?.id || nextTabs[0]?.id || ""
+          : session.activeTabId
+    }));
 
     try {
-      await invoke("terminal_close", { sessionId: tabId });
+      await invoke("terminal_close", { sessionId: backendSessionId(tabId) });
     } catch {
       // Closing a local terminal tab should never interrupt the UI.
     }
@@ -149,7 +207,7 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath }: TerminalDrawe
     const command = rawCommand.trim();
     if (!command || tab.isRunning) return;
 
-    const prompt = promptFor(tab.cwd, workspacePath);
+    const prompt = promptFor(tab.cwd);
     const commandLine: TerminalLine = {
       id: makeId("line"),
       kind: "command",
@@ -175,7 +233,7 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath }: TerminalDrawe
     try {
       const response = await invoke<TerminalRunResponse>("terminal_run", {
         request: {
-          sessionId: tab.id,
+          sessionId: backendSessionId(tab.id),
           command
         }
       });
@@ -311,7 +369,7 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath }: TerminalDrawe
         ))}
         {activeTab && (
           <form onSubmit={handleSubmit} className="terminal-line active-line">
-            <span className="terminal-prompt">{promptFor(activeTab.cwd, workspacePath)}</span>
+            <span className="terminal-prompt">{promptFor(activeTab.cwd)}</span>
             <input
               ref={inputElRef}
               type="text"
