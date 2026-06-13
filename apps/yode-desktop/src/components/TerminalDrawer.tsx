@@ -234,7 +234,8 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId 
       const response = await invoke<TerminalRunResponse>("terminal_run", {
         request: {
           sessionId: backendSessionId(tab.id),
-          command
+          command,
+          cwd: tab.cwd
         }
       });
       const outputLines = response.output

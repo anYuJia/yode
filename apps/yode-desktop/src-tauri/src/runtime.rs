@@ -241,7 +241,7 @@ impl DesktopRuntime {
         let trimmed = request.command.trim();
         if trimmed.is_empty() {
             let cwd = self
-                .terminal_session(&request.session_id)?
+                .terminal_session(&request.session_id, request.cwd.as_deref())?
                 .cwd
                 .display()
                 .to_string();
@@ -252,21 +252,28 @@ impl DesktopRuntime {
             });
         }
 
-        let mut session = self.terminal_session(&request.session_id)?;
+        let mut session = self.terminal_session(&request.session_id, request.cwd.as_deref())?;
         let marker = format!("__YODE_TERMINAL_{}__", Uuid::new_v4().simple());
         let script = format!(
             "{{\n{}\n}}\n__yode_status=$?\nprintf '\\n{}STATUS:%s\\n' \"$__yode_status\"\nprintf '{}PWD:'\npwd\nprintf '{}ENV:'\nenv -0\n",
             trimmed, marker, marker, marker
         );
+        let (shell, shell_args) = terminal_shell_command(&session.env);
 
-        let output = std::process::Command::new("sh")
-            .arg("-lc")
-            .arg(script)
+        let mut command = std::process::Command::new(&shell);
+        command.args(shell_args).arg(script);
+        let output = command
             .current_dir(&session.cwd)
             .env_clear()
             .envs(&session.env)
             .output()
-            .with_context(|| format!("failed to run terminal command '{}'", trimmed))?;
+            .with_context(|| {
+                format!(
+                    "failed to run terminal command '{}' with shell '{}'",
+                    trimmed,
+                    shell.display()
+                )
+            })?;
 
         let (stdout, cwd, env, exit_code) = parse_terminal_run_stdout(
             &output.stdout,
@@ -309,7 +316,11 @@ impl DesktopRuntime {
         Ok(())
     }
 
-    fn terminal_session(&self, session_id: &str) -> Result<TerminalSessionState> {
+    fn terminal_session(
+        &self,
+        session_id: &str,
+        initial_cwd: Option<&str>,
+    ) -> Result<TerminalSessionState> {
         let mut sessions = self
             .terminal_sessions
             .lock()
@@ -317,7 +328,9 @@ impl DesktopRuntime {
         Ok(sessions
             .entry(session_id.to_string())
             .or_insert_with(|| TerminalSessionState {
-                cwd: self.workspace_path.clone(),
+                cwd: initial_cwd
+                    .and_then(valid_terminal_cwd)
+                    .unwrap_or_else(|| self.workspace_path.clone()),
                 env: std::env::vars().collect(),
             })
             .clone())
@@ -1543,6 +1556,33 @@ fn is_cargo_workspace_root(path: &std::path::Path) -> bool {
         .unwrap_or(false)
 }
 
+fn valid_terminal_cwd(raw: &str) -> Option<PathBuf> {
+    let path = PathBuf::from(raw);
+    if path.is_dir() {
+        Some(path)
+    } else {
+        None
+    }
+}
+
+fn terminal_shell_command(env: &HashMap<String, String>) -> (PathBuf, Vec<&'static str>) {
+    let shell = env
+        .get("SHELL")
+        .filter(|shell| !shell.trim().is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/bin/sh"));
+    let shell_name = shell
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
+
+    if shell_name.contains("zsh") || shell_name.contains("bash") {
+        (shell, vec!["-lic"])
+    } else {
+        (PathBuf::from("/bin/sh"), vec!["-lc"])
+    }
+}
+
 fn parse_terminal_run_stdout(
     stdout: &[u8],
     marker: &str,
@@ -1656,6 +1696,15 @@ mod tests {
             find_workspace_root(&src_tauri).as_deref(),
             Some(root.as_path())
         );
+    }
+
+    #[test]
+    fn terminal_shell_uses_login_interactive_zsh() {
+        let env = HashMap::from([("SHELL".to_string(), "/bin/zsh".to_string())]);
+        let (shell, args) = terminal_shell_command(&env);
+
+        assert_eq!(shell, PathBuf::from("/bin/zsh"));
+        assert_eq!(args, vec!["-lic"]);
     }
 
     #[test]

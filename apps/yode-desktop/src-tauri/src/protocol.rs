@@ -87,6 +87,7 @@ pub struct SendMessageRequest {
 pub struct TerminalRunRequest {
     pub session_id: String,
     pub command: String,
+    pub cwd: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

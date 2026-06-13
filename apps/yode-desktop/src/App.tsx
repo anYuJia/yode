@@ -205,6 +205,14 @@ function visibleSessions(sessions: SessionSummary[]) {
   return sessions.filter((session) => !hiddenIds.has(session.id));
 }
 
+function homePathFromWorkspace(workspacePath: string) {
+  const macHome = workspacePath.match(/^\/Users\/[^/]+/);
+  if (macHome) return macHome[0];
+  const linuxHome = workspacePath.match(/^\/home\/[^/]+/);
+  if (linuxHome) return linuxHome[0];
+  return workspacePath;
+}
+
 function parseDurationFromTitle(title?: string) {
   if (!title) return null;
   const minuteSecond = title.match(/(\d+)\s*(?:分|m|min|分钟)\s*(\d+)?\s*(?:秒|s)?/i);
@@ -1073,6 +1081,9 @@ export function App() {
   const displayedWorkspacePath = isStandalone
     ? null
     : (activeSession?.projectRoot ?? selectedProjectRoot ?? bootstrap.workspacePath);
+  const terminalWorkspacePath = isStandalone
+    ? homePathFromWorkspace(bootstrap.workspacePath)
+    : (displayedWorkspacePath ?? bootstrap.workspacePath);
   const terminalConversationKey = activeSessionId ?? "__draft__";
   const terminalOpen = terminalOpenByConversation[terminalConversationKey] ?? false;
   const setTerminalOpenForCurrentConversation = (open: boolean) => {
@@ -1142,7 +1153,7 @@ export function App() {
         <TerminalDrawer
           isOpen={terminalOpen}
           onClose={() => setTerminalOpenForCurrentConversation(false)}
-          workspacePath={displayedWorkspacePath ?? bootstrap.workspacePath}
+          workspacePath={terminalWorkspacePath}
           conversationId={activeSessionId}
         />
       </section>
