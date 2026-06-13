@@ -261,18 +261,12 @@ export function Sidebar({
           onClick={() => onSelectSession(session.id)}
           type="button"
         >
-          <span className="session-title">
-            {session.title}
-          </span>
-          {!isDeleting && (
-            <span className="session-time" style={{ fontSize: "10.5px", color: "var(--text-soft)", marginLeft: "4px" }}>
-              {session.updatedAt}
-            </span>
-          )}
+          <span className="session-title">{session.title}</span>
+          {!isDeleting ? <span className="session-time">{session.updatedAt}</span> : null}
         </button>
 
         {isDeleting ? (
-          <div className="delete-confirm-overlay">
+          <div className="session-actions delete-confirm-overlay">
             <button
               onClick={(e) => handleConfirmDelete(session.id, e)}
               type="button"
@@ -282,7 +276,7 @@ export function Sidebar({
             </button>
           </div>
         ) : (
-          <div className="session-actions-overlay">
+          <div className="session-actions session-actions-overlay">
             <button
               onClick={(e) => handleTogglePin(session.id, e)}
               type="button"
@@ -504,12 +498,12 @@ export function Sidebar({
         </div>
         <div className="sessions-list">
           {projectGroups.map(renderProjectGroup)}
-          {standaloneSessions.length > 0 ? (
-            <div className="standalone-group">
-              <div className="standalone-label">{t("独立对话", "Standalone")}</div>
-              {standaloneSessions.map(renderSessionItem)}
-            </div>
-          ) : null}
+          <div className="standalone-group">
+            <div className="standalone-label">{t("独立对话", "Standalone")}</div>
+            {standaloneSessions.length > 0
+              ? standaloneSessions.map(renderSessionItem)
+              : <div className="standalone-empty">{t("暂无独立对话", "No standalone chats")}</div>}
+          </div>
         </div>
       </div>
 

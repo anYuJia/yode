@@ -28,10 +28,12 @@ export function AskUserActions({
   onResolve: (answer: string) => void;
 }) {
   const isZh = appLang === "zh";
-  const question = query.questions[0];
+  const [questionIndex, setQuestionIndex] = useState(0);
+  const question = query.questions[Math.min(questionIndex, Math.max(query.questions.length - 1, 0))];
 
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [checkedIndices, setCheckedIndices] = useState<number[]>([]);
+  const [answers, setAnswers] = useState<Record<string, string | string[]>>({});
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   const handleToggle = (index: number) => {
@@ -46,20 +48,31 @@ export function AskUserActions({
 
   const submitAnswer = (idx?: number) => {
     const targetIdx = idx !== undefined ? idx : selectedIndex;
+    const key = question.header || question.question;
+    const nextAnswers = { ...answers };
     if (question.multiSelect) {
       const selectedLabels = checkedIndices.map((i) => question.options[i].label);
-      const answerObj = { [question.header || question.question]: selectedLabels };
-      onResolve(JSON.stringify(answerObj));
+      nextAnswers[key] = selectedLabels;
     } else {
       const selectedOption = question.options[targetIdx];
-      const answerObj = { [question.header || question.question]: selectedOption.label };
-      onResolve(JSON.stringify(answerObj));
+      nextAnswers[key] = selectedOption.label;
+    }
+
+    if (questionIndex + 1 < query.questions.length) {
+      setAnswers(nextAnswers);
+      setQuestionIndex((index) => index + 1);
+      setSelectedIndex(0);
+      setCheckedIndices([]);
+    } else {
+      onResolve(JSON.stringify(nextAnswers));
     }
   };
 
   useEffect(() => {
+    setQuestionIndex(0);
     setSelectedIndex(0);
     setCheckedIndices([]);
+    setAnswers({});
   }, [query]);
 
   useEffect(() => {
@@ -95,6 +108,11 @@ export function AskUserActions({
         <CircleDot size={16} />
         <span>{question.header || (isZh ? "文件提问" : "Question")}</span>
       </div>
+      {query.questions.length > 1 && (
+        <div style={{ marginTop: "6px", fontSize: "12px", color: "var(--muted)" }}>
+          {questionIndex + 1}/{query.questions.length}
+        </div>
+      )}
       <p style={{ margin: "9px 0 12px", fontSize: "13px", color: "var(--text)" }}>{question.question}</p>
       <div className="permission-option-list">
         {question.options.map((option, index) => {

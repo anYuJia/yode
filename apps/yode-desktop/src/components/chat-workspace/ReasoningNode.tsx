@@ -49,8 +49,7 @@ export function ReasoningNode({ item, appLang }: ReasoningNodeProps) {
               cursor: "pointer",
               userSelect: "none",
               fontSize: "11.5px",
-              color: isRunning ? "var(--accent)" : "var(--text-muted)",
-              opacity: 0.8,
+              color: isRunning ? "var(--process-accent)" : "var(--process-meta)",
               width: "fit-content"
             }}
           >
@@ -76,8 +75,7 @@ export function ReasoningNode({ item, appLang }: ReasoningNodeProps) {
                 lineHeight: "1.45",
                 fontFamily: "var(--font-code)",
                 whiteSpace: "pre-wrap",
-                color: "var(--text-muted)",
-                opacity: 0.85,
+                color: "var(--process-text)",
               }}
             >
               {item.body}

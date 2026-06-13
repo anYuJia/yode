@@ -14,6 +14,13 @@ export function normalizeProcessNoteText(text: string) {
     .trim();
 }
 
+function processNoteFingerprint(text: string) {
+  return normalizeProcessNoteText(text)
+    .replace(/^(我会|我先|我来|接下来|下一步|现在|然后|先|再|接着)/, "")
+    .replace(/[ \t\r\n,.;:!?，。；：！？、]/g, "")
+    .trim();
+}
+
 export function looksLikeTerseToolTitle(text: string) {
   const clean = normalizeProcessNoteText(text);
   if (!clean) return true;
@@ -24,7 +31,7 @@ export function looksLikeTerseToolTitle(text: string) {
 
 export function splitProcessNotes(text: string, limit = 6) {
   return text
-    .split(/\n{2,}|\n(?=(?:I will|I'll|Let me|Next|Now|我会|我先|接下来|现在|然后|下一步))/i)
+    .split(/\n{2,}|\n(?=(?:I will|I'll|Let me|Next|Now|我会|我先|接下来|现在|然后|下一步|先|再|接着))/i)
     .map(normalizeProcessNoteText)
     .filter((line) => line && line !== "." && line !== "..." && line !== "…")
     .slice(0, limit);
@@ -37,7 +44,7 @@ export function looksLikeProcessNarration(text: string) {
   if (/\b(the user|user hasn't|asked for|I've provided|wait for the user|user's response|want to dive deeper)\b/i.test(clean)) {
     return false;
   }
-  return /^(I will|I'll|Let me|Next|Now|I need to|I’m going to|I'm going to|我会|我先|接下来|现在|然后|下一步|先)/i.test(clean) ||
+  return /^(I will|I'll|Let me|Next|Now|I need to|I’m going to|I'm going to|我会|我先|接下来|现在|然后|下一步|先|再|接着)/i.test(clean) ||
     /(读取|查看|搜索|检查|运行|验证|修改|分析|探索).*(文件|项目|代码|目录|结构|实现|结果)/i.test(clean);
 }
 
@@ -99,21 +106,21 @@ export function syntheticNarrationForActivity(item: TimelineItem, appLang: strin
     const visibleItems = summarizeActivityItems(item.items || []);
     const preview = activityGroupPreview(visibleItems, appLang);
     if (item.type === "explore") {
-      return `我先查看 ${preview}，确认项目结构、关键文件和后续分析入口。`;
+      return `我先看 ${preview}，确认相关代码和渲染路径是怎么串起来的。`;
     }
     if (item.type === "search") {
-      return `我先搜索 ${preview}，缩小需要继续查看的范围。`;
+      return `我会搜索 ${preview}，把可能相关的实现位置先收窄。`;
     }
     if (item.type === "run") {
-      return `我会运行 ${preview}，用实际输出验证当前判断。`;
+      return `我会运行 ${preview}，用实际输出确认当前判断是否成立。`;
     }
-    return `我会执行 ${preview}，把结果用于下一步判断。`;
+    return `我会执行 ${preview}，结合返回结果决定下一步怎么处理。`;
   }
 
   if (item.kind === "activity_item") {
     return item.filename
-      ? `我会修改 ${item.filename}，然后用构建或测试确认改动是否生效。`
-      : "我会完成这处修改，然后继续验证效果。";
+      ? `我会修改 ${item.filename}，让这里的行为和 Codex 的呈现方式更接近。`
+      : "我会完成这处修改，然后继续验证展示效果。";
   }
 
   return "";
@@ -124,14 +131,14 @@ export function syntheticNarrationBeforeAssistant(previous: TimelineItem | undef
   if (!previous || (previous.kind !== "activity_group" && previous.kind !== "activity_item")) return "";
   if (previous.kind === "activity_group") {
     if (previous.type === "explore") {
-      return "我已经完成基础探索，下面根据看到的结构和文件内容整理结论。";
+      return "相关代码已经看完，我会把模型返回内容和前端模板的边界整理清楚。";
     }
     if (previous.type === "run") {
-      return "验证命令已经返回，下面结合结果给出结论。";
+      return "验证命令已经返回，我会结合结果说明这次改动是否生效。";
     }
   }
   if (previous.kind === "activity_item") {
-    return "修改已经完成，下面总结改动和验证结果。";
+    return "修改已经完成，我会总结改动点和验证结果。";
   }
   return "";
 }
@@ -228,7 +235,7 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
   const flushBuffer = () => {
     if (buffer.length === 0) return;
     
-    let groupType: "explore" | "search" | "run" | "other" = "explore";
+    let groupType: "explore" | "search" | "run" | "mixed" | "other" = "explore";
     const tools = buffer.filter(item => item.kind === "tool");
     const visibleTools = tools.filter(item => !shouldHideActivityItem(item));
     
@@ -236,7 +243,11 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
     const searchTools = visibleTools.filter(t => getToolType(t.tool || "", t.title || "") === "search");
     const exploreTools = visibleTools.filter(t => getToolType(t.tool || "", t.title || "") === "explore");
     
-    if (runTools.length > 0) {
+    const nonEmptyGroups = [runTools, searchTools, exploreTools].filter((group) => group.length > 0).length;
+
+    if (nonEmptyGroups > 1) {
+      groupType = "mixed";
+    } else if (runTools.length > 0) {
       groupType = "run";
     } else if (searchTools.length > 0) {
       groupType = "search";
@@ -274,6 +285,9 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
     } else if (groupType === "run") {
       label = isRunning ? "Running" : "Ran";
       label += ` ${count} command${count > 1 ? "s" : ""}`;
+    } else if (groupType === "mixed") {
+      label = isRunning ? "Working" : "Worked";
+      label += ` across ${visibleTools.length || 1} actions`;
     } else {
       label = isRunning ? "Executing" : "Executed";
       label += ` ${count} action${count > 1 ? "s" : ""}`;
@@ -873,7 +887,11 @@ export function applyDesktopEventToTimelineItems(
       if (item.kind !== "assistant" && item.kind !== "process_note") return false;
       if (isActionNarrativeItem(item)) return false;
       const visibleText = item.body.trim();
-      return visibleText === noteText || visibleText.includes(noteText);
+      const visibleFingerprint = processNoteFingerprint(visibleText);
+      const noteFingerprint = processNoteFingerprint(noteText);
+      return visibleText === noteText ||
+        visibleText.includes(noteText) ||
+        Boolean(noteFingerprint && visibleFingerprint.includes(noteFingerprint));
     });
     if (alreadyVisible) {
       return items;

@@ -78,7 +78,7 @@ export type TimelineItem =
       id: string;
       kind: "activity_group";
       label: string;
-      type: "explore" | "search" | "run" | "other";
+      type: "explore" | "search" | "run" | "mixed" | "other";
       status: "running" | "success";
       items: TimelineItem[];
       createdAt?: number;

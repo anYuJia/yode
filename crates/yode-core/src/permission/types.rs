@@ -168,7 +168,9 @@ pub fn tool_categories(tool_name: &str) -> Vec<&'static str> {
     match tool_name {
         "read_file" | "glob" | "grep" | "ls" | "git_status" | "git_log" | "git_diff"
         | "project_map" | "tool_search" | "web_search" | "web_fetch" | "lsp"
-        | "mcp_list_resources" | "mcp_read_resource" | "task_output" | "cron_list" => {
+        | "mcp_list_resources" | "mcp_read_resource" | "list_mcp_resources"
+        | "list_mcp_resource_templates" | "read_mcp_resource" | "request_user_input"
+        | "task_output" | "cron_list" => {
             categories.push("read");
         }
         "write_file" | "edit_file" | "multi_edit" | "notebook_edit" | "git_commit"

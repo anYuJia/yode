@@ -75,6 +75,10 @@ impl PermissionManager {
                 "lsp".into(),
                 "mcp_list_resources".into(),
                 "mcp_read_resource".into(),
+                "list_mcp_resources".into(),
+                "list_mcp_resource_templates".into(),
+                "read_mcp_resource".into(),
+                "request_user_input".into(),
             ],
         }
     }

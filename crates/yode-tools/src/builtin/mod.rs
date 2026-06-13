@@ -80,6 +80,7 @@ pub fn register_builtin_tools(registry: &ToolRegistry) {
     registry.register(Arc::new(codex_compat::GetContextRemainingTool));
     registry.register(Arc::new(codex_compat::UpdatePlanTool));
     registry.register(Arc::new(codex_compat::WriteStdinTool));
+    registry.register(Arc::new(codex_compat::RequestUserInputTool));
     registry.register(Arc::new(powershell::PowerShellTool));
     registry.register(Arc::new(glob::GlobTool));
     registry.register(Arc::new(grep::GrepTool));
@@ -102,6 +103,7 @@ pub fn register_builtin_tools(registry: &ToolRegistry) {
     registry.register(Arc::new(worktree::EnterWorktreeTool));
     registry.register(Arc::new(worktree::ExitWorktreeTool));
     registry.register(Arc::new(mcp_resources::ListMcpResourcesTool));
+    registry.register(Arc::new(mcp_resources::ListMcpResourceTemplatesTool));
     registry.register(Arc::new(mcp_resources::ReadMcpResourceTool));
     registry.register(Arc::new(mcp_resources::CleanupMcpResourceArtifactsTool));
     registry.register(Arc::new(mcp_resources::McpAuthTool));
@@ -173,5 +175,7 @@ mod tests {
         assert!(names.contains("get_context_remaining"));
         assert!(names.contains("update_plan"));
         assert!(names.contains("write_stdin"));
+        assert!(names.contains("request_user_input"));
+        assert!(names.contains("list_mcp_resource_templates"));
     }
 }

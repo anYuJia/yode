@@ -29,7 +29,7 @@ export function ActivityLeafNode({ item, appLang }: { item: any; appLang: string
             alignItems: "center",
             gap: "4px",
             cursor: item.body ? "pointer" : "default",
-            color: "var(--text-soft)",
+            color: "var(--process-meta)",
             fontSize: "11.75px"
           }}
         >
@@ -45,7 +45,7 @@ export function ActivityLeafNode({ item, appLang }: { item: any; appLang: string
             background: "color-mix(in oklch, var(--field), transparent 2%)",
             borderRadius: "6px",
             fontSize: "11px",
-            color: "var(--text-muted)",
+            color: "var(--process-text)",
             whiteSpace: "pre-wrap",
             fontFamily: "var(--font-code)",
             border: "1px solid var(--line-soft)",
@@ -63,18 +63,18 @@ export function ActivityLeafNode({ item, appLang }: { item: any; appLang: string
     const isRunning = item.status === "running";
     
     let label = "";
+    let value = parsed.filename ? `${parsed.filename}${parsed.lineRange}` : parsed.command;
     if (item.tool?.includes("view") || item.tool?.includes("read") || item.tool?.includes("grep") || item.tool?.includes("glob") || item.tool?.includes("list")) {
-      label = isRunning 
-        ? (isZh ? "正在分析" : "Analyzing") 
-        : (isZh ? "已分析" : "Analyzed");
+      label = isRunning ? (isZh ? "正在读取" : "Reading") : "Read";
     } else if (item.tool?.includes("run") || item.tool?.includes("command") || item.tool?.includes("bash")) {
       label = isRunning 
         ? (isZh ? "正在运行命令" : "Running command") 
-        : (isZh ? "已运行命令" : "Ran command");
+        : (isZh ? "已运行" : "Ran");
     } else {
       label = isRunning
         ? (isZh ? "正在执行" : "Executing")
         : (isZh ? "已执行" : "Executed");
+      if (!value) value = displayToolName(item.tool);
     }
 
     return (
@@ -86,23 +86,23 @@ export function ActivityLeafNode({ item, appLang }: { item: any; appLang: string
             alignItems: "center",
             gap: "4px",
             cursor: hasBodyOrResult ? "pointer" : "default",
-            color: "var(--text-soft)",
+            color: "var(--process-meta)",
             fontSize: "11.75px"
           }}
         >
           <span>{label}</span>
           {parsed.filename ? getFileIcon(parsed.filename) : parsed.command ? getCommandIcon() : null}
-          {(parsed.filename || parsed.command) ? (
-            <span style={{ color: "var(--text-muted)", fontWeight: "520" }}>
-              {parsed.filename ? `${parsed.filename}${parsed.lineRange}` : parsed.command}
+          {value ? (
+            <span style={{ color: "var(--process-text)", fontWeight: "520" }}>
+              {value}
             </span>
           ) : (
-            <span style={{ color: "var(--text-muted)", fontWeight: "520" }}>
+            <span style={{ color: "var(--process-text)", fontWeight: "520" }}>
               {displayToolName(item.tool)}
             </span>
           )}
           {item.count > 1 && (
-            <span style={{ color: "var(--text-soft)", fontSize: "10.75px" }}>x{item.count}</span>
+            <span style={{ color: "var(--process-dim)", fontSize: "10.75px" }}>x{item.count}</span>
           )}
           {hasBodyOrResult && (
             isExpanded ? <ChevronDown size={11} style={{ opacity: 0.6 }} /> : <ChevronRight size={11} style={{ opacity: 0.6 }} />
@@ -129,7 +129,7 @@ export function ActivityLeafNode({ item, appLang }: { item: any; appLang: string
                   overflowX: "auto",
                   fontFamily: "var(--font-code)",
                   fontSize: "11px",
-                  color: "var(--text-soft)",
+                  color: "var(--process-text)",
                   border: "1px solid var(--line-soft)"
                 }}>
                   {item.body}
@@ -147,7 +147,7 @@ export function ActivityLeafNode({ item, appLang }: { item: any; appLang: string
                   maxHeight: "150px",
                   fontFamily: "var(--font-code)",
                   fontSize: "11px",
-                  color: "var(--text-muted)",
+                  color: "var(--process-text)",
                   border: "1px solid var(--line-soft)"
                 }}>
                   {item.result}

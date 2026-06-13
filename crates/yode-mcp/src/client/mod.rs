@@ -11,8 +11,9 @@ use rmcp::handler::client::ClientHandler;
 use rmcp::model::{
     CallToolRequestParams, ClientCapabilities, ClientInfo, CreateElicitationRequestParams,
     CreateElicitationResult, ElicitationAction, ElicitationCapability, ErrorData as McpError,
-    FormElicitationCapability, Implementation, ListResourcesResult, ListToolsResult,
-    ReadResourceRequestParams, ReadResourceResult, ResourceContents, UrlElicitationCapability,
+    FormElicitationCapability, Implementation, ListResourceTemplatesResult, ListResourcesResult,
+    ListToolsResult, ReadResourceRequestParams, ReadResourceResult, ResourceContents,
+    UrlElicitationCapability,
 };
 use rmcp::service::{Peer, RequestContext, RoleClient, RunningService, ServiceExt};
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
@@ -24,7 +25,9 @@ use tracing::{info, warn};
 
 use crate::config::{McpServerConfig, McpTransportConfig};
 use yode_tools::registry::ToolRegistry;
-use yode_tools::tool::{McpResource, McpResourceBlob, McpResourceProvider, McpResourceRead, Tool};
+use yode_tools::tool::{
+    McpResource, McpResourceBlob, McpResourceProvider, McpResourceRead, McpResourceTemplate, Tool,
+};
 
 pub use tool_wrapper::{mcp_tool_latency_stats, McpToolLatencyEntry, McpToolWrapper};
 
@@ -169,6 +172,7 @@ impl ClientHandler for YodeMcpClientHandler {
         std::future::ready(Ok(CreateElicitationResult {
             action: ElicitationAction::Decline,
             content: None,
+            meta: None,
         }))
     }
 
@@ -243,6 +247,38 @@ impl McpResourceProvider for McpClientResourceProvider {
                 }
             }
             Ok(resources)
+        })
+    }
+
+    fn list_resource_templates(
+        &self,
+        server: Option<&str>,
+    ) -> Pin<Box<dyn std::future::Future<Output = Result<Vec<McpResourceTemplate>>> + Send + '_>>
+    {
+        let clients = self.clients.clone();
+        let server = server.map(str::to_string);
+        Box::pin(async move {
+            let mut templates = Vec::new();
+            for client in clients.iter() {
+                if server
+                    .as_ref()
+                    .is_some_and(|server| server != &client.server_name)
+                {
+                    continue;
+                }
+                for (name, uri_template, description, mime_type) in
+                    client.list_resource_templates().await?
+                {
+                    templates.push(McpResourceTemplate {
+                        server: client.server_name.clone(),
+                        uri_template,
+                        name,
+                        description,
+                        mime_type,
+                    });
+                }
+            }
+            Ok(templates)
         })
     }
 
@@ -403,6 +439,25 @@ impl McpClient {
         Ok(resources)
     }
 
+    /// List resource templates available on this MCP server.
+    pub async fn list_resource_templates(
+        &self,
+    ) -> Result<Vec<(String, String, Option<String>, Option<String>)>> {
+        let result = self.connection.list_resource_templates().await?;
+        let templates = result
+            .resource_templates
+            .iter()
+            .map(|template| {
+                let name = template.name.clone();
+                let uri_template = template.uri_template.clone();
+                let description = template.description.clone();
+                let mime_type = template.mime_type.clone();
+                (name, uri_template, description, mime_type)
+            })
+            .collect();
+        Ok(templates)
+    }
+
     /// Read a specific resource by URI.
     pub async fn read_resource(&self, uri: &str) -> Result<McpResourceRead> {
         let params = ReadResourceRequestParams::new(uri);
@@ -540,6 +595,23 @@ impl McpConnection {
                 record_mcp_connect_result(&self.server_name, false, Some(err.to_string()));
                 let peer = self.reconnect().await?;
                 Ok(peer.list_resources(Default::default()).await?)
+            }
+        }
+    }
+
+    pub(crate) async fn list_resource_templates(&self) -> Result<ListResourceTemplatesResult> {
+        let peer = self.current_peer().await;
+        match peer.list_resource_templates(Default::default()).await {
+            Ok(result) => Ok(result),
+            Err(err) => {
+                warn!(
+                    server = %self.server_name,
+                    error = %err,
+                    "MCP resource template discovery failed; reconnecting server and retrying once"
+                );
+                record_mcp_connect_result(&self.server_name, false, Some(err.to_string()));
+                let peer = self.reconnect().await?;
+                Ok(peer.list_resource_templates(Default::default()).await?)
             }
         }
     }

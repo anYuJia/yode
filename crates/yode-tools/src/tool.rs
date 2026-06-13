@@ -107,6 +107,14 @@ pub trait McpResourceProvider: Send + Sync {
         server: Option<&str>,
     ) -> Pin<Box<dyn std::future::Future<Output = Result<Vec<McpResource>>> + Send + '_>>;
 
+    fn list_resource_templates(
+        &self,
+        _server: Option<&str>,
+    ) -> Pin<Box<dyn std::future::Future<Output = Result<Vec<McpResourceTemplate>>> + Send + '_>>
+    {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+
     fn read_resource(
         &self,
         server: &str,
@@ -121,6 +129,16 @@ pub struct McpResource {
     pub uri: String,
     pub name: String,
     pub description: Option<String>,
+}
+
+/// MCP resource template descriptor.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpResourceTemplate {
+    pub server: String,
+    pub uri_template: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub mime_type: Option<String>,
 }
 
 /// Decoded MCP resource read response with optional binary blobs preserved for artifacts.

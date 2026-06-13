@@ -7,13 +7,15 @@ use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
 
 use crate::tool::{
-    McpResourceBlob, McpResourceRead, Tool, ToolCapabilities, ToolContext, ToolResult,
+    McpResourceBlob, McpResourceRead, McpResourceTemplate, Tool, ToolCapabilities, ToolContext,
+    ToolResult,
 };
 
 pub mod auth;
 pub use auth::McpAuthTool;
 
 pub struct ListMcpResourcesTool;
+pub struct ListMcpResourceTemplatesTool;
 pub struct ReadMcpResourceTool;
 pub struct CleanupMcpResourceArtifactsTool;
 
@@ -146,6 +148,93 @@ fn render_list_resources(resources: Vec<crate::tool::McpResource>) -> Result<Too
     }
 
     Ok(ToolResult::success(output))
+}
+
+#[async_trait]
+impl Tool for ListMcpResourceTemplatesTool {
+    fn name(&self) -> &str {
+        "list_mcp_resource_templates"
+    }
+
+    fn user_facing_name(&self) -> &str {
+        ""
+    }
+
+    fn activity_description(&self, params: &Value) -> String {
+        let server = params
+            .get("server")
+            .and_then(|v| v.as_str())
+            .unwrap_or("all servers");
+        format!("Listing MCP resource templates from: {}", server)
+    }
+
+    fn description(&self) -> &str {
+        "List resource templates provided by MCP servers. Parameterized resource templates can provide context after filling URI template parameters."
+    }
+
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "server": {
+                    "type": "string",
+                    "description": "Optional server name to filter resource templates by. Omit to list all."
+                }
+            }
+        })
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            requires_confirmation: false,
+            supports_auto_execution: true,
+            read_only: true,
+        }
+    }
+
+    async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
+        let provider = ctx
+            .mcp_resources
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("MCP resource provider not available"))?;
+
+        let server = params.get("server").and_then(|v| v.as_str());
+        let templates = provider.list_resource_templates(server).await?;
+        render_list_resource_templates(templates)
+    }
+}
+
+fn render_list_resource_templates(templates: Vec<McpResourceTemplate>) -> Result<ToolResult> {
+    if templates.is_empty() {
+        return Ok(ToolResult::success(
+            "No MCP resource templates found.".to_string(),
+        ));
+    }
+
+    let mut output = String::from("Available MCP resource templates:\n\n");
+    for template in &templates {
+        output.push_str(&format!(
+            "- [{}] {}: {}{}{}\n",
+            template.server,
+            template.name,
+            template.uri_template,
+            template
+                .mime_type
+                .as_ref()
+                .map(|mime| format!(" ({})", mime))
+                .unwrap_or_default(),
+            template
+                .description
+                .as_ref()
+                .map(|description| format!(" - {}", description))
+                .unwrap_or_default()
+        ));
+    }
+
+    Ok(ToolResult::success_with_metadata(
+        output,
+        json!({ "resource_templates": templates }),
+    ))
 }
 
 #[async_trait]
@@ -696,12 +785,12 @@ mod tests {
     use super::{
         cleanup_mcp_resource_artifacts, decode_base64_standard, mcp_resource_cache_stats,
         prune_mcp_resource_artifacts, reset_mcp_resource_cache, resource_extension,
-        retention_from_env, CleanupMcpResourceArtifactsTool, ListMcpResourcesTool,
-        ReadMcpResourceTool,
+        retention_from_env, CleanupMcpResourceArtifactsTool, ListMcpResourceTemplatesTool,
+        ListMcpResourcesTool, ReadMcpResourceTool,
     };
     use crate::tool::{
         McpResource, McpResourceBlob, McpResourcePolicy, McpResourceProvider, McpResourceRead,
-        Tool, ToolContext,
+        McpResourceTemplate, Tool, ToolContext,
     };
     use anyhow::Result;
     use serde_json::json;
@@ -778,6 +867,23 @@ mod tests {
                     content: response,
                     blobs,
                 })
+            })
+        }
+
+        fn list_resource_templates(
+            &self,
+            server: Option<&str>,
+        ) -> Pin<Box<dyn std::future::Future<Output = Result<Vec<McpResourceTemplate>>> + Send + '_>>
+        {
+            let server = server.unwrap_or("all").to_string();
+            Box::pin(async move {
+                Ok(vec![McpResourceTemplate {
+                    server,
+                    uri_template: "mcp://resource/{id}".to_string(),
+                    name: "resource-template".to_string(),
+                    description: Some("demo template".to_string()),
+                    mime_type: Some("text/plain".to_string()),
+                }])
             })
         }
     }
@@ -889,6 +995,26 @@ mod tests {
         let stats = mcp_resource_cache_stats();
         assert_eq!(stats.list_misses, 1);
         assert_eq!(stats.list_hits, 0);
+    }
+
+    #[tokio::test]
+    async fn list_mcp_resource_templates_renders_templates() {
+        let provider = Arc::new(MockMcpProvider::new());
+        let mut ctx = ToolContext::empty();
+        ctx.mcp_resources = Some(provider);
+
+        let tool = ListMcpResourceTemplatesTool;
+        let result = tool
+            .execute(json!({"server": "demo"}), &ctx)
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("mcp://resource/{id}"));
+        assert_eq!(
+            result.metadata.as_ref().unwrap()["resource_templates"][0]["name"],
+            json!("resource-template")
+        );
     }
 
     #[tokio::test]

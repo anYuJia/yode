@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use anyhow::Result;
@@ -9,7 +10,10 @@ use crate::builtin::bash::BashTool;
 use crate::builtin::shell_runtime::timeout_ms_description;
 use crate::runtime_tasks::RuntimeTaskStatus;
 use crate::state::TaskStatus;
-use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolErrorType, ToolResult};
+use crate::tool::{
+    Tool, ToolCapabilities, ToolContext, ToolErrorType, ToolResult, UserQuery, UserQueryOption,
+    UserQuestion,
+};
 
 pub struct ExecCommandTool;
 pub struct ShellCommandTool;
@@ -18,6 +22,7 @@ pub struct ViewImageTool;
 pub struct GetContextRemainingTool;
 pub struct UpdatePlanTool;
 pub struct WriteStdinTool;
+pub struct RequestUserInputTool;
 
 #[async_trait]
 impl Tool for ExecCommandTool {
@@ -134,10 +139,7 @@ impl Tool for ShellCommandTool {
     }
 
     fn activity_description(&self, params: &Value) -> String {
-        let command = params
-            .get("command")
-            .and_then(Value::as_str)
-            .unwrap_or("");
+        let command = params.get("command").and_then(Value::as_str).unwrap_or("");
         format!("Running command: {}", command)
     }
 
@@ -236,7 +238,10 @@ This JSON wrapper exists because Yode currently exposes function tools; the acce
             .get("patch")
             .and_then(Value::as_str)
             .ok_or_else(|| anyhow::anyhow!("Missing required parameter: patch"))?;
-        let cwd = ctx.working_dir.clone().unwrap_or_else(|| PathBuf::from("."));
+        let cwd = ctx
+            .working_dir
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("."));
         apply_codex_patch(patch, &cwd).await
     }
 }
@@ -297,7 +302,10 @@ impl Tool for ViewImageTool {
             .unwrap_or("high");
         if !matches!(detail, "high" | "original") {
             return Ok(ToolResult::error_typed(
-                format!("view_image.detail only supports high or original, got {}", detail),
+                format!(
+                    "view_image.detail only supports high or original, got {}",
+                    detail
+                ),
                 ToolErrorType::Validation,
                 true,
                 Some("Use detail=\"high\" or detail=\"original\".".to_string()),
@@ -323,9 +331,8 @@ impl Tool for ViewImageTool {
                 ));
             }
         };
-        let mime_type = image_mime_type(&path).ok_or_else(|| {
-            anyhow::anyhow!("Unsupported image extension for {}", path.display())
-        })?;
+        let mime_type = image_mime_type(&path)
+            .ok_or_else(|| anyhow::anyhow!("Unsupported image extension for {}", path.display()))?;
         let bytes = tokio::fs::read(&path).await?;
         let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
         let data_url = format!("data:{};base64,{}", mime_type, encoded);
@@ -488,7 +495,9 @@ At most one step can be in_progress at a time."#
                 .and_then(Value::as_str)
                 .map(str::trim)
                 .filter(|step| !step.is_empty())
-                .ok_or_else(|| anyhow::anyhow!("plan[{}].step must be a non-empty string", index))?;
+                .ok_or_else(|| {
+                    anyhow::anyhow!("plan[{}].step must be a non-empty string", index)
+                })?;
             let status_label = item
                 .get("status")
                 .and_then(Value::as_str)
@@ -537,10 +546,7 @@ At most one step can be in_progress at a time."#
         for (step, status) in parsed_steps {
             let task = store.create(step, String::new());
             let id = task.id.clone();
-            let task = store
-                .update_status(&id, status)
-                .cloned()
-                .unwrap_or(task);
+            let task = store.update_status(&id, status).cloned().unwrap_or(task);
             saved.push(task);
         }
 
@@ -600,8 +606,11 @@ impl Tool for WriteStdinTool {
             "type": "object",
             "properties": {
                 "session_id": {
-                    "type": "string",
-                    "description": "Codex-compatible running command session id. In Yode this is the runtime task id returned by exec_command/bash."
+                    "anyOf": [
+                        { "type": "integer" },
+                        { "type": "string" }
+                    ],
+                    "description": "Codex-compatible running command session id. Yode also accepts its runtime task id such as task-1."
                 },
                 "task_id": {
                     "type": "string",
@@ -609,7 +618,7 @@ impl Tool for WriteStdinTool {
                 },
                 "chars": {
                     "type": "string",
-                    "description": "Bytes/text to write to stdin. Include newline characters when the program is waiting for Enter."
+                    "description": "Bytes/text to write to stdin. Defaults to empty, which polls the running command without writing."
                 },
                 "yield_time_ms": {
                     "type": "integer",
@@ -620,7 +629,7 @@ impl Tool for WriteStdinTool {
                     "description": "Codex-compatible output budget hint accepted for schema compatibility."
                 }
             },
-            "required": ["chars"]
+            "required": []
         })
     }
 
@@ -644,20 +653,17 @@ impl Tool for WriteStdinTool {
         let chars = params
             .get("chars")
             .and_then(Value::as_str)
-            .ok_or_else(|| anyhow::anyhow!("Missing required parameter: chars"))?
+            .unwrap_or("")
             .to_string();
         let target = params
             .get("session_id")
             .or_else(|| params.get("task_id"))
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string);
+            .and_then(runtime_task_id_from_value);
 
         let task_id = {
             let store = runtime_tasks.lock().await;
             if let Some(target) = target {
-                target
+                normalize_runtime_task_id(&target, &store)
             } else {
                 store
                     .list()
@@ -673,6 +679,31 @@ impl Tool for WriteStdinTool {
                     .ok_or_else(|| anyhow::anyhow!("No running runtime task found."))?
             }
         };
+
+        if chars.is_empty() {
+            let task = {
+                let store = runtime_tasks.lock().await;
+                store.get(&task_id)
+            }
+            .ok_or_else(|| anyhow::anyhow!("Runtime task '{}' not found.", task_id))?;
+            let output_preview = tokio::fs::read_to_string(&task.output_path)
+                .await
+                .ok()
+                .map(|output| tail_chars(&output, 4000));
+            let content = match output_preview.as_deref() {
+                Some(output) if !output.trim().is_empty() => output.to_string(),
+                _ => format!("Runtime task '{}' status: {:?}", task_id, task.status),
+            };
+            return Ok(ToolResult::success_with_metadata(
+                content,
+                json!({
+                    "task_id": task_id,
+                    "session_id": task_id,
+                    "status": task.status,
+                    "output_path": task.output_path,
+                }),
+            ));
+        }
 
         let mut last_error = None;
         for attempt in 0..20 {
@@ -721,10 +752,301 @@ impl Tool for WriteStdinTool {
     }
 }
 
+#[async_trait]
+impl Tool for RequestUserInputTool {
+    fn name(&self) -> &str {
+        "request_user_input"
+    }
+
+    fn user_facing_name(&self) -> &str {
+        "Request User Input"
+    }
+
+    fn activity_description(&self, params: &Value) -> String {
+        let first_q = params
+            .get("questions")
+            .and_then(Value::as_array)
+            .and_then(|questions| questions.first())
+            .and_then(|question| question.get("question"))
+            .and_then(Value::as_str)
+            .unwrap_or("questions");
+        format!("Requesting user input: {}", first_q)
+    }
+
+    fn description(&self) -> &str {
+        "Codex-compatible request_user_input tool. Ask the user one to three short multiple-choice questions and return answers mapped by question id."
+    }
+
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "questions": {
+                    "type": "array",
+                    "description": "Questions to show the user. Prefer 1 and do not exceed 3.",
+                    "minItems": 1,
+                    "maxItems": 3,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {
+                                "type": "string",
+                                "description": "Stable identifier for mapping answers (snake_case)."
+                            },
+                            "header": {
+                                "type": "string",
+                                "description": "Short header label shown in the UI (12 or fewer chars)."
+                            },
+                            "question": {
+                                "type": "string",
+                                "description": "Single-sentence prompt shown to the user."
+                            },
+                            "options": {
+                                "type": "array",
+                                "description": "Provide 2-3 mutually exclusive choices. Put the recommended option first and suffix its label with (Recommended).",
+                                "minItems": 2,
+                                "maxItems": 3,
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "label": {
+                                            "type": "string",
+                                            "description": "User-facing label (1-5 words)."
+                                        },
+                                        "description": {
+                                            "type": "string",
+                                            "description": "One short sentence explaining impact/tradeoff if selected."
+                                        }
+                                    },
+                                    "required": ["label", "description"]
+                                }
+                            }
+                        },
+                        "required": ["id", "header", "question", "options"]
+                    }
+                },
+                "autoResolutionMs": {
+                    "type": "integer",
+                    "description": "Codex-compatible optional auto-resolution window. Accepted for schema compatibility; Yode currently waits for an explicit answer."
+                }
+            },
+            "required": ["questions"]
+        })
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            requires_confirmation: false,
+            supports_auto_execution: false,
+            read_only: true,
+        }
+    }
+
+    async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
+        let question_values = params
+            .get("questions")
+            .and_then(Value::as_array)
+            .ok_or_else(|| anyhow::anyhow!("Missing required parameter: questions"))?;
+        if question_values.is_empty() || question_values.len() > 3 {
+            return Ok(ToolResult::error_typed(
+                "request_user_input requires one to three questions.".to_string(),
+                ToolErrorType::Validation,
+                true,
+                Some("Provide 1-3 short questions.".to_string()),
+            ));
+        }
+
+        let mut id_by_key = BTreeMap::new();
+        let mut questions = Vec::with_capacity(question_values.len());
+        for (index, question_value) in question_values.iter().enumerate() {
+            let id = required_string(question_value, "id")
+                .map(str::to_string)
+                .map_err(|error| anyhow::anyhow!("questions[{}].{}", index, error))?;
+            let header = required_string(question_value, "header")
+                .map(str::to_string)
+                .map_err(|error| anyhow::anyhow!("questions[{}].{}", index, error))?;
+            let question = required_string(question_value, "question")
+                .map(str::to_string)
+                .map_err(|error| anyhow::anyhow!("questions[{}].{}", index, error))?;
+            let options_value = question_value
+                .get("options")
+                .and_then(Value::as_array)
+                .ok_or_else(|| anyhow::anyhow!("questions[{}].options must be an array", index))?;
+            if options_value.is_empty() {
+                return Ok(ToolResult::error_typed(
+                    format!("questions[{}].options must not be empty.", index),
+                    ToolErrorType::Validation,
+                    true,
+                    Some("Provide 2-3 options for each question.".to_string()),
+                ));
+            }
+
+            let mut options = Vec::with_capacity(options_value.len());
+            for option in options_value {
+                options.push(UserQueryOption {
+                    label: option
+                        .get("label")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                    description: option
+                        .get("description")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                    preview: None,
+                });
+            }
+
+            id_by_key.insert(header.clone(), id.clone());
+            id_by_key.insert(question.clone(), id);
+            questions.push(UserQuestion {
+                question,
+                header,
+                options,
+                multi_select: false,
+            });
+        }
+
+        let tx = match &ctx.user_input_tx {
+            Some(tx) => tx,
+            None => {
+                return Ok(ToolResult::error_typed(
+                    "User input channel not available.".to_string(),
+                    ToolErrorType::Execution,
+                    true,
+                    Some("Retry in a session with interactive user input support.".to_string()),
+                ));
+            }
+        };
+        let rx = match &ctx.user_input_rx {
+            Some(rx) => rx,
+            None => {
+                return Ok(ToolResult::error_typed(
+                    "User input response channel not available.".to_string(),
+                    ToolErrorType::Execution,
+                    true,
+                    Some("Retry in a session with interactive user input support.".to_string()),
+                ));
+            }
+        };
+
+        let query_id = uuid::Uuid::new_v4().to_string();
+        if let Err(error) = tx.send(UserQuery {
+            id: query_id,
+            questions,
+        }) {
+            return Ok(ToolResult::error_typed(
+                format!("Failed to send request_user_input query: {}", error),
+                ToolErrorType::Execution,
+                true,
+                Some("Retry after the UI is ready for user input.".to_string()),
+            ));
+        }
+
+        let raw_answers = {
+            let mut guard = rx.lock().await;
+            guard.recv().await
+        };
+        let Some(raw_answers) = raw_answers else {
+            return Ok(ToolResult::error_typed(
+                "User input channel closed.".to_string(),
+                ToolErrorType::Execution,
+                true,
+                Some("Retry after reconnecting the UI session.".to_string()),
+            ));
+        };
+
+        let answers = codex_request_user_input_answers(&raw_answers, &id_by_key);
+        Ok(ToolResult::success_with_metadata(
+            format!("User answered: {}", serde_json::to_string(&answers)?),
+            json!({
+                "answers": answers,
+                "raw_answers": raw_answers,
+            }),
+        ))
+    }
+}
+
 fn copy_if_present(from: &Value, to: &mut Value, key: &str) {
     if let Some(value) = from.get(key) {
         to[key] = value.clone();
     }
+}
+
+fn required_string<'a>(value: &'a Value, key: &str) -> Result<&'a str, String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| format!("{} must be a non-empty string", key))
+}
+
+fn codex_request_user_input_answers(
+    raw_answers: &str,
+    id_by_key: &BTreeMap<String, String>,
+) -> Value {
+    let mut answers = serde_json::Map::new();
+    let Ok(Value::Object(raw_map)) = serde_json::from_str::<Value>(raw_answers) else {
+        return Value::Object(answers);
+    };
+
+    for (key, value) in raw_map {
+        let id = id_by_key.get(&key).cloned().unwrap_or(key);
+        let values = match value {
+            Value::Array(items) => items
+                .into_iter()
+                .filter_map(|item| item.as_str().map(str::to_string))
+                .collect::<Vec<_>>(),
+            Value::String(item) => vec![item],
+            other => vec![other.to_string()],
+        };
+        answers.insert(id, json!({ "answers": values }));
+    }
+
+    Value::Object(answers)
+}
+
+fn runtime_task_id_from_value(value: &Value) -> Option<String> {
+    match value {
+        Value::String(raw) => {
+            let trimmed = raw.trim();
+            (!trimmed.is_empty()).then(|| trimmed.to_string())
+        }
+        Value::Number(number) => number
+            .as_u64()
+            .map(|id| format!("task-{}", id))
+            .or_else(|| number.as_i64().map(|id| format!("task-{}", id))),
+        _ => None,
+    }
+}
+
+fn normalize_runtime_task_id(
+    candidate: &str,
+    store: &crate::runtime_tasks::RuntimeTaskStore,
+) -> String {
+    if store.get(candidate).is_some() {
+        return candidate.to_string();
+    }
+    if candidate.chars().all(|ch| ch.is_ascii_digit()) {
+        let task_id = format!("task-{}", candidate);
+        if store.get(&task_id).is_some() {
+            return task_id;
+        }
+    }
+    candidate.to_string()
+}
+
+fn tail_chars(value: &str, max_chars: usize) -> String {
+    let char_count = value.chars().count();
+    if char_count <= max_chars {
+        return value.to_string();
+    }
+    value
+        .chars()
+        .skip(char_count.saturating_sub(max_chars))
+        .collect()
 }
 
 fn effective_exec_command(command: &str, params: &Value) -> String {
@@ -882,7 +1204,10 @@ async fn apply_codex_patch(patch: &str, cwd: &std::path::Path) -> Result<ToolRes
             }
             continue;
         }
-        return Ok(invalid_patch(format!("Unsupported patch directive: {}", line)));
+        return Ok(invalid_patch(format!(
+            "Unsupported patch directive: {}",
+            line
+        )));
     }
 
     Ok(ToolResult::success_with_metadata(
@@ -958,7 +1283,7 @@ mod tests {
 
     use super::{
         ApplyPatchTool, ExecCommandTool, GetContextRemainingTool, ShellCommandTool, UpdatePlanTool,
-        ViewImageTool, WriteStdinTool,
+        ViewImageTool, WriteStdinTool, RequestUserInputTool,
     };
 
     #[tokio::test]
@@ -1035,7 +1360,10 @@ mod tests {
             .unwrap();
 
         assert!(!result.is_error, "{}", result.content);
-        assert_eq!(tokio::fs::read_to_string(&file).await.unwrap(), "hello\nyode\n");
+        assert_eq!(
+            tokio::fs::read_to_string(&file).await.unwrap(),
+            "hello\nyode\n"
+        );
     }
 
     #[tokio::test]
@@ -1057,7 +1385,10 @@ mod tests {
             .unwrap();
 
         assert!(!result.is_error, "{}", result.content);
-        assert_eq!(tokio::fs::read_to_string(&file).await.unwrap(), "hello\nyode\n");
+        assert_eq!(
+            tokio::fs::read_to_string(&file).await.unwrap(),
+            "hello\nyode\n"
+        );
     }
 
     #[tokio::test]
@@ -1074,7 +1405,10 @@ mod tests {
             .unwrap();
 
         assert!(!result.is_error);
-        assert_eq!(result.metadata.as_ref().unwrap()["mime_type"], json!("image/png"));
+        assert_eq!(
+            result.metadata.as_ref().unwrap()["mime_type"],
+            json!("image/png")
+        );
         assert!(result.metadata.as_ref().unwrap()["image_url"]
             .as_str()
             .unwrap()
@@ -1205,5 +1539,106 @@ mod tests {
         assert!(!output.is_error, "{}", output.content);
         assert!(output.content.contains("ready"));
         assert!(output.content.contains("got:hello from stdin"));
+    }
+
+    #[tokio::test]
+    async fn write_stdin_accepts_codex_numeric_session_id_and_empty_poll() {
+        let dir = tempfile::tempdir().unwrap();
+        let runtime_tasks = std::sync::Arc::new(tokio::sync::Mutex::new(RuntimeTaskStore::new()));
+        let mut ctx = ToolContext::empty();
+        ctx.working_dir = Some(dir.path().to_path_buf());
+        ctx.runtime_tasks = Some(runtime_tasks);
+
+        let started = ExecCommandTool
+            .execute(
+                json!({
+                    "cmd": "printf 'ready\\n'; IFS= read line; printf 'got:%s\\n' \"$line\"",
+                    "run_in_background": true
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+        assert!(!started.is_error, "{}", started.content);
+
+        let wrote = WriteStdinTool
+            .execute(
+                json!({
+                    "session_id": 1,
+                    "chars": "numeric id\n"
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+        assert!(!wrote.is_error, "{}", wrote.content);
+
+        let polled = WriteStdinTool
+            .execute(json!({ "session_id": 1 }), &ctx)
+            .await
+            .unwrap();
+        assert!(!polled.is_error, "{}", polled.content);
+        assert_eq!(
+            polled.metadata.as_ref().unwrap()["task_id"].as_str(),
+            Some("task-1")
+        );
+
+        let output = TaskOutputTool
+            .execute(
+                json!({
+                    "task_id": "task-1",
+                    "block": true,
+                    "timeout": 5000
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(!output.is_error, "{}", output.content);
+        assert!(output.content.contains("got:numeric id"));
+    }
+
+    #[tokio::test]
+    async fn request_user_input_maps_answers_by_question_id() {
+        let (query_tx, mut query_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (answer_tx, answer_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut ctx = ToolContext::empty();
+        ctx.user_input_tx = Some(query_tx);
+        ctx.user_input_rx = Some(std::sync::Arc::new(tokio::sync::Mutex::new(answer_rx)));
+
+        let handle = tokio::spawn(async move {
+            RequestUserInputTool
+                .execute(
+                    json!({
+                        "questions": [{
+                            "id": "confirm_path",
+                            "header": "路径",
+                            "question": "使用这个路径吗？",
+                            "options": [
+                                { "label": "是 (Recommended)", "description": "继续使用当前路径。" },
+                                { "label": "否", "description": "先调整路径。" }
+                            ]
+                        }]
+                    }),
+                    &ctx,
+                )
+                .await
+                .unwrap()
+        });
+
+        let query = query_rx.recv().await.unwrap();
+        assert_eq!(query.questions.len(), 1);
+        assert_eq!(query.questions[0].header, "路径");
+        answer_tx
+            .send("{\"路径\":\"是 (Recommended)\"}".to_string())
+            .unwrap();
+
+        let result = handle.await.unwrap();
+        assert!(!result.is_error, "{}", result.content);
+        assert_eq!(
+            result.metadata.as_ref().unwrap()["answers"]["confirm_path"]["answers"],
+            json!(["是 (Recommended)"])
+        );
     }
 }

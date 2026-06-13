@@ -42,7 +42,7 @@ pub(super) fn convert_tool_definitions(
         .map(|td| LlmToolDefinition {
             name: td.name,
             description: format!(
-                "{}\n\nAlways include `action_narrative`: a brief Simplified Chinese public phase update that the client shows before this tool runs. It must be model-written user-facing narration, not hidden reasoning and not a tool title. Use a natural Codex-style sentence about the immediate grouped purpose, for example “我先扫一遍入口和配置，确定项目脉络。”",
+                "{}\n\nAlways include `action_narrative`: a Simplified Chinese public process note shown before this tool runs. It must be model-written user-facing narration, not hidden reasoning, not a tool title, and not a fixed template. Match Codex's reasoning-summary style: one natural paragraph, usually 1-3 complete sentences, calm and concrete about what you are checking and why. Good: “我看截图里这些句子像‘过程旁白’，夹在‘已思考/已执行工具/已探索’之间。我会确认它们在代码里是怎么生成和渲染的，看是固定模板、工具 metadata，还是模型返回的字段。”",
                 td.description
             ),
             parameters: with_action_narrative_parameter(td.parameters),
@@ -70,8 +70,8 @@ fn with_action_narrative_parameter(mut schema: Value) -> Value {
         json!({
             "type": "string",
             "minLength": 12,
-            "maxLength": 80,
-            "description": "Required public phase update shown before this tool runs. Write one brief, natural Simplified Chinese Codex-style sentence about the immediate grouped purpose. Good: “我先扫一遍入口和配置，确定项目脉络。” / “接着看核心模块，确认调用链路。” Bad: “查看 README”, “分析项目结构”, hidden reasoning, English self-talk, or fixed templates."
+            "maxLength": 260,
+            "description": "Required public process note shown before this tool runs. Write a natural Simplified Chinese Codex-style paragraph, usually 1-3 complete sentences, about the immediate visible work: what evidence/files/output you are about to inspect and what distinction you are trying to confirm. Good: “我看截图里这些句子像‘过程旁白’，夹在‘已思考/已执行工具/已探索’之间。我会确认它们在代码里是怎么生成和渲染的，看是固定模板、工具 metadata，还是模型返回的字段。” Bad: terse tool titles like “查看 README”, vague filler like “分析项目结构”, hidden reasoning, English self-talk, or repeated fixed templates."
         }),
     );
     match object.get_mut("required") {
@@ -240,6 +240,14 @@ mod tests {
                 .and_then(|schema| schema.get("minLength"))
                 .and_then(|value| value.as_u64()),
             Some(12)
+        );
+        assert_eq!(
+            schema
+                .get("properties")
+                .and_then(|properties| properties.get("action_narrative"))
+                .and_then(|schema| schema.get("maxLength"))
+                .and_then(|value| value.as_u64()),
+            Some(260)
         );
         assert!(schema
             .get("required")

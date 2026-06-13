@@ -12,6 +12,12 @@
   --text: oklch(91% 0.006 255);
   --text-muted: oklch(68% 0.01 255);
   --text-soft: oklch(51% 0.011 255);
+  --process-text: color-mix(in oklch, var(--text), var(--bg) 14%);
+  --process-text-strong: var(--text);
+  --process-meta: color-mix(in oklch, var(--text-muted), var(--bg) 12%);
+  --process-dim: color-mix(in oklch, var(--text-soft), var(--bg) 10%);
+  --process-accent: color-mix(in oklch, var(--accent), var(--text) 12%);
+  --process-accent-soft: color-mix(in oklch, var(--accent), var(--bg) 18%);
   --accent: oklch(73% 0.115 188);
   --accent-muted: oklch(37% 0.052 188);
   --success: oklch(72% 0.115 153);
@@ -36,6 +42,7 @@
 }
 
 /* Custom Scrollbars */
+.sidebar,
 .sessions-list,
 .timeline-panel,
 .run-inspector,
@@ -45,6 +52,7 @@
   scrollbar-color: color-mix(in oklch, var(--line), transparent 45%) transparent;
 }
 
+.sidebar::-webkit-scrollbar,
 .sessions-list::-webkit-scrollbar,
 .timeline-panel::-webkit-scrollbar,
 .run-inspector::-webkit-scrollbar,
@@ -54,6 +62,7 @@
   height: 3px;
 }
 
+.sidebar::-webkit-scrollbar-track,
 .sessions-list::-webkit-scrollbar-track,
 .timeline-panel::-webkit-scrollbar-track,
 .run-inspector::-webkit-scrollbar-track,
@@ -62,6 +71,7 @@
   background: rgba(0, 0, 0, 0);
 }
 
+.sidebar::-webkit-scrollbar-thumb,
 .sessions-list::-webkit-scrollbar-thumb,
 .timeline-panel::-webkit-scrollbar-thumb,
 .run-inspector::-webkit-scrollbar-thumb,
@@ -71,6 +81,7 @@
   border-radius: 99px;
 }
 
+.sidebar::-webkit-scrollbar-thumb:hover,
 .sessions-list::-webkit-scrollbar-thumb:hover,
 .timeline-panel::-webkit-scrollbar-thumb:hover,
 .run-inspector::-webkit-scrollbar-thumb:hover,
@@ -121,7 +132,7 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 
 .sidebar {
   display: grid;
-  grid-template-rows: auto auto auto 1fr auto;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
   min-width: 0;
   overflow: hidden;
   gap: 10px;
@@ -325,7 +336,9 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   justify-content: flex-start;
   width: 100%;
   overflow: hidden;
-  padding-right: 8px;
+  min-height: 30px;
+  padding: 5px 8px;
+  color: var(--text-muted);
 }
 
 .project-drag-icon {
@@ -410,7 +423,7 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   min-width: 0;
   text-overflow: ellipsis;
   white-space: nowrap;
-  margin-right: 44px;
+  font-weight: 620;
 }
 
 .project-button em {
@@ -432,29 +445,23 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 }
 
 .project-header-wrapper {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  flex: 0 0 auto;
   width: 100%;
   min-width: 0;
   overflow: hidden;
 }
 
-.project-actions-overlay,
-.project-header-wrapper:hover .project-actions-overlay {
-  transform: translateY(-50%) scale(1);
-}
-
 .project-actions-overlay {
-  position: absolute;
-  right: 28px;
-  top: 50%;
   display: flex;
   gap: 4px;
-  transform: translateY(-50%) scale(0.96);
+  padding-right: 5px;
   background: transparent;
   opacity: 0;
   pointer-events: none;
-  transition:
-    opacity 140ms cubic-bezier(0.2, 0, 0, 1),
-    transform 140ms cubic-bezier(0.2, 0, 0, 1);
+  transition: opacity 140ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 .project-header-wrapper:hover .project-actions-overlay {
@@ -483,22 +490,26 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
 }
 
 .sessions-list {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
   min-width: 0;
   overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: 2px;
+  padding-bottom: 2px;
 }
 
 .project-group {
   display: flex;
   flex-direction: column;
+  flex: 0 0 auto;
   gap: 1px;
   width: 100%;
   min-width: 0;
@@ -510,23 +521,15 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 }
 
 .project-sessions-shell {
-  display: grid;
-  grid-template-rows: 0fr;
+  display: none;
+  flex: 0 0 auto;
   min-height: 0;
   overflow: hidden;
-  opacity: 0;
-  transform: translateY(-3px);
   pointer-events: none;
-  transition:
-    grid-template-rows 260ms cubic-bezier(0.16, 1, 0.3, 1),
-    opacity 210ms ease,
-    transform 260ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .project-sessions-shell.expanded {
-  grid-template-rows: 1fr;
-  opacity: 1;
-  transform: translateY(0);
+  display: block;
   pointer-events: auto;
 }
 
@@ -541,7 +544,7 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   flex-direction: column;
   gap: 1px;
   min-width: 0;
-  padding: 1px 0 5px 18px;
+  padding: 1px 0 6px 18px;
 }
 
 .project-empty {
@@ -550,17 +553,22 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   font-size: 10.5px;
 }
 
+.project-sessions .session-item-wrapper {
+  margin-bottom: 1px;
+}
+
 .project-sessions .session-button {
-  min-height: 32px;
+  min-height: 42px;
 }
 
 .standalone-group {
   display: flex;
   flex-direction: column;
+  flex: 0 0 auto;
   gap: 1px;
   min-width: 0;
   overflow: hidden;
-  padding-top: 5px;
+  padding-top: 8px;
 }
 
 .standalone-label {
@@ -571,8 +579,15 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   text-transform: uppercase;
 }
 
+.standalone-empty {
+  margin: 3px 8px 7px;
+  color: var(--text-soft);
+  font-size: 10.5px;
+}
+
 .session-item-wrapper {
   position: relative;
+  flex: 0 0 auto;
   border-radius: var(--radius);
   margin-bottom: 2px;
   width: 100%;
@@ -587,21 +602,17 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 .session-item-wrapper:hover .session-actions-overlay {
   opacity: 1;
   pointer-events: auto;
-  transform: translateY(-50%) scale(1);
-}
-
-.session-item-wrapper:hover .session-time {
-  opacity: 0;
 }
 
 .session-button {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-content: center;
+  row-gap: 1px;
   min-width: 0;
-  min-height: 36px;
-  padding: 5px 8px 5px 8px;
+  min-height: 42px;
+  padding: 6px 8px;
   background: transparent;
   color: var(--text-muted);
   text-align: left;
@@ -633,42 +644,43 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 650;
-  flex: 1;
+  display: block;
   min-width: 0;
+  line-height: 1.35;
 }
 
 .session-time {
-  flex: 0 0 auto;
-  max-width: 42%;
+  display: block;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  margin-left: 4px;
   color: var(--text-soft);
   font-size: 10.5px;
   font-variant-numeric: tabular-nums;
-  opacity: 0.85;
-  transition: opacity 140ms ease;
+  justify-self: start;
+  min-width: 0;
+  opacity: 0.72;
+  line-height: 1.25;
 }
 
-.session-actions-overlay,
-.delete-confirm-overlay {
+.session-actions {
   position: absolute;
-  right: 7px;
-  top: 50%;
+  top: 7px;
+  right: 6px;
+  z-index: 2;
   display: flex;
+  align-items: center;
   gap: 4px;
-  transform: translateY(-50%) scale(0.96);
-  background: var(--panel-raised);
-  padding-left: 12px;
+  padding: 2px;
+  border-radius: 6px;
+  background: color-mix(in oklch, var(--panel-raised), transparent 3%);
 }
 
 .session-actions-overlay {
   opacity: 0;
   pointer-events: none;
-  transition:
-    opacity 140ms cubic-bezier(0.2, 0, 0, 1),
-    transform 140ms cubic-bezier(0.2, 0, 0, 1);
+  transition: opacity 140ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 .delete-confirm-overlay {
@@ -992,7 +1004,7 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   padding: 0 0 0 33px;
   border: 0;
   background: transparent;
-  color: var(--text-soft);
+  color: var(--process-meta);
   font: inherit;
   font-size: 12px;
   text-align: left;
@@ -1001,13 +1013,13 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 }
 
 .turn-process-summary.running {
-  color: var(--accent);
+  color: var(--process-accent);
   cursor: default;
 }
 
 .turn-process-summary:hover,
 .turn-process-summary:focus-visible {
-  color: var(--text);
+  color: var(--process-text-strong);
 }
 
 .turn-process-summary:focus-visible {
@@ -1030,7 +1042,7 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 }
 
 .turn-process-summary-detail {
-  color: var(--text-muted);
+  color: var(--process-dim);
   font-size: 11.5px;
 }
 
@@ -1059,7 +1071,7 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 .markdown-content-process {
   width: 100%;
   max-width: 100%;
-  color: color-mix(in oklch, var(--text), var(--text-muted) 6%);
+  color: var(--process-text);
   font-size: 14.5px;
   font-weight: 560;
   line-height: 1.62;
@@ -1177,7 +1189,7 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 
 .markdown-content-process code {
   background: color-mix(in oklch, var(--field), transparent 9%);
-  color: color-mix(in oklch, var(--text), var(--text-muted) 12%);
+  color: var(--process-text-strong);
 }
 
 .markdown-content pre {
@@ -3245,7 +3257,7 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   }
 }
 
-@media (max-width: 940px) {
+@media (max-width: 640px) {
   .app-shell {
     grid-template-columns: 74px minmax(0, 1fr);
   }
@@ -3257,9 +3269,6 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   .brand-row > div:not(.brand-mark),
   .primary-action,
   .nav-button,
-  .project-button,
-  .sessions,
-  .section-label,
   .footer-button {
     font-size: 0;
     justify-content: center;
@@ -3267,7 +3276,6 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 
   .primary-action svg,
   .nav-button svg,
-  .project-button svg,
   .footer-button svg {
     margin: 0;
   }
@@ -3306,6 +3314,38 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
     overflow-x: auto;
     border-right: 0;
     border-bottom: 1px solid var(--line-soft);
+  }
+}
+
+@media (max-height: 560px) {
+  .sidebar {
+    gap: 6px;
+    padding: 18px 10px 10px;
+  }
+
+  .brand-row {
+    min-height: 30px;
+  }
+
+  .primary-action,
+  .nav-button,
+  .footer-button {
+    min-height: 26px;
+  }
+
+  .sidebar-footer {
+    padding-top: 6px;
+  }
+}
+
+@media (max-height: 430px) {
+  .sidebar {
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+  }
+
+  .brand-subtitle,
+  .nav-block {
+    display: none;
   }
 }
 
