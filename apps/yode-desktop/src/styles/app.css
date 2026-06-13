@@ -2349,7 +2349,7 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 .terminal-drawer {
   height: 0;
   overflow: hidden;
-  background: oklch(13% 0.006 255); /* slightly darker background */
+  background: color-mix(in oklch, var(--bg), #000000 8%);
   border-top: 0px solid var(--line);
   display: flex;
   flex-direction: column;
@@ -2357,18 +2357,18 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 }
 
 .terminal-drawer.open {
-  height: 240px;
+  height: 280px;
   border-top: 1px solid var(--line);
 }
 
 .terminal-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  height: 32px;
+  gap: 10px;
+  height: 36px;
   background: var(--chrome);
   border-bottom: 1px solid var(--line-soft);
-  padding: 0 12px;
+  padding: 0 8px 0 12px;
 }
 
 .terminal-title {
@@ -2378,14 +2378,30 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   font-size: 11px;
   font-weight: 600;
   color: var(--text-muted);
+  flex: 0 0 auto;
 }
 
-.terminal-header .close-btn {
+.terminal-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.terminal-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.terminal-tab,
+.terminal-add-tab,
+.terminal-action-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
+  height: 24px;
   border: 0;
   border-radius: 4px;
   background: transparent;
@@ -2393,34 +2409,126 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   cursor: pointer;
 }
 
-.terminal-header .close-btn:hover {
-  background: var(--panel-raised);
+.terminal-tab {
+  justify-content: flex-start;
+  gap: 6px;
+  min-width: 96px;
+  max-width: 160px;
+  padding: 0 5px 0 8px;
+  color: var(--text-muted);
+  border: 1px solid transparent;
+}
+
+.terminal-tab:hover,
+.terminal-add-tab:hover,
+.terminal-action-btn:hover {
+  background: color-mix(in oklch, var(--field), transparent 20%);
   color: var(--text);
+}
+
+.terminal-tab.active {
+  background: var(--field);
+  border-color: var(--line-soft);
+  color: var(--text);
+}
+
+.terminal-tab-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--text-soft);
+  opacity: 0.55;
+  flex: 0 0 auto;
+}
+
+.terminal-tab-dot.running {
+  background: var(--accent);
+  opacity: 1;
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--accent-muted), transparent 35%);
+}
+
+.terminal-tab-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.terminal-tab-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  margin-left: auto;
+  opacity: 0.65;
+}
+
+.terminal-tab-close:hover {
+  background: color-mix(in oklch, var(--line), transparent 60%);
+  opacity: 1;
+}
+
+.terminal-add-tab,
+.terminal-action-btn {
+  width: 24px;
+  flex: 0 0 auto;
+}
+
+.terminal-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex: 0 0 auto;
 }
 
 .terminal-body {
   flex: 1;
   overflow: auto;
-  padding: 12px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  padding: 12px 14px;
+  font-family: var(--font-code), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 12px;
   line-height: 1.5;
-  background: oklch(11% 0.005 255); /* deep dark editor bg */
-  color: oklch(85% 0.005 255);
+  background: color-mix(in oklch, var(--bg), #000000 12%);
+  color: color-mix(in oklch, var(--text), var(--text-muted) 10%);
 }
 
 .terminal-line {
-  margin-bottom: 4px;
+  margin-bottom: 3px;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.terminal-line-system {
+  color: var(--text-soft);
+}
+
+.terminal-line-command {
+  color: var(--text);
+}
+
+.terminal-line-output {
+  color: color-mix(in oklch, var(--text), var(--text-muted) 16%);
+}
+
+.terminal-line-error {
+  color: var(--error);
 }
 
 .active-line {
   display: flex;
   align-items: center;
+  min-height: 20px;
+  overflow-x: auto;
+  white-space: nowrap;
 }
 
 .terminal-real-input {
-  flex: 1;
+  flex: 1 0 160px;
+  min-width: 120px;
   background: transparent;
   border: none;
   outline: none;
@@ -2435,6 +2543,8 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   color: var(--accent);
   margin-right: 8px;
   font-weight: 600;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .text-success {

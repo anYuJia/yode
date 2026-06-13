@@ -1131,7 +1131,11 @@ export function App() {
           pendingUserQuestion={pendingUserQuestion}
           onAskUserResolve={handleAskUserResolve}
         />
-        <TerminalDrawer isOpen={terminalOpen} onClose={() => setTerminalOpen(false)} />
+        <TerminalDrawer
+          isOpen={terminalOpen}
+          onClose={() => setTerminalOpen(false)}
+          workspacePath={bootstrap.workspacePath}
+        />
       </section>
     </main>
   );

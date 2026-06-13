@@ -109,9 +109,19 @@ fn permission_mode_set(
 #[tauri::command]
 fn terminal_run(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
-    command: String,
-) -> Result<String, String> {
-    runtime.terminal_run(command).map_err(|err| err.to_string())
+    request: protocol::TerminalRunRequest,
+) -> Result<protocol::TerminalRunResponse, String> {
+    runtime.terminal_run(request).map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn terminal_close(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    session_id: String,
+) -> Result<(), String> {
+    runtime
+        .terminal_close(session_id)
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
@@ -204,6 +214,7 @@ pub fn run() {
             turn_cancel,
             permission_mode_set,
             terminal_run,
+            terminal_close,
             sessions_delete,
             sessions_update_llm,
             config_get_providers,

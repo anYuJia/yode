@@ -84,6 +84,21 @@ pub struct SendMessageRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct TerminalRunRequest {
+    pub session_id: String,
+    pub command: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalRunResponse {
+    pub output: String,
+    pub cwd: String,
+    pub exit_code: i32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DesktopImageInput {
     pub base64: String,
     pub media_type: String,

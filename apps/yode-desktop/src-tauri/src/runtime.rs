@@ -24,7 +24,8 @@ use yode_tools::tool::McpResourceProvider;
 
 use crate::protocol::{
     Bootstrap, CreateSessionRequest, DefaultLlm, DesktopEvent, DesktopImageOutput, DesktopMessage,
-    DesktopProvider, DesktopSession, RuntimeState, SendMessageRequest, TurnAccepted,
+    DesktopProvider, DesktopSession, RuntimeState, SendMessageRequest, TerminalRunRequest,
+    TerminalRunResponse, TurnAccepted,
 };
 
 pub struct DesktopRuntime {
@@ -43,6 +44,7 @@ pub struct DesktopRuntime {
     cancel_tokens: Arc<Mutex<HashMap<(String, String), tokio_util::sync::CancellationToken>>>,
     pending_confirmations: Arc<Mutex<HashMap<(String, String), PendingConfirmation>>>,
     session_permission_rules: Arc<Mutex<HashMap<String, Vec<PermissionRule>>>>,
+    terminal_sessions: Mutex<HashMap<String, TerminalSessionState>>,
 }
 
 #[derive(Debug, Clone)]
@@ -51,9 +53,15 @@ struct PendingConfirmation {
     command: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+struct TerminalSessionState {
+    cwd: PathBuf,
+    env: HashMap<String, String>,
+}
+
 impl DesktopRuntime {
     pub fn new() -> Result<Self> {
-        let workspace_path = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let workspace_path = resolve_desktop_workspace_path();
         let db_path = dirs::home_dir()
             .unwrap_or_else(|| workspace_path.clone())
             .join(".yode")
@@ -88,6 +96,7 @@ impl DesktopRuntime {
             cancel_tokens: Arc::new(Mutex::new(HashMap::new())),
             pending_confirmations: Arc::new(Mutex::new(HashMap::new())),
             session_permission_rules: Arc::new(Mutex::new(HashMap::new())),
+            terminal_sessions: Mutex::new(HashMap::new()),
         })
     }
 
@@ -228,39 +237,90 @@ impl DesktopRuntime {
         Ok(())
     }
 
-    pub fn terminal_run(&self, command: String) -> Result<String> {
-        let trimmed = command.trim();
+    pub fn terminal_run(&self, request: TerminalRunRequest) -> Result<TerminalRunResponse> {
+        let trimmed = request.command.trim();
         if trimmed.is_empty() {
-            return Ok(String::new());
+            let cwd = self
+                .terminal_session(&request.session_id)?
+                .cwd
+                .display()
+                .to_string();
+            return Ok(TerminalRunResponse {
+                output: String::new(),
+                cwd,
+                exit_code: 0,
+            });
         }
+
+        let mut session = self.terminal_session(&request.session_id)?;
+        let marker = format!("__YODE_TERMINAL_{}__", Uuid::new_v4().simple());
+        let script = format!(
+            "{{\n{}\n}}\n__yode_status=$?\nprintf '\\n{}STATUS:%s\\n' \"$__yode_status\"\nprintf '{}PWD:'\npwd\nprintf '{}ENV:'\nenv -0\n",
+            trimmed, marker, marker, marker
+        );
 
         let output = std::process::Command::new("sh")
             .arg("-lc")
-            .arg(trimmed)
-            .current_dir(&self.workspace_path)
+            .arg(script)
+            .current_dir(&session.cwd)
+            .env_clear()
+            .envs(&session.env)
             .output()
             .with_context(|| format!("failed to run terminal command '{}'", trimmed))?;
 
-        let mut text = String::new();
-        let stdout = String::from_utf8_lossy(&output.stdout);
+        let (stdout, cwd, env, exit_code) = parse_terminal_run_stdout(
+            &output.stdout,
+            &marker,
+            &session.cwd,
+            &session.env,
+            output.status.code().unwrap_or(1),
+        );
+        session.cwd = cwd;
+        session.env = env;
+        self.terminal_sessions
+            .lock()
+            .map_err(|_| anyhow::anyhow!("terminal session lock poisoned"))?
+            .insert(request.session_id, session.clone());
+
+        let mut text = stdout;
         let stderr = String::from_utf8_lossy(&output.stderr);
-        if !stdout.trim().is_empty() {
-            text.push_str(stdout.trim_end());
-        }
         if !stderr.trim().is_empty() {
             if !text.is_empty() {
                 text.push('\n');
             }
             text.push_str(stderr.trim_end());
         }
-        if text.is_empty() {
-            text.push_str(if output.status.success() {
-                "命令执行完成，无输出。"
-            } else {
-                "命令执行失败，无输出。"
-            });
+        if text.is_empty() && exit_code != 0 {
+            text.push_str("命令执行失败，无输出。");
         }
-        Ok(text)
+
+        Ok(TerminalRunResponse {
+            output: text,
+            cwd: session.cwd.display().to_string(),
+            exit_code,
+        })
+    }
+
+    pub fn terminal_close(&self, session_id: String) -> Result<()> {
+        self.terminal_sessions
+            .lock()
+            .map_err(|_| anyhow::anyhow!("terminal session lock poisoned"))?
+            .remove(&session_id);
+        Ok(())
+    }
+
+    fn terminal_session(&self, session_id: &str) -> Result<TerminalSessionState> {
+        let mut sessions = self
+            .terminal_sessions
+            .lock()
+            .map_err(|_| anyhow::anyhow!("terminal session lock poisoned"))?;
+        Ok(sessions
+            .entry(session_id.to_string())
+            .or_insert_with(|| TerminalSessionState {
+                cwd: self.workspace_path.clone(),
+                env: std::env::vars().collect(),
+            })
+            .clone())
     }
 
     pub fn turn_send_message(
@@ -1463,7 +1523,176 @@ fn stored_images(message: &StoredMessage) -> Vec<yode_llm::types::ImageData> {
         .unwrap_or_default()
 }
 
+fn resolve_desktop_workspace_path() -> PathBuf {
+    let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    find_workspace_root(&current_dir).unwrap_or(current_dir)
+}
+
+fn find_workspace_root(start: &std::path::Path) -> Option<PathBuf> {
+    for ancestor in start.ancestors() {
+        if ancestor.join(".git").is_dir() || is_cargo_workspace_root(ancestor) {
+            return Some(ancestor.to_path_buf());
+        }
+    }
+    None
+}
+
+fn is_cargo_workspace_root(path: &std::path::Path) -> bool {
+    std::fs::read_to_string(path.join("Cargo.toml"))
+        .map(|content| content.contains("[workspace]"))
+        .unwrap_or(false)
+}
+
+fn parse_terminal_run_stdout(
+    stdout: &[u8],
+    marker: &str,
+    fallback_cwd: &std::path::Path,
+    fallback_env: &HashMap<String, String>,
+    fallback_exit_code: i32,
+) -> (String, PathBuf, HashMap<String, String>, i32) {
+    let status_marker = format!("\n{}STATUS:", marker).into_bytes();
+    let Some(status_start) = find_bytes(stdout, &status_marker) else {
+        return (
+            String::from_utf8_lossy(stdout).trim_end().to_string(),
+            fallback_cwd.to_path_buf(),
+            fallback_env.clone(),
+            fallback_exit_code,
+        );
+    };
+
+    let visible_stdout = String::from_utf8_lossy(&stdout[..status_start])
+        .trim_end_matches('\n')
+        .to_string();
+    let status_value_start = status_start + status_marker.len();
+    let status_end = stdout[status_value_start..]
+        .iter()
+        .position(|byte| *byte == b'\n')
+        .map(|offset| status_value_start + offset)
+        .unwrap_or(stdout.len());
+    let exit_code = String::from_utf8_lossy(&stdout[status_value_start..status_end])
+        .trim()
+        .parse::<i32>()
+        .unwrap_or(fallback_exit_code);
+
+    let pwd_marker = format!("{}PWD:", marker).into_bytes();
+    let env_marker = format!("{}ENV:", marker).into_bytes();
+    let pwd_start =
+        find_bytes_from(stdout, &pwd_marker, status_end).map(|idx| idx + pwd_marker.len());
+    let env_start = find_bytes_from(stdout, &env_marker, status_end);
+
+    let cwd = pwd_start
+        .and_then(|start| {
+            let end = stdout[start..]
+                .iter()
+                .position(|byte| *byte == b'\n')
+                .map(|offset| start + offset)
+                .unwrap_or(stdout.len());
+            let path = String::from_utf8_lossy(&stdout[start..end])
+                .trim()
+                .to_string();
+            if path.is_empty() {
+                None
+            } else {
+                Some(PathBuf::from(path))
+            }
+        })
+        .unwrap_or_else(|| fallback_cwd.to_path_buf());
+
+    let env = env_start
+        .map(|start| parse_null_delimited_env(&stdout[start + env_marker.len()..]))
+        .filter(|env| !env.is_empty())
+        .unwrap_or_else(|| fallback_env.clone());
+
+    (visible_stdout, cwd, env, exit_code)
+}
+
+fn parse_null_delimited_env(bytes: &[u8]) -> HashMap<String, String> {
+    bytes
+        .split(|byte| *byte == 0)
+        .filter_map(|entry| {
+            if entry.is_empty() {
+                return None;
+            }
+            let eq = entry.iter().position(|byte| *byte == b'=')?;
+            let key = String::from_utf8_lossy(&entry[..eq]).to_string();
+            let value = String::from_utf8_lossy(&entry[eq + 1..]).to_string();
+            Some((key, value))
+        })
+        .collect()
+}
+
+fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    find_bytes_from(haystack, needle, 0)
+}
+
+fn find_bytes_from(haystack: &[u8], needle: &[u8], start: usize) -> Option<usize> {
+    if needle.is_empty() || haystack.len() < needle.len() || start >= haystack.len() {
+        return None;
+    }
+    haystack[start..]
+        .windows(needle.len())
+        .position(|window| window == needle)
+        .map(|offset| start + offset)
+}
+
 fn relative_time(updated_at: DateTime<Utc>) -> String {
     let local_time = updated_at.with_timezone(&chrono::Local);
     local_time.format("%m月%d日 %H:%M").to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn workspace_root_detection_climbs_out_of_src_tauri() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../..")
+            .canonicalize()
+            .unwrap();
+        let src_tauri = root.join("apps/yode-desktop/src-tauri");
+
+        assert_eq!(
+            find_workspace_root(&src_tauri).as_deref(),
+            Some(root.as_path())
+        );
+    }
+
+    #[test]
+    fn terminal_stdout_parser_extracts_runtime_state() {
+        let marker = "__YODE_TERMINAL_TEST__";
+        let stdout = b"hello\n__YODE_TERMINAL_TEST__STATUS:7\n__YODE_TERMINAL_TEST__PWD:/tmp/project\n__YODE_TERMINAL_TEST__ENV:FOO=bar\0PWD=/tmp/project\0";
+        let fallback_env = HashMap::from([("FOO".to_string(), "old".to_string())]);
+
+        let (visible, cwd, env, exit_code) = parse_terminal_run_stdout(
+            stdout,
+            marker,
+            std::path::Path::new("/tmp"),
+            &fallback_env,
+            1,
+        );
+
+        assert_eq!(visible, "hello");
+        assert_eq!(cwd, PathBuf::from("/tmp/project"));
+        assert_eq!(env.get("FOO"), Some(&"bar".to_string()));
+        assert_eq!(exit_code, 7);
+    }
+
+    #[test]
+    fn terminal_stdout_parser_falls_back_without_marker() {
+        let fallback_env = HashMap::from([("FOO".to_string(), "old".to_string())]);
+
+        let (visible, cwd, env, exit_code) = parse_terminal_run_stdout(
+            b"plain output\n",
+            "__YODE_TERMINAL_TEST__",
+            std::path::Path::new("/tmp"),
+            &fallback_env,
+            2,
+        );
+
+        assert_eq!(visible, "plain output");
+        assert_eq!(cwd, PathBuf::from("/tmp"));
+        assert_eq!(env.get("FOO"), Some(&"old".to_string()));
+        assert_eq!(exit_code, 2);
+    }
 }
