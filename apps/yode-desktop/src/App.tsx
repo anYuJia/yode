@@ -256,7 +256,7 @@ export function App() {
   const [projectOrder, setProjectOrder] = useState<string[]>(() => loadStoredProjectOrder());
   const [selectedProjectRoot, setSelectedProjectRoot] = useState<string | null | undefined>(() => loadStoredSelectedProjectRoot());
   const [inspectorOpen, setInspectorOpen] = useState(true);
-  const [terminalOpen, setTerminalOpen] = useState(false);
+  const [terminalOpenByConversation, setTerminalOpenByConversation] = useState<Record<string, boolean>>({});
   const [isProcessing, setIsProcessing] = useState(false);
   const [messageQueue, setMessageQueue] = useState<Array<{ content: string; images: ImageAttachment[] }>>([]);
   const [composerImages, setComposerImages] = useState<ImageAttachment[]>([]);
@@ -1073,6 +1073,14 @@ export function App() {
   const displayedWorkspacePath = isStandalone
     ? null
     : (activeSession?.projectRoot ?? selectedProjectRoot ?? bootstrap.workspacePath);
+  const terminalConversationKey = activeSessionId ?? "__draft__";
+  const terminalOpen = terminalOpenByConversation[terminalConversationKey] ?? false;
+  const setTerminalOpenForCurrentConversation = (open: boolean) => {
+    setTerminalOpenByConversation((current) => ({
+      ...current,
+      [terminalConversationKey]: open
+    }));
+  };
 
   return (
     <main className="app-shell">
@@ -1099,7 +1107,7 @@ export function App() {
           isProcessing={isProcessing && !pendingUserQuestion}
           onToggleInspector={() => setInspectorOpen(!inspectorOpen)}
           terminalOpen={terminalOpen}
-          onToggleTerminal={() => setTerminalOpen(!terminalOpen)}
+          onToggleTerminal={() => setTerminalOpenForCurrentConversation(!terminalOpen)}
           currentProvider={currentProvider}
           currentModel={currentModel}
           onProviderChange={handleUpdateProvider}
@@ -1133,7 +1141,7 @@ export function App() {
         />
         <TerminalDrawer
           isOpen={terminalOpen}
-          onClose={() => setTerminalOpen(false)}
+          onClose={() => setTerminalOpenForCurrentConversation(false)}
           workspacePath={displayedWorkspacePath ?? bootstrap.workspacePath}
           conversationId={activeSessionId}
         />
