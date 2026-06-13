@@ -4,7 +4,8 @@ import {
   parseToolDetails,
   shouldHideActivityItem,
   summarizeActivityItems,
-  activityGroupPreview
+  activityGroupPreview,
+  getActivityDescriptor
 } from "./activity/ToolUtils";
 
 export function normalizeProcessNoteText(text: string) {
@@ -194,7 +195,15 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
   const result: TimelineItem[] = [];
   let buffer: Array<Extract<TimelineItem, { kind: "tool" }>> = [];
 
-  const getToolType = (toolName: string, title: string) => {
+  const getToolType = (item: Extract<TimelineItem, { kind: "tool" }>) => {
+    const descriptor = getActivityDescriptor(item);
+    if (descriptor.kind === "read") return "explore";
+    if (descriptor.kind === "search") return "search";
+    if (descriptor.kind === "edit") return "edit";
+    if (descriptor.kind === "run") return "run";
+
+    const toolName = item.tool || "";
+    const title = item.title || "";
     const t = (toolName || "").toLowerCase();
     const ttl = (title || "").toLowerCase();
     if (t.includes("search") || t.includes("url") || ttl.includes("search") || ttl.includes("url") || ttl.includes("搜索") || ttl.includes("网页")) {
@@ -239,9 +248,9 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
     const tools = buffer.filter(item => item.kind === "tool");
     const visibleTools = tools.filter(item => !shouldHideActivityItem(item));
     
-    const runTools = visibleTools.filter(t => getToolType(t.tool || "", t.title || "") === "run");
-    const searchTools = visibleTools.filter(t => getToolType(t.tool || "", t.title || "") === "search");
-    const exploreTools = visibleTools.filter(t => getToolType(t.tool || "", t.title || "") === "explore");
+    const runTools = visibleTools.filter(t => getToolType(t) === "run");
+    const searchTools = visibleTools.filter(t => getToolType(t) === "search");
+    const exploreTools = visibleTools.filter(t => getToolType(t) === "explore");
     
     const nonEmptyGroups = [runTools, searchTools, exploreTools].filter((group) => group.length > 0).length;
 
@@ -277,20 +286,28 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
     
     let label = "";
     if (groupType === "explore") {
-      label = isRunning ? "Exploring" : "Explored";
-      label += ` ${count} file${count > 1 ? "s" : ""}`;
+      label = `${isRunning ? "正在探索" : "已探索"} ${count} 个文件`;
     } else if (groupType === "search") {
-      label = isRunning ? "Searching web" : "Searched web";
-      label += ` ${count} time${count > 1 ? "s" : ""}`;
+      label = `${isRunning ? "正在搜索" : "已搜索"} ${count} 次`;
     } else if (groupType === "run") {
-      label = isRunning ? "Running" : "Ran";
-      label += ` ${count} command${count > 1 ? "s" : ""}`;
+      label = `${isRunning ? "正在运行" : "已运行"} ${count} 条命令`;
     } else if (groupType === "mixed") {
-      label = isRunning ? "Working" : "Worked";
-      label += ` across ${visibleTools.length || 1} actions`;
+      const parts: string[] = [];
+      if (exploreTools.length > 0) {
+        const files = new Set<string>();
+        exploreTools.forEach((item) => {
+          const descriptor = getActivityDescriptor(item);
+          if (descriptor.filename) files.add(descriptor.filename);
+        });
+        parts.push(`${isRunning ? "正在探索" : "已探索"} ${files.size || exploreTools.length} 个文件`);
+      }
+      if (searchTools.length > 0) parts.push(`${isRunning ? "正在搜索" : "已搜索"} ${searchTools.length} 次`);
+      if (runTools.length > 0) parts.push(`${isRunning ? "正在运行" : "已运行"} ${runTools.length} 条命令`);
+      const editTools = visibleTools.filter(t => getToolType(t) === "edit");
+      if (editTools.length > 0) parts.push(`${isRunning ? "正在修改" : "已修改"} ${editTools.length} 个文件`);
+      label = parts.length > 0 ? parts.join("") : `${isRunning ? "正在处理" : "已处理"} ${visibleTools.length || 1} 项`;
     } else {
-      label = isRunning ? "Executing" : "Executed";
-      label += ` ${count} action${count > 1 ? "s" : ""}`;
+      label = `${isRunning ? "正在执行" : "已执行"} ${count} 项`;
     }
     
     result.push({
@@ -406,7 +423,7 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
 
       const parsed = parseToolDetails(item);
       const modifiedFiles = parsed.modifiedFiles || [];
-      const type = modifiedFiles.length > 0 ? "edit" : getToolType(item.tool || "", item.title || "");
+      const type = modifiedFiles.length > 0 ? "edit" : getToolType(item);
       if (type === "edit") {
         flushBuffer();
         const files = modifiedFiles.length > 0 ? modifiedFiles : [parsed.filename];

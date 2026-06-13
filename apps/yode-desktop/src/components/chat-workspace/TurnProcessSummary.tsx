@@ -64,10 +64,7 @@ export function TurnProcessSummary({ turnId, isActive, isExpanded, onToggle, dur
       </span>
       <span className="turn-process-summary-main">{title}</span>
       <span className="turn-process-summary-detail">{detail}</span>
-      <ChevronDown size={13} style={{
-        opacity: 0.7,
-        transform: isExpanded ? "none" : "rotate(-90deg)"
-      }} />
+      <ChevronDown size={13} className="turn-process-summary-chevron" />
     </button>
   );
 }

@@ -7,160 +7,12 @@ import {
   parseToolDetails,
   displayToolName,
   summarizeActivityItems,
-  activityGroupPreview
+  activityGroupPreview,
+  getActivityDescriptor
 } from "./ToolUtils";
 
-export interface AgentAction {
-  id: string;
-  type: "explore" | "edit" | "run" | "mixed" | "reasoning";
-  label: string;
-  items: TimelineItem[];
-}
-
-export function compileTurnActions(items: TimelineItem[]): AgentAction[] {
-  const actions: AgentAction[] = [];
-  const toolsRun = items.filter((item): item is Extract<TimelineItem, { kind: "tool" }> => item.kind === "tool");
-  
-  const isExploreTool = (toolName: string, title: string) => {
-    const t = (toolName || "").toLowerCase();
-    const ttl = (title || "").toLowerCase();
-    return t.includes("read") || t.includes("view") || t.includes("list") || 
-           t.includes("grep") || t.includes("map") || t.includes("glob") || 
-           t.includes("ls") || t.includes("find") || t.includes("locate") ||
-           ttl.includes("read") || ttl.includes("view") || ttl.includes("list") || 
-           ttl.includes("grep") || ttl.includes("map") || ttl.includes("glob") || 
-           ttl.includes("ls") || ttl.includes("find") || ttl.includes("locate") ||
-           ttl.includes("探索") || ttl.includes("查看") || ttl.includes("搜索") || ttl.includes("读取");
-  };
-
-  const isEditTool = (toolName: string, title: string) => {
-    const t = (toolName || "").toLowerCase();
-    const ttl = (title || "").toLowerCase();
-    return t.includes("write") || t.includes("edit") || t.includes("replace") || 
-           t.includes("create") || t.includes("patch") || t.includes("modify") ||
-           ttl.includes("write") || ttl.includes("edit") || ttl.includes("replace") || 
-           ttl.includes("create") || ttl.includes("patch") || ttl.includes("modify") ||
-           ttl.includes("写入") || ttl.includes("修改") || ttl.includes("编辑") || ttl.includes("替换");
-  };
-
-  const isRunTool = (toolName: string, title: string) => {
-    const t = (toolName || "").toLowerCase();
-    const ttl = (title || "").toLowerCase();
-    return t.includes("run") || t.includes("command") || t.includes("bash") || 
-           t.includes("execute") || t.includes("cmd") || t.includes("sh") ||
-           ttl.includes("run") || ttl.includes("command") || ttl.includes("bash") || 
-           ttl.includes("execute") || ttl.includes("cmd") || ttl.includes("sh") ||
-           ttl.includes("运行") || ttl.includes("执行");
-  };
-
-  const hasReasoning = items.some(item => item.kind === "reasoning");
-  const isThinking = items.some(item => item.kind === "reasoning" && (item as any).meta === "running");
-  if (hasReasoning) {
-    const reasoningItems = items.filter(item => item.kind === "reasoning");
-    const completedItem = reasoningItems.find(item => (item as any).meta !== "running");
-    let label = "已思考";
-    if (isThinking) {
-      label = "正在思考...";
-    } else if (completedItem) {
-      label = (completedItem as any).title || "已思考";
-    }
-    actions.push({
-      id: "reasoning",
-      type: "reasoning",
-      label,
-      items: reasoningItems
-    });
-  }
-
-  const readTools = toolsRun.filter(item => isExploreTool(item.tool || "", item.title || ""));
-  if (readTools.length > 0) {
-    const isRunning = readTools.some(item => item.status === "running");
-    actions.push({
-      id: "explore",
-      type: "explore",
-      label: isRunning ? "正在探索..." : "正在探索",
-      items: readTools
-    });
-  }
-
-  const writeTools = toolsRun.filter(item => isEditTool(item.tool || "", item.title || ""));
-  if (writeTools.length > 0) {
-    const isRunning = writeTools.some(item => item.status === "running");
-    actions.push({
-      id: "edit",
-      type: "edit",
-      label: isRunning ? "正在修改..." : "正在修改",
-      items: writeTools
-    });
-  }
-
-  const runTools = toolsRun.filter(item => isRunTool(item.tool || "", item.title || ""));
-  if (runTools.length > 0) {
-    const isRunning = runTools.some(item => item.status === "running");
-    actions.push({
-      id: "run",
-      type: "run",
-      label: isRunning ? "正在运行..." : "正在运行",
-      items: runTools
-    });
-  }
-
-  const otherTools = toolsRun.filter(item => 
-    !isExploreTool(item.tool || "", item.title || "") && 
-    !isEditTool(item.tool || "", item.title || "") && 
-    !isRunTool(item.tool || "", item.title || "")
-  );
-  if (otherTools.length > 0) {
-    const isRunning = otherTools.some(item => item.status === "running");
-    actions.push({
-      id: "other_tools",
-      type: "run",
-      label: isRunning ? "正在执行..." : "正在执行",
-      items: otherTools
-    });
-  }
-
-  const uniqueToolCalls = toolsRun.filter(item => item.title !== "工具结果");
-  if (uniqueToolCalls.length > 0) {
-    actions.push({
-      id: "total_tools",
-      type: "run",
-      label: `工具调用次数: ${uniqueToolCalls.length}`,
-      items: uniqueToolCalls
-    });
-  }
-
-  return actions;
-}
-
-type ActivityKind = "explore" | "search" | "run" | "other";
-
-function classifyActivityTool(item: any): ActivityKind {
-  const toolName = (item.tool || "").toLowerCase();
-  const title = (item.title || "").toLowerCase();
-
-  if (toolName.includes("search_web") || toolName.includes("read_url") || title.includes("网页") || title.includes("web")) {
-    return "search";
-  }
-
-  if (
-    toolName.includes("run") || toolName.includes("command") || toolName.includes("bash") ||
-    toolName.includes("execute") || toolName.includes("cmd") || toolName.includes("sh") ||
-    title.includes("运行") || title.includes("执行") || title.includes("command") || title.includes("bash")
-  ) {
-    return "run";
-  }
-
-  if (
-    toolName.includes("read") || toolName.includes("view") || toolName.includes("list") ||
-    toolName.includes("grep") || toolName.includes("map") || toolName.includes("glob") ||
-    toolName.includes("ls") || toolName.includes("find") || toolName.includes("locate") ||
-    title.includes("探索") || title.includes("查看") || title.includes("搜索") || title.includes("读取")
-  ) {
-    return "explore";
-  }
-
-  return "other";
+function classifyActivityTool(item: any) {
+  return getActivityDescriptor(item).kind;
 }
 
 function noun(count: number, zhSingular: string, enSingular: string, enPlural: string, isZh: boolean) {
@@ -171,17 +23,18 @@ function noun(count: number, zhSingular: string, enSingular: string, enPlural: s
 function buildActivityGroupLabel(items: any[], appLang: string, isRunning: boolean) {
   const isZh = appLang === "zh";
   const tools = items.filter((item) => item.kind === "tool");
-  const exploreTools = tools.filter((item) => classifyActivityTool(item) === "explore");
+  const exploreTools = tools.filter((item) => classifyActivityTool(item) === "read");
   const searchTools = tools.filter((item) => classifyActivityTool(item) === "search");
   const runTools = tools.filter((item) => classifyActivityTool(item) === "run");
-  const otherTools = tools.filter((item) => classifyActivityTool(item) === "other");
+  const editTools = tools.filter((item) => classifyActivityTool(item) === "edit");
+  const otherTools = tools.filter((item) => !["read", "search", "run", "edit"].includes(classifyActivityTool(item)));
   const parts: string[] = [];
 
   if (exploreTools.length > 0) {
     const files = new Set<string>();
     exploreTools.forEach((item) => {
-      const parsed = parseToolDetails(item);
-      if (parsed.filename) files.add(parsed.filename);
+      const descriptor = getActivityDescriptor(item);
+      if (descriptor.filename) files.add(descriptor.filename);
     });
     const count = files.size || exploreTools.length;
     parts.push(isZh
@@ -199,6 +52,18 @@ function buildActivityGroupLabel(items: any[], appLang: string, isRunning: boole
     parts.push(isZh
       ? `${isRunning ? "正在运行" : "已运行"} ${noun(runTools.length, "条命令", "command", "commands", true)}`
       : `${isRunning ? "Running" : "Ran"} ${noun(runTools.length, "", "command", "commands", false)}`);
+  }
+
+  if (editTools.length > 0) {
+    const files = new Set<string>();
+    editTools.forEach((item) => {
+      const descriptor = getActivityDescriptor(item);
+      if (descriptor.filename) files.add(descriptor.filename);
+    });
+    const count = files.size || editTools.length;
+    parts.push(isZh
+      ? `${isRunning ? "正在修改" : "已修改"} ${noun(count, files.size > 0 ? "个文件" : "项", "file", "files", true)}`
+      : `${isRunning ? "Editing" : "Edited"} ${noun(count, "", "file", "files", false)}`);
   }
 
   if (otherTools.length > 0) {
@@ -246,61 +111,31 @@ export function ActivityGroupNode({ group, appLang, isTurnActive }: { group: any
     (isZh ? (isRunning ? "正在执行..." : `已执行 ${count} 个操作`) : (isRunning ? "Working..." : `Executed ${count} action${count > 1 ? "s" : ""}`));
 
   return (
-    <div style={{
-      maxWidth: "1064px",
-      width: "100%",
-      margin: "4px auto 8px",
-      paddingLeft: "33px",
-      fontSize: "12px",
-      color: "var(--process-meta)",
-      userSelect: "none"
-    }}>
+    <div className="activity-group-node">
       <div 
         onClick={() => {
           setIsExpanded(!isExpanded);
           setHasManuallyToggled(true);
         }}
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: "6px",
-          cursor: "pointer",
-          transition: "color 0.15s ease",
-          fontWeight: "500",
-        }}
-        onMouseEnter={(e) => { e.currentTarget.style.color = "var(--process-text-strong)"; }}
-        onMouseLeave={(e) => { e.currentTarget.style.color = "var(--process-meta)"; }}
+        className="activity-group-trigger"
       >
         <span>{label}</span>
-        {isExpanded ? <ChevronDown size={12} style={{ opacity: 0.8 }} /> : <ChevronRight size={12} style={{ opacity: 0.8 }} />}
+        {isExpanded ? <ChevronDown size={12} className="activity-chevron strong" /> : <ChevronRight size={12} className="activity-chevron strong" />}
       </div>
 
       {!isExpanded && visibleItems.length > 0 && (
-        <div style={{
-          marginTop: "5px",
-          paddingLeft: "16px",
-          color: "var(--process-text)",
-          fontSize: "12px",
-          lineHeight: 1.5,
-          maxWidth: "68ch"
-        }}>
+        <div className="activity-group-preview">
           {activityGroupPreview(visibleItems, appLang)}
         </div>
       )}
 
       {isExpanded && (
-        <div style={{
-          marginTop: "6px",
-          paddingLeft: "16px",
-          display: "flex",
-          flexDirection: "column",
-          gap: "6px",
-        }}>
+        <div className="activity-group-items">
           {displayedItems.map((item: any, idx: number) => (
-            <ActivityLeafNode key={idx} item={item} appLang={appLang} />
+            <ActivityLeafNode key={item.id || idx} item={item} appLang={appLang} />
           ))}
           {hiddenCount > 0 && (
-            <div style={{ color: "var(--process-dim)", fontSize: "12px" }}>
+            <div className="activity-hidden-count">
               {isZh ? `已折叠 ${hiddenCount} 条重复/低优先级活动` : `${hiddenCount} repeated or low-priority activities hidden`}
             </div>
           )}
@@ -311,21 +146,25 @@ export function ActivityGroupNode({ group, appLang, isTurnActive }: { group: any
               if (runningItem.kind === "reasoning") {
                 statusText = isZh ? "正在思考..." : "Thinking...";
               } else if (runningItem.kind === "tool") {
-                const parsed = parseToolDetails(runningItem);
-                if (runningItem.tool?.includes("run") || runningItem.tool?.includes("command") || runningItem.tool?.includes("bash")) {
-                  statusText = parsed.command
-                    ? (isZh ? `正在运行命令 ${parsed.command}...` : `Running command ${parsed.command}...`)
+                const descriptor = getActivityDescriptor(runningItem);
+                if (descriptor.kind === "run") {
+                  statusText = descriptor.command
+                    ? (isZh ? `正在运行命令 ${descriptor.command}...` : `Running command ${descriptor.command}...`)
                     : (isZh ? "正在运行命令..." : "Running command...");
-                } else if (parsed.filename) {
-                  statusText = isZh ? `正在分析 ${parsed.filename}...` : `Analyzing ${parsed.filename}...`;
+                } else if (descriptor.kind === "read" && descriptor.filename) {
+                  statusText = isZh ? `正在读取 ${descriptor.filename}...` : `Reading ${descriptor.filename}...`;
+                } else if (descriptor.kind === "search") {
+                  statusText = isZh ? `正在搜索 ${descriptor.target}...` : `Searching ${descriptor.target}...`;
+                } else if (descriptor.kind === "edit" && descriptor.filename) {
+                  statusText = isZh ? `正在修改 ${descriptor.filename}...` : `Editing ${descriptor.filename}...`;
                 } else {
                   statusText = isZh ? `正在执行 ${displayToolName(runningItem.tool)}...` : `Executing ${displayToolName(runningItem.tool)}...`;
                 }
               }
             }
             return (
-              <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "var(--process-accent)", fontSize: "11.75px", fontStyle: "italic" }}>
-                <CircleDot size={10} className="glowing-logo" style={{ animation: "pulse 2s infinite" }} />
+              <div className="activity-running-status">
+                <CircleDot size={10} className="activity-running-dot" />
                 <span>{statusText}</span>
               </div>
             );
@@ -355,58 +194,26 @@ export function ActivityItemNode({ node, appLang }: { node: any; appLang: string
   }
 
   return (
-    <div style={{
-      maxWidth: "1064px",
-      width: "100%",
-      margin: "4px auto 8px",
-      paddingLeft: "33px",
-      fontSize: "12px",
-      color: "var(--process-meta)",
-      userSelect: "none"
-    }}>
+    <div className="activity-group-node">
       <div 
         onClick={() => node.body && setIsExpanded(!isExpanded)}
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: "6px",
-          cursor: node.body ? "pointer" : "default",
-          transition: "color 0.15s ease",
-          fontWeight: "500",
-        }}
-        onMouseEnter={(e) => { if (node.body) e.currentTarget.style.color = "var(--process-text-strong)"; }}
-        onMouseLeave={(e) => { if (node.body) e.currentTarget.style.color = "var(--process-meta)"; }}
+        className={`activity-group-trigger ${node.body ? "interactive" : "static"}`}
       >
         <span>{label}</span>
         {(node.filename || parsed.filename) ? getFileIcon(node.filename || parsed.filename) : null}
         {(node.filename || parsed.filename) && (
-          <span style={{ color: "var(--process-text)", fontWeight: "520" }}>{node.filename || parsed.filename}</span>
+          <span className="activity-strong">{node.filename || parsed.filename}</span>
         )}
-        {addCount && <span style={{ color: "#34d399", fontWeight: "600", marginLeft: "4px" }}>{addCount}</span>}
-        {delCount && <span style={{ color: "#f87171", fontWeight: "600", marginLeft: "2px" }}>{delCount}</span>}
+        {addCount && <span className="diff-add activity-diff-count">{addCount}</span>}
+        {delCount && <span className="diff-del activity-diff-count">{delCount}</span>}
         {node.body && (
-          isExpanded ? <ChevronDown size={12} style={{ opacity: 0.8 }} /> : <ChevronRight size={12} style={{ opacity: 0.8 }} />
+          isExpanded ? <ChevronDown size={12} className="activity-chevron strong" /> : <ChevronRight size={12} className="activity-chevron strong" />
         )}
       </div>
 
       {isExpanded && (node.body || parsed.diffPreview) && (
-        <div style={{
-          marginTop: "6px",
-          paddingLeft: "16px",
-        }}>
-          <pre style={{
-            padding: "8px 12px",
-            background: "color-mix(in oklch, var(--field), transparent 2%)",
-            borderRadius: "6px",
-            overflowX: "auto",
-            maxHeight: "150px",
-            whiteSpace: "pre-wrap",
-            fontFamily: "var(--font-code)",
-            fontSize: "11px",
-            color: "var(--process-text)",
-            border: "1px solid var(--line-soft)",
-            maxWidth: "600px"
-          }}>
+        <div className="activity-edit-detail">
+          <pre className="activity-leaf-code activity-leaf-code-result">
             {parsed.diffPreview || node.body}
           </pre>
         </div>

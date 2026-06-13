@@ -49,6 +49,59 @@ export function isThinkingStatusTitle(title?: string) {
   return /思考|thinking|thought/i.test(title || "");
 }
 
+export type ActivityKind = "read" | "search" | "run" | "edit" | "mcp" | "image" | "other";
+
+export type ActivityDescriptor = {
+  kind: ActivityKind;
+  label: string;
+  target: string;
+  command?: string;
+  filename?: string;
+  lineRange?: string;
+  diff?: string;
+  diffPreview?: string;
+  modifiedFiles: string[];
+};
+
+function stringField(object: any, keys: string[]) {
+  if (!object || typeof object !== "object") return "";
+  for (const key of keys) {
+    const value = object[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+function baseName(path: string) {
+  const clean = path.trim();
+  if (!clean) return "";
+  return clean.substring(Math.max(clean.lastIndexOf("/"), clean.lastIndexOf("\\")) + 1);
+}
+
+function normalizeActivityKind(value: string): ActivityKind {
+  const kind = value.toLowerCase();
+  if (kind === "read" || kind === "explore" || kind === "list" || kind === "view") return "read";
+  if (kind === "search" || kind === "web") return "search";
+  if (kind === "run" || kind === "command" || kind === "shell") return "run";
+  if (kind === "edit" || kind === "write" || kind === "patch") return "edit";
+  if (kind === "mcp") return "mcp";
+  if (kind === "image") return "image";
+  return "other";
+}
+
+function inferActivityKind(tool: string, title: string, parsed: ReturnType<typeof parseToolDetails>, metadata: any): ActivityKind {
+  const activityKind = stringField(metadata?.activity, ["kind", "type"]);
+  if (activityKind) return normalizeActivityKind(activityKind);
+
+  const name = `${tool} ${title}`.toLowerCase();
+  if (parsed.modifiedFiles.length > 0 || parsed.diff || metadata?.diff_preview) return "edit";
+  if (/write|edit|replace|patch|modify|create|写入|修改|编辑|替换/.test(name)) return "edit";
+  if (/run|command|bash|shell|execute|cmd|sh|运行|执行/.test(name)) return "run";
+  if (/search|grep|url|web|网页|搜索/.test(name)) return "search";
+  if (/read|view|list|grep|map|glob|ls|find|locate|project_map|resource|探索|查看|读取/.test(name)) return "read";
+  return "other";
+}
+
 export function parseToolDetails(item: { tool: string; body: string; title: string; metadata?: any }) {
   let filename = "";
   let lineRange = "";
@@ -183,6 +236,39 @@ export function parseToolDetails(item: { tool: string; body: string; title: stri
   return { filename, lineRange, diff, command, diffPreview, modifiedFiles };
 }
 
+export function getActivityDescriptor(item: { tool: string; body: string; title: string; metadata?: any }): ActivityDescriptor {
+  const parsed = parseToolDetails(item);
+  const metadata = item.metadata && typeof item.metadata === "object" ? item.metadata : null;
+  const activity = metadata?.activity && typeof metadata.activity === "object" ? metadata.activity : null;
+
+  const command = stringField(activity, ["command"]) || parsed.command;
+  const rawFile =
+    stringField(activity, ["file_path", "path"]) ||
+    parsed.filename ||
+    stringField(metadata, ["file_path", "path", "uri"]);
+  const filename = rawFile ? baseName(rawFile) : "";
+  const target =
+    stringField(activity, ["target", "label"]) ||
+    command ||
+    filename ||
+    stringField(metadata, ["pattern", "uri", "server", "name"]) ||
+    displayToolName(item.tool);
+  const kind = inferActivityKind(item.tool || "", item.title || "", parsed, metadata);
+  const label = stringField(activity, ["label"]) || target;
+
+  return {
+    kind,
+    label,
+    target,
+    command: command || undefined,
+    filename: filename || undefined,
+    lineRange: parsed.lineRange || undefined,
+    diff: parsed.diff || undefined,
+    diffPreview: parsed.diffPreview || undefined,
+    modifiedFiles: parsed.modifiedFiles,
+  };
+}
+
 export function summarizeActivityItems(items: any[]) {
   const summarized: any[] = [];
   const seen = new Map<string, any>();
@@ -195,11 +281,11 @@ export function summarizeActivityItems(items: any[]) {
       continue;
     }
 
-    const parsed = parseToolDetails(item);
+    const descriptor = getActivityDescriptor(item);
     const key = [
       item.kind,
       item.tool || "",
-      parsed.filename || parsed.command || "",
+      descriptor.filename || descriptor.command || descriptor.target || "",
     ].join(":");
 
     const existing = seen.get(key);
@@ -220,9 +306,10 @@ export function summarizeActivityItems(items: any[]) {
 
 export function activityItemSummary(item: any) {
   if (item.kind !== "tool") return "";
-  const parsed = parseToolDetails(item);
-  if (parsed.filename) return parsed.filename;
-  if (parsed.command) return parsed.command;
+  const descriptor = getActivityDescriptor(item);
+  if (descriptor.filename) return descriptor.filename;
+  if (descriptor.command) return descriptor.command;
+  if (descriptor.target) return descriptor.target;
   return displayToolName(item.tool);
 }
 

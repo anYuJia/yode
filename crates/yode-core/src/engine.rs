@@ -84,8 +84,9 @@ use retry::{
 };
 use subagent_runner::SubAgentRunnerImpl;
 use tool_result::{
-    annotate_tool_result_runtime_metadata, convert_tool_definitions,
-    dynamic_total_tool_results_limit, set_tool_runtime_truncation_metadata, truncate_tool_result,
+    annotate_tool_result_activity_metadata, annotate_tool_result_runtime_metadata,
+    convert_tool_definitions, dynamic_total_tool_results_limit,
+    set_tool_runtime_truncation_metadata, truncate_tool_result,
 };
 use types::{
     latest_transcript_runtime_state, CostRuntimeState, ProjectKind, RecoveryState,

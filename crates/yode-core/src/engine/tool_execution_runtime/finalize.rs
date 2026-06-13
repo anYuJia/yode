@@ -113,6 +113,7 @@ impl AgentEngine {
 
         let working_dir = self.current_runtime_working_dir().await;
         let effective_input = Self::parse_tool_input(&tool_call.arguments);
+        annotate_tool_result_activity_metadata(&mut result, &tool_call.name, &effective_input);
         self.run_post_tool_use_hooks(tool_call, &effective_input, &working_dir, &mut result)
             .await;
         self.emit_tool_specific_lifecycle_hooks(tool_call, &working_dir, &result)

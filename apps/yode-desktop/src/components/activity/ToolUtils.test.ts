@@ -1,0 +1,62 @@
+import { describe, expect, it } from "vitest";
+import { getActivityDescriptor, summarizeActivityItems } from "./ToolUtils";
+
+describe("ToolUtils activity descriptors", () => {
+  it("prefers structured activity metadata", () => {
+    const descriptor = getActivityDescriptor({
+      tool: "exec_command",
+      title: "运行命令",
+      body: "{\"cmd\":\"git status --short\"}",
+      metadata: {
+        activity: {
+          kind: "run",
+          label: "Run git status --short",
+          target: "git status --short",
+          command: "git status --short"
+        }
+      }
+    });
+
+    expect(descriptor.kind).toBe("run");
+    expect(descriptor.command).toBe("git status --short");
+    expect(descriptor.target).toBe("git status --short");
+  });
+
+  it("falls back to existing file metadata", () => {
+    const descriptor = getActivityDescriptor({
+      tool: "read_file",
+      title: "查看文件",
+      body: "",
+      metadata: {
+        file_path: "/Users/pyu/code/yode/apps/yode-desktop/src/styles/app.css",
+        start_line: 1,
+        end_line: 20
+      }
+    });
+
+    expect(descriptor.kind).toBe("read");
+    expect(descriptor.filename).toBe("app.css");
+  });
+
+  it("deduplicates repeated tool items by descriptor target", () => {
+    const items = summarizeActivityItems([
+      {
+        kind: "tool",
+        tool: "read_file",
+        title: "查看文件",
+        body: "",
+        metadata: { activity: { kind: "read", target: "app.css", file_path: "app.css" } }
+      },
+      {
+        kind: "tool",
+        tool: "read_file",
+        title: "查看文件",
+        body: "",
+        metadata: { activity: { kind: "read", target: "app.css", file_path: "app.css" } }
+      }
+    ]);
+
+    expect(items).toHaveLength(1);
+    expect(items[0].count).toBe(2);
+  });
+});

@@ -1,7 +1,5 @@
 import React, { useState, useEffect } from "react";
 import { ChevronDown, ChevronRight, CircleDot, Brain } from "lucide-react";
-import { TimelineItem } from "../../lib/mock";
-import { MarkdownContent } from "./MarkdownContent";
 
 interface ReasoningNodeProps {
   item: any;
@@ -21,63 +19,30 @@ export function ReasoningNode({ item, appLang }: ReasoningNodeProps) {
   }, [isRunning, hasManuallyToggled]);
 
   return (
-    <div
-      style={{
-        maxWidth: "1064px",
-        width: "100%",
-        margin: "4px auto 8px",
-        paddingLeft: "33px",
-        display: "flex",
-        flexDirection: "column",
-        gap: "4px"
-      }}
-    >
-
-      {/* 2. Collapsible Reasoning Link/Text */}
+    <div className="reasoning-node">
       {item.body && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-          {/* Simple Small Toggle Link */}
+        <div className="reasoning-node-stack">
           <div
             onClick={() => {
               setHasManuallyToggled(true);
               setIsExpanded(!isExpanded);
             }}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "6px",
-              cursor: "pointer",
-              userSelect: "none",
-              fontSize: "11.5px",
-              color: isRunning ? "var(--process-accent)" : "var(--process-meta)",
-              width: "fit-content"
-            }}
+            className={`reasoning-node-trigger ${isRunning ? "running" : "complete"}`}
           >
             {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
             {isRunning ? (
               <CircleDot
                 size={10}
-                className="glowing-logo"
-                style={{ animation: "pulse 1.5s infinite" }}
+                className="process-pulse-dot"
               />
             ) : (
-              <Brain size={10} style={{ opacity: 0.8 }} />
+              <Brain size={10} className="reasoning-complete-icon" />
             )}
             <span>{item.title || (isRunning ? "思考中..." : "已思考")}</span>
           </div>
 
-          {/* Collapsible Content - Monospace plain text, no borders or background */}
           {isExpanded && (
-            <div
-              style={{
-                paddingLeft: "18px",
-                fontSize: "11.5px",
-                lineHeight: "1.45",
-                fontFamily: "var(--font-code)",
-                whiteSpace: "pre-wrap",
-                color: "var(--process-text)",
-              }}
-            >
+            <div className="reasoning-node-body">
               {item.body}
             </div>
           )}

@@ -229,7 +229,14 @@ export function ChatWorkspace({
   };
 
   const timelineContentHash = useMemo(() => {
-    return timelineItems.map(item => `${item.id}-${(item as any).body?.length || 0}`).join("|");
+    return timelineItems.map(item => [
+      item.id,
+      (item as any).body?.length || 0,
+      (item as any).result?.length || 0,
+      (item as any).status || "",
+      (item as any).meta || "",
+      JSON.stringify((item as any).metadata || {}).length
+    ].join(":")).join("|");
   }, [timelineItems]);
 
   useLayoutEffect(() => {

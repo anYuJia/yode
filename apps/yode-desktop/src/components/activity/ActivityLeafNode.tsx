@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { getFileIcon, getCommandIcon } from "../FileIcon";
-import { parseToolDetails, displayToolName } from "./ToolUtils";
+import { getActivityDescriptor, displayToolName } from "./ToolUtils";
 
 export function ActivityLeafNode({ item, appLang }: { item: any; appLang: string }) {
   const isZh = appLang === "zh";
@@ -21,36 +21,18 @@ export function ActivityLeafNode({ item, appLang }: { item: any; appLang: string
     }
     
     return (
-      <div style={{ display: "flex", flexDirection: "column" }}>
+      <div className="activity-leaf">
         <div 
           onClick={() => item.body && setIsExpanded(!isExpanded)}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "4px",
-            cursor: item.body ? "pointer" : "default",
-            color: "var(--process-meta)",
-            fontSize: "11.75px"
-          }}
+          className={`activity-leaf-trigger ${item.body ? "interactive" : ""}`}
         >
           <span>{displayTitle}</span>
           {item.body && (
-            isExpanded ? <ChevronDown size={11} style={{ opacity: 0.6 }} /> : <ChevronRight size={11} style={{ opacity: 0.6 }} />
+            isExpanded ? <ChevronDown size={11} className="activity-chevron" /> : <ChevronRight size={11} className="activity-chevron" />
           )}
         </div>
         {isExpanded && item.body && (
-          <div style={{
-            marginTop: "4px",
-            padding: "8px 12px",
-            background: "color-mix(in oklch, var(--field), transparent 2%)",
-            borderRadius: "6px",
-            fontSize: "11px",
-            color: "var(--process-text)",
-            whiteSpace: "pre-wrap",
-            fontFamily: "var(--font-code)",
-            border: "1px solid var(--line-soft)",
-            maxWidth: "600px"
-          }}>
+          <div className="activity-leaf-detail activity-leaf-detail-reasoning">
             {item.body}
           </div>
         )}
@@ -59,17 +41,26 @@ export function ActivityLeafNode({ item, appLang }: { item: any; appLang: string
   }
 
   if (item.kind === "tool") {
-    const parsed = parseToolDetails(item);
+    const descriptor = getActivityDescriptor(item);
     const isRunning = item.status === "running";
     
     let label = "";
-    let value = parsed.filename ? `${parsed.filename}${parsed.lineRange}` : parsed.command;
-    if (item.tool?.includes("view") || item.tool?.includes("read") || item.tool?.includes("grep") || item.tool?.includes("glob") || item.tool?.includes("list")) {
-      label = isRunning ? (isZh ? "正在读取" : "Reading") : "Read";
-    } else if (item.tool?.includes("run") || item.tool?.includes("command") || item.tool?.includes("bash")) {
+    let value = descriptor.filename
+      ? `${descriptor.filename}${descriptor.lineRange || ""}`
+      : descriptor.command || descriptor.target;
+    if (descriptor.kind === "read" || descriptor.kind === "search") {
+      label = isRunning ? (isZh ? "正在读取" : "Reading") : (isZh ? "已读取" : "Read");
+      if (descriptor.kind === "search") {
+        label = isRunning ? (isZh ? "正在搜索" : "Searching") : (isZh ? "已搜索" : "Searched");
+      }
+    } else if (descriptor.kind === "run") {
       label = isRunning 
         ? (isZh ? "正在运行命令" : "Running command") 
         : (isZh ? "已运行" : "Ran");
+    } else if (descriptor.kind === "edit") {
+      label = isRunning
+        ? (isZh ? "正在修改" : "Editing")
+        : (isZh ? "已修改" : "Edited");
     } else {
       label = isRunning
         ? (isZh ? "正在执行" : "Executing")
@@ -78,78 +69,42 @@ export function ActivityLeafNode({ item, appLang }: { item: any; appLang: string
     }
 
     return (
-      <div style={{ display: "flex", flexDirection: "column" }}>
+      <div className="activity-leaf">
         <div 
           onClick={() => hasBodyOrResult && setIsExpanded(!isExpanded)}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "4px",
-            cursor: hasBodyOrResult ? "pointer" : "default",
-            color: "var(--process-meta)",
-            fontSize: "11.75px"
-          }}
+          className={`activity-leaf-trigger ${hasBodyOrResult ? "interactive" : ""}`}
         >
           <span>{label}</span>
-          {parsed.filename ? getFileIcon(parsed.filename) : parsed.command ? getCommandIcon() : null}
+          {descriptor.filename ? getFileIcon(descriptor.filename) : descriptor.command ? getCommandIcon() : null}
           {value ? (
-            <span style={{ color: "var(--process-text)", fontWeight: "520" }}>
+            <span className="activity-strong">
               {value}
             </span>
           ) : (
-            <span style={{ color: "var(--process-text)", fontWeight: "520" }}>
+            <span className="activity-strong">
               {displayToolName(item.tool)}
             </span>
           )}
           {item.count > 1 && (
-            <span style={{ color: "var(--process-dim)", fontSize: "10.75px" }}>x{item.count}</span>
+            <span className="activity-leaf-count">x{item.count}</span>
           )}
           {hasBodyOrResult && (
-            isExpanded ? <ChevronDown size={11} style={{ opacity: 0.6 }} /> : <ChevronRight size={11} style={{ opacity: 0.6 }} />
+            isExpanded ? <ChevronDown size={11} className="activity-chevron" /> : <ChevronRight size={11} className="activity-chevron" />
           )}
         </div>
         
         {isExpanded && (
-          <div style={{
-            marginTop: "4px",
-            display: "flex",
-            flexDirection: "column",
-            gap: "6px",
-            paddingLeft: "10px",
-            borderLeft: "1px solid var(--line-soft)",
-            maxWidth: "600px"
-          }}>
+          <div className="activity-leaf-expanded">
             {item.body && (
               <div>
-                <pre style={{
-                  margin: 0,
-                  padding: "6px 10px",
-                  background: "color-mix(in oklch, var(--field), transparent 4%)",
-                  borderRadius: "4px",
-                  overflowX: "auto",
-                  fontFamily: "var(--font-code)",
-                  fontSize: "11px",
-                  color: "var(--process-text)",
-                  border: "1px solid var(--line-soft)"
-                }}>
+                <pre className="activity-leaf-code activity-leaf-code-input">
                   {item.body}
                 </pre>
               </div>
             )}
             {item.result && (
               <div>
-                <pre style={{
-                  margin: 0,
-                  padding: "6px 10px",
-                  background: "color-mix(in oklch, var(--field), transparent 2%)",
-                  borderRadius: "4px",
-                  overflowX: "auto",
-                  maxHeight: "150px",
-                  fontFamily: "var(--font-code)",
-                  fontSize: "11px",
-                  color: "var(--process-text)",
-                  border: "1px solid var(--line-soft)"
-                }}>
+                <pre className="activity-leaf-code activity-leaf-code-result">
                   {item.result}
                 </pre>
               </div>

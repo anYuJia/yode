@@ -27,61 +27,28 @@ export function ProcessNoteNode({ note, appLang }: { note: Extract<TimelineItem,
 
   if (isThinking) {
     return (
-      <div
-        style={{
-          maxWidth: "1064px",
-          width: "100%",
-          margin: "6px auto 10px",
-          paddingLeft: "33px",
-          color: "var(--text)",
-        }}
-      >
+      <div className="process-note-node">
         <div
           onClick={body ? () => {
             setHasManuallyToggled(true);
             setIsExpanded(!isExpanded);
           } : undefined}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "6px",
-            marginBottom: (isExpanded && body) ? "8px" : 0,
-            color: isRunning ? "var(--process-accent)" : "var(--process-meta)",
-            fontSize: "12.75px",
-            fontWeight: 560,
-            cursor: body ? "pointer" : "default",
-            userSelect: "none"
-          }}
+          className={`process-note-title ${isRunning ? "running" : "complete"} ${body ? "interactive" : "static"} ${isExpanded && body ? "expanded" : ""}`}
         >
           {isRunning ? (
-            <CircleDot size={10} className="glowing-logo" style={{ animation: "pulse 1.5s infinite" }} />
+            <CircleDot size={10} className="process-pulse-dot" />
           ) : null}
           <span>{title}</span>
           {body ? (
             isExpanded ? (
-              <ChevronDown size={12} style={{ opacity: 0.55 }} />
+              <ChevronDown size={12} className="process-chevron" />
             ) : (
-              <ChevronRight size={12} style={{ opacity: 0.55 }} />
+              <ChevronRight size={12} className="process-chevron" />
             )
           ) : null}
         </div>
         {isExpanded && body && (
-          <div
-            style={{
-              maxWidth: "72ch",
-              color: "var(--process-text)",
-              fontSize: "13px",
-              lineHeight: 1.5,
-              fontFamily: "var(--font-code)",
-              padding: "8px 12px",
-              background: "color-mix(in oklch, var(--field), transparent 0%)",
-              borderRadius: "6px",
-              border: "1px solid var(--line-soft)",
-              whiteSpace: "pre-wrap",
-              margin: "4px 0",
-              overflowX: "auto"
-            }}
-          >
+          <div className="process-note-detail process-note-detail-code">
             {body}
           </div>
         )}
@@ -90,44 +57,20 @@ export function ProcessNoteNode({ note, appLang }: { note: Extract<TimelineItem,
   }
 
   return (
-    <div
-      style={{
-        maxWidth: "1064px",
-        width: "100%",
-        margin: "6px auto 10px",
-        paddingLeft: "33px",
-        color: "var(--text)",
-      }}
-    >
+    <div className="process-note-node">
       {title && (
         <div
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "6px",
-            marginBottom: body ? "8px" : 0,
-            color: isRunning ? "var(--process-accent)" : "var(--process-meta)",
-            fontSize: "12.75px",
-            fontWeight: 560,
-          }}
+          className={`process-note-title ${isRunning ? "running" : "complete"} ${body ? "expanded" : ""}`}
         >
           {isRunning ? (
-            <CircleDot size={10} className="glowing-logo" />
+            <CircleDot size={10} className="process-pulse-dot" />
           ) : null}
           <span>{title}</span>
-          {!isRunning ? <ChevronRight size={12} style={{ opacity: 0.55 }} /> : null}
+          {!isRunning ? <ChevronRight size={12} className="process-chevron" /> : null}
         </div>
       )}
       {body && (
-        <div
-          style={{
-            maxWidth: "72ch",
-            color: isRunning ? "var(--process-accent)" : "var(--process-text)",
-            fontSize: "13px",
-            lineHeight: 1.55,
-            fontWeight: 450,
-          }}
-        >
+        <div className={`process-note-body ${isRunning ? "running" : "complete"}`}>
           {renderInlineMarkdown(body)}
         </div>
       )}

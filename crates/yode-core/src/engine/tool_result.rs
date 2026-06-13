@@ -154,6 +154,149 @@ pub(super) fn annotate_tool_result_runtime_metadata(
     }
 }
 
+pub(super) fn annotate_tool_result_activity_metadata(
+    result: &mut ToolResult,
+    tool_name: &str,
+    input: &Value,
+) {
+    let metadata = metadata_object(result);
+    if matches!(metadata.get("activity"), Some(Value::Object(_))) {
+        return;
+    }
+
+    let kind = activity_kind(tool_name, metadata);
+    let target = activity_target(tool_name, input, metadata);
+    let label = activity_label(&kind, &target, tool_name);
+    let mut activity = Map::new();
+    activity.insert("kind".to_string(), json!(kind));
+    activity.insert("label".to_string(), json!(label));
+    activity.insert("target".to_string(), json!(target));
+    activity.insert("tool".to_string(), json!(tool_name));
+
+    if let Some(command) = command_target(input, metadata) {
+        activity.insert("command".to_string(), json!(command));
+    }
+    if let Some(path) = file_target(input, metadata) {
+        activity.insert("file_path".to_string(), json!(path));
+    }
+
+    metadata.insert("activity".to_string(), Value::Object(activity));
+}
+
+fn activity_kind(tool_name: &str, metadata: &Map<String, Value>) -> &'static str {
+    let lower = tool_name.to_ascii_lowercase();
+    if lower.contains("write")
+        || lower.contains("edit")
+        || lower.contains("replace")
+        || lower.contains("patch")
+        || metadata.get("modified_files").is_some()
+        || metadata.get("diff_preview").is_some()
+    {
+        "edit"
+    } else if lower.contains("run")
+        || lower.contains("command")
+        || lower.contains("bash")
+        || lower.contains("shell")
+    {
+        "run"
+    } else if lower.contains("search")
+        || lower.contains("grep")
+        || lower.contains("url")
+        || lower.contains("web")
+    {
+        "search"
+    } else if lower.contains("read")
+        || lower.contains("view")
+        || lower.contains("list")
+        || lower.contains("ls")
+        || lower.contains("glob")
+        || lower.contains("project_map")
+        || lower.contains("resource")
+    {
+        "read"
+    } else {
+        "other"
+    }
+}
+
+fn activity_target(tool_name: &str, input: &Value, metadata: &Map<String, Value>) -> String {
+    command_target(input, metadata)
+        .or_else(|| file_target(input, metadata))
+        .or_else(|| string_field(metadata, &["uri", "server", "pattern", "path", "name"]))
+        .or_else(|| {
+            string_field(
+                input.as_object().unwrap_or(metadata),
+                &["query", "tool", "namespace"],
+            )
+        })
+        .unwrap_or_else(|| tool_name.to_string())
+}
+
+fn activity_label(kind: &str, target: &str, tool_name: &str) -> String {
+    let trimmed = target.trim();
+    match kind {
+        "edit" => format!("已修改 {}", fallback_target(trimmed, tool_name)),
+        "run" => format!("已运行 {}", fallback_target(trimmed, tool_name)),
+        "search" => format!("已搜索 {}", fallback_target(trimmed, tool_name)),
+        "read" => format!("已读取 {}", fallback_target(trimmed, tool_name)),
+        _ => fallback_target(trimmed, tool_name).to_string(),
+    }
+}
+
+fn fallback_target<'a>(target: &'a str, tool_name: &'a str) -> &'a str {
+    if target.is_empty() {
+        tool_name
+    } else {
+        target
+    }
+}
+
+fn command_target(input: &Value, metadata: &Map<String, Value>) -> Option<String> {
+    input
+        .as_object()
+        .and_then(|object| string_field(object, &["cmd", "command", "CommandLine"]))
+        .or_else(|| string_field(metadata, &["cmd", "command", "CommandLine"]))
+}
+
+fn file_target(input: &Value, metadata: &Map<String, Value>) -> Option<String> {
+    string_field(
+        metadata,
+        &[
+            "file_path",
+            "TargetFile",
+            "AbsolutePath",
+            "Path",
+            "SearchPath",
+            "TargetContentFile",
+            "path",
+        ],
+    )
+    .or_else(|| {
+        input.as_object().and_then(|object| {
+            string_field(
+                object,
+                &[
+                    "file_path",
+                    "TargetFile",
+                    "AbsolutePath",
+                    "Path",
+                    "SearchPath",
+                    "TargetContentFile",
+                    "path",
+                ],
+            )
+        })
+    })
+}
+
+fn string_field(object: &Map<String, Value>, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| object.get(*key).and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
 /// Truncate tool result if it exceeds the context-aware size limit.
 pub(super) fn truncate_tool_result(result: ToolResult, context_window_tokens: usize) -> ToolResult {
     let max_tool_result_size = dynamic_single_tool_result_limit(context_window_tokens);
@@ -203,10 +346,11 @@ pub(super) fn truncate_tool_result(result: ToolResult, context_window_tokens: us
 #[cfg(test)]
 mod tests {
     use super::{
-        dynamic_single_tool_result_limit, dynamic_total_tool_results_limit,
-        with_action_narrative_parameter,
+        annotate_tool_result_activity_metadata, dynamic_single_tool_result_limit,
+        dynamic_total_tool_results_limit, with_action_narrative_parameter,
     };
     use serde_json::json;
+    use yode_tools::tool::ToolResult;
 
     #[test]
     fn dynamic_tool_result_budgets_scale_with_context_window() {
@@ -255,5 +399,52 @@ mod tests {
             .is_some_and(|required| required
                 .iter()
                 .any(|value| value.as_str() == Some("action_narrative"))));
+    }
+
+    #[test]
+    fn annotates_activity_metadata_for_command_tools() {
+        let mut result = ToolResult::success("ok".to_string());
+        annotate_tool_result_activity_metadata(
+            &mut result,
+            "exec_command",
+            &json!({ "cmd": "git status --short" }),
+        );
+
+        let activity = result
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("activity"))
+            .unwrap();
+        assert_eq!(activity["kind"], json!("run"));
+        assert_eq!(activity["target"], json!("git status --short"));
+        assert_eq!(activity["command"], json!("git status --short"));
+        assert_eq!(activity["label"], json!("已运行 git status --short"));
+    }
+
+    #[test]
+    fn preserves_existing_activity_metadata() {
+        let mut result = ToolResult::success_with_metadata(
+            "ok".to_string(),
+            json!({
+                "activity": {
+                    "kind": "read",
+                    "target": "自定义目标"
+                }
+            }),
+        );
+        annotate_tool_result_activity_metadata(
+            &mut result,
+            "exec_command",
+            &json!({ "cmd": "git status --short" }),
+        );
+
+        let activity = result
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("activity"))
+            .unwrap();
+        assert_eq!(activity["kind"], json!("read"));
+        assert_eq!(activity["target"], json!("自定义目标"));
+        assert!(activity.get("command").is_none());
     }
 }
