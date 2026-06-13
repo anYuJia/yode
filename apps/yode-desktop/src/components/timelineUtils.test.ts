@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TimelineItem } from "../lib/mock";
-import { applyDesktopEventToTimelineItems, compileInlineItems } from "./timelineUtils";
+import { applyDesktopEventToTimelineItems, compileInlineItems, messagesToTimelineItems } from "./timelineUtils";
 
 const tool = (
   id: string,
@@ -68,6 +68,54 @@ describe("timeline activity grouping", () => {
       result: " M app.css",
       metadata: {
         activity: { kind: "run", target: "git status --short", command: "git status --short" }
+      }
+    });
+  });
+
+  it("restores structured tool result metadata from history", () => {
+    const history = messagesToTimelineItems([
+      {
+        id: 1,
+        role: "assistant",
+        content: "",
+        toolCallsJson: JSON.stringify([
+          {
+            id: "call-1",
+            name: "exec_command",
+            arguments: JSON.stringify({ cmd: "git status --short" })
+          }
+        ]),
+        createdAt: "2026-06-13T10:00:00Z"
+      },
+      {
+        id: 2,
+        role: "tool",
+        content: " M app.css",
+        toolCallId: "call-1",
+        metadata: {
+          activity: {
+            kind: "run",
+            target: "git status --short",
+            command: "git status --short"
+          }
+        },
+        createdAt: "2026-06-13T10:00:01Z"
+      }
+    ]);
+
+    const grouped = compileInlineItems(history, false, "zh");
+    expect(grouped).toHaveLength(1);
+    expect(grouped[0]).toMatchObject({
+      kind: "activity_group",
+      type: "run",
+      label: "已运行 1 条命令"
+    });
+    expect((grouped[0] as any).items[0]).toMatchObject({
+      result: "M app.css",
+      metadata: {
+        activity: {
+          command: "git status --short"
+        }
       }
     });
   });

@@ -397,6 +397,7 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
           for (let i = buffer.length - 1; i >= 0; i--) {
             if (buffer[i].kind === "tool" && (buffer[i] as any).callId === resultCallId) {
               buffer[i].result = item.body;
+              buffer[i].metadata = (item as any).metadata ?? (buffer[i] as any).metadata;
               found = true;
               break;
             }
@@ -407,16 +408,22 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
           for (let i = buffer.length - 1; i >= 0; i--) {
             if (buffer[i].kind === "tool") {
               buffer[i].result = item.body;
+              buffer[i].metadata = (item as any).metadata ?? (buffer[i] as any).metadata;
               found = true;
               break;
             }
           }
         }
         if (!found) {
-          found = attachToolResultToRenderedItems(result, item.body, resultCallId);
+          found = attachToolResultToRenderedItems(
+            result,
+            item.body,
+            resultCallId,
+            (item as any).metadata
+          );
         }
         if (!found) {
-          attachToolResultToRenderedItems(result, item.body);
+          attachToolResultToRenderedItems(result, item.body, undefined, (item as any).metadata);
         }
         continue;
       }
@@ -518,13 +525,15 @@ function hasRecentAssistantPreamble(items: TimelineItem[], turnId?: string) {
 function attachToolResultToRenderedItems(
   items: TimelineItem[],
   resultBody: string,
-  callId?: string
+  callId?: string,
+  metadata?: any
 ) {
   for (let i = items.length - 1; i >= 0; i--) {
     const resultItem = items[i];
     if (resultItem.kind === "activity_item" && resultItem.tool) {
       if (!callId || (resultItem as any).callId === callId) {
         resultItem.result = resultBody;
+        resultItem.metadata = metadata ?? resultItem.metadata;
         return true;
       }
     } else if (resultItem.kind === "activity_group") {
@@ -533,6 +542,7 @@ function attachToolResultToRenderedItems(
         const groupItem = groupItems[j];
         if (groupItem.kind === "tool" && (!callId || (groupItem as any).callId === callId)) {
           groupItem.result = resultBody;
+          groupItem.metadata = metadata ?? (groupItem as any).metadata;
           return true;
         }
       }
@@ -1318,6 +1328,7 @@ export function messagesToTimelineItems(messages: DesktopMessage[]): TimelineIte
         tool: "tool",
         callId: message.toolCallId || undefined,
         status: "success",
+        metadata: message.metadata,
         createdAt
       });
       return;

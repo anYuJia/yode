@@ -54,6 +54,7 @@ pub struct DesktopMessage {
     pub reasoning: Option<String>,
     pub tool_calls_json: Option<String>,
     pub tool_call_id: Option<String>,
+    pub metadata: Option<Value>,
     pub images: Vec<DesktopImageOutput>,
     pub created_at: String,
 }

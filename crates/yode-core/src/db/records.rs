@@ -13,6 +13,7 @@ pub struct StoredMessage {
     pub tool_calls_json: Option<String>,
     pub tool_call_id: Option<String>,
     pub images_json: Option<String>,
+    pub metadata_json: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 

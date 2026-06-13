@@ -132,6 +132,7 @@ export type DesktopMessage = {
   reasoning?: string | null;
   toolCallsJson?: string | null;
   toolCallId?: string | null;
+  metadata?: any;
   images?: Array<{
     base64: string;
     mediaType: string;

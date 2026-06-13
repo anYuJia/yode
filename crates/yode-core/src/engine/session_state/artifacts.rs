@@ -108,7 +108,14 @@ impl AgentEngine {
         tool_calls_json: Option<&str>,
         tool_call_id: Option<&str>,
     ) {
-        self.persist_message_with_images(role, content, reasoning, tool_calls_json, tool_call_id, None);
+        self.persist_message_with_images(
+            role,
+            content,
+            reasoning,
+            tool_calls_json,
+            tool_call_id,
+            None,
+        );
     }
 
     pub(in crate::engine) fn persist_message_with_images(
@@ -129,6 +136,33 @@ impl AgentEngine {
                 tool_calls_json,
                 tool_call_id,
                 images,
+            ) {
+                warn!("Failed to persist message: {}", err);
+            }
+            if let Err(err) = db.touch_session(&self.context.session_id) {
+                warn!("Failed to touch session: {}", err);
+            }
+        }
+    }
+
+    pub(in crate::engine) fn persist_message_with_metadata(
+        &self,
+        role: &str,
+        content: Option<&str>,
+        reasoning: Option<&str>,
+        tool_calls_json: Option<&str>,
+        tool_call_id: Option<&str>,
+        metadata: Option<&serde_json::Value>,
+    ) {
+        if let Some(db) = &self.db {
+            if let Err(err) = db.save_message_with_metadata(
+                &self.context.session_id,
+                role,
+                content,
+                reasoning,
+                tool_calls_json,
+                tool_call_id,
+                metadata,
             ) {
                 warn!("Failed to persist message: {}", err);
             }

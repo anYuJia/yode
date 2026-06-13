@@ -168,6 +168,10 @@ impl DesktopRuntime {
                 reasoning: message.reasoning,
                 tool_calls_json: message.tool_calls_json,
                 tool_call_id: message.tool_call_id,
+                metadata: message
+                    .metadata_json
+                    .as_deref()
+                    .and_then(|json| serde_json::from_str(json).ok()),
                 created_at: message.created_at.to_rfc3339(),
             })
             .collect())
