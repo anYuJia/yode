@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicU64, Ordering},
@@ -24,8 +25,9 @@ use yode_tools::tool::McpResourceProvider;
 
 use crate::protocol::{
     Bootstrap, CreateSessionRequest, DefaultLlm, DesktopEvent, DesktopImageOutput, DesktopMessage,
-    DesktopProvider, DesktopSession, RuntimeState, SendMessageRequest, TerminalRunRequest,
-    TerminalRunResponse, TurnAccepted,
+    DesktopProvider, DesktopSession, RuntimeState, SendMessageRequest, TerminalExitEvent,
+    TerminalOpenRequest, TerminalOpenResponse, TerminalOutputEvent, TerminalResizeRequest,
+    TerminalRunRequest, TerminalRunResponse, TerminalWriteRequest, TurnAccepted,
 };
 
 pub struct DesktopRuntime {
@@ -45,6 +47,7 @@ pub struct DesktopRuntime {
     pending_confirmations: Arc<Mutex<HashMap<(String, String), PendingConfirmation>>>,
     session_permission_rules: Arc<Mutex<HashMap<String, Vec<PermissionRule>>>>,
     terminal_sessions: Mutex<HashMap<String, TerminalSessionState>>,
+    pty_sessions: Arc<Mutex<HashMap<String, PtySessionState>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -57,6 +60,12 @@ struct PendingConfirmation {
 struct TerminalSessionState {
     cwd: PathBuf,
     env: HashMap<String, String>,
+}
+
+struct PtySessionState {
+    master: Box<dyn portable_pty::MasterPty + Send>,
+    writer: Box<dyn Write + Send>,
+    child: Box<dyn portable_pty::Child + Send + Sync>,
 }
 
 impl DesktopRuntime {
@@ -97,6 +106,7 @@ impl DesktopRuntime {
             pending_confirmations: Arc::new(Mutex::new(HashMap::new())),
             session_permission_rules: Arc::new(Mutex::new(HashMap::new())),
             terminal_sessions: Mutex::new(HashMap::new()),
+            pty_sessions: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -313,6 +323,148 @@ impl DesktopRuntime {
             .lock()
             .map_err(|_| anyhow::anyhow!("terminal session lock poisoned"))?
             .remove(&session_id);
+        if let Some(mut session) = self
+            .pty_sessions
+            .lock()
+            .map_err(|_| anyhow::anyhow!("pty session lock poisoned"))?
+            .remove(&session_id)
+        {
+            let _ = session.child.kill();
+            let _ = session.child.wait();
+        }
+        Ok(())
+    }
+
+    pub fn terminal_open(
+        &self,
+        app: AppHandle,
+        request: TerminalOpenRequest,
+    ) -> Result<TerminalOpenResponse> {
+        if self
+            .pty_sessions
+            .lock()
+            .map_err(|_| anyhow::anyhow!("pty session lock poisoned"))?
+            .contains_key(&request.session_id)
+        {
+            return Ok(TerminalOpenResponse {
+                session_id: request.session_id,
+            });
+        }
+
+        let cwd = request
+            .cwd
+            .as_deref()
+            .and_then(valid_terminal_cwd)
+            .unwrap_or_else(|| self.workspace_path.clone());
+        let env: HashMap<String, String> = std::env::vars().collect();
+        let (shell, _shell_args) = terminal_shell_command(&env);
+        let pty_system = portable_pty::native_pty_system();
+        let pair = pty_system
+            .openpty(portable_pty::PtySize {
+                rows: request.rows.unwrap_or(24).max(1),
+                cols: request.cols.unwrap_or(80).max(1),
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .context("failed to open pty")?;
+        let mut command = portable_pty::CommandBuilder::new(shell);
+        command.cwd(cwd);
+        for (key, value) in env {
+            command.env(key, value);
+        }
+
+        let child = pair
+            .slave
+            .spawn_command(command)
+            .context("failed to spawn shell")?;
+        drop(pair.slave);
+
+        let mut reader = pair
+            .master
+            .try_clone_reader()
+            .context("failed to clone pty reader")?;
+        let writer = pair
+            .master
+            .take_writer()
+            .context("failed to take pty writer")?;
+        let session_id = request.session_id.clone();
+        let sessions = Arc::clone(&self.pty_sessions);
+        let app_for_output = app.clone();
+        std::thread::spawn(move || {
+            let mut buffer = [0u8; 8192];
+            loop {
+                match reader.read(&mut buffer) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        let data = String::from_utf8_lossy(&buffer[..n]).to_string();
+                        let _ = app_for_output.emit(
+                            "terminal-output",
+                            TerminalOutputEvent {
+                                session_id: session_id.clone(),
+                                data,
+                            },
+                        );
+                    }
+                    Err(_) => break,
+                }
+            }
+
+            if let Ok(mut sessions) = sessions.lock() {
+                sessions.remove(&session_id);
+            }
+            let _ = app.emit(
+                "terminal-exit",
+                TerminalExitEvent {
+                    session_id,
+                    exit_code: None,
+                },
+            );
+        });
+
+        self.pty_sessions
+            .lock()
+            .map_err(|_| anyhow::anyhow!("pty session lock poisoned"))?
+            .insert(
+                request.session_id.clone(),
+                PtySessionState {
+                    master: pair.master,
+                    writer,
+                    child,
+                },
+            );
+
+        Ok(TerminalOpenResponse {
+            session_id: request.session_id,
+        })
+    }
+
+    pub fn terminal_write(&self, request: TerminalWriteRequest) -> Result<()> {
+        let mut sessions = self
+            .pty_sessions
+            .lock()
+            .map_err(|_| anyhow::anyhow!("pty session lock poisoned"))?;
+        let session = sessions
+            .get_mut(&request.session_id)
+            .ok_or_else(|| anyhow::anyhow!("terminal session not found"))?;
+        session.writer.write_all(request.data.as_bytes())?;
+        session.writer.flush()?;
+        Ok(())
+    }
+
+    pub fn terminal_resize(&self, request: TerminalResizeRequest) -> Result<()> {
+        let sessions = self
+            .pty_sessions
+            .lock()
+            .map_err(|_| anyhow::anyhow!("pty session lock poisoned"))?;
+        let session = sessions
+            .get(&request.session_id)
+            .ok_or_else(|| anyhow::anyhow!("terminal session not found"))?;
+        session.master.resize(portable_pty::PtySize {
+            rows: request.rows.max(1),
+            cols: request.cols.max(1),
+            pixel_width: 0,
+            pixel_height: 0,
+        })?;
         Ok(())
     }
 

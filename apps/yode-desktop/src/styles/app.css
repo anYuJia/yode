@@ -2496,6 +2496,50 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   color: color-mix(in oklch, var(--text), var(--text-muted) 10%);
 }
 
+.terminal-pty-body {
+  position: relative;
+  overflow: hidden;
+  padding: 8px 10px;
+  --terminal-bg: color-mix(in oklch, var(--bg), #000000 12%);
+}
+
+.terminal-pty-host {
+  position: absolute;
+  inset: 8px 10px;
+  display: none;
+  min-width: 0;
+  min-height: 0;
+}
+
+.terminal-pty-host.active {
+  display: block;
+}
+
+.terminal-pty-host .xterm {
+  height: 100%;
+  padding: 0;
+}
+
+.terminal-pty-host .xterm-viewport,
+.terminal-pty-host .xterm-screen {
+  background: transparent !important;
+}
+
+.terminal-pty-host .xterm-viewport::-webkit-scrollbar {
+  width: 10px;
+}
+
+.terminal-pty-host .xterm-viewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.terminal-pty-host .xterm-viewport::-webkit-scrollbar-thumb {
+  background: color-mix(in oklch, var(--text-soft), transparent 60%);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
 .terminal-line {
   margin-bottom: 3px;
   white-space: pre-wrap;

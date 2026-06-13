@@ -1,30 +1,26 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, TerminalSquare, Trash2, X } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import { FitAddon } from "@xterm/addon-fit";
+import { Terminal } from "@xterm/xterm";
+import "@xterm/xterm/css/xterm.css";
 
-type TerminalRunResponse = {
-  output: string;
-  cwd: string;
-  exitCode: number;
+type TerminalOutputEvent = {
+  sessionId: string;
+  data: string;
 };
 
-type TerminalLine = {
-  id: string;
-  kind: "system" | "command" | "output" | "error";
-  text: string;
-  prompt?: string;
-  exitCode?: number;
+type TerminalExitEvent = {
+  sessionId: string;
+  exitCode?: number | null;
 };
 
 type TerminalTab = {
   id: string;
   title: string;
   cwd: string;
-  input: string;
   isRunning: boolean;
-  lines: TerminalLine[];
-  history: string[];
-  historyIndex: number | null;
 };
 
 type TerminalSession = {
@@ -39,7 +35,13 @@ type TerminalDrawerProps = {
   conversationId: string | null;
 };
 
-const SESSION_START = "Yode Terminal Session Started. Ready to execute local tasks.";
+type XtermHandle = {
+  terminal: Terminal;
+  fitAddon: FitAddon;
+  opened: boolean;
+  backendOpened: boolean;
+  dataDisposable?: { dispose: () => void };
+};
 
 function makeId(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -50,17 +52,7 @@ function createTab(workspacePath: string, index: number): TerminalTab {
     id: makeId("terminal"),
     title: `bash ${index}`,
     cwd: workspacePath,
-    input: "",
-    isRunning: false,
-    history: [],
-    historyIndex: null,
-    lines: [
-      {
-        id: makeId("line"),
-        kind: "system",
-        text: SESSION_START
-      }
-    ]
+    isRunning: false
   };
 }
 
@@ -72,13 +64,9 @@ function createSession(workspacePath: string): TerminalSession {
   };
 }
 
-function basename(path: string) {
-  return path.split("/").filter(Boolean).pop() || "yode";
-}
-
 function displayCwd(cwd: string) {
   if (!cwd) return "/";
-  const homeMatch = cwd.match(/^\/Users\/[^/]+/);
+  const homeMatch = cwd.match(/^\/Users\/[^/]+/) || cwd.match(/^\/home\/[^/]+/);
   if (!homeMatch) return cwd;
   const home = homeMatch[0];
   if (cwd === home) return "~";
@@ -86,17 +74,27 @@ function displayCwd(cwd: string) {
   return cwd;
 }
 
-function promptFor(cwd: string) {
-  return `yode@local:${displayCwd(cwd)}$`;
+function xtermTheme() {
+  const root = getComputedStyle(document.documentElement);
+  const value = (name: string, fallback: string) => root.getPropertyValue(name).trim() || fallback;
+  return {
+    background: value("--terminal-bg", value("--bg", "#111111")),
+    foreground: value("--text", "#f8f8f2"),
+    cursor: value("--accent", "#bd93f9"),
+    selectionBackground: value("--accent-muted", "rgba(189,147,249,0.35)"),
+    black: "#000000",
+    red: value("--error", "#ff5555"),
+    green: value("--success", "#50fa7b"),
+    yellow: value("--warning", "#f1fa8c"),
+    blue: value("--accent", "#bd93f9"),
+    magenta: value("--accent", "#ff79c6"),
+    cyan: value("--info", "#8be9fd"),
+    white: value("--text", "#f8f8f2")
+  };
 }
 
-function titleForCwd(cwd: string, workspacePath: string) {
-  if (cwd === workspacePath) return "bash";
-  return basename(cwd);
-}
-
-function splitOutput(text: string) {
-  return text.replace(/\r\n/g, "\n").split("\n");
+function backendSessionId(sessionKey: string, tabId: string) {
+  return `${sessionKey}::${tabId}`;
 }
 
 export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId }: TerminalDrawerProps) {
@@ -104,8 +102,10 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId 
   const [sessions, setSessions] = useState<Record<string, TerminalSession>>(() => ({
     [sessionKey]: createSession(workspacePath)
   }));
-  const bodyElRef = useRef<HTMLDivElement>(null);
-  const inputElRef = useRef<HTMLInputElement>(null);
+  const terminalHostsRef = useRef<Record<string, HTMLDivElement | null>>({});
+  const xtermsRef = useRef<Record<string, XtermHandle>>({});
+  const unlistenersRef = useRef<UnlistenFn[]>([]);
+  const isTauri = "__TAURI_INTERNALS__" in window;
 
   useEffect(() => {
     setSessions((current) => {
@@ -124,20 +124,6 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId 
     () => tabs.find((tab) => tab.id === activeTabId) || tabs[0],
     [activeTabId, tabs]
   );
-
-  useEffect(() => {
-    if (bodyElRef.current) {
-      bodyElRef.current.scrollTop = bodyElRef.current.scrollHeight;
-    }
-  }, [activeTab?.lines, activeTab?.isRunning, activeTabId, isOpen]);
-
-  useEffect(() => {
-    if (isOpen) {
-      window.setTimeout(() => inputElRef.current?.focus(), 0);
-    }
-  }, [isOpen, activeTabId]);
-
-  const backendSessionId = (tabId: string) => `${sessionKey}::${tabId}`;
 
   const updateSession = (updater: (session: TerminalSession) => TerminalSession) => {
     setSessions((current) => {
@@ -163,6 +149,165 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId 
     }));
   };
 
+  const ensureXterm = (tab: TerminalTab) => {
+    const key = backendSessionId(sessionKey, tab.id);
+    const existing = xtermsRef.current[key];
+    if (existing) return existing;
+
+    const fitAddon = new FitAddon();
+    const terminal = new Terminal({
+      allowProposedApi: false,
+      convertEol: true,
+      cursorBlink: true,
+      fontFamily: "var(--font-code), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+      fontSize: 12,
+      lineHeight: 1.35,
+      scrollback: 10000,
+      theme: xtermTheme()
+    });
+    terminal.loadAddon(fitAddon);
+    const dataDisposable = terminal.onData((data) => {
+      if (!isTauri) {
+        terminal.write(data === "\r" ? "\r\n" : data);
+        return;
+      }
+      void invoke("terminal_write", {
+        request: {
+          sessionId: key,
+          data
+        }
+      }).catch(() => {});
+    });
+
+    const handle: XtermHandle = {
+      terminal,
+      fitAddon,
+      opened: false,
+      backendOpened: false,
+      dataDisposable
+    };
+    xtermsRef.current[key] = handle;
+    return handle;
+  };
+
+  const fitAndResize = (tab: TerminalTab) => {
+    const key = backendSessionId(sessionKey, tab.id);
+    const handle = xtermsRef.current[key];
+    if (!handle?.opened) return;
+    try {
+      handle.fitAddon.fit();
+      if (!isTauri) return;
+      void invoke("terminal_resize", {
+        request: {
+          sessionId: key,
+          cols: handle.terminal.cols,
+          rows: handle.terminal.rows
+        }
+      }).catch(() => {});
+    } catch {
+      // Fit can throw while the drawer is animating or hidden.
+    }
+  };
+
+  const openBackend = (tab: TerminalTab) => {
+    const key = backendSessionId(sessionKey, tab.id);
+    const handle = ensureXterm(tab);
+    if (handle.backendOpened) return;
+    handle.backendOpened = true;
+    if (!isTauri) {
+      handle.terminal.writeln("\x1b[2m这是非桌面环境的终端预览。打开 Tauri 桌面端后会连接真实 PTY。\x1b[0m");
+      return;
+    }
+    void invoke("terminal_open", {
+      request: {
+        sessionId: key,
+        cwd: tab.cwd,
+        cols: handle.terminal.cols || 80,
+        rows: handle.terminal.rows || 24
+      }
+    }).catch((err) => {
+      handle.terminal.writeln(`\r\n\x1b[31m${String(err)}\x1b[0m`);
+      updateTab(tab.id, (current) => ({ ...current, isRunning: false }));
+      handle.backendOpened = false;
+    });
+  };
+
+  useEffect(() => {
+    const aliveKeys = new Set(tabs.map((tab) => backendSessionId(sessionKey, tab.id)));
+    for (const tab of tabs) {
+      const key = backendSessionId(sessionKey, tab.id);
+      const host = terminalHostsRef.current[key];
+      const handle = ensureXterm(tab);
+      if (host && !handle.opened) {
+        handle.terminal.open(host);
+        handle.opened = true;
+        handle.terminal.writeln("Yode Terminal Session Started. Ready to execute local tasks.");
+        setTimeout(() => {
+          fitAndResize(tab);
+          openBackend(tab);
+        }, 0);
+      } else if (host && handle.opened && !handle.backendOpened) {
+        setTimeout(() => openBackend(tab), 0);
+      }
+    }
+
+    for (const [key, handle] of Object.entries(xtermsRef.current)) {
+      if (key.startsWith(`${sessionKey}::`) && !aliveKeys.has(key)) {
+        handle.dataDisposable?.dispose();
+        handle.terminal.dispose();
+        delete xtermsRef.current[key];
+      }
+    }
+  }, [tabs, sessionKey, isTauri]);
+
+  useEffect(() => {
+    const setup = async () => {
+      if (!isTauri) return;
+      const outputUnlisten = await listen<TerminalOutputEvent>("terminal-output", (event) => {
+        const handle = xtermsRef.current[event.payload.sessionId];
+        handle?.terminal.write(event.payload.data);
+      });
+      const exitUnlisten = await listen<TerminalExitEvent>("terminal-exit", (event) => {
+        const handle = xtermsRef.current[event.payload.sessionId];
+        if (handle) {
+          handle.terminal.writeln("\r\n\x1b[2m[终端已退出]\x1b[0m");
+          handle.backendOpened = false;
+        }
+      });
+      unlistenersRef.current = [outputUnlisten, exitUnlisten];
+    };
+
+    void setup();
+    return () => {
+      for (const unlisten of unlistenersRef.current) {
+        unlisten();
+      }
+      unlistenersRef.current = [];
+    };
+  }, [isTauri]);
+
+  useEffect(() => {
+    if (!isOpen || !activeTab) return;
+    setTimeout(() => {
+      fitAndResize(activeTab);
+      xtermsRef.current[backendSessionId(sessionKey, activeTab.id)]?.terminal.focus();
+    }, 230);
+  }, [isOpen, activeTabId, sessionKey]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (isOpen && activeTab) fitAndResize(activeTab);
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [isOpen, activeTab, sessionKey]);
+
+  useEffect(() => {
+    for (const handle of Object.values(xtermsRef.current)) {
+      handle.terminal.options.theme = xtermTheme();
+    }
+  }, [isOpen]);
+
   const addTab = () => {
     const next = createTab(workspacePath, tabs.length + 1);
     updateSession((session) => ({
@@ -172,134 +317,34 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId 
   };
 
   const closeTab = async (tabId: string) => {
+    const key = backendSessionId(sessionKey, tabId);
     if (tabs.length <= 1) {
       const replacement = createTab(workspacePath, 1);
       updateSession(() => ({
         tabs: [replacement],
         activeTabId: replacement.id
       }));
-      try {
-        await invoke("terminal_close", { sessionId: backendSessionId(tabId) });
-      } catch {
-        // Closing a local terminal tab should never interrupt the UI.
-      }
-      return;
+    } else {
+      const index = tabs.findIndex((tab) => tab.id === tabId);
+      const nextTabs = tabs.filter((tab) => tab.id !== tabId);
+      updateSession((session) => ({
+        tabs: nextTabs,
+        activeTabId:
+          session.activeTabId === tabId
+            ? nextTabs[Math.max(0, index - 1)]?.id || nextTabs[0]?.id || ""
+            : session.activeTabId
+      }));
     }
 
-    const index = tabs.findIndex((tab) => tab.id === tabId);
-    const nextTabs = tabs.filter((tab) => tab.id !== tabId);
-    updateSession((session) => ({
-      tabs: nextTabs,
-      activeTabId:
-        session.activeTabId === tabId
-          ? nextTabs[Math.max(0, index - 1)]?.id || nextTabs[0]?.id || ""
-          : session.activeTabId
-    }));
-
+    const handle = xtermsRef.current[key];
+    handle?.dataDisposable?.dispose();
+    handle?.terminal.dispose();
+    delete xtermsRef.current[key];
     try {
-      await invoke("terminal_close", { sessionId: backendSessionId(tabId) });
+      await invoke("terminal_close", { sessionId: key });
     } catch {
       // Closing a local terminal tab should never interrupt the UI.
     }
-  };
-
-  const runCommand = async (tab: TerminalTab, rawCommand: string) => {
-    const command = rawCommand.trim();
-    if (!command || tab.isRunning) return;
-
-    const prompt = promptFor(tab.cwd);
-    const commandLine: TerminalLine = {
-      id: makeId("line"),
-      kind: "command",
-      text: command,
-      prompt
-    };
-
-    updateTab(tab.id, (current) => ({
-      ...current,
-      input: "",
-      isRunning: command !== "clear" && command !== "exit",
-      history: current.history[current.history.length - 1] === command ? current.history : [...current.history, command],
-      historyIndex: null,
-      lines: command === "clear" ? [] : [...current.lines, commandLine]
-    }));
-
-    if (command === "clear") return;
-    if (command === "exit") {
-      await closeTab(tab.id);
-      return;
-    }
-
-    try {
-      const response = await invoke<TerminalRunResponse>("terminal_run", {
-        request: {
-          sessionId: backendSessionId(tab.id),
-          command,
-          cwd: tab.cwd
-        }
-      });
-      const outputLines = response.output
-        ? splitOutput(response.output).map<TerminalLine>((line) => ({
-            id: makeId("line"),
-            kind: response.exitCode === 0 ? "output" : "error",
-            text: line,
-            exitCode: response.exitCode
-          }))
-        : [];
-      updateTab(tab.id, (current) => ({
-        ...current,
-        cwd: response.cwd,
-        title: titleForCwd(response.cwd, workspacePath),
-        isRunning: false,
-        lines: [...current.lines, ...outputLines]
-      }));
-    } catch (err) {
-      updateTab(tab.id, (current) => ({
-        ...current,
-        isRunning: false,
-        lines: [
-          ...current.lines,
-          {
-            id: makeId("line"),
-            kind: "error",
-            text: String(err),
-            exitCode: 1
-          }
-        ]
-      }));
-    }
-  };
-
-  const handleSubmit = (event: React.FormEvent) => {
-    event.preventDefault();
-    if (activeTab) {
-      void runCommand(activeTab, activeTab.input);
-    }
-  };
-
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (!activeTab) return;
-    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
-    if (activeTab.history.length === 0) return;
-
-    event.preventDefault();
-    const lastIndex = activeTab.history.length - 1;
-    const nextIndex =
-      event.key === "ArrowUp"
-        ? activeTab.historyIndex === null
-          ? lastIndex
-          : Math.max(0, activeTab.historyIndex - 1)
-        : activeTab.historyIndex === null
-          ? null
-          : activeTab.historyIndex >= lastIndex
-            ? null
-            : activeTab.historyIndex + 1;
-
-    updateTab(activeTab.id, (tab) => ({
-      ...tab,
-      historyIndex: nextIndex,
-      input: nextIndex === null ? "" : tab.history[nextIndex]
-    }));
   };
 
   return (
@@ -356,35 +401,19 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId 
           </button>
         </div>
       </div>
-      <div className="terminal-body" ref={bodyElRef} onClick={() => inputElRef.current?.focus()}>
-        {activeTab?.lines.map((line) => (
-          <div
-            key={line.id}
-            className={`terminal-line terminal-line-${line.kind} ${
-              line.exitCode !== undefined && line.exitCode !== 0 ? "text-error" : ""
-            }`}
-          >
-            {line.prompt && <span className="terminal-prompt">{line.prompt}</span>}
-            <span>{line.text}</span>
-          </div>
-        ))}
-        {activeTab && (
-          <form onSubmit={handleSubmit} className="terminal-line active-line">
-            <span className="terminal-prompt">{promptFor(activeTab.cwd)}</span>
-            <input
-              ref={inputElRef}
-              type="text"
-              value={activeTab.input}
-              onChange={(event) => updateTab(activeTab.id, (tab) => ({ ...tab, input: event.target.value }))}
-              onKeyDown={handleKeyDown}
-              className="terminal-real-input"
-              disabled={activeTab.isRunning}
-              placeholder={activeTab.isRunning ? "running..." : ""}
-              autoFocus={isOpen}
-              spellCheck={false}
+      <div className="terminal-body terminal-pty-body">
+        {tabs.map((tab) => {
+          const key = backendSessionId(sessionKey, tab.id);
+          return (
+            <div
+              key={key}
+              className={`terminal-pty-host ${tab.id === activeTabId ? "active" : ""}`}
+              ref={(node) => {
+                terminalHostsRef.current[key] = node;
+              }}
             />
-          </form>
-        )}
+          );
+        })}
       </div>
     </div>
   );

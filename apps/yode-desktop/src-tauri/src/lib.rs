@@ -115,6 +115,37 @@ fn terminal_run(
 }
 
 #[tauri::command]
+fn terminal_open(
+    app: tauri::AppHandle,
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    request: protocol::TerminalOpenRequest,
+) -> Result<protocol::TerminalOpenResponse, String> {
+    runtime
+        .terminal_open(app, request)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn terminal_write(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    request: protocol::TerminalWriteRequest,
+) -> Result<(), String> {
+    runtime
+        .terminal_write(request)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn terminal_resize(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    request: protocol::TerminalResizeRequest,
+) -> Result<(), String> {
+    runtime
+        .terminal_resize(request)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
 fn terminal_close(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
     session_id: String,
@@ -214,6 +245,9 @@ pub fn run() {
             turn_cancel,
             permission_mode_set,
             terminal_run,
+            terminal_open,
+            terminal_write,
+            terminal_resize,
             terminal_close,
             sessions_delete,
             sessions_update_llm,

@@ -28,4 +28,4 @@ tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 rfd = "0.15"
-
+portable-pty = "0.9"
