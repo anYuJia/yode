@@ -116,6 +116,12 @@ function clearWhitespaceOnlySelection(terminal: Terminal) {
   }
 }
 
+function clearAllTerminalSelections(handles: Record<string, XtermHandle>) {
+  for (const handle of Object.values(handles)) {
+    handle.terminal.clearSelection();
+  }
+}
+
 export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId, height, onResizeStart }: TerminalDrawerProps) {
   const sessionKey = conversationId || "__draft__";
   const [sessions, setSessions] = useState<Record<string, TerminalSession>>(() => ({
@@ -361,6 +367,9 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId,
 
   useEffect(() => {
     if (!isOpen) return;
+    const clearSelectionsBeforeNextPointer = () => {
+      clearAllTerminalSelections(xtermsRef.current);
+    };
     const clearAllEmptySelections = () => {
       window.setTimeout(() => {
         for (const handle of Object.values(xtermsRef.current)) {
@@ -369,10 +378,14 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId,
       }, 0);
     };
 
+    window.addEventListener("mousedown", clearSelectionsBeforeNextPointer, true);
+    window.addEventListener("pointerdown", clearSelectionsBeforeNextPointer, true);
     window.addEventListener("mouseup", clearAllEmptySelections, true);
     window.addEventListener("pointerup", clearAllEmptySelections, true);
     window.addEventListener("pointercancel", clearAllEmptySelections, true);
     return () => {
+      window.removeEventListener("mousedown", clearSelectionsBeforeNextPointer, true);
+      window.removeEventListener("pointerdown", clearSelectionsBeforeNextPointer, true);
       window.removeEventListener("mouseup", clearAllEmptySelections, true);
       window.removeEventListener("pointerup", clearAllEmptySelections, true);
       window.removeEventListener("pointercancel", clearAllEmptySelections, true);
