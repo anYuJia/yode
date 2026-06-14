@@ -2501,6 +2501,22 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   overflow: hidden;
   padding: 8px 10px;
   --terminal-bg: color-mix(in oklch, var(--bg), #000000 12%);
+  --terminal-black: color-mix(in oklch, var(--bg), #000000 32%);
+  --terminal-red: var(--error);
+  --terminal-green: var(--success);
+  --terminal-yellow: var(--warning);
+  --terminal-blue: color-mix(in oklch, var(--accent), #4cc9f0 36%);
+  --terminal-magenta: var(--accent);
+  --terminal-cyan: color-mix(in oklch, var(--accent), #8be9fd 58%);
+  --terminal-white: var(--text);
+  --terminal-bright-black: var(--text-soft);
+  --terminal-bright-red: color-mix(in oklch, var(--error), white 16%);
+  --terminal-bright-green: color-mix(in oklch, var(--success), white 16%);
+  --terminal-bright-yellow: color-mix(in oklch, var(--warning), white 16%);
+  --terminal-bright-blue: color-mix(in oklch, var(--accent), white 20%);
+  --terminal-bright-magenta: color-mix(in oklch, var(--accent), white 18%);
+  --terminal-bright-cyan: color-mix(in oklch, var(--terminal-cyan), white 18%);
+  --terminal-bright-white: color-mix(in oklch, var(--text), white 12%);
 }
 
 .terminal-pty-host {

@@ -82,14 +82,22 @@ function xtermTheme() {
     foreground: value("--text", "#f8f8f2"),
     cursor: value("--accent", "#bd93f9"),
     selectionBackground: value("--accent-muted", "rgba(189,147,249,0.35)"),
-    black: "#000000",
-    red: value("--error", "#ff5555"),
-    green: value("--success", "#50fa7b"),
-    yellow: value("--warning", "#f1fa8c"),
-    blue: value("--accent", "#bd93f9"),
-    magenta: value("--accent", "#ff79c6"),
-    cyan: value("--info", "#8be9fd"),
-    white: value("--text", "#f8f8f2")
+    black: value("--terminal-black", "#21222c"),
+    red: value("--terminal-red", value("--error", "#ff5555")),
+    green: value("--terminal-green", value("--success", "#50fa7b")),
+    yellow: value("--terminal-yellow", value("--warning", "#f1fa8c")),
+    blue: value("--terminal-blue", "#8be9fd"),
+    magenta: value("--terminal-magenta", value("--accent", "#ff79c6")),
+    cyan: value("--terminal-cyan", "#8be9fd"),
+    white: value("--terminal-white", value("--text", "#f8f8f2")),
+    brightBlack: value("--terminal-bright-black", "#6272a4"),
+    brightRed: value("--terminal-bright-red", value("--error", "#ff6e6e")),
+    brightGreen: value("--terminal-bright-green", value("--success", "#69ff94")),
+    brightYellow: value("--terminal-bright-yellow", value("--warning", "#ffffa5")),
+    brightBlue: value("--terminal-bright-blue", "#d6acff"),
+    brightMagenta: value("--terminal-bright-magenta", value("--accent", "#ff92df")),
+    brightCyan: value("--terminal-bright-cyan", "#a4ffff"),
+    brightWhite: value("--terminal-bright-white", "#ffffff")
   };
 }
 

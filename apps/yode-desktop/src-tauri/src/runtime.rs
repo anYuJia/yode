@@ -372,6 +372,7 @@ impl DesktopRuntime {
         for (key, value) in env {
             command.env(key, value);
         }
+        apply_terminal_color_env(&mut command);
 
         let child = pair
             .slave
@@ -1735,6 +1736,14 @@ fn terminal_shell_command(env: &HashMap<String, String>) -> (PathBuf, Vec<&'stat
     }
 }
 
+fn apply_terminal_color_env(command: &mut portable_pty::CommandBuilder) {
+    command.env("TERM", "xterm-256color");
+    command.env("COLORTERM", "truecolor");
+    command.env("CLICOLOR", "1");
+    command.env("FORCE_COLOR", "1");
+    command.env("GREP_COLORS", "mt=01;35:fn=36:ln=32:se=2");
+}
+
 fn parse_terminal_run_stdout(
     stdout: &[u8],
     marker: &str,
@@ -1857,6 +1866,27 @@ mod tests {
 
         assert_eq!(shell, PathBuf::from("/bin/zsh"));
         assert_eq!(args, vec!["-lic"]);
+    }
+
+    #[test]
+    fn terminal_color_env_uses_truecolor_capabilities() {
+        let mut command = portable_pty::CommandBuilder::new("/bin/sh");
+        apply_terminal_color_env(&mut command);
+
+        assert_eq!(
+            command.get_env("TERM").and_then(|value| value.to_str()),
+            Some("xterm-256color")
+        );
+        assert_eq!(
+            command
+                .get_env("COLORTERM")
+                .and_then(|value| value.to_str()),
+            Some("truecolor")
+        );
+        assert_eq!(
+            command.get_env("CLICOLOR").and_then(|value| value.to_str()),
+            Some("1")
+        );
     }
 
     #[test]
