@@ -1,5 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
+use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::path_format::display_slash;
@@ -7,6 +8,12 @@ use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
 pub struct EnterWorktreeTool;
 pub struct ExitWorktreeTool;
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GitRuntimeSettings {
+    branch_prefix: String,
+}
 
 #[async_trait]
 impl Tool for EnterWorktreeTool {
@@ -82,7 +89,8 @@ impl Tool for EnterWorktreeTool {
             .map(|s| s.to_string())
             .unwrap_or_else(|| format!("wt-{}", &uuid::Uuid::new_v4().to_string()[..8]));
 
-        let branch_name = format!("yode-{}", name);
+        let branch_prefix = git_branch_prefix();
+        let branch_name = format!("{branch_prefix}{name}");
         let worktree_dir = working_dir.join(".yode").join("worktrees").join(&name);
 
         std::fs::create_dir_all(working_dir.join(".yode").join("worktrees"))?;
@@ -277,16 +285,44 @@ impl Tool for ExitWorktreeTool {
     }
 }
 
+fn git_branch_prefix() -> String {
+    std::env::var("YODE_GIT_SETTINGS")
+        .ok()
+        .and_then(|raw| serde_json::from_str::<GitRuntimeSettings>(&raw).ok())
+        .map(|settings| normalize_branch_prefix(&settings.branch_prefix))
+        .unwrap_or_else(|| "yode/".to_string())
+}
+
+fn normalize_branch_prefix(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return "yode/".to_string();
+    }
+    if trimmed.ends_with('/') || trimmed.ends_with('-') || trimmed.ends_with('_') {
+        trimmed.to_string()
+    } else {
+        format!("{trimmed}/")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::EnterWorktreeTool;
     use crate::tool::{Tool, ToolContext, WorktreeState};
     use serde_json::json;
     use std::sync::Arc;
+    use std::sync::{Mutex as StdMutex, OnceLock};
     use tokio::sync::Mutex;
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<StdMutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| StdMutex::new(())).lock().unwrap()
+    }
 
     #[tokio::test]
     async fn enter_worktree_returns_metadata() {
+        let _guard = env_lock();
+        std::env::remove_var("YODE_GIT_SETTINGS");
         let dir = tempfile::tempdir().unwrap();
         std::process::Command::new("git")
             .args(["init"])
@@ -326,9 +362,58 @@ mod tests {
         assert!(!result.is_error);
         let metadata = result.metadata.unwrap();
         assert_eq!(metadata["action"].as_str(), Some("create"));
-        assert_eq!(metadata["branch_name"].as_str(), Some("yode-demo"));
+        assert_eq!(metadata["branch_name"].as_str(), Some("yode/demo"));
         assert!(metadata["worktree_dir"]
             .as_str()
             .is_some_and(|path| path.contains(".yode/worktrees/demo")));
+    }
+
+    #[tokio::test]
+    async fn enter_worktree_uses_git_branch_prefix_setting() {
+        let _guard = env_lock();
+        std::env::set_var("YODE_GIT_SETTINGS", r#"{"branchPrefix":"feature/"}"#);
+        let dir = tempfile::tempdir().unwrap();
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.email", "test@example.com"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.name", "Test User"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        std::fs::write(dir.path().join("README.md"), "hello\n").unwrap();
+        std::process::Command::new("git")
+            .args(["add", "README.md"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+
+        let ctx = ToolContext {
+            working_dir: Some(dir.path().to_path_buf()),
+            worktree_state: Some(Arc::new(Mutex::new(WorktreeState::default()))),
+            ..ToolContext::empty()
+        };
+        let result = EnterWorktreeTool
+            .execute(json!({ "name": "demo" }), &ctx)
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert_eq!(
+            result.metadata.unwrap()["branch_name"].as_str(),
+            Some("feature/demo")
+        );
     }
 }

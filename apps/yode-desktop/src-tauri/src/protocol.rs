@@ -341,6 +341,20 @@ pub struct HooksSettings {
     pub hooks: Vec<DesktopHookEntry>,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitSettings {
+    pub branch_prefix: String,
+    pub merge_method: String,
+    pub show_pr_icons: bool,
+    pub always_force_push: bool,
+    pub create_draft_prs: bool,
+    pub auto_delete_worktrees: bool,
+    pub auto_delete_limit: u32,
+    pub commit_instructions: String,
+    pub pr_instructions: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DesktopWorktree {

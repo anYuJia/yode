@@ -1,5 +1,42 @@
 import React, { useEffect, useState } from "react";
-import { loadDesktopSetting, saveDesktopSetting } from "../../lib/desktopSettings";
+import { invoke } from "@tauri-apps/api/core";
+import { isTauriRuntime, loadDesktopSetting } from "../../lib/desktopSettings";
+
+type GitSettingsState = {
+  branchPrefix: string;
+  mergeMethod: string;
+  showPrIcons: boolean;
+  alwaysForcePush: boolean;
+  createDraftPrs: boolean;
+  autoDeleteWorktrees: boolean;
+  autoDeleteLimit: number;
+  commitInstructions: string;
+  prInstructions: string;
+};
+
+const DEFAULT_GIT_SETTINGS: GitSettingsState = {
+  branchPrefix: "yode/",
+  mergeMethod: "merge",
+  showPrIcons: true,
+  alwaysForcePush: false,
+  createDraftPrs: true,
+  autoDeleteWorktrees: true,
+  autoDeleteLimit: 15,
+  commitInstructions: "",
+  prInstructions: ""
+};
+
+function persistGitSettingsFallback(settings: GitSettingsState) {
+  localStorage.setItem("yode-git-branch-prefix", settings.branchPrefix);
+  localStorage.setItem("yode-git-merge-method", settings.mergeMethod);
+  localStorage.setItem("yode-git-show-pr-icons", JSON.stringify(settings.showPrIcons));
+  localStorage.setItem("yode-git-always-force-push", JSON.stringify(settings.alwaysForcePush));
+  localStorage.setItem("yode-git-create-draft-prs", JSON.stringify(settings.createDraftPrs));
+  localStorage.setItem("yode-git-auto-delete-worktrees", JSON.stringify(settings.autoDeleteWorktrees));
+  localStorage.setItem("yode-git-auto-delete-limit", JSON.stringify(settings.autoDeleteLimit));
+  localStorage.setItem("yode-git-commit-instructions", settings.commitInstructions);
+  localStorage.setItem("yode-git-pr-instructions", settings.prInstructions);
+}
 
 export function GitSettingsSettings({
   isZh,
@@ -37,30 +74,85 @@ export function GitSettingsSettings({
   });
   const [statusText, setStatusText] = useState("");
 
-  const updateVal = (key: string, val: any) => {
-    void saveDesktopSetting(key, val);
-  };
-
   useEffect(() => {
-    void loadDesktopSetting("yode-git-branch-prefix", branchPrefix).then(setBranchPrefix);
-    void loadDesktopSetting("yode-git-merge-method", mergeMethod).then(setMergeMethod);
-    void loadDesktopSetting("yode-git-show-pr-icons", showPrIcons).then(setShowPrIcons);
-    void loadDesktopSetting("yode-git-always-force-push", alwaysForcePush).then(setAlwaysForcePush);
-    void loadDesktopSetting("yode-git-create-draft-prs", createDraftPrs).then(setCreateDraftPrs);
-    void loadDesktopSetting("yode-git-auto-delete-worktrees", autoDeleteWorktrees).then(setAutoDeleteWorktrees);
-    void loadDesktopSetting("yode-git-auto-delete-limit", autoDeleteLimit).then(setAutoDeleteLimit);
-    void loadDesktopSetting("yode-git-commit-instructions", commitInstructions).then(setCommitInstructions);
-    void loadDesktopSetting("yode-git-pr-instructions", prInstructions).then(setPrInstructions);
+    const loadSettings = async () => {
+      if (isTauriRuntime()) {
+        try {
+          const settings = await invoke<GitSettingsState>("git_settings_get");
+          applySettingsToState(settings);
+          setStatusText(t("Git 设置已连接到运行时。", "Git settings are connected to the runtime."));
+          return;
+        } catch (err) {
+          console.error(err);
+        }
+      }
+      applySettingsToState({
+        branchPrefix: await loadDesktopSetting("yode-git-branch-prefix", DEFAULT_GIT_SETTINGS.branchPrefix),
+        mergeMethod: await loadDesktopSetting("yode-git-merge-method", DEFAULT_GIT_SETTINGS.mergeMethod),
+        showPrIcons: await loadDesktopSetting("yode-git-show-pr-icons", DEFAULT_GIT_SETTINGS.showPrIcons),
+        alwaysForcePush: await loadDesktopSetting("yode-git-always-force-push", DEFAULT_GIT_SETTINGS.alwaysForcePush),
+        createDraftPrs: await loadDesktopSetting("yode-git-create-draft-prs", DEFAULT_GIT_SETTINGS.createDraftPrs),
+        autoDeleteWorktrees: await loadDesktopSetting(
+          "yode-git-auto-delete-worktrees",
+          DEFAULT_GIT_SETTINGS.autoDeleteWorktrees
+        ),
+        autoDeleteLimit: await loadDesktopSetting("yode-git-auto-delete-limit", DEFAULT_GIT_SETTINGS.autoDeleteLimit),
+        commitInstructions: await loadDesktopSetting(
+          "yode-git-commit-instructions",
+          DEFAULT_GIT_SETTINGS.commitInstructions
+        ),
+        prInstructions: await loadDesktopSetting("yode-git-pr-instructions", DEFAULT_GIT_SETTINGS.prInstructions)
+      });
+    };
+    void loadSettings();
   }, []);
 
+  const currentSettings = (): GitSettingsState => ({
+    branchPrefix,
+    mergeMethod,
+    showPrIcons,
+    alwaysForcePush,
+    createDraftPrs,
+    autoDeleteWorktrees,
+    autoDeleteLimit,
+    commitInstructions,
+    prInstructions
+  });
+
+  const applySettingsToState = (settings: GitSettingsState) => {
+    setBranchPrefix(settings.branchPrefix);
+    setMergeMethod(settings.mergeMethod);
+    setShowPrIcons(settings.showPrIcons);
+    setAlwaysForcePush(settings.alwaysForcePush);
+    setCreateDraftPrs(settings.createDraftPrs);
+    setAutoDeleteWorktrees(settings.autoDeleteWorktrees);
+    setAutoDeleteLimit(settings.autoDeleteLimit);
+    setCommitInstructions(settings.commitInstructions);
+    setPrInstructions(settings.prInstructions);
+  };
+
+  const applyGitSettings = async (nextSettings: GitSettingsState, message?: string) => {
+    try {
+      if (isTauriRuntime()) {
+        const applied = await invoke<GitSettingsState>("git_settings_apply", { settings: nextSettings });
+        applySettingsToState(applied);
+      } else {
+        persistGitSettingsFallback(nextSettings);
+        applySettingsToState(nextSettings);
+      }
+      setStatusText(message ?? t("Git 设置已保存。", "Git settings saved."));
+    } catch (err) {
+      console.error(err);
+      setStatusText(t("保存 Git 设置失败。", "Failed to save Git settings."));
+    }
+  };
+
   const handleSaveCommitInstructions = () => {
-    updateVal("yode-git-commit-instructions", commitInstructions);
-    setStatusText(t("提交说明已保存到桌面设置。", "Commit instructions saved to desktop settings."));
+    void applyGitSettings(currentSettings(), t("提交说明已保存到运行时。", "Commit instructions saved to runtime."));
   };
 
   const handleSavePrInstructions = () => {
-    updateVal("yode-git-pr-instructions", prInstructions);
-    setStatusText(t("PR 说明已保存到桌面设置。", "PR instructions saved to desktop settings."));
+    void applyGitSettings(currentSettings(), t("PR 说明已保存到运行时。", "PR instructions saved to runtime."));
   };
 
   return (
@@ -76,7 +168,7 @@ export function GitSettingsSettings({
             value={branchPrefix}
             onChange={(e) => {
               setBranchPrefix(e.target.value);
-              updateVal("yode-git-branch-prefix", e.target.value);
+              void applyGitSettings({ ...currentSettings(), branchPrefix: e.target.value });
             }}
             placeholder="yode/"
             style={{
@@ -105,7 +197,7 @@ export function GitSettingsSettings({
               className={`segmented-btn ${mergeMethod === "merge" ? "active" : ""}`}
               onClick={() => {
                 setMergeMethod("merge");
-                updateVal("yode-git-merge-method", "merge");
+                void applyGitSettings({ ...currentSettings(), mergeMethod: "merge" });
               }}
               type="button"
             >
@@ -115,7 +207,7 @@ export function GitSettingsSettings({
               className={`segmented-btn ${mergeMethod === "squash" ? "active" : ""}`}
               onClick={() => {
                 setMergeMethod("squash");
-                updateVal("yode-git-merge-method", "squash");
+                void applyGitSettings({ ...currentSettings(), mergeMethod: "squash" });
               }}
               type="button"
             >
@@ -137,7 +229,7 @@ export function GitSettingsSettings({
               checked={showPrIcons}
               onChange={(e) => {
                 setShowPrIcons(e.target.checked);
-                updateVal("yode-git-show-pr-icons", e.target.checked);
+                void applyGitSettings({ ...currentSettings(), showPrIcons: e.target.checked });
               }}
             />
             <span className="switch-slider" />
@@ -157,7 +249,7 @@ export function GitSettingsSettings({
               checked={alwaysForcePush}
               onChange={(e) => {
                 setAlwaysForcePush(e.target.checked);
-                updateVal("yode-git-always-force-push", e.target.checked);
+                void applyGitSettings({ ...currentSettings(), alwaysForcePush: e.target.checked });
               }}
             />
             <span className="switch-slider" />
@@ -177,7 +269,7 @@ export function GitSettingsSettings({
               checked={createDraftPrs}
               onChange={(e) => {
                 setCreateDraftPrs(e.target.checked);
-                updateVal("yode-git-create-draft-prs", e.target.checked);
+                void applyGitSettings({ ...currentSettings(), createDraftPrs: e.target.checked });
               }}
             />
             <span className="switch-slider" />
@@ -202,7 +294,7 @@ export function GitSettingsSettings({
               checked={autoDeleteWorktrees}
               onChange={(e) => {
                 setAutoDeleteWorktrees(e.target.checked);
-                updateVal("yode-git-auto-delete-worktrees", e.target.checked);
+                void applyGitSettings({ ...currentSettings(), autoDeleteWorktrees: e.target.checked });
               }}
             />
             <span className="switch-slider" />
@@ -227,7 +319,7 @@ export function GitSettingsSettings({
             onChange={(e) => {
               const val = Number(e.target.value) || 1;
               setAutoDeleteLimit(val);
-              updateVal("yode-git-auto-delete-limit", val);
+              void applyGitSettings({ ...currentSettings(), autoDeleteLimit: val });
             }}
             min={1}
             style={{

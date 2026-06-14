@@ -298,6 +298,23 @@ fn hooks_settings_apply(
 }
 
 #[tauri::command]
+fn git_settings_get(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+) -> Result<protocol::GitSettings, String> {
+    runtime.git_settings_get().map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn git_settings_apply(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    settings: protocol::GitSettings,
+) -> Result<protocol::GitSettings, String> {
+    runtime
+        .git_settings_apply(settings)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
 fn worktrees_list(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
 ) -> Result<Vec<protocol::DesktopWorktree>, String> {
@@ -540,6 +557,8 @@ pub fn run() {
             browser_settings_apply,
             hooks_settings_get,
             hooks_settings_apply,
+            git_settings_get,
+            git_settings_apply,
             worktrees_list,
             worktrees_prune_idle,
             worktree_delete,

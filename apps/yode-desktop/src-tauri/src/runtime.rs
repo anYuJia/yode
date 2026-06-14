@@ -30,9 +30,9 @@ use crate::protocol::{
     ConfigurationUpdateRequest, CreateSessionRequest, DefaultLlm, DesktopActionResult,
     DesktopEvent, DesktopHookEntry, DesktopImageOutput, DesktopMcpServer, DesktopMcpServerStatus,
     DesktopMcpState, DesktopMessage, DesktopProvider, DesktopSession, DesktopSettingSetRequest,
-    DesktopSettingValue, DesktopWorktree, DiagnosticCheck, GeneralSettings, HooksSettings,
-    ImportAiSessionsResult, LicenseNotice, OpenTargetRequest, PersonalizationState, RuntimeState,
-    SendMessageRequest, TerminalExitEvent, TerminalOpenRequest, TerminalOpenResponse,
+    DesktopSettingValue, DesktopWorktree, DiagnosticCheck, GeneralSettings, GitSettings,
+    HooksSettings, ImportAiSessionsResult, LicenseNotice, OpenTargetRequest, PersonalizationState,
+    RuntimeState, SendMessageRequest, TerminalExitEvent, TerminalOpenRequest, TerminalOpenResponse,
     TerminalOutputEvent, TerminalResizeRequest, TerminalRunRequest, TerminalRunResponse,
     TerminalWriteRequest, TurnAccepted, WorkspaceDiagnosticsResult,
 };
@@ -94,6 +94,9 @@ impl DesktopRuntime {
         if let Ok(settings) = read_desktop_settings() {
             if let Ok(browser_settings) = browser_settings_from_desktop_settings(&settings) {
                 apply_browser_settings_env(&browser_settings);
+            }
+            if let Ok(git_settings) = git_settings_from_desktop_settings(&settings) {
+                apply_git_settings_env(&git_settings);
             }
         }
 
@@ -740,6 +743,55 @@ impl DesktopRuntime {
         desktop_settings.insert("yode-hooks-enabled".to_string(), json!(normalized.enabled));
         desktop_settings.insert("yode-hooks-list".to_string(), json!(normalized.hooks));
         write_desktop_settings(&desktop_settings)?;
+        Ok(normalized)
+    }
+
+    pub fn git_settings_get(&self) -> Result<GitSettings> {
+        git_settings_from_desktop_settings(&read_desktop_settings()?)
+    }
+
+    pub fn git_settings_apply(&self, settings: GitSettings) -> Result<GitSettings> {
+        let normalized = normalize_git_settings(settings);
+        validate_git_settings(&normalized)?;
+        let mut desktop_settings = read_desktop_settings()?;
+        desktop_settings.insert(
+            "yode-git-branch-prefix".to_string(),
+            json!(normalized.branch_prefix),
+        );
+        desktop_settings.insert(
+            "yode-git-merge-method".to_string(),
+            json!(normalized.merge_method),
+        );
+        desktop_settings.insert(
+            "yode-git-show-pr-icons".to_string(),
+            json!(normalized.show_pr_icons),
+        );
+        desktop_settings.insert(
+            "yode-git-always-force-push".to_string(),
+            json!(normalized.always_force_push),
+        );
+        desktop_settings.insert(
+            "yode-git-create-draft-prs".to_string(),
+            json!(normalized.create_draft_prs),
+        );
+        desktop_settings.insert(
+            "yode-git-auto-delete-worktrees".to_string(),
+            json!(normalized.auto_delete_worktrees),
+        );
+        desktop_settings.insert(
+            "yode-git-auto-delete-limit".to_string(),
+            json!(normalized.auto_delete_limit),
+        );
+        desktop_settings.insert(
+            "yode-git-commit-instructions".to_string(),
+            json!(normalized.commit_instructions),
+        );
+        desktop_settings.insert(
+            "yode-git-pr-instructions".to_string(),
+            json!(normalized.pr_instructions),
+        );
+        write_desktop_settings(&desktop_settings)?;
+        apply_git_settings_env(&normalized);
         Ok(normalized)
     }
 
@@ -3535,6 +3587,73 @@ fn build_desktop_hook_manager(workspace_path: &Path) -> Result<Option<HookManage
     Ok(Some(manager))
 }
 
+fn git_settings_from_desktop_settings(
+    settings: &serde_json::Map<String, serde_json::Value>,
+) -> Result<GitSettings> {
+    Ok(normalize_git_settings(GitSettings {
+        branch_prefix: desktop_string_setting(settings, "yode-git-branch-prefix", "yode/"),
+        merge_method: desktop_string_setting(settings, "yode-git-merge-method", "merge"),
+        show_pr_icons: desktop_bool_setting(settings, "yode-git-show-pr-icons", true),
+        always_force_push: desktop_bool_setting(settings, "yode-git-always-force-push", false),
+        create_draft_prs: desktop_bool_setting(settings, "yode-git-create-draft-prs", true),
+        auto_delete_worktrees: desktop_bool_setting(
+            settings,
+            "yode-git-auto-delete-worktrees",
+            true,
+        ),
+        auto_delete_limit: desktop_u32_setting(settings, "yode-git-auto-delete-limit", 15),
+        commit_instructions: desktop_string_setting(settings, "yode-git-commit-instructions", ""),
+        pr_instructions: desktop_string_setting(settings, "yode-git-pr-instructions", ""),
+    }))
+}
+
+fn normalize_git_settings(mut settings: GitSettings) -> GitSettings {
+    settings.branch_prefix = normalize_branch_prefix(&settings.branch_prefix);
+    settings.merge_method = match settings.merge_method.trim() {
+        "squash" => "squash".to_string(),
+        _ => "merge".to_string(),
+    };
+    settings.auto_delete_limit = settings.auto_delete_limit.clamp(1, 200);
+    settings.commit_instructions = settings.commit_instructions.trim().to_string();
+    settings.pr_instructions = settings.pr_instructions.trim().to_string();
+    settings
+}
+
+fn validate_git_settings(settings: &GitSettings) -> Result<()> {
+    if settings.branch_prefix.is_empty() {
+        anyhow::bail!("分支前缀不能为空。");
+    }
+    if !settings
+        .branch_prefix
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '/' | '-' | '_' | '.'))
+    {
+        anyhow::bail!("分支前缀只能包含字母、数字、斜杠、横线、下划线和点。");
+    }
+    if !matches!(settings.merge_method.as_str(), "merge" | "squash") {
+        anyhow::bail!("无效的合并方式。");
+    }
+    Ok(())
+}
+
+fn normalize_branch_prefix(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return "yode/".to_string();
+    }
+    if trimmed.ends_with('/') || trimmed.ends_with('-') || trimmed.ends_with('_') {
+        trimmed.to_string()
+    } else {
+        format!("{trimmed}/")
+    }
+}
+
+fn apply_git_settings_env(settings: &GitSettings) {
+    if let Ok(json) = serde_json::to_string(settings) {
+        std::env::set_var("YODE_GIT_SETTINGS", json);
+    }
+}
+
 fn computer_use_settings_from_desktop_settings(
     settings: &serde_json::Map<String, serde_json::Value>,
 ) -> Result<ComputerUseSettings> {
@@ -3642,6 +3761,22 @@ fn desktop_bool_setting(
             value
                 .as_bool()
                 .or_else(|| value.as_str().and_then(|raw| raw.parse::<bool>().ok()))
+        })
+        .unwrap_or(fallback)
+}
+
+fn desktop_u32_setting(
+    settings: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+    fallback: u32,
+) -> u32 {
+    settings
+        .get(key)
+        .and_then(|value| {
+            value
+                .as_u64()
+                .and_then(|raw| u32::try_from(raw).ok())
+                .or_else(|| value.as_str().and_then(|raw| raw.parse::<u32>().ok()))
         })
         .unwrap_or(fallback)
 }
