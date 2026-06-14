@@ -181,6 +181,7 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
 
   const updateGeneralVal = (key: string, value: string | boolean) => {
     localStorage.setItem(key, String(value));
+    window.dispatchEvent(new CustomEvent("yode-general-settings-change", { detail: { key, value } }));
   };
 
   const categories = [
@@ -693,7 +694,12 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
                       <span className="row-label">{t("导入其他 AI 会话", "Import work from other AI apps")}</span>
                       <span className="row-desc">{t("将配置、项目及最近会话快速导入到 Yode", "Bring over your setup, projects, and recent chats")}</span>
                     </div>
-                    <button className="secondary-button" style={{ paddingInline: "14px", height: "28px" }} type="button">
+                    <button
+                      className="secondary-button"
+                      style={{ paddingInline: "14px", height: "28px" }}
+                      type="button"
+                      onClick={() => alert(t("导入流程还没有接入。", "Import flow is not connected yet."))}
+                    >
                       {t("导入", "Import")}
                     </button>
                   </div>
@@ -704,7 +710,12 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
                       <span className="row-label">{t("开源许可声明", "Open source licenses")}</span>
                       <span className="row-desc">{t("查看所包含依赖项的第三方声明", "Third-party notices for bundled dependencies")}</span>
                     </div>
-                    <button className="secondary-button" style={{ paddingInline: "14px", height: "28px" }} type="button">
+                    <button
+                      className="secondary-button"
+                      style={{ paddingInline: "14px", height: "28px" }}
+                      type="button"
+                      onClick={() => alert(t("开源许可声明还没有接入。", "Open source notices are not connected yet."))}
+                    >
                       {t("查看", "View")}
                     </button>
                   </div>

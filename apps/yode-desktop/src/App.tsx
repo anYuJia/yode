@@ -144,6 +144,16 @@ function loadStoredNumber(key: string, fallback: number) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function loadGeneralSettings() {
+  return {
+    bottomPanel: localStorage.getItem("yode-bottom-panel") !== "false",
+    suggestedPrompts: localStorage.getItem("yode-suggested-prompts") !== "false",
+    contextUsage: localStorage.getItem("yode-context-usage") === "true",
+    requireOptEnter: localStorage.getItem("yode-require-opt-enter") === "true",
+    followUpBehavior: localStorage.getItem("yode-follow-up-behavior") || "queue"
+  };
+}
+
 function loadStoredProjectRoots(): string[] {
   try {
     const raw = localStorage.getItem(PROJECT_ROOTS_STORAGE_KEY);
@@ -285,6 +295,7 @@ export function App() {
   const [terminalHeight, setTerminalHeight] = useState(() => clampNumber(loadStoredNumber(TERMINAL_HEIGHT_STORAGE_KEY, 280), 180, 520));
   const [isProcessing, setIsProcessing] = useState(false);
   const [messageQueue, setMessageQueue] = useState<Array<{ content: string; images: ImageAttachment[] }>>([]);
+  const [generalSettings, setGeneralSettings] = useState(loadGeneralSettings);
   const [composerImages, setComposerImages] = useState<ImageAttachment[]>([]);
   const [currentTurnId, setCurrentTurnId] = useState<string | null>(null);
   const [permissionMode, setPermissionMode] = useState<string>("default");
@@ -484,6 +495,14 @@ export function App() {
     };
     window.addEventListener("yode-language-change", handleLangChange);
     return () => window.removeEventListener("yode-language-change", handleLangChange);
+  }, []);
+
+  useEffect(() => {
+    const handleGeneralSettingsChange = () => {
+      setGeneralSettings(loadGeneralSettings());
+    };
+    window.addEventListener("yode-general-settings-change", handleGeneralSettingsChange);
+    return () => window.removeEventListener("yode-general-settings-change", handleGeneralSettingsChange);
   }, []);
 
   useEffect(() => {
@@ -1006,6 +1025,20 @@ export function App() {
     setComposerImages([]);
 
     if (isProcessing) {
+      if (generalSettings.followUpBehavior === "steer") {
+        setTimelineItems((items) => [
+          ...items,
+          {
+            id: `local-steer-${Date.now()}`,
+            kind: "assistant",
+            title: "指引已记录",
+            body: content,
+            meta: "intermediate",
+            createdAt: Date.now()
+          }
+        ]);
+        return;
+      }
       setMessageQueue((prev) => [...prev, { content, images: imagesAtSend }]);
       setTimelineItems((items) => [
         ...items,
@@ -1307,6 +1340,10 @@ export function App() {
           onModelChange={handleUpdateModel}
           pendingUserQuestion={pendingUserQuestion}
           onAskUserResolve={handleAskUserResolve}
+          showSuggestedPrompts={generalSettings.suggestedPrompts}
+          showBottomPanel={generalSettings.bottomPanel}
+          showContextUsage={generalSettings.contextUsage}
+          requireOptEnter={generalSettings.requireOptEnter}
         />
         <TerminalDrawer
           isOpen={terminalOpen}

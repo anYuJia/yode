@@ -46,6 +46,10 @@ interface ChatWorkspaceProps {
   onModelChange: (model: string) => void;
   pendingUserQuestion: PendingUserQuestion | null;
   onAskUserResolve: (answer: string) => void;
+  showSuggestedPrompts: boolean;
+  showBottomPanel: boolean;
+  showContextUsage: boolean;
+  requireOptEnter: boolean;
 }
 
 export function ChatWorkspace({
@@ -72,7 +76,11 @@ export function ChatWorkspace({
   currentModel,
   onModelChange,
   pendingUserQuestion,
-  onAskUserResolve
+  onAskUserResolve,
+  showSuggestedPrompts,
+  showBottomPanel,
+  showContextUsage,
+  requireOptEnter
 }: ChatWorkspaceProps) {
   const isStreaming = useMemo(() => {
     if (isProcessing) return true;
@@ -282,32 +290,34 @@ export function ChatWorkspace({
                   : "Enter a repository task to start. I'll help you analyze, write, and debug code."}
               </p>
               
-              <div className="welcome-cards">
-                <button 
-                  type="button"
-                  className="welcome-card"
-                  onClick={() => onDraftChange(appLang === "zh" ? "解释当前项目的主要架构 and 目录结构" : "Explain the main architecture and directory structure of this project")}
-                >
-                  <h3>🔍 {appLang === "zh" ? "分析项目" : "Analyze Project"}</h3>
-                  <p>{appLang === "zh" ? "解释当前项目的主要架构和目录结构" : "Explain the main architecture and directory structure of this project"}</p>
-                </button>
-                <button 
-                  type="button"
-                  className="welcome-card"
-                  onClick={() => onDraftChange(appLang === "zh" ? "帮我找出当前代码中可以优化性能的模块" : "Help me find modules in the current code that can be optimized for performance")}
-                >
-                  <h3>🛠️ {appLang === "zh" ? "代码优化" : "Code Optimization"}</h3>
-                  <p>{appLang === "zh" ? "帮我找出当前代码中可以优化性能的模块" : "Help me find modules in the current code that can be optimized for performance"}</p>
-                </button>
-                <button 
-                  type="button"
-                  className="welcome-card"
-                  onClick={() => onDraftChange(appLang === "zh" ? "为最近修改的 Rust 模块生成单元测试" : "Generate unit tests for the recently modified Rust modules")}
-                >
-                  <h3>📝 {appLang === "zh" ? "编写测试" : "Write Tests"}</h3>
-                  <p>{appLang === "zh" ? "为最近修改的 Rust 模块生成单元测试" : "Generate unit tests for the recently modified Rust modules"}</p>
-                </button>
-              </div>
+              {showSuggestedPrompts ? (
+                <div className="welcome-cards">
+                  <button
+                    type="button"
+                    className="welcome-card"
+                    onClick={() => onDraftChange(appLang === "zh" ? "解释当前项目的主要架构和目录结构" : "Explain the main architecture and directory structure of this project")}
+                  >
+                    <h3>🔍 {appLang === "zh" ? "分析项目" : "Analyze Project"}</h3>
+                    <p>{appLang === "zh" ? "解释当前项目的主要架构和目录结构" : "Explain the main architecture and directory structure of this project"}</p>
+                  </button>
+                  <button
+                    type="button"
+                    className="welcome-card"
+                    onClick={() => onDraftChange(appLang === "zh" ? "帮我找出当前代码中可以优化性能的模块" : "Help me find modules in the current code that can be optimized for performance")}
+                  >
+                    <h3>🛠️ {appLang === "zh" ? "代码优化" : "Code Optimization"}</h3>
+                    <p>{appLang === "zh" ? "帮我找出当前代码中可以优化性能的模块" : "Help me find modules in the current code that can be optimized for performance"}</p>
+                  </button>
+                  <button
+                    type="button"
+                    className="welcome-card"
+                    onClick={() => onDraftChange(appLang === "zh" ? "为最近修改的 Rust 模块生成单元测试" : "Generate unit tests for the recently modified Rust modules")}
+                  >
+                    <h3>📝 {appLang === "zh" ? "编写测试" : "Write Tests"}</h3>
+                    <p>{appLang === "zh" ? "为最近修改的 Rust 模块生成单元测试" : "Generate unit tests for the recently modified Rust modules"}</p>
+                  </button>
+                </div>
+              ) : null}
             </div>
           ) : (
             turns.map((turn, turnIndex) => {
@@ -386,6 +396,9 @@ export function ChatWorkspace({
           currentProvider={currentProvider}
           currentModel={currentModel}
           onModelChange={onModelChange}
+          showBottomPanel={showBottomPanel}
+          showContextUsage={showContextUsage}
+          requireOptEnter={requireOptEnter}
         />
       </div>
       <div

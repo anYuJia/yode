@@ -37,6 +37,9 @@ interface ComposerProps {
   currentProvider: string;
   currentModel: string;
   onModelChange: (model: string) => void;
+  showBottomPanel: boolean;
+  showContextUsage: boolean;
+  requireOptEnter: boolean;
 }
 
 export function Composer({
@@ -56,7 +59,10 @@ export function Composer({
   onAddProject,
   currentProvider,
   currentModel,
-  onModelChange
+  onModelChange,
+  showBottomPanel,
+  showContextUsage,
+  requireOptEnter
 }: ComposerProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
@@ -263,6 +269,13 @@ export function Composer({
         }}
         onKeyDown={(event) => {
           if (event.key === "Enter" && !event.shiftKey) {
+            if (requireOptEnter) {
+              if (event.altKey) {
+                event.preventDefault();
+                onSendMessage();
+              }
+              return;
+            }
             if (event.metaKey || event.ctrlKey) {
               event.preventDefault();
               const target = event.target as HTMLTextAreaElement;
@@ -282,6 +295,7 @@ export function Composer({
         }}
       />
       <div className="composer-toolbar">
+        {showBottomPanel ? (
         <div className="composer-tools" style={{ position: "relative" }}>
           <input
             ref={fileInputRef}
@@ -514,7 +528,13 @@ export function Composer({
             )}
           </div>
         </div>
+        ) : <div />}
         <div className="composer-actions">
+          {showContextUsage ? (
+            <span className="context-usage-chip" title={isZh ? "当前输入估算用量" : "Estimated current input usage"}>
+              {isZh ? `${draft.length.toLocaleString()} 字` : `${draft.length.toLocaleString()} chars`}
+            </span>
+          ) : null}
           {isProcessing ? (
             <button 
               className="send-button stop-button" 
