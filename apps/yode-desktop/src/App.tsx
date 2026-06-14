@@ -527,18 +527,36 @@ export function App() {
     const foregroundColor = localStorage.getItem("yode-fg-color") || "#F8F8F2";
     const uiFont = localStorage.getItem("yode-ui-font") || "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif";
     const codeFont = localStorage.getItem("yode-code-font") || "ui-monospace, \"SF Mono\", SFMono-Regular, Menlo, Monaco, Consolas, monospace";
-    const codeFontSize = localStorage.getItem("yode-code-font-size") || "12";
+    const readNumber = (key: string, fallback: number) => {
+      const raw = localStorage.getItem(key);
+      if (raw === null) return fallback;
+      const parsed = Number(raw);
+      return Number.isFinite(parsed) ? parsed : fallback;
+    };
+    const appScale = readNumber("yode-app-scale", 100) / 100;
+    const uiFontSize = readNumber("yode-ui-font-size", 13);
+    const chatFontSize = readNumber("yode-chat-font-size", 13.25);
+    const sidebarFontSize = readNumber("yode-sidebar-font-size", 13);
+    const codeFontSize = readNumber("yode-code-font-size", 12);
+    const terminalFontSize = readNumber("yode-terminal-font-size", 12);
+    const inspectorFontSize = readNumber("yode-inspector-font-size", 12);
     const contrast = localStorage.getItem("yode-contrast") || "48";
-    const uiFontSize = localStorage.getItem("yode-ui-font-size") || "13";
+    const scaledPx = (value: number) => `${Number((value * appScale).toFixed(2))}px`;
 
     root.style.setProperty("--accent", accentColor);
     root.style.setProperty("--bg", backgroundColor);
     root.style.setProperty("--text", foregroundColor);
     root.style.setProperty("--font-ui", uiFont);
     root.style.setProperty("--font-code", codeFont);
-    root.style.setProperty("--code-font-size", `${codeFontSize}px`);
+    root.style.setProperty("--ui-font-size", scaledPx(uiFontSize));
+    root.style.setProperty("--chat-font-size", scaledPx(chatFontSize));
+    root.style.setProperty("--sidebar-font-size", scaledPx(sidebarFontSize));
+    root.style.setProperty("--code-font-size", scaledPx(codeFontSize));
+    root.style.setProperty("--terminal-font-size", scaledPx(terminalFontSize));
+    root.style.setProperty("--inspector-font-size", scaledPx(inspectorFontSize));
+    root.style.setProperty("--app-scale", String(appScale));
     root.style.setProperty("--contrast-val", contrast);
-    root.style.fontSize = `${uiFontSize}px`;
+    root.style.fontSize = scaledPx(uiFontSize);
 
     // Deriving colors based on background color lightness
     const hexToRgb = (hex: string) => {

@@ -109,6 +109,12 @@ function backendSessionId(sessionKey: string, tabId: string) {
   return `${sessionKey}::${tabId}`;
 }
 
+function readTerminalFontSize() {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue("--terminal-font-size").trim();
+  const parsed = Number.parseFloat(raw);
+  return Number.isFinite(parsed) ? parsed : 12;
+}
+
 function clearWhitespaceOnlySelection(terminal: Terminal) {
   const selectedText = terminal.getSelection().replace(/\u00a0/g, " ");
   if (selectedText.length > 0 && selectedText.trim().length === 0) {
@@ -185,7 +191,7 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId,
       convertEol: true,
       cursorBlink: true,
       fontFamily: "Menlo, Monaco, Consolas, 'Liberation Mono', monospace",
-      fontSize: 12,
+      fontSize: readTerminalFontSize(),
       lineHeight: 1.35,
       scrollback: 10000,
       theme: xtermTheme()
@@ -364,6 +370,24 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId,
       handle.terminal.options.theme = xtermTheme();
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    const applyAppearance = () => {
+      const fontSize = readTerminalFontSize();
+      for (const [key, handle] of Object.entries(xtermsRef.current)) {
+        handle.terminal.options.theme = xtermTheme();
+        handle.terminal.options.fontSize = fontSize;
+        const tabId = key.slice(key.indexOf("::") + 2);
+        const tab = tabs.find((item) => item.id === tabId);
+        if (tab) {
+          window.setTimeout(() => fitAndResize(tab), 0);
+        }
+      }
+    };
+
+    window.addEventListener("yode-appearance-change", applyAppearance);
+    return () => window.removeEventListener("yode-appearance-change", applyAppearance);
+  }, [tabs, sessionKey, isTauri, isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
