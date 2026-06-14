@@ -18,6 +18,7 @@ use yode_core::config::Config;
 use yode_core::context::AgentContext;
 use yode_core::db::{Database, StoredMessage};
 use yode_core::engine::{AgentEngine, ConfirmResponse, EngineEvent};
+use yode_core::hooks::{HookDefinition, HookManager};
 use yode_core::permission::{PermissionManager, PermissionRule, RuleBehavior, RuleSource};
 use yode_core::session::Session;
 use yode_llm::registry::ProviderRegistry;
@@ -27,13 +28,13 @@ use yode_tools::tool::McpResourceProvider;
 use crate::protocol::{
     Bootstrap, BrowserSettings, ComputerUseSettings, ConfigurationState,
     ConfigurationUpdateRequest, CreateSessionRequest, DefaultLlm, DesktopActionResult,
-    DesktopEvent, DesktopImageOutput, DesktopMcpServer, DesktopMcpServerStatus, DesktopMcpState,
-    DesktopMessage, DesktopProvider, DesktopSession, DesktopSettingSetRequest, DesktopSettingValue,
-    DesktopWorktree, DiagnosticCheck, GeneralSettings, ImportAiSessionsResult, LicenseNotice,
-    OpenTargetRequest, PersonalizationState, RuntimeState, SendMessageRequest, TerminalExitEvent,
-    TerminalOpenRequest, TerminalOpenResponse, TerminalOutputEvent, TerminalResizeRequest,
-    TerminalRunRequest, TerminalRunResponse, TerminalWriteRequest, TurnAccepted,
-    WorkspaceDiagnosticsResult,
+    DesktopEvent, DesktopHookEntry, DesktopImageOutput, DesktopMcpServer, DesktopMcpServerStatus,
+    DesktopMcpState, DesktopMessage, DesktopProvider, DesktopSession, DesktopSettingSetRequest,
+    DesktopSettingValue, DesktopWorktree, DiagnosticCheck, GeneralSettings, HooksSettings,
+    ImportAiSessionsResult, LicenseNotice, OpenTargetRequest, PersonalizationState, RuntimeState,
+    SendMessageRequest, TerminalExitEvent, TerminalOpenRequest, TerminalOpenResponse,
+    TerminalOutputEvent, TerminalResizeRequest, TerminalRunRequest, TerminalRunResponse,
+    TerminalWriteRequest, TurnAccepted, WorkspaceDiagnosticsResult,
 };
 
 pub struct DesktopRuntime {
@@ -728,6 +729,20 @@ impl DesktopRuntime {
         Ok(normalized)
     }
 
+    pub fn hooks_settings_get(&self) -> Result<HooksSettings> {
+        hooks_settings_from_desktop_settings(&read_desktop_settings()?)
+    }
+
+    pub fn hooks_settings_apply(&self, settings: HooksSettings) -> Result<HooksSettings> {
+        let normalized = normalize_hooks_settings(settings);
+        validate_hooks_settings(&normalized)?;
+        let mut desktop_settings = read_desktop_settings()?;
+        desktop_settings.insert("yode-hooks-enabled".to_string(), json!(normalized.enabled));
+        desktop_settings.insert("yode-hooks-list".to_string(), json!(normalized.hooks));
+        write_desktop_settings(&desktop_settings)?;
+        Ok(normalized)
+    }
+
     pub fn worktrees_list(&self) -> Result<Vec<DesktopWorktree>> {
         list_git_worktrees(&self.workspace_path)
     }
@@ -1270,6 +1285,7 @@ impl DesktopRuntime {
             .clone();
         let config = config.clone();
         let db_path_clone = self.db_path.clone();
+        let hook_manager = build_desktop_hook_manager(&self.workspace_path)?;
 
         let (confirm_tx, confirm_rx) = unbounded_channel::<ConfirmResponse>();
         {
@@ -1331,6 +1347,9 @@ impl DesktopRuntime {
 
             rt.block_on(async {
                 let mut engine = AgentEngine::new(provider, tools, permissions, context);
+                if let Some(hook_manager) = hook_manager {
+                    engine.set_hook_manager(hook_manager);
+                }
                 let db_clone = match Database::open(&db_path_clone) {
                     Ok(db) => db,
                     Err(err) => {
@@ -3412,6 +3431,108 @@ fn apply_browser_settings_env(settings: &BrowserSettings) {
     if let Ok(json) = serde_json::to_string(settings) {
         std::env::set_var("YODE_BROWSER_SETTINGS", json);
     }
+}
+
+fn hooks_settings_from_desktop_settings(
+    settings: &serde_json::Map<String, serde_json::Value>,
+) -> Result<HooksSettings> {
+    Ok(normalize_hooks_settings(HooksSettings {
+        enabled: desktop_bool_setting(settings, "yode-hooks-enabled", true),
+        hooks: desktop_hook_list_setting(settings, "yode-hooks-list"),
+    }))
+}
+
+fn normalize_hooks_settings(mut settings: HooksSettings) -> HooksSettings {
+    settings.hooks = settings
+        .hooks
+        .into_iter()
+        .map(normalize_desktop_hook_entry)
+        .collect();
+    settings
+}
+
+fn validate_hooks_settings(settings: &HooksSettings) -> Result<()> {
+    for hook in &settings.hooks {
+        if hook.name.trim().is_empty() {
+            anyhow::bail!("钩子名称不能为空。");
+        }
+        if hook.command.trim().is_empty() {
+            anyhow::bail!("钩子指令不能为空。");
+        }
+        if hook.events.is_empty() {
+            anyhow::bail!("钩子至少需要一个触发事件。");
+        }
+        if hook.timeout_secs == 0 {
+            anyhow::bail!("钩子超时时间必须大于 0。");
+        }
+    }
+    Ok(())
+}
+
+fn normalize_desktop_hook_entry(mut hook: DesktopHookEntry) -> DesktopHookEntry {
+    hook.name = hook.name.trim().to_string();
+    hook.command = hook.command.trim().to_string();
+    hook.events = hook
+        .events
+        .into_iter()
+        .map(|event| event.trim().to_string())
+        .filter(|event| !event.is_empty())
+        .collect::<Vec<_>>();
+    let mut seen = HashSet::new();
+    hook.events.retain(|event| seen.insert(event.clone()));
+    hook.timeout_secs = hook.timeout_secs.max(1);
+    hook.tool_filter = hook.tool_filter.and_then(|tools| {
+        let filtered = tools
+            .into_iter()
+            .map(|tool| tool.trim().to_string())
+            .filter(|tool| !tool.is_empty())
+            .collect::<Vec<_>>();
+        if filtered.is_empty() {
+            None
+        } else {
+            Some(filtered)
+        }
+    });
+    hook
+}
+
+fn desktop_hook_list_setting(
+    settings: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Vec<DesktopHookEntry> {
+    settings
+        .get(key)
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| serde_json::from_value::<DesktopHookEntry>(item.clone()).ok())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
+fn build_desktop_hook_manager(workspace_path: &Path) -> Result<Option<HookManager>> {
+    let settings = read_desktop_settings()?;
+    let hooks_settings = hooks_settings_from_desktop_settings(&settings)?;
+    if !hooks_settings.enabled {
+        return Ok(None);
+    }
+
+    let mut manager = HookManager::new(workspace_path.to_path_buf());
+    for hook in hooks_settings.hooks {
+        if hook.disabled {
+            continue;
+        }
+        manager.register(HookDefinition {
+            command: hook.command,
+            events: hook.events,
+            tool_filter: hook.tool_filter,
+            timeout_secs: hook.timeout_secs,
+            can_block: hook.can_block,
+        });
+    }
+    Ok(Some(manager))
 }
 
 fn computer_use_settings_from_desktop_settings(

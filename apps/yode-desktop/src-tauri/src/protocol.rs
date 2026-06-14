@@ -315,6 +315,32 @@ pub struct ComputerUseSettings {
     pub allowed_apps: Vec<String>,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopHookEntry {
+    pub name: String,
+    pub events: Vec<String>,
+    pub command: String,
+    #[serde(alias = "timeout_secs")]
+    pub timeout_secs: u64,
+    #[serde(alias = "can_block")]
+    pub can_block: bool,
+    pub disabled: bool,
+    #[serde(
+        default,
+        alias = "tool_filter",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub tool_filter: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HooksSettings {
+    pub enabled: bool,
+    pub hooks: Vec<DesktopHookEntry>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DesktopWorktree {

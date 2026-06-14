@@ -1,15 +1,69 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { Plus, Trash2, X, Settings, GitBranch } from "lucide-react";
-import { loadDesktopSetting, saveDesktopSetting } from "../../lib/desktopSettings";
+import { isTauriRuntime, loadDesktopSetting } from "../../lib/desktopSettings";
 
 interface HookEntry {
   name: string;
   events: string[];
   command: string;
-  timeout_secs: number;
-  can_block: boolean;
+  timeoutSecs: number;
+  canBlock: boolean;
   disabled: boolean;
-  tool_filter?: string[];
+  toolFilter?: string[];
+}
+
+type HooksSettingsState = {
+  enabled: boolean;
+  hooks: HookEntry[];
+};
+
+const DEFAULT_HOOKS: HookEntry[] = [
+  {
+    name: "Pre-commit check",
+    events: ["pre_turn"],
+    command: "npm run lint",
+    timeoutSecs: 15,
+    canBlock: true,
+    disabled: false
+  },
+  {
+    name: "Auto-format code",
+    events: ["task_completed"],
+    command: "cargo fmt",
+    timeoutSecs: 10,
+    canBlock: false,
+    disabled: false
+  }
+];
+
+function normalizeHookEntry(raw: any): HookEntry | null {
+  if (!raw || typeof raw !== "object") return null;
+  const name = String(raw.name || "").trim();
+  const command = String(raw.command || "").trim();
+  const events = Array.isArray(raw.events) ? raw.events.map(String).filter(Boolean) : [];
+  if (!name || !command || events.length === 0) return null;
+  const toolFilterRaw = raw.toolFilter ?? raw.tool_filter;
+  const toolFilter = Array.isArray(toolFilterRaw) ? toolFilterRaw.map(String).filter(Boolean) : undefined;
+  return {
+    name,
+    command,
+    events,
+    timeoutSecs: Number(raw.timeoutSecs ?? raw.timeout_secs) || 10,
+    canBlock: Boolean(raw.canBlock ?? raw.can_block),
+    disabled: Boolean(raw.disabled),
+    toolFilter: toolFilter && toolFilter.length > 0 ? toolFilter : undefined
+  };
+}
+
+function normalizeHooks(list: unknown): HookEntry[] {
+  if (!Array.isArray(list)) return [];
+  return list.map(normalizeHookEntry).filter((hook): hook is HookEntry => hook !== null);
+}
+
+function persistHooksFallback(settings: HooksSettingsState) {
+  localStorage.setItem("yode-hooks-enabled", JSON.stringify(settings.enabled));
+  localStorage.setItem("yode-hooks-list", JSON.stringify(settings.hooks));
 }
 
 export function HooksSettingsSettings({
@@ -28,45 +82,64 @@ export function HooksSettingsSettings({
     const saved = localStorage.getItem("yode-hooks-list");
     if (saved) {
       try {
-        return JSON.parse(saved);
+        return normalizeHooks(JSON.parse(saved));
       } catch (e) {
         // use defaults
       }
     }
-    return [
-      {
-        name: "Pre-commit check",
-        events: ["pre_turn"],
-        command: "npm run lint",
-        timeout_secs: 15,
-        can_block: true,
-        disabled: false
-      },
-      {
-        name: "Auto-format code",
-        events: ["task_completed"],
-        command: "cargo fmt",
-        timeout_secs: 10,
-        can_block: false,
-        disabled: false
-      }
-    ];
+    return DEFAULT_HOOKS;
   });
 
-  const saveHooks = (list: HookEntry[]) => {
-    setHooksList(list);
-    void saveDesktopSetting("yode-hooks-list", list);
+  useEffect(() => {
+    const loadSettings = async () => {
+      if (isTauriRuntime()) {
+        try {
+          const settings = await invoke<HooksSettingsState>("hooks_settings_get");
+          applySettingsToState({ enabled: settings.enabled, hooks: normalizeHooks(settings.hooks) });
+          setStatusText(t("钩子设置已连接到运行时。", "Hook settings are connected to the runtime."));
+          return;
+        } catch (err) {
+          console.error(err);
+        }
+      }
+      const enabled = await loadDesktopSetting("yode-hooks-enabled", hooksEnabled);
+      const hooks = normalizeHooks(await loadDesktopSetting("yode-hooks-list", hooksList));
+      applySettingsToState({ enabled, hooks: hooks.length > 0 ? hooks : DEFAULT_HOOKS });
+    };
+    void loadSettings();
+  }, []);
+
+  const currentSettings = (): HooksSettingsState => ({
+    enabled: hooksEnabled,
+    hooks: hooksList
+  });
+
+  const applySettingsToState = (settings: HooksSettingsState) => {
+    setHooksEnabled(settings.enabled);
+    setHooksList(normalizeHooks(settings.hooks));
   };
 
-  useEffect(() => {
-    void loadDesktopSetting("yode-hooks-enabled", hooksEnabled).then(setHooksEnabled);
-    void loadDesktopSetting("yode-hooks-list", hooksList).then(setHooksList);
-  }, []);
+  const applyHooksSettings = async (nextSettings: HooksSettingsState) => {
+    const normalized = { enabled: nextSettings.enabled, hooks: normalizeHooks(nextSettings.hooks) };
+    try {
+      if (isTauriRuntime()) {
+        const applied = await invoke<HooksSettingsState>("hooks_settings_apply", { settings: normalized });
+        applySettingsToState(applied);
+      } else {
+        persistHooksFallback(normalized);
+        applySettingsToState(normalized);
+      }
+      setStatusText(t("钩子配置已保存。", "Hook configuration saved."));
+    } catch (err) {
+      console.error(err);
+      setStatusText(t("保存钩子配置失败。", "Failed to save hook configuration."));
+    }
+  };
 
   const handleToggleHook = (index: number) => {
     const updated = [...hooksList];
     updated[index].disabled = !updated[index].disabled;
-    saveHooks(updated);
+    void applyHooksSettings({ ...currentSettings(), hooks: updated });
   };
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -119,9 +192,9 @@ export function HooksSettingsSettings({
     setFormName(hook.name);
     setFormCommand(hook.command);
     setFormEvents(hook.events || []);
-    setFormTimeout(hook.timeout_secs || 10);
-    setFormCanBlock(hook.can_block || false);
-    setFormToolFilter((hook.tool_filter || []).join(", "));
+    setFormTimeout(hook.timeoutSecs || 10);
+    setFormCanBlock(hook.canBlock || false);
+    setFormToolFilter((hook.toolFilter || []).join(", "));
     setIsModalOpen(true);
   };
 
@@ -148,10 +221,10 @@ export function HooksSettingsSettings({
       name: formName.trim(),
       command: formCommand.trim(),
       events: formEvents,
-      timeout_secs: Number(formTimeout) || 10,
-      can_block: formCanBlock,
+      timeoutSecs: Number(formTimeout) || 10,
+      canBlock: formCanBlock,
       disabled: editingIndex !== null ? hooksList[editingIndex].disabled : false,
-      tool_filter: parsedTools.length > 0 ? parsedTools : undefined
+      toolFilter: parsedTools.length > 0 ? parsedTools : undefined
     };
 
     let updatedList: HookEntry[];
@@ -161,8 +234,7 @@ export function HooksSettingsSettings({
       updatedList = hooksList.map((h, i) => (i === editingIndex ? newHook : h));
     }
 
-    saveHooks(updatedList);
-    setStatusText(t("钩子配置已保存。", "Hook configuration saved."));
+    void applyHooksSettings({ ...currentSettings(), hooks: updatedList });
     setIsModalOpen(false);
   };
 
@@ -170,7 +242,7 @@ export function HooksSettingsSettings({
     if (editingIndex === null) return;
     if (confirm(t(`确定要删除钩子 "${hooksList[editingIndex].name}" 吗？`, `Are you sure you want to delete hook "${hooksList[editingIndex].name}"?`))) {
       const updated = hooksList.filter((_, i) => i !== editingIndex);
-      saveHooks(updated);
+      void applyHooksSettings({ ...currentSettings(), hooks: updated });
       setStatusText(t("钩子已删除。", "Hook deleted."));
       setIsModalOpen(false);
     }
@@ -219,8 +291,7 @@ export function HooksSettingsSettings({
               type="checkbox"
               checked={hooksEnabled}
               onChange={(e) => {
-                setHooksEnabled(e.target.checked);
-                void saveDesktopSetting("yode-hooks-enabled", e.target.checked);
+                void applyHooksSettings({ ...currentSettings(), enabled: e.target.checked });
               }}
             />
             <span className="switch-slider" />
@@ -272,7 +343,7 @@ export function HooksSettingsSettings({
                       <span className="row-label" style={{ fontSize: "13.5px", fontWeight: "600" }}>
                         {hook.name}
                       </span>
-                      {hook.can_block && (
+                      {hook.canBlock && (
                         <span
                           style={{
                             fontSize: "9px",
@@ -311,7 +382,7 @@ export function HooksSettingsSettings({
                       className="row-desc"
                       style={{ fontSize: "11px", color: "var(--text-soft)", fontFamily: "var(--font-code)", opacity: 0.8 }}
                     >
-                      $ {hook.command} {hook.timeout_secs ? `(${hook.timeout_secs}s timeout)` : ""}
+                      $ {hook.command} {hook.timeoutSecs ? `(${hook.timeoutSecs}s timeout)` : ""}
                     </span>
                   </div>
 
