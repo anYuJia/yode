@@ -90,6 +90,7 @@ export function AppearanceSettings() {
   const [pet, setPet] = useState(
     () => localStorage.getItem("yode-pet") || "Yode"
   );
+  const [statusText, setStatusText] = useState("");
 
   const hexToRgb = (hex: string) => {
     const shorthandRegex = /^#?([a-f\d])([a-f\d])([a-f\d])$/i;
@@ -357,7 +358,9 @@ export function AppearanceSettings() {
       2
     );
     navigator.clipboard.writeText(themeJson).then(() => {
-      alert("主题配置已成功复制到剪贴板！");
+      setStatusText("主题配置已成功复制到剪贴板。");
+    }).catch(() => {
+      setStatusText("复制主题配置失败。");
     });
   };
 
@@ -833,6 +836,11 @@ export function AppearanceSettings() {
           />
         </div>
       </div>
+      {statusText && (
+        <div style={{ fontSize: "11px", color: "var(--text-soft)" }}>
+          {statusText}
+        </div>
+      )}
     </div>
   );
 }

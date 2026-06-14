@@ -22,6 +22,7 @@ export function ArchivedChatsSettingsSettings({
 }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [deletingChatId, setDeletingChatId] = useState<string | null>(null);
+  const [statusText, setStatusText] = useState("");
   const [chats, setChats] = useState<ArchivedChatInfo[]>(() => {
     const saved = localStorage.getItem(ARCHIVED_CHATS_STORAGE_KEY);
     if (saved) {
@@ -57,7 +58,7 @@ export function ArchivedChatsSettingsSettings({
     // 3. Notify App.tsx to reload sessions
     window.dispatchEvent(new CustomEvent("yode-session-unarchived", { detail: { sessionId: id } }));
 
-    alert(t(`对话 "${title}" 已成功恢复，已放回主会话列表中！`, `Chat "${title}" has been successfully restored to the main sessions list!`));
+    setStatusText(t(`对话 "${title}" 已恢复。`, `Chat "${title}" restored.`));
   };
 
   const handleDelete = async (id: string, title: string) => {
@@ -122,6 +123,11 @@ export function ArchivedChatsSettingsSettings({
           }}
         />
       </div>
+      {statusText && (
+        <div style={{ fontSize: "11px", color: "var(--text-soft)" }}>
+          {statusText}
+        </div>
+      )}
 
       {/* Main chats container */}
       <div className="theme-card" style={{ padding: "8px 0", maxHeight: "calc(100vh - 150px)", overflowY: "auto" }}>

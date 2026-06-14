@@ -1,5 +1,6 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Folder, Plus, X, Trash2 } from "lucide-react";
+import { loadDesktopSetting, saveDesktopSetting } from "../../lib/desktopSettings";
 
 interface ProjectEnvironment {
   name: string;
@@ -42,6 +43,7 @@ export function EnvironmentsSettingsSettings({
   });
 
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
+  const [statusText, setStatusText] = useState("");
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formName, setFormName] = useState("");
@@ -50,12 +52,16 @@ export function EnvironmentsSettingsSettings({
 
   const saveProjects = (list: ProjectEnvironment[]) => {
     setProjects(list);
-    localStorage.setItem("yode-environments-projects", JSON.stringify(list));
+    void saveDesktopSetting("yode-environments-projects", list);
   };
+
+  useEffect(() => {
+    void loadDesktopSetting("yode-environments-projects", projects).then(setProjects);
+  }, []);
 
   const handleAddProject = () => {
     if (!formName.trim()) {
-      alert(t("项目名称不能为空", "Project name cannot be empty"));
+      setStatusText(t("项目名称不能为空。", "Project name cannot be empty."));
       return;
     }
     const newProj: ProjectEnvironment = {
@@ -71,6 +77,7 @@ export function EnvironmentsSettingsSettings({
     setFormName("");
     setFormSubtext("");
     setFormPath("");
+    setStatusText(t("项目环境已添加。", "Project environment added."));
   };
 
   const handleDeleteProject = (index: number) => {
@@ -88,7 +95,7 @@ export function EnvironmentsSettingsSettings({
   const handleSaveEnvConfig = (index: number, updatedProj: ProjectEnvironment) => {
     const updated = projects.map((p, i) => (i === index ? updatedProj : p));
     saveProjects(updated);
-    alert(t("项目环境配置保存成功！", "Project environment configuration saved successfully!"));
+    setStatusText(t("项目环境配置已保存。", "Project environment configuration saved."));
   };
 
   return (
@@ -191,6 +198,11 @@ export function EnvironmentsSettingsSettings({
             );
           })}
         </div>
+        {statusText && (
+          <div style={{ fontSize: "11px", color: "var(--text-soft)" }}>
+            {statusText}
+          </div>
+        )}
       </div>
 
       {isModalOpen && (

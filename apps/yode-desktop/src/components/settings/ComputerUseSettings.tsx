@@ -1,5 +1,7 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { Plus, Trash2, X } from "lucide-react";
+import { isTauriRuntime, loadDesktopSetting, saveDesktopSetting } from "../../lib/desktopSettings";
 
 export function ComputerUseSettingsSettings({
   isZh,
@@ -25,40 +27,51 @@ export function ComputerUseSettingsSettings({
 
   const [showAppModal, setShowAppModal] = useState(false);
   const [newAppName, setNewAppName] = useState("");
+  const [statusText, setStatusText] = useState("");
 
   const saveAllowedApps = (list: string[]) => {
     setAllowedApps(list);
-    localStorage.setItem("yode-computer-use-allowed-apps", JSON.stringify(list));
+    void saveDesktopSetting("yode-computer-use-allowed-apps", list);
   };
 
-  const handleInstallAnyApp = () => {
+  useEffect(() => {
+    void loadDesktopSetting("yode-computer-use-anyapp", anyAppStatus).then((value) => setAnyAppStatus(value as any));
+    void loadDesktopSetting("yode-computer-use-chrome", chromeStatus).then((value) => setChromeStatus(value as any));
+    void loadDesktopSetting("yode-computer-use-allowed-apps", allowedApps).then(setAllowedApps);
+  }, []);
+
+  const handleInstallAnyApp = async () => {
     if (anyAppStatus === "installed") {
       if (confirm(t("确定要卸载 Any App 权限吗？", "Are you sure you want to uninstall Any App access?"))) {
         setAnyAppStatus("uninstalled");
-        localStorage.setItem("yode-computer-use-anyapp", "uninstalled");
+        await saveDesktopSetting("yode-computer-use-anyapp", "uninstalled");
+        setStatusText(t("Any App 权限状态已更新。", "Any App permission state updated."));
       }
       return;
     }
-    setAnyAppStatus("installing");
-    setTimeout(() => {
-      setAnyAppStatus("installed");
-      localStorage.setItem("yode-computer-use-anyapp", "installed");
-    }, 1200);
+    if (isTauriRuntime()) {
+      const result = await invoke<{ message: string }>("computer_use_open_accessibility").catch((err) => {
+        console.error(err);
+        return { message: t("打开系统权限设置失败。", "Failed to open system permissions.") };
+      });
+      setStatusText(result.message);
+    }
+    setAnyAppStatus("installed");
+    await saveDesktopSetting("yode-computer-use-anyapp", "installed");
   };
 
-  const handleInstallChrome = () => {
+  const handleInstallChrome = async () => {
     if (chromeStatus === "installed") {
       if (confirm(t("确定要卸载 Google Chrome 扩展连接吗？", "Are you sure you want to disconnect Google Chrome extension?"))) {
         setChromeStatus("uninstalled");
-        localStorage.setItem("yode-computer-use-chrome", "uninstalled");
+        await saveDesktopSetting("yode-computer-use-chrome", "uninstalled");
+        setStatusText(t("Chrome 扩展连接状态已更新。", "Chrome extension connection state updated."));
       }
       return;
     }
-    setChromeStatus("installing");
-    setTimeout(() => {
-      setChromeStatus("installed");
-      localStorage.setItem("yode-computer-use-chrome", "installed");
-    }, 1200);
+    setChromeStatus("installed");
+    await saveDesktopSetting("yode-computer-use-chrome", "installed");
+    setStatusText(t("Chrome 扩展连接状态已保存。", "Chrome extension connection state saved."));
   };
 
   const handleAddApp = () => {
@@ -202,6 +215,11 @@ export function ComputerUseSettingsSettings({
             </button>
           </div>
         </div>
+        {statusText && (
+          <div style={{ fontSize: "11px", color: "var(--text-soft)" }}>
+            {statusText}
+          </div>
+        )}
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>

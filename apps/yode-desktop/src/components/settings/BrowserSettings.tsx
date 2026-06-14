@@ -1,6 +1,8 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { Plus, Trash2, X, Globe } from "lucide-react";
 import { CustomSelect } from "../CustomSelect";
+import { isTauriRuntime, loadDesktopSetting, saveDesktopSetting } from "../../lib/desktopSettings";
 
 export function BrowserSettingsSettings({
   isZh,
@@ -37,15 +39,24 @@ export function BrowserSettingsSettings({
 
   const [domainModalType, setDomainModalType] = useState<"blocked" | "allowed" | null>(null);
   const [newDomainInput, setNewDomainInput] = useState("");
+  const [statusText, setStatusText] = useState("");
+
+  useEffect(() => {
+    void loadDesktopSetting("yode-browser-enabled", browserEnabled).then(setBrowserEnabled);
+    void loadDesktopSetting("yode-browser-annotation-screenshots", annotationScreenshots).then(setAnnotationScreenshots);
+    void loadDesktopSetting("yode-browser-approval", approvalPolicy).then(setApprovalPolicy);
+    void loadDesktopSetting("yode-browser-blocked-domains", blockedDomains).then(setBlockedDomains);
+    void loadDesktopSetting("yode-browser-allowed-domains", allowedDomains).then(setAllowedDomains);
+  }, []);
 
   const saveBlocked = (list: string[]) => {
     setBlockedDomains(list);
-    localStorage.setItem("yode-browser-blocked-domains", JSON.stringify(list));
+    void saveDesktopSetting("yode-browser-blocked-domains", list);
   };
 
   const saveAllowed = (list: string[]) => {
     setAllowedDomains(list);
-    localStorage.setItem("yode-browser-allowed-domains", JSON.stringify(list));
+    void saveDesktopSetting("yode-browser-allowed-domains", list);
   };
 
   const handleAddDomain = () => {
@@ -72,8 +83,18 @@ export function BrowserSettingsSettings({
     }
   };
 
-  const handleClearBrowsingData = () => {
-    alert(t("已成功清除应用内浏览器的所有数据与缓存！", "All data and cache from the in-app browser cleared successfully!"));
+  const handleClearBrowsingData = async () => {
+    if (!isTauriRuntime()) {
+      setStatusText(t("浏览器数据会在桌面端清理。", "Browsing data is cleared in the desktop runtime."));
+      return;
+    }
+    try {
+      const result = await invoke<{ ok: boolean; message: string }>("browser_clear_data");
+      setStatusText(result.message);
+    } catch (err) {
+      console.error(err);
+      setStatusText(t("清除浏览数据失败。", "Failed to clear browsing data."));
+    }
   };
 
   return (
@@ -116,7 +137,7 @@ export function BrowserSettingsSettings({
               checked={browserEnabled}
               onChange={(e) => {
                 setBrowserEnabled(e.target.checked);
-                localStorage.setItem("yode-browser-enabled", String(e.target.checked));
+                void saveDesktopSetting("yode-browser-enabled", e.target.checked);
               }}
             />
             <span className="switch-slider" />
@@ -160,7 +181,7 @@ export function BrowserSettingsSettings({
               value={annotationScreenshots}
               onChange={(val) => {
                 setAnnotationScreenshots(val);
-                localStorage.setItem("yode-browser-annotation-screenshots", val);
+                void saveDesktopSetting("yode-browser-annotation-screenshots", val);
               }}
               options={[
                 { value: "Always include", label: t("总是包含", "Always include") },
@@ -192,7 +213,7 @@ export function BrowserSettingsSettings({
               value={approvalPolicy}
               onChange={(val) => {
                 setApprovalPolicy(val);
-                localStorage.setItem("yode-browser-approval", val);
+                void saveDesktopSetting("yode-browser-approval", val);
               }}
               options={[
                 { value: "Always ask", label: t("总是询问", "Always ask") },
@@ -203,6 +224,11 @@ export function BrowserSettingsSettings({
             />
           </div>
         </div>
+        {statusText && (
+          <div style={{ fontSize: "11px", color: "var(--text-soft)" }}>
+            {statusText}
+          </div>
+        )}
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>

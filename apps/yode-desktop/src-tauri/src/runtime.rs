@@ -26,7 +26,8 @@ use yode_tools::tool::McpResourceProvider;
 
 use crate::protocol::{
     Bootstrap, ConfigurationState, ConfigurationUpdateRequest, CreateSessionRequest, DefaultLlm,
-    DesktopEvent, DesktopImageOutput, DesktopMessage, DesktopProvider, DesktopSession,
+    DesktopActionResult, DesktopEvent, DesktopImageOutput, DesktopMessage, DesktopProvider,
+    DesktopSession, DesktopSettingSetRequest, DesktopSettingValue, DesktopWorktree,
     DiagnosticCheck, GeneralSettings, ImportAiSessionsResult, LicenseNotice, OpenTargetRequest,
     RuntimeState, SendMessageRequest, TerminalExitEvent, TerminalOpenRequest, TerminalOpenResponse,
     TerminalOutputEvent, TerminalResizeRequest, TerminalRunRequest, TerminalRunResponse,
@@ -463,6 +464,112 @@ impl DesktopRuntime {
         )?;
         set_workspace_dependency_state(true)?;
         self.diagnose_workspace()
+    }
+
+    pub fn desktop_setting_get(&self, key: String) -> Result<DesktopSettingValue> {
+        let settings = read_desktop_settings()?;
+        Ok(DesktopSettingValue {
+            value: settings.get(&key).cloned(),
+            key,
+        })
+    }
+
+    pub fn desktop_setting_set(
+        &self,
+        request: DesktopSettingSetRequest,
+    ) -> Result<DesktopSettingValue> {
+        let mut settings = read_desktop_settings()?;
+        settings.insert(request.key.clone(), request.value.clone());
+        write_desktop_settings(&settings)?;
+        Ok(DesktopSettingValue {
+            key: request.key,
+            value: Some(request.value),
+        })
+    }
+
+    pub fn browser_clear_data(&self) -> Result<DesktopActionResult> {
+        let mut cleared = Vec::new();
+        for path in [
+            self.workspace_path.join(".yode").join("browser-cache"),
+            dirs::home_dir()
+                .unwrap_or_else(|| self.workspace_path.clone())
+                .join(".yode")
+                .join("browser-data"),
+        ] {
+            if path.exists() {
+                std::fs::remove_dir_all(&path)?;
+                cleared.push(path.display().to_string());
+            }
+            std::fs::create_dir_all(&path)?;
+        }
+        Ok(DesktopActionResult {
+            ok: true,
+            message: if cleared.is_empty() {
+                "浏览器数据目录已初始化。".to_string()
+            } else {
+                format!("已清理 {} 个浏览器数据目录。", cleared.len())
+            },
+            path: Some(self.workspace_path.join(".yode").display().to_string()),
+        })
+    }
+
+    pub fn worktrees_list(&self) -> Result<Vec<DesktopWorktree>> {
+        list_git_worktrees(&self.workspace_path)
+    }
+
+    pub fn worktrees_prune_idle(&self) -> Result<DesktopActionResult> {
+        let output = Command::new("git")
+            .args(["worktree", "prune", "--verbose"])
+            .current_dir(&self.workspace_path)
+            .output()
+            .context("无法执行 git worktree prune")?;
+        Ok(DesktopActionResult {
+            ok: output.status.success(),
+            message: if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if stdout.is_empty() {
+                    "没有需要清理的闲置工作树。".to_string()
+                } else {
+                    stdout
+                }
+            } else {
+                String::from_utf8_lossy(&output.stderr).trim().to_string()
+            },
+            path: Some(self.workspace_path.display().to_string()),
+        })
+    }
+
+    pub fn worktree_delete(&self, path: String) -> Result<DesktopActionResult> {
+        let output = Command::new("git")
+            .args(["worktree", "remove", "--force", &path])
+            .current_dir(&self.workspace_path)
+            .output()
+            .with_context(|| format!("无法删除工作树 {}", path))?;
+        Ok(DesktopActionResult {
+            ok: output.status.success(),
+            message: if output.status.success() {
+                format!("已删除工作树 {}", path)
+            } else {
+                String::from_utf8_lossy(&output.stderr).trim().to_string()
+            },
+            path: Some(path),
+        })
+    }
+
+    pub fn computer_use_open_accessibility(&self) -> Result<DesktopActionResult> {
+        #[cfg(target_os = "macos")]
+        {
+            let _ = Command::new("open")
+                .arg(
+                    "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+                )
+                .status();
+        }
+        Ok(DesktopActionResult {
+            ok: true,
+            message: "已打开系统辅助功能权限设置，请为 Yode 授权。".to_string(),
+            path: None,
+        })
     }
 
     fn user_config_path(&self) -> PathBuf {
@@ -2181,6 +2288,141 @@ fn workspace_dependency_state_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
         .join(".yode")
         .join("desktop-workspace-deps.json")
+}
+
+fn desktop_settings_path() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".yode")
+        .join("desktop-settings.json")
+}
+
+fn read_desktop_settings() -> Result<serde_json::Map<String, serde_json::Value>> {
+    let path = desktop_settings_path();
+    if !path.exists() {
+        return Ok(serde_json::Map::new());
+    }
+    let raw = std::fs::read_to_string(path)?;
+    Ok(serde_json::from_str::<serde_json::Value>(&raw)
+        .ok()
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default())
+}
+
+fn write_desktop_settings(settings: &serde_json::Map<String, serde_json::Value>) -> Result<()> {
+    let path = desktop_settings_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, serde_json::to_string_pretty(settings)?)?;
+    Ok(())
+}
+
+fn list_git_worktrees(workspace_path: &Path) -> Result<Vec<DesktopWorktree>> {
+    let output = Command::new("git")
+        .args(["worktree", "list", "--porcelain"])
+        .current_dir(workspace_path)
+        .output()
+        .context("无法读取 git worktree 列表")?;
+    if !output.status.success() {
+        return Ok(Vec::new());
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut result = Vec::new();
+    let mut current_path: Option<String> = None;
+    let mut current_branch: Option<String> = None;
+    let mut detached = false;
+    for line in text.lines().chain(std::iter::once("")) {
+        if let Some(path) = line.strip_prefix("worktree ") {
+            if let Some(previous_path) = current_path.take() {
+                result.push(worktree_record(
+                    previous_path,
+                    current_branch.take(),
+                    detached,
+                    workspace_path,
+                ));
+                detached = false;
+            }
+            current_path = Some(path.to_string());
+        } else if let Some(branch) = line.strip_prefix("branch ") {
+            current_branch = Some(branch.trim_start_matches("refs/heads/").to_string());
+        } else if line == "detached" {
+            detached = true;
+        } else if line.is_empty() {
+            if let Some(previous_path) = current_path.take() {
+                result.push(worktree_record(
+                    previous_path,
+                    current_branch.take(),
+                    detached,
+                    workspace_path,
+                ));
+                detached = false;
+            }
+        }
+    }
+    Ok(result)
+}
+
+fn worktree_record(
+    path: String,
+    branch: Option<String>,
+    detached: bool,
+    workspace_path: &Path,
+) -> DesktopWorktree {
+    let status = if Path::new(&path) == workspace_path {
+        "Active"
+    } else {
+        "Idle"
+    };
+    DesktopWorktree {
+        id: path.clone(),
+        branch: branch.unwrap_or_else(|| {
+            if detached {
+                "detached".to_string()
+            } else {
+                "unknown".to_string()
+            }
+        }),
+        size: human_size(directory_size(Path::new(&path)).unwrap_or(0)),
+        path,
+        status: status.to_string(),
+    }
+}
+
+fn directory_size(path: &Path) -> Result<u64> {
+    let mut total = 0u64;
+    let mut stack = vec![path.to_path_buf()];
+    while let Some(path) = stack.pop() {
+        let Ok(metadata) = std::fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if metadata.is_file() {
+            total = total.saturating_add(metadata.len());
+        } else if metadata.is_dir() {
+            let Ok(entries) = std::fs::read_dir(&path) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                stack.push(entry.path());
+            }
+        }
+    }
+    Ok(total)
+}
+
+fn human_size(bytes: u64) -> String {
+    const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
+    let mut value = bytes as f64;
+    let mut unit = 0usize;
+    while value >= 1024.0 && unit < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{} {}", bytes, UNITS[unit])
+    } else {
+        format!("{:.1} {}", value, UNITS[unit])
+    }
 }
 
 fn load_workspace_dependency_state() -> bool {

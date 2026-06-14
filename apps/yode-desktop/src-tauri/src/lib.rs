@@ -183,6 +183,66 @@ fn workspace_reinstall(
 }
 
 #[tauri::command]
+fn desktop_setting_get(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    key: String,
+) -> Result<protocol::DesktopSettingValue, String> {
+    runtime
+        .desktop_setting_get(key)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn desktop_setting_set(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    request: protocol::DesktopSettingSetRequest,
+) -> Result<protocol::DesktopSettingValue, String> {
+    runtime
+        .desktop_setting_set(request)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn browser_clear_data(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+) -> Result<protocol::DesktopActionResult, String> {
+    runtime.browser_clear_data().map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn worktrees_list(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+) -> Result<Vec<protocol::DesktopWorktree>, String> {
+    runtime.worktrees_list().map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn worktrees_prune_idle(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+) -> Result<protocol::DesktopActionResult, String> {
+    runtime
+        .worktrees_prune_idle()
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn worktree_delete(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    path: String,
+) -> Result<protocol::DesktopActionResult, String> {
+    runtime.worktree_delete(path).map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn computer_use_open_accessibility(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+) -> Result<protocol::DesktopActionResult, String> {
+    runtime
+        .computer_use_open_accessibility()
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
 fn terminal_run(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
     request: protocol::TerminalRunRequest,
@@ -342,6 +402,13 @@ pub fn run() {
             configuration_open_file,
             workspace_diagnose,
             workspace_reinstall,
+            desktop_setting_get,
+            desktop_setting_set,
+            browser_clear_data,
+            worktrees_list,
+            worktrees_prune_idle,
+            worktree_delete,
+            computer_use_open_accessibility,
             terminal_run,
             terminal_open,
             terminal_write,

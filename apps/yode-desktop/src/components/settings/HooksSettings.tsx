@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Plus, Trash2, X, Settings, GitBranch } from "lucide-react";
+import { loadDesktopSetting, saveDesktopSetting } from "../../lib/desktopSettings";
 
 interface HookEntry {
   name: string;
@@ -21,6 +22,7 @@ export function HooksSettingsSettings({
   const [hooksEnabled, setHooksEnabled] = useState(() => {
     return localStorage.getItem("yode-hooks-enabled") !== "false";
   });
+  const [statusText, setStatusText] = useState("");
 
   const [hooksList, setHooksList] = useState<HookEntry[]>(() => {
     const saved = localStorage.getItem("yode-hooks-list");
@@ -53,8 +55,13 @@ export function HooksSettingsSettings({
 
   const saveHooks = (list: HookEntry[]) => {
     setHooksList(list);
-    localStorage.setItem("yode-hooks-list", JSON.stringify(list));
+    void saveDesktopSetting("yode-hooks-list", list);
   };
+
+  useEffect(() => {
+    void loadDesktopSetting("yode-hooks-enabled", hooksEnabled).then(setHooksEnabled);
+    void loadDesktopSetting("yode-hooks-list", hooksList).then(setHooksList);
+  }, []);
 
   const handleToggleHook = (index: number) => {
     const updated = [...hooksList];
@@ -120,15 +127,15 @@ export function HooksSettingsSettings({
 
   const handleSave = () => {
     if (!formName.trim()) {
-      alert(t("钩子名称不能为空", "Hook name cannot be empty"));
+      setStatusText(t("钩子名称不能为空。", "Hook name cannot be empty."));
       return;
     }
     if (!formCommand.trim()) {
-      alert(t("执行指令不能为空", "Command cannot be empty"));
+      setStatusText(t("执行指令不能为空。", "Command cannot be empty."));
       return;
     }
     if (formEvents.length === 0) {
-      alert(t("请至少选择一个触发事件", "Please select at least one trigger event"));
+      setStatusText(t("请至少选择一个触发事件。", "Please select at least one trigger event."));
       return;
     }
 
@@ -155,6 +162,7 @@ export function HooksSettingsSettings({
     }
 
     saveHooks(updatedList);
+    setStatusText(t("钩子配置已保存。", "Hook configuration saved."));
     setIsModalOpen(false);
   };
 
@@ -163,6 +171,7 @@ export function HooksSettingsSettings({
     if (confirm(t(`确定要删除钩子 "${hooksList[editingIndex].name}" 吗？`, `Are you sure you want to delete hook "${hooksList[editingIndex].name}"?`))) {
       const updated = hooksList.filter((_, i) => i !== editingIndex);
       saveHooks(updated);
+      setStatusText(t("钩子已删除。", "Hook deleted."));
       setIsModalOpen(false);
     }
   };
@@ -211,12 +220,17 @@ export function HooksSettingsSettings({
               checked={hooksEnabled}
               onChange={(e) => {
                 setHooksEnabled(e.target.checked);
-                localStorage.setItem("yode-hooks-enabled", String(e.target.checked));
+                void saveDesktopSetting("yode-hooks-enabled", e.target.checked);
               }}
             />
             <span className="switch-slider" />
           </label>
         </div>
+        {statusText && (
+          <div style={{ fontSize: "11px", color: "var(--text-soft)" }}>
+            {statusText}
+          </div>
+        )}
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>

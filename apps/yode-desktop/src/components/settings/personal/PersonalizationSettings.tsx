@@ -1,13 +1,24 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { CustomSelect } from "../../CustomSelect";
+import { loadDesktopSetting, saveDesktopSetting } from "../../../lib/desktopSettings";
 
 export function PersonalizationSettings({ isZh, t }: { isZh: boolean; t: (zh: string, en: string) => string }) {
   const [personality, setPersonality] = useState(() => localStorage.getItem("yode-personality") || "Friendly");
   const [customInstructions, setCustomInstructions] = useState(() => localStorage.getItem("yode-custom-instructions") || "");
   const [enableMemories, setEnableMemories] = useState(() => localStorage.getItem("yode-enable-memories") === "true");
   const [skipToolChats, setSkipToolChats] = useState(() => localStorage.getItem("yode-skip-tool-chats") === "true");
+  const [statusText, setStatusText] = useState("");
 
-  const saveVal = (key: string, val: any) => localStorage.setItem(key, String(val));
+  const saveVal = (key: string, val: any) => {
+    void saveDesktopSetting(key, val);
+  };
+
+  useEffect(() => {
+    void loadDesktopSetting("yode-personality", personality).then(setPersonality);
+    void loadDesktopSetting("yode-custom-instructions", customInstructions).then(setCustomInstructions);
+    void loadDesktopSetting("yode-enable-memories", enableMemories).then(setEnableMemories);
+    void loadDesktopSetting("yode-skip-tool-chats", skipToolChats).then(setSkipToolChats);
+  }, []);
 
   return (
     <div className="appearance-container" style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
@@ -74,7 +85,10 @@ export function PersonalizationSettings({ isZh, t }: { isZh: boolean; t: (zh: st
             }}
           />
           <button
-            onClick={() => alert(t("全局指令已成功保存！", "Global instructions saved successfully!"))}
+            onClick={() => {
+              saveVal("yode-custom-instructions", customInstructions);
+              setStatusText(t("全局指令已保存到桌面设置。", "Global instructions saved to desktop settings."));
+            }}
             className="secondary-button"
             type="button"
             style={{ alignSelf: "flex-end", height: "28px", paddingInline: "20px", background: "var(--panel-raised)" }}
@@ -153,7 +167,13 @@ export function PersonalizationSettings({ isZh, t }: { isZh: boolean; t: (zh: st
               <span className="row-desc">{t("彻底清空当前 Yode 保存的所有长期记忆", "Delete all Yode memories")}</span>
             </div>
             <button
-              onClick={() => alert(t("长期记忆已被重置清空。", "All long-term memories have been reset."))}
+              onClick={() => {
+                saveVal("yode-enable-memories", false);
+                saveVal("yode-skip-tool-chats", false);
+                setEnableMemories(false);
+                setSkipToolChats(false);
+                setStatusText(t("长期记忆设置已重置。", "Memory settings reset."));
+              }}
               className="secondary-button"
               style={{
                 color: "oklch(67% 0.15 28)",
@@ -168,6 +188,11 @@ export function PersonalizationSettings({ isZh, t }: { isZh: boolean; t: (zh: st
           </div>
         </div>
       </div>
+      {statusText && (
+        <div style={{ fontSize: "11px", color: "var(--text-soft)" }}>
+          {statusText}
+        </div>
+      )}
     </div>
   );
 }

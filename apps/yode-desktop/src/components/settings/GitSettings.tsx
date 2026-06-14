@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { loadDesktopSetting, saveDesktopSetting } from "../../lib/desktopSettings";
 
 export function GitSettingsSettings({
   isZh,
@@ -34,19 +35,32 @@ export function GitSettingsSettings({
   const [prInstructions, setPrInstructions] = useState(() => {
     return localStorage.getItem("yode-git-pr-instructions") || "";
   });
+  const [statusText, setStatusText] = useState("");
 
   const updateVal = (key: string, val: any) => {
-    localStorage.setItem(key, String(val));
+    void saveDesktopSetting(key, val);
   };
+
+  useEffect(() => {
+    void loadDesktopSetting("yode-git-branch-prefix", branchPrefix).then(setBranchPrefix);
+    void loadDesktopSetting("yode-git-merge-method", mergeMethod).then(setMergeMethod);
+    void loadDesktopSetting("yode-git-show-pr-icons", showPrIcons).then(setShowPrIcons);
+    void loadDesktopSetting("yode-git-always-force-push", alwaysForcePush).then(setAlwaysForcePush);
+    void loadDesktopSetting("yode-git-create-draft-prs", createDraftPrs).then(setCreateDraftPrs);
+    void loadDesktopSetting("yode-git-auto-delete-worktrees", autoDeleteWorktrees).then(setAutoDeleteWorktrees);
+    void loadDesktopSetting("yode-git-auto-delete-limit", autoDeleteLimit).then(setAutoDeleteLimit);
+    void loadDesktopSetting("yode-git-commit-instructions", commitInstructions).then(setCommitInstructions);
+    void loadDesktopSetting("yode-git-pr-instructions", prInstructions).then(setPrInstructions);
+  }, []);
 
   const handleSaveCommitInstructions = () => {
     updateVal("yode-git-commit-instructions", commitInstructions);
-    alert(t("提交说明配置已成功保存！", "Commit instructions saved successfully!"));
+    setStatusText(t("提交说明已保存到桌面设置。", "Commit instructions saved to desktop settings."));
   };
 
   const handleSavePrInstructions = () => {
     updateVal("yode-git-pr-instructions", prInstructions);
-    alert(t("PR 说明配置已成功保存！", "PR instructions saved successfully!"));
+    setStatusText(t("PR 说明已保存到桌面设置。", "PR instructions saved to desktop settings."));
   };
 
   return (
@@ -313,6 +327,11 @@ export function GitSettingsSettings({
           }}
         />
       </div>
+      {statusText && (
+        <div style={{ fontSize: "11px", color: "var(--text-soft)" }}>
+          {statusText}
+        </div>
+      )}
     </div>
   );
 }

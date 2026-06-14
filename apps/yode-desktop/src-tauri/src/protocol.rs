@@ -265,3 +265,35 @@ pub struct ConfigurationUpdateRequest {
     pub sandbox_settings: String,
     pub expose_dependencies: bool,
 }
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopSettingSetRequest {
+    pub key: String,
+    pub value: Value,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopSettingValue {
+    pub key: String,
+    pub value: Option<Value>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopActionResult {
+    pub ok: bool,
+    pub message: String,
+    pub path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopWorktree {
+    pub id: String,
+    pub branch: String,
+    pub path: String,
+    pub status: String,
+    pub size: String,
+}

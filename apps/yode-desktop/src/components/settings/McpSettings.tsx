@@ -1,6 +1,7 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Plus, Trash2, X, Settings } from "lucide-react";
 import { CustomSelect } from "../CustomSelect";
+import { loadDesktopSetting, saveDesktopSetting } from "../../lib/desktopSettings";
 
 interface McpServer {
   name: string;
@@ -39,11 +40,16 @@ export function McpSettingsSettings({
       }
     ];
   });
+  const [statusText, setStatusText] = useState("");
 
   const saveServers = (newServers: McpServer[]) => {
     setServers(newServers);
-    localStorage.setItem("yode-mcp-servers", JSON.stringify(newServers));
+    void saveDesktopSetting("yode-mcp-servers", newServers);
   };
+
+  useEffect(() => {
+    void loadDesktopSetting("yode-mcp-servers", servers).then(setServers);
+  }, []);
 
   const handleToggleServer = (name: string) => {
     const updated = servers.map((s) => (s.name === name ? { ...s, disabled: !s.disabled } : s));
@@ -103,12 +109,12 @@ export function McpSettingsSettings({
 
   const handleSave = () => {
     if (!formName.trim()) {
-      alert(t("服务器名称不能为空", "Server name cannot be empty"));
+      setStatusText(t("服务器名称不能为空。", "Server name cannot be empty."));
       return;
     }
 
     if (modalMode === "add" && servers.some((s) => s.name === formName.trim())) {
-      alert(t("服务器名称已存在", "Server name already exists"));
+      setStatusText(t("服务器名称已存在。", "Server name already exists."));
       return;
     }
 
@@ -137,6 +143,7 @@ export function McpSettingsSettings({
     }
 
     saveServers(updatedServers);
+    setStatusText(t("MCP 服务器配置已保存。", "MCP server configuration saved."));
     setIsModalOpen(false);
   };
 
@@ -145,6 +152,7 @@ export function McpSettingsSettings({
     if (confirm(t(`确定要删除服务器 "${editingServer.name}" 吗？`, `Are you sure you want to delete server "${editingServer.name}"?`))) {
       const updated = servers.filter((s) => s.name !== editingServer.name);
       saveServers(updated);
+      setStatusText(t("MCP 服务器已删除。", "MCP server deleted."));
       setIsModalOpen(false);
     }
   };
@@ -233,6 +241,11 @@ export function McpSettingsSettings({
             ))
           )}
         </div>
+        {statusText && (
+          <div style={{ fontSize: "11px", color: "var(--text-soft)" }}>
+            {statusText}
+          </div>
+        )}
       </div>
 
       {isModalOpen && (

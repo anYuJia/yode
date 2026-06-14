@@ -1,5 +1,7 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { Trash2 } from "lucide-react";
+import { isTauriRuntime, loadDesktopSetting, saveDesktopSetting } from "../../lib/desktopSettings";
 
 interface WorktreeInfo {
   id: string;
@@ -28,6 +30,7 @@ export function WorktreesSettingsSettings({
   const [cleanUnusedCache, setCleanUnusedCache] = useState(() => {
     return localStorage.getItem("yode-worktrees-clean-unused-cache") === "true";
   });
+  const [statusText, setStatusText] = useState("");
 
   const [worktrees, setWorktrees] = useState<WorktreeInfo[]>(() => {
     const saved = localStorage.getItem("yode-worktrees-list");
@@ -47,27 +50,54 @@ export function WorktreesSettingsSettings({
 
   const saveWorktrees = (list: WorktreeInfo[]) => {
     setWorktrees(list);
-    localStorage.setItem("yode-worktrees-list", JSON.stringify(list));
+    void saveDesktopSetting("yode-worktrees-list", list);
   };
 
   const updateVal = (key: string, val: any) => {
-    localStorage.setItem(key, String(val));
+    void saveDesktopSetting(key, val);
   };
 
-  const handlePruneIdle = () => {
-    const activeOnes = worktrees.filter((w) => w.status === "Active");
-    const prunedCount = worktrees.length - activeOnes.length;
-    if (prunedCount === 0) {
-      alert(t("暂无闲置的工作树可以清理。", "No idle worktrees to prune."));
+  useEffect(() => {
+    void loadDesktopSetting("yode-worktrees-base-dir", baseDir).then(setBaseDir);
+    void loadDesktopSetting("yode-worktrees-auto-delete-session-end", autoDeleteOnSessionEnd).then(setAutoDeleteOnSessionEnd);
+    void loadDesktopSetting("yode-worktrees-preserve-uncommitted", preserveUncommitted).then(setPreserveUncommitted);
+    void loadDesktopSetting("yode-worktrees-clean-unused-cache", cleanUnusedCache).then(setCleanUnusedCache);
+    if (isTauriRuntime()) {
+      invoke<WorktreeInfo[]>("worktrees_list")
+        .then(setWorktrees)
+        .catch((err) => {
+          console.error(err);
+          setStatusText(t("读取 git 工作树失败。", "Failed to load git worktrees."));
+        });
+    } else {
+      void loadDesktopSetting("yode-worktrees-list", worktrees).then(setWorktrees);
+    }
+  }, []);
+
+  const refreshWorktrees = async () => {
+    if (!isTauriRuntime()) return;
+    const list = await invoke<WorktreeInfo[]>("worktrees_list");
+    setWorktrees(list);
+  };
+
+  const handlePruneIdle = async () => {
+    if (!isTauriRuntime()) {
+      const activeOnes = worktrees.filter((w) => w.status === "Active");
+      saveWorktrees(activeOnes);
+      setStatusText(t("已在预览模式中清理闲置工作树记录。", "Pruned idle worktree records in preview mode."));
       return;
     }
-    if (confirm(t(`确定要清理全部 ${prunedCount} 个闲置工作树吗？`, `Are you sure you want to prune all ${prunedCount} idle worktrees?`))) {
-      saveWorktrees(activeOnes);
-      alert(t("闲置工作树清理成功！", "Idle worktrees pruned successfully!"));
+    try {
+      const result = await invoke<{ ok: boolean; message: string }>("worktrees_prune_idle");
+      setStatusText(result.message);
+      await refreshWorktrees();
+    } catch (err) {
+      console.error(err);
+      setStatusText(t("清理闲置工作树失败。", "Failed to prune idle worktrees."));
     }
   };
 
-  const handleDeleteWorktree = (id: string, branch: string) => {
+  const handleDeleteWorktree = async (id: string, branch: string) => {
     if (
       confirm(
         t(
@@ -76,8 +106,20 @@ export function WorktreesSettingsSettings({
         )
       )
     ) {
-      const updated = worktrees.filter((w) => w.id !== id);
-      saveWorktrees(updated);
+      if (isTauriRuntime()) {
+        try {
+          const target = worktrees.find((w) => w.id === id)?.path || id;
+          const result = await invoke<{ ok: boolean; message: string }>("worktree_delete", { path: target });
+          setStatusText(result.message);
+          await refreshWorktrees();
+        } catch (err) {
+          console.error(err);
+          setStatusText(t("删除工作树失败。", "Failed to delete worktree."));
+        }
+      } else {
+        const updated = worktrees.filter((w) => w.id !== id);
+        saveWorktrees(updated);
+      }
     }
   };
 
@@ -264,6 +306,11 @@ export function WorktreesSettingsSettings({
             ))
           )}
         </div>
+        {statusText && (
+          <div style={{ fontSize: "11px", color: "var(--text-soft)" }}>
+            {statusText}
+          </div>
+        )}
       </div>
     </div>
   );
