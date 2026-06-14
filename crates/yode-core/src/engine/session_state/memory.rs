@@ -8,6 +8,11 @@ impl AgentEngine {
         if !self.context.project_memory_enabled {
             return;
         }
+        if self.context.skip_tool_assisted_memory
+            && (self.session_tool_calls_total > 0 || self.tool_call_count > 0)
+        {
+            return;
+        }
 
         self.session_tool_calls_total = self
             .session_tool_calls_total
@@ -169,6 +174,9 @@ impl AgentEngine {
         self.invalidate_live_session_memory_updates();
 
         if !self.context.project_memory_enabled {
+            return;
+        }
+        if self.context.skip_tool_assisted_memory && self.session_tool_calls_total > 0 {
             return;
         }
 

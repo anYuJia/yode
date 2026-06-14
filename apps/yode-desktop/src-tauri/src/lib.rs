@@ -203,6 +203,24 @@ fn desktop_setting_set(
 }
 
 #[tauri::command]
+fn personalization_state_get(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+) -> Result<protocol::PersonalizationState, String> {
+    runtime
+        .personalization_state()
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn personalization_reset_memories(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+) -> Result<protocol::DesktopActionResult, String> {
+    runtime
+        .personalization_reset_memories()
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
 fn browser_clear_data(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
 ) -> Result<protocol::DesktopActionResult, String> {
@@ -404,6 +422,8 @@ pub fn run() {
             workspace_reinstall,
             desktop_setting_get,
             desktop_setting_set,
+            personalization_state_get,
+            personalization_reset_memories,
             browser_clear_data,
             worktrees_list,
             worktrees_prune_idle,

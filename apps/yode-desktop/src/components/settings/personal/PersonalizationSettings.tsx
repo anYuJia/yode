@@ -1,6 +1,14 @@
 import React, { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { CustomSelect } from "../../CustomSelect";
-import { loadDesktopSetting, saveDesktopSetting } from "../../../lib/desktopSettings";
+import { isTauriRuntime, loadDesktopSetting, saveDesktopSetting } from "../../../lib/desktopSettings";
+
+type PersonalizationState = {
+  personality: string;
+  customInstructions: string;
+  enableMemories: boolean;
+  skipToolChats: boolean;
+};
 
 export function PersonalizationSettings({ isZh, t }: { isZh: boolean; t: (zh: string, en: string) => string }) {
   const [personality, setPersonality] = useState(() => localStorage.getItem("yode-personality") || "Friendly");
@@ -14,6 +22,22 @@ export function PersonalizationSettings({ isZh, t }: { isZh: boolean; t: (zh: st
   };
 
   useEffect(() => {
+    if (isTauriRuntime()) {
+      void invoke<PersonalizationState>("personalization_state_get")
+        .then((state) => {
+          setPersonality(state.personality);
+          setCustomInstructions(state.customInstructions);
+          setEnableMemories(state.enableMemories);
+          setSkipToolChats(state.skipToolChats);
+        })
+        .catch(() => {
+          void loadDesktopSetting("yode-personality", personality).then(setPersonality);
+          void loadDesktopSetting("yode-custom-instructions", customInstructions).then(setCustomInstructions);
+          void loadDesktopSetting("yode-enable-memories", enableMemories).then(setEnableMemories);
+          void loadDesktopSetting("yode-skip-tool-chats", skipToolChats).then(setSkipToolChats);
+        });
+      return;
+    }
     void loadDesktopSetting("yode-personality", personality).then(setPersonality);
     void loadDesktopSetting("yode-custom-instructions", customInstructions).then(setCustomInstructions);
     void loadDesktopSetting("yode-enable-memories", enableMemories).then(setEnableMemories);
@@ -167,12 +191,25 @@ export function PersonalizationSettings({ isZh, t }: { isZh: boolean; t: (zh: st
               <span className="row-desc">{t("彻底清空当前 Yode 保存的所有长期记忆", "Delete all Yode memories")}</span>
             </div>
             <button
-              onClick={() => {
-                saveVal("yode-enable-memories", false);
-                saveVal("yode-skip-tool-chats", false);
-                setEnableMemories(false);
-                setSkipToolChats(false);
-                setStatusText(t("长期记忆设置已重置。", "Memory settings reset."));
+              onClick={async () => {
+                try {
+                  if (isTauriRuntime()) {
+                    const result = await invoke<{ ok: boolean; message: string }>("personalization_reset_memories");
+                    setStatusText(result.message);
+                  } else {
+                    setStatusText(t("长期记忆设置已重置。", "Memory settings reset."));
+                  }
+                  saveVal("yode-enable-memories", false);
+                  saveVal("yode-skip-tool-chats", false);
+                  setEnableMemories(false);
+                  setSkipToolChats(false);
+                } catch (err) {
+                  setStatusText(
+                    err instanceof Error
+                      ? err.message
+                      : t("重置长期记忆失败。", "Failed to reset memories.")
+                  );
+                }
               }}
               className="secondary-button"
               style={{

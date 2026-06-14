@@ -64,6 +64,20 @@ impl AgentEngine {
             push_segment("Instruction memory", instruction_content);
         }
 
+        if let Some(personalization_prompt) = context
+            .personalization_prompt
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            push_segment(
+                "Desktop personalization",
+                format!(
+                    "# Desktop Personalization\n\n{}",
+                    personalization_prompt.trim()
+                ),
+            );
+        }
+
         if context.project_memory_enabled {
             if let Some(memory_content) = load_memory_context(&cwd) {
                 push_segment("Persistent memory", memory_content);

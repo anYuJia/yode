@@ -62,6 +62,37 @@ fn test_project_memory_disabled_skips_memory_prompt_and_live_snapshot() {
 }
 
 #[test]
+fn test_personalization_prompt_is_in_system_prompt() {
+    let mut engine = make_engine(vec![], vec![]);
+    engine.context.personalization_prompt = Some(
+        "Use a warm but concise tone.\nAlways respect the user's custom instructions.".to_string(),
+    );
+
+    engine.rebuild_system_prompt();
+
+    assert!(engine.system_prompt.contains("Desktop Personalization"));
+    assert!(engine.system_prompt.contains("warm but concise tone"));
+}
+
+#[test]
+fn test_skip_tool_assisted_memory_prevents_live_snapshot() {
+    let mut engine = make_engine(vec![], vec![]);
+    let project_root = engine.context().working_dir_compat();
+    engine.context.skip_tool_assisted_memory = true;
+    engine.messages = vec![
+        Message::system("system"),
+        Message::user(format!("Need context {}", "x".repeat(9_000))),
+        Message::assistant("I used a tool and should not persist memory."),
+    ];
+    engine.tool_call_count = 1;
+
+    engine.maybe_refresh_live_session_memory(None);
+
+    let live_path = crate::session_memory::live_session_memory_path(&project_root);
+    assert!(!live_path.exists());
+}
+
+#[test]
 fn test_record_response_usage_tracks_prompt_cache_telemetry() {
     let mut engine = make_engine(vec![], vec![]);
     let (tx, _rx) = mpsc::unbounded_channel();

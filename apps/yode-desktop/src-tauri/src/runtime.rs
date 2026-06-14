@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
@@ -29,9 +29,9 @@ use crate::protocol::{
     DesktopActionResult, DesktopEvent, DesktopImageOutput, DesktopMessage, DesktopProvider,
     DesktopSession, DesktopSettingSetRequest, DesktopSettingValue, DesktopWorktree,
     DiagnosticCheck, GeneralSettings, ImportAiSessionsResult, LicenseNotice, OpenTargetRequest,
-    RuntimeState, SendMessageRequest, TerminalExitEvent, TerminalOpenRequest, TerminalOpenResponse,
-    TerminalOutputEvent, TerminalResizeRequest, TerminalRunRequest, TerminalRunResponse,
-    TerminalWriteRequest, TurnAccepted, WorkspaceDiagnosticsResult,
+    PersonalizationState, RuntimeState, SendMessageRequest, TerminalExitEvent, TerminalOpenRequest,
+    TerminalOpenResponse, TerminalOutputEvent, TerminalResizeRequest, TerminalRunRequest,
+    TerminalRunResponse, TerminalWriteRequest, TurnAccepted, WorkspaceDiagnosticsResult,
 };
 
 pub struct DesktopRuntime {
@@ -485,6 +485,81 @@ impl DesktopRuntime {
             key: request.key,
             value: Some(request.value),
         })
+    }
+
+    pub fn personalization_state(&self) -> Result<PersonalizationState> {
+        personalization_state_from_settings(&read_desktop_settings()?)
+    }
+
+    pub fn personalization_reset_memories(&self) -> Result<DesktopActionResult> {
+        let mut removed = 0usize;
+        for root in self.memory_roots()? {
+            for path in [
+                yode_core::session_memory::session_memory_path(&root),
+                yode_core::session_memory::live_session_memory_path(&root),
+                root.join("MEMORY.md"),
+            ] {
+                if path.exists() {
+                    std::fs::remove_file(&path).with_context(|| {
+                        format!("Failed to remove memory file: {}", path.display())
+                    })?;
+                    removed += 1;
+                }
+            }
+            let memory_dir = root.join(".yode").join("memory");
+            if memory_dir.exists() {
+                std::fs::remove_dir_all(&memory_dir).with_context(|| {
+                    format!(
+                        "Failed to remove memory directory: {}",
+                        memory_dir.display()
+                    )
+                })?;
+                removed += 1;
+            }
+        }
+
+        let mut settings = read_desktop_settings()?;
+        settings.insert("yode-enable-memories".to_string(), json!(false));
+        settings.insert("yode-skip-tool-chats".to_string(), json!(false));
+        write_desktop_settings(&settings)?;
+
+        Ok(DesktopActionResult {
+            ok: true,
+            message: if removed == 0 {
+                "未发现需要清理的长期记忆，已关闭长期记忆。".to_string()
+            } else {
+                format!("已清理 {} 个长期记忆文件或目录，并关闭长期记忆。", removed)
+            },
+            path: None,
+        })
+    }
+
+    fn memory_roots(&self) -> Result<Vec<PathBuf>> {
+        let mut roots = Vec::new();
+        let mut seen = HashSet::new();
+        for root in [
+            self.workspace_path.clone(),
+            dirs::home_dir().unwrap_or_else(|| self.workspace_path.clone()),
+        ] {
+            let key = root.display().to_string();
+            if seen.insert(key) {
+                roots.push(root);
+            }
+        }
+        for session in self.db.list_sessions(1_000)? {
+            if let Some(root) = session
+                .project_root
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .map(PathBuf::from)
+            {
+                let key = root.display().to_string();
+                if seen.insert(key) {
+                    roots.push(root);
+                }
+            }
+        }
+        Ok(roots)
     }
 
     pub fn browser_clear_data(&self) -> Result<DesktopActionResult> {
@@ -952,10 +1027,14 @@ impl DesktopRuntime {
             session.provider.clone(),
             session.model.clone(),
         );
-        context.project_memory_enabled = session
-            .project_root
-            .as_deref()
-            .is_some_and(|root| !root.trim().is_empty());
+        let personalization = self.personalization_state()?;
+        context.project_memory_enabled = personalization.enable_memories
+            && session
+                .project_root
+                .as_deref()
+                .is_some_and(|root| !root.trim().is_empty());
+        context.skip_tool_assisted_memory = personalization.skip_tool_chats;
+        context.personalization_prompt = build_personalization_prompt(&personalization);
         context.output_style = config.ui.output_style.clone();
 
         let stored_msgs = self.db.load_messages(&session.id)?;
@@ -2866,6 +2945,68 @@ fn parse_pnpm_lock_notices(lock: &str) -> Vec<LicenseNotice> {
             })
         })
         .collect()
+}
+
+fn personalization_state_from_settings(
+    settings: &serde_json::Map<String, serde_json::Value>,
+) -> Result<PersonalizationState> {
+    Ok(PersonalizationState {
+        personality: desktop_string_setting(settings, "yode-personality", "Friendly"),
+        custom_instructions: desktop_string_setting(settings, "yode-custom-instructions", ""),
+        enable_memories: desktop_bool_setting(settings, "yode-enable-memories", false),
+        skip_tool_chats: desktop_bool_setting(settings, "yode-skip-tool-chats", false),
+    })
+}
+
+fn desktop_string_setting(
+    settings: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+    fallback: &str,
+) -> String {
+    settings
+        .get(key)
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(fallback)
+        .to_string()
+}
+
+fn desktop_bool_setting(
+    settings: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+    fallback: bool,
+) -> bool {
+    settings
+        .get(key)
+        .and_then(|value| {
+            value
+                .as_bool()
+                .or_else(|| value.as_str().and_then(|raw| raw.parse::<bool>().ok()))
+        })
+        .unwrap_or(fallback)
+}
+
+fn build_personalization_prompt(state: &PersonalizationState) -> Option<String> {
+    let mut lines = Vec::new();
+    match state.personality.as_str() {
+        "Professional" => lines.push(
+            "Tone: professional, rigorous, precise, and calm. Prefer concrete tradeoffs and clear verification notes.",
+        ),
+        "Concise" => lines.push(
+            "Tone: concise and direct. Keep explanations compact while still naming important risks and verification.",
+        ),
+        _ => lines.push(
+            "Tone: friendly, warm, and collaborative. Stay clear and practical without becoming verbose.",
+        ),
+    }
+
+    let custom = state.custom_instructions.trim();
+    if !custom.is_empty() {
+        lines.push("Host-level custom instructions from the user:");
+        lines.push(custom);
+    }
+
+    Some(lines.join("\n"))
 }
 
 fn apply_menu_bar_setting(app: &AppHandle, enabled: bool) -> Result<()> {

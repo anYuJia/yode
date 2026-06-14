@@ -290,6 +290,15 @@ pub struct DesktopActionResult {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct PersonalizationState {
+    pub personality: String,
+    pub custom_instructions: String,
+    pub enable_memories: bool,
+    pub skip_tool_chats: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DesktopWorktree {
     pub id: String,
     pub branch: String,

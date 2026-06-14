@@ -107,6 +107,10 @@ pub struct AgentContext {
     pub output_style: String,
     /// Whether project-scoped memory should be loaded and refreshed for this session.
     pub project_memory_enabled: bool,
+    /// Whether sessions that used tools should be excluded from live memory refreshes.
+    pub skip_tool_assisted_memory: bool,
+    /// Optional host-level personalization instructions from the desktop settings UI.
+    pub personalization_prompt: Option<String>,
 }
 
 impl AgentContext {
@@ -125,6 +129,8 @@ impl AgentContext {
             effort: EffortLevel::Medium,
             output_style: "default".to_string(),
             project_memory_enabled: true,
+            skip_tool_assisted_memory: false,
+            personalization_prompt: None,
         }
     }
 
@@ -160,6 +166,8 @@ impl AgentContext {
             effort: EffortLevel::Medium,
             output_style: "default".to_string(),
             project_memory_enabled: true,
+            skip_tool_assisted_memory: false,
+            personalization_prompt: None,
         }
     }
 
