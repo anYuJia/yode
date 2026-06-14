@@ -43,6 +43,7 @@ type XtermHandle = {
   opened: boolean;
   backendOpened: boolean;
   dataDisposable?: { dispose: () => void };
+  selectionDisposable?: { dispose: () => void };
 };
 
 function makeId(prefix: string) {
@@ -106,6 +107,13 @@ function xtermTheme() {
 
 function backendSessionId(sessionKey: string, tabId: string) {
   return `${sessionKey}::${tabId}`;
+}
+
+function clearWhitespaceOnlySelection(terminal: Terminal) {
+  const selectedText = terminal.getSelection().replace(/\u00a0/g, " ");
+  if (selectedText.length > 0 && selectedText.trim().length === 0) {
+    terminal.clearSelection();
+  }
 }
 
 export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId, height, onResizeStart }: TerminalDrawerProps) {
@@ -189,13 +197,17 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId,
         }
       }).catch(() => {});
     });
+    const selectionDisposable = terminal.onSelectionChange(() => {
+      window.setTimeout(() => clearWhitespaceOnlySelection(terminal), 0);
+    });
 
     const handle: XtermHandle = {
       terminal,
       fitAddon,
       opened: false,
       backendOpened: false,
-      dataDisposable
+      dataDisposable,
+      selectionDisposable
     };
     xtermsRef.current[key] = handle;
     return handle;
@@ -270,6 +282,7 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId,
     for (const [key, handle] of Object.entries(xtermsRef.current)) {
       if (key.startsWith(`${sessionKey}::`) && !aliveKeys.has(key)) {
         handle.dataDisposable?.dispose();
+        handle.selectionDisposable?.dispose();
         handle.terminal.dispose();
         delete xtermsRef.current[key];
       }
@@ -313,6 +326,7 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId,
     return () => {
       for (const [key, handle] of Object.entries(xtermsRef.current)) {
         handle.dataDisposable?.dispose();
+        handle.selectionDisposable?.dispose();
         handle.terminal.dispose();
         if (isTauri) {
           void invoke("terminal_close", { sessionId: key }).catch(() => {});
@@ -345,6 +359,26 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId,
     }
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const clearAllEmptySelections = () => {
+      window.setTimeout(() => {
+        for (const handle of Object.values(xtermsRef.current)) {
+          clearWhitespaceOnlySelection(handle.terminal);
+        }
+      }, 0);
+    };
+
+    window.addEventListener("mouseup", clearAllEmptySelections, true);
+    window.addEventListener("pointerup", clearAllEmptySelections, true);
+    window.addEventListener("pointercancel", clearAllEmptySelections, true);
+    return () => {
+      window.removeEventListener("mouseup", clearAllEmptySelections, true);
+      window.removeEventListener("pointerup", clearAllEmptySelections, true);
+      window.removeEventListener("pointercancel", clearAllEmptySelections, true);
+    };
+  }, [isOpen]);
+
   const addTab = () => {
     const next = createTab(workspacePath, tabs.length + 1);
     updateSession((session) => ({
@@ -375,6 +409,7 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId,
 
     const handle = xtermsRef.current[key];
     handle?.dataDisposable?.dispose();
+    handle?.selectionDisposable?.dispose();
     handle?.terminal.dispose();
     delete xtermsRef.current[key];
     try {
@@ -389,9 +424,7 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId,
     window.setTimeout(() => {
       const terminal = xtermsRef.current[key]?.terminal;
       if (!terminal) return;
-      if (terminal.getSelection().trim().length === 0) {
-        terminal.clearSelection();
-      }
+      clearWhitespaceOnlySelection(terminal);
     }, 0);
   };
 
