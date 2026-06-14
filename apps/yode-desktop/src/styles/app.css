@@ -2417,27 +2417,32 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 .terminal-header {
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 36px;
-  background: var(--chrome);
-  border-bottom: 1px solid var(--line-soft);
-  padding: 0 8px 0 12px;
+  gap: 8px;
+  height: 34px;
+  background: color-mix(in oklch, var(--chrome), var(--bg) 28%);
+  border-bottom: 1px solid color-mix(in oklch, var(--line-soft), transparent 30%);
+  padding: 0 10px;
 }
 
 .terminal-title {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 550;
   color: var(--text-muted);
   flex: 0 0 auto;
+  padding-right: 2px;
+}
+
+.terminal-title svg {
+  color: var(--text-soft);
 }
 
 .terminal-tabs {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   flex: 1;
   min-width: 0;
   overflow-x: auto;
@@ -2454,43 +2459,64 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 24px;
+  height: 25px;
   border: 0;
-  border-radius: 4px;
+  border-radius: 6px;
   background: transparent;
   color: var(--text-soft);
   cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease, opacity 120ms ease;
 }
 
 .terminal-tab {
   justify-content: flex-start;
-  gap: 6px;
-  min-width: 96px;
+  gap: 7px;
+  min-width: 104px;
   max-width: 160px;
-  padding: 0 5px 0 8px;
+  padding: 0 5px 0 9px;
   color: var(--text-muted);
   border: 1px solid transparent;
+  opacity: 0.82;
 }
 
 .terminal-tab:hover,
 .terminal-add-tab:hover,
 .terminal-action-btn:hover {
-  background: color-mix(in oklch, var(--field), transparent 20%);
+  background: color-mix(in oklch, var(--field), transparent 36%);
   color: var(--text);
+  opacity: 1;
 }
 
 .terminal-tab.active {
-  background: var(--field);
-  border-color: var(--line-soft);
+  background: color-mix(in oklch, var(--field), var(--bg) 12%);
+  border-color: color-mix(in oklch, var(--line), transparent 30%);
   color: var(--text);
+  opacity: 1;
+  box-shadow: 0 1px 2px color-mix(in oklch, #000000, transparent 92%);
+}
+
+html.light .terminal-header {
+  background: color-mix(in oklch, var(--chrome), white 34%);
+}
+
+html.light .terminal-tab.active {
+  background: color-mix(in oklch, var(--field), white 52%);
+  border-color: color-mix(in oklch, var(--line-soft), transparent 18%);
+  box-shadow: 0 1px 2px color-mix(in oklch, #000000, transparent 94%);
+}
+
+html.light .terminal-tab:hover,
+html.light .terminal-add-tab:hover,
+html.light .terminal-action-btn:hover {
+  background: color-mix(in oklch, var(--field), white 38%);
 }
 
 .terminal-tab-dot {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 999px;
   background: var(--text-soft);
-  opacity: 0.55;
+  opacity: 0.5;
   flex: 0 0 auto;
 }
 
@@ -2506,7 +2532,7 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 560;
 }
 
 .terminal-tab-close {
@@ -2515,26 +2541,26 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   justify-content: center;
   width: 16px;
   height: 16px;
-  border-radius: 3px;
+  border-radius: 5px;
   margin-left: auto;
-  opacity: 0.65;
+  opacity: 0.52;
 }
 
 .terminal-tab-close:hover {
-  background: color-mix(in oklch, var(--line), transparent 60%);
+  background: color-mix(in oklch, var(--line), transparent 72%);
   opacity: 1;
 }
 
 .terminal-add-tab,
 .terminal-action-btn {
-  width: 24px;
+  width: 25px;
   flex: 0 0 auto;
 }
 
 .terminal-actions {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
   flex: 0 0 auto;
 }
 
