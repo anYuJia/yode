@@ -1,6 +1,8 @@
 mod protocol;
 mod runtime;
 
+use tauri::Manager;
+
 #[tauri::command]
 fn app_get_bootstrap(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
@@ -104,6 +106,80 @@ fn permission_mode_set(
     runtime
         .permission_mode_set(mode)
         .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn general_settings_apply(
+    app: tauri::AppHandle,
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    settings: protocol::GeneralSettings,
+) -> Result<protocol::GeneralSettings, String> {
+    runtime
+        .general_settings_apply(&app, settings)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn open_target(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    request: protocol::OpenTargetRequest,
+) -> Result<(), String> {
+    runtime.open_target(request).map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn import_ai_sessions(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+) -> Result<protocol::ImportAiSessionsResult, String> {
+    runtime.import_ai_sessions().map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn license_notices(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+) -> Result<Vec<protocol::LicenseNotice>, String> {
+    runtime.license_notices().map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn configuration_state_get(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+) -> Result<protocol::ConfigurationState, String> {
+    runtime.configuration_state().map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn configuration_update(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    request: protocol::ConfigurationUpdateRequest,
+) -> Result<protocol::ConfigurationState, String> {
+    runtime
+        .configuration_update(request)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn configuration_open_file(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    scope: String,
+) -> Result<(), String> {
+    runtime
+        .open_configuration_file(scope)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn workspace_diagnose(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+) -> Result<protocol::WorkspaceDiagnosticsResult, String> {
+    runtime.diagnose_workspace().map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn workspace_reinstall(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+) -> Result<protocol::WorkspaceDiagnosticsResult, String> {
+    runtime.reinstall_workspace().map_err(|err| err.to_string())
 }
 
 #[tauri::command]
@@ -232,6 +308,19 @@ pub fn run() {
 
     tauri::Builder::default()
         .manage(runtime)
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let keep_in_menu_bar = window
+                    .app_handle()
+                    .state::<runtime::DesktopRuntime>()
+                    .menu_bar_enabled()
+                    .unwrap_or(false);
+                if keep_in_menu_bar {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             app_get_bootstrap,
             sessions_list,
@@ -244,6 +333,15 @@ pub fn run() {
             ask_user_respond,
             turn_cancel,
             permission_mode_set,
+            general_settings_apply,
+            open_target,
+            import_ai_sessions,
+            license_notices,
+            configuration_state_get,
+            configuration_update,
+            configuration_open_file,
+            workspace_diagnose,
+            workspace_reinstall,
             terminal_run,
             terminal_open,
             terminal_write,

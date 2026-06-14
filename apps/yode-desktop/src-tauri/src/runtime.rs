@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc, Mutex,
@@ -9,7 +10,7 @@ use std::sync::{
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde_json::json;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use uuid::Uuid;
 
@@ -24,10 +25,12 @@ use yode_tools::registry::ToolRegistry;
 use yode_tools::tool::McpResourceProvider;
 
 use crate::protocol::{
-    Bootstrap, CreateSessionRequest, DefaultLlm, DesktopEvent, DesktopImageOutput, DesktopMessage,
-    DesktopProvider, DesktopSession, RuntimeState, SendMessageRequest, TerminalExitEvent,
-    TerminalOpenRequest, TerminalOpenResponse, TerminalOutputEvent, TerminalResizeRequest,
-    TerminalRunRequest, TerminalRunResponse, TerminalWriteRequest, TurnAccepted,
+    Bootstrap, ConfigurationState, ConfigurationUpdateRequest, CreateSessionRequest, DefaultLlm,
+    DesktopEvent, DesktopImageOutput, DesktopMessage, DesktopProvider, DesktopSession,
+    DiagnosticCheck, GeneralSettings, ImportAiSessionsResult, LicenseNotice, OpenTargetRequest,
+    RuntimeState, SendMessageRequest, TerminalExitEvent, TerminalOpenRequest, TerminalOpenResponse,
+    TerminalOutputEvent, TerminalResizeRequest, TerminalRunRequest, TerminalRunResponse,
+    TerminalWriteRequest, TurnAccepted, WorkspaceDiagnosticsResult,
 };
 
 pub struct DesktopRuntime {
@@ -48,6 +51,8 @@ pub struct DesktopRuntime {
     session_permission_rules: Arc<Mutex<HashMap<String, Vec<PermissionRule>>>>,
     terminal_sessions: Mutex<HashMap<String, TerminalSessionState>>,
     pty_sessions: Arc<Mutex<HashMap<String, PtySessionState>>>,
+    general_settings: Mutex<GeneralSettings>,
+    sleep_guard: Arc<Mutex<Option<Child>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -76,7 +81,7 @@ impl DesktopRuntime {
             .join(".yode")
             .join("sessions.db");
 
-        let config = Config::load()
+        let config = load_desktop_config(&workspace_path)
             .unwrap_or_else(|_| Config::load_from(None).expect("failed to load default config"));
 
         let provider_registry = Mutex::new(bootstrap_providers(&config));
@@ -107,6 +112,8 @@ impl DesktopRuntime {
             session_permission_rules: Arc::new(Mutex::new(HashMap::new())),
             terminal_sessions: Mutex::new(HashMap::new()),
             pty_sessions: Arc::new(Mutex::new(HashMap::new())),
+            general_settings: Mutex::new(default_general_settings()),
+            sleep_guard: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -245,6 +252,235 @@ impl DesktopRuntime {
             .map_err(|_| anyhow::anyhow!("permission mode lock poisoned"))?;
         *active_mode = parsed.to_string();
         Ok(())
+    }
+
+    pub fn menu_bar_enabled(&self) -> Result<bool> {
+        Ok(self
+            .general_settings
+            .lock()
+            .map_err(|_| anyhow::anyhow!("general settings lock poisoned"))?
+            .show_in_menu_bar)
+    }
+
+    pub fn general_settings_apply(
+        &self,
+        app: &AppHandle,
+        settings: GeneralSettings,
+    ) -> Result<GeneralSettings> {
+        let effective_mode = permission_mode_from_general_settings(&settings);
+        {
+            let mut active_mode = self
+                .permission_mode
+                .lock()
+                .map_err(|_| anyhow::anyhow!("permission mode lock poisoned"))?;
+            *active_mode = effective_mode.to_string();
+        }
+        {
+            let mut current = self
+                .general_settings
+                .lock()
+                .map_err(|_| anyhow::anyhow!("general settings lock poisoned"))?;
+            *current = settings.clone();
+        }
+        apply_menu_bar_setting(app, settings.show_in_menu_bar)?;
+        if !settings.prevent_sleep {
+            stop_sleep_guard(&self.sleep_guard);
+        }
+        Ok(settings)
+    }
+
+    pub fn open_target(&self, request: OpenTargetRequest) -> Result<()> {
+        let settings = self
+            .general_settings
+            .lock()
+            .map_err(|_| anyhow::anyhow!("general settings lock poisoned"))?
+            .clone();
+        let target = request
+            .target
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or(settings.open_destination);
+        let path = request
+            .path
+            .filter(|value| !value.trim().is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| self.workspace_path.clone());
+        open_with_destination(&target, &path)
+    }
+
+    pub fn import_ai_sessions(&self) -> Result<ImportAiSessionsResult> {
+        let Some(paths) = rfd::FileDialog::new()
+            .set_title("选择要导入的 AI 会话文件或目录")
+            .add_filter("会话文件", &["json", "jsonl", "md", "markdown", "txt"])
+            .pick_files()
+        else {
+            return Ok(ImportAiSessionsResult {
+                imported: 0,
+                skipped: 0,
+                sessions: Vec::new(),
+            });
+        };
+
+        let config = self
+            .config
+            .lock()
+            .map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
+        let (provider, model) = self.default_llm_for_new_session(&config)?;
+        drop(config);
+
+        let mut imported_sessions = Vec::new();
+        let mut skipped = 0usize;
+        for file in collect_import_files(paths) {
+            match import_one_ai_session(&self.db, &file, &provider, &model) {
+                Ok(Some(session)) => imported_sessions.push(self.map_session(session, None)),
+                Ok(None) => skipped += 1,
+                Err(err) => {
+                    tracing::warn!("Failed to import {}: {}", file.display(), err);
+                    skipped += 1;
+                }
+            }
+        }
+
+        Ok(ImportAiSessionsResult {
+            imported: imported_sessions.len(),
+            skipped,
+            sessions: imported_sessions,
+        })
+    }
+
+    pub fn license_notices(&self) -> Result<Vec<LicenseNotice>> {
+        Ok(read_license_notices(&self.workspace_path))
+    }
+
+    pub fn configuration_state(&self) -> Result<ConfigurationState> {
+        let project_config_path = self.project_config_path();
+        let mode = self
+            .permission_mode
+            .lock()
+            .map_err(|_| anyhow::anyhow!("permission mode lock poisoned"))?
+            .as_str()
+            .parse::<yode_core::permission::PermissionMode>()
+            .unwrap_or(yode_core::permission::PermissionMode::Default);
+        Ok(ConfigurationState {
+            scope: if project_config_path.exists() {
+                "Project config".to_string()
+            } else {
+                "User config".to_string()
+            },
+            approval_policy: approval_policy_from_permission_mode(mode),
+            sandbox_settings: sandbox_settings_from_permission_mode(mode),
+            expose_dependencies: load_workspace_dependency_state(),
+            config_path: self.user_config_path().display().to_string(),
+            project_config_path: project_config_path.display().to_string(),
+        })
+    }
+
+    pub fn configuration_update(
+        &self,
+        request: ConfigurationUpdateRequest,
+    ) -> Result<ConfigurationState> {
+        let scope = if request.scope.to_lowercase().contains("project") {
+            ConfigScope::Project
+        } else {
+            ConfigScope::User
+        };
+        let permission_mode =
+            permission_mode_from_configuration(&request.approval_policy, &request.sandbox_settings);
+        {
+            let mut runtime_mode = self
+                .permission_mode
+                .lock()
+                .map_err(|_| anyhow::anyhow!("permission mode lock poisoned"))?;
+            *runtime_mode = permission_mode.to_string();
+        }
+        let mut config = self
+            .config
+            .lock()
+            .map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
+        config.permissions.default_mode = Some(permission_mode.to_string());
+        save_config_to_path(&config, &self.config_path_for_scope(scope))?;
+        set_workspace_dependency_state(request.expose_dependencies)?;
+        Ok(ConfigurationState {
+            scope: request.scope,
+            approval_policy: request.approval_policy,
+            sandbox_settings: request.sandbox_settings,
+            expose_dependencies: request.expose_dependencies,
+            config_path: self.user_config_path().display().to_string(),
+            project_config_path: self.project_config_path().display().to_string(),
+        })
+    }
+
+    pub fn open_configuration_file(&self, scope: String) -> Result<()> {
+        let path = if scope.to_lowercase().contains("project") {
+            self.project_config_path()
+        } else {
+            self.user_config_path()
+        };
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        if !path.exists() {
+            let config = self
+                .config
+                .lock()
+                .map_err(|_| anyhow::anyhow!("config lock poisoned"))?
+                .clone();
+            save_config_to_path(&config, &path)?;
+        }
+        open_with_destination("VS Code", &path)
+    }
+
+    pub fn diagnose_workspace(&self) -> Result<WorkspaceDiagnosticsResult> {
+        let report_dir = self.workspace_path.join(".yode").join("diagnostics");
+        std::fs::create_dir_all(&report_dir)?;
+        let report_path = report_dir.join(format!(
+            "diagnostics-{}.md",
+            Utc::now().format("%Y%m%d-%H%M%S")
+        ));
+        let checks = workspace_diagnostic_checks(self)?;
+        let mut report = String::from("# Yode 工作区诊断\n\n");
+        for check in &checks {
+            report.push_str(&format!(
+                "- [{}] {}: {}\n",
+                check.status, check.name, check.detail
+            ));
+        }
+        std::fs::write(&report_path, report)?;
+        Ok(WorkspaceDiagnosticsResult {
+            report_path: report_path.display().to_string(),
+            checks,
+        })
+    }
+
+    pub fn reinstall_workspace(&self) -> Result<WorkspaceDiagnosticsResult> {
+        let cache_dir = self.workspace_path.join(".yode").join("workspace");
+        if cache_dir.exists() {
+            std::fs::remove_dir_all(&cache_dir)?;
+        }
+        std::fs::create_dir_all(&cache_dir)?;
+        std::fs::write(
+            cache_dir.join("README.txt"),
+            "Yode workspace dependencies are managed here.\n",
+        )?;
+        set_workspace_dependency_state(true)?;
+        self.diagnose_workspace()
+    }
+
+    fn user_config_path(&self) -> PathBuf {
+        dirs::home_dir()
+            .unwrap_or_else(|| self.workspace_path.clone())
+            .join(".yode")
+            .join("config.toml")
+    }
+
+    fn project_config_path(&self) -> PathBuf {
+        self.workspace_path.join(".yode").join("config.toml")
+    }
+
+    fn config_path_for_scope(&self, scope: ConfigScope) -> PathBuf {
+        match scope {
+            ConfigScope::User => self.user_config_path(),
+            ConfigScope::Project => self.project_config_path(),
+        }
     }
 
     pub fn terminal_run(&self, request: TerminalRunRequest) -> Result<TerminalRunResponse> {
@@ -660,11 +896,20 @@ impl DesktopRuntime {
                 cancel_token.clone(),
             );
         }
+        let should_prevent_sleep = self
+            .general_settings
+            .lock()
+            .map(|settings| settings.prevent_sleep)
+            .unwrap_or(false);
+        if should_prevent_sleep {
+            start_sleep_guard(&self.sleep_guard);
+        }
 
         let confirm_txs_clone = self.confirm_txs.clone();
         let ask_user_txs_clone = self.ask_user_txs.clone();
         let cancel_tokens_clone = self.cancel_tokens.clone();
         let pending_confirmations_clone = self.pending_confirmations.clone();
+        let sleep_guard_clone = self.sleep_guard.clone();
 
         std::thread::spawn(move || {
             let rt = match tokio::runtime::Runtime::new() {
@@ -1075,6 +1320,10 @@ impl DesktopRuntime {
                 if let Ok(mut tokens) = cancel_tokens_clone.lock() {
                     let _: Option<tokio_util::sync::CancellationToken> =
                         tokens.remove(&(session_id.clone(), emit_turn_id.clone()));
+                    if tokens.is_empty() {
+                        drop(tokens);
+                        stop_sleep_guard(&sleep_guard_clone);
+                    }
                 }
                 if let Ok(mut pending) = pending_confirmations_clone.lock() {
                     pending.remove(&(session_id.clone(), emit_turn_id.clone()));
@@ -1839,6 +2088,593 @@ fn find_bytes_from(haystack: &[u8], needle: &[u8], start: usize) -> Option<usize
 fn relative_time(updated_at: DateTime<Utc>) -> String {
     let local_time = updated_at.with_timezone(&chrono::Local);
     local_time.format("%m月%d日 %H:%M").to_string()
+}
+
+fn default_general_settings() -> GeneralSettings {
+    GeneralSettings {
+        work_mode: "coding".to_string(),
+        default_file_permission: true,
+        auto_review: true,
+        full_access: true,
+        open_destination: "VS Code".to_string(),
+        show_in_menu_bar: true,
+        bottom_panel: true,
+        terminal_location: "bottom".to_string(),
+        prevent_sleep: false,
+        code_review_policy: "inline".to_string(),
+        suggested_prompts: true,
+        context_usage: false,
+        follow_up_behavior: "queue".to_string(),
+        require_opt_enter: false,
+        completion_notification: "Only when unfocused".to_string(),
+        permission_notification: true,
+        question_notification: true,
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ConfigScope {
+    User,
+    Project,
+}
+
+fn load_desktop_config(workspace_path: &Path) -> Result<Config> {
+    let project_config = workspace_path.join(".yode").join("config.toml");
+    if project_config.exists() {
+        Config::load_from(Some(&project_config))
+    } else {
+        Config::load()
+    }
+}
+
+fn save_config_to_path(config: &Config, path: &Path) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, toml::to_string_pretty(config)?)?;
+    Ok(())
+}
+
+fn permission_mode_from_configuration(
+    approval_policy: &str,
+    sandbox_settings: &str,
+) -> yode_core::permission::PermissionMode {
+    let approval = approval_policy.to_lowercase();
+    if approval.contains("always") || approval.contains("始终") {
+        return yode_core::permission::PermissionMode::Bypass;
+    }
+    if approval.contains("never") || approval.contains("从不") {
+        return yode_core::permission::PermissionMode::Plan;
+    }
+
+    let sandbox = sandbox_settings.to_lowercase();
+    if sandbox.contains("read only") || sandbox.contains("只读") {
+        yode_core::permission::PermissionMode::Plan
+    } else if sandbox.contains("full") || sandbox.contains("读写") {
+        yode_core::permission::PermissionMode::AcceptEdits
+    } else {
+        yode_core::permission::PermissionMode::Default
+    }
+}
+
+fn approval_policy_from_permission_mode(mode: yode_core::permission::PermissionMode) -> String {
+    match mode {
+        yode_core::permission::PermissionMode::Bypass => "Always auto-approve",
+        yode_core::permission::PermissionMode::Plan => "Never approve",
+        _ => "On request",
+    }
+    .to_string()
+}
+
+fn sandbox_settings_from_permission_mode(mode: yode_core::permission::PermissionMode) -> String {
+    match mode {
+        yode_core::permission::PermissionMode::Plan => "Read only",
+        yode_core::permission::PermissionMode::AcceptEdits
+        | yode_core::permission::PermissionMode::Bypass => "Full write access",
+        _ => "Restricted",
+    }
+    .to_string()
+}
+
+fn workspace_dependency_state_path() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".yode")
+        .join("desktop-workspace-deps.json")
+}
+
+fn load_workspace_dependency_state() -> bool {
+    let path = workspace_dependency_state_path();
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return true;
+    };
+    serde_json::from_str::<serde_json::Value>(&raw)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("exposeDependencies")
+                .and_then(|value| value.as_bool())
+        })
+        .unwrap_or(true)
+}
+
+fn set_workspace_dependency_state(expose: bool) -> Result<()> {
+    let path = workspace_dependency_state_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(
+        path,
+        serde_json::to_string_pretty(&json!({
+            "exposeDependencies": expose,
+            "updatedAt": Utc::now().to_rfc3339()
+        }))?,
+    )?;
+    Ok(())
+}
+
+fn workspace_diagnostic_checks(runtime: &DesktopRuntime) -> Result<Vec<DiagnosticCheck>> {
+    let mut checks = Vec::new();
+    let user_config = runtime.user_config_path();
+    let project_config = runtime.project_config_path();
+    checks.push(path_check("用户配置", &user_config, true));
+    checks.push(path_check("项目配置", &project_config, false));
+    checks.push(path_check("会话数据库", &runtime.db_path, true));
+    checks.push(command_check("Node.js", "node", &["--version"]));
+    checks.push(command_check("Python", "python3", &["--version"]));
+    checks.push(command_check("Cargo", "cargo", &["--version"]));
+    checks.push(path_check(
+        "桌面端 package.json",
+        &runtime
+            .workspace_path
+            .join("apps")
+            .join("yode-desktop")
+            .join("package.json"),
+        true,
+    ));
+    checks.push(DiagnosticCheck {
+        name: "依赖项暴露".to_string(),
+        status: if load_workspace_dependency_state() {
+            "ok"
+        } else {
+            "warn"
+        }
+        .to_string(),
+        detail: if load_workspace_dependency_state() {
+            "已允许向工作区暴露 Node.js 与 Python 工具。"
+        } else {
+            "当前已关闭依赖项暴露。"
+        }
+        .to_string(),
+    });
+    Ok(checks)
+}
+
+fn path_check(name: &str, path: &Path, required: bool) -> DiagnosticCheck {
+    let exists = path.exists();
+    DiagnosticCheck {
+        name: name.to_string(),
+        status: if exists || !required { "ok" } else { "error" }.to_string(),
+        detail: if exists {
+            path.display().to_string()
+        } else if required {
+            format!("未找到 {}", path.display())
+        } else {
+            format!("未创建 {}", path.display())
+        },
+    }
+}
+
+fn command_check(name: &str, command: &str, args: &[&str]) -> DiagnosticCheck {
+    match Command::new(command).args(args).output() {
+        Ok(output) if output.status.success() => {
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            DiagnosticCheck {
+                name: name.to_string(),
+                status: "ok".to_string(),
+                detail: if stdout.is_empty() { stderr } else { stdout },
+            }
+        }
+        Ok(output) => DiagnosticCheck {
+            name: name.to_string(),
+            status: "error".to_string(),
+            detail: format!("退出码 {}", output.status.code().unwrap_or(-1)),
+        },
+        Err(err) => DiagnosticCheck {
+            name: name.to_string(),
+            status: "error".to_string(),
+            detail: err.to_string(),
+        },
+    }
+}
+
+fn permission_mode_from_general_settings(
+    settings: &GeneralSettings,
+) -> yode_core::permission::PermissionMode {
+    if settings.full_access {
+        yode_core::permission::PermissionMode::Bypass
+    } else if settings.default_file_permission {
+        yode_core::permission::PermissionMode::AcceptEdits
+    } else {
+        yode_core::permission::PermissionMode::Default
+    }
+}
+
+fn start_sleep_guard(sleep_guard: &Arc<Mutex<Option<Child>>>) {
+    let Ok(mut guard) = sleep_guard.lock() else {
+        return;
+    };
+    if guard.is_some() {
+        return;
+    }
+    #[cfg(target_os = "macos")]
+    let child = Command::new("caffeinate").args(["-dimsu"]).spawn();
+    #[cfg(not(target_os = "macos"))]
+    let child = Command::new("sh").args(["-c", "sleep 2147483647"]).spawn();
+    if let Ok(child) = child {
+        *guard = Some(child);
+    }
+}
+
+fn stop_sleep_guard(sleep_guard: &Arc<Mutex<Option<Child>>>) {
+    let Ok(mut guard) = sleep_guard.lock() else {
+        return;
+    };
+    if let Some(mut child) = guard.take() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+}
+
+fn open_with_destination(destination: &str, path: &Path) -> Result<()> {
+    let dest = destination.to_lowercase();
+    if dest.contains("cursor") {
+        return open_editor(path, "Cursor", "cursor");
+    }
+    if dest.contains("terminal") {
+        return open_terminal_app(path);
+    }
+    open_editor(path, "Visual Studio Code", "code")
+}
+
+fn open_editor(path: &Path, mac_app: &str, cli: &str) -> Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        let status = Command::new("open")
+            .args(["-a", mac_app])
+            .arg(path)
+            .status();
+        if status.is_ok_and(|status| status.success()) {
+            return Ok(());
+        }
+    }
+    Command::new(cli)
+        .arg(path)
+        .spawn()
+        .with_context(|| format!("无法启动 {}", mac_app))?;
+    Ok(())
+}
+
+fn open_terminal_app(path: &Path) -> Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .args(["-a", "Terminal"])
+            .arg(path)
+            .spawn()
+            .context("无法启动 Terminal")?;
+        return Ok(());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("cmd")
+            .args(["/C", "start", "cmd"])
+            .current_dir(path)
+            .spawn()
+            .context("无法启动系统终端")?;
+        return Ok(());
+    }
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        Command::new("x-terminal-emulator")
+            .current_dir(path)
+            .spawn()
+            .context("无法启动系统终端")?;
+        Ok(())
+    }
+}
+
+fn collect_import_files(paths: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    let mut stack = paths;
+    while let Some(path) = stack.pop() {
+        if path.is_dir() {
+            if let Ok(entries) = std::fs::read_dir(&path) {
+                for entry in entries.flatten() {
+                    stack.push(entry.path());
+                }
+            }
+            continue;
+        }
+        let Some(ext) = path.extension().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        if matches!(
+            ext.to_lowercase().as_str(),
+            "json" | "jsonl" | "md" | "markdown" | "txt"
+        ) {
+            files.push(path);
+        }
+    }
+    files
+}
+
+fn import_one_ai_session(
+    db: &Database,
+    path: &Path,
+    provider: &str,
+    model: &str,
+) -> Result<Option<Session>> {
+    let text = std::fs::read_to_string(path)
+        .with_context(|| format!("无法读取导入文件 {}", path.display()))?;
+    let messages = parse_import_messages(&text, path);
+    if messages.is_empty() {
+        return Ok(None);
+    }
+
+    let now = Utc::now();
+    let title = import_title(path, &messages);
+    let session = Session {
+        id: Uuid::new_v4().to_string(),
+        name: Some(title),
+        project_root: None,
+        provider: provider.to_string(),
+        model: model.to_string(),
+        created_at: now,
+        updated_at: now,
+    };
+    db.create_session(&session)?;
+    for (role, content) in messages {
+        db.save_message(&session.id, &role, Some(&content), None, None, None)?;
+    }
+    db.touch_session(&session.id)?;
+    Ok(Some(session))
+}
+
+fn parse_import_messages(text: &str, path: &Path) -> Vec<(String, String)> {
+    let ext = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    if ext == "jsonl" {
+        let mut messages = Vec::new();
+        for line in text.lines().filter(|line| !line.trim().is_empty()) {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(line) {
+                append_messages_from_json(&value, &mut messages);
+            }
+        }
+        return messages;
+    }
+    if ext == "json" {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(text) {
+            let mut messages = Vec::new();
+            append_messages_from_json(&value, &mut messages);
+            if !messages.is_empty() {
+                return messages;
+            }
+        }
+    }
+    vec![("user".to_string(), text.trim().to_string())]
+        .into_iter()
+        .filter(|(_, content)| !content.is_empty())
+        .collect()
+}
+
+fn append_messages_from_json(value: &serde_json::Value, out: &mut Vec<(String, String)>) {
+    if let Some(array) = value.as_array() {
+        for item in array {
+            append_messages_from_json(item, out);
+        }
+        return;
+    }
+    if let Some(messages) = value.get("messages").and_then(|value| value.as_array()) {
+        for message in messages {
+            append_messages_from_json(message, out);
+        }
+        return;
+    }
+    if let Some(mapping) = value.as_object() {
+        let role = mapping
+            .get("role")
+            .or_else(|| mapping.get("author"))
+            .or_else(|| mapping.get("sender"))
+            .and_then(|value| value.as_str())
+            .unwrap_or("user")
+            .to_lowercase();
+        let normalized_role = if role.contains("assistant") || role.contains("bot") {
+            "assistant"
+        } else if role.contains("system") {
+            "system"
+        } else {
+            "user"
+        };
+        let content = mapping
+            .get("content")
+            .or_else(|| mapping.get("text"))
+            .or_else(|| mapping.get("message"))
+            .and_then(extract_json_text)
+            .unwrap_or_default();
+        if !content.trim().is_empty() {
+            out.push((normalized_role.to_string(), content));
+        }
+    }
+}
+
+fn extract_json_text(value: &serde_json::Value) -> Option<String> {
+    if let Some(text) = value.as_str() {
+        return Some(text.to_string());
+    }
+    if let Some(array) = value.as_array() {
+        let parts: Vec<String> = array.iter().filter_map(extract_json_text).collect();
+        return Some(parts.join("\n"));
+    }
+    if let Some(object) = value.as_object() {
+        if let Some(text) = object.get("text").and_then(|value| value.as_str()) {
+            return Some(text.to_string());
+        }
+        if let Some(parts) = object.get("parts").and_then(|value| value.as_array()) {
+            let parts: Vec<String> = parts.iter().filter_map(extract_json_text).collect();
+            return Some(parts.join("\n"));
+        }
+    }
+    None
+}
+
+fn import_title(path: &Path, messages: &[(String, String)]) -> String {
+    let fallback = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("导入会话");
+    let first = messages
+        .iter()
+        .find(|(role, _)| role == "user")
+        .map(|(_, content)| content.trim())
+        .filter(|content| !content.is_empty())
+        .unwrap_or(fallback);
+    let mut title = first.chars().take(36).collect::<String>();
+    if first.chars().count() > 36 {
+        title.push('…');
+    }
+    format!("导入：{}", title)
+}
+
+fn read_license_notices(workspace_path: &Path) -> Vec<LicenseNotice> {
+    let root = find_workspace_root(workspace_path).unwrap_or_else(|| workspace_path.to_path_buf());
+    let mut notices = vec![LicenseNotice {
+        name: "yode".to_string(),
+        version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        license: Some("MIT".to_string()),
+        source: "workspace".to_string(),
+    }];
+
+    let cargo_lock = root.join("Cargo.lock");
+    if let Ok(lock) = std::fs::read_to_string(&cargo_lock) {
+        notices.extend(parse_cargo_lock_notices(&lock));
+    }
+    let package_lock = root.join("apps/yode-desktop/pnpm-lock.yaml");
+    if let Ok(lock) = std::fs::read_to_string(&package_lock) {
+        notices.extend(parse_pnpm_lock_notices(&lock));
+    }
+    notices.sort_by(|a, b| a.name.cmp(&b.name).then(a.version.cmp(&b.version)));
+    notices.dedup_by(|a, b| a.name == b.name && a.version == b.version && a.source == b.source);
+    notices
+}
+
+fn parse_cargo_lock_notices(lock: &str) -> Vec<LicenseNotice> {
+    let mut notices = Vec::new();
+    let mut name: Option<String> = None;
+    let mut version: Option<String> = None;
+    for line in lock.lines() {
+        let trimmed = line.trim();
+        if trimmed == "[[package]]" {
+            if let Some(package_name) = name.take() {
+                notices.push(LicenseNotice {
+                    name: package_name,
+                    version: version.take(),
+                    license: None,
+                    source: "Cargo.lock".to_string(),
+                });
+            }
+        } else if let Some(value) = trimmed.strip_prefix("name = ") {
+            name = Some(value.trim_matches('"').to_string());
+        } else if let Some(value) = trimmed.strip_prefix("version = ") {
+            version = Some(value.trim_matches('"').to_string());
+        }
+    }
+    if let Some(package_name) = name.take() {
+        notices.push(LicenseNotice {
+            name: package_name,
+            version,
+            license: None,
+            source: "Cargo.lock".to_string(),
+        });
+    }
+    notices
+}
+
+fn parse_pnpm_lock_notices(lock: &str) -> Vec<LicenseNotice> {
+    lock.lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            if !trimmed.starts_with('/') || !trimmed.ends_with(':') {
+                return None;
+            }
+            let package = trimmed.trim_start_matches('/').trim_end_matches(':');
+            let (name, version) = package.rsplit_once('@')?;
+            if name.is_empty() || version.is_empty() {
+                return None;
+            }
+            Some(LicenseNotice {
+                name: name.to_string(),
+                version: Some(version.to_string()),
+                license: None,
+                source: "pnpm-lock.yaml".to_string(),
+            })
+        })
+        .collect()
+}
+
+fn apply_menu_bar_setting(app: &AppHandle, enabled: bool) -> Result<()> {
+    if let Some(tray) = app.tray_by_id("main") {
+        tray.set_visible(enabled)?;
+        return Ok(());
+    }
+    if !enabled {
+        return Ok(());
+    }
+
+    #[allow(unused_imports)]
+    use tauri::{
+        menu::{Menu, MenuItem},
+        tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    };
+
+    let show = MenuItem::with_id(app, "show", "显示 Yode", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show, &quit])?;
+    let _tray = TrayIconBuilder::with_id("main")
+        .tooltip("Yode")
+        .menu(&menu)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "show" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if matches!(
+                event,
+                TrayIconEvent::Click {
+                    button: MouseButton::Left,
+                    button_state: MouseButtonState::Up,
+                    ..
+                }
+            ) {
+                let app = tray.app_handle();
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+        })
+        .build(app)?;
+    Ok(())
 }
 
 #[cfg(test)]

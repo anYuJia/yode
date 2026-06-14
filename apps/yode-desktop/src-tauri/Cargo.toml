@@ -18,7 +18,8 @@ chrono = { workspace = true }
 dirs = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = { workspace = true }
-tauri = { version = "2.11.2", features = [] }
+toml = { workspace = true }
+tauri = { version = "2.11.2", features = ["tray-icon"] }
 uuid = { workspace = true }
 yode-core = { workspace = true }
 yode-llm = { workspace = true }

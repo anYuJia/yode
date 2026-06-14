@@ -150,7 +150,33 @@ function loadGeneralSettings() {
     suggestedPrompts: localStorage.getItem("yode-suggested-prompts") !== "false",
     contextUsage: localStorage.getItem("yode-context-usage") === "true",
     requireOptEnter: localStorage.getItem("yode-require-opt-enter") === "true",
-    followUpBehavior: localStorage.getItem("yode-follow-up-behavior") || "queue"
+    followUpBehavior: localStorage.getItem("yode-follow-up-behavior") || "queue",
+    codeReviewPolicy: localStorage.getItem("yode-code-review-policy") || "inline",
+    completionNotification: localStorage.getItem("yode-completion-notif") || "Only when unfocused",
+    permissionNotification: localStorage.getItem("yode-perm-notif") !== "false",
+    questionNotification: localStorage.getItem("yode-question-notif") !== "false"
+  };
+}
+
+function loadGeneralSettingsPayload() {
+  return {
+    workMode: localStorage.getItem("yode-work-mode") || "coding",
+    defaultFilePermission: localStorage.getItem("yode-def-perm") !== "false",
+    autoReview: localStorage.getItem("yode-auto-review") !== "false",
+    fullAccess: localStorage.getItem("yode-full-access") !== "false",
+    openDestination: localStorage.getItem("yode-open-dest") || "VS Code",
+    showInMenuBar: localStorage.getItem("yode-show-menu-bar") !== "false",
+    bottomPanel: localStorage.getItem("yode-bottom-panel") !== "false",
+    terminalLocation: localStorage.getItem("yode-term-loc") || "bottom",
+    preventSleep: localStorage.getItem("yode-prevent-sleep") === "true",
+    codeReviewPolicy: localStorage.getItem("yode-code-review-policy") || "inline",
+    suggestedPrompts: localStorage.getItem("yode-suggested-prompts") !== "false",
+    contextUsage: localStorage.getItem("yode-context-usage") === "true",
+    followUpBehavior: localStorage.getItem("yode-follow-up-behavior") || "queue",
+    requireOptEnter: localStorage.getItem("yode-require-opt-enter") === "true",
+    completionNotification: localStorage.getItem("yode-completion-notif") || "Only when unfocused",
+    permissionNotification: localStorage.getItem("yode-perm-notif") !== "false",
+    questionNotification: localStorage.getItem("yode-question-notif") !== "false"
   };
 }
 
@@ -301,6 +327,7 @@ export function App() {
   const [permissionMode, setPermissionMode] = useState<string>("default");
   const [pendingUserQuestion, setPendingUserQuestion] = useState<PendingUserQuestion | null>(null);
   const activeSessionIdRef = useRef<string | null>(null);
+  const windowFocusedRef = useRef(true);
   const terminalConversationKey = activeSessionId ?? "__draft__";
   const terminalOpen = terminalOpenByConversation[terminalConversationKey] ?? false;
   const setTerminalOpenForCurrentConversation = (open: boolean) => {
@@ -316,6 +343,26 @@ export function App() {
   useEffect(() => {
     activeSessionIdRef.current = activeSessionId;
   }, [activeSessionId]);
+
+  useEffect(() => {
+    const handleFocus = () => {
+      windowFocusedRef.current = true;
+    };
+    const handleBlur = () => {
+      windowFocusedRef.current = false;
+    };
+    const handleVisibility = () => {
+      windowFocusedRef.current = document.visibilityState === "visible";
+    };
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("blur", handleBlur);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("blur", handleBlur);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, []);
 
   useEffect(() => {
     localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth));
@@ -500,10 +547,34 @@ export function App() {
   useEffect(() => {
     const handleGeneralSettingsChange = () => {
       setGeneralSettings(loadGeneralSettings());
+      if ("__TAURI_INTERNALS__" in window) {
+        invoke("general_settings_apply", { settings: loadGeneralSettingsPayload() }).catch(console.error);
+      }
     };
+    if ("__TAURI_INTERNALS__" in window) {
+      invoke("general_settings_apply", { settings: loadGeneralSettingsPayload() }).catch(console.error);
+    }
     window.addEventListener("yode-general-settings-change", handleGeneralSettingsChange);
     return () => window.removeEventListener("yode-general-settings-change", handleGeneralSettingsChange);
   }, []);
+
+  const sendSystemNotification = useCallback((title: string, body: string, policy: "completion" | "permission" | "question") => {
+    if (!("Notification" in window)) return;
+    if (policy === "permission" && !generalSettings.permissionNotification) return;
+    if (policy === "question" && !generalSettings.questionNotification) return;
+    if (policy === "completion") {
+      if (generalSettings.completionNotification === "Never") return;
+      if (generalSettings.completionNotification === "Only when unfocused" && windowFocusedRef.current) return;
+    }
+    const show = () => new Notification(title, { body });
+    if (Notification.permission === "granted") {
+      show();
+    } else if (Notification.permission === "default") {
+      Notification.requestPermission().then((permission) => {
+        if (permission === "granted") show();
+      }).catch(console.error);
+    }
+  }, [generalSettings]);
 
   useEffect(() => {
     localStorage.setItem(PROJECT_ROOTS_STORAGE_KEY, JSON.stringify(projectRoots));
@@ -764,10 +835,12 @@ export function App() {
     window.addEventListener("yode-session-unarchived", handleUnarchive);
     window.addEventListener("yode-default-llm-change", handleDefaultLlmChange);
     window.addEventListener("yode-session-deleted-permanently", handlePermanentDelete);
+    window.addEventListener("yode-sessions-imported", handleUnarchive);
     return () => {
       window.removeEventListener("yode-session-unarchived", handleUnarchive);
       window.removeEventListener("yode-default-llm-change", handleDefaultLlmChange);
       window.removeEventListener("yode-session-deleted-permanently", handlePermanentDelete);
+      window.removeEventListener("yode-sessions-imported", handleUnarchive);
     };
   }, []);
 
@@ -799,14 +872,20 @@ export function App() {
           setCurrentTurnId(outer.turnId);
         }
       } else if (kind === "ask_user" && eventSessionId && (outer?.turnId ?? (payload as any).turnId)) {
+        sendSystemNotification("Yode 需要你的回复", String((payload as any).payload?.body ?? "任务正在等待输入。"), "question");
         setPendingUserQuestion({
           sessionId: eventSessionId,
           turnId: outer?.turnId ?? (payload as any).turnId,
           question: String((payload as any).payload?.body ?? "请回复问题")
         });
+      } else if (kind === "tool_confirm_required" || kind === "permission") {
+        sendSystemNotification("Yode 请求执行权限", String((payload as any).payload?.body ?? "有操作需要确认。"), "permission");
       } else if (kind === "turn_completed" || kind === "error") {
         setIsProcessing(false);
         setPendingUserQuestion(null);
+        if (kind === "turn_completed") {
+          sendSystemNotification("Yode 已完成任务", String((payload as any).payload?.body ?? "本轮运行已完成。").slice(0, 160), "completion");
+        }
       }
 
       setTimelineItems((items) =>
@@ -832,7 +911,7 @@ export function App() {
         disposeFn();
       }
     };
-  }, []);
+  }, [sendSystemNotification]);
 
   const activeSession = useMemo(
     () =>
@@ -1019,7 +1098,8 @@ export function App() {
       return;
     }
 
-    const sessionIdAtSend = activeSession?.id ?? null;
+    const isDetachedReview = generalSettings.codeReviewPolicy === "detached" && /^\/review\b/i.test(content);
+    const sessionIdAtSend = isDetachedReview ? null : (activeSession?.id ?? null);
     const projectRootAtSend = selectedProjectRoot === undefined ? bootstrap.workspacePath : selectedProjectRoot;
     setDraft("");
     setComposerImages([]);
@@ -1077,7 +1157,9 @@ export function App() {
           standalone: sessionIdAtSend ? undefined : projectRootAtSend === null,
           title: sessionIdAtSend
             ? undefined
-            : content
+            : isDetachedReview
+              ? "代码审查"
+              : content
               ? deriveSessionTitle(content)
               : imagesAtSend.length > 1
                 ? `${imagesAtSend.length} 张图片`

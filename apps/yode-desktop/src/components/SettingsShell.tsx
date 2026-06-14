@@ -1,4 +1,5 @@
 import React, { useRef, useState, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import {
   SlidersHorizontal,
   Settings,
@@ -58,6 +59,19 @@ import { ProvidersSettings } from "./settings/ProvidersSettings";
 
 const SETTINGS_SIDEBAR_WIDTH_KEY = "yode-settings-sidebar-width";
 
+type LicenseNotice = {
+  name: string;
+  version?: string | null;
+  license?: string | null;
+  source: string;
+};
+
+type ImportAiSessionsResult = {
+  imported: number;
+  skipped: number;
+  sessions: any[];
+};
+
 function clampNumber(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
@@ -67,6 +81,28 @@ function loadStoredNumber(key: string, fallback: number) {
   if (raw === null) return fallback;
   const parsed = Number(raw);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function loadGeneralSettingsPayload() {
+  return {
+    workMode: localStorage.getItem("yode-work-mode") || "coding",
+    defaultFilePermission: localStorage.getItem("yode-def-perm") !== "false",
+    autoReview: localStorage.getItem("yode-auto-review") !== "false",
+    fullAccess: localStorage.getItem("yode-full-access") !== "false",
+    openDestination: localStorage.getItem("yode-open-dest") || "VS Code",
+    showInMenuBar: localStorage.getItem("yode-show-menu-bar") !== "false",
+    bottomPanel: localStorage.getItem("yode-bottom-panel") !== "false",
+    terminalLocation: localStorage.getItem("yode-term-loc") || "bottom",
+    preventSleep: localStorage.getItem("yode-prevent-sleep") === "true",
+    codeReviewPolicy: localStorage.getItem("yode-code-review-policy") || "inline",
+    suggestedPrompts: localStorage.getItem("yode-suggested-prompts") !== "false",
+    contextUsage: localStorage.getItem("yode-context-usage") === "true",
+    followUpBehavior: localStorage.getItem("yode-follow-up-behavior") || "queue",
+    requireOptEnter: localStorage.getItem("yode-require-opt-enter") === "true",
+    completionNotification: localStorage.getItem("yode-completion-notif") || "Only when unfocused",
+    permissionNotification: localStorage.getItem("yode-perm-notif") !== "false",
+    questionNotification: localStorage.getItem("yode-question-notif") !== "false"
+  };
 }
 
 export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; onClose: () => void }) {
@@ -178,10 +214,60 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
   const [completionNotif, setCompletionNotif] = useState(() => localStorage.getItem("yode-completion-notif") || "Only when unfocused");
   const [permNotif, setPermNotif] = useState(() => localStorage.getItem("yode-perm-notif") !== "false");
   const [questionNotif, setQuestionNotif] = useState(() => localStorage.getItem("yode-question-notif") !== "false");
+  const [licenseModalOpen, setLicenseModalOpen] = useState(false);
+  const [licenseNotices, setLicenseNotices] = useState<LicenseNotice[]>([]);
+  const [licenseLoading, setLicenseLoading] = useState(false);
+  const [importStatus, setImportStatus] = useState("");
 
   const updateGeneralVal = (key: string, value: string | boolean) => {
     localStorage.setItem(key, String(value));
     window.dispatchEvent(new CustomEvent("yode-general-settings-change", { detail: { key, value } }));
+    if ("__TAURI_INTERNALS__" in window) {
+      invoke("general_settings_apply", { settings: loadGeneralSettingsPayload() }).catch(console.error);
+    }
+  };
+
+  useEffect(() => {
+    if ("__TAURI_INTERNALS__" in window) {
+      invoke("general_settings_apply", { settings: loadGeneralSettingsPayload() }).catch(console.error);
+    }
+  }, []);
+
+  const handleOpenCurrentProject = () => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    invoke("open_target", { request: { target: openDest, path: bootstrap.workspacePath } }).catch((err) => {
+      console.error(err);
+      setImportStatus(t("打开目标失败，请确认对应应用已安装。", "Failed to open target. Check that the app is installed."));
+    });
+  };
+
+  const handleImportAiSessions = async () => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    setImportStatus(t("正在导入...", "Importing..."));
+    try {
+      const result = await invoke<ImportAiSessionsResult>("import_ai_sessions");
+      setImportStatus(t(`已导入 ${result.imported} 个会话，跳过 ${result.skipped} 个文件。`, `Imported ${result.imported} sessions, skipped ${result.skipped} files.`));
+      if (result.imported > 0) {
+        window.dispatchEvent(new CustomEvent("yode-sessions-imported", { detail: result.sessions }));
+      }
+    } catch (err) {
+      console.error(err);
+      setImportStatus(t("导入失败，请检查文件格式。", "Import failed. Check the file format."));
+    }
+  };
+
+  const handleOpenLicenses = async () => {
+    setLicenseModalOpen(true);
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    setLicenseLoading(true);
+    try {
+      setLicenseNotices(await invoke<LicenseNotice[]>("license_notices"));
+    } catch (err) {
+      console.error(err);
+      setLicenseNotices([]);
+    } finally {
+      setLicenseLoading(false);
+    }
   };
 
   const categories = [
@@ -528,6 +614,14 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
                       ]}
                       style={{ minWidth: "160px" }}
                     />
+                    <button
+                      className="secondary-button"
+                      style={{ paddingInline: "12px", height: "28px", marginLeft: "8px" }}
+                      type="button"
+                      onClick={handleOpenCurrentProject}
+                    >
+                      {t("打开", "Open")}
+                    </button>
                   </div>
                   <div className="divider" />
 
@@ -698,11 +792,16 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
                       className="secondary-button"
                       style={{ paddingInline: "14px", height: "28px" }}
                       type="button"
-                      onClick={() => alert(t("导入流程还没有接入。", "Import flow is not connected yet."))}
+                      onClick={handleImportAiSessions}
                     >
                       {t("导入", "Import")}
                     </button>
                   </div>
+                  {importStatus && (
+                    <div style={{ fontSize: "11px", color: "var(--text-soft)", padding: "2px 0 0 2px" }}>
+                      {importStatus}
+                    </div>
+                  )}
                   <div className="divider" />
 
                   <div className="form-row">
@@ -714,7 +813,7 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
                       className="secondary-button"
                       style={{ paddingInline: "14px", height: "28px" }}
                       type="button"
-                      onClick={() => alert(t("开源许可声明还没有接入。", "Open source notices are not connected yet."))}
+                      onClick={handleOpenLicenses}
                     >
                       {t("查看", "View")}
                     </button>
@@ -865,7 +964,7 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
           )}
 
           {activeTab === "配置" && (
-            <ConfigurationSettings isZh={isZh} t={t} />
+            <ConfigurationSettings bootstrap={bootstrap} isZh={isZh} t={t} />
           )}
 
           {activeTab === "个性化" && (
@@ -922,6 +1021,39 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
           )}
         </div>
       </section>
+      {licenseModalOpen && (
+        <div className="settings-modal-backdrop" onClick={() => setLicenseModalOpen(false)}>
+          <div className="settings-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="settings-modal-header">
+              <div>
+                <h2>{t("开源许可声明", "Open source licenses")}</h2>
+                <p>{t("当前桌面端包含的 Rust 与前端依赖清单", "Bundled Rust and frontend dependency notices")}</p>
+              </div>
+              <button type="button" className="icon-button" onClick={() => setLicenseModalOpen(false)} aria-label={t("关闭", "Close")}>
+                <X size={16} />
+              </button>
+            </div>
+            <div className="license-list">
+              {licenseLoading ? (
+                <div className="empty-state">{t("正在读取许可声明...", "Loading notices...")}</div>
+              ) : licenseNotices.length === 0 ? (
+                <div className="empty-state">{t("没有读取到依赖声明。", "No dependency notices found.")}</div>
+              ) : (
+                licenseNotices.map((notice) => (
+                  <div className="license-row" key={`${notice.source}-${notice.name}-${notice.version || ""}`}>
+                    <div>
+                      <strong>{notice.name}</strong>
+                      {notice.version && <span>{notice.version}</span>}
+                    </div>
+                    <em>{notice.license || t("许可信息需查看上游包声明", "See upstream package notice")}</em>
+                    <small>{notice.source}</small>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

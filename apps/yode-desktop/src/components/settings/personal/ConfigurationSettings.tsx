@@ -1,14 +1,132 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { Search, Download } from "lucide-react";
 import { CustomSelect } from "../../CustomSelect";
+import { Bootstrap } from "../../../lib/mock";
 
-export function ConfigurationSettings({ isZh, t }: { isZh: boolean; t: (zh: string, en: string) => string }) {
+type ConfigurationState = {
+  scope: string;
+  approvalPolicy: string;
+  sandboxSettings: string;
+  exposeDependencies: boolean;
+  configPath: string;
+  projectConfigPath: string;
+};
+
+type DiagnosticCheck = {
+  name: string;
+  status: string;
+  detail: string;
+};
+
+type WorkspaceDiagnosticsResult = {
+  reportPath: string;
+  checks: DiagnosticCheck[];
+};
+
+export function ConfigurationSettings({ bootstrap, isZh, t }: { bootstrap: Bootstrap; isZh: boolean; t: (zh: string, en: string) => string }) {
   const [configScope, setConfigScope] = useState(() => localStorage.getItem("yode-config-scope") || "User config");
   const [approvalPolicy, setApprovalPolicy] = useState(() => localStorage.getItem("yode-config-approval") || "On request");
   const [sandboxSettings, setSandboxSettings] = useState(() => localStorage.getItem("yode-config-sandbox") || "Read only");
   const [exposeDeps, setExposeDeps] = useState(() => localStorage.getItem("yode-expose-deps") !== "false");
+  const [configPath, setConfigPath] = useState("");
+  const [projectConfigPath, setProjectConfigPath] = useState("");
+  const [statusText, setStatusText] = useState("");
+  const [diagnostics, setDiagnostics] = useState<WorkspaceDiagnosticsResult | null>(null);
+  const [busy, setBusy] = useState<"diagnose" | "reinstall" | "save" | null>(null);
 
   const saveVal = (key: string, val: any) => localStorage.setItem(key, String(val));
+
+  const applyConfiguration = async (next?: Partial<ConfigurationState>) => {
+    const request = {
+      scope: next?.scope ?? configScope,
+      approvalPolicy: next?.approvalPolicy ?? approvalPolicy,
+      sandboxSettings: next?.sandboxSettings ?? sandboxSettings,
+      exposeDependencies: next?.exposeDependencies ?? exposeDeps
+    };
+    saveVal("yode-config-scope", request.scope);
+    saveVal("yode-config-approval", request.approvalPolicy);
+    saveVal("yode-config-sandbox", request.sandboxSettings);
+    saveVal("yode-expose-deps", request.exposeDependencies);
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    setBusy("save");
+    try {
+      const state = await invoke<ConfigurationState>("configuration_update", { request });
+      setConfigPath(state.configPath);
+      setProjectConfigPath(state.projectConfigPath);
+      setStatusText(t("配置已写入 config.toml，并同步到当前运行时。", "Configuration was written to config.toml and synced to the current runtime."));
+    } catch (err) {
+      console.error(err);
+      setStatusText(t("保存配置失败。", "Failed to save configuration."));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    invoke<ConfigurationState>("configuration_state_get")
+      .then((state) => {
+        setConfigScope(state.scope);
+        setApprovalPolicy(state.approvalPolicy);
+        setSandboxSettings(state.sandboxSettings);
+        setExposeDeps(state.exposeDependencies);
+        setConfigPath(state.configPath);
+        setProjectConfigPath(state.projectConfigPath);
+        saveVal("yode-config-scope", state.scope);
+        saveVal("yode-config-approval", state.approvalPolicy);
+        saveVal("yode-config-sandbox", state.sandboxSettings);
+        saveVal("yode-expose-deps", state.exposeDependencies);
+      })
+      .catch(console.error);
+  }, []);
+
+  const openConfigFile = async () => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    try {
+      await invoke("configuration_open_file", { scope: configScope });
+      setStatusText(t("已用默认打开目标打开 config.toml。", "Opened config.toml with the default destination."));
+    } catch (err) {
+      console.error(err);
+      setStatusText(t("打开 config.toml 失败。", "Failed to open config.toml."));
+    }
+  };
+
+  const runDiagnostics = async () => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    setBusy("diagnose");
+    setStatusText(t("正在诊断工作区...", "Diagnosing workspace..."));
+    try {
+      const result = await invoke<WorkspaceDiagnosticsResult>("workspace_diagnose");
+      setDiagnostics(result);
+      setStatusText(t(`诊断完成：${result.reportPath}`, `Diagnostics complete: ${result.reportPath}`));
+    } catch (err) {
+      console.error(err);
+      setStatusText(t("诊断失败。", "Diagnostics failed."));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const reinstallWorkspace = async () => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    setBusy("reinstall");
+    setStatusText(t("正在重置并安装工作区...", "Resetting and installing workspace..."));
+    try {
+      const result = await invoke<WorkspaceDiagnosticsResult>("workspace_reinstall");
+      setDiagnostics(result);
+      setExposeDeps(true);
+      saveVal("yode-expose-deps", true);
+      setStatusText(t(`工作区已重装：${result.reportPath}`, `Workspace reinstalled: ${result.reportPath}`));
+    } catch (err) {
+      console.error(err);
+      setStatusText(t("重装工作区失败。", "Failed to reinstall workspace."));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const activeConfigPath = configScope === "Project config" ? projectConfigPath : configPath;
 
   return (
     <div className="appearance-container" style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
@@ -38,7 +156,7 @@ export function ConfigurationSettings({ isZh, t }: { isZh: boolean; t: (zh: stri
               value={configScope}
               onChange={(val) => {
                 setConfigScope(val);
-                saveVal("yode-config-scope", val);
+                void applyConfiguration({ scope: val });
               }}
               options={[
                 { value: "User config", label: t("用户配置", "User config"), avatarText: "👤" },
@@ -46,14 +164,20 @@ export function ConfigurationSettings({ isZh, t }: { isZh: boolean; t: (zh: stri
               ]}
               style={{ minWidth: "150px" }}
             />
-            <a
-              href="#open"
+            <button
+              type="button"
+              onClick={openConfigFile}
               style={{ fontSize: "11px", color: "var(--text-soft)", textDecoration: "none" }}
               className="hover-link"
             >
               {t("打开 config.toml ↗", "Open config.toml ↗")}
-            </a>
+            </button>
           </div>
+          {activeConfigPath && (
+            <div style={{ fontSize: "11px", color: "var(--text-soft)", fontFamily: "var(--font-code)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {activeConfigPath}
+            </div>
+          )}
 
           <div style={{ height: "1px", background: "var(--line-soft)" }} />
 
@@ -66,7 +190,7 @@ export function ConfigurationSettings({ isZh, t }: { isZh: boolean; t: (zh: stri
               value={approvalPolicy}
               onChange={(val) => {
                 setApprovalPolicy(val);
-                saveVal("yode-config-approval", val);
+                void applyConfiguration({ approvalPolicy: val });
               }}
               options={[
                 { value: "On request", label: t("询问确认", "On request") },
@@ -90,7 +214,7 @@ export function ConfigurationSettings({ isZh, t }: { isZh: boolean; t: (zh: stri
               value={sandboxSettings}
               onChange={(val) => {
                 setSandboxSettings(val);
-                saveVal("yode-config-sandbox", val);
+                void applyConfiguration({ sandboxSettings: val });
               }}
               options={[
                 { value: "Read only", label: t("只读", "Read only") },
@@ -121,7 +245,7 @@ export function ConfigurationSettings({ isZh, t }: { isZh: boolean; t: (zh: stri
               <span className="row-label">{t("当前版本", "Current version")}</span>
             </div>
             <span style={{ fontSize: "12px", fontFamily: "var(--font-code)", color: "var(--text-muted)", alignSelf: "center" }}>
-              26.601.10930
+              {bootstrap.appVersion}
             </span>
           </div>
 
@@ -140,7 +264,7 @@ export function ConfigurationSettings({ isZh, t }: { isZh: boolean; t: (zh: stri
                 checked={exposeDeps}
                 onChange={(e) => {
                   setExposeDeps(e.target.checked);
-                  saveVal("yode-expose-deps", e.target.checked);
+                  void applyConfiguration({ exposeDependencies: e.target.checked });
                 }}
               />
               <span className="switch-slider" />
@@ -158,9 +282,11 @@ export function ConfigurationSettings({ isZh, t }: { isZh: boolean; t: (zh: stri
               className="secondary-button"
               style={{ display: "flex", alignItems: "center", gap: "6px", paddingInline: "12px", height: "28px" }}
               type="button"
+              disabled={busy === "diagnose"}
+              onClick={runDiagnostics}
             >
               <Search size={12} />
-              <span>{t("诊断", "Diagnose")}</span>
+              <span>{busy === "diagnose" ? t("诊断中", "Diagnosing") : t("诊断", "Diagnose")}</span>
             </button>
           </div>
 
@@ -183,12 +309,32 @@ export function ConfigurationSettings({ isZh, t }: { isZh: boolean; t: (zh: stri
                 height: "28px"
               }}
               type="button"
+              disabled={busy === "reinstall"}
+              onClick={reinstallWorkspace}
             >
               <Download size={12} />
-              <span>{t("重新安装", "Reinstall")}</span>
+              <span>{busy === "reinstall" ? t("安装中", "Installing") : t("重新安装", "Reinstall")}</span>
             </button>
           </div>
         </div>
+        {statusText && (
+          <div style={{ fontSize: "11px", color: "var(--text-soft)", lineHeight: 1.5 }}>
+            {statusText}
+          </div>
+        )}
+        {diagnostics && (
+          <div className="theme-card" style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
+            {diagnostics.checks.map((check) => (
+              <div key={check.name} style={{ display: "grid", gridTemplateColumns: "96px 70px 1fr", gap: "10px", alignItems: "center", fontSize: "11.5px" }}>
+                <strong style={{ color: "var(--text)" }}>{check.name}</strong>
+                <span style={{ color: check.status === "ok" ? "var(--success)" : check.status === "warn" ? "var(--warning)" : "var(--error)", fontFamily: "var(--font-code)" }}>
+                  {check.status}
+                </span>
+                <span style={{ color: "var(--text-soft)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{check.detail}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

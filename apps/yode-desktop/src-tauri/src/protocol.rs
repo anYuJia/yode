@@ -184,3 +184,84 @@ pub struct RuntimeState {
     pub context_percent: u8,
     pub tool_calls: String,
 }
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GeneralSettings {
+    pub work_mode: String,
+    pub default_file_permission: bool,
+    pub auto_review: bool,
+    pub full_access: bool,
+    pub open_destination: String,
+    pub show_in_menu_bar: bool,
+    pub bottom_panel: bool,
+    pub terminal_location: String,
+    pub prevent_sleep: bool,
+    pub code_review_policy: String,
+    pub suggested_prompts: bool,
+    pub context_usage: bool,
+    pub follow_up_behavior: String,
+    pub require_opt_enter: bool,
+    pub completion_notification: String,
+    pub permission_notification: bool,
+    pub question_notification: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenTargetRequest {
+    pub target: Option<String>,
+    pub path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportAiSessionsResult {
+    pub imported: usize,
+    pub skipped: usize,
+    pub sessions: Vec<DesktopSession>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LicenseNotice {
+    pub name: String,
+    pub version: Option<String>,
+    pub license: Option<String>,
+    pub source: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigurationState {
+    pub scope: String,
+    pub approval_policy: String,
+    pub sandbox_settings: String,
+    pub expose_dependencies: bool,
+    pub config_path: String,
+    pub project_config_path: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticCheck {
+    pub name: String,
+    pub status: String,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceDiagnosticsResult {
+    pub report_path: String,
+    pub checks: Vec<DiagnosticCheck>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigurationUpdateRequest {
+    pub scope: String,
+    pub approval_policy: String,
+    pub sandbox_settings: String,
+    pub expose_dependencies: bool,
+}

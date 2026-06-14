@@ -4365,3 +4365,99 @@ html:has(meta[name="dummy"]) .sidebar { /* fallback styling using CSS property c
 .code-block-container pre::-webkit-scrollbar-thumb:hover {
   background: var(--line);
 }
+
+.settings-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background: color-mix(in oklch, var(--bg), transparent 24%);
+}
+
+.settings-modal {
+  width: min(720px, 100%);
+  max-height: min(680px, calc(100vh - 56px));
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.32);
+  overflow: hidden;
+}
+
+.settings-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 18px 14px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.settings-modal-header h2 {
+  margin: 0;
+  font-size: calc(var(--settings-font-size) + 4px);
+  font-weight: 650;
+}
+
+.settings-modal-header p {
+  margin: 4px 0 0;
+  font-size: calc(var(--settings-font-size) - 1px);
+  color: var(--text-soft);
+}
+
+.license-list {
+  overflow: auto;
+  padding: 8px 0;
+}
+
+.license-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) 128px;
+  gap: 12px;
+  align-items: center;
+  padding: 9px 18px;
+  border-bottom: 1px solid color-mix(in oklch, var(--line-soft), transparent 45%);
+  font-size: calc(var(--settings-font-size) - 1px);
+}
+
+.license-row div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.license-row strong,
+.license-row span,
+.license-row em,
+.license-row small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.license-row strong {
+  font-weight: 620;
+}
+
+.license-row span,
+.license-row small {
+  color: var(--text-soft);
+}
+
+.license-row em {
+  color: var(--text-muted);
+  font-style: normal;
+}
+
+@media (max-width: 720px) {
+  .license-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}
