@@ -314,6 +314,43 @@ fn computer_use_open_accessibility(
 }
 
 #[tauri::command]
+fn computer_use_open_chrome(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+) -> Result<protocol::DesktopActionResult, String> {
+    runtime
+        .computer_use_open_chrome()
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn computer_use_pick_application(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+) -> Result<protocol::DesktopActionResult, String> {
+    runtime
+        .computer_use_pick_application()
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn computer_use_settings_get(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+) -> Result<protocol::ComputerUseSettings, String> {
+    runtime
+        .computer_use_settings_get()
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn computer_use_settings_apply(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    settings: protocol::ComputerUseSettings,
+) -> Result<protocol::ComputerUseSettings, String> {
+    runtime
+        .computer_use_settings_apply(settings)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
 fn terminal_run(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
     request: protocol::TerminalRunRequest,
@@ -488,6 +525,10 @@ pub fn run() {
             worktrees_prune_idle,
             worktree_delete,
             computer_use_open_accessibility,
+            computer_use_open_chrome,
+            computer_use_pick_application,
+            computer_use_settings_get,
+            computer_use_settings_apply,
             terminal_run,
             terminal_open,
             terminal_write,

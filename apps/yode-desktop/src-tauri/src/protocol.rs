@@ -307,6 +307,14 @@ pub struct BrowserSettings {
     pub allowed_domains: Vec<String>,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputerUseSettings {
+    pub any_app_status: String,
+    pub chrome_status: String,
+    pub allowed_apps: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DesktopWorktree {

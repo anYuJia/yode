@@ -25,14 +25,15 @@ use yode_tools::registry::ToolRegistry;
 use yode_tools::tool::McpResourceProvider;
 
 use crate::protocol::{
-    Bootstrap, BrowserSettings, ConfigurationState, ConfigurationUpdateRequest,
-    CreateSessionRequest, DefaultLlm, DesktopActionResult, DesktopEvent, DesktopImageOutput,
-    DesktopMcpServer, DesktopMcpServerStatus, DesktopMcpState, DesktopMessage, DesktopProvider,
-    DesktopSession, DesktopSettingSetRequest, DesktopSettingValue, DesktopWorktree,
-    DiagnosticCheck, GeneralSettings, ImportAiSessionsResult, LicenseNotice, OpenTargetRequest,
-    PersonalizationState, RuntimeState, SendMessageRequest, TerminalExitEvent, TerminalOpenRequest,
-    TerminalOpenResponse, TerminalOutputEvent, TerminalResizeRequest, TerminalRunRequest,
-    TerminalRunResponse, TerminalWriteRequest, TurnAccepted, WorkspaceDiagnosticsResult,
+    Bootstrap, BrowserSettings, ComputerUseSettings, ConfigurationState,
+    ConfigurationUpdateRequest, CreateSessionRequest, DefaultLlm, DesktopActionResult,
+    DesktopEvent, DesktopImageOutput, DesktopMcpServer, DesktopMcpServerStatus, DesktopMcpState,
+    DesktopMessage, DesktopProvider, DesktopSession, DesktopSettingSetRequest, DesktopSettingValue,
+    DesktopWorktree, DiagnosticCheck, GeneralSettings, ImportAiSessionsResult, LicenseNotice,
+    OpenTargetRequest, PersonalizationState, RuntimeState, SendMessageRequest, TerminalExitEvent,
+    TerminalOpenRequest, TerminalOpenResponse, TerminalOutputEvent, TerminalResizeRequest,
+    TerminalRunRequest, TerminalRunResponse, TerminalWriteRequest, TurnAccepted,
+    WorkspaceDiagnosticsResult,
 };
 
 pub struct DesktopRuntime {
@@ -784,6 +785,81 @@ impl DesktopRuntime {
             message: "已打开系统辅助功能权限设置，请为 Yode 授权。".to_string(),
             path: None,
         })
+    }
+
+    pub fn computer_use_open_chrome(&self) -> Result<DesktopActionResult> {
+        #[cfg(target_os = "macos")]
+        let status = Command::new("open")
+            .args(["-a", "Google Chrome"])
+            .status()
+            .context("无法打开 Google Chrome")?;
+
+        #[cfg(not(target_os = "macos"))]
+        let status = Command::new("google-chrome")
+            .status()
+            .or_else(|_| Command::new("chrome").status())
+            .context("无法打开 Google Chrome")?;
+
+        Ok(DesktopActionResult {
+            ok: status.success(),
+            message: if status.success() {
+                "已打开 Google Chrome，请确认扩展连接状态。".to_string()
+            } else {
+                "尝试打开 Google Chrome 失败，请确认已安装浏览器。".to_string()
+            },
+            path: None,
+        })
+    }
+
+    pub fn computer_use_pick_application(&self) -> Result<DesktopActionResult> {
+        let mut dialog = rfd::FileDialog::new().set_title("选择始终允许的应用");
+        #[cfg(target_os = "macos")]
+        {
+            dialog = dialog.set_directory("/Applications");
+        }
+        let Some(path) = dialog.pick_folder() else {
+            return Ok(DesktopActionResult {
+                ok: false,
+                message: "已取消选择应用。".to_string(),
+                path: None,
+            });
+        };
+        let app_name = application_display_name(&path);
+        if app_name.trim().is_empty() {
+            anyhow::bail!("无法识别应用名称。");
+        }
+        Ok(DesktopActionResult {
+            ok: true,
+            message: app_name,
+            path: Some(path.display().to_string()),
+        })
+    }
+
+    pub fn computer_use_settings_get(&self) -> Result<ComputerUseSettings> {
+        computer_use_settings_from_desktop_settings(&read_desktop_settings()?)
+    }
+
+    pub fn computer_use_settings_apply(
+        &self,
+        settings: ComputerUseSettings,
+    ) -> Result<ComputerUseSettings> {
+        validate_computer_use_settings(&settings)?;
+        let normalized = normalize_computer_use_settings(settings);
+        let mut desktop_settings = read_desktop_settings()?;
+        desktop_settings.insert(
+            "yode-computer-use-anyapp".to_string(),
+            json!(normalized.any_app_status),
+        );
+        desktop_settings.insert(
+            "yode-computer-use-chrome".to_string(),
+            json!(normalized.chrome_status),
+        );
+        desktop_settings.insert(
+            "yode-computer-use-allowed-apps".to_string(),
+            json!(normalized.allowed_apps),
+        );
+        write_desktop_settings(&desktop_settings)?;
+        Ok(normalized)
     }
 
     fn user_config_path(&self) -> PathBuf {
@@ -3336,6 +3412,78 @@ fn apply_browser_settings_env(settings: &BrowserSettings) {
     if let Ok(json) = serde_json::to_string(settings) {
         std::env::set_var("YODE_BROWSER_SETTINGS", json);
     }
+}
+
+fn computer_use_settings_from_desktop_settings(
+    settings: &serde_json::Map<String, serde_json::Value>,
+) -> Result<ComputerUseSettings> {
+    Ok(normalize_computer_use_settings(ComputerUseSettings {
+        any_app_status: desktop_string_setting(settings, "yode-computer-use-anyapp", "uninstalled"),
+        chrome_status: desktop_string_setting(settings, "yode-computer-use-chrome", "uninstalled"),
+        allowed_apps: desktop_string_list_setting(settings, "yode-computer-use-allowed-apps"),
+    }))
+}
+
+fn normalize_computer_use_settings(mut settings: ComputerUseSettings) -> ComputerUseSettings {
+    settings.any_app_status = normalize_install_status(&settings.any_app_status);
+    settings.chrome_status = normalize_install_status(&settings.chrome_status);
+    settings.allowed_apps = normalize_app_list(settings.allowed_apps);
+    settings
+}
+
+fn validate_computer_use_settings(settings: &ComputerUseSettings) -> Result<()> {
+    for status in [&settings.any_app_status, &settings.chrome_status] {
+        if !matches!(
+            normalize_install_status(status).as_str(),
+            "installed" | "uninstalled" | "installing"
+        ) {
+            anyhow::bail!("无效的计算机使用状态：{}", status);
+        }
+    }
+    for app in &settings.allowed_apps {
+        if normalize_app_name(app).is_none() {
+            anyhow::bail!("无效应用名称：{}", app);
+        }
+    }
+    Ok(())
+}
+
+fn normalize_install_status(status: &str) -> String {
+    match status.trim() {
+        "installed" => "installed".to_string(),
+        "installing" => "installing".to_string(),
+        _ => "uninstalled".to_string(),
+    }
+}
+
+fn normalize_app_list(values: Vec<String>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut result = Vec::new();
+    for value in values {
+        if let Some(app) = normalize_app_name(&value) {
+            let key = app.to_ascii_lowercase();
+            if seen.insert(key) {
+                result.push(app);
+            }
+        }
+    }
+    result
+}
+
+fn normalize_app_name(value: &str) -> Option<String> {
+    let name = value.trim().trim_end_matches(".app").trim();
+    if name.is_empty() || name.len() > 80 || name.chars().any(|ch| ch == '\0') {
+        return None;
+    }
+    Some(name.to_string())
+}
+
+fn application_display_name(path: &Path) -> String {
+    path.file_stem()
+        .or_else(|| path.file_name())
+        .and_then(|value| value.to_str())
+        .and_then(normalize_app_name)
+        .unwrap_or_default()
 }
 
 fn personalization_state_from_settings(

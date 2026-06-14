@@ -1,7 +1,33 @@
 import React, { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Plus, Trash2, X } from "lucide-react";
-import { isTauriRuntime, loadDesktopSetting, saveDesktopSetting } from "../../lib/desktopSettings";
+import { FolderOpen, Plus, Trash2, X } from "lucide-react";
+import { isTauriRuntime, loadDesktopSetting } from "../../lib/desktopSettings";
+
+type InstallStatus = "installed" | "uninstalled" | "installing";
+
+type ComputerUseSettingsState = {
+  anyAppStatus: InstallStatus;
+  chromeStatus: InstallStatus;
+  allowedApps: string[];
+};
+
+const DEFAULT_COMPUTER_USE_SETTINGS: ComputerUseSettingsState = {
+  anyAppStatus: "uninstalled",
+  chromeStatus: "uninstalled",
+  allowedApps: []
+};
+
+function persistComputerUseFallback(settings: ComputerUseSettingsState) {
+  localStorage.setItem("yode-computer-use-anyapp", settings.anyAppStatus);
+  localStorage.setItem("yode-computer-use-chrome", settings.chromeStatus);
+  localStorage.setItem("yode-computer-use-allowed-apps", JSON.stringify(settings.allowedApps));
+}
+
+function normalizeAppName(value: string): string | null {
+  const name = value.trim().replace(/\.app$/i, "").trim();
+  if (!name || name.length > 80 || name.includes("\0")) return null;
+  return name;
+}
 
 export function ComputerUseSettingsSettings({
   isZh,
@@ -10,10 +36,10 @@ export function ComputerUseSettingsSettings({
   isZh: boolean;
   t: (zh: string, en: string) => string;
 }) {
-  const [anyAppStatus, setAnyAppStatus] = useState<"installed" | "uninstalled" | "installing">(() => {
+  const [anyAppStatus, setAnyAppStatus] = useState<InstallStatus>(() => {
     return (localStorage.getItem("yode-computer-use-anyapp") as any) || "uninstalled";
   });
-  const [chromeStatus, setChromeStatus] = useState<"installed" | "uninstalled" | "installing">(() => {
+  const [chromeStatus, setChromeStatus] = useState<InstallStatus>(() => {
     return (localStorage.getItem("yode-computer-use-chrome") as any) || "uninstalled";
   });
   const [allowedApps, setAllowedApps] = useState<string[]>(() => {
@@ -28,27 +54,76 @@ export function ComputerUseSettingsSettings({
   const [showAppModal, setShowAppModal] = useState(false);
   const [newAppName, setNewAppName] = useState("");
   const [statusText, setStatusText] = useState("");
-
-  const saveAllowedApps = (list: string[]) => {
-    setAllowedApps(list);
-    void saveDesktopSetting("yode-computer-use-allowed-apps", list);
-  };
+  const [appError, setAppError] = useState("");
 
   useEffect(() => {
-    void loadDesktopSetting("yode-computer-use-anyapp", anyAppStatus).then((value) => setAnyAppStatus(value as any));
-    void loadDesktopSetting("yode-computer-use-chrome", chromeStatus).then((value) => setChromeStatus(value as any));
-    void loadDesktopSetting("yode-computer-use-allowed-apps", allowedApps).then(setAllowedApps);
+    const loadSettings = async () => {
+      if (isTauriRuntime()) {
+        try {
+          const settings = await invoke<ComputerUseSettingsState>("computer_use_settings_get");
+          applySettingsToState(settings);
+          setStatusText(t("计算机使用设置已连接到运行时。", "Computer use settings are connected to the runtime."));
+          return;
+        } catch (err) {
+          console.error(err);
+        }
+      }
+
+      const fallback = {
+        anyAppStatus: await loadDesktopSetting(
+          "yode-computer-use-anyapp",
+          DEFAULT_COMPUTER_USE_SETTINGS.anyAppStatus
+        ),
+        chromeStatus: await loadDesktopSetting(
+          "yode-computer-use-chrome",
+          DEFAULT_COMPUTER_USE_SETTINGS.chromeStatus
+        ),
+        allowedApps: await loadDesktopSetting(
+          "yode-computer-use-allowed-apps",
+          DEFAULT_COMPUTER_USE_SETTINGS.allowedApps
+        )
+      };
+      applySettingsToState(fallback as ComputerUseSettingsState);
+    };
+    void loadSettings();
   }, []);
+
+  const currentSettings = (): ComputerUseSettingsState => ({
+    anyAppStatus,
+    chromeStatus,
+    allowedApps
+  });
+
+  const applySettingsToState = (settings: ComputerUseSettingsState) => {
+    setAnyAppStatus(settings.anyAppStatus);
+    setChromeStatus(settings.chromeStatus);
+    setAllowedApps(settings.allowedApps);
+  };
+
+  const applyComputerUseSettings = async (nextSettings: ComputerUseSettingsState) => {
+    try {
+      if (isTauriRuntime()) {
+        const applied = await invoke<ComputerUseSettingsState>("computer_use_settings_apply", { settings: nextSettings });
+        applySettingsToState(applied);
+      } else {
+        persistComputerUseFallback(nextSettings);
+        applySettingsToState(nextSettings);
+      }
+      setStatusText(t("计算机使用设置已应用。", "Computer use settings applied."));
+    } catch (err) {
+      console.error(err);
+      setStatusText(t("应用计算机使用设置失败。", "Failed to apply computer use settings."));
+    }
+  };
 
   const handleInstallAnyApp = async () => {
     if (anyAppStatus === "installed") {
       if (confirm(t("确定要卸载 Any App 权限吗？", "Are you sure you want to uninstall Any App access?"))) {
-        setAnyAppStatus("uninstalled");
-        await saveDesktopSetting("yode-computer-use-anyapp", "uninstalled");
-        setStatusText(t("Any App 权限状态已更新。", "Any App permission state updated."));
+        await applyComputerUseSettings({ ...currentSettings(), anyAppStatus: "uninstalled" });
       }
       return;
     }
+    setAnyAppStatus("installing");
     if (isTauriRuntime()) {
       const result = await invoke<{ message: string }>("computer_use_open_accessibility").catch((err) => {
         console.error(err);
@@ -56,36 +131,66 @@ export function ComputerUseSettingsSettings({
       });
       setStatusText(result.message);
     }
-    setAnyAppStatus("installed");
-    await saveDesktopSetting("yode-computer-use-anyapp", "installed");
+    await applyComputerUseSettings({ ...currentSettings(), anyAppStatus: "installed" });
   };
 
   const handleInstallChrome = async () => {
     if (chromeStatus === "installed") {
       if (confirm(t("确定要卸载 Google Chrome 扩展连接吗？", "Are you sure you want to disconnect Google Chrome extension?"))) {
-        setChromeStatus("uninstalled");
-        await saveDesktopSetting("yode-computer-use-chrome", "uninstalled");
-        setStatusText(t("Chrome 扩展连接状态已更新。", "Chrome extension connection state updated."));
+        await applyComputerUseSettings({ ...currentSettings(), chromeStatus: "uninstalled" });
       }
       return;
     }
-    setChromeStatus("installed");
-    await saveDesktopSetting("yode-computer-use-chrome", "installed");
-    setStatusText(t("Chrome 扩展连接状态已保存。", "Chrome extension connection state saved."));
+    setChromeStatus("installing");
+    if (isTauriRuntime()) {
+      const result = await invoke<{ ok: boolean; message: string }>("computer_use_open_chrome").catch((err) => {
+        console.error(err);
+        return { ok: false, message: t("打开 Google Chrome 失败。", "Failed to open Google Chrome.") };
+      });
+      setStatusText(result.message);
+      await applyComputerUseSettings({ ...currentSettings(), chromeStatus: result.ok ? "installed" : "uninstalled" });
+      return;
+    }
+    await applyComputerUseSettings({ ...currentSettings(), chromeStatus: "installed" });
   };
 
   const handleAddApp = () => {
-    const name = newAppName.trim();
-    if (!name) return;
-    if (!allowedApps.includes(name)) {
-      saveAllowedApps([...allowedApps, name]);
+    const name = normalizeAppName(newAppName);
+    if (!name) {
+      setAppError(t("请输入有效应用名称。", "Enter a valid application name."));
+      return;
     }
+    setAppError("");
+    const exists = allowedApps.some((app) => app.toLowerCase() === name.toLowerCase());
+    const nextApps = exists ? allowedApps : [...allowedApps, name];
+    void applyComputerUseSettings({ ...currentSettings(), allowedApps: nextApps });
     setNewAppName("");
     setShowAppModal(false);
   };
 
+  const handlePickApp = async () => {
+    if (!isTauriRuntime()) {
+      setStatusText(t("桌面端可使用系统选择器添加应用。", "Use the desktop runtime to pick an app."));
+      return;
+    }
+    const result = await invoke<{ ok: boolean; message: string; path?: string | null }>("computer_use_pick_application").catch((err) => {
+      console.error(err);
+      return { ok: false, message: t("选择应用失败。", "Failed to pick application.") };
+    });
+    if (!result.ok) {
+      setStatusText(result.message);
+      return;
+    }
+    const name = normalizeAppName(result.message);
+    if (!name) return;
+    const exists = allowedApps.some((app) => app.toLowerCase() === name.toLowerCase());
+    const nextApps = exists ? allowedApps : [...allowedApps, name];
+    await applyComputerUseSettings({ ...currentSettings(), allowedApps: nextApps });
+    setStatusText(t(`已添加 ${name}。`, `Added ${name}.`));
+  };
+
   const handleRemoveApp = (name: string) => {
-    saveAllowedApps(allowedApps.filter((a) => a !== name));
+    void applyComputerUseSettings({ ...currentSettings(), allowedApps: allowedApps.filter((a) => a !== name) });
   };
 
   return (
@@ -227,22 +332,45 @@ export function ComputerUseSettingsSettings({
           <span style={{ fontSize: "11px", fontWeight: "700", color: "var(--text-soft)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
             {t("始终允许的应用", "Always-allowed apps")}
           </span>
-          <button
-            onClick={() => setShowAppModal(true)}
-            type="button"
-            className="secondary-button"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "4px",
-              paddingInline: "10px",
-              height: "22px",
-              fontSize: "11px"
-            }}
-          >
-            <Plus size={12} />
-            <span>{t("添加", "Add")}</span>
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <button
+              onClick={() => {
+                setAppError("");
+                setShowAppModal(true);
+              }}
+              type="button"
+              className="secondary-button"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+                paddingInline: "10px",
+                height: "22px",
+                fontSize: "11px"
+              }}
+            >
+              <Plus size={12} />
+              <span>{t("添加", "Add")}</span>
+            </button>
+            {isTauriRuntime() && (
+              <button
+                onClick={handlePickApp}
+                type="button"
+                className="secondary-button"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  paddingInline: "10px",
+                  height: "22px",
+                  fontSize: "11px"
+                }}
+              >
+                <FolderOpen size={12} />
+                <span>{t("选择", "Choose")}</span>
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="theme-card" style={{ padding: allowedApps.length > 0 ? "4px 0" : "16px 12px" }}>
@@ -320,7 +448,10 @@ export function ComputerUseSettingsSettings({
                 {t("添加始终允许的应用", "Add Always-Allowed App")}
               </span>
               <button
-                onClick={() => setShowAppModal(false)}
+                onClick={() => {
+                  setAppError("");
+                  setShowAppModal(false);
+                }}
                 type="button"
                 style={{ background: "transparent", border: "none", cursor: "pointer", color: "var(--text-soft)", display: "flex" }}
               >
@@ -347,6 +478,11 @@ export function ComputerUseSettingsSettings({
                   if (e.key === "Enter") handleAddApp();
                 }}
               />
+              {appError && (
+                <span style={{ fontSize: "11px", color: "oklch(67% 0.15 28)" }}>
+                  {appError}
+                </span>
+              )}
             </div>
 
             <div
@@ -360,7 +496,10 @@ export function ComputerUseSettingsSettings({
               }}
             >
               <button
-                onClick={() => setShowAppModal(false)}
+                onClick={() => {
+                  setAppError("");
+                  setShowAppModal(false);
+                }}
                 type="button"
                 style={{ background: "transparent", border: "none", fontSize: "12px", color: "var(--text-soft)", cursor: "pointer" }}
               >
