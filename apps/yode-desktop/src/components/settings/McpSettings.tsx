@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
-import { Plus, Trash2, X, Settings } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
+import { Plus, Trash2, X, Settings, RotateCw, Activity } from "lucide-react";
 import { CustomSelect } from "../CustomSelect";
-import { loadDesktopSetting, saveDesktopSetting } from "../../lib/desktopSettings";
+import { isTauriRuntime, loadDesktopSetting, saveDesktopSetting } from "../../lib/desktopSettings";
 
 interface McpServer {
   name: string;
@@ -11,6 +12,21 @@ interface McpServer {
   url?: string;
   env?: Record<string, string>;
   disabled: boolean;
+}
+
+interface McpServerStatus {
+  name: string;
+  state: "configured" | "ready" | "failed" | "disabled" | string;
+  detail: string;
+  toolCount: number;
+  resourceCount: number;
+  templateCount: number;
+}
+
+interface McpState {
+  configPath: string;
+  servers: McpServer[];
+  statuses: McpServerStatus[];
 }
 
 export function McpSettingsSettings({
@@ -41,19 +57,44 @@ export function McpSettingsSettings({
     ];
   });
   const [statusText, setStatusText] = useState("");
+  const [configPath, setConfigPath] = useState("");
+  const [serverStatuses, setServerStatuses] = useState<Record<string, McpServerStatus>>({});
+  const [testingServer, setTestingServer] = useState<string | null>(null);
+  const [deleteConfirmName, setDeleteConfirmName] = useState<string | null>(null);
 
-  const saveServers = (newServers: McpServer[]) => {
+  const applyMcpState = (state: McpState) => {
+    setServers(state.servers);
+    setConfigPath(state.configPath);
+    setServerStatuses(Object.fromEntries(state.statuses.map((status) => [status.name, status])));
+    localStorage.setItem("yode-mcp-servers", JSON.stringify(state.servers));
+  };
+
+  const saveServers = async (newServers: McpServer[]) => {
     setServers(newServers);
-    void saveDesktopSetting("yode-mcp-servers", newServers);
+    localStorage.setItem("yode-mcp-servers", JSON.stringify(newServers));
+    if (isTauriRuntime()) {
+      const state = await invoke<McpState>("mcp_servers_save", { servers: newServers });
+      applyMcpState(state);
+    } else {
+      await saveDesktopSetting("yode-mcp-servers", newServers);
+    }
   };
 
   useEffect(() => {
+    if (isTauriRuntime()) {
+      void invoke<McpState>("mcp_servers_state")
+        .then(applyMcpState)
+        .catch((err) => setStatusText(String(err)));
+      return;
+    }
     void loadDesktopSetting("yode-mcp-servers", servers).then(setServers);
   }, []);
 
   const handleToggleServer = (name: string) => {
     const updated = servers.map((s) => (s.name === name ? { ...s, disabled: !s.disabled } : s));
-    saveServers(updated);
+    void saveServers(updated).then(() => {
+      setStatusText(t("MCP 配置已保存并重载。", "MCP configuration saved and reloaded."));
+    }).catch((err) => setStatusText(String(err)));
   };
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -125,7 +166,7 @@ export function McpSettingsSettings({
       }
     });
 
-    const parsedArgs = formArgs.trim() ? formArgs.trim().split(/\s+/) : [];
+    const parsedArgs = parseArgs(formArgs);
 
     const newServer: McpServer = {
       name: formName.trim(),
@@ -142,18 +183,64 @@ export function McpSettingsSettings({
       updatedServers = servers.map((s) => (s.name === editingServer?.name ? newServer : s));
     }
 
-    saveServers(updatedServers);
-    setStatusText(t("MCP 服务器配置已保存。", "MCP server configuration saved."));
-    setIsModalOpen(false);
+    void saveServers(updatedServers)
+      .then(() => {
+        setStatusText(t("MCP 服务器配置已保存并重载。", "MCP server configuration saved and reloaded."));
+        setIsModalOpen(false);
+      })
+      .catch((err) => setStatusText(String(err)));
   };
 
   const handleDeleteServer = () => {
     if (!editingServer) return;
-    if (confirm(t(`确定要删除服务器 "${editingServer.name}" 吗？`, `Are you sure you want to delete server "${editingServer.name}"?`))) {
-      const updated = servers.filter((s) => s.name !== editingServer.name);
-      saveServers(updated);
-      setStatusText(t("MCP 服务器已删除。", "MCP server deleted."));
-      setIsModalOpen(false);
+    if (deleteConfirmName !== editingServer.name) {
+      setDeleteConfirmName(editingServer.name);
+      return;
+    }
+    const updated = servers.filter((s) => s.name !== editingServer.name);
+    void saveServers(updated)
+      .then(() => {
+        setStatusText(t("MCP 服务器已删除并重载。", "MCP server deleted and reloaded."));
+        setIsModalOpen(false);
+        setDeleteConfirmName(null);
+      })
+      .catch((err) => setStatusText(String(err)));
+  };
+
+  const handleTestServer = async (server: McpServer) => {
+    setTestingServer(server.name);
+    setStatusText(t(`正在测试 ${server.name}...`, `Testing ${server.name}...`));
+    try {
+      const status = isTauriRuntime()
+        ? await invoke<McpServerStatus>("mcp_server_test", { server })
+        : {
+            name: server.name,
+            state: server.disabled ? "disabled" : "configured",
+            detail: t("浏览器预览中无法连接 MCP 服务器。", "MCP connection tests require the desktop runtime."),
+            toolCount: 0,
+            resourceCount: 0,
+            templateCount: 0
+          };
+      setServerStatuses((current) => ({ ...current, [server.name]: status }));
+      setStatusText(status.detail);
+    } catch (err) {
+      setStatusText(String(err));
+    } finally {
+      setTestingServer(null);
+    }
+  };
+
+  const handleReload = async () => {
+    if (!isTauriRuntime()) {
+      setStatusText(t("浏览器预览中无法重载 MCP 运行时。", "MCP reload requires the desktop runtime."));
+      return;
+    }
+    try {
+      const state = await invoke<McpState>("mcp_servers_reload");
+      applyMcpState(state);
+      setStatusText(t("MCP 运行时已重载。", "MCP runtime reloaded."));
+    } catch (err) {
+      setStatusText(String(err));
     }
   };
 
@@ -191,6 +278,11 @@ export function McpSettingsSettings({
             <span>{t("添加服务器", "Add server")}</span>
           </button>
         </div>
+        {configPath && (
+          <div style={{ fontSize: "11px", color: "var(--text-soft)" }}>
+            {t("配置文件", "Config file")} · <span style={{ fontFamily: "var(--font-code)" }}>{configPath}</span>
+          </div>
+        )}
 
         <div className="theme-card" style={{ padding: servers.length > 0 ? "8px 0" : "24px 16px" }}>
           {servers.length === 0 ? (
@@ -198,20 +290,48 @@ export function McpSettingsSettings({
               {t("暂无配置的 MCP 服务器", "No configured MCP servers")}
             </div>
           ) : (
-            servers.map((server, idx) => (
+            servers.map((server, idx) => {
+              const serverStatus = serverStatuses[server.name] ?? {
+                name: server.name,
+                state: server.disabled ? "disabled" : "configured",
+                detail: server.disabled ? t("服务器已禁用。", "Server disabled.") : t("已保存到配置。", "Saved to config."),
+                toolCount: 0,
+                resourceCount: 0,
+                templateCount: 0
+              };
+              return (
               <div key={server.name}>
                 {idx > 0 && <div className="divider" style={{ margin: "4px 16px" }} />}
-                <div className="form-row" style={{ minHeight: "48px" }}>
+                <div className="form-row" style={{ minHeight: "64px", alignItems: "center" }}>
                   <div className="row-info" style={{ gap: "4px" }}>
-                    <span className="row-label" style={{ fontFamily: "var(--font-code)", fontSize: "13.5px" }}>
-                      {server.name}
-                    </span>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <span className="row-label" style={{ fontFamily: "var(--font-code)", fontSize: "13.5px" }}>
+                        {server.name}
+                      </span>
+                      <StatusPill status={serverStatus} t={t} />
+                    </div>
                     <span className="row-desc" style={{ fontSize: "11px", color: "var(--text-soft)", opacity: 0.8 }}>
                       {server.transport === "stdio" ? `${server.command} ${(server.args || []).join(" ")}` : server.url}
                     </span>
+                    <span className="row-desc" style={{ fontSize: "11px", color: "var(--text-soft)", opacity: 0.75 }}>
+                      {serverStatus.detail}
+                    </span>
                   </div>
 
-                  <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                    <span style={{ fontSize: "11px", color: "var(--text-soft)", whiteSpace: "nowrap" }}>
+                      {serverStatus.toolCount} tools · {serverStatus.resourceCount + serverStatus.templateCount} resources
+                    </span>
+                    <button
+                      onClick={() => void handleTestServer(server)}
+                      type="button"
+                      className="secondary-button"
+                      disabled={testingServer === server.name}
+                      style={{ height: "26px", gap: "6px", paddingInline: "10px" }}
+                    >
+                      <Activity size={13} />
+                      {testingServer === server.name ? t("测试中", "Testing") : t("测试", "Test")}
+                    </button>
                     <button
                       onClick={() => openEditModal(server)}
                       type="button"
@@ -238,9 +358,18 @@ export function McpSettingsSettings({
                   </div>
                 </div>
               </div>
-            ))
+            )})
           )}
         </div>
+        <button
+          className="secondary-button"
+          type="button"
+          onClick={() => void handleReload()}
+          style={{ alignSelf: "flex-end", height: "28px", gap: "6px" }}
+        >
+          <RotateCw size={13} />
+          {t("重载 MCP", "Reload MCP")}
+        </button>
         {statusText && (
           <div style={{ fontSize: "11px", color: "var(--text-soft)" }}>
             {statusText}
@@ -543,6 +672,9 @@ export function McpSettingsSettings({
                 >
                   <Trash2 size={13} />
                   <span>{t("删除", "Delete")}</span>
+                  {deleteConfirmName === editingServer?.name && (
+                    <span style={{ opacity: 0.8 }}>{t("再次点击确认", "Click again")}</span>
+                  )}
                 </button>
               )}
 
@@ -584,4 +716,78 @@ export function McpSettingsSettings({
       )}
     </div>
   );
+}
+
+function StatusPill({
+  status,
+  t
+}: {
+  status: McpServerStatus;
+  t: (zh: string, en: string) => string;
+}) {
+  const tone =
+    status.state === "ready"
+      ? { color: "oklch(62% 0.12 155)", bg: "rgba(42, 157, 96, 0.12)", label: t("就绪", "Ready") }
+      : status.state === "failed"
+        ? { color: "oklch(67% 0.15 28)", bg: "rgba(224, 80, 80, 0.12)", label: t("失败", "Failed") }
+        : status.state === "disabled"
+          ? { color: "var(--text-soft)", bg: "var(--field)", label: t("已停用", "Disabled") }
+          : { color: "var(--accent)", bg: "color-mix(in oklab, var(--accent) 12%, transparent)", label: t("已配置", "Configured") };
+
+  return (
+    <span
+      title={status.detail}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        height: "20px",
+        paddingInline: "7px",
+        borderRadius: "999px",
+        background: tone.bg,
+        color: tone.color,
+        fontSize: "10.5px",
+        fontWeight: 700
+      }}
+    >
+      {tone.label}
+    </span>
+  );
+}
+
+function parseArgs(input: string): string[] {
+  const args: string[] = [];
+  let current = "";
+  let quote: '"' | "'" | null = null;
+  let escaping = false;
+
+  for (const char of input.trim()) {
+    if (escaping) {
+      current += char;
+      escaping = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaping = true;
+      continue;
+    }
+    if ((char === '"' || char === "'") && quote === null) {
+      quote = char;
+      continue;
+    }
+    if (char === quote) {
+      quote = null;
+      continue;
+    }
+    if (/\s/.test(char) && quote === null) {
+      if (current) {
+        args.push(current);
+        current = "";
+      }
+      continue;
+    }
+    current += char;
+  }
+
+  if (current) args.push(current);
+  return args;
 }

@@ -221,6 +221,40 @@ fn personalization_reset_memories(
 }
 
 #[tauri::command]
+fn mcp_servers_state(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+) -> Result<protocol::DesktopMcpState, String> {
+    runtime.mcp_servers_state().map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn mcp_servers_save(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    servers: Vec<protocol::DesktopMcpServer>,
+) -> Result<protocol::DesktopMcpState, String> {
+    runtime
+        .mcp_servers_save(servers)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn mcp_server_test(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    server: protocol::DesktopMcpServer,
+) -> Result<protocol::DesktopMcpServerStatus, String> {
+    runtime
+        .mcp_server_test(server)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn mcp_servers_reload(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+) -> Result<protocol::DesktopMcpState, String> {
+    runtime.mcp_servers_reload().map_err(|err| err.to_string())
+}
+
+#[tauri::command]
 fn browser_clear_data(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
 ) -> Result<protocol::DesktopActionResult, String> {
@@ -424,6 +458,10 @@ pub fn run() {
             desktop_setting_set,
             personalization_state_get,
             personalization_reset_memories,
+            mcp_servers_state,
+            mcp_servers_save,
+            mcp_server_test,
+            mcp_servers_reload,
             browser_clear_data,
             worktrees_list,
             worktrees_prune_idle,

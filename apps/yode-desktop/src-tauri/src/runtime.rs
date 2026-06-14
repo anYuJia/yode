@@ -26,9 +26,10 @@ use yode_tools::tool::McpResourceProvider;
 
 use crate::protocol::{
     Bootstrap, ConfigurationState, ConfigurationUpdateRequest, CreateSessionRequest, DefaultLlm,
-    DesktopActionResult, DesktopEvent, DesktopImageOutput, DesktopMessage, DesktopProvider,
-    DesktopSession, DesktopSettingSetRequest, DesktopSettingValue, DesktopWorktree,
-    DiagnosticCheck, GeneralSettings, ImportAiSessionsResult, LicenseNotice, OpenTargetRequest,
+    DesktopActionResult, DesktopEvent, DesktopImageOutput, DesktopMcpServer,
+    DesktopMcpServerStatus, DesktopMcpState, DesktopMessage, DesktopProvider, DesktopSession,
+    DesktopSettingSetRequest, DesktopSettingValue, DesktopWorktree, DiagnosticCheck,
+    GeneralSettings, ImportAiSessionsResult, LicenseNotice, OpenTargetRequest,
     PersonalizationState, RuntimeState, SendMessageRequest, TerminalExitEvent, TerminalOpenRequest,
     TerminalOpenResponse, TerminalOutputEvent, TerminalResizeRequest, TerminalRunRequest,
     TerminalRunResponse, TerminalWriteRequest, TurnAccepted, WorkspaceDiagnosticsResult,
@@ -40,8 +41,8 @@ pub struct DesktopRuntime {
     db_path: PathBuf,
     workspace_path: PathBuf,
     provider_registry: Mutex<Arc<ProviderRegistry>>,
-    tool_registry: Arc<ToolRegistry>,
-    mcp_resource_provider: Option<Arc<dyn McpResourceProvider>>,
+    tool_registry: Mutex<Arc<ToolRegistry>>,
+    mcp_resource_provider: Mutex<Option<Arc<dyn McpResourceProvider>>>,
     active_session_id: Mutex<Option<String>>,
     permission_mode: Mutex<String>,
     seq: AtomicU64,
@@ -101,8 +102,8 @@ impl DesktopRuntime {
             db_path,
             workspace_path,
             provider_registry,
-            tool_registry,
-            mcp_resource_provider,
+            tool_registry: Mutex::new(tool_registry),
+            mcp_resource_provider: Mutex::new(mcp_resource_provider),
             active_session_id: Mutex::new(None),
             permission_mode: Mutex::new(default_mode),
             seq: AtomicU64::new(1),
@@ -532,6 +533,106 @@ impl DesktopRuntime {
             },
             path: None,
         })
+    }
+
+    pub fn mcp_servers_state(&self) -> Result<DesktopMcpState> {
+        let config = self
+            .config
+            .lock()
+            .map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
+        let servers = desktop_mcp_servers_from_config(&config);
+        let statuses = mcp_statuses_from_servers(&servers, None);
+        Ok(DesktopMcpState {
+            config_path: self.user_config_path().display().to_string(),
+            servers,
+            statuses,
+        })
+    }
+
+    pub fn mcp_servers_save(&self, servers: Vec<DesktopMcpServer>) -> Result<DesktopMcpState> {
+        validate_desktop_mcp_servers(&servers)?;
+        {
+            let mut config = self
+                .config
+                .lock()
+                .map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
+            config.mcp.servers = desktop_mcp_servers_to_config(&servers)?;
+            save_config_to_path(&config, &self.user_config_path())?;
+        }
+        self.reload_desktop_tooling()?;
+        self.mcp_servers_state()
+    }
+
+    pub fn mcp_server_test(&self, server: DesktopMcpServer) -> Result<DesktopMcpServerStatus> {
+        validate_desktop_mcp_servers(std::slice::from_ref(&server))?;
+        let config = desktop_mcp_server_to_config(&server)?;
+        let mcp_config = core_mcp_server_to_runtime(&config);
+        tauri::async_runtime::block_on(async move {
+            if server.disabled {
+                return Ok(DesktopMcpServerStatus {
+                    name: server.name,
+                    state: "disabled".to_string(),
+                    detail: "服务器已禁用。".to_string(),
+                    tool_count: 0,
+                    resource_count: 0,
+                    template_count: 0,
+                });
+            }
+            match yode_mcp::McpClient::connect(&server.name, &mcp_config).await {
+                Ok(client) => {
+                    let tools = client.discover_wrapped_tools().await.unwrap_or_default();
+                    let resources = client.list_resources().await.unwrap_or_default();
+                    let templates = client.list_resource_templates().await.unwrap_or_default();
+                    let _ = client.shutdown().await;
+                    Ok(DesktopMcpServerStatus {
+                        name: server.name,
+                        state: "ready".to_string(),
+                        detail: format!(
+                            "连接成功，发现 {} 个工具、{} 个资源、{} 个资源模板。",
+                            tools.len(),
+                            resources.len(),
+                            templates.len()
+                        ),
+                        tool_count: tools.len(),
+                        resource_count: resources.len(),
+                        template_count: templates.len(),
+                    })
+                }
+                Err(err) => Ok(DesktopMcpServerStatus {
+                    name: server.name,
+                    state: "failed".to_string(),
+                    detail: err.to_string(),
+                    tool_count: 0,
+                    resource_count: 0,
+                    template_count: 0,
+                }),
+            }
+        })
+    }
+
+    pub fn mcp_servers_reload(&self) -> Result<DesktopMcpState> {
+        self.reload_desktop_tooling()?;
+        self.mcp_servers_state()
+    }
+
+    fn reload_desktop_tooling(&self) -> Result<()> {
+        let config = self
+            .config
+            .lock()
+            .map_err(|_| anyhow::anyhow!("config lock poisoned"))?
+            .clone();
+        let (tool_registry, mcp_resource_provider) =
+            setup_desktop_tooling(&config, &self.workspace_path);
+        *self
+            .tool_registry
+            .lock()
+            .map_err(|_| anyhow::anyhow!("tool registry lock poisoned"))? = tool_registry;
+        *self
+            .mcp_resource_provider
+            .lock()
+            .map_err(|_| anyhow::anyhow!("mcp resource provider lock poisoned"))? =
+            mcp_resource_provider;
+        Ok(())
     }
 
     fn memory_roots(&self) -> Result<Vec<PathBuf>> {
@@ -1043,8 +1144,16 @@ impl DesktopRuntime {
             .filter_map(stored_message_to_message)
             .collect();
 
-        let tools = self.tool_registry.clone();
-        let mcp_resource_provider = self.mcp_resource_provider.clone();
+        let tools = self
+            .tool_registry
+            .lock()
+            .map_err(|_| anyhow::anyhow!("tool registry lock poisoned"))?
+            .clone();
+        let mcp_resource_provider = self
+            .mcp_resource_provider
+            .lock()
+            .map_err(|_| anyhow::anyhow!("mcp resource provider lock poisoned"))?
+            .clone();
         let config = config.clone();
         let db_path_clone = self.db_path.clone();
 
@@ -1909,33 +2018,7 @@ fn setup_desktop_tooling(
         if server_config.disabled {
             continue;
         }
-        let mcp_config = yode_mcp::McpServerConfig {
-            disabled: server_config.disabled,
-            transport: match server_config.transport {
-                yode_core::config::McpTransportConfig::Stdio => yode_mcp::McpTransportConfig::Stdio,
-                yode_core::config::McpTransportConfig::Sse => yode_mcp::McpTransportConfig::Sse,
-                yode_core::config::McpTransportConfig::Http => yode_mcp::McpTransportConfig::Http,
-                yode_core::config::McpTransportConfig::Websocket => {
-                    yode_mcp::McpTransportConfig::Websocket
-                }
-            },
-            command: server_config.command.clone(),
-            args: server_config.args.clone(),
-            env: server_config.env.clone(),
-            url: server_config.url.clone(),
-            auth: server_config
-                .auth
-                .as_ref()
-                .map(|auth| yode_mcp::McpAuthConfig {
-                    oauth: auth.oauth.as_ref().map(|oauth| yode_mcp::McpOAuthConfig {
-                        client_id: oauth.client_id.clone(),
-                        authorization_url: oauth.authorization_url.clone(),
-                        token_url: oauth.token_url.clone(),
-                        scopes: oauth.scopes.clone(),
-                    }),
-                    bearer_token_env: auth.bearer_token_env.clone(),
-                }),
-        };
+        let mcp_config = core_mcp_server_to_runtime(server_config);
 
         if let Ok(client) = tauri::async_runtime::block_on(async {
             yode_mcp::McpClient::connect(name, &mcp_config).await
@@ -2943,6 +3026,163 @@ fn parse_pnpm_lock_notices(lock: &str) -> Vec<LicenseNotice> {
                 license: None,
                 source: "pnpm-lock.yaml".to_string(),
             })
+        })
+        .collect()
+}
+
+fn desktop_mcp_servers_from_config(config: &Config) -> Vec<DesktopMcpServer> {
+    let mut servers = config
+        .mcp
+        .servers
+        .iter()
+        .map(|(name, server)| DesktopMcpServer {
+            name: name.clone(),
+            transport: server.transport.label().to_string(),
+            command: (!server.command.is_empty()).then(|| server.command.clone()),
+            args: server.args.clone(),
+            url: server.url.clone(),
+            env: server.env.clone(),
+            disabled: server.disabled,
+        })
+        .collect::<Vec<_>>();
+    servers.sort_by(|a, b| a.name.cmp(&b.name));
+    servers
+}
+
+fn desktop_mcp_servers_to_config(
+    servers: &[DesktopMcpServer],
+) -> Result<HashMap<String, yode_core::config::McpServerConfig>> {
+    let mut map = HashMap::new();
+    for server in servers {
+        map.insert(server.name.clone(), desktop_mcp_server_to_config(server)?);
+    }
+    Ok(map)
+}
+
+fn desktop_mcp_server_to_config(
+    server: &DesktopMcpServer,
+) -> Result<yode_core::config::McpServerConfig> {
+    Ok(yode_core::config::McpServerConfig {
+        disabled: server.disabled,
+        transport: parse_mcp_transport(&server.transport)?,
+        command: server.command.clone().unwrap_or_default(),
+        args: server.args.clone(),
+        env: server.env.clone(),
+        url: server.url.clone().filter(|url| !url.trim().is_empty()),
+        auth: None,
+    })
+}
+
+fn validate_desktop_mcp_servers(servers: &[DesktopMcpServer]) -> Result<()> {
+    let mut names = HashSet::new();
+    for server in servers {
+        let name = server.name.trim();
+        if name.is_empty() {
+            anyhow::bail!("MCP 服务器名称不能为空。");
+        }
+        if !name
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.'))
+        {
+            anyhow::bail!("MCP 服务器名称只能包含字母、数字、_、- 或 .。");
+        }
+        if !names.insert(name.to_string()) {
+            anyhow::bail!("MCP 服务器名称 '{}' 已存在。", name);
+        }
+        let transport = parse_mcp_transport(&server.transport)?;
+        match transport {
+            yode_core::config::McpTransportConfig::Stdio => {
+                if server
+                    .command
+                    .as_deref()
+                    .unwrap_or_default()
+                    .trim()
+                    .is_empty()
+                {
+                    anyhow::bail!("stdio MCP 服务器 '{}' 需要执行指令。", name);
+                }
+            }
+            _ => {
+                if server.url.as_deref().unwrap_or_default().trim().is_empty() {
+                    anyhow::bail!("远程 MCP 服务器 '{}' 需要 URL。", name);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn parse_mcp_transport(transport: &str) -> Result<yode_core::config::McpTransportConfig> {
+    match transport.to_ascii_lowercase().as_str() {
+        "stdio" => Ok(yode_core::config::McpTransportConfig::Stdio),
+        "sse" => Ok(yode_core::config::McpTransportConfig::Sse),
+        "http" => Ok(yode_core::config::McpTransportConfig::Http),
+        "websocket" => Ok(yode_core::config::McpTransportConfig::Websocket),
+        other => anyhow::bail!("不支持的 MCP transport: {}", other),
+    }
+}
+
+fn core_mcp_server_to_runtime(
+    server_config: &yode_core::config::McpServerConfig,
+) -> yode_mcp::McpServerConfig {
+    yode_mcp::McpServerConfig {
+        disabled: server_config.disabled,
+        transport: match server_config.transport {
+            yode_core::config::McpTransportConfig::Stdio => yode_mcp::McpTransportConfig::Stdio,
+            yode_core::config::McpTransportConfig::Sse => yode_mcp::McpTransportConfig::Sse,
+            yode_core::config::McpTransportConfig::Http => yode_mcp::McpTransportConfig::Http,
+            yode_core::config::McpTransportConfig::Websocket => {
+                yode_mcp::McpTransportConfig::Websocket
+            }
+        },
+        command: server_config.command.clone(),
+        args: server_config.args.clone(),
+        env: server_config.env.clone(),
+        url: server_config.url.clone(),
+        auth: server_config
+            .auth
+            .as_ref()
+            .map(|auth| yode_mcp::McpAuthConfig {
+                oauth: auth.oauth.as_ref().map(|oauth| yode_mcp::McpOAuthConfig {
+                    client_id: oauth.client_id.clone(),
+                    authorization_url: oauth.authorization_url.clone(),
+                    token_url: oauth.token_url.clone(),
+                    scopes: oauth.scopes.clone(),
+                }),
+                bearer_token_env: auth.bearer_token_env.clone(),
+            }),
+    }
+}
+
+fn mcp_statuses_from_servers(
+    servers: &[DesktopMcpServer],
+    tested: Option<&DesktopMcpServerStatus>,
+) -> Vec<DesktopMcpServerStatus> {
+    servers
+        .iter()
+        .map(|server| {
+            if let Some(status) = tested.filter(|status| status.name == server.name) {
+                return status.clone();
+            }
+            if server.disabled {
+                DesktopMcpServerStatus {
+                    name: server.name.clone(),
+                    state: "disabled".to_string(),
+                    detail: "服务器已禁用。".to_string(),
+                    tool_count: 0,
+                    resource_count: 0,
+                    template_count: 0,
+                }
+            } else {
+                DesktopMcpServerStatus {
+                    name: server.name.clone(),
+                    state: "configured".to_string(),
+                    detail: "已保存到配置；可测试连接或重载运行时。".to_string(),
+                    tool_count: 0,
+                    resource_count: 0,
+                    template_count: 0,
+                }
+            }
         })
         .collect()
 }

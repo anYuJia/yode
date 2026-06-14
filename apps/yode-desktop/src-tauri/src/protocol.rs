@@ -306,3 +306,34 @@ pub struct DesktopWorktree {
     pub status: String,
     pub size: String,
 }
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopMcpServer {
+    pub name: String,
+    pub transport: String,
+    pub command: Option<String>,
+    pub args: Vec<String>,
+    pub url: Option<String>,
+    pub env: std::collections::HashMap<String, String>,
+    pub disabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopMcpServerStatus {
+    pub name: String,
+    pub state: String,
+    pub detail: String,
+    pub tool_count: usize,
+    pub resource_count: usize,
+    pub template_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopMcpState {
+    pub config_path: String,
+    pub servers: Vec<DesktopMcpServer>,
+    pub statuses: Vec<DesktopMcpServerStatus>,
+}
