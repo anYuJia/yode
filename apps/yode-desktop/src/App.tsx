@@ -122,6 +122,7 @@ import {
   projectLabelFromPath,
   ConversationTurn
 } from "./components/timelineUtils";
+import { findShortcutAction, loadShortcutBindings } from "./lib/keyboardShortcuts";
 
 const PROJECT_ROOTS_STORAGE_KEY = "yode-project-roots";
 const PROJECT_ORDER_STORAGE_KEY = "yode-project-order";
@@ -1281,14 +1282,6 @@ export function App() {
     localStorage.setItem("yode-view-mode", mode);
   };
 
-  if (viewMode === "settings") {
-    return (
-      <main className="app-shell" style={{ display: "block", width: "100vw", height: "100vh", overflow: "hidden" }}>
-        <SettingsShell bootstrap={bootstrap} onClose={() => handleSetViewMode("chat")} />
-      </main>
-    );
-  }
-
   const handleDeleteSession = (sessionId: string) => {
     const session = sessionItems.find(s => s.id === sessionId);
     if (!session) return;
@@ -1349,6 +1342,110 @@ export function App() {
   const terminalWorkspacePath = isStandalone
     ? homePathFromWorkspace(bootstrap.workspacePath)
     : (displayedWorkspacePath ?? bootstrap.workspacePath);
+
+  useEffect(() => {
+    let shortcutBindings = loadShortcutBindings();
+    const refreshBindings = () => {
+      shortcutBindings = loadShortcutBindings();
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const editableTarget = target?.closest("input, textarea, select, [contenteditable='true']");
+      if (editableTarget && !(event.metaKey || event.ctrlKey || event.altKey)) return;
+
+      const action = findShortcutAction(event, shortcutBindings);
+      if (!action) return;
+
+      const jumpMatch = action.match(/^go_to_chat_(\d)$/);
+      if (jumpMatch) {
+        const nextSession = sessionItems[Number(jumpMatch[1]) - 1];
+        if (nextSession) {
+          event.preventDefault();
+          void handleSelectSession(nextSession.id);
+        }
+        return;
+      }
+
+      switch (action) {
+        case "newchat":
+        case "quickchat":
+          event.preventDefault();
+          handleCreateSession(selectedProjectRoot);
+          break;
+        case "open_folder":
+          event.preventDefault();
+          void handleAddProject();
+          break;
+        case "settings":
+        case "show_kbd_shortcuts":
+          event.preventDefault();
+          handleSetViewMode("settings");
+          localStorage.setItem("yode-active-tab", "键盘快捷键");
+          break;
+        case "toggle_sidebar":
+          event.preventDefault();
+          setSidebarOpen((open) => !open);
+          break;
+        case "toggle_side_panel":
+          event.preventDefault();
+          setInspectorOpen((open) => !open);
+          break;
+        case "open_terminal":
+          event.preventDefault();
+          setTerminalOpenForCurrentConversation(!terminalOpen);
+          break;
+        case "toggle_bottom_panel": {
+          event.preventDefault();
+          const next = localStorage.getItem("yode-bottom-panel") === "false";
+          localStorage.setItem("yode-bottom-panel", String(next));
+          window.dispatchEvent(new Event("yode-general-settings-change"));
+          break;
+        }
+        case "archive":
+          if (activeSessionIdRef.current) {
+            event.preventDefault();
+            handleDeleteSession(activeSessionIdRef.current);
+          }
+          break;
+        case "copy_session_id":
+          if (activeSessionIdRef.current) {
+            event.preventDefault();
+            void navigator.clipboard?.writeText(activeSessionIdRef.current);
+          }
+          break;
+        case "copy_work_dir":
+          if (displayedWorkspacePath) {
+            event.preventDefault();
+            void navigator.clipboard?.writeText(displayedWorkspacePath);
+          }
+          break;
+        case "close_tab":
+          if (viewMode === "settings") {
+            event.preventDefault();
+            handleSetViewMode("chat");
+          }
+          break;
+        default:
+          break;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("yode-keyboard-shortcuts-change", refreshBindings);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("yode-keyboard-shortcuts-change", refreshBindings);
+    };
+  }, [sessionItems, selectedProjectRoot, terminalOpen, displayedWorkspacePath, viewMode]);
+
+  if (viewMode === "settings") {
+    return (
+      <main className="app-shell" style={{ display: "block", width: "100vw", height: "100vh", overflow: "hidden" }}>
+        <SettingsShell bootstrap={bootstrap} onClose={() => handleSetViewMode("chat")} />
+      </main>
+    );
+  }
 
   return (
     <main
