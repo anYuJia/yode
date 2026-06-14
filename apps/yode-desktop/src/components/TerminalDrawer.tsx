@@ -159,7 +159,7 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId 
       allowProposedApi: false,
       convertEol: true,
       cursorBlink: true,
-      fontFamily: "var(--font-code), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+      fontFamily: "Menlo, Monaco, Consolas, 'Liberation Mono', monospace",
       fontSize: 12,
       lineHeight: 1.35,
       scrollback: 10000,
@@ -195,6 +195,8 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId 
     const handle = xtermsRef.current[key];
     if (!handle?.opened) return;
     try {
+      const host = terminalHostsRef.current[key];
+      if (!host || host.clientWidth <= 0 || host.clientHeight <= 0) return;
       handle.fitAddon.fit();
       if (!isTauri) return;
       void invoke("terminal_resize", {
@@ -233,6 +235,7 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId 
   };
 
   useEffect(() => {
+    if (!isOpen) return;
     const aliveKeys = new Set(tabs.map((tab) => backendSessionId(sessionKey, tab.id)));
     for (const tab of tabs) {
       const key = backendSessionId(sessionKey, tab.id);
@@ -241,13 +244,15 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId 
       if (host && !handle.opened) {
         handle.terminal.open(host);
         handle.opened = true;
-        handle.terminal.writeln("Yode Terminal Session Started. Ready to execute local tasks.");
-        setTimeout(() => {
+        window.setTimeout(() => {
           fitAndResize(tab);
           openBackend(tab);
-        }, 0);
+        }, 240);
       } else if (host && handle.opened && !handle.backendOpened) {
-        setTimeout(() => openBackend(tab), 0);
+        window.setTimeout(() => {
+          fitAndResize(tab);
+          openBackend(tab);
+        }, 240);
       }
     }
 
@@ -258,9 +263,10 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId 
         delete xtermsRef.current[key];
       }
     }
-  }, [tabs, sessionKey, isTauri]);
+  }, [tabs, sessionKey, isTauri, isOpen]);
 
   useEffect(() => {
+    let cancelled = false;
     const setup = async () => {
       if (!isTauri) return;
       const outputUnlisten = await listen<TerminalOutputEvent>("terminal-output", (event) => {
@@ -274,15 +280,35 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId 
           handle.backendOpened = false;
         }
       });
+      if (cancelled) {
+        outputUnlisten();
+        exitUnlisten();
+        return;
+      }
       unlistenersRef.current = [outputUnlisten, exitUnlisten];
     };
 
     void setup();
     return () => {
+      cancelled = true;
       for (const unlisten of unlistenersRef.current) {
         unlisten();
       }
       unlistenersRef.current = [];
+    };
+  }, [isTauri]);
+
+  useEffect(() => {
+    return () => {
+      for (const [key, handle] of Object.entries(xtermsRef.current)) {
+        handle.dataDisposable?.dispose();
+        handle.terminal.dispose();
+        if (isTauri) {
+          void invoke("terminal_close", { sessionId: key }).catch(() => {});
+        }
+      }
+      xtermsRef.current = {};
+      terminalHostsRef.current = {};
     };
   }, [isTauri]);
 
