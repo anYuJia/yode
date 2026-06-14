@@ -582,6 +582,19 @@ export function App() {
   }, [projectRoots]);
 
   useEffect(() => {
+    const handleProjectRootsChanged = () => {
+      setProjectRoots(loadStoredProjectRoots());
+      setProjectOrder(loadStoredProjectOrder());
+    };
+    window.addEventListener("yode-project-roots-changed", handleProjectRootsChanged);
+    window.addEventListener("storage", handleProjectRootsChanged);
+    return () => {
+      window.removeEventListener("yode-project-roots-changed", handleProjectRootsChanged);
+      window.removeEventListener("storage", handleProjectRootsChanged);
+    };
+  }, []);
+
+  useEffect(() => {
     localStorage.setItem(PROJECT_ORDER_STORAGE_KEY, JSON.stringify(projectOrder));
   }, [projectOrder]);
 

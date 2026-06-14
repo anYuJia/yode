@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { Folder, Plus, X, Trash2 } from "lucide-react";
 import { loadDesktopSetting, saveDesktopSetting } from "../../lib/desktopSettings";
+import { projectLabelFromPath } from "../timelineUtils";
 
 interface ProjectEnvironment {
   name: string;
@@ -9,6 +11,85 @@ interface ProjectEnvironment {
   setupCommand?: string;
   execMode?: "host" | "docker" | "virtualenv";
   envVars?: Array<{ key: string; value: string }>;
+}
+
+const PROJECT_ROOTS_STORAGE_KEY = "yode-project-roots";
+const PROJECT_ORDER_STORAGE_KEY = "yode-project-order";
+
+function readStringArrayStorage(key: string): string[] {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function dedupeStrings(values: Array<string | null | undefined>) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  values.forEach((value) => {
+    const trimmed = value?.trim();
+    if (!trimmed || seen.has(trimmed)) return;
+    seen.add(trimmed);
+    result.push(trimmed);
+  });
+  return result;
+}
+
+function ownerFromPath(path: string) {
+  const parts = path.split("/").filter(Boolean);
+  return parts.length >= 2 ? parts[parts.length - 2] : undefined;
+}
+
+function normalizeProject(project: ProjectEnvironment): ProjectEnvironment | null {
+  const path = project.path?.trim();
+  const name = project.name?.trim() || (path ? projectLabelFromPath(path) : "");
+  if (!path) return null;
+  return {
+    ...project,
+    name,
+    subtext: project.subtext?.trim() || (path ? ownerFromPath(path) : undefined),
+    path: path || undefined,
+    execMode: project.execMode || "host",
+    setupCommand: project.setupCommand || "",
+    envVars: project.envVars || []
+  };
+}
+
+function mergeProjects(savedProjects: ProjectEnvironment[], roots: string[]) {
+  const byPath = new Map<string, ProjectEnvironment>();
+  savedProjects.forEach((project) => {
+    const normalized = normalizeProject(project);
+    if (!normalized) return;
+    byPath.set(normalized.path!, normalized);
+  });
+
+  return roots.map((root) => {
+    return byPath.get(root) ?? {
+      name: projectLabelFromPath(root),
+      subtext: ownerFromPath(root),
+      path: root,
+      execMode: "host" as const,
+      setupCommand: "",
+      envVars: []
+    };
+  });
+}
+
+function loadRealProjectRoots() {
+  const roots = readStringArrayStorage(PROJECT_ROOTS_STORAGE_KEY);
+  const order = readStringArrayStorage(PROJECT_ORDER_STORAGE_KEY);
+  return dedupeStrings([...order.filter((root) => roots.includes(root)), ...roots]);
+}
+
+function saveRealProjectRoots(roots: string[]) {
+  const deduped = dedupeStrings(roots);
+  localStorage.setItem(PROJECT_ROOTS_STORAGE_KEY, JSON.stringify(deduped));
+  localStorage.setItem(PROJECT_ORDER_STORAGE_KEY, JSON.stringify(deduped));
+  window.dispatchEvent(new CustomEvent("yode-project-roots-changed", { detail: deduped }));
 }
 
 export function EnvironmentsSettingsSettings({
@@ -20,26 +101,15 @@ export function EnvironmentsSettingsSettings({
 }) {
   const [projects, setProjects] = useState<ProjectEnvironment[]>(() => {
     const saved = localStorage.getItem("yode-environments-projects");
+    const roots = loadRealProjectRoots();
     if (saved) {
       try {
-        return JSON.parse(saved);
+        return mergeProjects(JSON.parse(saved), roots);
       } catch (e) {
-        // use default list
+        return mergeProjects([], roots);
       }
     }
-    return [
-      { name: "langchain学习", setupCommand: "pip install -r requirements.txt", execMode: "virtualenv" },
-      { name: "yode", subtext: "anYuJia", setupCommand: "cargo build", execMode: "host" },
-      { name: "简历", setupCommand: "npm install && npm run build", execMode: "host" },
-      { name: "11", subtext: "anpeny", execMode: "host" },
-      { name: "lh", subtext: "anYuJia", execMode: "host" },
-      { name: "douyin", execMode: "host" },
-      { name: "datasearch", execMode: "host" },
-      { name: "clear", execMode: "host" },
-      { name: "syncFile", subtext: "anYuJia", execMode: "host" },
-      { name: "26年5月", execMode: "host" },
-      { name: "Easydict", subtext: "anYuJia", execMode: "host" }
-    ];
+    return mergeProjects([], roots);
   });
 
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
@@ -50,22 +120,29 @@ export function EnvironmentsSettingsSettings({
   const [formSubtext, setFormSubtext] = useState("");
   const [formPath, setFormPath] = useState("");
 
-  const saveProjects = (list: ProjectEnvironment[]) => {
-    setProjects(list);
-    void saveDesktopSetting("yode-environments-projects", list);
+  const saveProjects = (list: ProjectEnvironment[], syncRoots = true) => {
+    const normalized = list.map(normalizeProject).filter((project): project is ProjectEnvironment => project !== null);
+    setProjects(normalized);
+    void saveDesktopSetting("yode-environments-projects", normalized);
+    if (syncRoots) {
+      saveRealProjectRoots(normalized.map((project) => project.path).filter((path): path is string => Boolean(path)));
+    }
   };
 
   useEffect(() => {
-    void loadDesktopSetting("yode-environments-projects", projects).then(setProjects);
+    void loadDesktopSetting("yode-environments-projects", projects).then((savedProjects) => {
+      const merged = mergeProjects(savedProjects, loadRealProjectRoots());
+      saveProjects(merged);
+    });
   }, []);
 
   const handleAddProject = () => {
-    if (!formName.trim()) {
-      setStatusText(t("项目名称不能为空。", "Project name cannot be empty."));
+    if (!formPath.trim()) {
+      setStatusText(t("请填写真实项目路径，或使用“选择文件夹”。", "Enter a real project path, or use Choose folder."));
       return;
     }
     const newProj: ProjectEnvironment = {
-      name: formName.trim(),
+      name: formName.trim() || projectLabelFromPath(formPath.trim()),
       subtext: formSubtext.trim() || undefined,
       path: formPath.trim() || undefined,
       execMode: "host",
@@ -78,6 +155,22 @@ export function EnvironmentsSettingsSettings({
     setFormSubtext("");
     setFormPath("");
     setStatusText(t("项目环境已添加。", "Project environment added."));
+  };
+
+  const handlePickProject = async () => {
+    const pickedRoot = await invoke<string | null>("project_folder_pick").catch((err) => {
+      console.error(err);
+      return null;
+    });
+    const root = pickedRoot?.trim();
+    if (!root) return;
+    const nextRoots = dedupeStrings([...loadRealProjectRoots(), root]);
+    saveRealProjectRoots(nextRoots);
+    const merged = mergeProjects(projects, nextRoots);
+    saveProjects(merged);
+    const index = merged.findIndex((project) => project.path === root);
+    setExpandedIndex(index >= 0 ? index : null);
+    setStatusText(t("已添加真实项目。", "Real project added."));
   };
 
   const handleDeleteProject = (index: number) => {
@@ -114,22 +207,42 @@ export function EnvironmentsSettingsSettings({
           <span style={{ fontSize: "11px", fontWeight: "700", color: "var(--text-soft)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
             {t("选择项目", "Select a project")}
           </span>
-          <button
-            onClick={() => setIsModalOpen(true)}
-            type="button"
-            className="secondary-button"
-            style={{
-              paddingInline: "12px",
-              height: "28px",
-              background: "var(--panel-raised)",
-              borderColor: "var(--line)"
-            }}
-          >
-            <span>{t("添加项目", "Add project")}</span>
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <button
+              onClick={() => setIsModalOpen(true)}
+              type="button"
+              className="secondary-button"
+              style={{
+                paddingInline: "12px",
+                height: "28px",
+                background: "var(--panel-raised)",
+                borderColor: "var(--line)"
+              }}
+            >
+              <span>{t("添加项目", "Add project")}</span>
+            </button>
+            <button
+              onClick={handlePickProject}
+              type="button"
+              className="secondary-button"
+              style={{
+                paddingInline: "12px",
+                height: "28px",
+                background: "var(--panel-raised)",
+                borderColor: "var(--line)"
+              }}
+            >
+              <span>{t("选择文件夹", "Choose folder")}</span>
+            </button>
+          </div>
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+          {projects.length === 0 && (
+            <div className="theme-card" style={{ padding: "16px", textAlign: "center", color: "var(--text-soft)", fontSize: "12px" }}>
+              {t("还没有添加过真实项目。", "No real projects have been added yet.")}
+            </div>
+          )}
           {projects.map((proj, idx) => {
             const isExpanded = expandedIndex === idx;
             return (
@@ -157,10 +270,28 @@ export function EnvironmentsSettingsSettings({
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                     <Folder size={16} style={{ color: "var(--accent)", flexShrink: 0 }} />
-                    <div style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
-                      <span style={{ fontWeight: "600", fontSize: "13px", color: "var(--text)" }}>{proj.name}</span>
-                      {proj.subtext && (
-                        <span style={{ fontSize: "11.5px", color: "var(--text-soft)", opacity: 0.7 }}>{proj.subtext}</span>
+                    <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: "2px" }}>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
+                        <span style={{ fontWeight: "600", fontSize: "13px", color: "var(--text)" }}>{proj.name}</span>
+                        {proj.subtext && (
+                          <span style={{ fontSize: "11.5px", color: "var(--text-soft)", opacity: 0.7 }}>{proj.subtext}</span>
+                        )}
+                      </div>
+                      {proj.path && (
+                        <span
+                          style={{
+                            fontSize: "10.5px",
+                            color: "var(--text-soft)",
+                            opacity: 0.55,
+                            fontFamily: "var(--font-code)",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            maxWidth: "560px"
+                          }}
+                        >
+                          {proj.path}
+                        </span>
                       )}
                     </div>
                   </div>
