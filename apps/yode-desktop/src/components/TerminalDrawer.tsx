@@ -33,6 +33,8 @@ type TerminalDrawerProps = {
   onClose: () => void;
   workspacePath: string;
   conversationId: string | null;
+  height: number;
+  onResizeStart: (event: React.PointerEvent) => void;
 };
 
 type XtermHandle = {
@@ -105,7 +107,7 @@ function backendSessionId(sessionKey: string, tabId: string) {
   return `${sessionKey}::${tabId}`;
 }
 
-export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId }: TerminalDrawerProps) {
+export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId, height, onResizeStart }: TerminalDrawerProps) {
   const sessionKey = conversationId || "__draft__";
   const [sessions, setSessions] = useState<Record<string, TerminalSession>>(() => ({
     [sessionKey]: createSession(workspacePath)
@@ -382,7 +384,17 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId 
   };
 
   return (
-    <div className={`terminal-drawer ${isOpen ? "open" : ""}`}>
+    <div
+      className={`terminal-drawer ${isOpen ? "open" : ""}`}
+      style={{ "--terminal-height": `${height}px` } as React.CSSProperties}
+    >
+      <div
+        className="pane-resizer terminal-resizer"
+        onPointerDown={onResizeStart}
+        role="separator"
+        aria-orientation="horizontal"
+        title="拖动调整终端高度"
+      />
       <div className="terminal-header">
         <div className="terminal-title">
           <TerminalSquare size={13} />

@@ -118,7 +118,7 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 232px minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-width, 232px) 6px minmax(0, 1fr);
   width: 100vw;
   height: 100vh;
   overflow: hidden;
@@ -127,7 +127,53 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 }
 
 .app-shell.sidebar-collapsed {
-  grid-template-columns: 0px minmax(0, 1fr);
+  grid-template-columns: 0px 6px minmax(0, 1fr);
+}
+
+.app-shell.pane-dragging,
+.app-shell.pane-dragging .chat-layout,
+.app-shell.pane-dragging .terminal-drawer {
+  user-select: none;
+  transition: none !important;
+}
+
+.pane-resizer {
+  position: relative;
+  z-index: 15;
+  background: transparent;
+}
+
+.pane-resizer::after {
+  content: "";
+  position: absolute;
+  background: transparent;
+  transition: background 120ms ease;
+}
+
+.pane-resizer:hover::after,
+.app-shell.pane-dragging .pane-resizer::after {
+  background: color-mix(in oklch, var(--accent), transparent 68%);
+}
+
+.sidebar-resizer,
+.inspector-resizer {
+  cursor: col-resize;
+  min-width: 6px;
+}
+
+.sidebar-resizer::after,
+.inspector-resizer::after {
+  inset: 0 2px;
+}
+
+.terminal-resizer {
+  height: 8px;
+  cursor: row-resize;
+  flex: 0 0 auto;
+}
+
+.terminal-resizer::after {
+  inset: 3px 0 2px;
 }
 
 .sidebar {
@@ -858,13 +904,13 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 .chat-layout {
   display: grid;
   min-height: 0;
-  grid-template-columns: minmax(0, 1fr) 260px;
+  grid-template-columns: minmax(0, 1fr) 6px var(--inspector-width, 260px);
   overflow: hidden;
   transition: grid-template-columns 220ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .chat-layout.inspector-collapsed {
-  grid-template-columns: minmax(0, 1fr) 0px;
+  grid-template-columns: minmax(0, 1fr) 6px 0px;
 }
 
 .conversation-column {
@@ -1708,7 +1754,6 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 .run-inspector {
   min-width: 0;
   overflow: auto;
-  border-left: 1px solid var(--line-soft);
   background: color-mix(in oklch, var(--chrome), transparent 32%);
   padding: 10px 10px;
   transition:
@@ -1720,10 +1765,18 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 .chat-layout.inspector-collapsed .run-inspector {
   padding-left: 0;
   padding-right: 0;
-  border-left-color: transparent;
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
+}
+
+.inspector-resizer {
+  grid-column: 2;
+}
+
+.run-inspector {
+  grid-column: 3;
+  border-left: 1px solid var(--line-soft);
 }
 
 .inspector-head {
@@ -2357,7 +2410,7 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 }
 
 .terminal-drawer.open {
-  height: 280px;
+  height: var(--terminal-height, 280px);
   border-top: 1px solid var(--line);
 }
 

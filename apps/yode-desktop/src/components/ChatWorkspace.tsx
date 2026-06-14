@@ -29,6 +29,8 @@ interface ChatWorkspaceProps {
   onImagesChange: (images: ImageAttachment[]) => void;
   onSendMessage: () => void;
   inspectorOpen: boolean;
+  inspectorWidth: number;
+  onInspectorResizeStart: (event: React.PointerEvent) => void;
   isProcessing: boolean;
   onCancelMessage: () => void;
   permissionMode: string;
@@ -54,6 +56,8 @@ export function ChatWorkspace({
   onImagesChange,
   onSendMessage,
   inspectorOpen,
+  inspectorWidth,
+  onInspectorResizeStart,
   isProcessing,
   onCancelMessage,
   permissionMode,
@@ -252,7 +256,10 @@ export function ChatWorkspace({
   }, [timelineContentHash, isStreaming]);
 
   return (
-    <div className={`chat-layout ${inspectorOpen ? "" : "inspector-collapsed"}`}>
+    <div
+      className={`chat-layout ${inspectorOpen ? "" : "inspector-collapsed"}`}
+      style={{ "--inspector-width": `${inspectorWidth}px` } as React.CSSProperties}
+    >
       <div className="conversation-column">
         <section
           className="timeline-panel"
@@ -381,6 +388,13 @@ export function ChatWorkspace({
           onModelChange={onModelChange}
         />
       </div>
+      <div
+        className="pane-resizer inspector-resizer"
+        onPointerDown={onInspectorResizeStart}
+        role="separator"
+        aria-orientation="vertical"
+        title="拖动调整运行详情宽度"
+      />
       <RunInspector
         isProcessing={isProcessing}
         permissionMode={permissionMode}

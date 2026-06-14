@@ -129,6 +129,20 @@ const SELECTED_PROJECT_ROOT_STORAGE_KEY = "yode-selected-project-root";
 const ARCHIVED_SESSION_IDS_STORAGE_KEY = "yode-archived-session-ids";
 const DELETED_SESSION_IDS_STORAGE_KEY = "yode-deleted-session-ids";
 const STANDALONE_PROJECT_SENTINEL = "__standalone__";
+const SIDEBAR_WIDTH_STORAGE_KEY = "yode-sidebar-width";
+const INSPECTOR_WIDTH_STORAGE_KEY = "yode-inspector-width";
+const TERMINAL_HEIGHT_STORAGE_KEY = "yode-terminal-height";
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function loadStoredNumber(key: string, fallback: number) {
+  const raw = localStorage.getItem(key);
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
 
 function loadStoredProjectRoots(): string[] {
   try {
@@ -265,6 +279,10 @@ export function App() {
   const [selectedProjectRoot, setSelectedProjectRoot] = useState<string | null | undefined>(() => loadStoredSelectedProjectRoot());
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [terminalOpenByConversation, setTerminalOpenByConversation] = useState<Record<string, boolean>>({});
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarWidth, setSidebarWidth] = useState(() => clampNumber(loadStoredNumber(SIDEBAR_WIDTH_STORAGE_KEY, 232), 180, 420));
+  const [inspectorWidth, setInspectorWidth] = useState(() => clampNumber(loadStoredNumber(INSPECTOR_WIDTH_STORAGE_KEY, 260), 220, 460));
+  const [terminalHeight, setTerminalHeight] = useState(() => clampNumber(loadStoredNumber(TERMINAL_HEIGHT_STORAGE_KEY, 280), 180, 520));
   const [isProcessing, setIsProcessing] = useState(false);
   const [messageQueue, setMessageQueue] = useState<Array<{ content: string; images: ImageAttachment[] }>>([]);
   const [composerImages, setComposerImages] = useState<ImageAttachment[]>([]);
@@ -272,10 +290,95 @@ export function App() {
   const [permissionMode, setPermissionMode] = useState<string>("default");
   const [pendingUserQuestion, setPendingUserQuestion] = useState<PendingUserQuestion | null>(null);
   const activeSessionIdRef = useRef<string | null>(null);
+  const terminalConversationKey = activeSessionId ?? "__draft__";
+  const terminalOpen = terminalOpenByConversation[terminalConversationKey] ?? false;
+  const setTerminalOpenForCurrentConversation = (open: boolean) => {
+    setTerminalOpenByConversation((current) => ({
+      ...current,
+      [terminalConversationKey]: open
+    }));
+  };
+  const [draggingPane, setDraggingPane] = useState<null | "sidebar" | "inspector" | "terminal">(null);
+  const dragStateRef = useRef<{ startX: number; startY: number; startSidebarWidth: number; startInspectorWidth: number; startTerminalHeight: number } | null>(null);
 
   useEffect(() => {
     activeSessionIdRef.current = activeSessionId;
   }, [activeSessionId]);
+
+  useEffect(() => {
+    localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth));
+  }, [sidebarWidth]);
+
+  useEffect(() => {
+    localStorage.setItem(INSPECTOR_WIDTH_STORAGE_KEY, String(inspectorWidth));
+  }, [inspectorWidth]);
+
+  useEffect(() => {
+    localStorage.setItem(TERMINAL_HEIGHT_STORAGE_KEY, String(terminalHeight));
+  }, [terminalHeight]);
+
+  useEffect(() => {
+    const onMove = (event: PointerEvent) => {
+      if (!draggingPane || !dragStateRef.current) return;
+      const drag = dragStateRef.current;
+      const minSidebar = 180;
+      const maxSidebar = 420;
+      const minInspector = 220;
+      const maxInspector = 460;
+      const minTerminal = 180;
+      const maxTerminal = Math.floor(window.innerHeight * 0.75);
+
+      if (draggingPane === "sidebar") {
+        const next = clampNumber(drag.startSidebarWidth + (event.clientX - drag.startX), minSidebar, maxSidebar);
+        setSidebarWidth(next);
+        setSidebarOpen(next > minSidebar + 8);
+      } else if (draggingPane === "inspector") {
+        const next = clampNumber(drag.startInspectorWidth - (event.clientX - drag.startX), minInspector, maxInspector);
+        setInspectorWidth(next);
+        setInspectorOpen(next > minInspector + 8);
+      } else if (draggingPane === "terminal") {
+        const next = clampNumber(drag.startTerminalHeight - (event.clientY - drag.startY), minTerminal, maxTerminal);
+        setTerminalHeight(next);
+        if (next <= minTerminal + 8) {
+          setTerminalOpenForCurrentConversation(false);
+        }
+      }
+    };
+
+    const onUp = () => {
+      setDraggingPane(null);
+      dragStateRef.current = null;
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, [draggingPane, sidebarWidth, inspectorWidth, terminalHeight]);
+
+  const beginPaneDrag = (pane: "sidebar" | "inspector" | "terminal", event: React.PointerEvent) => {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragStateRef.current = {
+      startX: event.clientX,
+      startY: event.clientY,
+      startSidebarWidth: sidebarWidth,
+      startInspectorWidth: inspectorWidth,
+      startTerminalHeight: terminalHeight
+    };
+    setDraggingPane(pane);
+    if (pane === "terminal") {
+      setTerminalOpenForCurrentConversation(true);
+    } else if (pane === "inspector") {
+      setInspectorOpen(true);
+    } else if (pane === "sidebar") {
+      setSidebarOpen(true);
+    }
+  };
 
   const handlePermissionModeChange = (mode: string) => {
     setPermissionMode(mode);
@@ -1084,17 +1187,16 @@ export function App() {
   const terminalWorkspacePath = isStandalone
     ? homePathFromWorkspace(bootstrap.workspacePath)
     : (displayedWorkspacePath ?? bootstrap.workspacePath);
-  const terminalConversationKey = activeSessionId ?? "__draft__";
-  const terminalOpen = terminalOpenByConversation[terminalConversationKey] ?? false;
-  const setTerminalOpenForCurrentConversation = (open: boolean) => {
-    setTerminalOpenByConversation((current) => ({
-      ...current,
-      [terminalConversationKey]: open
-    }));
-  };
 
   return (
-    <main className="app-shell">
+    <main
+      className={`app-shell ${sidebarOpen ? "" : "sidebar-collapsed"} ${draggingPane ? "pane-dragging" : ""}`}
+      style={{
+        "--sidebar-width": `${sidebarWidth}px`,
+        "--inspector-width": `${inspectorWidth}px`,
+        "--terminal-height": `${terminalHeight}px`
+      } as React.CSSProperties}
+    >
       <Sidebar
         sessions={sessionItems}
         projectOptions={orderedProjectOptions}
@@ -1108,6 +1210,13 @@ export function App() {
         onAddProject={handleAddProject}
         onProjectReorder={handleProjectReorder}
         onDeleteSession={handleDeleteSession}
+      />
+      <div
+        className="pane-resizer sidebar-resizer"
+        onPointerDown={(event) => beginPaneDrag("sidebar", event)}
+        role="separator"
+        aria-orientation="vertical"
+        title="拖动调整侧边栏宽度"
       />
       <section className="workspace" style={{ position: "relative", overflow: "hidden" }}>
         <Topbar
@@ -1132,6 +1241,8 @@ export function App() {
           onImagesChange={setComposerImages}
           onSendMessage={handleSendMessage}
           inspectorOpen={inspectorOpen}
+          inspectorWidth={inspectorWidth}
+          onInspectorResizeStart={(event) => beginPaneDrag("inspector", event)}
           isProcessing={isProcessing}
           onCancelMessage={handleCancelMessage}
           permissionMode={permissionMode}
@@ -1155,6 +1266,8 @@ export function App() {
           onClose={() => setTerminalOpenForCurrentConversation(false)}
           workspacePath={terminalWorkspacePath}
           conversationId={activeSessionId}
+          height={terminalHeight}
+          onResizeStart={(event) => beginPaneDrag("terminal", event)}
         />
       </section>
     </main>
