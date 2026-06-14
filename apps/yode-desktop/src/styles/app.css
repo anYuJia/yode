@@ -31,6 +31,7 @@
   --ui-font-size: 13px;
   --chat-font-size: 13.25px;
   --sidebar-font-size: 13px;
+  --settings-font-size: 13px;
   --code-font-size: 12px;
   --terminal-font-size: 12px;
   --inspector-font-size: 12px;
@@ -2269,10 +2270,12 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   display: grid;
   min-height: 0;
   height: 100vh;
-  grid-template-columns: 224px minmax(0, 1fr);
+  grid-template-columns: var(--settings-sidebar-width, 224px) 6px minmax(0, 1fr);
+  font-size: var(--settings-font-size);
 }
 
 .settings-tabs {
+  grid-column: 1;
   border-right: 1px solid var(--line-soft);
   background: color-mix(in oklch, var(--chrome), transparent 24%);
   padding: 12px 9px;
@@ -2281,7 +2284,34 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   flex-direction: column;
 }
 
+.settings-sidebar-resizer {
+  grid-column: 2;
+  position: relative;
+  z-index: 5;
+  min-width: 6px;
+  cursor: col-resize;
+  background: transparent;
+}
+
+.settings-sidebar-resizer::after {
+  content: "";
+  position: absolute;
+  inset: 0 2px;
+  background: transparent;
+  transition: background 120ms ease;
+}
+
+.settings-sidebar-resizer:hover::after,
+.settings-layout.settings-sidebar-dragging .settings-sidebar-resizer::after {
+  background: color-mix(in oklch, var(--accent), transparent 68%);
+}
+
+.settings-layout.settings-sidebar-dragging {
+  user-select: none;
+}
+
 .settings-content {
+  grid-column: 3;
   min-width: 0;
   height: 100vh;
   overflow-y: auto;
@@ -2343,6 +2373,42 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.settings-layout button,
+.settings-layout input,
+.settings-layout textarea,
+.settings-layout select,
+.settings-layout .settings-tab,
+.settings-layout .row-label,
+.settings-layout .settings-row,
+.settings-layout .text-input,
+.settings-layout .text-action-btn,
+.settings-layout .mode-btn,
+.settings-layout .segmented-btn,
+.settings-layout .number-input {
+  font-size: var(--settings-font-size) !important;
+}
+
+.settings-layout .row-desc,
+.settings-layout .settings-heading p,
+.settings-layout .preview-label,
+.settings-layout .unit-label,
+.settings-layout .slider-value {
+  font-size: calc(var(--settings-font-size) - 2px) !important;
+}
+
+.settings-layout .settings-heading h1 {
+  font-size: calc(var(--settings-font-size) + 9px) !important;
+}
+
+.settings-layout .theme-preview-code,
+.settings-layout .theme-preview-code * {
+  font-size: var(--code-font-size) !important;
+}
+
+.settings-layout .theme-preview-header .preview-label {
+  font-size: calc(var(--settings-font-size) - 2px) !important;
 }
 
 .empty-state {

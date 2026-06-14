@@ -71,6 +71,9 @@ export function AppearanceSettings() {
   const [sidebarFontSize, setSidebarFontSize] = useState(() => {
     return loadStoredNumber("yode-sidebar-font-size", 13, 10, 18);
   });
+  const [settingsFontSize, setSettingsFontSize] = useState(() => {
+    return loadStoredNumber("yode-settings-font-size", 13, 10, 18);
+  });
   const [terminalFontSize, setTerminalFontSize] = useState(() => {
     return loadStoredNumber("yode-terminal-font-size", 12, 10, 22);
   });
@@ -189,6 +192,7 @@ export function AppearanceSettings() {
     root.style.setProperty("--ui-font-size", scaledPx(uiFontSize));
     root.style.setProperty("--chat-font-size", scaledPx(chatFontSize));
     root.style.setProperty("--sidebar-font-size", scaledPx(sidebarFontSize));
+    root.style.setProperty("--settings-font-size", scaledPx(settingsFontSize));
     root.style.setProperty("--code-font-size", scaledPx(codeFontSize));
     root.style.setProperty("--terminal-font-size", scaledPx(terminalFontSize));
     root.style.setProperty("--inspector-font-size", scaledPx(inspectorFontSize));
@@ -234,6 +238,7 @@ export function AppearanceSettings() {
     saveItem("yode-app-scale", appScale);
     saveItem("yode-chat-font-size", chatFontSize);
     saveItem("yode-sidebar-font-size", sidebarFontSize);
+    saveItem("yode-settings-font-size", settingsFontSize);
     saveItem("yode-terminal-font-size", terminalFontSize);
     saveItem("yode-inspector-font-size", inspectorFontSize);
     window.dispatchEvent(new CustomEvent("yode-appearance-change"));
@@ -249,6 +254,7 @@ export function AppearanceSettings() {
     appScale,
     chatFontSize,
     sidebarFontSize,
+    settingsFontSize,
     terminalFontSize,
     inspectorFontSize
   ]);
@@ -342,6 +348,7 @@ export function AppearanceSettings() {
         appScale,
         chatFontSize,
         sidebarFontSize,
+        settingsFontSize,
         terminalFontSize,
         inspectorFontSize
       },
@@ -367,6 +374,7 @@ export function AppearanceSettings() {
     setUiFontSize(13);
     setChatFontSize(13.25);
     setSidebarFontSize(13);
+    setSettingsFontSize(13);
     setCodeFontSize(12);
     setTerminalFontSize(12);
     setInspectorFontSize(12);
@@ -637,6 +645,19 @@ export function AppearanceSettings() {
           0.5,
           "px",
           setSidebarFontSize
+        )}
+
+        <div className="divider" />
+
+        {renderFontSizeControl(
+          t("设置页字号", "Settings font size"),
+          t("影响设置侧栏、设置标题、说明文字和表单控件", "Controls settings sidebar, headings, descriptions, and form controls"),
+          settingsFontSize,
+          10,
+          18,
+          0.5,
+          "px",
+          setSettingsFontSize
         )}
 
         <div className="divider" />

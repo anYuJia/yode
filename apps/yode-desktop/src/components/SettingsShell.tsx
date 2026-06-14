@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import {
   SlidersHorizontal,
   Settings,
@@ -56,9 +56,27 @@ import {
 } from "./settings/ArchivedChatsSettings";
 import { ProvidersSettings } from "./settings/ProvidersSettings";
 
+const SETTINGS_SIDEBAR_WIDTH_KEY = "yode-settings-sidebar-width";
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function loadStoredNumber(key: string, fallback: number) {
+  const raw = localStorage.getItem(key);
+  if (raw === null) return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; onClose: () => void }) {
   const [activeTab, setActiveTab] = useState(() => localStorage.getItem("yode-active-tab") || "常规");
   const [searchQuery, setSearchQuery] = useState("");
+  const [sidebarWidth, setSidebarWidth] = useState(() =>
+    clampNumber(loadStoredNumber(SETTINGS_SIDEBAR_WIDTH_KEY, 224), 180, 340)
+  );
+  const [draggingSidebar, setDraggingSidebar] = useState(false);
+  const sidebarDragRef = useRef<{ startX: number; startWidth: number; target: Element | null; pointerId: number | null } | null>(null);
 
   const handleSetActiveTab = (tab: string) => {
     setActiveTab(tab);
@@ -80,6 +98,67 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
     window.addEventListener("yode-language-change", handleLangChange);
     return () => window.removeEventListener("yode-language-change", handleLangChange);
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem(SETTINGS_SIDEBAR_WIDTH_KEY, String(sidebarWidth));
+  }, [sidebarWidth]);
+
+  useEffect(() => {
+    if (!draggingSidebar) return;
+
+    const releaseCapture = () => {
+      const drag = sidebarDragRef.current;
+      if (drag?.target && drag.pointerId !== null && "releasePointerCapture" in drag.target) {
+        try {
+          (drag.target as HTMLElement).releasePointerCapture(drag.pointerId);
+        } catch {
+          // pointerup/cancel 后浏览器可能已经自动释放。
+        }
+      }
+    };
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const drag = sidebarDragRef.current;
+      if (!drag) return;
+      setSidebarWidth(clampNumber(drag.startWidth + event.clientX - drag.startX, 180, 340));
+    };
+
+    const stopDragging = () => {
+      releaseCapture();
+      sidebarDragRef.current = null;
+      setDraggingSidebar(false);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", stopDragging);
+    window.addEventListener("pointercancel", stopDragging);
+    window.addEventListener("blur", stopDragging);
+    return () => {
+      releaseCapture();
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", stopDragging);
+      window.removeEventListener("pointercancel", stopDragging);
+      window.removeEventListener("blur", stopDragging);
+    };
+  }, [draggingSidebar]);
+
+  const beginSidebarDrag = (event: React.PointerEvent) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // 某些嵌入式 WebView 可能不支持 capture，窗口级监听仍可完成拖拽。
+    }
+    sidebarDragRef.current = {
+      startX: event.clientX,
+      startWidth: sidebarWidth,
+      target: event.currentTarget,
+      pointerId: event.pointerId
+    };
+    setDraggingSidebar(true);
+  };
 
   // State bindings for General configuration elements
   const [workMode, setWorkMode] = useState(() => localStorage.getItem("yode-work-mode") || "coding");
@@ -144,7 +223,10 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
   ];
 
   return (
-    <div className="settings-layout">
+    <div
+      className={`settings-layout ${draggingSidebar ? "settings-sidebar-dragging" : ""}`}
+      style={{ "--settings-sidebar-width": `${sidebarWidth}px` } as React.CSSProperties}
+    >
       <aside className="settings-tabs" style={{ paddingTop: "32px", paddingInline: "12px", gap: "14px" }}>
         {/* Back Button */}
         <button
@@ -259,6 +341,13 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
           })}
         </div>
       </aside>
+      <div
+        className="settings-sidebar-resizer"
+        onPointerDown={beginSidebarDrag}
+        role="separator"
+        aria-orientation="vertical"
+        title={t("拖动调整设置侧边栏宽度", "Drag to resize settings sidebar")}
+      />
       <section className="settings-content" style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
         <div style={{ width: "100%", maxWidth: "720px" }}>
           <div className="settings-heading" style={{ marginBottom: "24px", paddingTop: "8px" }}>

@@ -537,6 +537,7 @@ export function App() {
     const uiFontSize = readNumber("yode-ui-font-size", 13);
     const chatFontSize = readNumber("yode-chat-font-size", 13.25);
     const sidebarFontSize = readNumber("yode-sidebar-font-size", 13);
+    const settingsFontSize = readNumber("yode-settings-font-size", 13);
     const codeFontSize = readNumber("yode-code-font-size", 12);
     const terminalFontSize = readNumber("yode-terminal-font-size", 12);
     const inspectorFontSize = readNumber("yode-inspector-font-size", 12);
@@ -551,6 +552,7 @@ export function App() {
     root.style.setProperty("--ui-font-size", scaledPx(uiFontSize));
     root.style.setProperty("--chat-font-size", scaledPx(chatFontSize));
     root.style.setProperty("--sidebar-font-size", scaledPx(sidebarFontSize));
+    root.style.setProperty("--settings-font-size", scaledPx(settingsFontSize));
     root.style.setProperty("--code-font-size", scaledPx(codeFontSize));
     root.style.setProperty("--terminal-font-size", scaledPx(terminalFontSize));
     root.style.setProperty("--inspector-font-size", scaledPx(inspectorFontSize));
