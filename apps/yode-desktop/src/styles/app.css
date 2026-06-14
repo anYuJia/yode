@@ -2570,6 +2570,8 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   --terminal-bright-magenta: color-mix(in oklch, var(--accent), white 18%);
   --terminal-bright-cyan: color-mix(in oklch, var(--terminal-cyan), white 18%);
   --terminal-bright-white: color-mix(in oklch, var(--text), white 12%);
+  --terminal-selection: color-mix(in oklch, var(--accent), transparent 80%);
+  --terminal-selection-inactive: color-mix(in oklch, var(--accent), transparent 90%);
 }
 
 .terminal-pty-host {

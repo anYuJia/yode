@@ -83,7 +83,8 @@ function xtermTheme() {
     background: value("--terminal-bg", value("--bg", "#111111")),
     foreground: value("--text", "#f8f8f2"),
     cursor: value("--accent", "#bd93f9"),
-    selectionBackground: value("--accent-muted", "rgba(189,147,249,0.35)"),
+    selectionBackground: value("--terminal-selection", "rgba(189,147,249,0.18)"),
+    selectionInactiveBackground: value("--terminal-selection-inactive", "rgba(189,147,249,0.10)"),
     black: value("--terminal-black", "#21222c"),
     red: value("--terminal-red", value("--error", "#ff5555")),
     green: value("--terminal-green", value("--success", "#50fa7b")),
@@ -383,6 +384,17 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId,
     }
   };
 
+  const clearEmptySelection = (tabId: string) => {
+    const key = backendSessionId(sessionKey, tabId);
+    window.setTimeout(() => {
+      const terminal = xtermsRef.current[key]?.terminal;
+      if (!terminal) return;
+      if (terminal.getSelection().trim().length === 0) {
+        terminal.clearSelection();
+      }
+    }, 0);
+  };
+
   return (
     <div
       className={`terminal-drawer ${isOpen ? "open" : ""}`}
@@ -454,6 +466,9 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId,
             <div
               key={key}
               className={`terminal-pty-host ${tab.id === activeTabId ? "active" : ""}`}
+              onPointerDown={(event) => event.stopPropagation()}
+              onPointerUp={() => clearEmptySelection(tab.id)}
+              onPointerCancel={() => clearEmptySelection(tab.id)}
               ref={(node) => {
                 terminalHostsRef.current[key] = node;
               }}

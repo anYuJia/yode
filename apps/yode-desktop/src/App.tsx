@@ -300,6 +300,7 @@ export function App() {
   };
   const [draggingPane, setDraggingPane] = useState<null | "sidebar" | "inspector" | "terminal">(null);
   const dragStateRef = useRef<{ startX: number; startY: number; startSidebarWidth: number; startInspectorWidth: number; startTerminalHeight: number } | null>(null);
+  const dragCaptureRef = useRef<{ target: Element; pointerId: number } | null>(null);
 
   useEffect(() => {
     activeSessionIdRef.current = activeSessionId;
@@ -345,7 +346,20 @@ export function App() {
       }
     };
 
+    const releaseDragCapture = () => {
+      const capture = dragCaptureRef.current;
+      if (capture && "releasePointerCapture" in capture.target) {
+        try {
+          (capture.target as HTMLElement).releasePointerCapture(capture.pointerId);
+        } catch {
+          // pointerup/cancel 后浏览器可能已经自动释放。
+        }
+      }
+      dragCaptureRef.current = null;
+    };
+
     const onUp = () => {
+      releaseDragCapture();
       setDraggingPane(null);
       dragStateRef.current = null;
     };
@@ -353,16 +367,29 @@ export function App() {
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
     window.addEventListener("pointercancel", onUp);
+    window.addEventListener("blur", onUp);
     return () => {
+      releaseDragCapture();
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
+      window.removeEventListener("blur", onUp);
     };
   }, [draggingPane, sidebarWidth, inspectorWidth, terminalHeight]);
 
   const beginPaneDrag = (pane: "sidebar" | "inspector" | "terminal", event: React.PointerEvent) => {
+    if (event.button !== 0) return;
     event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
+    event.stopPropagation();
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+      dragCaptureRef.current = {
+        target: event.currentTarget,
+        pointerId: event.pointerId
+      };
+    } catch {
+      dragCaptureRef.current = null;
+    }
     dragStateRef.current = {
       startX: event.clientX,
       startY: event.clientY,
