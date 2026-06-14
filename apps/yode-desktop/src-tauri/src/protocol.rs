@@ -297,6 +297,16 @@ pub struct PersonalizationState {
     pub skip_tool_chats: bool,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserSettings {
+    pub enabled: bool,
+    pub annotation_screenshots: String,
+    pub approval_policy: String,
+    pub blocked_domains: Vec<String>,
+    pub allowed_domains: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DesktopWorktree {

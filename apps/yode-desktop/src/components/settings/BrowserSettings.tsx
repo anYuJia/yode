@@ -2,7 +2,43 @@ import React, { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Plus, Trash2, X, Globe } from "lucide-react";
 import { CustomSelect } from "../CustomSelect";
-import { isTauriRuntime, loadDesktopSetting, saveDesktopSetting } from "../../lib/desktopSettings";
+import { isTauriRuntime, loadDesktopSetting } from "../../lib/desktopSettings";
+
+type BrowserSettingsState = {
+  enabled: boolean;
+  annotationScreenshots: string;
+  approvalPolicy: string;
+  blockedDomains: string[];
+  allowedDomains: string[];
+};
+
+const DEFAULT_BROWSER_SETTINGS: BrowserSettingsState = {
+  enabled: true,
+  annotationScreenshots: "Always include",
+  approvalPolicy: "Always ask",
+  blockedDomains: [],
+  allowedDomains: []
+};
+
+function persistBrowserSettingsFallback(settings: BrowserSettingsState) {
+  localStorage.setItem("yode-browser-enabled", JSON.stringify(settings.enabled));
+  localStorage.setItem("yode-browser-annotation-screenshots", settings.annotationScreenshots);
+  localStorage.setItem("yode-browser-approval", settings.approvalPolicy);
+  localStorage.setItem("yode-browser-blocked-domains", JSON.stringify(settings.blockedDomains));
+  localStorage.setItem("yode-browser-allowed-domains", JSON.stringify(settings.allowedDomains));
+}
+
+function normalizeDomainInput(value: string): string | null {
+  const domain = value
+    .trim()
+    .replace(/^https?:\/\//i, "")
+    .replace(/^\*\./, "")
+    .replace(/\/.*$/, "")
+    .replace(/:.*/, "")
+    .toLowerCase();
+  if (!domain || !domain.includes(".") || !/^[a-z0-9.-]+$/.test(domain)) return null;
+  return domain;
+}
 
 export function BrowserSettingsSettings({
   isZh,
@@ -40,47 +76,94 @@ export function BrowserSettingsSettings({
   const [domainModalType, setDomainModalType] = useState<"blocked" | "allowed" | null>(null);
   const [newDomainInput, setNewDomainInput] = useState("");
   const [statusText, setStatusText] = useState("");
+  const [domainError, setDomainError] = useState("");
 
   useEffect(() => {
-    void loadDesktopSetting("yode-browser-enabled", browserEnabled).then(setBrowserEnabled);
-    void loadDesktopSetting("yode-browser-annotation-screenshots", annotationScreenshots).then(setAnnotationScreenshots);
-    void loadDesktopSetting("yode-browser-approval", approvalPolicy).then(setApprovalPolicy);
-    void loadDesktopSetting("yode-browser-blocked-domains", blockedDomains).then(setBlockedDomains);
-    void loadDesktopSetting("yode-browser-allowed-domains", allowedDomains).then(setAllowedDomains);
+    const loadSettings = async () => {
+      if (isTauriRuntime()) {
+        try {
+          const settings = await invoke<BrowserSettingsState>("browser_settings_get");
+          applySettingsToState(settings);
+          setStatusText(t("浏览器设置已连接到运行时。", "Browser settings are connected to the runtime."));
+          return;
+        } catch (err) {
+          console.error(err);
+        }
+      }
+
+      const fallback = {
+        enabled: await loadDesktopSetting("yode-browser-enabled", DEFAULT_BROWSER_SETTINGS.enabled),
+        annotationScreenshots: await loadDesktopSetting(
+          "yode-browser-annotation-screenshots",
+          DEFAULT_BROWSER_SETTINGS.annotationScreenshots
+        ),
+        approvalPolicy: await loadDesktopSetting("yode-browser-approval", DEFAULT_BROWSER_SETTINGS.approvalPolicy),
+        blockedDomains: await loadDesktopSetting("yode-browser-blocked-domains", DEFAULT_BROWSER_SETTINGS.blockedDomains),
+        allowedDomains: await loadDesktopSetting("yode-browser-allowed-domains", DEFAULT_BROWSER_SETTINGS.allowedDomains)
+      };
+      applySettingsToState(fallback);
+    };
+    void loadSettings();
   }, []);
 
-  const saveBlocked = (list: string[]) => {
-    setBlockedDomains(list);
-    void saveDesktopSetting("yode-browser-blocked-domains", list);
+  const currentSettings = (): BrowserSettingsState => ({
+    enabled: browserEnabled,
+    annotationScreenshots,
+    approvalPolicy,
+    blockedDomains,
+    allowedDomains
+  });
+
+  const applySettingsToState = (settings: BrowserSettingsState) => {
+    setBrowserEnabled(settings.enabled);
+    setAnnotationScreenshots(settings.annotationScreenshots);
+    setApprovalPolicy(settings.approvalPolicy);
+    setBlockedDomains(settings.blockedDomains);
+    setAllowedDomains(settings.allowedDomains);
   };
 
-  const saveAllowed = (list: string[]) => {
-    setAllowedDomains(list);
-    void saveDesktopSetting("yode-browser-allowed-domains", list);
+  const applyBrowserSettings = async (nextSettings: BrowserSettingsState) => {
+    try {
+      if (isTauriRuntime()) {
+        const applied = await invoke<BrowserSettingsState>("browser_settings_apply", { settings: nextSettings });
+        applySettingsToState(applied);
+      } else {
+        persistBrowserSettingsFallback(nextSettings);
+        applySettingsToState(nextSettings);
+      }
+      setStatusText(t("浏览器设置已应用。", "Browser settings applied."));
+    } catch (err) {
+      console.error(err);
+      setStatusText(t("应用浏览器设置失败。", "Failed to apply browser settings."));
+    }
   };
 
   const handleAddDomain = () => {
-    const domain = newDomainInput.trim().toLowerCase();
-    if (!domain) return;
-    if (domainModalType === "blocked") {
-      if (!blockedDomains.includes(domain)) {
-        saveBlocked([...blockedDomains, domain]);
-      }
-    } else if (domainModalType === "allowed") {
-      if (!allowedDomains.includes(domain)) {
-        saveAllowed([...allowedDomains, domain]);
-      }
+    const domain = normalizeDomainInput(newDomainInput);
+    if (!domain) {
+      setDomainError(t("请输入有效域名，例如 example.com。", "Enter a valid domain, such as example.com."));
+      return;
     }
+    setDomainError("");
+    const nextSettings = currentSettings();
+    if (domainModalType === "blocked") {
+      nextSettings.blockedDomains = blockedDomains.includes(domain) ? blockedDomains : [...blockedDomains, domain];
+    } else if (domainModalType === "allowed") {
+      nextSettings.allowedDomains = allowedDomains.includes(domain) ? allowedDomains : [...allowedDomains, domain];
+    }
+    void applyBrowserSettings(nextSettings);
     setNewDomainInput("");
     setDomainModalType(null);
   };
 
   const handleRemoveDomain = (type: "blocked" | "allowed", domain: string) => {
+    const nextSettings = currentSettings();
     if (type === "blocked") {
-      saveBlocked(blockedDomains.filter((d) => d !== domain));
+      nextSettings.blockedDomains = blockedDomains.filter((d) => d !== domain);
     } else {
-      saveAllowed(allowedDomains.filter((d) => d !== domain));
+      nextSettings.allowedDomains = allowedDomains.filter((d) => d !== domain);
     }
+    void applyBrowserSettings(nextSettings);
   };
 
   const handleClearBrowsingData = async () => {
@@ -136,8 +219,7 @@ export function BrowserSettingsSettings({
               type="checkbox"
               checked={browserEnabled}
               onChange={(e) => {
-                setBrowserEnabled(e.target.checked);
-                void saveDesktopSetting("yode-browser-enabled", e.target.checked);
+                void applyBrowserSettings({ ...currentSettings(), enabled: e.target.checked });
               }}
             />
             <span className="switch-slider" />
@@ -153,7 +235,7 @@ export function BrowserSettingsSettings({
           <div className="form-row">
             <div className="row-info">
               <span className="row-label">{t("浏览数据", "Browsing data")}</span>
-              <span className="row-desc">{t("清除应用内浏览器的网站数据 and 缓存", "Clear site data and cache from the in-app browser")}</span>
+              <span className="row-desc">{t("清除应用内浏览器的网站数据和缓存", "Clear site data and cache from the in-app browser")}</span>
             </div>
             <button
               onClick={handleClearBrowsingData}
@@ -180,8 +262,7 @@ export function BrowserSettingsSettings({
             <CustomSelect
               value={annotationScreenshots}
               onChange={(val) => {
-                setAnnotationScreenshots(val);
-                void saveDesktopSetting("yode-browser-annotation-screenshots", val);
+                void applyBrowserSettings({ ...currentSettings(), annotationScreenshots: val });
               }}
               options={[
                 { value: "Always include", label: t("总是包含", "Always include") },
@@ -212,8 +293,7 @@ export function BrowserSettingsSettings({
             <CustomSelect
               value={approvalPolicy}
               onChange={(val) => {
-                setApprovalPolicy(val);
-                void saveDesktopSetting("yode-browser-approval", val);
+                void applyBrowserSettings({ ...currentSettings(), approvalPolicy: val });
               }}
               options={[
                 { value: "Always ask", label: t("总是询问", "Always ask") },
@@ -237,7 +317,10 @@ export function BrowserSettingsSettings({
             {t("已拦截域名", "Blocked domains")}
           </span>
           <button
-            onClick={() => setDomainModalType("blocked")}
+            onClick={() => {
+              setDomainError("");
+              setDomainModalType("blocked");
+            }}
             type="button"
             className="secondary-button"
             style={{
@@ -295,7 +378,10 @@ export function BrowserSettingsSettings({
             {t("已允许域名", "Allowed domains")}
           </span>
           <button
-            onClick={() => setDomainModalType("allowed")}
+            onClick={() => {
+              setDomainError("");
+              setDomainModalType("allowed");
+            }}
             type="button"
             className="secondary-button"
             style={{
@@ -389,7 +475,10 @@ export function BrowserSettingsSettings({
                 {domainModalType === "blocked" ? t("拦截新域名", "Block Domain") : t("允许新域名", "Allow Domain")}
               </span>
               <button
-                onClick={() => setDomainModalType(null)}
+                onClick={() => {
+                  setDomainError("");
+                  setDomainModalType(null);
+                }}
                 type="button"
                 style={{ background: "transparent", border: "none", cursor: "pointer", color: "var(--text-soft)", display: "flex" }}
               >
@@ -417,6 +506,11 @@ export function BrowserSettingsSettings({
                   if (e.key === "Enter") handleAddDomain();
                 }}
               />
+              {domainError && (
+                <span style={{ fontSize: "11px", color: "oklch(67% 0.15 28)" }}>
+                  {domainError}
+                </span>
+              )}
             </div>
 
             <div
@@ -430,7 +524,10 @@ export function BrowserSettingsSettings({
               }}
             >
               <button
-                onClick={() => setDomainModalType(null)}
+                onClick={() => {
+                  setDomainError("");
+                  setDomainModalType(null);
+                }}
                 type="button"
                 style={{ background: "transparent", border: "none", fontSize: "12px", color: "var(--text-soft)", cursor: "pointer" }}
               >

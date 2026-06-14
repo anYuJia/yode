@@ -262,6 +262,25 @@ fn browser_clear_data(
 }
 
 #[tauri::command]
+fn browser_settings_get(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+) -> Result<protocol::BrowserSettings, String> {
+    runtime
+        .browser_settings_get()
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn browser_settings_apply(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    settings: protocol::BrowserSettings,
+) -> Result<protocol::BrowserSettings, String> {
+    runtime
+        .browser_settings_apply(settings)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
 fn worktrees_list(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
 ) -> Result<Vec<protocol::DesktopWorktree>, String> {
@@ -463,6 +482,8 @@ pub fn run() {
             mcp_server_test,
             mcp_servers_reload,
             browser_clear_data,
+            browser_settings_get,
+            browser_settings_apply,
             worktrees_list,
             worktrees_prune_idle,
             worktree_delete,

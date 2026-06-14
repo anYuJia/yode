@@ -25,11 +25,11 @@ use yode_tools::registry::ToolRegistry;
 use yode_tools::tool::McpResourceProvider;
 
 use crate::protocol::{
-    Bootstrap, ConfigurationState, ConfigurationUpdateRequest, CreateSessionRequest, DefaultLlm,
-    DesktopActionResult, DesktopEvent, DesktopImageOutput, DesktopMcpServer,
-    DesktopMcpServerStatus, DesktopMcpState, DesktopMessage, DesktopProvider, DesktopSession,
-    DesktopSettingSetRequest, DesktopSettingValue, DesktopWorktree, DiagnosticCheck,
-    GeneralSettings, ImportAiSessionsResult, LicenseNotice, OpenTargetRequest,
+    Bootstrap, BrowserSettings, ConfigurationState, ConfigurationUpdateRequest,
+    CreateSessionRequest, DefaultLlm, DesktopActionResult, DesktopEvent, DesktopImageOutput,
+    DesktopMcpServer, DesktopMcpServerStatus, DesktopMcpState, DesktopMessage, DesktopProvider,
+    DesktopSession, DesktopSettingSetRequest, DesktopSettingValue, DesktopWorktree,
+    DiagnosticCheck, GeneralSettings, ImportAiSessionsResult, LicenseNotice, OpenTargetRequest,
     PersonalizationState, RuntimeState, SendMessageRequest, TerminalExitEvent, TerminalOpenRequest,
     TerminalOpenResponse, TerminalOutputEvent, TerminalResizeRequest, TerminalRunRequest,
     TerminalRunResponse, TerminalWriteRequest, TurnAccepted, WorkspaceDiagnosticsResult,
@@ -89,6 +89,11 @@ impl DesktopRuntime {
         let provider_registry = Mutex::new(bootstrap_providers(&config));
         let (tool_registry, mcp_resource_provider) =
             setup_desktop_tooling(&config, &workspace_path);
+        if let Ok(settings) = read_desktop_settings() {
+            if let Ok(browser_settings) = browser_settings_from_desktop_settings(&settings) {
+                apply_browser_settings_env(&browser_settings);
+            }
+        }
 
         let default_mode = config
             .permissions
@@ -687,6 +692,39 @@ impl DesktopRuntime {
             },
             path: Some(self.workspace_path.join(".yode").display().to_string()),
         })
+    }
+
+    pub fn browser_settings_get(&self) -> Result<BrowserSettings> {
+        browser_settings_from_desktop_settings(&read_desktop_settings()?)
+    }
+
+    pub fn browser_settings_apply(&self, settings: BrowserSettings) -> Result<BrowserSettings> {
+        validate_browser_settings(&settings)?;
+        let normalized = normalize_browser_settings(settings);
+        let mut desktop_settings = read_desktop_settings()?;
+        desktop_settings.insert(
+            "yode-browser-enabled".to_string(),
+            json!(normalized.enabled),
+        );
+        desktop_settings.insert(
+            "yode-browser-annotation-screenshots".to_string(),
+            json!(normalized.annotation_screenshots),
+        );
+        desktop_settings.insert(
+            "yode-browser-approval".to_string(),
+            json!(normalized.approval_policy),
+        );
+        desktop_settings.insert(
+            "yode-browser-blocked-domains".to_string(),
+            json!(normalized.blocked_domains),
+        );
+        desktop_settings.insert(
+            "yode-browser-allowed-domains".to_string(),
+            json!(normalized.allowed_domains),
+        );
+        write_desktop_settings(&desktop_settings)?;
+        apply_browser_settings_env(&normalized);
+        Ok(normalized)
     }
 
     pub fn worktrees_list(&self) -> Result<Vec<DesktopWorktree>> {
@@ -3185,6 +3223,119 @@ fn mcp_statuses_from_servers(
             }
         })
         .collect()
+}
+
+fn browser_settings_from_desktop_settings(
+    settings: &serde_json::Map<String, serde_json::Value>,
+) -> Result<BrowserSettings> {
+    Ok(normalize_browser_settings(BrowserSettings {
+        enabled: desktop_bool_setting(settings, "yode-browser-enabled", true),
+        annotation_screenshots: desktop_string_setting(
+            settings,
+            "yode-browser-annotation-screenshots",
+            "Always include",
+        ),
+        approval_policy: desktop_string_setting(settings, "yode-browser-approval", "Always ask"),
+        blocked_domains: desktop_string_list_setting(settings, "yode-browser-blocked-domains"),
+        allowed_domains: desktop_string_list_setting(settings, "yode-browser-allowed-domains"),
+    }))
+}
+
+fn normalize_browser_settings(mut settings: BrowserSettings) -> BrowserSettings {
+    settings.annotation_screenshots =
+        normalize_browser_choice(&settings.annotation_screenshots, "Always include");
+    settings.approval_policy = normalize_browser_choice(&settings.approval_policy, "Always ask");
+    settings.blocked_domains = normalize_domain_list(settings.blocked_domains);
+    settings.allowed_domains = normalize_domain_list(settings.allowed_domains);
+    settings
+}
+
+fn validate_browser_settings(settings: &BrowserSettings) -> Result<()> {
+    for value in [&settings.annotation_screenshots, &settings.approval_policy] {
+        if value.trim().is_empty() {
+            anyhow::bail!("浏览器策略不能为空。");
+        }
+    }
+    for domain in settings
+        .blocked_domains
+        .iter()
+        .chain(settings.allowed_domains.iter())
+    {
+        if normalize_domain(domain).is_none() {
+            anyhow::bail!("无效域名：{}", domain);
+        }
+    }
+    Ok(())
+}
+
+fn normalize_browser_choice(value: &str, fallback: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        fallback.to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn normalize_domain_list(values: Vec<String>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut result = Vec::new();
+    for value in values {
+        if let Some(domain) = normalize_domain(&value) {
+            if seen.insert(domain.clone()) {
+                result.push(domain);
+            }
+        }
+    }
+    result
+}
+
+fn normalize_domain(value: &str) -> Option<String> {
+    let trimmed = value
+        .trim()
+        .trim_start_matches("http://")
+        .trim_start_matches("https://")
+        .trim_start_matches("*.")
+        .trim_matches('/')
+        .to_ascii_lowercase();
+    let domain = trimmed
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .split(':')
+        .next()
+        .unwrap_or("");
+    if domain.is_empty()
+        || !domain
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '.'))
+        || !domain.contains('.')
+    {
+        return None;
+    }
+    Some(domain.to_string())
+}
+
+fn desktop_string_list_setting(
+    settings: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Vec<String> {
+    settings
+        .get(key)
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(str::to_string))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
+fn apply_browser_settings_env(settings: &BrowserSettings) {
+    if let Ok(json) = serde_json::to_string(settings) {
+        std::env::set_var("YODE_BROWSER_SETTINGS", json);
+    }
 }
 
 fn personalization_state_from_settings(
