@@ -798,6 +798,41 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   border-top: 1px solid var(--line-soft);
 }
 
+.sidebar-pet {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+  margin-bottom: 6px;
+  padding: 0 8px;
+  border: 1px solid color-mix(in oklch, var(--line-soft), transparent 28%);
+  border-radius: var(--radius);
+  background: color-mix(in oklch, var(--field), transparent 12%);
+  color: var(--text-muted);
+}
+
+.sidebar-pet-mark {
+  display: grid;
+  width: 17px;
+  height: 17px;
+  place-items: center;
+  border-radius: 5px;
+  background: color-mix(in oklch, var(--accent-muted), transparent 54%);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 760;
+}
+
+.sidebar-pet-label {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-soft);
+  font-size: 11px;
+  font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .footer-button.active,
 .settings-tab.active {
   border-color: transparent;

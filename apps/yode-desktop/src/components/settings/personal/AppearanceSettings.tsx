@@ -325,6 +325,7 @@ export function AppearanceSettings() {
 
   useEffect(() => {
     saveItem("yode-pet", pet);
+    window.dispatchEvent(new CustomEvent("yode-pet-change", { detail: pet }));
   }, [pet]);
 
   useEffect(() => {
@@ -532,7 +533,7 @@ export function AppearanceSettings() {
           <div className="theme-actions-preset">
             <button className="text-action-btn" onClick={handleResetTheme} type="button">
               <Download size={13} />
-              <span>{t("导入/重置", "Reset theme")}</span>
+              <span>{t("重置主题", "Reset theme")}</span>
             </button>
             <button className="text-action-btn" onClick={handleCopyTheme} type="button">
               <Copy size={13} />
@@ -817,7 +818,7 @@ export function AppearanceSettings() {
         <div className="form-row">
           <div className="row-info">
             <span className="row-label">{t("电子宠物", "Pets")}</span>
-            <span className="row-desc">{t("已选 Yode 宠物", "Yode selected")}</span>
+            <span className="row-desc">{t("选择后会显示在主侧边栏底部", "Shows in the main sidebar footer")}</span>
           </div>
           <CustomSelect
             value={pet}

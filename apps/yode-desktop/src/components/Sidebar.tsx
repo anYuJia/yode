@@ -52,6 +52,7 @@ export function Sidebar({
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const [expandedProjectIds, setExpandedProjectIds] = useState<string[]>([]);
   const [draggingProjectId, setDraggingProjectId] = useState<string | null>(null);
+  const [pet, setPet] = useState(() => localStorage.getItem("yode-pet") || "Yode");
   const [dragGhost, setDragGhost] = useState<{
     name: string;
     count: number;
@@ -114,6 +115,15 @@ export function Sidebar({
     return () => {
       if (hoverTimerRef.current) window.clearTimeout(hoverTimerRef.current);
     };
+  }, []);
+
+  useEffect(() => {
+    const handlePetChange = (event: Event) => {
+      const nextPet = (event as CustomEvent<string>).detail;
+      setPet(nextPet || localStorage.getItem("yode-pet") || "Yode");
+    };
+    window.addEventListener("yode-pet-change", handlePetChange);
+    return () => window.removeEventListener("yode-pet-change", handlePetChange);
   }, []);
 
   useEffect(() => {
@@ -465,6 +475,11 @@ export function Sidebar({
   const hoveredSession = hoveredSessionId
     ? sessions.find((session) => session.id === hoveredSessionId)
     : null;
+  const petMeta = {
+    Yode: { mark: "Y", label: t("Yode 宠物", "Yode pet") },
+    Cat: { mark: "C", label: t("猫猫", "Cat") },
+    Dog: { mark: "D", label: t("狗狗", "Dog") }
+  }[pet as "Yode" | "Cat" | "Dog"];
 
   return (
     <aside className="sidebar" style={{ position: "relative" }}>
@@ -585,6 +600,12 @@ export function Sidebar({
       )}
 
       <div className="sidebar-footer">
+        {petMeta ? (
+          <div className="sidebar-pet" title={petMeta.label}>
+            <span className="sidebar-pet-mark">{petMeta.mark}</span>
+            <span className="sidebar-pet-label">{petMeta.label}</span>
+          </div>
+        ) : null}
         <button
           className={`footer-button ${viewMode === "settings" ? "active" : ""}`}
           onClick={() => onChangeView("settings")}
