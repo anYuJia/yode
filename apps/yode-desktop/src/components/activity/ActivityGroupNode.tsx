@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, CircleDot, Copy, Pencil, Check } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 import { TimelineItem } from "../../lib/mock";
 import { ActivityLeafNode } from "./ActivityLeafNode";
 import { getFileIcon } from "../FileIcon";
@@ -419,51 +420,141 @@ export function EditSummaryNode({ node, appLang }: { node: Extract<TimelineItem,
               ].join("\n")
               : diffText;
             return (
-              <div className="edit-diff" key={`${item.id}-diff`}>
-                <button
-                  type="button"
-                  className="edit-diff-copy"
-                  aria-label={isZh ? `复制 ${filename} 的 diff` : `Copy diff for ${filename}`}
-                  title={isZh ? "复制 diff" : "Copy diff"}
-                  onClick={() => {
-                    void copyDiff(diffCopyText, item.id);
-                  }}
-                >
-                  {copiedId === item.id ? <Check size={14} /> : <Copy size={14} />}
-                </button>
-                {hasStructuredDiff ? (
-                  <div className="edit-diff-lines">
-                    {removed.map((line: string, index: number) => (
-                      <div className="edit-diff-line removed" key={`${item.id}-removed-${index}`}>
-                        <span className="edit-diff-gutter">-</span>
-                        <span className="edit-diff-content">{line || "\u00a0"}</span>
-                      </div>
-                    ))}
-                    {added.map((line: string, index: number) => (
-                      <div className="edit-diff-line added" key={`${item.id}-added-${index}`}>
-                        <span className="edit-diff-gutter">+</span>
-                        <span className="edit-diff-content">{line || "\u00a0"}</span>
-                      </div>
-                    ))}
-                    {totalFullLines > totalPreviewLines || artifactPath ? (
-                      <div className="edit-diff-artifact-note">
-                        <span>
-                          {isZh
-                            ? `这里显示 ${totalPreviewLines} 行预览，完整 diff ${totalFullLines || totalPreviewLines} 行`
-                            : `Showing ${totalPreviewLines} preview lines, full diff has ${totalFullLines || totalPreviewLines} lines`}
-                        </span>
-                        {artifactPath ? <code>{artifactPath}</code> : null}
-                      </div>
-                    ) : null}
-                  </div>
-                ) : (
-                  <pre>{diffText}</pre>
-                )}
-              </div>
+              <EditDiffPanel
+                key={`${item.id}-diff`}
+                id={item.id}
+                filename={filename}
+                isZh={isZh}
+                copied={copiedId === item.id}
+                onCopy={copyDiff}
+                artifactPath={artifactPath}
+                totalPreviewLines={totalPreviewLines}
+                totalFullLines={totalFullLines || totalPreviewLines}
+                removed={removed}
+                added={added}
+                hasStructuredDiff={hasStructuredDiff}
+                diffText={diffText}
+                diffCopyText={diffCopyText}
+              />
             );
           })}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function EditDiffPanel({
+  id,
+  filename,
+  isZh,
+  copied,
+  onCopy,
+  artifactPath,
+  totalPreviewLines,
+  totalFullLines,
+  removed,
+  added,
+  hasStructuredDiff,
+  diffText,
+  diffCopyText
+}: {
+  id: string;
+  filename: string;
+  isZh: boolean;
+  copied: boolean;
+  onCopy: (text: string, id: string) => void;
+  artifactPath: string;
+  totalPreviewLines: number;
+  totalFullLines: number;
+  removed: string[];
+  added: string[];
+  hasStructuredDiff: boolean;
+  diffText: string;
+  diffCopyText: string;
+}) {
+  const [showFullDiff, setShowFullDiff] = useState(false);
+  const [fullDiff, setFullDiff] = useState("");
+  const [loadingFullDiff, setLoadingFullDiff] = useState(false);
+  const [fullDiffError, setFullDiffError] = useState("");
+
+  const loadFullDiff = async () => {
+    if (!artifactPath || loadingFullDiff) return;
+    if (showFullDiff) {
+      setShowFullDiff(false);
+      return;
+    }
+    if (!fullDiff) {
+      setLoadingFullDiff(true);
+      setFullDiffError("");
+      try {
+        const content = await invoke<string>("edit_diff_artifact_read", { path: artifactPath });
+        setFullDiff(content);
+      } catch (error) {
+        setFullDiffError(error instanceof Error ? error.message : String(error));
+      } finally {
+        setLoadingFullDiff(false);
+      }
+    }
+    setShowFullDiff(true);
+  };
+
+  const copyText = showFullDiff && fullDiff ? fullDiff : diffCopyText;
+
+  return (
+    <div className="edit-diff">
+      <button
+        type="button"
+        className="edit-diff-copy"
+        aria-label={isZh ? `复制 ${filename} 的 diff` : `Copy diff for ${filename}`}
+        title={isZh ? "复制 diff" : "Copy diff"}
+        onClick={() => onCopy(copyText, id)}
+      >
+        {copied ? <Check size={14} /> : <Copy size={14} />}
+      </button>
+      {hasStructuredDiff ? (
+        <div className="edit-diff-lines">
+          {removed.map((line: string, index: number) => (
+            <div className="edit-diff-line removed" key={`${id}-removed-${index}`}>
+              <span className="edit-diff-gutter">-</span>
+              <span className="edit-diff-content">{line || "\u00a0"}</span>
+            </div>
+          ))}
+          {added.map((line: string, index: number) => (
+            <div className="edit-diff-line added" key={`${id}-added-${index}`}>
+              <span className="edit-diff-gutter">+</span>
+              <span className="edit-diff-content">{line || "\u00a0"}</span>
+            </div>
+          ))}
+          {totalFullLines > totalPreviewLines || artifactPath ? (
+            <div className="edit-diff-artifact-note">
+              <span>
+                {isZh
+                  ? `这里显示 ${totalPreviewLines} 行预览，完整 diff ${totalFullLines} 行`
+                  : `Showing ${totalPreviewLines} preview lines, full diff has ${totalFullLines} lines`}
+              </span>
+              {artifactPath ? <code>{artifactPath}</code> : null}
+              {artifactPath ? (
+                <button
+                  type="button"
+                  className="edit-diff-artifact-button"
+                  onClick={loadFullDiff}
+                >
+                  {loadingFullDiff
+                    ? (isZh ? "读取中" : "Loading")
+                    : showFullDiff
+                      ? (isZh ? "收起完整 diff" : "Hide full diff")
+                      : (isZh ? "查看完整 diff" : "Show full diff")}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          {fullDiffError ? <div className="edit-diff-artifact-error">{fullDiffError}</div> : null}
+          {showFullDiff && fullDiff ? <pre className="edit-diff-full">{fullDiff}</pre> : null}
+        </div>
+      ) : (
+        <pre>{diffText}</pre>
+      )}
     </div>
   );
 }

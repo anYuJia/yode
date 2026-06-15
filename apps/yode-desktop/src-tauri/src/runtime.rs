@@ -150,6 +150,42 @@ impl DesktopRuntime {
         })
     }
 
+    pub fn edit_diff_artifact_read(&self, path: String) -> Result<String> {
+        let clean = path.trim();
+        if clean.is_empty() {
+            anyhow::bail!("diff artifact path is empty");
+        }
+        if clean.contains('\0') {
+            anyhow::bail!("diff artifact path contains invalid characters");
+        }
+
+        let relative = Path::new(clean);
+        if relative.is_absolute() {
+            anyhow::bail!("diff artifact path must be relative");
+        }
+
+        let allowed_dir = self.workspace_path.join(".yode").join("edit-diffs");
+        let target = self.workspace_path.join(relative);
+        let canonical_allowed = allowed_dir
+            .canonicalize()
+            .with_context(|| format!("Failed to access {}", allowed_dir.display()))?;
+        let canonical_target = target
+            .canonicalize()
+            .with_context(|| format!("Failed to access {}", target.display()))?;
+        if !canonical_target.starts_with(&canonical_allowed) {
+            anyhow::bail!("diff artifact path is outside .yode/edit-diffs");
+        }
+
+        let metadata = std::fs::metadata(&canonical_target)
+            .with_context(|| format!("Failed to inspect {}", canonical_target.display()))?;
+        if metadata.len() > 2 * 1024 * 1024 {
+            anyhow::bail!("diff artifact is too large to display");
+        }
+
+        std::fs::read_to_string(&canonical_target)
+            .with_context(|| format!("Failed to read {}", canonical_target.display()))
+    }
+
     pub fn sessions_list(&self) -> Result<Vec<DesktopSession>> {
         let active_session_id = self
             .active_session_id

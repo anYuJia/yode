@@ -2996,6 +2996,51 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   white-space: nowrap;
 }
 
+.edit-diff-artifact-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  margin-left: auto;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--process-accent);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 560;
+  cursor: pointer;
+  transition-property: background-color, color, transform;
+  transition-duration: 160ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+.edit-diff-artifact-button:hover,
+.edit-diff-artifact-button:focus-visible {
+  background: color-mix(in oklch, var(--accent), transparent 90%);
+  color: var(--text);
+  outline: none;
+}
+
+.edit-diff-artifact-button:active {
+  transform: scale(0.96);
+}
+
+.edit-diff-artifact-error {
+  padding: 8px 14px 8px 44px;
+  color: var(--error);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.edit-diff-full {
+  max-height: min(640px, 62vh) !important;
+  margin: 0 !important;
+  border-top: 1px solid color-mix(in oklch, var(--line-soft), transparent 38%);
+  border-radius: 0 !important;
+  background: color-mix(in oklch, var(--field), black 3%) !important;
+  white-space: pre !important;
+}
+
 .edit-diff pre {
   max-height: min(520px, 58vh);
   margin: 0;

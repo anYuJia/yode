@@ -52,6 +52,16 @@ fn runtime_state_get(
 }
 
 #[tauri::command]
+fn edit_diff_artifact_read(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    path: String,
+) -> Result<String, String> {
+    runtime
+        .edit_diff_artifact_read(path)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
 fn turn_send_message(
     app: tauri::AppHandle,
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
@@ -530,6 +540,7 @@ pub fn run() {
             sessions_messages,
             project_folder_pick,
             runtime_state_get,
+            edit_diff_artifact_read,
             turn_send_message,
             permission_respond,
             ask_user_respond,
