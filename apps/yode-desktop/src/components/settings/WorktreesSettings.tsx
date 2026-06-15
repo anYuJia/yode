@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Trash2 } from "lucide-react";
+import { Database, FolderGit2, HardDrive, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
 import { isTauriRuntime, loadDesktopSetting, saveDesktopSetting } from "../../lib/desktopSettings";
 
 interface WorktreeInfo {
@@ -123,20 +123,44 @@ export function WorktreesSettingsSettings({
     }
   };
 
+  const activeCount = worktrees.filter((w) => w.status === "Active").length;
+  const idleCount = worktrees.filter((w) => w.status === "Idle").length;
+  const totalSize = worktrees.reduce((sum, wt) => {
+    const value = Number.parseFloat(wt.size);
+    if (!Number.isFinite(value)) return sum;
+    return sum + value;
+  }, 0);
+  const totalSizeLabel = totalSize > 1024
+    ? `${(totalSize / 1024).toFixed(1)} GB`
+    : `${Math.round(totalSize)} MB`;
+
   return (
-    <div className="appearance-container" style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-      <div style={{ fontSize: "12px", color: "var(--text-soft)", display: "flex", flexDirection: "column", gap: "4px" }}>
-        <span>
-          {t("管理活动的工作树及缓存目录。工作树允许 Yode 在隔离的环境中并行处理多个分支或任务。", "Manage active worktrees and cached directories. Worktrees allow Yode to work on multiple branches or tasks in parallel in isolated environments.")}
-        </span>
+    <div className="appearance-container worktrees-settings">
+      <div className="worktrees-page-head">
+        <div>
+          <h1>{t("工作树", "Worktrees")}</h1>
+          <p>
+            {t("管理隔离工作目录、清理策略和缓存占用，让 Yode 可以并行处理多个任务。", "Manage isolated work directories, cleanup policies, and cache usage so Yode can work on multiple tasks in parallel.")}
+          </p>
+        </div>
+        <div className="worktrees-stats">
+          <span>{t("运行中", "Active")} <strong>{activeCount}</strong></span>
+          <span>{t("闲置", "Idle")} <strong>{idleCount}</strong></span>
+          <span>{t("占用", "Size")} <strong>{totalSizeLabel}</strong></span>
+        </div>
       </div>
 
-      <div className="theme-card">
-        <div className="form-row">
-          <div className="row-info">
-            <span className="row-label">{t("基准存储目录", "Worktree base directory")}</span>
-            <span className="row-desc">{t("工作树的默认拉取和生成存储根路径", "Root path where worktrees are generated and stored")}</span>
+      <section className="worktrees-path-panel">
+        <div className="worktrees-path-copy">
+          <span className="worktrees-section-icon">
+            <Database size={18} />
+          </span>
+          <div>
+            <h2>{t("基准存储目录", "Worktree base directory")}</h2>
+            <p>{t("工作树的默认拉取和生成根路径。建议放在主仓库之外，便于清理和隔离。", "Default root path for generated worktrees. Keep it outside the main repo for easier cleanup and isolation.")}</p>
           </div>
+        </div>
+        <div className="worktrees-path-field">
           <input
             type="text"
             value={baseDir}
@@ -145,30 +169,23 @@ export function WorktreesSettingsSettings({
               updateVal("yode-worktrees-base-dir", e.target.value);
             }}
             placeholder="~/.yode/worktrees"
-            style={{
-              background: "var(--field)",
-              border: "1px solid var(--line-soft)",
-              borderRadius: "var(--radius)",
-              padding: "6px 12px",
-              fontSize: "12.5px",
-              color: "var(--text)",
-              outline: "none",
-              fontFamily: "var(--font-code)",
-              width: "240px"
-            }}
           />
         </div>
-      </div>
+      </section>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-        <span style={{ fontSize: "11px", fontWeight: "700", color: "var(--text-soft)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-          {t("清理策略", "Auto-cleanup Strategy")}
-        </span>
-        <div className="theme-card">
-          <div className="form-row">
-            <div className="row-info">
-              <span className="row-label">{t("会话结束时自动清理", "Auto-delete on session end")}</span>
-              <span className="row-desc">{t("当对话结束或归档时，自动安全注销并清除相关的工作树", "Automatically delete associated worktrees when session completes or archives")}</span>
+      <section className="worktrees-section">
+        <div className="worktrees-section-head">
+          <span>{t("清理策略", "Cleanup policy")}</span>
+          <em>{t("安全优先，必要时保留可恢复状态", "Safety first, keeping recoverable state when needed")}</em>
+        </div>
+        <div className="worktrees-policy-list">
+          <div className="worktrees-policy-row">
+            <div className="worktrees-policy-main">
+              <ShieldCheck size={18} />
+              <div>
+                <strong>{t("会话结束时自动清理", "Auto-delete on session end")}</strong>
+                <span>{t("对话结束或归档后，自动注销并清除相关工作树。", "Unregister and remove associated worktrees after a session completes or archives.")}</span>
+              </div>
             </div>
             <label className="switch-wrapper">
               <input
@@ -183,12 +200,13 @@ export function WorktreesSettingsSettings({
             </label>
           </div>
 
-          <div className="divider" />
-
-          <div className="form-row">
-            <div className="row-info">
-              <span className="row-label">{t("保留未提交的修改", "Preserve uncommitted changes")}</span>
-              <span className="row-desc">{t("清理前通过自动暂存（stash）保留本地修改，防止代码丢失", "Prevent code loss by automatically stashing local uncommitted changes before deleting")}</span>
+          <div className="worktrees-policy-row">
+            <div className="worktrees-policy-main">
+              <FolderGit2 size={18} />
+              <div>
+                <strong>{t("保留未提交的修改", "Preserve uncommitted changes")}</strong>
+                <span>{t("清理前自动 stash 本地修改，降低误删风险。", "Automatically stash local changes before cleanup to reduce data-loss risk.")}</span>
+              </div>
             </div>
             <label className="switch-wrapper">
               <input
@@ -203,12 +221,13 @@ export function WorktreesSettingsSettings({
             </label>
           </div>
 
-          <div className="divider" />
-
-          <div className="form-row">
-            <div className="row-info">
-              <span className="row-label">{t("清除未使用的包管理器缓存", "Clean unused package caches")}</span>
-              <span className="row-desc">{t("自动清理工作树产生的 node_modules 或 target 缓存以释放磁盘空间", "Automatically prune package caches (node_modules, target) to reclaim disk space")}</span>
+          <div className="worktrees-policy-row">
+            <div className="worktrees-policy-main">
+              <HardDrive size={18} />
+              <div>
+                <strong>{t("清理包管理器缓存", "Clean package caches")}</strong>
+                <span>{t("删除闲置工作树中的 node_modules、target 等缓存目录。", "Remove node_modules, target, and similar caches from idle worktrees.")}</span>
+              </div>
             </div>
             <label className="switch-wrapper">
               <input
@@ -223,83 +242,49 @@ export function WorktreesSettingsSettings({
             </label>
           </div>
         </div>
-      </div>
+      </section>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span style={{ fontSize: "11px", fontWeight: "700", color: "var(--text-soft)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-            {t("活动中的工作树", "Active Worktrees")}
-          </span>
+      <section className="worktrees-section">
+        <div className="worktrees-section-head worktrees-list-head">
+          <div>
+            <span>{t("活动中的工作树", "Active worktrees")}</span>
+            <em>{t("当前会话和分支生成的隔离目录", "Isolated directories created for current sessions and branches")}</em>
+          </div>
           <button
             onClick={handlePruneIdle}
             type="button"
-            className="secondary-button"
-            style={{
-              paddingInline: "12px",
-              height: "28px",
-              fontSize: "11px",
-              background: "var(--panel-raised)",
-              borderColor: "var(--line)"
-            }}
+            className="worktrees-prune-button"
+            disabled={idleCount === 0}
           >
+            <RefreshCw size={14} />
             <span>{t("清理闲置工作树", "Prune Idle")}</span>
           </button>
         </div>
 
-        <div className="theme-card" style={{ padding: worktrees.length > 0 ? "8px 0" : "24px 16px" }}>
+        <div className="worktrees-list-card">
           {worktrees.length === 0 ? (
-            <div style={{ textAlign: "center", color: "var(--text-soft)", fontSize: "13px" }}>
+            <div className="worktrees-empty">
               {t("暂无活动的工作树", "No active worktrees")}
             </div>
           ) : (
-            worktrees.map((wt, idx) => (
-              <div key={wt.id}>
-                {idx > 0 && <div className="divider" style={{ margin: "4px 16px" }} />}
-                <div className="form-row" style={{ minHeight: "52px" }}>
-                  <div className="row-info" style={{ gap: "4px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                      <span className="row-label" style={{ fontFamily: "var(--font-code)", fontSize: "13px" }}>
-                        {wt.branch}
-                      </span>
-
-                      <span
-                        style={{
-                          fontSize: "9px",
-                          fontWeight: "bold",
-                          padding: "1px 5px",
-                          borderRadius: "4px",
-                          background: wt.status === "Active" ? "rgba(80, 250, 123, 0.15)" : "rgba(255, 184, 108, 0.15)",
-                          color: wt.status === "Active" ? "var(--success, #50FA7B)" : "#FFB86C"
-                        }}
-                      >
-                        {wt.status === "Active" ? t("运行中", "Active") : t("闲置", "Idle")}
-                      </span>
-
-                      <span style={{ fontSize: "10.5px", color: "var(--text-soft)" }}>({wt.size})</span>
-                    </div>
-
-                    <span
-                      className="row-desc"
-                      style={{ fontSize: "11px", color: "var(--text-soft)", fontFamily: "var(--font-code)", opacity: 0.8 }}
-                    >
-                      {wt.path}
-                    </span>
-                  </div>
-
+            worktrees.map((wt) => (
+              <div key={wt.id} className="worktree-row">
+                <div className="worktree-branch-cell">
+                  <strong>{wt.branch}</strong>
+                  <span>{wt.path}</span>
+                </div>
+                <div className="worktree-meta-cell">
+                  <span className={`worktree-status-pill ${wt.status === "Active" ? "active" : "idle"}`}>
+                    {wt.status === "Active" ? t("运行中", "Active") : t("闲置", "Idle")}
+                  </span>
+                  <span className="worktree-size">{wt.size}</span>
                   <button
                     onClick={() => handleDeleteWorktree(wt.id, wt.branch)}
                     type="button"
-                    style={{
-                      background: "transparent",
-                      border: "none",
-                      cursor: "pointer",
-                      color: "var(--text-soft)",
-                      padding: "4px"
-                    }}
-                    onMouseEnter={(e) => (e.currentTarget.style.color = "oklch(67% 0.15 28)")}
-                    onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-soft)")}
+                    className="worktree-delete-button"
+                    aria-label={t(`删除工作树 ${wt.branch}`, `Delete worktree ${wt.branch}`)}
                   >
-                    <Trash2 size={14} />
+                    <Trash2 size={15} />
                   </button>
                 </div>
               </div>
@@ -307,11 +292,11 @@ export function WorktreesSettingsSettings({
           )}
         </div>
         {statusText && (
-          <div style={{ fontSize: "11px", color: "var(--text-soft)" }}>
+          <div className="worktrees-status-text">
             {statusText}
           </div>
         )}
-      </div>
+      </section>
     </div>
   );
 }

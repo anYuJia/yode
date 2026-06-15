@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, CircleDot, FileCode2 } from "lucide-react";
+import { ChevronDown, ChevronRight, CircleDot, Pencil } from "lucide-react";
 import { TimelineItem } from "../../lib/mock";
 import { ActivityLeafNode } from "./ActivityLeafNode";
 import { getFileIcon } from "../FileIcon";
@@ -7,7 +7,6 @@ import {
   parseToolDetails,
   displayToolName,
   summarizeActivityItems,
-  activityGroupPreview,
   getActivityDescriptor
 } from "./ToolUtils";
 
@@ -38,13 +37,13 @@ function buildActivityGroupLabel(items: any[], appLang: string, isRunning: boole
     });
     const count = files.size || exploreTools.length;
     parts.push(isZh
-      ? `${isRunning ? "正在探索" : "已探索"} ${noun(count, files.size > 0 ? "个文件" : "项", "file", "files", true)}`
+      ? `${isRunning ? "正在查看" : "已查看"} ${noun(count, files.size > 0 ? "个文件" : "项", "file", "files", true)}`
       : `${isRunning ? "Exploring" : "Explored"} ${noun(count, "", "file", "files", false)}`);
   }
 
   if (searchTools.length > 0) {
     parts.push(isZh
-      ? `${isRunning ? "正在搜索" : "已搜索"} ${noun(searchTools.length, "次网页搜索", "web search", "web searches", true)}`
+      ? `${isRunning ? "正在搜索" : "已搜索"} ${noun(searchTools.length, "次", "web search", "web searches", true)}`
       : `${isRunning ? "Searching" : "Searched"} ${noun(searchTools.length, "", "web search", "web searches", false)}`);
   }
 
@@ -79,7 +78,7 @@ export function ActivityGroupNode({ group, appLang, isTurnActive }: { group: any
   const isZh = appLang === "zh";
   const visibleItems = useMemo(() => summarizeActivityItems(group.items || []), [group.items]);
   const isRunning = group.status === "running";
-  const shouldAutoExpand = visibleItems.length > 0 && visibleItems.length <= 4;
+  const shouldAutoExpand = isRunning && visibleItems.length > 0 && visibleItems.length <= 4;
   const [isExpanded, setIsExpanded] = useState(shouldAutoExpand);
   const [hasManuallyToggled, setHasManuallyToggled] = useState(false);
 
@@ -122,12 +121,6 @@ export function ActivityGroupNode({ group, appLang, isTurnActive }: { group: any
         <span>{label}</span>
         {isExpanded ? <ChevronDown size={12} className="activity-chevron strong" /> : <ChevronRight size={12} className="activity-chevron strong" />}
       </div>
-
-      {!isExpanded && visibleItems.length > 0 && (
-        <div className="activity-group-preview">
-          {activityGroupPreview(visibleItems, appLang)}
-        </div>
-      )}
 
       {isExpanded && (
         <div className="activity-group-items">
@@ -230,10 +223,41 @@ function diffCountsForEdit(item: Extract<TimelineItem, { kind: "activity_item" }
   return { add, del, parsed };
 }
 
+function mergeEditSummaryItems(items: Array<Extract<TimelineItem, { kind: "activity_item" }>>) {
+  const merged = new Map<string, Extract<TimelineItem, { kind: "activity_item" }>>();
+
+  for (const item of items) {
+    const parsed = parseToolDetails(item as any);
+    const filename = item.filename || parsed.filename || "";
+    const key = (item as any).callId || `${item.tool}:${filename || item.id}`;
+    const existing = merged.get(key);
+    if (!existing) {
+      merged.set(key, item);
+      continue;
+    }
+
+    const existingParsed = parseToolDetails(existing as any);
+    const itemScore =
+      (item.metadata ? 4 : 0) +
+      (item.result ? 2 : 0) +
+      (item.diff || parsed.diff ? 2 : 0) +
+      (filename ? 1 : 0);
+    const existingScore =
+      (existing.metadata ? 4 : 0) +
+      (existing.result ? 2 : 0) +
+      (existing.diff || existingParsed.diff ? 2 : 0) +
+      ((existing.filename || existingParsed.filename) ? 1 : 0);
+
+    merged.set(key, itemScore >= existingScore ? { ...existing, ...item } : { ...item, ...existing });
+  }
+
+  return Array.from(merged.values());
+}
+
 export function EditSummaryNode({ node, appLang }: { node: Extract<TimelineItem, { kind: "edit_summary" }>; appLang: string }) {
   const isZh = appLang === "zh";
-  const [isExpanded, setIsExpanded] = useState(true);
-  const rows = node.items.map((item) => ({
+  const [isExpanded, setIsExpanded] = useState(false);
+  const rows = mergeEditSummaryItems(node.items).map((item) => ({
     item,
     ...diffCountsForEdit(item)
   }));
@@ -245,7 +269,7 @@ export function EditSummaryNode({ node, appLang }: { node: Extract<TimelineItem,
     <div className="edit-summary-card">
       <div className="edit-summary-head">
         <div className="edit-summary-badge">
-          <FileCode2 size={18} />
+          <Pencil size={15} />
         </div>
         <div className="edit-summary-title">
           <strong>{editedLabel}</strong>
@@ -255,32 +279,34 @@ export function EditSummaryNode({ node, appLang }: { node: Extract<TimelineItem,
           </span>
         </div>
         <div className="edit-summary-actions">
-          <button type="button" title={isZh ? "撤销暂未接入" : "Undo is not connected yet"}>
-            {isZh ? "撤销" : "Undo"}
-          </button>
           <button type="button" title={isZh ? "查看改动" : "Review changes"} onClick={() => setIsExpanded((value) => !value)}>
-            {isZh ? "审核" : "Review"}
+            {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           </button>
         </div>
       </div>
 
-      <div className="edit-summary-files">
-        {rows.map(({ item, parsed, add, del }) => {
-          const filename = item.filename || parsed.filename || displayToolName(item.tool);
-          return (
-            <div className="edit-summary-file" key={item.id}>
-              <span className="edit-summary-file-name">
-                {filename ? getFileIcon(filename) : null}
-                <span>{filename}</span>
-              </span>
-              <span className="edit-summary-file-stats">
-                <em className="diff-add">+{add}</em>
-                <em className="diff-del">-{del}</em>
-              </span>
-            </div>
-          );
-        })}
-      </div>
+      {isExpanded ? (
+        <div className="edit-summary-files">
+          {rows.map(({ item, parsed, add, del }) => {
+            const filename = item.filename || parsed.filename || displayToolName(item.tool);
+            return (
+              <div className="edit-summary-file" key={item.id}>
+                <span className="edit-summary-file-name">
+                  <span>{isZh ? "已编辑" : "Edited"}</span>
+                  <span className="edit-summary-file-target">
+                    {filename ? getFileIcon(filename) : null}
+                    <span>{filename}</span>
+                  </span>
+                </span>
+                <span className="edit-summary-file-stats">
+                  <em className="diff-add">+{add}</em>
+                  <em className="diff-del">-{del}</em>
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
 
       {isExpanded ? (
         <div className="edit-summary-diffs">

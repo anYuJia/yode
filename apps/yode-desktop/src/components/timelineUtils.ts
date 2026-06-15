@@ -26,8 +26,8 @@ export function looksLikeTerseToolTitle(text: string) {
   const clean = normalizeProcessNoteText(text);
   if (!clean) return true;
   if (/[，。；：！？,.!?]/.test(clean)) return false;
-  if (clean.length > 14) return false;
-  return /^(查看|读取|分析|获取|检查|搜索|运行|验证|整理|梳理|确认|探索)[\p{L}\p{N}_/\-. ]{2,}$/u.test(clean);
+  if (clean.length > 10) return false;
+  return /^(查看|读取|分析|获取|检查|搜索|运行|验证|整理|梳理|确认|探索)[\p{L}\p{N}_/\-. ]{0,6}$/u.test(clean);
 }
 
 export function splitProcessNotes(text: string, limit = 6) {
@@ -99,6 +99,25 @@ function actionNarrativePrefix(turnId?: string) {
   return `action-narrative-${turnId || "current"}-`;
 }
 
+function isToolResultLikeItem(item: Extract<TimelineItem, { kind: "tool" }>) {
+  if (/工具结果|tool result|result/i.test(item.title || "")) return true;
+  const metadata = (item as any).metadata;
+  return Boolean(
+    (item as any).callId &&
+    item.status === "success" &&
+    metadata &&
+    typeof metadata === "object" &&
+    (
+      metadata.activity ||
+      metadata.diff_preview ||
+      metadata.modified_files ||
+      metadata.tool_runtime ||
+      metadata.file_path ||
+      metadata.path
+    )
+  );
+}
+
 export function syntheticNarrationForActivity(item: TimelineItem, appLang: string) {
   const isZh = appLang === "zh";
   if (!isZh) return "";
@@ -162,20 +181,16 @@ export function groupEditSummaryItems(items: TimelineItem[]): TimelineItem[] {
 
   const flush = () => {
     if (buffer.length === 0) return;
-    if (buffer.length === 1) {
-      next.push(buffer[0]);
-    } else {
-      next.push({
-        id: `edit-summary-${buffer[0].id}`,
-        kind: "edit_summary",
-        status: buffer.some((item) => item.status === "running")
-          ? "running"
-          : buffer.some((item) => item.status === "blocked")
-            ? "blocked"
-            : "success",
-        items: buffer
-      });
-    }
+    next.push({
+      id: `edit-summary-${buffer[0].id}`,
+      kind: "edit_summary",
+      status: buffer.some((item) => item.status === "running")
+        ? "running"
+        : buffer.some((item) => item.status === "blocked")
+          ? "blocked"
+          : "success",
+      items: buffer
+    });
     buffer = [];
   };
 
@@ -194,6 +209,13 @@ export function groupEditSummaryItems(items: TimelineItem[]): TimelineItem[] {
 export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean, appLang = "zh"): TimelineItem[] {
   const result: TimelineItem[] = [];
   let buffer: Array<Extract<TimelineItem, { kind: "tool" }>> = [];
+  const visibleActionNarrativeIndexes = new Set<number>();
+  const actionNarrativeIndexes = items
+    .map((item, index) => (isActionNarrativeItem(item) ? index : -1))
+    .filter((index) => index >= 0);
+  actionNarrativeIndexes
+    .slice(-6)
+    .forEach((index) => visibleActionNarrativeIndexes.add(index));
 
   const getToolType = (item: Extract<TimelineItem, { kind: "tool" }>) => {
     const descriptor = getActivityDescriptor(item);
@@ -370,26 +392,14 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
       flushBuffer();
       if (item.body.trim() || item.status === "running") {
         if (isActionNarrativeItem(item)) {
-          let visibleInRun = 1;
-          for (let nextIndex = itemIndex + 1; nextIndex < items.length; nextIndex += 1) {
-            const next = items[nextIndex];
-            if (next.kind === "process_note" && isActionNarrativeItem(next)) {
-              visibleInRun += 1;
-              continue;
-            }
-            if (next.kind === "assistant" && next.meta === "intermediate") {
-              continue;
-            }
-            break;
-          }
-          if (visibleInRun > 4) {
+          if (!visibleActionNarrativeIndexes.has(itemIndex)) {
             continue;
           }
         }
         result.push(item);
       }
     } else if (item.kind === "tool") {
-      if (item.title === "工具结果") {
+      if (isToolResultLikeItem(item)) {
         const resultCallId = (item as any).callId || item.tool;
         let found = false;
 
@@ -454,8 +464,10 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
         buffer.push(item);
       }
     } else if (item.kind === "reasoning") {
-      flushBuffer();
-      result.push(item);
+      if (item.meta === "running") {
+        flushBuffer();
+        result.push(item);
+      }
     }
   }
   flushBuffer();

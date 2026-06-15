@@ -40,12 +40,20 @@ pub(super) fn convert_tool_definitions(
                 .unwrap_or(true)
         })
         .map(|td| LlmToolDefinition {
-            name: td.name,
-            description: format!(
-                "{}\n\nAlways include `action_narrative`: a Simplified Chinese public process note shown before this tool runs. It must be model-written user-facing narration, not hidden reasoning, not a tool title, and not a fixed template. Match Codex's reasoning-summary style: one natural paragraph, usually 1-3 complete sentences, calm and concrete about what you are checking and why. Good: “我看截图里这些句子像‘过程旁白’，夹在‘已思考/已执行工具/已探索’之间。我会确认它们在代码里是怎么生成和渲染的，看是固定模板、工具 metadata，还是模型返回的字段。”",
+            name: td.name.clone(),
+            description: if td.name == "batch" {
+                format!(
+                    "{}\n\nInclude `action_narrative`: one brief Simplified Chinese public progress note for this batch as a whole. Write what evidence this batch is collecting or checking. Keep it natural and specific; avoid generic titles such as \"全面分析\" or listing every nested tool.",
+                    td.description
+                )
+            } else {
                 td.description
-            ),
-            parameters: with_action_narrative_parameter(td.parameters),
+            },
+            parameters: if td.name == "batch" {
+                with_batch_action_narrative_parameter(td.parameters)
+            } else {
+                td.parameters
+            },
             annotations: LlmToolAnnotations {
                 read_only_hint: td.annotations.read_only_hint,
                 destructive_hint: td.annotations.destructive_hint,
@@ -55,7 +63,7 @@ pub(super) fn convert_tool_definitions(
         .collect()
 }
 
-fn with_action_narrative_parameter(mut schema: Value) -> Value {
+fn with_batch_action_narrative_parameter(mut schema: Value) -> Value {
     let Some(object) = schema.as_object_mut() else {
         return schema;
     };
@@ -69,9 +77,9 @@ fn with_action_narrative_parameter(mut schema: Value) -> Value {
         "action_narrative".to_string(),
         json!({
             "type": "string",
-            "minLength": 12,
-            "maxLength": 260,
-            "description": "Required public process note shown before this tool runs. Write a natural Simplified Chinese Codex-style paragraph, usually 1-3 complete sentences, about the immediate visible work: what evidence/files/output you are about to inspect and what distinction you are trying to confirm. Good: “我看截图里这些句子像‘过程旁白’，夹在‘已思考/已执行工具/已探索’之间。我会确认它们在代码里是怎么生成和渲染的，看是固定模板、工具 metadata，还是模型返回的字段。” Bad: terse tool titles like “查看 README”, vague filler like “分析项目结构”, hidden reasoning, English self-talk, or repeated fixed templates."
+            "minLength": 8,
+            "maxLength": 120,
+            "description": "Required public progress note for this batch as a whole. Use natural Simplified Chinese, mention the evidence or area being checked, and avoid generic phase titles or listing each nested tool."
         }),
     );
     match object.get_mut("required") {
@@ -347,7 +355,7 @@ pub(super) fn truncate_tool_result(result: ToolResult, context_window_tokens: us
 mod tests {
     use super::{
         annotate_tool_result_activity_metadata, dynamic_single_tool_result_limit,
-        dynamic_total_tool_results_limit, with_action_narrative_parameter,
+        dynamic_total_tool_results_limit, with_batch_action_narrative_parameter,
     };
     use serde_json::json;
     use yode_tools::tool::ToolResult;
@@ -364,41 +372,31 @@ mod tests {
     }
 
     #[test]
-    fn action_narrative_is_required_public_preamble_in_tool_schema() {
-        let schema = with_action_narrative_parameter(json!({
+    fn action_narrative_is_required_only_for_batch_schema() {
+        let schema = with_batch_action_narrative_parameter(json!({
             "type": "object",
             "properties": {
-                "file_path": { "type": "string" }
+                "invocations": { "type": "array" }
             },
-            "required": ["file_path"]
+            "required": ["invocations"]
         }));
 
         assert!(schema
             .get("properties")
             .and_then(|properties| properties.get("action_narrative"))
             .is_some());
-        assert_eq!(
-            schema
-                .get("properties")
-                .and_then(|properties| properties.get("action_narrative"))
-                .and_then(|schema| schema.get("minLength"))
-                .and_then(|value| value.as_u64()),
-            Some(12)
-        );
-        assert_eq!(
-            schema
-                .get("properties")
-                .and_then(|properties| properties.get("action_narrative"))
-                .and_then(|schema| schema.get("maxLength"))
-                .and_then(|value| value.as_u64()),
-            Some(260)
-        );
         assert!(schema
             .get("required")
             .and_then(|required| required.as_array())
             .is_some_and(|required| required
                 .iter()
                 .any(|value| value.as_str() == Some("action_narrative"))));
+        assert!(schema
+            .get("required")
+            .and_then(|required| required.as_array())
+            .is_some_and(|required| required
+                .iter()
+                .any(|value| value.as_str() == Some("invocations"))));
     }
 
     #[test]

@@ -8,6 +8,7 @@ export function ProcessNoteNode({ note, appLang }: { note: Extract<TimelineItem,
   const title = note.title;
   const body = note.body;
   const isThinking = title && /思考|thinking|thought/i.test(title);
+  const isActionNarrative = note.id.startsWith("action-narrative-");
   
   const [hasManuallyToggled, setHasManuallyToggled] = useState(false);
   const [isExpanded, setIsExpanded] = useState(isRunning);
@@ -57,7 +58,7 @@ export function ProcessNoteNode({ note, appLang }: { note: Extract<TimelineItem,
   }
 
   return (
-    <div className="process-note-node">
+    <div className={`process-note-node ${isActionNarrative ? "action-narrative" : ""}`}>
       {title && (
         <div
           className={`process-note-title ${isRunning ? "running" : "complete"} ${body ? "expanded" : ""}`}

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TimelineItem } from "../lib/mock";
+import { activityGroupPreview, summarizeActivityItems } from "./activity/ToolUtils";
 import { applyDesktopEventToTimelineItems, compileInlineItems, messagesToTimelineItems } from "./timelineUtils";
 
 const tool = (
@@ -30,6 +31,34 @@ describe("timeline activity grouping", () => {
       type: "mixed",
       status: "success",
       label: "已探索 2 个文件已运行 1 条命令"
+    });
+  });
+
+  it("does not render completed reasoning as separate process rows", () => {
+    const grouped = compileInlineItems([
+      {
+        id: "reasoning-1",
+        kind: "reasoning",
+        title: "已思考 1 秒",
+        body: "private reasoning",
+        meta: "complete"
+      },
+      tool("read-1", { kind: "read", target: "Cargo.toml", file_path: "Cargo.toml", tool: "read_file" }),
+      {
+        id: "reasoning-2",
+        kind: "reasoning",
+        title: "已思考 1 秒",
+        body: "private reasoning",
+        meta: "complete"
+      },
+      tool("read-2", { kind: "read", target: "tauri.conf.json", file_path: "tauri.conf.json", tool: "read_file" })
+    ]);
+
+    expect(grouped).toHaveLength(1);
+    expect(grouped[0]).toMatchObject({
+      kind: "activity_group",
+      type: "explore",
+      label: "已探索 2 个文件"
     });
   });
 
@@ -69,6 +98,97 @@ describe("timeline activity grouping", () => {
       metadata: {
         activity: { kind: "run", target: "git status --short", command: "git status --short" }
       }
+    });
+  });
+
+  it("renders batch invocations instead of exposing the batch wrapper", () => {
+    const batchItem: Extract<TimelineItem, { kind: "tool" }> = {
+      id: "batch-1",
+      kind: "tool",
+      title: "Batch",
+      body: JSON.stringify({
+        invocations: [
+          { tool_name: "read_file", params: { file_path: "Cargo.toml" } },
+          { tool_name: "grep", params: { pattern: "ActionNarrative", path: "crates" } }
+        ]
+      }),
+      tool: "batch",
+      status: "success"
+    };
+    const grouped = compileInlineItems([
+      batchItem
+    ]);
+    const visibleItems = summarizeActivityItems((grouped[0] as any).items || []);
+    const preview = activityGroupPreview(visibleItems, "zh");
+
+    expect(visibleItems.map((item: any) => item.tool)).toEqual(["read_file", "grep"]);
+    expect(preview).toContain("Cargo.toml");
+    expect(preview).not.toContain("batch");
+    expect(grouped).toHaveLength(1);
+    expect(grouped[0]).toMatchObject({
+      kind: "activity_group",
+      type: "other"
+    });
+  });
+
+  it("keeps natural short action narratives visible", () => {
+    const items = compileInlineItems([
+      {
+        id: "action-narrative-turn-1",
+        kind: "process_note",
+        body: "先看事件链路。",
+        status: "success"
+      }
+    ]);
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      kind: "process_note",
+      body: "先看事件链路。"
+    });
+  });
+
+  it("merges write_file results into the original edit item with diff stats", () => {
+    const grouped = compileInlineItems([
+      {
+        id: "tool-start-1",
+        kind: "tool",
+        title: "调用工具: write_file",
+        body: JSON.stringify({ path: "1.md", content: "a\nb\nc" }),
+        tool: "write_file",
+        callId: "call-1",
+        status: "running"
+      },
+      {
+        id: "tool-result-1",
+        kind: "tool",
+        title: "Tool Result",
+        body: "Successfully wrote 5 bytes",
+        tool: "write_file",
+        callId: "call-1",
+        status: "success",
+        metadata: {
+          file_path: "1.md",
+          diff_preview: {
+            removed: [],
+            added: ["a", "b", "c"],
+            more_removed: 0,
+            more_added: 0
+          }
+        }
+      }
+    ]);
+
+    expect(grouped).toHaveLength(1);
+    expect(grouped[0]).toMatchObject({
+      kind: "edit_summary",
+      items: [
+        {
+          filename: "1.md",
+          diff: "+3 -0",
+          result: "Successfully wrote 5 bytes"
+        }
+      ]
     });
   });
 

@@ -9,14 +9,11 @@ interface ReasoningNodeProps {
 export function ReasoningNode({ item, appLang }: ReasoningNodeProps) {
   const isRunning = item.meta === "running";
   
-  const [isExpanded, setIsExpanded] = useState(isRunning);
-  const [hasManuallyToggled, setHasManuallyToggled] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   useEffect(() => {
-    if (!hasManuallyToggled) {
-      setIsExpanded(isRunning);
-    }
-  }, [isRunning, hasManuallyToggled]);
+    setIsExpanded(false);
+  }, [item.id]);
 
   return (
     <div className="reasoning-node">
@@ -24,7 +21,6 @@ export function ReasoningNode({ item, appLang }: ReasoningNodeProps) {
         <div className="reasoning-node-stack">
           <div
             onClick={() => {
-              setHasManuallyToggled(true);
               setIsExpanded(!isExpanded);
             }}
             className={`reasoning-node-trigger ${isRunning ? "running" : "complete"}`}

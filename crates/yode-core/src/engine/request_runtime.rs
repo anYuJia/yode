@@ -74,10 +74,6 @@ impl AgentEngine {
                     "description": tool.description,
                     "parameters": tool.parameters,
                     "annotations": tool.annotations,
-                    "has_action_narrative": tool.parameters
-                        .get("properties")
-                        .and_then(|properties| properties.get("action_narrative"))
-                        .is_some(),
                 })
             }).collect::<Vec<_>>(),
             "temperature": request.temperature,

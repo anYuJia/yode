@@ -75,7 +75,12 @@ impl AgentEngine {
                 continue;
             }
 
-            let action_narrative = strip_action_narrative_param(&mut params);
+            let action_narrative = if tc.name == "batch" {
+                strip_action_narrative_param(&mut params)
+            } else {
+                strip_action_narrative_param(&mut params);
+                None
+            };
             if tc.name == "batch" {
                 strip_nested_action_narrative_params(&mut params);
             }

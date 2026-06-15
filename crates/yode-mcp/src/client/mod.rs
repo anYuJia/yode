@@ -172,7 +172,6 @@ impl ClientHandler for YodeMcpClientHandler {
         std::future::ready(Ok(CreateElicitationResult {
             action: ElicitationAction::Decline,
             content: None,
-            meta: None,
         }))
     }
 

@@ -38,10 +38,10 @@ export function TurnProcessSummary({ turnId, isActive, isExpanded, onToggle, dur
   const durationText = isZh ? formatDurationZh(elapsed) : `${elapsed}s`;
   const title = isActive
     ? isZh
-      ? `正在处理，已用 ${durationText}`
+      ? `处理中 ${durationText}`
       : `Working for ${durationText}`
     : isZh
-      ? `任务完成，耗时 ${durationText}`
+      ? `已处理 ${durationText}`
       : `Task finished in ${durationText}`;
   const detail = isActive
     ? isZh

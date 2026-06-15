@@ -119,7 +119,7 @@ export function parseToolDetails(item: { tool: string; body: string; title: stri
   }
 
   if (metadata) {
-    const rawPath = metadata.file_path || metadata.TargetFile || metadata.AbsolutePath || metadata.Path || metadata.Target || metadata.SearchPath || metadata.TargetContentFile;
+    const rawPath = metadata.file_path || metadata.path || metadata.TargetFile || metadata.AbsolutePath || metadata.Path || metadata.Target || metadata.SearchPath || metadata.TargetContentFile;
     if (rawPath && typeof rawPath === "string") {
       filename = rawPath.substring(Math.max(rawPath.lastIndexOf('/'), rawPath.lastIndexOf('\\')) + 1);
     }
@@ -154,7 +154,7 @@ export function parseToolDetails(item: { tool: string; body: string; title: stri
 
   try {
     const parsed = JSON.parse(body);
-    const rawPath = parsed.file_path || parsed.TargetFile || parsed.AbsolutePath || parsed.Path || parsed.Target || parsed.SearchPath || parsed.TargetContentFile;
+    const rawPath = parsed.file_path || parsed.path || parsed.TargetFile || parsed.AbsolutePath || parsed.Path || parsed.Target || parsed.SearchPath || parsed.TargetContentFile;
     if (rawPath && typeof rawPath === "string") {
       filename = rawPath.substring(rawPath.lastIndexOf('/') + 1);
     }
@@ -173,7 +173,7 @@ export function parseToolDetails(item: { tool: string; body: string; title: stri
 
     if (item.tool?.includes("replace") || item.tool?.includes("write") || item.tool?.includes("edit")) {
       const target = parsed.TargetContent || parsed.targetContent || "";
-      const replacement = parsed.ReplacementContent || parsed.replacementContent || parsed.CodeContent || parsed.codeContent || "";
+      const replacement = parsed.ReplacementContent || parsed.replacementContent || parsed.CodeContent || parsed.codeContent || parsed.content || parsed.file_content || "";
       if (target || replacement) {
         const targetLines = target ? target.split("\n").length : 0;
         const replacementLines = replacement ? replacement.split("\n").length : 0;
@@ -181,7 +181,7 @@ export function parseToolDetails(item: { tool: string; body: string; title: stri
       }
     }
   } catch (e) {
-    const pathMatch = body.match(/"(?:file_path|AbsolutePath|TargetFile|Path|SearchPath)"\s*:\s*"([^"]+)"/);
+    const pathMatch = body.match(/"(?:file_path|path|AbsolutePath|TargetFile|Path|SearchPath)"\s*:\s*"([^"]+)"/);
     if (pathMatch) {
       const rawPath = pathMatch[1];
       filename = rawPath.substring(rawPath.lastIndexOf('/') + 1);
@@ -202,7 +202,7 @@ export function parseToolDetails(item: { tool: string; body: string; title: stri
 
     if (item.tool?.includes("replace") || item.tool?.includes("write") || item.tool?.includes("edit")) {
       const targetMatch = body.match(/"(?:TargetContent|targetContent)"\s*:\s*"([\s\S]*?)"/);
-      const replacementMatch = body.match(/"(?:ReplacementContent|replacementContent|CodeContent|codeContent)"\s*:\s*"([\s\S]*?)"/);
+      const replacementMatch = body.match(/"(?:ReplacementContent|replacementContent|CodeContent|codeContent|content|file_content)"\s*:\s*"([\s\S]*?)"/);
       if (targetMatch || replacementMatch) {
         const target = targetMatch ? targetMatch[1] : "";
         const replacement = replacementMatch ? replacementMatch[1] : "";
@@ -273,7 +273,7 @@ export function summarizeActivityItems(items: any[]) {
   const summarized: any[] = [];
   const seen = new Map<string, any>();
 
-  for (const item of items) {
+  for (const item of expandBatchActivityItems(items)) {
     if (shouldHideActivityItem(item)) continue;
 
     if (item.kind !== "tool") {
@@ -302,6 +302,49 @@ export function summarizeActivityItems(items: any[]) {
   }
 
   return summarized;
+}
+
+function parseJsonObject(text?: string) {
+  if (!text || typeof text !== "string") return null;
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function expandBatchActivityItems(items: any[]) {
+  const expanded: any[] = [];
+
+  for (const item of items) {
+    if (item?.kind !== "tool" || item.tool !== "batch") {
+      expanded.push(item);
+      continue;
+    }
+
+    const parsed = parseJsonObject(item.body);
+    const invocations = Array.isArray(parsed?.invocations) ? parsed.invocations : [];
+    if (invocations.length === 0) {
+      expanded.push(item);
+      continue;
+    }
+
+    invocations.forEach((invocation: any, index: number) => {
+      const toolName = typeof invocation?.tool_name === "string" ? invocation.tool_name : "tool";
+      const params = invocation?.params && typeof invocation.params === "object" ? invocation.params : {};
+      expanded.push({
+        ...item,
+        id: `${item.id}-batch-${index}`,
+        tool: toolName,
+        title: displayToolName(toolName),
+        body: JSON.stringify(params),
+        metadata: undefined,
+      });
+    });
+  }
+
+  return expanded;
 }
 
 export function activityItemSummary(item: any) {

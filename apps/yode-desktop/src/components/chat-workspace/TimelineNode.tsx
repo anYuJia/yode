@@ -1,5 +1,5 @@
-import React from "react";
-import { Bot, Clock3, CircleDot } from "lucide-react";
+import React, { useEffect, useRef, useState } from "react";
+import { Bot, Check, Clock3, Copy } from "lucide-react";
 import { TimelineItem } from "../../lib/mock";
 import { ProcessNoteNode } from "./ProcessNoteNode";
 import { ActivityGroupNode, ActivityItemNode, EditSummaryNode } from "../activity/ActivityGroupNode";
@@ -116,56 +116,7 @@ export function TimelineNode({ item, appLang, isTurnActive }: { item: TimelineIt
   }
 
   if (item.kind === "user") {
-    return (
-      <div
-        className="timeline-node user-bubble-container"
-        style={{
-          display: "flex",
-          justifyContent: "flex-end",
-          width: "100%",
-          maxWidth: "1064px",
-          margin: "0 auto 12px",
-          paddingLeft: "24px"
-        }}
-      >
-        <div
-          className="user-chat-bubble"
-          style={{
-            background: "color-mix(in oklch, var(--accent), transparent 85%)",
-            border: "none",
-            borderRadius: "14px 14px 2px 14px",
-            padding: "10px 14px",
-            maxWidth: "85%",
-            boxShadow: "0 2px 8px rgba(0, 0, 0, 0.15)",
-            display: "block",
-            overflow: "hidden"
-          }}
-        >
-          <p style={{
-            margin: 0,
-            color: "var(--text)",
-            fontSize: "13px",
-            lineHeight: "1.45",
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-word"
-          }}>
-            {item.body}
-          </p>
-          {item.attachments && item.attachments.length > 0 ? (
-            <div className="message-image-grid">
-              {item.attachments.map((image) => (
-                <img
-                  key={image.id}
-                  src={image.dataUrl}
-                  alt={image.name}
-                  title={image.name}
-                />
-              ))}
-            </div>
-          ) : null}
-        </div>
-      </div>
-    );
+    return <UserMessageNode item={item} appLang={appLang} />;
   }
 
   if (item.kind === "assistant" && (item.meta === "intermediate" || item.meta === "streaming")) {
@@ -205,5 +156,103 @@ export function TimelineNode({ item, appLang, isTurnActive }: { item: TimelineIt
         ) : null}
       </div>
     </article>
+  );
+}
+
+function formatMessageTime(createdAt?: number, fallback?: string) {
+  if (typeof createdAt !== "number" || !Number.isFinite(createdAt)) {
+    return fallback || "";
+  }
+  return new Date(createdAt).toLocaleTimeString("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  });
+}
+
+function UserMessageNode({ item, appLang }: { item: Extract<TimelineItem, { kind: "user" | "assistant" | "reasoning" }>; appLang: string }) {
+  const [showActions, setShowActions] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const hideTimerRef = useRef<number | null>(null);
+  const copiedTimerRef = useRef<number | null>(null);
+
+  const clearHideTimer = () => {
+    if (hideTimerRef.current !== null) {
+      window.clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = null;
+    }
+  };
+
+  const show = () => {
+    clearHideTimer();
+    setShowActions(true);
+  };
+
+  const scheduleHide = () => {
+    clearHideTimer();
+    hideTimerRef.current = window.setTimeout(() => {
+      setShowActions(false);
+    }, 180);
+  };
+
+  useEffect(() => {
+    return () => {
+      clearHideTimer();
+      if (copiedTimerRef.current !== null) {
+        window.clearTimeout(copiedTimerRef.current);
+      }
+    };
+  }, []);
+
+  const copyText = async () => {
+    try {
+      await navigator.clipboard.writeText(item.body || "");
+      setCopied(true);
+      if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current);
+      copiedTimerRef.current = window.setTimeout(() => setCopied(false), 1200);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const timeText = formatMessageTime(item.createdAt, item.meta);
+  const copyLabel = appLang === "zh" ? "复制消息" : "Copy message";
+
+  return (
+    <div
+      className="timeline-node user-bubble-container"
+      onMouseEnter={show}
+      onMouseLeave={scheduleHide}
+      onFocus={show}
+      onBlur={scheduleHide}
+    >
+      <div className="user-message-stack">
+        <div className="user-chat-bubble">
+          <p>{item.body}</p>
+          {item.attachments && item.attachments.length > 0 ? (
+            <div className="message-image-grid">
+              {item.attachments.map((image) => (
+                <img
+                  key={image.id}
+                  src={image.dataUrl}
+                  alt={image.name}
+                  title={image.name}
+                />
+              ))}
+            </div>
+          ) : null}
+        </div>
+        <div
+          className={`user-message-actions ${showActions ? "visible" : ""}`}
+          onMouseEnter={show}
+          onMouseLeave={scheduleHide}
+        >
+          {timeText ? <span className="user-message-time">{timeText}</span> : null}
+          <button type="button" className="user-message-copy" onClick={copyText} aria-label={copyLabel} title={copyLabel}>
+            {copied ? <Check size={15} /> : <Copy size={15} />}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

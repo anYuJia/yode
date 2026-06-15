@@ -15,7 +15,8 @@ function repairMarkdownBlockLine(line: string): string {
     .replace(/^\s{4,}(?=(?:[-*+]|\d+\.)\s*[\p{L}\p{N}])/u, "")
     .replace(/([^\n#])(?=#{1,6}\s?[\p{L}\p{N}])/gu, "$1\n\n")
     .replace(/(^|\n)(#{1,6})(?=\S)/g, "$1$2 ")
-    .replace(/(^|\n)([-*+])(?=\S)/g, "$1$2 ")
+    .replace(/(^|\n)([-+])(?=\S)/g, "$1$2 ")
+    .replace(/(^|\n)\*(?=[^\s*])/g, "$1* ")
     .replace(/(^|\n)(\d+\.)(?=\S)/g, "$1$2 ");
 }
 
@@ -33,21 +34,58 @@ function isBrokenFenceClose(line: string) {
   return /^(`{2}|｀{2})\s*$/.test(line.trim());
 }
 
+function isFenceClose(line: string, openMarker: string) {
+  const trimmed = line.trim();
+  if (!openMarker) return false;
+  const markerChar = openMarker[0];
+  if (markerChar !== "`" && markerChar !== "｀") return false;
+  const match = trimmed.match(/^(`{3,}|｀{3,})\s*$/);
+  return Boolean(match && match[1][0] === markerChar && match[1].length >= openMarker.length);
+}
+
 function looksLikeMarkdownAfterTextFence(line: string) {
   const trimmed = line.trim();
+  if (!trimmed) return false;
+  if (/[├└│┬┴┼─━╭╰╮╯←→]/.test(trimmed)) return false;
   return /^#{1,6}\s+\S/.test(trimmed) ||
+    /^#{1,6}(?=[\p{L}\p{N}])/u.test(trimmed) ||
     /^(?:[-*+]|\d+\.)\s+\S/.test(trimmed) ||
-    /^>\s+\S/.test(trimmed);
+    /^>\s+\S/.test(trimmed) ||
+    /^(?:\*\*|__)[^*_].*(?:\*\*|__)\s*[:：]?.*$/.test(trimmed) ||
+    /^(?:---+|\*\*\*+|___+)\s*$/.test(trimmed) ||
+    /^\|.+\|\s*$/.test(trimmed) ||
+    /^[\p{L}\p{N}][\p{L}\p{N}\s·・、/()（）-]{1,36}[:：]\s*$/u;
 }
 
 function isLooseTextFence(lang: string) {
   return !lang || /^(text|txt|plain|plaintext|markdown|md)$/i.test(lang);
 }
 
-function preprocessMarkdown(text: string): string {
+function maybeCloseLooseFenceBeforeLine(
+  line: string,
+  inCodeBlock: boolean,
+  codeBlockLang: string,
+  codeBlockMarker: string,
+  output: string[]
+) {
+  if (inCodeBlock && (isBrokenFenceClose(line) || isFenceClose(line, codeBlockMarker))) {
+    output.push("```");
+    return { handled: true, inCodeBlock: false, codeBlockLang: "", codeBlockMarker: "" };
+  }
+
+  if (inCodeBlock && isLooseTextFence(codeBlockLang) && looksLikeMarkdownAfterTextFence(line)) {
+    output.push("```");
+    return { handled: false, inCodeBlock: false, codeBlockLang: "", codeBlockMarker: "" };
+  }
+
+  return { handled: false, inCodeBlock, codeBlockLang, codeBlockMarker };
+}
+
+export function preprocessMarkdown(text: string): string {
   const lines = text.split("\n");
   let inCodeBlock = false;
   let codeBlockLang = "";
+  let codeBlockMarker = "";
   const normalizedLines: string[] = [];
 
   for (let i = 0; i < lines.length; i++) {
@@ -56,18 +94,16 @@ function preprocessMarkdown(text: string): string {
     if (inCodeBlock && isBrokenFenceClose(line)) {
       inCodeBlock = false;
       codeBlockLang = "";
+      codeBlockMarker = "";
       normalizedLines.push("```");
       continue;
     }
-    if (inCodeBlock && isLooseTextFence(codeBlockLang) && looksLikeMarkdownAfterTextFence(line)) {
-      inCodeBlock = false;
-      codeBlockLang = "";
-      normalizedLines.push("```");
-    }
+
     const fence = codeFenceInfo(line);
     if (fence) {
       inCodeBlock = !inCodeBlock;
       codeBlockLang = inCodeBlock ? fence.lang : "";
+      codeBlockMarker = inCodeBlock ? fence.marker : "";
       normalizedLines.push(line);
       continue;
     }
@@ -93,25 +129,22 @@ function preprocessMarkdown(text: string): string {
 
   inCodeBlock = false;
   codeBlockLang = "";
+  codeBlockMarker = "";
   const finalLines: string[] = [];
   for (let i = 0; i < normalizedLines.length; i++) {
     const line = normalizedLines[i];
     const trimmed = line.trim();
-    if (inCodeBlock && isBrokenFenceClose(line)) {
-      inCodeBlock = false;
-      codeBlockLang = "";
-      finalLines.push("```");
-      continue;
-    }
-    if (inCodeBlock && isLooseTextFence(codeBlockLang) && looksLikeMarkdownAfterTextFence(line)) {
-      inCodeBlock = false;
-      codeBlockLang = "";
-      finalLines.push("```");
-    }
+    const looseFence = maybeCloseLooseFenceBeforeLine(line, inCodeBlock, codeBlockLang, codeBlockMarker, finalLines);
+    inCodeBlock = looseFence.inCodeBlock;
+    codeBlockLang = looseFence.codeBlockLang;
+    codeBlockMarker = looseFence.codeBlockMarker;
+    if (looseFence.handled) continue;
+
     const fence = codeFenceInfo(line);
     if (fence) {
       inCodeBlock = !inCodeBlock;
       codeBlockLang = inCodeBlock ? fence.lang : "";
+      codeBlockMarker = inCodeBlock ? fence.marker : "";
       finalLines.push(line);
       continue;
     }

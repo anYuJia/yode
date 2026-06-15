@@ -28,7 +28,12 @@ impl PreparedToolExecution {
     }
 
     fn refresh_metadata(&mut self, tool_call: &ToolCall) {
-        self.action_narrative = strip_action_narrative_param(&mut self.params);
+        self.action_narrative = if tool_call.name == "batch" {
+            strip_action_narrative_param(&mut self.params)
+        } else {
+            strip_action_narrative_param(&mut self.params);
+            None
+        };
         if tool_call.name == "batch" {
             strip_nested_action_narrative_params(&mut self.params);
         }
