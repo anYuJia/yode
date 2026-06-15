@@ -209,6 +209,27 @@ describe("timeline activity grouping", () => {
     expect(grouped).toHaveLength(0);
   });
 
+  it("keeps concise model action narratives even after a public preamble", () => {
+    const items = applyDesktopEventToTimelineItems([
+      {
+        id: "assistant-turn-1-0",
+        kind: "assistant",
+        title: "Yode",
+        body: "我先看一下项目结构。",
+        meta: "streaming"
+      }
+    ], {
+      kind: "action_narrative",
+      turnId: "turn-1",
+      payload: {
+        id: "narrative-1",
+        body: "检查项目结构"
+      }
+    });
+
+    expect(items.some((item) => item.kind === "process_note" && item.body === "检查项目结构")).toBe(true);
+  });
+
   it("merges write_file results into the original edit item with diff stats", () => {
     const grouped = compileInlineItems([
       {

@@ -72,6 +72,7 @@ export function ProcessNoteNode({ note, appLang }: { note: Extract<TimelineItem,
       )}
       {body && (
         <div className={`process-note-body ${isRunning ? "running" : "complete"}`}>
+          {isActionNarrative ? <CircleDot size={9} className="process-step-dot" /> : null}
           {renderInlineMarkdown(body)}
         </div>
       )}

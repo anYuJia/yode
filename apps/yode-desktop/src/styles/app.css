@@ -1384,22 +1384,31 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 }
 
 .process-note-node.action-narrative {
-  margin-top: 18px;
-  margin-bottom: 14px;
+  margin-top: 8px;
+  margin-bottom: 8px;
 }
 
 .process-note-node.action-narrative .process-note-body {
-  display: block;
-  max-width: 86ch;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: 82ch;
   color: var(--text);
-  font-size: clamp(15px, var(--chat-font-size), 17px);
+  font-size: var(--chat-font-size);
   font-style: normal;
-  font-weight: 560;
-  line-height: 1.72;
+  font-weight: 520;
+  line-height: 1.58;
 }
 
 .process-note-node.action-narrative .process-note-body p {
   margin: 0;
+}
+
+.process-step-dot {
+  flex: 0 0 auto;
+  margin-top: 4px;
+  color: var(--process-accent);
+  animation: reasoning-dot-breathe 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
 .reasoning-node-stack {

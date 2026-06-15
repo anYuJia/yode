@@ -26,8 +26,8 @@ export function looksLikeTerseToolTitle(text: string) {
   const clean = normalizeProcessNoteText(text);
   if (!clean) return true;
   if (/[，。；：！？,.!?]/.test(clean)) return false;
-  if (clean.length > 10) return false;
-  return /^(查看|读取|分析|获取|检查|搜索|运行|验证|整理|梳理|确认|探索)[\p{L}\p{N}_/\-. ]{0,6}$/u.test(clean);
+  if (clean.length > 5) return false;
+  return /^(查看|读取|分析|获取|检查|搜索|运行|验证|整理|梳理|确认|探索)[\p{L}\p{N}_/\-. ]{0,2}$/u.test(clean);
 }
 
 export function splitProcessNotes(text: string, limit = 6) {
@@ -912,9 +912,6 @@ export function applyDesktopEventToTimelineItems(
   }
 
   if (kind === "action_narrative") {
-    if (hasRecentAssistantPreamble(items, turnId)) {
-      return items;
-    }
     const nextItem = desktopEventToTimelineItem(payload, eventKind);
     if (nextItem.kind !== "process_note" || !nextItem.body.trim()) {
       return items;
