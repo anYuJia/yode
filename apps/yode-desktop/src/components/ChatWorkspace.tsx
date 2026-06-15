@@ -15,6 +15,7 @@ import { TimelineNode } from "./chat-workspace/TimelineNode";
 import { TurnProcessSummary } from "./chat-workspace/TurnProcessSummary";
 import { PermissionActions } from "./chat-workspace/PermissionActions";
 import { AskUserActions, UserQuery } from "./chat-workspace/AskUserActions";
+import { LiveStatusRow } from "./chat-workspace/LiveStatusRow";
 
 export type PendingUserQuestion = {
   sessionId: string;
@@ -38,39 +39,8 @@ function hasLiveProcessItem(items: TimelineItem[]) {
 }
 
 function isLiveTailStatusItem(item: TimelineItem) {
-  if (item.kind === "reasoning") return item.meta === "running";
   if (item.kind === "process_note") return item.status === "running";
   return false;
-}
-
-function buildWorkingFallbackItem(turnId: string, processItems: TimelineItem[], appLang: string): Extract<TimelineItem, { kind: "process_note" }> {
-  const isZh = appLang === "zh";
-  const latest = [...processItems].reverse().find((item) =>
-    item.kind === "edit_summary" ||
-    item.kind === "activity_group" ||
-    item.kind === "tool_group" ||
-    item.kind === "process_note"
-  );
-  let body = isZh ? "正在整理下一步" : "Preparing the next step";
-
-  if (latest?.kind === "edit_summary") {
-    body = isZh ? "正在检查刚才的改动" : "Reviewing the latest edits";
-  } else if (latest?.kind === "activity_group") {
-    body = isZh ? "正在汇总工具结果" : "Reviewing tool results";
-  } else if (latest?.kind === "tool_group") {
-    body = isZh ? "正在确认执行结果" : "Checking execution results";
-  } else if (latest?.kind === "process_note" && latest.body) {
-    body = isZh ? "正在继续处理" : "Continuing";
-  }
-
-  return {
-    id: `working-fallback-${turnId}`,
-    kind: "process_note",
-    title: isZh ? "工作中" : "Working",
-    body,
-    status: "running",
-    createdAt: Date.now()
-  };
 }
 
 interface ChatWorkspaceProps {
@@ -356,7 +326,7 @@ export function ChatWorkspace({
       }
       frame = window.requestAnimationFrame(() => {
         frame = null;
-        if (shouldStickToBottomRef.current || isNearTimelineBottom(panel, 160) || isStreaming) {
+        if (shouldStickToBottomRef.current || isNearTimelineBottom(panel, 160)) {
           scrollTimelineToBottom("auto");
         }
       });
@@ -458,18 +428,14 @@ export function ChatWorkspace({
               const isTurnWaitingForUser = Boolean(pendingUserQuestion) && isLastTurn;
               const visibleItems = compileInlineItems(turn.items, isTurnActive, appLang);
               const { processItems, answerItems } = splitTurnVisibleItems(visibleItems);
-              const shouldShowWorkingFallback = isTurnActive && !isTurnWaitingForUser && !hasLiveProcessItem(processItems);
-              const processItemsWithFallback = shouldShowWorkingFallback
-                ? [...processItems, buildWorkingFallbackItem(turn.id, processItems, appLang)]
-                : processItems;
               const tailStatusItems = isTurnActive
-                ? processItemsWithFallback.filter(isLiveTailStatusItem)
+                ? processItems.filter(isLiveTailStatusItem)
                 : [];
               const displayedProcessItems = isTurnActive
-                ? processItemsWithFallback.filter((item) => !isLiveTailStatusItem(item))
-                : processItemsWithFallback;
+                ? processItems.filter((item) => !isLiveTailStatusItem(item))
+                : processItems;
               const hasProcessItems = displayedProcessItems.length > 0;
-              const hasVisibleTurnItems = displayedProcessItems.length > 0 || tailStatusItems.length > 0;
+              const hasVisibleTurnItems = displayedProcessItems.length > 0 || tailStatusItems.length > 0 || isTurnActive;
               const isProcessExpanded = isTurnActive || expandedTurnIds.includes(turn.id);
               const durationSeconds = turnStaticDurationSeconds(turn);
 
@@ -504,6 +470,13 @@ export function ChatWorkspace({
                   {tailStatusItems.map((item) => (
                     <TimelineNode key={item.id} item={item} appLang={appLang} isTurnActive={isTurnActive} />
                   ))}
+                  {isTurnActive ? (
+                    <LiveStatusRow
+                      items={processItems}
+                      appLang={appLang}
+                      waitingForUser={isTurnWaitingForUser}
+                    />
+                  ) : null}
                 </React.Fragment>
               );
             })

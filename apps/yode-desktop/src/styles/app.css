@@ -1428,6 +1428,157 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   overflow-x: auto;
 }
 
+.live-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 1064px;
+  min-height: 30px;
+  margin: 2px auto 18px;
+  padding: 0 0 0 33px;
+  color: var(--process-accent);
+  font-size: 13px;
+  font-weight: 540;
+  line-height: 1.45;
+  text-wrap: pretty;
+  animation: live-status-enter 180ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+.live-status-row span {
+  display: inline-block;
+  animation: live-status-text 220ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+.error-node {
+  width: 100%;
+  max-width: 1064px;
+  margin: 10px auto 16px;
+  padding-left: 33px;
+}
+
+.error-node-shell {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 10px;
+  max-width: 820px;
+  padding: 11px 12px 12px 10px;
+  border-radius: 10px;
+  background: color-mix(in oklch, var(--error), var(--panel) 90%);
+  box-shadow:
+    0 0 0 1px color-mix(in oklch, var(--error), transparent 72%),
+    0 12px 28px color-mix(in oklch, black, transparent 94%);
+  animation: live-status-enter 180ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+.error-node-icon {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  color: var(--error);
+}
+
+.error-node-content {
+  min-width: 0;
+}
+
+.error-node-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 28px;
+}
+
+.error-node-header strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 680;
+}
+
+.error-node-copy {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-soft);
+  cursor: pointer;
+  transition-property: background-color, color, transform;
+  transition-duration: 160ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+.error-node-copy:hover,
+.error-node-copy:focus-visible {
+  background: color-mix(in oklch, var(--error), transparent 88%);
+  color: var(--text);
+  outline: none;
+}
+
+.error-node-copy:active {
+  transform: scale(0.96);
+}
+
+.error-node-content p {
+  max-width: 74ch;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.55;
+  overflow-wrap: break-word;
+}
+
+.error-node-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  margin-top: 6px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text-soft);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition-property: color, transform;
+  transition-duration: 160ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+.error-node-toggle:hover,
+.error-node-toggle:focus-visible {
+  color: var(--text);
+  outline: none;
+}
+
+.error-node-toggle[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+
+.error-node-toggle svg {
+  transition: transform 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.error-node-details {
+  max-height: min(360px, 42vh);
+  margin: 8px 0 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: color-mix(in oklch, var(--field), black 2%);
+  color: var(--text-muted);
+  font-family: var(--font-code);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
 .markdown-content {
   width: 100%;
   max-width: 100%;
@@ -5390,6 +5541,32 @@ html:has(meta[name="dummy"]) .sidebar { /* fallback styling using CSS property c
     opacity: 1;
     transform: scale(1.08);
     filter: blur(0.15px);
+  }
+}
+
+@keyframes live-status-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+    filter: blur(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+@keyframes live-status-text {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
   }
 }
 

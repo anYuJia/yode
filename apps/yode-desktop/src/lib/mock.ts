@@ -76,6 +76,14 @@ export type TimelineItem =
     }
   | {
       id: string;
+      kind: "error";
+      title: string;
+      body: string;
+      createdAt?: number;
+      metadata?: any;
+    }
+  | {
+      id: string;
       kind: "activity_group";
       label: string;
       type: "explore" | "search" | "run" | "mixed" | "other";

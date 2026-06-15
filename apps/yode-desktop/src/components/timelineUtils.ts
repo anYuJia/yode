@@ -899,6 +899,7 @@ export function applyDesktopEventToTimelineItems(
   const outer = payload && typeof payload === "object" && "payload" in payload ? payload : null;
   const inner = outer ? outer.payload : payload;
   const kind = eventKind ?? stringValue(outer?.kind) ?? stringValue(inner?.kind) ?? stringValue(inner?.type);
+  const title = stringValue(inner?.title) ?? "Yode";
   const body = stringValue(inner?.body) ?? "";
   const reasoning = stringValue(inner?.reasoning) ?? "";
   const turnId = stringValue(outer?.turnId);
@@ -1197,6 +1198,7 @@ export function applyDesktopEventToTimelineItems(
 
     const errorId = turnId ? `error-${turnId}` : `event-${Date.now()}-${Math.random()}`;
     const errorMessage = body || "本轮执行失败，请稍后重试。";
+    const errorTitle = title && title !== "Yode" ? title : "请求失败";
 
     const existingIndex = settledItems.findIndex((item) => item.id === errorId);
     if (existingIndex >= 0) {
@@ -1213,8 +1215,13 @@ export function applyDesktopEventToTimelineItems(
           }
           return {
             ...item,
+            kind: "error" as const,
+            title: errorTitle,
             body: newBody,
-            meta: "stream complete"
+            metadata: {
+              ...(item as any).metadata,
+              raw: newBody
+            }
           };
         }
         return item;
@@ -1225,10 +1232,13 @@ export function applyDesktopEventToTimelineItems(
       ...settledItems,
       {
         id: errorId,
-        kind: "assistant",
-        title: "错误",
+        kind: "error",
+        title: errorTitle,
         body: errorMessage,
-        meta: "stream complete"
+        createdAt: Date.now(),
+        metadata: {
+          raw: errorMessage
+        }
       }
     ];
   }

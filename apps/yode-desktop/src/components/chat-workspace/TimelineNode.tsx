@@ -6,6 +6,7 @@ import { ActivityGroupNode, ActivityItemNode, EditSummaryNode } from "../activit
 import { InlineToolGroup } from "./InlineToolGroup";
 import { MarkdownContent } from "./MarkdownContent";
 import { ReasoningNode } from "./ReasoningNode";
+import { ErrorNode } from "./ErrorNode";
 
 export function TimelineNode({ item, appLang, isTurnActive }: { item: TimelineItem; appLang: string; isTurnActive?: boolean }) {
   if (item.kind === "boundary" && item.id.startsWith("cancel-")) {
@@ -103,6 +104,10 @@ export function TimelineNode({ item, appLang, isTurnActive }: { item: TimelineIt
 
   if (item.kind === "tool") {
     return null;
+  }
+
+  if (item.kind === "error") {
+    return <ErrorNode item={item} appLang={appLang} />;
   }
 
   if (item.kind === "tool_group") {

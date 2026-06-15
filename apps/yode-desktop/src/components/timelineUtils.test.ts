@@ -101,6 +101,31 @@ describe("timeline activity grouping", () => {
     });
   });
 
+  it("keeps run errors as error nodes instead of assistant answers", () => {
+    const items = applyDesktopEventToTimelineItems([
+      {
+        id: "assistant-turn-1-0",
+        kind: "assistant",
+        title: "Yode",
+        body: "正在准备请求",
+        meta: "streaming"
+      }
+    ], {
+      kind: "error",
+      turnId: "turn-1",
+      payload: {
+        title: "错误",
+        body: "Request failed after 1 attempt: OpenAI API error (400 Bad Request): Param Incorrect (code: 400)"
+      }
+    });
+
+    expect(items.some((item) => item.kind === "error")).toBe(true);
+    expect(items.filter((item) => item.kind === "assistant")).toHaveLength(1);
+    expect(items.find((item) => item.kind === "assistant")).toMatchObject({
+      meta: "stream complete"
+    });
+  });
+
   it("renders batch invocations instead of exposing the batch wrapper", () => {
     const batchItem: Extract<TimelineItem, { kind: "tool" }> = {
       id: "batch-1",
