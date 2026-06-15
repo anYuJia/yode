@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, CircleDot, Copy, Pencil, Check } from "lucide-react";
 import { TimelineItem } from "../../lib/mock";
 import { ActivityLeafNode } from "./ActivityLeafNode";
@@ -12,6 +12,11 @@ import {
 
 function classifyActivityTool(item: any) {
   return getActivityDescriptor(item).kind;
+}
+
+function notifyTimelineLayoutChanged() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent("yode:timeline-layout-change"));
 }
 
 function noun(count: number, zhSingular: string, enSingular: string, enPlural: string, isZh: boolean) {
@@ -96,6 +101,15 @@ export function ActivityGroupNode({ group, appLang, isTurnActive }: { group: any
     }
   }, [group.id, isRunning, isTurnActive, hasManuallyToggled]);
 
+  useLayoutEffect(() => {
+    notifyTimelineLayoutChanged();
+    const firstFrame = window.requestAnimationFrame(() => {
+      notifyTimelineLayoutChanged();
+      window.requestAnimationFrame(notifyTimelineLayoutChanged);
+    });
+    return () => window.cancelAnimationFrame(firstFrame);
+  }, [isExpanded, visibleItems.length]);
+
   if (visibleItems.length === 0 && !isRunning) return null;
 
   const count = visibleItems.filter((item: any) => item.kind === "tool").length || 1;
@@ -171,6 +185,15 @@ export function ActivityGroupNode({ group, appLang, isTurnActive }: { group: any
 export function ActivityItemNode({ node, appLang }: { node: any; appLang: string }) {
   const isZh = appLang === "zh";
   const [isExpanded, setIsExpanded] = useState(false);
+
+  useLayoutEffect(() => {
+    notifyTimelineLayoutChanged();
+    const firstFrame = window.requestAnimationFrame(() => {
+      notifyTimelineLayoutChanged();
+      window.requestAnimationFrame(notifyTimelineLayoutChanged);
+    });
+    return () => window.cancelAnimationFrame(firstFrame);
+  }, [isExpanded]);
 
   const isRunning = node.status === "running";
   const parsed = parseToolDetails(node);
@@ -307,7 +330,13 @@ export function EditSummaryNode({ node, appLang }: { node: Extract<TimelineItem,
 
   return (
     <div className="edit-summary-card">
-      <div className="edit-summary-head">
+      <button
+        type="button"
+        className="edit-summary-head"
+        aria-expanded={isExpanded}
+        title={isZh ? "查看改动" : "Review changes"}
+        onClick={() => setIsExpanded((value) => !value)}
+      >
         <div className="edit-summary-badge">
           <Pencil size={15} />
         </div>
@@ -321,11 +350,9 @@ export function EditSummaryNode({ node, appLang }: { node: Extract<TimelineItem,
           ) : null}
         </div>
         <div className="edit-summary-actions">
-          <button type="button" title={isZh ? "查看改动" : "Review changes"} onClick={() => setIsExpanded((value) => !value)}>
-            {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          </button>
+          {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         </div>
-      </div>
+      </button>
 
       {isExpanded ? (
         <div className="edit-summary-files">
@@ -371,49 +398,43 @@ export function EditSummaryNode({ node, appLang }: { node: Extract<TimelineItem,
             const added = Array.isArray(preview?.added)
               ? preview.added.map(String)
               : previewLines.filter((line) => line.startsWith("+")).map((line) => line.slice(1));
+            const fullRemoved = Array.isArray(preview?.full_removed)
+              ? preview.full_removed.map(String)
+              : removed;
+            const fullAdded = Array.isArray(preview?.full_added)
+              ? preview.full_added.map(String)
+              : added;
             const hasStructuredDiff = item.status !== "blocked" && (removed.length > 0 || added.length > 0);
             const diffText = item.status === "blocked" ? item.result || item.body : parsed.diffPreview || item.result || item.body;
             if (!diffText && !hasStructuredDiff) return null;
             const diffCopyText = hasStructuredDiff
               ? [
-                ...removed.map((line: string) => `-${line}`),
-                ...added.map((line: string) => `+${line}`)
+                ...fullRemoved.map((line: string) => `-${line}`),
+                ...fullAdded.map((line: string) => `+${line}`)
               ].join("\n")
               : diffText;
             return (
-              <details className="edit-diff" key={`${item.id}-diff`}>
-                <summary>
-                  {filename ? getFileIcon(filename) : null}
-                  <span className="edit-diff-name">{filename}</span>
-                  {item.status !== "blocked" ? (
-                    <span className="edit-diff-counts">
-                      <em className="diff-add">+{add}</em>
-                      <em className="diff-del">-{del}</em>
-                    </span>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="edit-diff-copy"
-                    aria-label={isZh ? "复制 diff" : "Copy diff"}
-                    title={isZh ? "复制 diff" : "Copy diff"}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      void copyDiff(diffCopyText, item.id);
-                    }}
-                  >
-                    {copiedId === item.id ? <Check size={14} /> : <Copy size={14} />}
-                  </button>
-                </summary>
+              <div className="edit-diff" key={`${item.id}-diff`}>
+                <button
+                  type="button"
+                  className="edit-diff-copy"
+                  aria-label={isZh ? `复制 ${filename} 的 diff` : `Copy diff for ${filename}`}
+                  title={isZh ? "复制 diff" : "Copy diff"}
+                  onClick={() => {
+                    void copyDiff(diffCopyText, item.id);
+                  }}
+                >
+                  {copiedId === item.id ? <Check size={14} /> : <Copy size={14} />}
+                </button>
                 {hasStructuredDiff ? (
                   <div className="edit-diff-lines">
-                    {removed.map((line: string, index: number) => (
+                    {fullRemoved.map((line: string, index: number) => (
                       <div className="edit-diff-line removed" key={`${item.id}-removed-${index}`}>
                         <span className="edit-diff-gutter">-</span>
                         <span className="edit-diff-content">{line || "\u00a0"}</span>
                       </div>
                     ))}
-                    {added.map((line: string, index: number) => (
+                    {fullAdded.map((line: string, index: number) => (
                       <div className="edit-diff-line added" key={`${item.id}-added-${index}`}>
                         <span className="edit-diff-gutter">+</span>
                         <span className="edit-diff-content">{line || "\u00a0"}</span>
@@ -423,7 +444,7 @@ export function EditSummaryNode({ node, appLang }: { node: Extract<TimelineItem,
                 ) : (
                   <pre>{diffText}</pre>
                 )}
-              </details>
+              </div>
             );
           })}
         </div>

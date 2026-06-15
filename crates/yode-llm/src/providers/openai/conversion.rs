@@ -156,7 +156,7 @@ fn sanitize_openai_tool_parameters(value: Value) -> Value {
         });
     }
     if let Value::Object(map) = &mut value {
-        strip_openai_top_level_schema_keywords(map);
+        strip_openai_unsupported_schema_keywords(map);
         map.entry("properties".to_string())
             .or_insert_with(|| Value::Object(Default::default()));
         map.entry("required".to_string())
@@ -165,12 +165,10 @@ fn sanitize_openai_tool_parameters(value: Value) -> Value {
     value
 }
 
-fn sanitize_openai_schema(mut value: Value, is_root: bool) -> Value {
+fn sanitize_openai_schema(mut value: Value, _is_root: bool) -> Value {
     match &mut value {
         Value::Object(map) => {
-            if is_root {
-                strip_openai_top_level_schema_keywords(map);
-            }
+            strip_openai_unsupported_schema_keywords(map);
             map.retain(|_, child| !child.is_null());
             for child in map.values_mut() {
                 *child = sanitize_openai_schema(std::mem::take(child), false);
@@ -192,7 +190,7 @@ fn sanitize_openai_schema(mut value: Value, is_root: bool) -> Value {
     value
 }
 
-fn strip_openai_top_level_schema_keywords(map: &mut serde_json::Map<String, Value>) {
+fn strip_openai_unsupported_schema_keywords(map: &mut serde_json::Map<String, Value>) {
     for key in ["oneOf", "anyOf", "allOf", "enum", "const", "not"] {
         map.remove(key);
     }

@@ -31,6 +31,9 @@ export function displayToolName(tool?: string) {
   if (name === "update_plan") return "更新计划";
   if (name === "write_stdin") return "写入输入";
   if (name === "schedule") return "计划任务";
+  if (name === "enter_plan_mode") return "进入计划模式";
+  if (name === "exit_plan_mode") return "退出计划模式";
+  if (name === "verify_plan_execution") return "检查计划执行";
   return name;
 }
 

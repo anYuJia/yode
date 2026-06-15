@@ -8,6 +8,8 @@ interface ReasoningNodeProps {
 
 export function ReasoningNode({ item, appLang }: ReasoningNodeProps) {
   const isRunning = item.meta === "running";
+  const title = item.title || (isRunning ? "思考中" : "已思考");
+  const displayTitle = isRunning ? title.replace(/[.。…]+$/g, "") : title;
   
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -34,7 +36,7 @@ export function ReasoningNode({ item, appLang }: ReasoningNodeProps) {
             ) : (
               <Brain size={10} className="reasoning-complete-icon" />
             )}
-            <span>{item.title || (isRunning ? "思考中..." : "已思考")}</span>
+            <span>{displayTitle}</span>
           </div>
 
           {isExpanded && (

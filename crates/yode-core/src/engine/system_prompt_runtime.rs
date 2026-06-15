@@ -58,6 +58,9 @@ impl AgentEngine {
                 }
             }
         }
+        if let Some(snapshot) = workspace_top_level_snapshot(&cwd) {
+            environment.push_str(&snapshot);
+        }
         push_segment("Environment", environment);
 
         if let Some(instruction_content) = load_instruction_context(&cwd) {
@@ -136,6 +139,50 @@ impl AgentEngine {
             segments: runtime_segments,
         }
     }
+}
+
+fn workspace_top_level_snapshot(cwd: &std::path::Path) -> Option<String> {
+    let entries = std::fs::read_dir(cwd).ok()?;
+    let mut names = entries
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.is_empty()
+                || name == ".git"
+                || name == ".yode"
+                || name == "node_modules"
+                || name == "target"
+                || name == "dist"
+                || name == ".next"
+            {
+                return None;
+            }
+            let marker = entry.file_type().ok().and_then(|kind| {
+                if kind.is_dir() {
+                    Some("/")
+                } else {
+                    Some("")
+                }
+            })?;
+            Some(format!("{name}{marker}"))
+        })
+        .collect::<Vec<_>>();
+    names.sort();
+    if names.is_empty() {
+        return Some("- Workspace top-level entries: none visible\n".to_string());
+    }
+    let total = names.len();
+    let visible = names.into_iter().take(24).collect::<Vec<_>>();
+    let suffix = if total > visible.len() {
+        format!(" (+{} more)", total - visible.len())
+    } else {
+        String::new()
+    };
+    Some(format!(
+        "- Workspace top-level entries: {}{}\n- Workspace reuse rule: this directory is non-empty; inspect and continue existing files before creating duplicates.\n",
+        visible.join(", "),
+        suffix
+    ))
 }
 
 fn multi_agent_coordination_prompt() -> String {
