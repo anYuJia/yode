@@ -2,6 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
+use crate::builtin::edit_artifact::{diff_artifact_metadata, persist_edit_diff_artifact};
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
 pub mod snip;
@@ -186,16 +187,33 @@ Usage:
                     .take(5)
                     .map(|line| line.to_string())
                     .collect::<Vec<_>>();
-                let metadata = json!({
+                let old_lines = actual_old
+                    .lines()
+                    .map(|line| line.to_string())
+                    .collect::<Vec<_>>();
+                let new_lines = new_string
+                    .lines()
+                    .map(|line| line.to_string())
+                    .collect::<Vec<_>>();
+                let mut full_removed = Vec::new();
+                let mut full_added = Vec::new();
+                for _ in 0..replacements {
+                    full_removed.extend(old_lines.iter().cloned());
+                    full_added.extend(new_lines.iter().cloned());
+                }
+                let artifact =
+                    persist_edit_diff_artifact(ctx, file_path, &full_removed, &full_added).await;
+                let mut metadata = json!({
                     "file_path": file_path,
                     "replacements": replacements,
                     "diff_preview": {
                         "removed": removed,
                         "added": added,
-                        "more_removed": actual_old.lines().count().saturating_sub(5),
-                        "more_added": new_string.lines().count().saturating_sub(5),
+                        "more_removed": full_removed.len().saturating_sub(5),
+                        "more_added": full_added.len().saturating_sub(5),
                     },
                 });
+                merge_metadata(&mut metadata, diff_artifact_metadata(artifact));
 
                 Ok(ToolResult::success_with_metadata(
                     format!("The file {} has been updated successfully.", file_path),
@@ -206,6 +224,14 @@ Usage:
                 "Failed to write file '{}': {}",
                 file_path, e
             ))),
+        }
+    }
+}
+
+fn merge_metadata(target: &mut Value, extra: Value) {
+    if let (Some(target), Some(extra)) = (target.as_object_mut(), extra.as_object()) {
+        for (key, value) in extra {
+            target.insert(key.clone(), value.clone());
         }
     }
 }
@@ -275,7 +301,9 @@ mod tests {
 
     #[tokio::test]
     async fn replace_all_updates_file_and_metadata() {
-        let path = temp_path("replace-all.txt");
+        let dir = temp_path("replace-all-dir");
+        let path = dir.join("replace-all.txt");
+        tokio::fs::create_dir_all(&dir).await.unwrap();
         tokio::fs::write(&path, "foo = 1\nfoo = 2\n").await.unwrap();
 
         let mut seen = HashSet::new();
@@ -283,6 +311,7 @@ mod tests {
         let history = Arc::new(Mutex::new(seen));
         let mut ctx = ToolContext::empty();
         ctx.read_file_history = Some(history);
+        ctx.working_dir = Some(dir.clone());
 
         let result = EditFileTool
             .execute(
@@ -305,8 +334,21 @@ mod tests {
             result.metadata.as_ref().unwrap()["diff_preview"]["added"][0],
             json!("bar")
         );
+        let artifact_path = result.metadata.as_ref().unwrap()["diff_artifact_path"]
+            .as_str()
+            .unwrap();
+        assert!(artifact_path.starts_with(".yode/edit-diffs/"));
+        assert_eq!(
+            result.metadata.as_ref().unwrap()["full_added_line_count"],
+            json!(2)
+        );
+        let artifact = tokio::fs::read_to_string(dir.join(artifact_path))
+            .await
+            .unwrap();
+        assert!(artifact.contains("-foo"));
+        assert!(artifact.contains("+bar"));
 
-        let _ = tokio::fs::remove_file(&path).await;
+        let _ = tokio::fs::remove_dir_all(&dir).await;
     }
 
     #[tokio::test]

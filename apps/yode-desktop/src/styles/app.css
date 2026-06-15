@@ -2973,6 +2973,29 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   white-space: pre;
 }
 
+.edit-diff-artifact-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: max-content;
+  padding: 8px 14px 7px 44px;
+  border-top: 1px solid color-mix(in oklch, var(--line-soft), transparent 38%);
+  color: var(--text-soft);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.edit-diff-artifact-note code {
+  max-width: 420px;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-family: var(--font-code);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .edit-diff pre {
   max-height: min(520px, 58vh);
   margin: 0;

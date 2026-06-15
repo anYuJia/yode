@@ -2,6 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
+use crate::builtin::edit_artifact::{diff_artifact_metadata, persist_edit_diff_artifact};
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
 pub struct WriteFileTool;
@@ -117,12 +118,17 @@ Usage:
                     .take(5)
                     .map(|line| line.to_string())
                     .collect::<Vec<_>>();
+                let added_lines = content
+                    .lines()
+                    .map(|line| line.to_string())
+                    .collect::<Vec<_>>();
+                let artifact = persist_edit_diff_artifact(ctx, file_path, &[], &added_lines).await;
                 tracing::debug!(
                     file_path = %file_path,
                     bytes = byte_count,
                     "File written successfully"
                 );
-                let metadata = json!({
+                let mut metadata = json!({
                     "file_path": file_path,
                     "byte_count": byte_count,
                     "line_count": line_count,
@@ -133,6 +139,7 @@ Usage:
                         "more_added": line_count.saturating_sub(5),
                     },
                 });
+                merge_metadata(&mut metadata, diff_artifact_metadata(artifact));
                 Ok(ToolResult::success_with_metadata(
                     format!(
                         "Successfully wrote {} bytes ({} lines) to '{}'",
@@ -148,6 +155,14 @@ Usage:
                     file_path, e
                 )))
             }
+        }
+    }
+}
+
+fn merge_metadata(target: &mut Value, extra: Value) {
+    if let (Some(target), Some(extra)) = (target.as_object_mut(), extra.as_object()) {
+        for (key, value) in extra {
+            target.insert(key.clone(), value.clone());
         }
     }
 }

@@ -113,10 +113,10 @@ export function ActivityGroupNode({ group, appLang, isTurnActive }: { group: any
   if (visibleItems.length === 0 && !isRunning) return null;
 
   const count = visibleItems.filter((item: any) => item.kind === "tool").length || 1;
-  const displayedItems = isExpanded && visibleItems.length > 8
+  const displayedItems = isExpanded && isRunning && visibleItems.length > 8
     ? [...visibleItems.slice(0, 4), ...visibleItems.slice(-3)]
     : visibleItems;
-  const hiddenCount = isExpanded && visibleItems.length > displayedItems.length
+  const hiddenCount = isExpanded && isRunning && visibleItems.length > displayedItems.length
     ? visibleItems.length - displayedItems.length
     : 0;
   
@@ -398,19 +398,24 @@ export function EditSummaryNode({ node, appLang }: { node: Extract<TimelineItem,
             const added = Array.isArray(preview?.added)
               ? preview.added.map(String)
               : previewLines.filter((line) => line.startsWith("+")).map((line) => line.slice(1));
-            const fullRemoved = Array.isArray(preview?.full_removed)
-              ? preview.full_removed.map(String)
-              : removed;
-            const fullAdded = Array.isArray(preview?.full_added)
-              ? preview.full_added.map(String)
-              : added;
+            const artifactPath = typeof item.metadata?.diff_artifact_path === "string"
+              ? item.metadata.diff_artifact_path
+              : "";
+            const fullAddedCount = Number(item.metadata?.full_added_line_count);
+            const fullRemovedCount = Number(item.metadata?.full_removed_line_count);
+            const moreRemoved = Number(preview?.more_removed || 0);
+            const moreAdded = Number(preview?.more_added || 0);
+            const totalPreviewLines = removed.length + added.length;
+            const totalFullLines =
+              (Number.isFinite(fullRemovedCount) ? fullRemovedCount : removed.length + moreRemoved) +
+              (Number.isFinite(fullAddedCount) ? fullAddedCount : added.length + moreAdded);
             const hasStructuredDiff = item.status !== "blocked" && (removed.length > 0 || added.length > 0);
             const diffText = item.status === "blocked" ? item.result || item.body : parsed.diffPreview || item.result || item.body;
             if (!diffText && !hasStructuredDiff) return null;
             const diffCopyText = hasStructuredDiff
               ? [
-                ...fullRemoved.map((line: string) => `-${line}`),
-                ...fullAdded.map((line: string) => `+${line}`)
+                ...removed.map((line: string) => `-${line}`),
+                ...added.map((line: string) => `+${line}`)
               ].join("\n")
               : diffText;
             return (
@@ -428,18 +433,28 @@ export function EditSummaryNode({ node, appLang }: { node: Extract<TimelineItem,
                 </button>
                 {hasStructuredDiff ? (
                   <div className="edit-diff-lines">
-                    {fullRemoved.map((line: string, index: number) => (
+                    {removed.map((line: string, index: number) => (
                       <div className="edit-diff-line removed" key={`${item.id}-removed-${index}`}>
                         <span className="edit-diff-gutter">-</span>
                         <span className="edit-diff-content">{line || "\u00a0"}</span>
                       </div>
                     ))}
-                    {fullAdded.map((line: string, index: number) => (
+                    {added.map((line: string, index: number) => (
                       <div className="edit-diff-line added" key={`${item.id}-added-${index}`}>
                         <span className="edit-diff-gutter">+</span>
                         <span className="edit-diff-content">{line || "\u00a0"}</span>
                       </div>
                     ))}
+                    {totalFullLines > totalPreviewLines || artifactPath ? (
+                      <div className="edit-diff-artifact-note">
+                        <span>
+                          {isZh
+                            ? `这里显示 ${totalPreviewLines} 行预览，完整 diff ${totalFullLines || totalPreviewLines} 行`
+                            : `Showing ${totalPreviewLines} preview lines, full diff has ${totalFullLines || totalPreviewLines} lines`}
+                        </span>
+                        {artifactPath ? <code>{artifactPath}</code> : null}
+                      </div>
+                    ) : null}
                   </div>
                 ) : (
                   <pre>{diffText}</pre>

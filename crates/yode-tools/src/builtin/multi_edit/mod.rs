@@ -2,6 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
+use crate::builtin::edit_artifact::{diff_artifact_metadata, persist_edit_diff_artifact};
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolErrorType, ToolResult};
 
 pub struct MultiEditTool;
@@ -154,6 +155,8 @@ impl Tool for MultiEditTool {
         let mut applied: usize = 0;
         let mut removed_preview = Vec::new();
         let mut added_preview = Vec::new();
+        let mut removed_full = Vec::new();
+        let mut added_full = Vec::new();
         for (old_string, new_string) in parsed_edits {
             if removed_preview.len() < 5 {
                 removed_preview.push(old_string.lines().next().unwrap_or("").to_string());
@@ -161,6 +164,8 @@ impl Tool for MultiEditTool {
             if added_preview.len() < 5 {
                 added_preview.push(new_string.lines().next().unwrap_or("").to_string());
             }
+            removed_full.extend(old_string.lines().map(|line| line.to_string()));
+            added_full.extend(new_string.lines().map(|line| line.to_string()));
             content = content.replacen(old_string, new_string, 1);
             applied += 1;
         }
@@ -168,7 +173,9 @@ impl Tool for MultiEditTool {
         // Write back
         match tokio::fs::write(file_path, &content).await {
             Ok(()) => {
-                let metadata = json!({
+                let artifact =
+                    persist_edit_diff_artifact(ctx, file_path, &removed_full, &added_full).await;
+                let mut metadata = json!({
                     "file_path": file_path,
                     "applied_edits": applied,
                     "diff_preview": {
@@ -178,6 +185,7 @@ impl Tool for MultiEditTool {
                         "more_added": applied.saturating_sub(added_preview.len()),
                     },
                 });
+                merge_metadata(&mut metadata, diff_artifact_metadata(artifact));
                 Ok(ToolResult::success_with_metadata(
                     format!(
                         "Successfully applied {} edit(s) to '{}'.",
@@ -190,6 +198,14 @@ impl Tool for MultiEditTool {
                 "Failed to write file '{}': {}",
                 file_path, e
             ))),
+        }
+    }
+}
+
+fn merge_metadata(target: &mut Value, extra: Value) {
+    if let (Some(target), Some(extra)) = (target.as_object_mut(), extra.as_object()) {
+        for (key, value) in extra {
+            target.insert(key.clone(), value.clone());
         }
     }
 }

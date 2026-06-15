@@ -6,6 +6,7 @@ pub mod codex_compat;
 pub mod common;
 pub mod coordinator;
 pub mod cron;
+pub(crate) mod edit_artifact;
 pub mod edit_file;
 pub mod file_diff;
 pub mod git_commit;
