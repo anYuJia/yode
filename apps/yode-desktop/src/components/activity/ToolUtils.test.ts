@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { buildActivityGroupLabel } from "./ActivityGroupNode";
 import { activityGroupPreview, getActivityDescriptor, summarizeActivityItems } from "./ToolUtils";
 
 describe("ToolUtils activity descriptors", () => {
@@ -101,5 +102,26 @@ describe("ToolUtils activity descriptors", () => {
     expect(activityGroupPreview(items, "zh")).toBe(
       "查看 Cargo.toml，搜索 activityGroupPreview，运行 git status --short"
     );
+  });
+
+  it("separates completed group label parts in Chinese", () => {
+    const items = summarizeActivityItems([
+      {
+        kind: "tool",
+        tool: "read_file",
+        title: "查看文件",
+        body: JSON.stringify({ file_path: "/Users/pyu/code/yode/Cargo.toml" }),
+        status: "success"
+      },
+      {
+        kind: "tool",
+        tool: "exec_command",
+        title: "运行命令",
+        body: JSON.stringify({ cmd: "git status --short" }),
+        status: "success"
+      }
+    ]);
+
+    expect(buildActivityGroupLabel(items, "zh", false)).toBe("已查看 1 个文件，已运行 1 条命令");
   });
 });

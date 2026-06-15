@@ -26,7 +26,7 @@ function noun(count: number, zhSingular: string, enSingular: string, enPlural: s
   return `${count} ${count === 1 ? enSingular : enPlural}`;
 }
 
-function buildActivityGroupLabel(items: any[], appLang: string, isRunning: boolean) {
+export function buildActivityGroupLabel(items: any[], appLang: string, isRunning: boolean) {
   const isZh = appLang === "zh";
   const tools = items.filter((item) => item.kind === "tool");
   const exploreTools = tools.filter((item) => classifyActivityTool(item) === "read");
@@ -78,7 +78,7 @@ function buildActivityGroupLabel(items: any[], appLang: string, isRunning: boole
       : `${isRunning ? "Executing" : "Executed"} ${noun(otherTools.length, "", "action", "actions", false)}`);
   }
 
-  return parts.join(isZh ? "" : ", ");
+  return parts.join(isZh ? "，" : ", ");
 }
 
 export function ActivityGroupNode({ group, appLang, isTurnActive }: { group: any; appLang: string; isTurnActive?: boolean }) {
