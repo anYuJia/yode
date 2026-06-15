@@ -128,6 +128,14 @@ export function parseToolDetails(item: { tool: string; body: string; title: stri
       filename = rawPath.substring(Math.max(rawPath.lastIndexOf('/'), rawPath.lastIndexOf('\\')) + 1);
     }
 
+    const start = metadata.start_line ?? metadata.startLine ?? metadata.StartLine;
+    const end = metadata.end_line ?? metadata.endLine ?? metadata.EndLine;
+    if (start !== undefined && end !== undefined) {
+      lineRange = `#L${start}-${end}`;
+    } else if (start !== undefined) {
+      lineRange = `#L${start}`;
+    }
+
     if (Array.isArray(metadata.modified_files)) {
       modifiedFiles = metadata.modified_files.filter(
         (value: unknown): value is string => typeof value === "string" && value.trim().length > 0
@@ -171,8 +179,9 @@ export function parseToolDetails(item: { tool: string; body: string; title: stri
       lineRange = `#L${start}`;
     }
 
-    if (parsed.CommandLine) {
-      command = parsed.CommandLine;
+    const parsedCommand = parsed.CommandLine || parsed.command || parsed.cmd || parsed.shell_command;
+    if (typeof parsedCommand === "string" && parsedCommand.trim()) {
+      command = parsedCommand.trim();
     }
 
     if (item.tool?.includes("replace") || item.tool?.includes("write") || item.tool?.includes("edit")) {

@@ -36,6 +36,19 @@ describe("ToolUtils activity descriptors", () => {
 
     expect(descriptor.kind).toBe("read");
     expect(descriptor.filename).toBe("app.css");
+    expect(descriptor.lineRange).toBe("#L1-20");
+  });
+
+  it("parses common command parameters from tool body", () => {
+    const descriptor = getActivityDescriptor({
+      tool: "exec_command",
+      title: "运行命令",
+      body: JSON.stringify({ cmd: "pnpm --dir apps/yode-desktop test -- --run" })
+    });
+
+    expect(descriptor.kind).toBe("run");
+    expect(descriptor.command).toBe("pnpm --dir apps/yode-desktop test -- --run");
+    expect(descriptor.target).toBe("pnpm --dir apps/yode-desktop test -- --run");
   });
 
   it("deduplicates repeated tool items by descriptor target", () => {

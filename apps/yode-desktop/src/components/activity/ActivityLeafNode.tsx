@@ -1,5 +1,5 @@
 import React, { useLayoutEffect, useState } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, CircleDot } from "lucide-react";
 import { getFileIcon, getCommandIcon } from "../FileIcon";
 import { getActivityDescriptor, displayToolName } from "./ToolUtils";
 
@@ -266,8 +266,9 @@ export function ActivityLeafNode({ item, appLang }: { item: any; appLang: string
       <div className="activity-leaf">
         <div 
           onClick={() => hasBodyOrResult && setIsExpanded(!isExpanded)}
-          className={`activity-leaf-trigger ${hasBodyOrResult ? "interactive" : ""}`}
+          className={`activity-leaf-trigger ${isRunning ? "running" : "complete"} ${hasBodyOrResult ? "interactive" : ""}`}
         >
+          {isRunning ? <CircleDot size={8} className="activity-leaf-status-dot" /> : null}
           <span>{label}</span>
           {descriptor.filename ? getFileIcon(descriptor.filename) : descriptor.command ? getCommandIcon() : null}
           {value ? (

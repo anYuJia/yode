@@ -1861,15 +1861,33 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   cursor: default;
 }
 
+.activity-leaf-trigger.running {
+  color: var(--process-accent);
+}
+
+.activity-leaf-trigger.complete {
+  color: var(--process-dim);
+}
+
+.activity-leaf-status-dot {
+  flex: 0 0 auto;
+  color: var(--process-accent);
+  animation: reasoning-dot-breathe 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
 .activity-leaf-trigger.interactive {
   cursor: pointer;
 }
 
 .activity-strong {
   min-width: 0;
+  max-width: min(720px, calc(100vw - 180px));
   color: var(--process-text);
   font-weight: 520;
+  overflow: hidden;
   overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .activity-leaf-count {
