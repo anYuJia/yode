@@ -12,6 +12,7 @@ export function displayToolName(tool?: string) {
   if (name === "ls") return "目录列表";
   if (name === "tauri command") return "桌面命令";
   if (name === "view_file") return "查看文件";
+  if (name === "write_file") return "写入文件";
   if (name === "replace_file_content") return "编辑文件";
   if (name === "multi_replace_file_content") return "多处编辑文件";
   if (name === "write_to_file") return "创建文件";

@@ -18,7 +18,9 @@ import { AskUserActions, UserQuery } from "./chat-workspace/AskUserActions";
 export type PendingUserQuestion = {
   sessionId: string;
   turnId: string;
+  title?: string;
   question: string;
+  query?: UserQuery;
 };
 
 interface ChatWorkspaceProps {
@@ -83,6 +85,7 @@ export function ChatWorkspace({
   requireOptEnter
 }: ChatWorkspaceProps) {
   const isStreaming = useMemo(() => {
+    if (pendingUserQuestion) return true;
     if (isProcessing) return true;
 
     const hasRunningTool = timelineItems.some(item => item.kind === "tool" && item.status === "running");
@@ -97,7 +100,7 @@ export function ChatWorkspace({
       return true;
     }
     return false;
-  }, [timelineItems, isProcessing]);
+  }, [timelineItems, isProcessing, pendingUserQuestion]);
 
   const [expandedTurnIds, setExpandedTurnIds] = useState<string[]>([]);
   const previousStreamingRef = useRef(false);
@@ -147,16 +150,29 @@ export function ChatWorkspace({
     .reverse()
     .find((item): item is Extract<TimelineItem, { kind: "permission" }> => item.kind === "permission");
 
-  const parsedStructuredQuery = useMemo(() => {
+  const parsedStructuredQuery = useMemo((): UserQuery | null => {
     if (!pendingUserQuestion) return null;
+    if (pendingUserQuestion.query && Array.isArray(pendingUserQuestion.query.questions)) {
+      return pendingUserQuestion.query;
+    }
     try {
       const parsed = JSON.parse(pendingUserQuestion.question);
       if (parsed && Array.isArray(parsed.questions)) {
         return parsed as UserQuery;
       }
     } catch (e) {}
-    return null;
-  }, [pendingUserQuestion]);
+    return {
+      questions: [
+        {
+          header: pendingUserQuestion.title || (appLang === "zh" ? "需要你的回复" : "Need your input"),
+          question: pendingUserQuestion.question || (appLang === "zh" ? "请补充说明。" : "Please reply."),
+          options: []
+        }
+      ]
+    };
+  }, [pendingUserQuestion, appLang]);
+
+  const hasBlockingDecision = Boolean(parsedStructuredQuery || activePermission);
 
   useEffect(() => {
     if (isStreaming && turns.length > 0) {
@@ -263,6 +279,41 @@ export function ChatWorkspace({
     return () => window.cancelAnimationFrame(frame);
   }, [timelineContentHash, isStreaming]);
 
+  useLayoutEffect(() => {
+    const panel = timelinePanelRef.current;
+    if (!panel || typeof ResizeObserver === "undefined") return;
+
+    let previousHeight = panel.scrollHeight;
+    let frame: number | null = null;
+    const observer = new ResizeObserver(() => {
+      const nextHeight = panel.scrollHeight;
+      if (nextHeight === previousHeight) return;
+      previousHeight = nextHeight;
+      if (!isStreaming && !shouldStickToBottomRef.current && !isNearTimelineBottom(panel, 96)) {
+        return;
+      }
+      if (frame !== null) {
+        window.cancelAnimationFrame(frame);
+      }
+      frame = window.requestAnimationFrame(() => {
+        frame = null;
+        if (shouldStickToBottomRef.current || isNearTimelineBottom(panel, 160) || isStreaming) {
+          scrollTimelineToBottom("auto");
+        }
+      });
+    });
+
+    observer.observe(panel);
+    Array.from(panel.children).forEach((child) => observer.observe(child));
+
+    return () => {
+      if (frame !== null) {
+        window.cancelAnimationFrame(frame);
+      }
+      observer.disconnect();
+    };
+  }, [timelineContentHash, isStreaming]);
+
   return (
     <div
       className={`chat-layout ${inspectorOpen ? "" : "inspector-collapsed"}`}
@@ -323,6 +374,7 @@ export function ChatWorkspace({
             turns.map((turn, turnIndex) => {
               const isLastTurn = turnIndex === turns.length - 1;
               const isTurnActive = isStreaming && isLastTurn;
+              const isTurnWaitingForUser = Boolean(pendingUserQuestion) && isLastTurn;
               const visibleItems = compileInlineItems(turn.items, isTurnActive, appLang);
               const { processItems, answerItems } = splitTurnVisibleItems(visibleItems);
               const hasProcessItems = processItems.length > 0;
@@ -336,6 +388,7 @@ export function ChatWorkspace({
                     <TurnProcessSummary
                       turnId={turn.id}
                       isActive={isTurnActive}
+                      isWaitingForUser={isTurnWaitingForUser}
                       isExpanded={isProcessExpanded}
                       durationSeconds={durationSeconds}
                       processCount={processItems.length}
@@ -362,7 +415,7 @@ export function ChatWorkspace({
           )}
         </section>
         {parsedStructuredQuery ? (
-          <div className="permission-dock" aria-label="用户提问确认">
+          <div className="bottom-decision-panel ask-user-overlay" aria-label="用户提问确认">
             <AskUserActions
               query={parsedStructuredQuery}
               appLang={appLang}
@@ -370,7 +423,7 @@ export function ChatWorkspace({
             />
           </div>
         ) : activePermission ? (
-          <div className="permission-dock" aria-label="执行确认">
+          <div className="bottom-decision-panel permission-dock" aria-label="执行确认">
             <PermissionActions
               item={activePermission}
               appLang={appLang}
@@ -378,28 +431,30 @@ export function ChatWorkspace({
             />
           </div>
         ) : null}
-        <Composer
-          draft={draft}
-          onDraftChange={onDraftChange}
-          images={images}
-          onImagesChange={onImagesChange}
-          onSendMessage={onSendMessage}
-          isProcessing={isProcessing}
-          onCancelMessage={onCancelMessage}
-          permissionMode={permissionMode}
-          onPermissionModeChange={onPermissionModeChange}
-          appLang={appLang}
-          projectOptions={projectOptions}
-          selectedProjectRoot={selectedProjectRoot}
-          onProjectRootChange={onProjectRootChange}
-          onAddProject={onAddProject}
-          currentProvider={currentProvider}
-          currentModel={currentModel}
-          onModelChange={onModelChange}
-          showBottomPanel={showBottomPanel}
-          showContextUsage={showContextUsage}
-          requireOptEnter={requireOptEnter}
-        />
+        {!hasBlockingDecision ? (
+          <Composer
+            draft={draft}
+            onDraftChange={onDraftChange}
+            images={images}
+            onImagesChange={onImagesChange}
+            onSendMessage={onSendMessage}
+            isProcessing={isProcessing}
+            onCancelMessage={onCancelMessage}
+            permissionMode={permissionMode}
+            onPermissionModeChange={onPermissionModeChange}
+            appLang={appLang}
+            projectOptions={projectOptions}
+            selectedProjectRoot={selectedProjectRoot}
+            onProjectRootChange={onProjectRootChange}
+            onAddProject={onAddProject}
+            currentProvider={currentProvider}
+            currentModel={currentModel}
+            onModelChange={onModelChange}
+            showBottomPanel={showBottomPanel}
+            showContextUsage={showContextUsage}
+            requireOptEnter={requireOptEnter}
+          />
+        ) : null}
       </div>
       <div
         className="pane-resizer inspector-resizer"

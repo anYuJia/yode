@@ -2,9 +2,10 @@ import React, { useState, useEffect, useRef } from "react";
 import { CircleDot, Check, ChevronDown } from "lucide-react";
 import { formatDurationZh } from "../timelineUtils";
 
-export function TurnProcessSummary({ turnId, isActive, isExpanded, onToggle, durationSeconds, processCount, appLang }: {
+export function TurnProcessSummary({ turnId, isActive, isWaitingForUser, isExpanded, onToggle, durationSeconds, processCount, appLang }: {
   turnId: string;
   isActive: boolean;
+  isWaitingForUser?: boolean;
   isExpanded: boolean;
   onToggle: () => void;
   durationSeconds: number;
@@ -37,16 +38,24 @@ export function TurnProcessSummary({ turnId, isActive, isExpanded, onToggle, dur
 
   const durationText = isZh ? formatDurationZh(elapsed) : `${elapsed}s`;
   const title = isActive
-    ? isZh
-      ? `处理中 ${durationText}`
-      : `Working for ${durationText}`
+    ? isWaitingForUser
+      ? isZh
+        ? `等待回复 ${durationText}`
+        : `Waiting for reply ${durationText}`
+      : isZh
+        ? `处理中 ${durationText}`
+        : `Working for ${durationText}`
     : isZh
       ? `已处理 ${durationText}`
       : `Task finished in ${durationText}`;
   const detail = isActive
-    ? isZh
-      ? "过程正在展开"
-      : "Process is visible"
+    ? isWaitingForUser
+      ? isZh
+        ? "请选择或输入答案"
+        : "Choose or type an answer"
+      : isZh
+        ? "过程正在展开"
+        : "Process is visible"
     : isExpanded
       ? (isZh ? "收起过程" : "Collapse process")
       : (isZh ? `展开过程（${processCount} 项）` : `Show process (${processCount})`);
@@ -60,7 +69,7 @@ export function TurnProcessSummary({ turnId, isActive, isExpanded, onToggle, dur
       aria-label={detail}
     >
       <span className="turn-process-summary-icon">
-        {isActive ? <CircleDot size={10} className="glowing-logo" /> : <Check size={12} />}
+        {isActive ? <CircleDot size={9} className="glowing-logo" /> : <Check size={11} />}
       </span>
       <span className="turn-process-summary-main">{title}</span>
       <span className="turn-process-summary-detail">{detail}</span>

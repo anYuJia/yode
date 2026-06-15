@@ -71,6 +71,30 @@ async fn test_bash_reports_modified_files_from_git_snapshot() {
 }
 
 #[tokio::test]
+async fn test_bash_reports_redirected_file_as_modified() {
+    let tool = BashTool;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("out.txt");
+
+    let mut ctx = ToolContext::empty();
+    ctx.working_dir = Some(dir.path().to_path_buf());
+    let result = tool
+        .execute(
+            json!({"command": format!("printf 'hello\\n' > {}", path.display())}),
+            &ctx,
+        )
+        .await
+        .unwrap();
+
+    assert!(!result.is_error);
+    let metadata = result.metadata.unwrap();
+    assert_eq!(metadata["modified_file_count"], json!(1));
+    assert_eq!(metadata["modified_files"][0], json!(path.display().to_string()));
+    assert_eq!(metadata["file_path"], json!(path.display().to_string()));
+    assert_eq!(metadata["diff_preview"]["added"][0], json!("hello"));
+}
+
+#[tokio::test]
 async fn test_bash_background() {
     let tool = BashTool;
     let params = json!({"command": "sleep 0.1", "run_in_background": true});

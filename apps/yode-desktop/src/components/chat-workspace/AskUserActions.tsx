@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { CircleDot } from "lucide-react";
+import { Check, CircleHelp, CornerDownLeft, Edit3 } from "lucide-react";
 
 export interface UserQueryOption {
   label: string;
@@ -34,7 +34,11 @@ export function AskUserActions({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [checkedIndices, setCheckedIndices] = useState<number[]>([]);
   const [answers, setAnswers] = useState<Record<string, string | string[]>>({});
+  const [manualAnswer, setManualAnswer] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const manualInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const hasOptions = question.options.length > 0;
 
   const handleToggle = (index: number) => {
     if (question.multiSelect) {
@@ -46,26 +50,43 @@ export function AskUserActions({
     }
   };
 
-  const submitAnswer = (idx?: number) => {
-    const targetIdx = idx !== undefined ? idx : selectedIndex;
+  const resolveQuestion = (value: string | string[]) => {
     const key = question.header || question.question;
     const nextAnswers = { ...answers };
-    if (question.multiSelect) {
-      const selectedLabels = checkedIndices.map((i) => question.options[i].label);
-      nextAnswers[key] = selectedLabels;
-    } else {
-      const selectedOption = question.options[targetIdx];
-      nextAnswers[key] = selectedOption.label;
-    }
+    nextAnswers[key] = value;
 
     if (questionIndex + 1 < query.questions.length) {
       setAnswers(nextAnswers);
       setQuestionIndex((index) => index + 1);
       setSelectedIndex(0);
       setCheckedIndices([]);
+      setManualAnswer("");
     } else {
+      setIsSubmitting(true);
       onResolve(JSON.stringify(nextAnswers));
     }
+  };
+
+  const submitAnswer = (idx?: number) => {
+    if (!hasOptions) {
+      const clean = manualAnswer.trim();
+      if (clean) resolveQuestion(clean);
+      return;
+    }
+
+    const targetIdx = idx !== undefined ? idx : selectedIndex;
+    if (question.multiSelect) {
+      const selectedLabels = checkedIndices.map((i) => question.options[i].label);
+      resolveQuestion(selectedLabels);
+    } else {
+      const selectedOption = question.options[targetIdx];
+      if (selectedOption) resolveQuestion(selectedOption.label);
+    }
+  };
+
+  const submitManualAnswer = () => {
+    const clean = manualAnswer.trim();
+    if (clean) resolveQuestion(clean);
   };
 
   useEffect(() => {
@@ -73,14 +94,23 @@ export function AskUserActions({
     setSelectedIndex(0);
     setCheckedIndices([]);
     setAnswers({});
+    setManualAnswer("");
+    setIsSubmitting(false);
   }, [query]);
 
   useEffect(() => {
-    optionRefs.current[selectedIndex]?.focus();
+    if (hasOptions) {
+      optionRefs.current[selectedIndex]?.focus();
+    } else {
+      manualInputRef.current?.focus();
+    }
   }, [selectedIndex, query]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest("textarea, input, [contenteditable=true]")) return;
+      if (!hasOptions) return;
       if (e.key === "ArrowUp") {
         e.preventDefault();
         setSelectedIndex((index) => (index - 1 + question.options.length) % question.options.length);
@@ -100,57 +130,102 @@ export function AskUserActions({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedIndex, checkedIndices, query, question]);
+  }, [selectedIndex, checkedIndices, query, question, hasOptions]);
 
   return (
-    <div className="permission-prompt">
-      <div className="permission-prompt-title">
-        <CircleDot size={16} />
-        <span>{question.header || (isZh ? "文件提问" : "Question")}</span>
-      </div>
-      {query.questions.length > 1 && (
-        <div style={{ marginTop: "6px", fontSize: "12px", color: "var(--muted)" }}>
-          {questionIndex + 1}/{query.questions.length}
+    <div className="ask-user-card" role="dialog" aria-modal="false" aria-labelledby="ask-user-title">
+      <div className="ask-user-card-header">
+        <div className="ask-user-icon">
+          <CircleHelp size={17} />
         </div>
-      )}
-      <p style={{ margin: "9px 0 12px", fontSize: "13px", color: "var(--text)" }}>{question.question}</p>
-      <div className="permission-option-list">
-        {question.options.map((option, index) => {
-          const isSelected = selectedIndex === index;
-          const isChecked = question.multiSelect ? checkedIndices.includes(index) : isSelected;
-          return (
-            <button
-              className={`permission-option ${isChecked ? "selected" : ""}`}
-              key={option.label}
-              ref={(node) => {
-                optionRefs.current[index] = node;
-              }}
-              onClick={() => {
-                if (question.multiSelect) {
-                  handleToggle(index);
-                } else {
-                  submitAnswer(index);
-                }
-              }}
-              type="button"
-              style={{ outline: "none", boxShadow: "none", cursor: "pointer" }}
-            >
-              <kbd>{question.multiSelect ? (checkedIndices.includes(index) ? "✓" : " ") : index + 1}</kbd>
-              <span>{option.label}</span>
-              <em>{option.description}</em>
-            </button>
-          );
-        })}
+        <div>
+          <div id="ask-user-title" className="ask-user-title">
+            {question.header || (isZh ? "需要你的回复" : "Question")}
+          </div>
+          {query.questions.length > 1 && (
+            <div className="ask-user-progress">
+              {questionIndex + 1}/{query.questions.length}
+            </div>
+          )}
+        </div>
       </div>
-      <div className="permission-prompt-footer">
+      <p className="ask-user-question">{question.question}</p>
+      {hasOptions ? (
+        <div className="ask-user-option-list">
+          {question.options.map((option, index) => {
+            const isSelected = selectedIndex === index;
+            const isChecked = question.multiSelect ? checkedIndices.includes(index) : isSelected;
+            return (
+              <button
+                className={`ask-user-option ${isChecked ? "selected" : ""}`}
+                key={option.label}
+                ref={(node) => {
+                  optionRefs.current[index] = node;
+                }}
+                onClick={() => {
+                  if (question.multiSelect) {
+                    handleToggle(index);
+                  } else {
+                    setSelectedIndex(index);
+                  }
+                }}
+                onDoubleClick={() => {
+                  if (!question.multiSelect) submitAnswer(index);
+                }}
+                type="button"
+                disabled={isSubmitting}
+              >
+                <span className="ask-user-option-key">
+                  {question.multiSelect ? (checkedIndices.includes(index) ? <Check size={13} /> : "") : index + 1}
+                </span>
+                <span className="ask-user-option-main">{option.label}</span>
+                {option.description ? <span className="ask-user-option-desc">{option.description}</span> : null}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+      <div className="ask-user-manual">
+        <div className="ask-user-manual-label">
+          <Edit3 size={13} />
+          <span>{isZh ? "手动输入" : "Custom answer"}</span>
+        </div>
+        <textarea
+          ref={manualInputRef}
+          value={manualAnswer}
+          onChange={(event) => setManualAnswer(event.target.value)}
+          disabled={isSubmitting}
+          placeholder={
+            hasOptions
+              ? (isZh ? "也可以直接输入自定义答案..." : "Or type a custom answer...")
+              : (isZh ? "输入你的回答..." : "Type your answer...")
+          }
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+              event.preventDefault();
+              submitManualAnswer();
+            }
+          }}
+        />
+      </div>
+      <div className="ask-user-footer">
         <button
-          className="permission-submit"
+          className="ask-user-secondary"
+          onClick={submitManualAnswer}
+          type="button"
+          disabled={isSubmitting || !manualAnswer.trim()}
+        >
+          {isZh ? "提交手动回复" : "Submit custom"}
+          <span>⌘↵</span>
+        </button>
+        <button
+          className="ask-user-submit"
           onClick={() => submitAnswer()}
           type="button"
-          style={{ outline: "none", boxShadow: "none", cursor: "pointer" }}
+          disabled={isSubmitting || (!hasOptions && !manualAnswer.trim())}
         >
-          {isZh ? "提交" : "Submit"}
-          <span>↵</span>
+          {isSubmitting ? (isZh ? "提交中" : "Submitting") : (isZh ? "提交" : "Submit")}
+          <CornerDownLeft size={14} />
         </button>
       </div>
     </div>

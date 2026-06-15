@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use anyhow::Result;
@@ -81,7 +81,7 @@ Examples:
         }
     }
 
-    async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<ToolResult> {
+    async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
         let pattern = params
             .get("pattern")
             .and_then(|v| v.as_str())
@@ -110,7 +110,7 @@ Examples:
             }
         };
 
-        let base = Path::new(base_path);
+        let base = resolve_path(base_path, ctx.working_dir.as_deref());
         if !base.exists() {
             return Ok(ToolResult::error(format!(
                 "Path '{}' does not exist.",
@@ -119,7 +119,7 @@ Examples:
         }
 
         let mut matches: Vec<(String, SystemTime)> = Vec::new();
-        walk_dir(base, base, &glob_set, &mut matches);
+        walk_dir(&base, &base, &glob_set, &mut matches);
 
         // Sort by modification time (newest first)
         matches.sort_by_key(|b| std::cmp::Reverse(b.1));
@@ -128,6 +128,7 @@ Examples:
             let metadata = json!({
                 "pattern": pattern,
                 "path": base_path,
+                "resolved_path": base.display().to_string(),
                 "match_count": 0,
             });
             return Ok(ToolResult::success_with_metadata(
@@ -140,12 +141,22 @@ Examples:
         let metadata = json!({
             "pattern": pattern,
             "path": base_path,
+            "resolved_path": base.display().to_string(),
             "match_count": result.len(),
         });
         Ok(ToolResult::success_with_metadata(
             result.join("\n"),
             metadata,
         ))
+    }
+}
+
+fn resolve_path(path: &str, working_dir: Option<&Path>) -> PathBuf {
+    let raw = Path::new(path);
+    if raw.is_absolute() {
+        raw.to_path_buf()
+    } else {
+        working_dir.unwrap_or_else(|| Path::new(".")).join(raw)
     }
 }
 
@@ -258,5 +269,36 @@ mod tests {
 
         assert!(result.is_error);
         assert!(result.content.contains("Invalid glob pattern"));
+    }
+
+    #[tokio::test]
+    async fn resolves_default_path_against_tool_working_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        tokio::fs::create_dir_all(dir.path().join("src"))
+            .await
+            .unwrap();
+        tokio::fs::write(dir.path().join("src").join("lib.rs"), "pub fn lib() {}")
+            .await
+            .unwrap();
+
+        let mut ctx = crate::tool::ToolContext::empty();
+        ctx.working_dir = Some(dir.path().to_path_buf());
+
+        let result = GlobTool
+            .execute(
+                json!({
+                    "pattern": "**/*.rs"
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("src/lib.rs"));
+        assert_eq!(
+            result.metadata.as_ref().unwrap()["resolved_path"],
+            json!(dir.path().join(".").display().to_string())
+        );
     }
 }

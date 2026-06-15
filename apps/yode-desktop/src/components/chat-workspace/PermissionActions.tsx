@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { TerminalSquare } from "lucide-react";
+import { Check, CornerDownLeft, ShieldQuestion, TerminalSquare } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { TimelineItem } from "../../lib/mock";
 
@@ -77,10 +77,15 @@ export function PermissionActions({
   return (
     <div className="permission-prompt">
       <div className="permission-prompt-title">
-        <TerminalSquare size={16} />
+        <span className="permission-prompt-icon">
+          <ShieldQuestion size={17} />
+        </span>
         <span>{isZh ? "允许运行此命令吗？" : "Allow running this command?"}</span>
       </div>
-      <pre className="permission-command">{item.body || item.tool}</pre>
+      <div className="permission-command-shell">
+        <TerminalSquare size={14} />
+        <pre className="permission-command">{item.body || item.tool}</pre>
+      </div>
       <div className="permission-option-list">
         {options.map((option, index) => (
           <button
@@ -96,7 +101,7 @@ export function PermissionActions({
             type="button"
             style={{ outline: "none", boxShadow: "none" }}
           >
-            <kbd>{index + 1}</kbd>
+            <kbd>{selectedIndex === index ? <Check size={13} /> : index + 1}</kbd>
             <span>{option.label}</span>
             <em>{option.description}</em>
           </button>
@@ -108,7 +113,7 @@ export function PermissionActions({
         </button>
         <button className="permission-submit" onClick={() => respond(selectedOption.id)} type="button" style={{ outline: "none", boxShadow: "none" }}>
           {isZh ? "提交" : "Submit"}
-          <span>↵</span>
+          <CornerDownLeft size={14} />
         </button>
       </div>
     </div>

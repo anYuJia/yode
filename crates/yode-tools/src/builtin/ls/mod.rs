@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -56,7 +56,7 @@ impl Tool for LsTool {
         }
     }
 
-    async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<ToolResult> {
+    async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
         let path = params.get("path").and_then(|v| v.as_str()).unwrap_or(".");
 
         let recursive = params
@@ -69,7 +69,7 @@ impl Tool for LsTool {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
-        let base = Path::new(path);
+        let base = resolve_path(path, ctx.working_dir.as_deref());
         if !base.exists() {
             return Ok(ToolResult::error(format!(
                 "Path '{}' does not exist.",
@@ -86,8 +86,8 @@ impl Tool for LsTool {
         let mut entries = Vec::new();
         let mut counts = (0, 0); // (files, dirs)
         list_dir_with_counts(
-            base,
-            base,
+            &base,
+            &base,
             recursive,
             show_hidden,
             &mut entries,
@@ -96,6 +96,7 @@ impl Tool for LsTool {
 
         let metadata = json!({
             "path": path,
+            "resolved_path": base.display().to_string(),
             "recursive": recursive,
             "show_hidden": show_hidden,
             "file_count": counts.0,
@@ -113,6 +114,15 @@ impl Tool for LsTool {
             entries.join("\n"),
             metadata,
         ))
+    }
+}
+
+fn resolve_path(path: &str, working_dir: Option<&Path>) -> PathBuf {
+    let raw = Path::new(path);
+    if raw.is_absolute() {
+        raw.to_path_buf()
+    } else {
+        working_dir.unwrap_or_else(|| Path::new(".")).join(raw)
     }
 }
 
@@ -260,5 +270,33 @@ mod tests {
 
         assert!(result.is_error);
         assert!(result.content.contains("is not a directory"));
+    }
+
+    #[tokio::test]
+    async fn resolves_relative_paths_against_tool_working_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        tokio::fs::write(dir.path().join("workspace-file.txt"), "x")
+            .await
+            .unwrap();
+
+        let mut ctx = crate::tool::ToolContext::empty();
+        ctx.working_dir = Some(dir.path().to_path_buf());
+
+        let result = LsTool
+            .execute(
+                json!({
+                    "path": "."
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("workspace-file.txt"));
+        assert_eq!(
+            result.metadata.as_ref().unwrap()["resolved_path"],
+            json!(dir.path().join(".").display().to_string())
+        );
     }
 }

@@ -36,6 +36,7 @@ fn test_live_session_memory_refresh_writes_snapshot() {
 fn test_project_memory_disabled_skips_memory_prompt_and_live_snapshot() {
     let mut engine = make_engine(vec![], vec![]);
     let project_root = engine.context().working_dir_compat();
+    std::fs::write(project_root.join("Cargo.toml"), "[package]\nname = \"demo\"\n").unwrap();
     let memory_dir = project_root.join(".yode").join("memory");
     std::fs::create_dir_all(&memory_dir).unwrap();
     std::fs::write(memory_dir.join("notes.md"), "project-only memory marker").unwrap();

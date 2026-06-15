@@ -128,10 +128,10 @@ impl Tool for BatchTool {
                     tool_name
                 )));
             };
+            let child_ctx = ctx.clone();
 
             handles.push(tokio::spawn(async move {
-                let ctx = ToolContext::empty();
-                match tool.execute(tool_params, &ctx).await {
+                match tool.execute(tool_params, &child_ctx).await {
                     Ok(result) => (i, tool_name, result),
                     Err(e) => (i, tool_name, ToolResult::error(format!("Error: {}", e))),
                 }
@@ -184,6 +184,7 @@ mod tests {
     use crate::tool::{Tool, ToolContext, ToolResult};
 
     use super::BatchTool;
+    use crate::builtin::ls::LsTool;
 
     struct DummyReadTool;
 
@@ -284,6 +285,36 @@ mod tests {
 
         assert!(result.is_error);
         assert!(result.content.contains("not allowed in batch mode"));
+    }
+
+    #[tokio::test]
+    async fn batch_passes_working_dir_to_child_tools() {
+        let dir = tempfile::tempdir().unwrap();
+        tokio::fs::write(dir.path().join("marker.txt"), "ok")
+            .await
+            .unwrap();
+
+        let registry = ToolRegistry::new();
+        registry.register(Arc::new(LsTool));
+
+        let mut ctx = ToolContext::empty();
+        ctx.registry = Some(Arc::new(registry));
+        ctx.working_dir = Some(dir.path().to_path_buf());
+
+        let result = BatchTool
+            .execute(
+                json!({
+                    "invocations": [
+                        {"tool_name":"ls","params":{"path":"."}}
+                    ]
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert!(result.content.contains("marker.txt"));
     }
 
     #[test]

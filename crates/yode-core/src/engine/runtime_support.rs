@@ -457,7 +457,10 @@ impl AgentEngine {
             lsp_manager: None,
             worktree_state: Some(Arc::clone(&self.worktree_state)),
             read_file_history: Some(Arc::new(tokio::sync::Mutex::new(
-                std::collections::HashSet::new(),
+                self.files_read
+                    .keys()
+                    .map(std::path::PathBuf::from)
+                    .collect::<std::collections::HashSet<_>>(),
             ))),
             plan_mode: Some(Arc::clone(&self.plan_mode)),
             tool_pool_snapshot: Some(tool_pool_snapshot),

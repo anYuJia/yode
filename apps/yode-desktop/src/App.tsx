@@ -886,11 +886,14 @@ export function App() {
           setCurrentTurnId(outer.turnId);
         }
       } else if (kind === "ask_user" && eventSessionId && (outer?.turnId ?? (payload as any).turnId)) {
-        sendSystemNotification("Yode 需要你的回复", String((payload as any).payload?.body ?? "任务正在等待输入。"), "question");
+        const askPayload = (payload as any).payload ?? {};
+        sendSystemNotification("Yode 需要你的回复", String(askPayload.body ?? "任务正在等待输入。"), "question");
         setPendingUserQuestion({
           sessionId: eventSessionId,
           turnId: outer?.turnId ?? (payload as any).turnId,
-          question: String((payload as any).payload?.body ?? "请回复问题")
+          title: typeof askPayload.title === "string" ? askPayload.title : undefined,
+          question: String(askPayload.body ?? "请回复问题"),
+          query: askPayload.query && typeof askPayload.query === "object" ? askPayload.query : undefined
         });
       } else if (kind === "tool_confirm_required" || kind === "permission") {
         sendSystemNotification("Yode 请求执行权限", String((payload as any).payload?.body ?? "有操作需要确认。"), "permission");

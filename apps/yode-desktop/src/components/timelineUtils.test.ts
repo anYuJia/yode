@@ -148,6 +148,42 @@ describe("timeline activity grouping", () => {
     });
   });
 
+  it("keeps all action narratives reviewable after completion", () => {
+    const notes = Array.from({ length: 8 }, (_, index) => ({
+      id: `action-narrative-turn-1-${index}`,
+      kind: "process_note" as const,
+      body: `第 ${index + 1} 步：检查相关上下文。`,
+      status: "success" as const
+    }));
+    const grouped = compileInlineItems([
+      ...notes,
+      {
+        id: "assistant-final",
+        kind: "assistant",
+        title: "Yode",
+        body: "完成。",
+        meta: "stream complete"
+      }
+    ], false, "zh");
+
+    expect(grouped.filter((item) => item.kind === "process_note")).toHaveLength(8);
+  });
+
+  it("does not expose ask_user as a tool activity row", () => {
+    const grouped = compileInlineItems([
+      {
+        id: "tool-ask",
+        kind: "tool",
+        title: "调用工具: ask_user",
+        body: JSON.stringify({ questions: [{ header: "扫描目标", question: "选什么？" }] }),
+        tool: "ask_user",
+        status: "running"
+      }
+    ]);
+
+    expect(grouped).toHaveLength(0);
+  });
+
   it("merges write_file results into the original edit item with diff stats", () => {
     const grouped = compileInlineItems([
       {
@@ -187,6 +223,45 @@ describe("timeline activity grouping", () => {
           filename: "1.md",
           diff: "+3 -0",
           result: "Successfully wrote 5 bytes"
+        }
+      ]
+    });
+  });
+
+  it("keeps blocked write results from being counted as successful edits", () => {
+    const grouped = compileInlineItems([
+      {
+        id: "tool-start-2",
+        kind: "tool",
+        title: "调用工具: write_file",
+        body: JSON.stringify({ path: "ones.txt", content: "hello" }),
+        tool: "write_file",
+        callId: "call-2",
+        status: "running"
+      },
+      {
+        id: "tool-result-2",
+        kind: "tool",
+        title: "Tool Result",
+        body: "You must read the file '/Users/pyu/code/transapi/ones.txt' with read_file before editing or overwriting it.",
+        tool: "write_file",
+        callId: "call-2",
+        status: "blocked",
+        metadata: {
+          file_path: "ones.txt"
+        }
+      }
+    ]);
+
+    expect(grouped).toHaveLength(1);
+    expect(grouped[0]).toMatchObject({
+      kind: "edit_summary",
+      status: "blocked",
+      items: [
+        {
+          filename: "ones.txt",
+          status: "blocked",
+          result: "You must read the file '/Users/pyu/code/transapi/ones.txt' with read_file before editing or overwriting it."
         }
       ]
     });

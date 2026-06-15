@@ -111,26 +111,37 @@ impl AgentEngine {
                 ),
             );
         }
-        let mut result = match tokio::time::timeout(
-            std::time::Duration::from_secs(TOOL_EXECUTION_TIMEOUT_SECS),
-            tool.execute(prepared.params, &ctx),
-        )
-        .await
-        {
-            Ok(Ok(result)) => result,
-            Ok(Err(err)) => {
-                error!("Tool {} failed: {}", tool_call.name, err);
-                ToolResult::error(format!("Tool execution failed: {}", err))
+        let execution = tool.execute(prepared.params, &ctx);
+        let mut result = if tool_call.name == "ask_user" {
+            match execution.await {
+                Ok(result) => result,
+                Err(err) => {
+                    error!("Tool {} failed: {}", tool_call.name, err);
+                    ToolResult::error(format!("Tool execution failed: {}", err))
+                }
             }
-            Err(_) => ToolResult::error_typed(
-                format!(
-                    "Tool execution timed out after {}s: {}",
-                    TOOL_EXECUTION_TIMEOUT_SECS, tool_call.name
+        } else {
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(TOOL_EXECUTION_TIMEOUT_SECS),
+                execution,
+            )
+            .await
+            {
+                Ok(Ok(result)) => result,
+                Ok(Err(err)) => {
+                    error!("Tool {} failed: {}", tool_call.name, err);
+                    ToolResult::error(format!("Tool execution failed: {}", err))
+                }
+                Err(_) => ToolResult::error_typed(
+                    format!(
+                        "Tool execution timed out after {}s: {}",
+                        TOOL_EXECUTION_TIMEOUT_SECS, tool_call.name
+                    ),
+                    ToolErrorType::Timeout,
+                    true,
+                    Some("Narrow the command scope or run a lighter probe first.".to_string()),
                 ),
-                ToolErrorType::Timeout,
-                true,
-                Some("Narrow the command scope or run a lighter probe first.".to_string()),
-            ),
+            }
         };
         let elapsed = start_time.elapsed();
         self.cost_tracker.record_tool_duration(elapsed);

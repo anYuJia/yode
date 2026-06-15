@@ -89,6 +89,8 @@ fn prevents_circular_includes() {
 fn loads_project_memory_from_supported_locations() {
     let temp = tempfile::tempdir().unwrap();
     let project = temp.path().join("project");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join("Cargo.toml"), "[package]\nname = \"demo\"\n").unwrap();
     fs::create_dir_all(project.join(".yode").join("memory").join("nested")).unwrap();
     fs::create_dir_all(project.join(".claude").join("memory").join("team")).unwrap();
     fs::create_dir_all(project.join("memory")).unwrap();
@@ -126,4 +128,22 @@ fn loads_project_memory_from_supported_locations() {
     assert!(loaded.contains("Scope: team"));
     assert!(loaded.contains("claude memory"));
     assert!(!loaded.contains("---\nname: Shared memory"));
+}
+
+#[test]
+fn skips_hidden_memory_when_workspace_has_no_visible_project_files() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = temp.path().join("empty-project");
+    fs::create_dir_all(project.join(".yode").join("memory")).unwrap();
+    fs::write(
+        project.join(".yode").join("memory").join("session.md"),
+        "stale tauri project memory",
+    )
+    .unwrap();
+
+    assert!(load_memory_context(&project).is_none());
+
+    fs::write(project.join("package.json"), "{}").unwrap();
+    let loaded = load_memory_context(&project).unwrap();
+    assert!(loaded.contains("stale tauri project memory"));
 }

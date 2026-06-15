@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, CircleDot, Pencil } from "lucide-react";
+import { ChevronDown, ChevronRight, CircleDot, Copy, Pencil, Check } from "lucide-react";
 import { TimelineItem } from "../../lib/mock";
 import { ActivityLeafNode } from "./ActivityLeafNode";
 import { getFileIcon } from "../FileIcon";
@@ -216,6 +216,9 @@ export function ActivityItemNode({ node, appLang }: { node: any; appLang: string
 }
 
 function diffCountsForEdit(item: Extract<TimelineItem, { kind: "activity_item" }>) {
+  if (item.status === "blocked") {
+    return { add: 0, del: 0, parsed: parseToolDetails(item as any) };
+  }
   const parsed = parseToolDetails(item as any);
   const raw = item.diff || parsed.diff || "";
   const add = Number(raw.match(/\+(\d+)/)?.[1] || 0);
@@ -248,7 +251,20 @@ function mergeEditSummaryItems(items: Array<Extract<TimelineItem, { kind: "activ
       (existing.diff || existingParsed.diff ? 2 : 0) +
       ((existing.filename || existingParsed.filename) ? 1 : 0);
 
-    merged.set(key, itemScore >= existingScore ? { ...existing, ...item } : { ...item, ...existing });
+    const preferred = itemScore >= existingScore ? item : existing;
+    const secondary = preferred === item ? existing : item;
+    const mergedItem: Extract<TimelineItem, { kind: "activity_item" }> = {
+      ...preferred,
+      body: preferred.body && preferred.body.trim().startsWith("{")
+        ? preferred.body
+        : secondary.body && secondary.body.trim().startsWith("{")
+          ? secondary.body
+          : preferred.body || secondary.body,
+      result: secondary.result || preferred.result,
+      metadata: (secondary.metadata ?? preferred.metadata) || preferred.metadata,
+      status: secondary.status === "blocked" ? "blocked" : preferred.status,
+    } as Extract<TimelineItem, { kind: "activity_item" }>;
+    merged.set(key, mergedItem);
   }
 
   return Array.from(merged.values());
@@ -257,13 +273,37 @@ function mergeEditSummaryItems(items: Array<Extract<TimelineItem, { kind: "activ
 export function EditSummaryNode({ node, appLang }: { node: Extract<TimelineItem, { kind: "edit_summary" }>; appLang: string }) {
   const isZh = appLang === "zh";
   const [isExpanded, setIsExpanded] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const rows = mergeEditSummaryItems(node.items).map((item) => ({
     item,
     ...diffCountsForEdit(item)
   }));
-  const totalAdd = rows.reduce((sum, row) => sum + row.add, 0);
-  const totalDel = rows.reduce((sum, row) => sum + row.del, 0);
-  const editedLabel = isZh ? `已编辑 ${rows.length} 个文件` : `Edited ${rows.length} files`;
+  const successfulRows = rows.filter((row) => row.item.status !== "blocked");
+  const blockedRows = rows.filter((row) => row.item.status === "blocked");
+  const totalAdd = successfulRows.reduce((sum, row) => sum + row.add, 0);
+  const totalDel = successfulRows.reduce((sum, row) => sum + row.del, 0);
+  const editedLabel =
+    successfulRows.length > 0
+      ? isZh
+        ? `已编辑 ${successfulRows.length} 个文件`
+        : `Edited ${successfulRows.length} files`
+      : blockedRows.length > 0
+        ? isZh
+          ? `未写入 ${blockedRows.length} 个文件`
+          : `Write blocked for ${blockedRows.length} files`
+        : isZh
+          ? "已编辑 0 个文件"
+          : "Edited 0 files";
+
+  const copyDiff = async (text: string, id: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedId(id);
+      window.setTimeout(() => setCopiedId((current) => (current === id ? null : current)), 1200);
+    } catch (error) {
+      console.error(error);
+    }
+  };
 
   return (
     <div className="edit-summary-card">
@@ -273,10 +313,12 @@ export function EditSummaryNode({ node, appLang }: { node: Extract<TimelineItem,
         </div>
         <div className="edit-summary-title">
           <strong>{editedLabel}</strong>
-          <span>
-            <em className="diff-add">+{totalAdd}</em>
-            <em className="diff-del">-{totalDel}</em>
-          </span>
+          {successfulRows.length > 0 ? (
+            <span>
+              <em className="diff-add">+{totalAdd}</em>
+              <em className="diff-del">-{totalDel}</em>
+            </span>
+          ) : null}
         </div>
         <div className="edit-summary-actions">
           <button type="button" title={isZh ? "查看改动" : "Review changes"} onClick={() => setIsExpanded((value) => !value)}>
@@ -289,19 +331,26 @@ export function EditSummaryNode({ node, appLang }: { node: Extract<TimelineItem,
         <div className="edit-summary-files">
           {rows.map(({ item, parsed, add, del }) => {
             const filename = item.filename || parsed.filename || displayToolName(item.tool);
+            const isBlocked = item.status === "blocked";
             return (
               <div className="edit-summary-file" key={item.id}>
                 <span className="edit-summary-file-name">
-                  <span>{isZh ? "已编辑" : "Edited"}</span>
+                  <span>{isBlocked ? (isZh ? "未写入" : "Blocked") : isZh ? "已编辑" : "Edited"}</span>
                   <span className="edit-summary-file-target">
                     {filename ? getFileIcon(filename) : null}
                     <span>{filename}</span>
                   </span>
                 </span>
-                <span className="edit-summary-file-stats">
-                  <em className="diff-add">+{add}</em>
-                  <em className="diff-del">-{del}</em>
-                </span>
+                {isBlocked ? (
+                  <span className="edit-summary-file-stats">
+                    <em className="diff-del">阻塞</em>
+                  </span>
+                ) : (
+                  <span className="edit-summary-file-stats">
+                    <em className="diff-add">+{add}</em>
+                    <em className="diff-del">-{del}</em>
+                  </span>
+                )}
               </div>
             );
           })}
@@ -310,17 +359,70 @@ export function EditSummaryNode({ node, appLang }: { node: Extract<TimelineItem,
 
       {isExpanded ? (
         <div className="edit-summary-diffs">
-          {rows.map(({ item, parsed }) => {
+          {rows.map(({ item, parsed, add, del }) => {
             const filename = item.filename || parsed.filename || displayToolName(item.tool);
-            const diffText = parsed.diffPreview || item.result || item.body;
-            if (!diffText) return null;
+            const preview = item.metadata?.diff_preview;
+            const previewLines = (parsed.diffPreview || "")
+              .split("\n")
+              .filter((line) => line.startsWith("+") || line.startsWith("-"));
+            const removed = Array.isArray(preview?.removed)
+              ? preview.removed.map(String)
+              : previewLines.filter((line) => line.startsWith("-")).map((line) => line.slice(1));
+            const added = Array.isArray(preview?.added)
+              ? preview.added.map(String)
+              : previewLines.filter((line) => line.startsWith("+")).map((line) => line.slice(1));
+            const hasStructuredDiff = item.status !== "blocked" && (removed.length > 0 || added.length > 0);
+            const diffText = item.status === "blocked" ? item.result || item.body : parsed.diffPreview || item.result || item.body;
+            if (!diffText && !hasStructuredDiff) return null;
+            const diffCopyText = hasStructuredDiff
+              ? [
+                ...removed.map((line: string) => `-${line}`),
+                ...added.map((line: string) => `+${line}`)
+              ].join("\n")
+              : diffText;
             return (
               <details className="edit-diff" key={`${item.id}-diff`}>
                 <summary>
                   {filename ? getFileIcon(filename) : null}
-                  <span>{filename}</span>
+                  <span className="edit-diff-name">{filename}</span>
+                  {item.status !== "blocked" ? (
+                    <span className="edit-diff-counts">
+                      <em className="diff-add">+{add}</em>
+                      <em className="diff-del">-{del}</em>
+                    </span>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="edit-diff-copy"
+                    aria-label={isZh ? "复制 diff" : "Copy diff"}
+                    title={isZh ? "复制 diff" : "Copy diff"}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      void copyDiff(diffCopyText, item.id);
+                    }}
+                  >
+                    {copiedId === item.id ? <Check size={14} /> : <Copy size={14} />}
+                  </button>
                 </summary>
-                <pre>{diffText}</pre>
+                {hasStructuredDiff ? (
+                  <div className="edit-diff-lines">
+                    {removed.map((line: string, index: number) => (
+                      <div className="edit-diff-line removed" key={`${item.id}-removed-${index}`}>
+                        <span className="edit-diff-gutter">-</span>
+                        <span className="edit-diff-content">{line || "\u00a0"}</span>
+                      </div>
+                    ))}
+                    {added.map((line: string, index: number) => (
+                      <div className="edit-diff-line added" key={`${item.id}-added-${index}`}>
+                        <span className="edit-diff-gutter">+</span>
+                        <span className="edit-diff-content">{line || "\u00a0"}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <pre>{diffText}</pre>
+                )}
               </details>
             );
           })}

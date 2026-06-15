@@ -77,7 +77,7 @@ Usage:
         if path.exists() {
             if let Some(history) = &ctx.read_file_history {
                 let h = history.lock().await;
-                if !h.contains(&std::path::PathBuf::from(file_path)) {
+                if !history_contains_path(&h, file_path) {
                     return Ok(ToolResult::error_typed(
                         format!("File '{}' exists but has not been read yet. You must use 'read_file' before overwriting an existing file.", file_path),
                         crate::tool::ToolErrorType::Validation,
@@ -150,6 +150,20 @@ Usage:
             }
         }
     }
+}
+
+fn history_contains_path(
+    history: &std::collections::HashSet<std::path::PathBuf>,
+    file_path: &str,
+) -> bool {
+    let target = normalize_history_path(file_path);
+    history
+        .iter()
+        .any(|path| normalize_history_path(path.to_string_lossy().as_ref()) == target)
+}
+
+fn normalize_history_path(file_path: &str) -> std::path::PathBuf {
+    std::fs::canonicalize(file_path).unwrap_or_else(|_| std::path::PathBuf::from(file_path))
 }
 
 #[cfg(test)]
@@ -251,5 +265,36 @@ mod tests {
         assert_eq!(written, "new\n");
 
         let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[tokio::test]
+    async fn allows_overwrite_when_history_path_is_canonicalized() {
+        let dir = temp_path("canonical");
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        let path = dir.join("overwrite.txt");
+        tokio::fs::write(&path, "old\n").await.unwrap();
+
+        let mut seen = HashSet::new();
+        seen.insert(std::fs::canonicalize(&path).unwrap());
+        let history = Arc::new(Mutex::new(seen));
+        let mut ctx = ToolContext::empty();
+        ctx.read_file_history = Some(history);
+
+        let result = WriteFileTool
+            .execute(
+                json!({
+                    "file_path": path.display().to_string(),
+                    "content": "new\n"
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        let written = tokio::fs::read_to_string(&path).await.unwrap();
+        assert_eq!(written, "new\n");
+
+        let _ = tokio::fs::remove_dir_all(&dir).await;
     }
 }

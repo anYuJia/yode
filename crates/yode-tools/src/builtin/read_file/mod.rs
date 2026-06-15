@@ -72,7 +72,7 @@ Usage:
         // Update read history
         if let Some(history) = &ctx.read_file_history {
             let mut h = history.lock().await;
-            h.insert(std::path::PathBuf::from(file_path));
+            h.insert(normalize_history_path(file_path));
         }
 
         let offset = params
@@ -165,6 +165,10 @@ Usage:
 
         Ok(ToolResult::success_with_metadata(output, metadata))
     }
+}
+
+fn normalize_history_path(file_path: &str) -> std::path::PathBuf {
+    std::fs::canonicalize(file_path).unwrap_or_else(|_| std::path::PathBuf::from(file_path))
 }
 
 #[cfg(test)]

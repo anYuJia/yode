@@ -96,7 +96,7 @@ Usage:
         // --- Mandatory Pre-read Check ---
         if let Some(history) = &ctx.read_file_history {
             let h = history.lock().await;
-            if !h.contains(&std::path::PathBuf::from(file_path)) {
+            if !history_contains_path(&h, file_path) {
                 return Ok(ToolResult::error_typed(
                     format!("File '{}' has not been read yet. You must use 'read_file' at least once in the conversation before editing.", file_path),
                     crate::tool::ToolErrorType::Validation,
@@ -208,6 +208,20 @@ Usage:
             ))),
         }
     }
+}
+
+fn history_contains_path(
+    history: &std::collections::HashSet<std::path::PathBuf>,
+    file_path: &str,
+) -> bool {
+    let target = normalize_history_path(file_path);
+    history
+        .iter()
+        .any(|path| normalize_history_path(path.to_string_lossy().as_ref()) == target)
+}
+
+fn normalize_history_path(file_path: &str) -> std::path::PathBuf {
+    std::fs::canonicalize(file_path).unwrap_or_else(|_| std::path::PathBuf::from(file_path))
 }
 
 #[cfg(test)]

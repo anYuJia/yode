@@ -35,7 +35,7 @@ impl AgentEngine {
         self.recovery_gate_outcome(tool_call, &prepared.started_at)
             .or_else(|| self.invalid_path_outcome(tool_call, prepared))
             .or_else(|| self.language_mismatch_outcome(tool_call, prepared))
-            .or_else(|| self.unread_file_edit_outcome(tool_call, prepared))
+            .or_else(|| self.unread_file_edit_outcome(tool_call, prepared, working_dir))
             .or_else(|| self.bash_guard_outcome(tool_call, prepared))
     }
 
@@ -124,6 +124,7 @@ impl AgentEngine {
         &self,
         tool_call: &ToolCall,
         prepared: &PreparedToolExecution,
+        working_dir: &str,
     ) -> Option<ToolExecutionOutcome> {
         if tool_call.name != "edit_file" && tool_call.name != "write_file" {
             return None;
@@ -133,7 +134,10 @@ impl AgentEngine {
             .params
             .get("file_path")
             .and_then(|value| value.as_str())?;
-        if self.files_read.contains_key(file_path) {
+        if tool_call.name == "write_file" && !tool_target_exists(file_path, working_dir) {
+            return None;
+        }
+        if file_has_been_read(&self.files_read, file_path, working_dir) {
             return None;
         }
 
@@ -213,6 +217,40 @@ impl AgentEngine {
     }
 }
 
+fn tool_target_exists(file_path: &str, working_dir: &str) -> bool {
+    let path = tool_path_for_compare(file_path, working_dir);
+    path.exists()
+}
+
+fn file_has_been_read(
+    files_read: &std::collections::HashMap<String, usize>,
+    file_path: &str,
+    working_dir: &str,
+) -> bool {
+    if files_read.contains_key(file_path) {
+        return true;
+    }
+
+    let target = normalized_tool_path(file_path, working_dir);
+    files_read
+        .keys()
+        .any(|read_path| normalized_tool_path(read_path, working_dir) == target)
+}
+
+fn normalized_tool_path(file_path: &str, working_dir: &str) -> std::path::PathBuf {
+    std::fs::canonicalize(tool_path_for_compare(file_path, working_dir))
+        .unwrap_or_else(|_| tool_path_for_compare(file_path, working_dir))
+}
+
+fn tool_path_for_compare(file_path: &str, working_dir: &str) -> std::path::PathBuf {
+    let path = std::path::PathBuf::from(file_path);
+    if path.is_absolute() {
+        path
+    } else {
+        std::path::PathBuf::from(working_dir).join(path)
+    }
+}
+
 fn invalid_path_reason(file_path: &str) -> Option<&'static str> {
     if file_path.contains("..") {
         Some("Path traversal (..) is strictly forbidden for security reasons.")
@@ -226,5 +264,43 @@ fn invalid_path_reason(file_path: &str) -> Option<&'static str> {
         )
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{file_has_been_read, tool_target_exists};
+    use std::collections::HashMap;
+
+    #[test]
+    fn write_target_existence_resolves_relative_to_working_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("new.txt");
+
+        assert!(!tool_target_exists(
+            "new.txt",
+            &dir.path().display().to_string()
+        ));
+        std::fs::write(&path, "hello").unwrap();
+        assert!(tool_target_exists(
+            "new.txt",
+            &dir.path().display().to_string()
+        ));
+    }
+
+    #[test]
+    fn read_history_matches_relative_and_absolute_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("same.txt");
+        std::fs::write(&path, "hello").unwrap();
+
+        let mut files_read = HashMap::new();
+        files_read.insert("same.txt".to_string(), 1);
+
+        assert!(file_has_been_read(
+            &files_read,
+            &path.display().to_string(),
+            &dir.path().display().to_string()
+        ));
     }
 }

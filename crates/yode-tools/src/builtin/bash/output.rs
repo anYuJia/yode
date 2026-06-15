@@ -62,9 +62,24 @@ impl BashTool {
         if let Some(suggestion) = rewrite_suggestion.as_deref() {
             metadata["rewrite_suggestion"] = json!(suggestion);
         }
-        if !modified_files.is_empty() {
-            metadata["modified_file_count"] = json!(modified_files.len());
-            metadata["modified_files"] = json!(modified_files);
+        let redirected_files = redirection_targets(command, working_dir);
+        let mut changed_files = modified_files;
+        for target in redirected_files {
+            let display = target.display().to_string();
+            if !changed_files.iter().any(|path| path == &display) {
+                changed_files.push(display);
+            }
+        }
+
+        if !changed_files.is_empty() {
+            metadata["modified_file_count"] = json!(changed_files.len());
+            metadata["modified_files"] = json!(changed_files);
+            if let Some(first_file) = changed_files.first() {
+                metadata["file_path"] = json!(first_file);
+                if let Some(diff_preview) = file_added_preview(first_file) {
+                    metadata["diff_preview"] = diff_preview;
+                }
+            }
         }
 
         Ok(ToolResult {
@@ -76,6 +91,48 @@ impl BashTool {
             metadata: Some(metadata),
         })
     }
+}
+
+fn redirection_targets(command: &str, working_dir: &Path) -> Vec<std::path::PathBuf> {
+    let Ok(re) = Regex::new(r#"(?:^|\s)(?:>|>>)\s*(?:"([^"]+)"|'([^']+)'|([^\s;&|]+))"#) else {
+        return Vec::new();
+    };
+    re.captures_iter(command)
+        .filter_map(|captures| {
+            captures
+                .get(1)
+                .or_else(|| captures.get(2))
+                .or_else(|| captures.get(3))
+                .map(|matched| matched.as_str().trim().to_string())
+        })
+        .filter(|target| {
+            !target.is_empty()
+                && !target.starts_with('&')
+                && target != "/dev/null"
+                && !target.starts_with("/dev/")
+        })
+        .map(|target| {
+            let path = std::path::PathBuf::from(target);
+            if path.is_absolute() {
+                path
+            } else {
+                working_dir.join(path)
+            }
+        })
+        .collect()
+}
+
+fn file_added_preview(file_path: &str) -> Option<serde_json::Value> {
+    let content = std::fs::read_to_string(file_path).ok()?;
+    let lines = content.lines().map(str::to_string).collect::<Vec<_>>();
+    let line_count = lines.len();
+    let preview = lines.into_iter().take(8).collect::<Vec<_>>();
+    Some(json!({
+        "removed": [],
+        "added": preview,
+        "more_removed": 0,
+        "more_added": line_count.saturating_sub(8),
+    }))
 }
 
 fn suggest_safe_rewrite(command: &str, cmd_base: &str) -> Option<String> {

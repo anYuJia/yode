@@ -15,6 +15,7 @@ struct MemoryFrontmatter {
 
 pub fn load_memory_context(project_root: &Path) -> Option<String> {
     let mut sections = Vec::new();
+    let has_visible_project_content = has_visible_project_content(project_root);
 
     let root_memory = project_root.join("MEMORY.md");
     if let Some(content) = read_text_file(&root_memory) {
@@ -24,14 +25,21 @@ pub fn load_memory_context(project_root: &Path) -> Option<String> {
         ));
     }
 
-    for dir in [
-        project_root.join(".yode").join("memory"),
-        project_root.join(".claude").join("memory"),
-        project_root.join(".claude").join("memories"),
-        project_root.join("memory"),
-    ] {
-        sections.extend(load_memory_dir(project_root, &dir));
+    if has_visible_project_content {
+        for dir in [
+            project_root.join(".yode").join("memory"),
+            project_root.join(".claude").join("memory"),
+            project_root.join(".claude").join("memories"),
+        ] {
+            sections.extend(load_memory_dir(project_root, &dir));
+        }
+    } else {
+        info!(
+            "Skipping hidden project memory for sparse workspace: {}",
+            project_root.display()
+        );
     }
+    sections.extend(load_memory_dir(project_root, &project_root.join("memory")));
 
     if sections.is_empty() {
         return None;
@@ -74,6 +82,18 @@ pub fn load_memory_context(project_root: &Path) -> Option<String> {
     }
 
     Some(result.trim_end().to_string())
+}
+
+fn has_visible_project_content(project_root: &Path) -> bool {
+    let Ok(entries) = fs::read_dir(project_root) else {
+        return false;
+    };
+
+    entries.filter_map(Result::ok).any(|entry| {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        !name.starts_with('.') && name != "memory" && name != "MEMORY.md"
+    })
 }
 
 fn load_memory_dir(project_root: &Path, memory_dir: &Path) -> Vec<(String, String)> {

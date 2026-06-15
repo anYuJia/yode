@@ -95,6 +95,12 @@ function isActionNarrativeItem(item: TimelineItem) {
   return item.kind === "process_note" && item.id.startsWith("action-narrative-");
 }
 
+function isAskUserTool(item: Extract<TimelineItem, { kind: "tool" }>) {
+  const tool = (item.tool || "").toLowerCase();
+  const title = (item.title || "").toLowerCase();
+  return tool.includes("ask_user") || tool.includes("ask-question") || title.includes("ask_user") || title.includes("ask question");
+}
+
 function actionNarrativePrefix(turnId?: string) {
   return `action-narrative-${turnId || "current"}-`;
 }
@@ -213,9 +219,7 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
   const actionNarrativeIndexes = items
     .map((item, index) => (isActionNarrativeItem(item) ? index : -1))
     .filter((index) => index >= 0);
-  actionNarrativeIndexes
-    .slice(-6)
-    .forEach((index) => visibleActionNarrativeIndexes.add(index));
+  actionNarrativeIndexes.forEach((index) => visibleActionNarrativeIndexes.add(index));
 
   const getToolType = (item: Extract<TimelineItem, { kind: "tool" }>) => {
     const descriptor = getActivityDescriptor(item);
@@ -268,7 +272,11 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
     
     let groupType: "explore" | "search" | "run" | "mixed" | "other" = "explore";
     const tools = buffer.filter(item => item.kind === "tool");
-    const visibleTools = tools.filter(item => !shouldHideActivityItem(item));
+    const visibleTools = tools.filter(item => !shouldHideActivityItem(item) && !isAskUserTool(item));
+    if (visibleTools.length === 0) {
+      buffer = [];
+      return;
+    }
     
     const runTools = visibleTools.filter(t => getToolType(t) === "run");
     const searchTools = visibleTools.filter(t => getToolType(t) === "search");
@@ -338,14 +346,14 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
       type: groupType,
       status: isRunning ? "running" : "success",
       label,
-      items: [...buffer]
+      items: visibleTools
     });
     
     buffer = [];
   };
 
   const pushProcessNotes = (item: TimelineItem, title?: string, status?: "running" | "success") => {
-    const notes = localizeProcessNotes((item as any).body || "", appLang);
+    const notes = localizeProcessNotes((item as any).body || "", appLang, 20);
     if (notes.length === 0 && status !== "running") return;
     flushBuffer();
     if (notes.length === 0) {
@@ -408,6 +416,7 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
             if (buffer[i].kind === "tool" && (buffer[i] as any).callId === resultCallId) {
               buffer[i].result = item.body;
               buffer[i].metadata = (item as any).metadata ?? (buffer[i] as any).metadata;
+              buffer[i].status = item.status;
               found = true;
               break;
             }
@@ -419,6 +428,7 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
             if (buffer[i].kind === "tool") {
               buffer[i].result = item.body;
               buffer[i].metadata = (item as any).metadata ?? (buffer[i] as any).metadata;
+              buffer[i].status = item.status;
               found = true;
               break;
             }
@@ -429,11 +439,12 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
             result,
             item.body,
             resultCallId,
-            (item as any).metadata
+            (item as any).metadata,
+            item.status
           );
         }
         if (!found) {
-          attachToolResultToRenderedItems(result, item.body, undefined, (item as any).metadata);
+          attachToolResultToRenderedItems(result, item.body, undefined, (item as any).metadata, item.status);
         }
         continue;
       }
@@ -472,23 +483,6 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
   }
   flushBuffer();
   const enrichedResult = groupEditSummaryItems(addSyntheticProcessNarration(result, appLang));
-
-  let lastFinalAssistantIdx = -1;
-  for (let i = enrichedResult.length - 1; i >= 0; i--) {
-    if (isFinalAssistantItem(enrichedResult[i])) {
-      lastFinalAssistantIdx = i;
-      break;
-    }
-  }
-
-  if (!isTurnActive && lastFinalAssistantIdx !== -1) {
-    return enrichedResult.filter((item, idx) => {
-      if ((item.kind === "activity_group" || item.kind === "activity_item" || item.kind === "edit_summary" || item.kind === "process_note") && idx > lastFinalAssistantIdx) {
-        return false;
-      }
-      return true;
-    });
-  }
 
   return enrichedResult;
 }
@@ -538,7 +532,8 @@ function attachToolResultToRenderedItems(
   items: TimelineItem[],
   resultBody: string,
   callId?: string,
-  metadata?: any
+  metadata?: any,
+  status?: "running" | "success" | "blocked"
 ) {
   for (let i = items.length - 1; i >= 0; i--) {
     const resultItem = items[i];
@@ -546,6 +541,7 @@ function attachToolResultToRenderedItems(
       if (!callId || (resultItem as any).callId === callId) {
         resultItem.result = resultBody;
         resultItem.metadata = metadata ?? resultItem.metadata;
+        if (status) resultItem.status = status;
         return true;
       }
     } else if (resultItem.kind === "activity_group") {
@@ -555,6 +551,7 @@ function attachToolResultToRenderedItems(
         if (groupItem.kind === "tool" && (!callId || (groupItem as any).callId === callId)) {
           groupItem.result = resultBody;
           groupItem.metadata = metadata ?? (groupItem as any).metadata;
+          if (status) groupItem.status = status;
           return true;
         }
       }
@@ -779,11 +776,10 @@ export function desktopEventToTimelineItem(
 
   if (kind === "ask_user") {
     return {
-      id: eventId ? `ask-${turnId}-${eventId}` : `event-${Date.now()}-${Math.random()}`,
-      kind: "assistant",
-      title,
-      body,
-      meta: "waiting for input",
+      id: eventId ? `boundary-ask-${turnId}-${eventId}` : `event-${Date.now()}-${Math.random()}`,
+      kind: "boundary",
+      title: title || "等待用户回复",
+      body: "",
       createdAt
     };
   }
@@ -909,6 +905,10 @@ export function applyDesktopEventToTimelineItems(
   const reasoningId = turnId ? `reasoning-${turnId}` : undefined;
   const eventId = stringValue(inner?.id);
   const hasToolCalls = Boolean(inner?.hasToolCalls);
+
+  if (kind === "ask_user") {
+    return items;
+  }
 
   if (kind === "action_narrative") {
     if (hasRecentAssistantPreamble(items, turnId)) {
