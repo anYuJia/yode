@@ -8,7 +8,8 @@ import {
   parseToolDetails,
   displayToolName,
   summarizeActivityItems,
-  getActivityDescriptor
+  getActivityDescriptor,
+  activityGroupPreview
 } from "./ToolUtils";
 
 function classifyActivityTool(item: any) {
@@ -123,6 +124,8 @@ export function ActivityGroupNode({ group, appLang, isTurnActive }: { group: any
   
   const label = buildActivityGroupLabel(visibleItems, appLang, isRunning) ||
     (isZh ? (isRunning ? "正在执行..." : `已执行 ${count} 个操作`) : (isRunning ? "Working..." : `Executed ${count} action${count > 1 ? "s" : ""}`));
+  const preview = activityGroupPreview(visibleItems, appLang);
+  const showPreview = visibleItems.length > 0 && !isExpanded;
 
   return (
     <div className="activity-group-node">
@@ -136,6 +139,12 @@ export function ActivityGroupNode({ group, appLang, isTurnActive }: { group: any
         <span>{label}</span>
         {isExpanded ? <ChevronDown size={12} className="activity-chevron strong" /> : <ChevronRight size={12} className="activity-chevron strong" />}
       </div>
+
+      {showPreview ? (
+        <div className={`activity-group-preview ${isRunning ? "running" : "complete"}`}>
+          {preview}
+        </div>
+      ) : null}
 
       {isExpanded && (
         <div className="activity-group-items">

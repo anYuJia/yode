@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getActivityDescriptor, summarizeActivityItems } from "./ToolUtils";
+import { activityGroupPreview, getActivityDescriptor, summarizeActivityItems } from "./ToolUtils";
 
 describe("ToolUtils activity descriptors", () => {
   it("prefers structured activity metadata", () => {
@@ -71,5 +71,35 @@ describe("ToolUtils activity descriptors", () => {
 
     expect(items).toHaveLength(1);
     expect(items[0].count).toBe(2);
+  });
+
+  it("builds an action-oriented preview from real tool targets", () => {
+    const items = summarizeActivityItems([
+      {
+        kind: "tool",
+        tool: "read_file",
+        title: "查看文件",
+        body: JSON.stringify({ file_path: "/Users/pyu/code/yode/Cargo.toml" }),
+        status: "success"
+      },
+      {
+        kind: "tool",
+        tool: "grep",
+        title: "内容搜索",
+        body: JSON.stringify({ pattern: "activityGroupPreview", path: "apps/yode-desktop/src" }),
+        status: "success"
+      },
+      {
+        kind: "tool",
+        tool: "exec_command",
+        title: "运行命令",
+        body: JSON.stringify({ cmd: "git status --short" }),
+        status: "success"
+      }
+    ]);
+
+    expect(activityGroupPreview(items, "zh")).toBe(
+      "查看 Cargo.toml，搜索 activityGroupPreview，运行 git status --short"
+    );
   });
 });

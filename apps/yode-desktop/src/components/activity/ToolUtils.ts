@@ -253,6 +253,7 @@ export function getActivityDescriptor(item: { tool: string; body: string; title:
   const parsed = parseToolDetails(item);
   const metadata = item.metadata && typeof item.metadata === "object" ? item.metadata : null;
   const activity = metadata?.activity && typeof metadata.activity === "object" ? metadata.activity : null;
+  const parsedBody = parseJsonObject(item.body);
 
   const command = stringField(activity, ["command"]) || parsed.command;
   const rawFile =
@@ -260,13 +261,20 @@ export function getActivityDescriptor(item: { tool: string; body: string; title:
     parsed.filename ||
     stringField(metadata, ["file_path", "path", "uri"]);
   const filename = rawFile ? baseName(rawFile) : "";
+  const kind = inferActivityKind(item.tool || "", item.title || "", parsed, metadata);
+  const searchTarget =
+    kind === "search"
+      ? stringField(activity, ["pattern", "query"]) ||
+        stringField(metadata, ["pattern", "query"]) ||
+        stringField(parsedBody, ["pattern", "query", "SearchPattern", "Pattern"])
+      : "";
   const target =
     stringField(activity, ["target", "label"]) ||
+    searchTarget ||
     command ||
     filename ||
     stringField(metadata, ["pattern", "uri", "server", "name"]) ||
     displayToolName(item.tool);
-  const kind = inferActivityKind(item.tool || "", item.title || "", parsed, metadata);
   const label = stringField(activity, ["label"]) || target;
 
   return {
@@ -363,28 +371,82 @@ function expandBatchActivityItems(items: any[]) {
 export function activityItemSummary(item: any) {
   if (item.kind !== "tool") return "";
   const descriptor = getActivityDescriptor(item);
+  if (descriptor.kind === "search" && descriptor.target) return descriptor.target;
+  if (descriptor.kind === "run" && descriptor.command) return descriptor.command;
   if (descriptor.filename) return descriptor.filename;
   if (descriptor.command) return descriptor.command;
   if (descriptor.target) return descriptor.target;
   return displayToolName(item.tool);
 }
 
-export function activityGroupPreview(items: any[], appLang: string) {
-  const isZh = appLang === "zh";
+function compactTarget(text: string) {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (normalized.length <= 58) return normalized;
+  return `${normalized.slice(0, 55)}...`;
+}
+
+function uniqueTargets(items: any[], max = 2) {
   const labels: string[] = [];
+  let total = 0;
 
   for (const item of items) {
-    const label = activityItemSummary(item);
-    if (label && !labels.includes(label)) labels.push(label);
-    if (labels.length >= 4) break;
+    const label = compactTarget(activityItemSummary(item));
+    if (!label) continue;
+    total += item.count && Number.isFinite(item.count) ? Number(item.count) : 1;
+    if (!labels.includes(label) && labels.length < max) labels.push(label);
   }
 
-  if (labels.length === 0) {
+  return { labels, total: total || items.length };
+}
+
+function groupPhrase(items: any[], kind: ActivityKind, appLang: string) {
+  const isZh = appLang === "zh";
+  const { labels, total } = uniqueTargets(items);
+  if (labels.length === 0) return "";
+
+  const suffix = total > labels.length
+    ? isZh
+      ? ` 等 ${total} 项`
+      : ` and ${total - labels.length} more`
+    : "";
+  const targets = isZh ? `${labels.join("、")}${suffix}` : `${labels.join(", ")}${suffix}`;
+
+  if (isZh) {
+    if (kind === "read") return `查看 ${targets}`;
+    if (kind === "search") return `搜索 ${targets}`;
+    if (kind === "run") return `运行 ${targets}`;
+    if (kind === "edit") return `修改 ${targets}`;
+    return `执行 ${targets}`;
+  }
+
+  if (kind === "read") return `read ${targets}`;
+  if (kind === "search") return `search ${targets}`;
+  if (kind === "run") return `run ${targets}`;
+  if (kind === "edit") return `edit ${targets}`;
+  return `execute ${targets}`;
+}
+
+export function activityGroupPreview(items: any[], appLang: string) {
+  const isZh = appLang === "zh";
+  const tools = items.filter((item) => item.kind === "tool");
+  const phrases = (["read", "search", "run", "edit", "mcp", "image", "other"] as ActivityKind[])
+    .map((kind) => groupPhrase(
+      tools.filter((item) => getActivityDescriptor(item).kind === kind),
+      kind,
+      appLang
+    ))
+    .filter(Boolean);
+
+  if (phrases.length === 0) {
     return isZh ? "点击展开查看活动明细" : "Expand to view activity details";
   }
 
-  const suffix = items.length > labels.length
-    ? (isZh ? ` 等 ${items.length} 项` : ` and ${items.length - labels.length} more`)
+  const visiblePhrases = phrases.slice(0, 3);
+  const suffix = phrases.length > visiblePhrases.length
+    ? isZh
+      ? `，还有 ${phrases.length - visiblePhrases.length} 类操作`
+      : `, plus ${phrases.length - visiblePhrases.length} more categories`
     : "";
-  return `${labels.join("、")}${suffix}`;
+
+  return `${visiblePhrases.join(isZh ? "，" : "; ")}${suffix}`;
 }
