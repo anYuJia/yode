@@ -61,11 +61,11 @@ jobs:
 
       - name: Build (native)
         if: ${{ !matrix.use_cross }}
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release -p yode --target ${{ matrix.target }}
 
       - name: Build (cross)
         if: ${{ matrix.use_cross }}
-        run: cross build --release --target ${{ matrix.target }}
+        run: cross build --release -p yode --target ${{ matrix.target }}
 
       - name: Strip binary (Unix)
         if: runner.os != 'Windows'
