@@ -19,7 +19,8 @@ describe("preprocessMarkdown", () => {
       "- Alembic 迁移：数据库演进有记录",
     ].join("\n");
 
-    const tokens = lex(source);
+    const processed = preprocessMarkdown(source);
+    const tokens = marked.lexer(processed);
     const codeText = tokens
       .filter((token) => token.type === "code")
       .map((token: any) => token.text || "")
@@ -70,11 +71,47 @@ describe("preprocessMarkdown", () => {
       "const list = '- Repository 模式';",
       "```",
     ].join("\n");
-    const tokens = lex(source);
+    const processed = preprocessMarkdown(source);
+    const tokens = marked.lexer(processed);
     const codeTokens = tokens.filter((token) => token.type === "code") as any[];
 
     expect(codeTokens).toHaveLength(1);
     expect(codeTokens[0].text).toContain("**亮点**");
     expect(codeTokens[0].text).toContain("Repository");
+  });
+
+  it("wraps unfenced tree-like file listings as code instead of broken table text", () => {
+    const source = [
+      "新文件清单：",
+      "src/scanners/system/ |—— __init__.py |—— port_scanner.py",
+      "",
+      "端口扫描",
+      "|—— service_detector.py",
+      "",
+      "配置审计",
+      "src/scanners/dependency/ |—— __init__.py |—— python_deps.py",
+    ].join("\n");
+
+    const processed = preprocessMarkdown(source);
+    const tokens = marked.lexer(processed);
+    const codeText = tokens
+      .filter((token) => token.type === "code")
+      .map((token: any) => token.text || "")
+      .join("\n");
+
+    expect(processed).toContain("```text\nsrc/scanners/system/");
+    expect(codeText).toContain("src/scanners/system/");
+    expect(codeText).toContain("service_detector.py");
+    expect(tokens.some((token) => token.type === "table")).toBe(false);
+  });
+
+  it("keeps valid markdown tables renderable as tables", () => {
+    const tokens = lex([
+      "| 模块 | 说明 |",
+      "| --- | --- |",
+      "| api | 路由 |",
+    ].join("\n"));
+
+    expect(tokens.some((token) => token.type === "table")).toBe(true);
   });
 });

@@ -61,6 +61,27 @@ function isLooseTextFence(lang: string) {
   return !lang || /^(text|txt|plain|plaintext|markdown|md)$/i.test(lang);
 }
 
+function looksLikeTreeLine(line: string) {
+  const trimmed = line.trim();
+  if (!trimmed) return false;
+  if (/^[│├└┌┐┘┴┬┼─━╭╰╮╯]/.test(trimmed)) return true;
+  if (trimmed.includes("/") && (trimmed.includes("|——") || trimmed.includes("｜——") || trimmed.includes("│——"))) return true;
+  if (/[│├└]\s*[─━-]{2,}/.test(trimmed)) return true;
+  if (trimmed.includes("/") && /[│|｜]\s*[─━—-]{2,}/.test(trimmed)) return true;
+  if (/^[^│|｜]+\/\s*[│|｜]\s*[─━—-]{2,}\s*\S+/.test(trimmed)) return true;
+  if (/^[│|｜]\s*[─━—-]{2,}\s*\S+\.[\w]+/.test(trimmed)) return true;
+  return false;
+}
+
+function shouldStartTreeBlock(lines: string[], index: number) {
+  if (!looksLikeTreeLine(lines[index])) return false;
+  const previous = lines[index - 1]?.trim() || "";
+  const next = lines[index + 1]?.trim() || "";
+  if (looksLikeTreeLine(next)) return true;
+  if (/^[\p{L}\p{N}][\p{L}\p{N}\s·・、/()（）.:-]{1,40}$/u.test(previous)) return true;
+  return false;
+}
+
 function maybeCloseLooseFenceBeforeLine(
   line: string,
   inCodeBlock: boolean,
@@ -150,6 +171,36 @@ export function preprocessMarkdown(text: string): string {
     }
     if (inCodeBlock) {
       finalLines.push(line);
+      continue;
+    }
+
+    if (
+      shouldStartTreeBlock(normalizedLines, i) ||
+      (trimmed.includes("/") && (trimmed.includes("|——") || trimmed.includes("｜——") || trimmed.includes("│——")))
+    ) {
+      if (finalLines.length > 0 && finalLines[finalLines.length - 1].trim()) {
+        finalLines.push("");
+      }
+      finalLines.push("```text");
+      while (i < normalizedLines.length) {
+        const treeLine = normalizedLines[i];
+        const treeTrimmed = treeLine.trim();
+        if (!treeTrimmed) {
+          finalLines.push(treeLine);
+          i += 1;
+          break;
+        }
+        if (!looksLikeTreeLine(treeLine) && !/^\s{2,}\S/.test(treeLine)) {
+          i -= 1;
+          break;
+        }
+        finalLines.push(treeLine);
+        i += 1;
+      }
+      finalLines.push("```");
+      if (normalizedLines[i + 1]?.trim()) {
+        finalLines.push("");
+      }
       continue;
     }
 
