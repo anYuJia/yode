@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { TimelineItem } from "../lib/mock";
 import { activityGroupPreview, summarizeActivityItems } from "./activity/ToolUtils";
-import { applyDesktopEventToTimelineItems, compileInlineItems, messagesToTimelineItems } from "./timelineUtils";
+import { applyDesktopEventToTimelineItems, compileInlineItems, messagesToTimelineItems, splitTurnVisibleItems } from "./timelineUtils";
 
 const tool = (
   id: string,
@@ -124,6 +124,28 @@ describe("timeline activity grouping", () => {
     expect(items.find((item) => item.kind === "assistant")).toMatchObject({
       meta: "stream complete"
     });
+  });
+
+  it("keeps error nodes visible outside collapsed process items", () => {
+    const { processItems, answerItems } = splitTurnVisibleItems([
+      {
+        id: "reasoning-turn-1",
+        kind: "reasoning",
+        title: "已思考",
+        body: "",
+        meta: "complete"
+      },
+      {
+        id: "error-turn-1",
+        kind: "error",
+        title: "错误",
+        body: "Request failed after 1 attempt"
+      }
+    ]);
+
+    expect(processItems).toHaveLength(1);
+    expect(answerItems).toHaveLength(1);
+    expect(answerItems[0]).toMatchObject({ kind: "error" });
   });
 
   it("renders batch invocations instead of exposing the batch wrapper", () => {
@@ -311,6 +333,31 @@ describe("timeline activity grouping", () => {
         }
       ]
     });
+  });
+
+  it("does not turn aggregate budget notices into blocked edit summaries", () => {
+    const grouped = compileInlineItems([
+      {
+        id: "tool-start-budget",
+        kind: "tool",
+        title: "调用工具: edit_file",
+        body: JSON.stringify({ file_path: "registry.go", old_string: "old", new_string: "new" }),
+        tool: "edit_file",
+        callId: "call-budget",
+        status: "running"
+      },
+      {
+        id: "tool-result-budget",
+        kind: "tool",
+        title: "Tool Result",
+        body: "[AGGREGATE BUDGET EXCEEDED: Full result (118 bytes) omitted to prevent context overflow. Summarize your current findings instead.]",
+        tool: "edit_file",
+        callId: "call-budget",
+        status: "blocked"
+      }
+    ]);
+
+    expect(grouped).toEqual([]);
   });
 
   it("restores structured tool result metadata from history", () => {

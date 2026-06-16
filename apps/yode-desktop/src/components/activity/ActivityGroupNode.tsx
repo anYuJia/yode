@@ -350,30 +350,32 @@ export function EditSummaryNode({ node, appLang }: { node: Extract<TimelineItem,
     });
   };
 
-  useEffect(() => {
-    setIsExpanded(true);
-    setExpandedDiffIds(new Set());
-  }, [node.id]);
-
   const fileRows = rows.map(({ item, parsed, add, del }) => {
-    const filename = item.filename || parsed.filename || displayToolName(item.tool);
+    const filename = item.filename || parsed.filename || "";
+    const displayName = filename || displayToolName(item.tool);
     const preview = item.metadata?.diff_preview;
+    const full = item.metadata?.diff_full;
     const previewLines = (parsed.diffPreview || "")
       .split("\n")
       .filter((line) => line.startsWith("+") || line.startsWith("-"));
-    const removed = Array.isArray(preview?.removed)
+    const previewRemoved = Array.isArray(preview?.removed)
       ? preview.removed.map(String)
       : previewLines.filter((line) => line.startsWith("-")).map((line) => line.slice(1));
-    const added = Array.isArray(preview?.added)
+    const previewAdded = Array.isArray(preview?.added)
       ? preview.added.map(String)
       : previewLines.filter((line) => line.startsWith("+")).map((line) => line.slice(1));
-    const artifactPath = typeof item.metadata?.diff_artifact_path === "string"
+    const fullRemoved = Array.isArray(full?.removed) ? full.removed.map(String) : [];
+    const fullAdded = Array.isArray(full?.added) ? full.added.map(String) : [];
+    const hasInlineFullDiff = fullRemoved.length > 0 || fullAdded.length > 0;
+    const removed = hasInlineFullDiff ? fullRemoved : previewRemoved;
+    const added = hasInlineFullDiff ? fullAdded : previewAdded;
+    const artifactPath = !hasInlineFullDiff && typeof item.metadata?.diff_artifact_path === "string"
       ? item.metadata.diff_artifact_path
       : "";
     const fullAddedCount = Number(item.metadata?.full_added_line_count);
     const fullRemovedCount = Number(item.metadata?.full_removed_line_count);
-    const moreRemoved = Number(preview?.more_removed || 0);
-    const moreAdded = Number(preview?.more_added || 0);
+    const moreRemoved = hasInlineFullDiff ? 0 : Number(preview?.more_removed || 0);
+    const moreAdded = hasInlineFullDiff ? 0 : Number(preview?.more_added || 0);
     const totalPreviewLines = removed.length + added.length;
     const totalFullLines =
       (Number.isFinite(fullRemovedCount) ? fullRemovedCount : removed.length + moreRemoved) +
@@ -390,13 +392,15 @@ export function EditSummaryNode({ node, appLang }: { node: Extract<TimelineItem,
     return {
       item,
       filename,
+      displayName,
+      hasFilename: Boolean(filename),
       add,
       del,
       isBlocked: item.status === "blocked",
       hasDiff: Boolean(diffText || hasStructuredDiff),
       artifactPath,
       totalPreviewLines,
-      totalFullLines: totalFullLines || totalPreviewLines,
+      totalFullLines: hasInlineFullDiff ? totalPreviewLines : totalFullLines || totalPreviewLines,
       removed,
       added,
       hasStructuredDiff,
@@ -404,6 +408,11 @@ export function EditSummaryNode({ node, appLang }: { node: Extract<TimelineItem,
       diffCopyText: diffCopyText || ""
     };
   });
+
+  useEffect(() => {
+    setIsExpanded(true);
+    setExpandedDiffIds(new Set());
+  }, [node.id]);
 
   return (
     <div className="edit-summary-card">
@@ -444,10 +453,16 @@ export function EditSummaryNode({ node, appLang }: { node: Extract<TimelineItem,
                   onClick={() => row.hasDiff && toggleFileDiff(row.item.id)}
                 >
                   <span className="edit-summary-file-name">
-                    <span>{row.isBlocked ? (isZh ? "未写入" : "Blocked") : isZh ? "已编辑" : "Edited"}</span>
+                    <span>
+                      {row.isBlocked
+                        ? row.hasFilename
+                          ? (isZh ? "未写入" : "Blocked")
+                          : (isZh ? "调用失败" : "Failed")
+                        : isZh ? "已编辑" : "Edited"}
+                    </span>
                     <span className="edit-summary-file-target">
-                      {row.filename ? getFileIcon(row.filename) : null}
-                      <span>{row.filename}</span>
+                      {row.hasFilename ? getFileIcon(row.filename) : null}
+                      <span>{row.displayName}</span>
                     </span>
                   </span>
                   <span className="edit-summary-file-side">
@@ -470,15 +485,12 @@ export function EditSummaryNode({ node, appLang }: { node: Extract<TimelineItem,
                   <div className="edit-summary-file-diff">
                     <EditDiffPanel
                       id={row.item.id}
-                      filename={row.filename}
                       isZh={isZh}
                       copied={copiedId === row.item.id}
                       onCopy={copyDiff}
                       artifactPath={row.artifactPath}
                       totalPreviewLines={row.totalPreviewLines}
                       totalFullLines={row.totalFullLines}
-                      addedCount={row.add}
-                      removedCount={row.del}
                       removed={row.removed}
                       added={row.added}
                       hasStructuredDiff={row.hasStructuredDiff}
@@ -498,15 +510,12 @@ export function EditSummaryNode({ node, appLang }: { node: Extract<TimelineItem,
 
 function EditDiffPanel({
   id,
-  filename,
   isZh,
   copied,
   onCopy,
   artifactPath,
   totalPreviewLines,
   totalFullLines,
-  addedCount,
-  removedCount,
   removed,
   added,
   hasStructuredDiff,
@@ -514,15 +523,12 @@ function EditDiffPanel({
   diffCopyText
 }: {
   id: string;
-  filename: string;
   isZh: boolean;
   copied: boolean;
   onCopy: (text: string, id: string) => void;
   artifactPath: string;
   totalPreviewLines: number;
   totalFullLines: number;
-  addedCount: number;
-  removedCount: number;
   removed: string[];
   added: string[];
   hasStructuredDiff: boolean;
@@ -534,86 +540,120 @@ function EditDiffPanel({
   const [loadingFullDiff, setLoadingFullDiff] = useState(false);
   const [fullDiffError, setFullDiffError] = useState("");
 
-  const loadFullDiff = async () => {
+  const readFullDiff = async () => {
     if (!artifactPath || loadingFullDiff) return;
-    if (showFullDiff) {
-      setShowFullDiff(false);
-      return;
-    }
     if (!fullDiff) {
       setLoadingFullDiff(true);
       setFullDiffError("");
       try {
         const content = await invoke<string>("edit_diff_artifact_read", { path: artifactPath });
         setFullDiff(content);
+        setShowFullDiff(true);
       } catch (error) {
         setFullDiffError(error instanceof Error ? error.message : String(error));
       } finally {
         setLoadingFullDiff(false);
       }
+      return;
     }
     setShowFullDiff(true);
   };
+
+  useEffect(() => {
+    setShowFullDiff(false);
+    setFullDiff("");
+    setFullDiffError("");
+  }, [artifactPath]);
+
+  useEffect(() => {
+    if (!artifactPath) return;
+    void readFullDiff();
+  }, [artifactPath]);
 
   const copyText = showFullDiff && fullDiff ? fullDiff : diffCopyText;
   const previewRows = [
     ...removed.map((line: string, index: number) => ({ type: "removed" as const, line, index })),
     ...added.map((line: string, index: number) => ({ type: "added" as const, line, index }))
   ];
+  const fullRows = fullDiff.trim().length > 0
+    ? fullDiff
+    .split("\n")
+    .filter((line) => line.trim() !== "\\ No newline at end of file")
+    .map((line, index) => {
+      const isAdded = line.startsWith("+") && !line.startsWith("+++");
+      const isRemoved = line.startsWith("-") && !line.startsWith("---");
+      const isMeta = line.startsWith("@@") || line.startsWith("+++") || line.startsWith("---");
+      return {
+        type: isAdded ? "added" as const : isRemoved ? "removed" as const : isMeta ? "meta" as const : "context" as const,
+        line,
+        index
+      };
+    })
+    : [];
+  const rowsToRender = showFullDiff && fullRows.length > 0 ? fullRows : previewRows;
 
   return (
     <div className="edit-diff">
-      <div className="edit-diff-head">
-        <div className="edit-diff-title">
-          <span>{filename}</span>
-          <em className="diff-add">+{addedCount}</em>
-          <em className="diff-del">-{removedCount}</em>
-        </div>
-        <button
-          type="button"
-          className="edit-diff-copy"
-          aria-label={isZh ? `复制 ${filename} 的 diff` : `Copy diff for ${filename}`}
-          title={isZh ? "复制 diff" : "Copy diff"}
-          onClick={() => onCopy(copyText, id)}
-        >
-          {copied ? <Check size={14} /> : <Copy size={14} />}
-        </button>
-      </div>
+      <button
+        type="button"
+        className="edit-diff-copy"
+        aria-label={isZh ? "复制 diff" : "Copy diff"}
+        title={isZh ? "复制 diff" : "Copy diff"}
+        onClick={() => onCopy(copyText, id)}
+      >
+        {copied ? <Check size={14} /> : <Copy size={14} />}
+      </button>
       
       {hasStructuredDiff ? (
         <div className="edit-diff-lines">
-          {previewRows.map(({ type, line, index }) => (
+          {rowsToRender.map(({ type, line, index }) => (
             <div className={`edit-diff-line ${type}`} key={`${id}-${type}-${index}`}>
               <span className="edit-diff-number">{index + 1}</span>
-              <span className="edit-diff-gutter">{type === "added" ? "+" : "-"}</span>
+              <span className="edit-diff-gutter">{type === "added" ? "+" : type === "removed" ? "-" : ""}</span>
               <span className="edit-diff-content">{line || "\u00a0"}</span>
             </div>
           ))}
           {totalFullLines > totalPreviewLines || artifactPath ? (
             <div className="edit-diff-artifact-note">
               <span>
-                {isZh
-                  ? `预览 ${totalPreviewLines} 行，完整 diff ${totalFullLines} 行`
-                  : `Previewing ${totalPreviewLines} lines, full diff has ${totalFullLines} lines`}
+                {loadingFullDiff
+                  ? (isZh ? "正在读取完整 diff..." : "Loading full diff...")
+                  : showFullDiff && fullRows.length > 0
+                    ? (isZh ? `已显示完整 diff，共 ${fullRows.length} 行` : `Showing full diff, ${fullRows.length} lines`)
+                    : fullDiffError
+                      ? (isZh ? `完整 diff 暂不可用，当前显示 ${totalPreviewLines} 行预览` : `Full diff unavailable; showing ${totalPreviewLines} preview lines`)
+                    : isZh
+                      ? `当前显示 ${totalPreviewLines} 行，完整 diff ${totalFullLines} 行`
+                      : `Showing ${totalPreviewLines} lines, full diff has ${totalFullLines} lines`}
               </span>
-              {artifactPath ? <code>{artifactPath}</code> : null}
               {artifactPath ? (
                 <button
                   type="button"
                   className="edit-diff-artifact-button"
-                  onClick={loadFullDiff}
+                  onClick={() => {
+                    if (showFullDiff && fullDiff) {
+                      setShowFullDiff(false);
+                      return;
+                    }
+                    void readFullDiff();
+                  }}
                 >
                   {loadingFullDiff
                     ? (isZh ? "读取中" : "Loading")
-                    : showFullDiff
+                    : showFullDiff && fullRows.length > 0
                       ? (isZh ? "收起完整 diff" : "Hide full diff")
+                      : fullDiffError
+                        ? (isZh ? "重试完整 diff" : "Retry full diff")
                       : (isZh ? "查看完整 diff" : "Show full diff")}
                 </button>
               ) : null}
             </div>
           ) : null}
-          {fullDiffError ? <div className="edit-diff-artifact-error">{fullDiffError}</div> : null}
-          {showFullDiff && fullDiff ? <pre className="edit-diff-full">{fullDiff}</pre> : null}
+          {fullDiffError ? (
+            <div className="edit-diff-artifact-error">
+              {isZh ? "完整 diff 文件暂不可用，已显示当前预览。" : "Full diff artifact is unavailable; showing the current preview."}
+            </div>
+          ) : null}
         </div>
       ) : (
         <pre>{diffText}</pre>

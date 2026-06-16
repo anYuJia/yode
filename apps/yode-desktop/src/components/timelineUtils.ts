@@ -186,6 +186,15 @@ export function groupEditSummaryItems(items: TimelineItem[]): TimelineItem[] {
   let buffer: Array<Extract<TimelineItem, { kind: "activity_item" }>> = [];
 
   const flush = () => {
+    buffer = buffer.filter((item) => !shouldHideActivityItem({
+      kind: "tool",
+      id: item.id,
+      title: item.title,
+      body: item.body,
+      result: item.result,
+      tool: item.tool,
+      status: item.status,
+    } as any));
     if (buffer.length === 0) return;
     next.push({
       id: `edit-summary-${buffer[0].id}`,
@@ -409,6 +418,13 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
     } else if (item.kind === "tool") {
       if (isToolResultLikeItem(item)) {
         const resultCallId = (item as any).callId || item.tool;
+        if (isRuntimeNoticeText(item.body)) {
+          if (resultCallId) {
+            buffer = buffer.filter((bufferItem) => (bufferItem as any).callId !== resultCallId);
+            removeRenderedToolCall(result, resultCallId);
+          }
+          continue;
+        }
         let found = false;
 
         if (resultCallId) {
@@ -487,6 +503,29 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
   return enrichedResult;
 }
 
+function removeRenderedToolCall(items: TimelineItem[], callId: string) {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    if (item.kind === "activity_item" && (item as any).callId === callId) {
+      items.splice(i, 1);
+      continue;
+    }
+    if (item.kind === "activity_group") {
+      item.items = item.items.filter((groupItem: any) => groupItem.callId !== callId);
+      if (item.items.length === 0) {
+        items.splice(i, 1);
+      }
+      continue;
+    }
+    if (item.kind === "edit_summary") {
+      item.items = item.items.filter((summaryItem: any) => summaryItem.callId !== callId);
+      if (item.items.length === 0) {
+        items.splice(i, 1);
+      }
+    }
+  }
+}
+
 function isStreamingAssistantForTurn(item: TimelineItem, turnId?: string) {
   if (item.kind !== "assistant" || item.meta !== "streaming") return false;
   if (!turnId) return true;
@@ -535,6 +574,8 @@ function attachToolResultToRenderedItems(
   metadata?: any,
   status?: "running" | "success" | "blocked"
 ) {
+  if (isRuntimeNoticeText(resultBody)) return false;
+
   for (let i = items.length - 1; i >= 0; i--) {
     const resultItem = items[i];
     if (resultItem.kind === "activity_item" && resultItem.tool) {
@@ -577,6 +618,13 @@ export function splitTurnVisibleItems(items: TimelineItem[]) {
   }
 
   if (finalAssistantIndex === -1) {
+    const errorItems = items.filter((item) => item.kind === "error");
+    if (errorItems.length > 0) {
+      return {
+        processItems: items.filter((item) => item.kind !== "error"),
+        answerItems: errorItems
+      };
+    }
     return {
       processItems: items,
       answerItems: [] as TimelineItem[]
@@ -584,8 +632,11 @@ export function splitTurnVisibleItems(items: TimelineItem[]) {
   }
 
   return {
-    processItems: items.filter((_, index) => index !== finalAssistantIndex),
-    answerItems: [items[finalAssistantIndex]]
+    processItems: items.filter((item, index) => index !== finalAssistantIndex && item.kind !== "error"),
+    answerItems: [
+      ...items.filter((item) => item.kind === "error"),
+      items[finalAssistantIndex]
+    ]
   };
 }
 

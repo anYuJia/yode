@@ -1,6 +1,6 @@
 export function isRuntimeNoticeText(text?: string) {
   if (!text) return false;
-  return /limit instead of re-reading|budget notice|budget warning|checkpoint:|tool calls used|工具调用提醒|summariz(?:e|ing) current findings|most efficient next step/i.test(text);
+  return /limit instead of re-reading|budget notice|budget warning|checkpoint:|tool calls used|工具调用提醒|summariz(?:e|ing) current findings|most efficient next step|aggregate budget exceeded|context overflow|full result .* omitted|content omitted to prevent context overflow/i.test(text);
 }
 
 export function displayToolName(tool?: string) {
