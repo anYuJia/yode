@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::{Child, Command};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
@@ -151,39 +151,28 @@ impl DesktopRuntime {
     }
 
     pub fn edit_diff_artifact_read(&self, path: String) -> Result<String> {
-        let clean = path.trim();
-        if clean.is_empty() {
-            anyhow::bail!("diff artifact path is empty");
-        }
-        if clean.contains('\0') {
-            anyhow::bail!("diff artifact path contains invalid characters");
-        }
+        read_edit_diff_artifact_from_roots(&path, &self.edit_diff_artifact_roots()?)
+    }
 
-        let relative = Path::new(clean);
-        if relative.is_absolute() {
-            anyhow::bail!("diff artifact path must be relative");
+    fn edit_diff_artifact_roots(&self) -> Result<Vec<PathBuf>> {
+        let active_session_id = self
+            .active_session_id
+            .lock()
+            .map_err(|_| anyhow::anyhow!("active session lock poisoned"))?
+            .clone();
+        let mut roots = Vec::new();
+        if let Some(session_id) = active_session_id {
+            if let Some(session) = self.db.get_session(&session_id)? {
+                if let Some(project_root) = session.project_root {
+                    if !project_root.trim().is_empty() {
+                        roots.push(PathBuf::from(project_root));
+                    }
+                }
+            }
         }
-
-        let allowed_dir = self.workspace_path.join(".yode").join("edit-diffs");
-        let target = self.workspace_path.join(relative);
-        let canonical_allowed = allowed_dir
-            .canonicalize()
-            .with_context(|| format!("Failed to access {}", allowed_dir.display()))?;
-        let canonical_target = target
-            .canonicalize()
-            .with_context(|| format!("Failed to access {}", target.display()))?;
-        if !canonical_target.starts_with(&canonical_allowed) {
-            anyhow::bail!("diff artifact path is outside .yode/edit-diffs");
-        }
-
-        let metadata = std::fs::metadata(&canonical_target)
-            .with_context(|| format!("Failed to inspect {}", canonical_target.display()))?;
-        if metadata.len() > 2 * 1024 * 1024 {
-            anyhow::bail!("diff artifact is too large to display");
-        }
-
-        std::fs::read_to_string(&canonical_target)
-            .with_context(|| format!("Failed to read {}", canonical_target.display()))
+        roots.push(self.workspace_path.clone());
+        roots.dedup();
+        Ok(roots)
     }
 
     pub fn sessions_list(&self) -> Result<Vec<DesktopSession>> {
@@ -2351,6 +2340,90 @@ fn project_label_from_root(project_root: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+fn read_edit_diff_artifact_from_roots(path: &str, roots: &[PathBuf]) -> Result<String> {
+    let clean = path.trim();
+    if clean.is_empty() {
+        anyhow::bail!("diff artifact path is empty");
+    }
+    if clean.contains('\0') {
+        anyhow::bail!("diff artifact path contains invalid characters");
+    }
+
+    let relative = Path::new(clean);
+    if relative.is_absolute() {
+        anyhow::bail!("diff artifact path must be relative");
+    }
+    if relative.components().any(|component| {
+        matches!(
+            component,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_)
+        )
+    }) {
+        anyhow::bail!("diff artifact path contains unsafe components");
+    }
+
+    let mut searched = Vec::new();
+    let mut last_error: Option<anyhow::Error> = None;
+    for root in roots {
+        let allowed_dir = root.join(".yode").join("edit-diffs");
+        searched.push(allowed_dir.display().to_string());
+        let target = root.join(relative);
+        let canonical_allowed = match allowed_dir.canonicalize() {
+            Ok(path) => path,
+            Err(err) => {
+                last_error = Some(
+                    anyhow::anyhow!(err)
+                        .context(format!("Failed to access {}", allowed_dir.display())),
+                );
+                continue;
+            }
+        };
+        let canonical_target = match target.canonicalize() {
+            Ok(path) => path,
+            Err(err) => {
+                last_error = Some(
+                    anyhow::anyhow!(err).context(format!("Failed to access {}", target.display())),
+                );
+                continue;
+            }
+        };
+        if !canonical_target.starts_with(&canonical_allowed) {
+            last_error = Some(anyhow::anyhow!(
+                "diff artifact path is outside .yode/edit-diffs"
+            ));
+            continue;
+        }
+
+        let metadata = std::fs::metadata(&canonical_target)
+            .with_context(|| format!("Failed to inspect {}", canonical_target.display()))?;
+        if metadata.len() > 2 * 1024 * 1024 {
+            anyhow::bail!("diff artifact is too large to display");
+        }
+
+        return std::fs::read_to_string(&canonical_target)
+            .with_context(|| format!("Failed to read {}", canonical_target.display()));
+    }
+
+    let searched = if searched.is_empty() {
+        "no project roots".to_string()
+    } else {
+        searched.join(", ")
+    };
+    if let Some(error) = last_error {
+        anyhow::bail!(
+            "Failed to read diff artifact {}; searched {}; last error: {}",
+            clean,
+            searched,
+            error
+        );
+    }
+    anyhow::bail!(
+        "Failed to read diff artifact {}; searched {}",
+        clean,
+        searched
+    )
+}
+
 fn title_from_content(content: &str) -> String {
     let title = content
         .split_whitespace()
@@ -3894,6 +3967,15 @@ fn apply_menu_bar_setting(app: &AppHandle, enabled: bool) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn unique_temp_dir(name: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("yode-{name}-{nonce}"))
+    }
 
     #[test]
     fn workspace_root_detection_climbs_out_of_src_tauri() {
@@ -3907,6 +3989,42 @@ mod tests {
             find_workspace_root(&src_tauri).as_deref(),
             Some(root.as_path())
         );
+    }
+
+    #[test]
+    fn edit_diff_artifact_read_searches_session_project_roots() {
+        let workspace_root = unique_temp_dir("workspace-root");
+        let project_root = unique_temp_dir("project-root");
+        let artifact_dir = project_root.join(".yode").join("edit-diffs");
+        std::fs::create_dir_all(&artifact_dir).unwrap();
+        std::fs::write(artifact_dir.join("example.diff"), "+hello\n").unwrap();
+
+        let content = read_edit_diff_artifact_from_roots(
+            ".yode/edit-diffs/example.diff",
+            &[workspace_root.clone(), project_root.clone()],
+        )
+        .unwrap();
+
+        assert_eq!(content, "+hello\n");
+        let _ = std::fs::remove_dir_all(workspace_root);
+        let _ = std::fs::remove_dir_all(project_root);
+    }
+
+    #[test]
+    fn edit_diff_artifact_read_rejects_parent_components() {
+        let project_root = unique_temp_dir("project-root");
+        let artifact_dir = project_root.join(".yode").join("edit-diffs");
+        std::fs::create_dir_all(&artifact_dir).unwrap();
+
+        let error = read_edit_diff_artifact_from_roots(
+            ".yode/edit-diffs/../secret.diff",
+            &[project_root.clone()],
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("unsafe components"));
+        let _ = std::fs::remove_dir_all(project_root);
     }
 
     #[test]
