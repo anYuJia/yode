@@ -184,6 +184,10 @@ impl Tool for MultiEditTool {
                         "more_removed": applied.saturating_sub(removed_preview.len()),
                         "more_added": applied.saturating_sub(added_preview.len()),
                     },
+                    "diff_full": {
+                        "removed": removed_full,
+                        "added": added_full,
+                    },
                 });
                 merge_metadata(&mut metadata, diff_artifact_metadata(artifact));
                 Ok(ToolResult::success_with_metadata(

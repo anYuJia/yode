@@ -321,7 +321,8 @@ fn streaming_tool_call_start_is_not_forwarded_before_execution() {
     AgentEngine::process_stream_event(
         yode_llm::types::StreamEvent::ToolCallDelta {
             id: "call_1".to_string(),
-            arguments: r#"{"file_path":"Cargo.toml","action_narrative":"我先看配置入口。"}"#.to_string(),
+            arguments: r#"{"file_path":"Cargo.toml","action_narrative":"我先看配置入口。"}"#
+                .to_string(),
         },
         &mut full_text,
         &mut pending_text,

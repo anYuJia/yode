@@ -263,10 +263,10 @@ pub(crate) async fn execute_background_shell(
                 tokio::spawn(async move {
                     while let Some(input) = stdin_rx.recv().await {
                         if let Err(err) = stdin.write_all(input.as_bytes()).await {
-                            stdin_runtime_tasks.lock().await.update_progress(
-                                &stdin_task_id,
-                                format!("stdin closed: {}", err),
-                            );
+                            stdin_runtime_tasks
+                                .lock()
+                                .await
+                                .update_progress(&stdin_task_id, format!("stdin closed: {}", err));
                             break;
                         }
                         if let Err(err) = stdin.flush().await {

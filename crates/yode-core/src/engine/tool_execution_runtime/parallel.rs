@@ -83,7 +83,9 @@ impl AgentEngine {
             };
             if tc.name == "batch" {
                 strip_nested_action_narrative_params(&mut params);
+                normalize_nested_tool_parameter_aliases(&mut params);
             }
+            normalize_tool_parameter_aliases(&tc.name, &mut params);
             let schema = tool.parameters_schema();
             if let Err(msg) = validation::validate_and_coerce(&schema, &mut params) {
                 let tc_clone = tc.clone();
@@ -186,7 +188,9 @@ impl AgentEngine {
                                 ),
                                 ToolErrorType::Timeout,
                                 true,
-                                Some("Try a smaller scope or more specific parameters.".to_string()),
+                                Some(
+                                    "Try a smaller scope or more specific parameters.".to_string(),
+                                ),
                             )
                         }
                     }

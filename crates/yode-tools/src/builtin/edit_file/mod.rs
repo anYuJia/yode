@@ -32,7 +32,6 @@ impl Tool for EditFileTool {
         r#"Performs exact string replacements in files.
 
 Usage:
-- You must use the `read_file` tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file.
 - When editing text from Read tool output, ensure you preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix. Everything after that is the actual file content to match. Never include any part of the line number prefix in the old_string or new_string.
 - ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.
 - The edit will FAIL if `old_string` is not unique in the file. Either provide a larger string with more surrounding context to make it unique or use `replace_all` to change every instance of `old_string`.
@@ -94,23 +93,6 @@ Usage:
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
-        // --- Mandatory Pre-read Check ---
-        if let Some(history) = &ctx.read_file_history {
-            let h = history.lock().await;
-            if !history_contains_path(&h, file_path) {
-                return Ok(ToolResult::error_typed(
-                    format!("File '{}' has not been read yet. You must use 'read_file' at least once in the conversation before editing.", file_path),
-                    crate::tool::ToolErrorType::Validation,
-                    true,
-                    Some(format!(
-                        "Call read_file(file_path=\"{}\") first. If the file is large, use snip(file_path=\"{}\", start_line=..., end_line=...) to capture the exact section you plan to edit.",
-                        file_path,
-                        file_path
-                    )),
-                ));
-            }
-        }
-
         tracing::debug!(
             file_path = %file_path,
             old_len = old_string.len(),
@@ -136,20 +118,20 @@ Usage:
             ));
         }
 
-        // --- Smarter String Matching (Quote Robustness) ---
-        let actual_old = old_string.to_string();
+        let actual_old = match locate_edit_target(&content, old_string) {
+            Some(value) => value,
+            None => {
+                return Ok(ToolResult::error(format!(
+                    "The exact string to replace was not found in '{}'. \
+                     Ensure you provided the EXACT text including indentation and quotes as seen in 'read_file' output. \
+                     Fallbacks: re-read the file, use snip on a narrower line range, or include more surrounding context in old_string.",
+                    file_path
+                )));
+            }
+        };
 
         // Count occurrences
         let count = content.matches(&actual_old).count();
-
-        if count == 0 {
-            return Ok(ToolResult::error(format!(
-                "The exact string to replace was not found in '{}'. \
-                 Ensure you provided the EXACT text including indentation and quotes as seen in 'read_file' output. \
-                 Fallbacks: re-read the file, use snip on a narrower line range, or include more surrounding context in old_string.",
-                file_path
-            )));
-        }
 
         if count > 1 && !replace_all {
             return Ok(ToolResult::error(format!(
@@ -212,6 +194,10 @@ Usage:
                         "more_removed": full_removed.len().saturating_sub(5),
                         "more_added": full_added.len().saturating_sub(5),
                     },
+                    "diff_full": {
+                        "removed": full_removed,
+                        "added": full_added,
+                    },
                 });
                 merge_metadata(&mut metadata, diff_artifact_metadata(artifact));
 
@@ -236,18 +222,57 @@ fn merge_metadata(target: &mut Value, extra: Value) {
     }
 }
 
-fn history_contains_path(
-    history: &std::collections::HashSet<std::path::PathBuf>,
-    file_path: &str,
-) -> bool {
-    let target = normalize_history_path(file_path);
-    history
-        .iter()
-        .any(|path| normalize_history_path(path.to_string_lossy().as_ref()) == target)
+fn locate_edit_target(content: &str, old_string: &str) -> Option<String> {
+    if old_string.is_empty() {
+        return None;
+    }
+
+    if content.contains(old_string) {
+        return Some(old_string.to_string());
+    }
+
+    relaxed_line_match(content, old_string)
 }
 
-fn normalize_history_path(file_path: &str) -> std::path::PathBuf {
-    std::fs::canonicalize(file_path).unwrap_or_else(|_| std::path::PathBuf::from(file_path))
+fn relaxed_line_match(content: &str, needle: &str) -> Option<String> {
+    let content_lines: Vec<&str> = content.split_inclusive('\n').collect();
+    let needle_lines: Vec<&str> = needle.split_inclusive('\n').collect();
+    if content_lines.is_empty()
+        || needle_lines.is_empty()
+        || needle_lines.len() > content_lines.len()
+    {
+        return None;
+    }
+
+    let normalized_needle: Vec<String> = needle_lines
+        .iter()
+        .map(|line| normalize_edit_line(line))
+        .collect();
+    let mut matches = Vec::new();
+
+    for start in 0..=content_lines.len() - needle_lines.len() {
+        let mut matched = true;
+        for (offset, needle_line) in normalized_needle.iter().enumerate() {
+            if normalize_edit_line(content_lines[start + offset]) != *needle_line {
+                matched = false;
+                break;
+            }
+        }
+
+        if matched {
+            let candidate = content_lines[start..start + needle_lines.len()].concat();
+            matches.push(candidate);
+            if matches.len() > 1 {
+                return None;
+            }
+        }
+    }
+
+    matches.into_iter().next()
+}
+
+fn normalize_edit_line(line: &str) -> String {
+    line.trim_end_matches(['\n', '\r', ' ', '\t']).to_string()
 }
 
 #[cfg(test)]
@@ -258,7 +283,7 @@ mod tests {
     use serde_json::json;
     use tokio::sync::Mutex;
 
-    use crate::tool::{Tool, ToolContext, ToolErrorType};
+    use crate::tool::{Tool, ToolContext};
 
     use super::EditFileTool;
 
@@ -267,13 +292,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn requires_preread_for_existing_files() {
-        let path = temp_path("preread.txt");
+    async fn edits_existing_files_without_preread_when_old_string_matches() {
+        let path = temp_path("no-preread.txt");
         tokio::fs::write(&path, "let value = 1;\n").await.unwrap();
-
-        let history = Arc::new(Mutex::new(HashSet::new()));
-        let mut ctx = ToolContext::empty();
-        ctx.read_file_history = Some(history);
 
         let result = EditFileTool
             .execute(
@@ -282,19 +303,14 @@ mod tests {
                     "old_string": "value",
                     "new_string": "answer"
                 }),
-                &ctx,
+                &ToolContext::empty(),
             )
             .await
             .unwrap();
 
-        assert!(result.is_error);
-        assert_eq!(result.error_type, Some(ToolErrorType::Validation));
-        assert!(result.content.contains("has not been read yet"));
-        assert!(result
-            .suggestion
-            .as_deref()
-            .unwrap_or("")
-            .contains("read_file"));
+        assert!(!result.is_error);
+        let updated = tokio::fs::read_to_string(&path).await.unwrap();
+        assert_eq!(updated, "let answer = 1;\n");
 
         let _ = tokio::fs::remove_file(&path).await;
     }
@@ -349,6 +365,55 @@ mod tests {
         assert!(artifact.contains("+bar"));
 
         let _ = tokio::fs::remove_dir_all(&dir).await;
+    }
+
+    #[tokio::test]
+    async fn edits_when_only_trailing_space_or_crlf_differs() {
+        let path = temp_path("relaxed-line-endings.txt");
+        tokio::fs::write(&path, "func main() {\r\n\tprintln(\"hi\")   \r\n}\r\n")
+            .await
+            .unwrap();
+
+        let result = EditFileTool
+            .execute(
+                json!({
+                    "file_path": path.display().to_string(),
+                    "old_string": "func main() {\n\tprintln(\"hi\")\n}\n",
+                    "new_string": "func main() {\n\tprintln(\"hello\")\n}\n"
+                }),
+                &ToolContext::empty(),
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        let updated = tokio::fs::read_to_string(&path).await.unwrap();
+        assert_eq!(updated, "func main() {\n\tprintln(\"hello\")\n}\n");
+
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[tokio::test]
+    async fn relaxed_match_keeps_leading_indentation_significant() {
+        let path = temp_path("indentation-sensitive.txt");
+        tokio::fs::write(&path, "\treturn nil\n").await.unwrap();
+
+        let result = EditFileTool
+            .execute(
+                json!({
+                    "file_path": path.display().to_string(),
+                    "old_string": "    return nil\n",
+                    "new_string": "return err\n"
+                }),
+                &ToolContext::empty(),
+            )
+            .await
+            .unwrap();
+
+        assert!(result.is_error);
+        assert!(result.content.contains("exact string"));
+
+        let _ = tokio::fs::remove_file(&path).await;
     }
 
     #[tokio::test]

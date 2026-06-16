@@ -1282,8 +1282,8 @@ mod tests {
     use crate::tool::{Tool, ToolContext};
 
     use super::{
-        ApplyPatchTool, ExecCommandTool, GetContextRemainingTool, ShellCommandTool, UpdatePlanTool,
-        ViewImageTool, WriteStdinTool, RequestUserInputTool,
+        ApplyPatchTool, ExecCommandTool, GetContextRemainingTool, RequestUserInputTool,
+        ShellCommandTool, UpdatePlanTool, ViewImageTool, WriteStdinTool,
     };
 
     #[tokio::test]

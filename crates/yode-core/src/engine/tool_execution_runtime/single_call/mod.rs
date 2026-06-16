@@ -36,7 +36,9 @@ impl PreparedToolExecution {
         };
         if tool_call.name == "batch" {
             strip_nested_action_narrative_params(&mut self.params);
+            normalize_nested_tool_parameter_aliases(&mut self.params);
         }
+        normalize_tool_parameter_aliases(&tool_call.name, &mut self.params);
         self.command_content = match tool_call.name.as_str() {
             "bash" | "shell_command" => self
                 .params

@@ -89,7 +89,10 @@ async fn test_bash_reports_redirected_file_as_modified() {
     assert!(!result.is_error);
     let metadata = result.metadata.unwrap();
     assert_eq!(metadata["modified_file_count"], json!(1));
-    assert_eq!(metadata["modified_files"][0], json!(path.display().to_string()));
+    assert_eq!(
+        metadata["modified_files"][0],
+        json!(path.display().to_string())
+    );
     assert_eq!(metadata["file_path"], json!(path.display().to_string()));
     assert_eq!(metadata["diff_preview"]["added"][0], json!("hello"));
 }

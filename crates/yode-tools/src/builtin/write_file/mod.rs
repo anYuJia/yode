@@ -138,6 +138,10 @@ Usage:
                         "more_removed": 0,
                         "more_added": line_count.saturating_sub(5),
                     },
+                    "diff_full": {
+                        "removed": [],
+                        "added": added_lines,
+                    },
                 });
                 merge_metadata(&mut metadata, diff_artifact_metadata(artifact));
                 Ok(ToolResult::success_with_metadata(

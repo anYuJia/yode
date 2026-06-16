@@ -67,7 +67,14 @@ impl AgentEngine {
         } else {
             self.messages
                 .push(Message::user_with_images(user_input, images.clone()));
-            self.persist_message_with_images("user", Some(user_input), None, None, None, Some(&images));
+            self.persist_message_with_images(
+                "user",
+                Some(user_input),
+                None,
+                None,
+                None,
+                Some(&images),
+            );
         }
     }
 
@@ -82,8 +89,6 @@ impl AgentEngine {
         self.recent_tool_calls.clear();
         self.consecutive_failures = 0;
         self.violation_retries = 0;
-        self.files_read.clear();
-        self.recent_file_reads.clear();
         self.files_modified.clear();
     }
 

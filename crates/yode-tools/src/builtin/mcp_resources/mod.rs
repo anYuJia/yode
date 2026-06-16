@@ -1004,10 +1004,7 @@ mod tests {
         ctx.mcp_resources = Some(provider);
 
         let tool = ListMcpResourceTemplatesTool;
-        let result = tool
-            .execute(json!({"server": "demo"}), &ctx)
-            .await
-            .unwrap();
+        let result = tool.execute(json!({"server": "demo"}), &ctx).await.unwrap();
 
         assert!(!result.is_error);
         assert!(result.content.contains("mcp://resource/{id}"));

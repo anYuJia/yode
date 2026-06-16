@@ -126,7 +126,7 @@ impl AgentEngine {
         prepared: &PreparedToolExecution,
         working_dir: &str,
     ) -> Option<ToolExecutionOutcome> {
-        if tool_call.name != "edit_file" && tool_call.name != "write_file" {
+        if tool_call.name != "write_file" {
             return None;
         }
 
@@ -134,7 +134,7 @@ impl AgentEngine {
             .params
             .get("file_path")
             .and_then(|value| value.as_str())?;
-        if tool_call.name == "write_file" && !tool_target_exists(file_path, working_dir) {
+        if !tool_target_exists(file_path, working_dir) {
             return None;
         }
         if file_has_been_read(&self.files_read, file_path, working_dir) {

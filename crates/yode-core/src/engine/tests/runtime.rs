@@ -36,7 +36,11 @@ fn test_live_session_memory_refresh_writes_snapshot() {
 fn test_project_memory_disabled_skips_memory_prompt_and_live_snapshot() {
     let mut engine = make_engine(vec![], vec![]);
     let project_root = engine.context().working_dir_compat();
-    std::fs::write(project_root.join("Cargo.toml"), "[package]\nname = \"demo\"\n").unwrap();
+    std::fs::write(
+        project_root.join("Cargo.toml"),
+        "[package]\nname = \"demo\"\n",
+    )
+    .unwrap();
     let memory_dir = project_root.join(".yode").join("memory");
     std::fs::create_dir_all(&memory_dir).unwrap();
     std::fs::write(memory_dir.join("notes.md"), "project-only memory marker").unwrap();
@@ -1190,4 +1194,24 @@ fn test_reset_turn_runtime_clears_stream_watchdog_stage() {
         engine.runtime_state().last_stream_watchdog_stage.as_deref(),
         None
     );
+}
+
+#[test]
+fn test_reset_turn_runtime_preserves_read_history_for_edit_guards() {
+    let mut engine = make_engine(vec![], vec![]);
+    engine
+        .files_read
+        .insert("/tmp/already-read.rs".to_string(), 12);
+    engine
+        .recent_file_reads
+        .push("/tmp/already-read.rs".to_string());
+    engine
+        .files_modified
+        .push("/tmp/current-turn-change.rs".to_string());
+
+    engine.reset_turn_runtime_state();
+
+    assert_eq!(engine.files_read.get("/tmp/already-read.rs"), Some(&12));
+    assert_eq!(engine.recent_file_reads, vec!["/tmp/already-read.rs"]);
+    assert!(engine.files_modified.is_empty());
 }
