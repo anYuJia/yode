@@ -3,7 +3,6 @@ import { Bot } from "lucide-react";
 import { ImageAttachment, TimelineItem } from "../lib/mock";
 import {
   isIntermediateAssistantItem,
-  isFinalAssistantItem,
   compileInlineItems,
   splitTurnVisibleItems,
   turnStaticDurationSeconds,
@@ -42,6 +41,19 @@ function isLiveTailStatusItem(item: TimelineItem) {
   if (item.kind === "reasoning") return item.meta === "running";
   if (item.kind === "process_note") return item.status === "running";
   return false;
+}
+
+function hasRunningVisibleItem(items: TimelineItem[]) {
+  return items.some((item) => {
+    if (item.kind === "reasoning") return item.meta === "running";
+    if (item.kind === "process_note") return item.status === "running";
+    if (item.kind === "tool") return item.status === "running";
+    if (item.kind === "activity_group") return item.status === "running";
+    if (item.kind === "activity_item") return item.status === "running";
+    if (item.kind === "edit_summary") return item.status === "running";
+    if (item.kind === "assistant") return item.meta === "streaming";
+    return false;
+  });
 }
 
 interface ChatWorkspaceProps {
@@ -424,10 +436,15 @@ export function ChatWorkspace({
           ) : (
             turns.map((turn, turnIndex) => {
               const isLastTurn = turnIndex === turns.length - 1;
-              const hasFinalAnswer = turn.items.some(isFinalAssistantItem);
-              const isTurnActive = isLastTurn && (isStreaming || !hasFinalAnswer);
+              const initiallyActive = isLastTurn && isStreaming;
+              const initialVisibleItems = compileInlineItems(turn.items, initiallyActive, appLang);
+              const hasLiveItems = hasRunningVisibleItem(initialVisibleItems);
+              const isInitialRequestGap = isProcessing && turn.items.length === 0;
+              const isTurnActive = isLastTurn && (Boolean(pendingUserQuestion) || hasLiveItems || isInitialRequestGap);
               const isTurnWaitingForUser = Boolean(pendingUserQuestion) && isLastTurn;
-              const visibleItems = compileInlineItems(turn.items, isTurnActive, appLang);
+              const visibleItems = isTurnActive === initiallyActive
+                ? initialVisibleItems
+                : compileInlineItems(turn.items, isTurnActive, appLang);
               const { processItems, answerItems } = splitTurnVisibleItems(visibleItems);
               const tailStatusItems = isTurnActive
                 ? processItems.filter(isLiveTailStatusItem)
