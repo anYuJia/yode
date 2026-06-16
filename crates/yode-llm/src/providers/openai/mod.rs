@@ -33,6 +33,7 @@ pub struct OpenAiProvider {
     api_key: String,
     base_url: String,
     client: Client,
+    compatibility: OpenAiCompatibility,
 }
 
 impl OpenAiProvider {
@@ -41,20 +42,32 @@ impl OpenAiProvider {
         api_key: impl Into<String>,
         base_url: impl Into<String>,
     ) -> Self {
+        let name = name.into();
+        let base_url = base_url.into();
         Self {
-            name: name.into(),
+            compatibility: OpenAiCompatibility::infer(&name, &base_url),
+            name,
             api_key: api_key.into(),
-            base_url: base_url.into(),
+            base_url,
             client: provider_http_client("openai"),
         }
     }
 
     fn chat_url(&self) -> String {
-        format!("{}/chat/completions", self.endpoint_base_url())
+        let base = self.endpoint_base_url();
+        if base.ends_with("/chat/completions") {
+            base
+        } else {
+            format!("{}/chat/completions", base)
+        }
     }
 
     fn models_url(&self) -> String {
-        format!("{}/models", self.endpoint_base_url())
+        let base = self.endpoint_base_url();
+        let model_base = base
+            .strip_suffix("/chat/completions")
+            .unwrap_or(base.as_str());
+        format!("{}/models", model_base)
     }
 
     fn endpoint_base_url(&self) -> String {
@@ -67,8 +80,18 @@ impl OpenAiProvider {
 
     fn build_request(&self, request: &ChatRequest, stream: bool) -> OpenAiRequest {
         let tools: Vec<OpenAiTool> = request.tools.iter().map(tool_to_openai).collect();
-        let mut messages: Vec<OpenAiMessage> =
-            request.messages.iter().map(message_to_openai).collect();
+        let mut messages: Vec<OpenAiMessage> = request
+            .messages
+            .iter()
+            .map(message_to_openai)
+            .map(|message| {
+                if self.compatibility.include_reasoning_content {
+                    message
+                } else {
+                    message.without_reasoning()
+                }
+            })
+            .collect();
         if !request.provider_hints.restore_system_blocks.is_empty() {
             let insert_at = messages
                 .iter()
@@ -114,9 +137,47 @@ impl OpenAiProvider {
             temperature: request.temperature,
             max_tokens: request.max_tokens,
             stream,
-            stream_options: stream.then_some(StreamOptions {
-                include_usage: true,
-            }),
+            stream_options: (stream && self.compatibility.include_stream_options).then_some(
+                StreamOptions {
+                    include_usage: true,
+                },
+            ),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct OpenAiCompatibility {
+    include_stream_options: bool,
+    include_reasoning_content: bool,
+}
+
+impl OpenAiCompatibility {
+    fn infer(name: &str, base_url: &str) -> Self {
+        let normalized = format!("{} {}", name, base_url).to_ascii_lowercase();
+        let conservative = [
+            "xiaomi",
+            "mimo",
+            "dashscope",
+            "aliyuncs",
+            "ark.cn-",
+            "volces",
+            "bigmodel",
+            "moonshot",
+            "siliconflow",
+            "tbox",
+            "iflow",
+            "asxs",
+            "openrouter",
+            "localhost",
+            "127.0.0.1",
+        ]
+        .iter()
+        .any(|needle| normalized.contains(needle));
+
+        Self {
+            include_stream_options: !conservative,
+            include_reasoning_content: !conservative,
         }
     }
 }
@@ -330,5 +391,47 @@ mod tests {
             system_messages[3],
             "[Post-compact restore: files]\n- Recent files read: src/main.rs"
         );
+    }
+
+    #[test]
+    fn openai_chat_url_does_not_duplicate_chat_completions_path() {
+        let provider = OpenAiProvider::new(
+            "bailing",
+            "test-key",
+            "https://api.tbox.cn/api/llm/v1/chat/completions",
+        );
+
+        assert_eq!(
+            provider.chat_url(),
+            "https://api.tbox.cn/api/llm/v1/chat/completions"
+        );
+        assert_eq!(
+            provider.models_url(),
+            "https://api.tbox.cn/api/llm/v1/models"
+        );
+    }
+
+    #[test]
+    fn conservative_openai_compatible_request_omits_reasoning_and_stream_options() {
+        let provider = OpenAiProvider::new(
+            "xiaomi",
+            "test-key",
+            "https://token-plan-cn.xiaomimimo.com/v1",
+        );
+        let mut message = Message::assistant("done");
+        message.reasoning = Some("internal notes".to_string());
+        let request = ChatRequest {
+            model: "mimo-v2.5-pro".to_string(),
+            messages: vec![message],
+            tools: vec![],
+            temperature: None,
+            max_tokens: None,
+            provider_hints: ProviderRequestHints::default(),
+        };
+
+        let built = provider.build_request(&request, true);
+
+        assert!(built.stream_options.is_none());
+        assert!(built.messages[0].reasoning_content.is_none());
     }
 }

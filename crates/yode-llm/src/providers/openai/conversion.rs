@@ -288,10 +288,7 @@ mod tests {
         assert!(parameters.get("allOf").is_none());
         assert!(parameters.get("anyOf").is_none());
         assert!(parameters.get("properties").is_some());
-        assert_eq!(
-            parameters.get("required"),
-            Some(&Value::Array(Vec::new()))
-        );
+        assert_eq!(parameters.get("required"), Some(&Value::Array(Vec::new())));
     }
 
     #[test]

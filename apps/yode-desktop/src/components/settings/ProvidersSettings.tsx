@@ -360,6 +360,29 @@ function normalizeProvider(raw: any): ProviderConfigData {
   };
 }
 
+function providerIdFromName(name: string) {
+  const normalized = name.trim().toLowerCase();
+  const known: Record<string, string> = {
+    "豆包": "doubao",
+    "火山": "doubao",
+    "火山方舟": "doubao",
+    "小米": "xiaomi",
+    "通义千问": "qwen",
+    "千问": "qwen",
+    "智谱": "zhipu",
+    "月之暗面": "moonshot",
+    "kimi": "moonshot",
+    "硅基流动": "siliconflow",
+    "百度千帆": "baidu-qianfan",
+    "阿里 coding": "dashscope-coding"
+  };
+  if (known[normalized]) {
+    return known[normalized];
+  }
+  const ascii = normalized.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  return ascii || `provider-${crypto.randomUUID().slice(0, 8)}`;
+}
+
 export function ProvidersSettings({
   bootstrap,
   isZh,
@@ -529,7 +552,7 @@ export function ProvidersSettings({
       setCheckMessage(t("先填写提供商名称。", "Enter a provider name first."));
       return null;
     }
-    const id = editingId || name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const id = editingId || providerIdFromName(name);
     const existing = providers.find((p) => p.id === id);
     if (modalMode === "add" && existing) {
       setCheckState("error");

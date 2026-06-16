@@ -24,7 +24,18 @@ impl OpenAiProvider {
         tx: mpsc::Sender<StreamEvent>,
     ) -> Result<()> {
         let tools: Vec<OpenAiTool> = request.tools.iter().map(tool_to_openai).collect();
-        let messages: Vec<OpenAiMessage> = request.messages.iter().map(message_to_openai).collect();
+        let messages: Vec<OpenAiMessage> = request
+            .messages
+            .iter()
+            .map(message_to_openai)
+            .map(|message| {
+                if self.compatibility.include_reasoning_content {
+                    message
+                } else {
+                    message.without_reasoning()
+                }
+            })
+            .collect();
 
         let body = OpenAiRequest {
             model: request.model.clone(),
@@ -33,9 +44,12 @@ impl OpenAiProvider {
             temperature: request.temperature,
             max_tokens: request.max_tokens,
             stream: true,
-            stream_options: Some(StreamOptions {
-                include_usage: true,
-            }),
+            stream_options: self
+                .compatibility
+                .include_stream_options
+                .then_some(StreamOptions {
+                    include_usage: true,
+                }),
         };
 
         debug!("Sending streaming chat request to {}", self.chat_url());

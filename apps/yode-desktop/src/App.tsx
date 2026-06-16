@@ -256,6 +256,19 @@ function visibleSessions(sessions: SessionSummary[]) {
   return sessions.filter((session) => !hiddenIds.has(session.id));
 }
 
+function refreshProviderCache() {
+  if (!("__TAURI_INTERNALS__" in window)) {
+    return;
+  }
+  invoke<unknown[]>("config_get_providers")
+    .then((providers) => {
+      if (Array.isArray(providers)) {
+        localStorage.setItem("yode-llm-providers", JSON.stringify(providers));
+      }
+    })
+    .catch(console.error);
+}
+
 function homePathFromWorkspace(workspacePath: string) {
   const macHome = workspacePath.match(/^\/Users\/[^/]+/);
   if (macHome) return macHome[0];
@@ -765,6 +778,7 @@ export function App() {
   }, [viewMode]);
 
   const loadBootstrap = () => {
+    refreshProviderCache();
     invoke<Bootstrap>("app_get_bootstrap")
       .then((nextBootstrap) => {
         setBootstrap(nextBootstrap);

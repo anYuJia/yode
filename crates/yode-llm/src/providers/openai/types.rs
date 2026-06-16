@@ -40,6 +40,13 @@ pub(super) struct OpenAiMessage {
     pub(super) tool_call_id: Option<String>,
 }
 
+impl OpenAiMessage {
+    pub(super) fn without_reasoning(mut self) -> Self {
+        self.reasoning_content = None;
+        self
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub(super) struct OpenAiToolCall {
     #[serde(skip_serializing_if = "Option::is_none")]

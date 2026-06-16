@@ -138,7 +138,10 @@ impl LlmProvider for GeminiProvider {
             return Err(format_api_error("Gemini", status, parsed, &text));
         }
 
-        let response_text = resp.text().await.context("Failed to read Gemini response")?;
+        let response_text = resp
+            .text()
+            .await
+            .context("Failed to read Gemini response")?;
         write_debug_artifact(
             &self.name,
             "gemini-chat-response",

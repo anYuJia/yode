@@ -206,6 +206,8 @@ impl DesktopRuntime {
             created_at: now,
             updated_at: now,
         };
+        let mut session = session;
+        self.normalize_session_llm(&mut session, &config);
 
         self.db.create_session(&session)?;
         self.set_active_session(session.id.clone())?;
@@ -251,6 +253,11 @@ impl DesktopRuntime {
         provider: String,
         model: String,
     ) -> Result<()> {
+        let config = self
+            .config
+            .lock()
+            .map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
+        let (provider, model) = normalized_provider_model(&config, &provider, &model);
         self.db.update_session_llm(&session_id, &provider, &model)?;
         Ok(())
     }
@@ -1264,6 +1271,7 @@ impl DesktopRuntime {
                 }
             }
             if changed {
+                self.normalize_session_llm(&mut s, &config);
                 self.db.update_session_llm(&s.id, &s.provider, &s.model)?;
             }
             s
@@ -1288,6 +1296,8 @@ impl DesktopRuntime {
                 created_at: now,
                 updated_at: now,
             };
+            let mut session = session;
+            self.normalize_session_llm(&mut session, &config);
             self.db.create_session(&session)?;
             session
         };
@@ -1951,13 +1961,23 @@ impl DesktopRuntime {
     fn default_llm_for_new_session(&self, config: &Config) -> Result<(String, String)> {
         if let Some(session) = self.db.list_sessions(1)?.into_iter().next() {
             if !session.provider.trim().is_empty() && !session.model.trim().is_empty() {
-                return Ok((session.provider, session.model));
+                let (provider, model) =
+                    normalized_provider_model(config, &session.provider, &session.model);
+                return Ok((provider, model));
             }
         }
-        Ok((
-            config.llm.default_provider.clone(),
-            config.llm.default_model.clone(),
+        Ok(normalized_provider_model(
+            config,
+            &config.llm.default_provider,
+            &config.llm.default_model,
         ))
+    }
+
+    fn normalize_session_llm(&self, session: &mut Session, config: &Config) {
+        let (provider, model) =
+            normalized_provider_model(config, &session.provider, &session.model);
+        session.provider = provider;
+        session.model = model;
     }
 
     pub fn config_get_providers(&self) -> Result<Vec<DesktopProvider>> {
@@ -1967,16 +1987,21 @@ impl DesktopRuntime {
             .map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
         let mut providers = Vec::new();
         for (id, p) in &config.llm.providers {
-            let name = match id.as_str() {
+            let resolved_id = resolved_provider_id(id, p);
+            if resolved_id.trim().is_empty() {
+                continue;
+            }
+            let name = match resolved_id.as_str() {
                 "anthropic" => "Anthropic Claude".to_string(),
                 "openai" => "OpenAI".to_string(),
                 "google" | "gemini" => "Google Gemini".to_string(),
                 "deepseek" => "DeepSeek (深度求索)".to_string(),
+                "doubao" => "豆包".to_string(),
                 "ollama" => "Ollama (本地运行)".to_string(),
-                _ => id.to_uppercase(),
+                _ => resolved_id.to_uppercase(),
             };
             providers.push(DesktopProvider {
-                id: id.clone(),
+                id: resolved_id,
                 name,
                 format: p.format.clone(),
                 enabled: p.enabled.unwrap_or(true),
@@ -2019,9 +2044,15 @@ impl DesktopRuntime {
             .config
             .lock()
             .map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
-        if !config.llm.providers.contains_key(&provider) {
+        if !config
+            .llm
+            .providers
+            .iter()
+            .any(|(id, provider_config)| resolved_provider_id(id, provider_config) == provider)
+        {
             anyhow::bail!("Provider '{}' not found", provider);
         }
+        let (provider, model) = normalized_provider_model(&config, &provider, &model);
         config.llm.default_provider = provider;
         config.llm.default_model = model;
         config.save()?;
@@ -2038,8 +2069,12 @@ impl DesktopRuntime {
             .map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
         let mut new_providers = std::collections::HashMap::new();
         for p in providers {
+            let id = p.id.trim().to_string();
+            if id.is_empty() {
+                continue;
+            }
             new_providers.insert(
-                p.id,
+                id,
                 yode_core::config::ProviderConfig {
                     format: p.format,
                     base_url: if p.base_url.is_empty() {
@@ -2058,7 +2093,12 @@ impl DesktopRuntime {
                 },
             );
         }
-        if !new_providers.contains_key(&config.llm.default_provider) {
+        if !new_providers
+            .iter()
+            .any(|(id, provider_config)| {
+                resolved_provider_id(id, provider_config) == config.llm.default_provider
+            })
+        {
             if let Some((provider, config_provider)) = new_providers
                 .iter()
                 .find(|(_, provider)| provider.enabled.unwrap_or(true))
@@ -2073,6 +2113,13 @@ impl DesktopRuntime {
             }
         }
         config.llm.providers = new_providers;
+        let (provider, model) = normalized_provider_model(
+            &config,
+            &config.llm.default_provider,
+            &config.llm.default_model,
+        );
+        config.llm.default_provider = provider;
+        config.llm.default_model = model;
         config.save()?;
 
         let new_registry = bootstrap_providers(&config);
@@ -2151,17 +2198,99 @@ fn resolve_provider_base_url(id: &str, format: &str, configured: &str) -> String
     }
 }
 
+fn normalized_provider_model(config: &Config, provider: &str, model: &str) -> (String, String) {
+    let provider = provider.trim();
+    let model = model.trim();
+
+    let configured_provider = config
+        .llm
+        .providers
+        .iter()
+        .find(|(id, provider_config)| {
+            resolved_provider_id(id, provider_config) == provider
+                && provider_config.enabled.unwrap_or(true)
+        })
+        .map(|(_, provider_config)| provider_config);
+
+    if let Some(provider_config) = configured_provider {
+        if provider_config.models.is_empty()
+            || provider_config
+                .models
+                .iter()
+                .any(|candidate| candidate == model)
+        {
+            return (provider.to_string(), model.to_string());
+        }
+        if let Some(first_model) = provider_config.models.first() {
+            return (provider.to_string(), first_model.clone());
+        }
+    }
+
+    if let Some(default_provider) = config.llm.providers.get(&config.llm.default_provider).filter(
+        |provider_config| provider_config.enabled.unwrap_or(true),
+    ) {
+        let fallback_model = default_provider
+            .models
+            .first()
+            .cloned()
+            .unwrap_or_else(|| config.llm.default_model.clone());
+        return (config.llm.default_provider.clone(), fallback_model);
+    }
+
+    if let Some((fallback_provider, fallback_config)) =
+        config.llm.providers.iter().find(|(id, provider_config)| {
+            !resolved_provider_id(id, provider_config).trim().is_empty()
+                && provider_config.enabled.unwrap_or(true)
+        })
+    {
+        let fallback_model = fallback_config
+            .models
+            .first()
+            .cloned()
+            .unwrap_or_else(|| config.llm.default_model.clone());
+        return (resolved_provider_id(fallback_provider, fallback_config), fallback_model);
+    }
+
+    (
+        config.llm.default_provider.clone(),
+        config.llm.default_model.clone(),
+    )
+}
+
+fn resolved_provider_id(id: &str, provider: &yode_core::config::ProviderConfig) -> String {
+    let trimmed = id.trim();
+    if !trimmed.is_empty() {
+        return trimmed.to_string();
+    }
+    let base_url = provider.base_url.as_deref().unwrap_or_default().to_ascii_lowercase();
+    let models = provider.models.join(" ").to_ascii_lowercase();
+    if base_url.contains("ark.cn-") || base_url.contains("volces") || models.contains("doubao") {
+        return "doubao".to_string();
+    }
+    if base_url.contains("xiaomimimo") || models.contains("mimo") {
+        return "xiaomi".to_string();
+    }
+    if base_url.contains("asxs") {
+        return "asxs".to_string();
+    }
+    String::new()
+}
+
 fn bootstrap_providers(config: &Config) -> Arc<ProviderRegistry> {
     let registry = ProviderRegistry::new();
     for (name, p_config) in &config.llm.providers {
-        let env_prefix = name.to_uppercase().replace('-', "_");
+        let provider_name = resolved_provider_id(name, p_config);
+        if provider_name.trim().is_empty() || p_config.enabled == Some(false) {
+            continue;
+        }
+        let env_prefix = provider_name.to_uppercase().replace('-', "_");
         let override_key = format!("{}_API_KEY", env_prefix);
         let api_key = if let Ok(key) = std::env::var(&override_key) {
             key
         } else if let Some(key) = p_config.api_key.clone() {
             key
         } else {
-            let fallback_keys = match name.as_str() {
+            let fallback_keys = match provider_name.as_str() {
                 "anthropic" => vec!["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"],
                 "openai" => vec!["OPENAI_API_KEY"],
                 "gemini" | "google" => vec!["GOOGLE_API_KEY", "GEMINI_API_KEY"],
@@ -2195,7 +2324,9 @@ fn bootstrap_providers(config: &Config) -> Arc<ProviderRegistry> {
             "anthropic" => {
                 registry.register(Arc::new(
                     yode_llm::providers::anthropic::AnthropicProvider::new(
-                        name, &api_key, &base_url,
+                        &provider_name,
+                        &api_key,
+                        &base_url,
                     ),
                 ));
             }
@@ -2208,7 +2339,9 @@ fn bootstrap_providers(config: &Config) -> Arc<ProviderRegistry> {
             }
             _ => {
                 registry.register(Arc::new(yode_llm::providers::openai::OpenAiProvider::new(
-                    name, &api_key, &base_url,
+                    &provider_name,
+                    &api_key,
+                    &base_url,
                 )));
             }
         }
@@ -2364,25 +2497,39 @@ fn read_edit_diff_artifact_from_roots(path: &str, roots: &[PathBuf]) -> Result<S
 
     let mut searched = Vec::new();
     let mut last_error: Option<anyhow::Error> = None;
+    let mut candidate_roots = Vec::new();
     for root in roots {
+        candidate_roots.push(root.clone());
+        if let Ok(entries) = std::fs::read_dir(root) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    candidate_roots.push(path);
+                }
+            }
+        }
+    }
+    candidate_roots.dedup();
+
+    for root in &candidate_roots {
         let allowed_dir = root.join(".yode").join("edit-diffs");
         searched.push(allowed_dir.display().to_string());
         let target = root.join(relative);
+        let canonical_target = match target.canonicalize() {
+            Ok(path) => path,
+            Err(err) => {
+                last_error = Some(
+                    anyhow::anyhow!(err).context(format!("Failed to access {}", target.display())),
+                );
+                continue;
+            }
+        };
         let canonical_allowed = match allowed_dir.canonicalize() {
             Ok(path) => path,
             Err(err) => {
                 last_error = Some(
                     anyhow::anyhow!(err)
                         .context(format!("Failed to access {}", allowed_dir.display())),
-                );
-                continue;
-            }
-        };
-        let canonical_target = match target.canonicalize() {
-            Ok(path) => path,
-            Err(err) => {
-                last_error = Some(
-                    anyhow::anyhow!(err).context(format!("Failed to access {}", target.display())),
                 );
                 continue;
             }

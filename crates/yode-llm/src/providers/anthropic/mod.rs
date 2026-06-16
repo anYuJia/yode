@@ -129,8 +129,8 @@ impl LlmProvider for AnthropicProvider {
                 "body": &response_text,
             }),
         );
-        let api_resp: AnthropicResponse = serde_json::from_str(&response_text)
-            .context("Failed to parse Anthropic response")?;
+        let api_resp: AnthropicResponse =
+            serde_json::from_str(&response_text).context("Failed to parse Anthropic response")?;
 
         let mut text_content = String::new();
         let mut reasoning_content = String::new();
