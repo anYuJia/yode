@@ -164,7 +164,7 @@ export type ImageAttachment = {
 };
 
 export const fallbackBootstrap: Bootstrap = {
-  appVersion: "0.0.19",
+  appVersion: "1.0.0",
   workspacePath: "/Users/pyu/code/yode",
   provider: "anthropic",
   model: "claude-sonnet-4",

@@ -1,23 +1,76 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 112" role="img" aria-labelledby="title desc">
-  <title id="title">Yode logo</title>
-  <desc id="desc">A terminal window icon with an agent node and the Yode wordmark.</desc>
+  <title id="title">Yode Light Logo</title>
+  <desc id="desc">Yode wordmark with the corporate 3D fluid ribbon Y-logo for light themes.</desc>
   <defs>
-    <linearGradient id="mark-light" x1="14" y1="18" x2="94" y2="96" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#00A7A5"/>
-      <stop offset="0.55" stop-color="#3478F6"/>
-      <stop offset="1" stop-color="#F2A93B"/>
+    <!-- Background Ceramic Gradient for Icon -->
+    <linearGradient id="bg-grad-light" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#F1F5F9"/>
     </linearGradient>
-    <linearGradient id="screen-light" x1="24" y1="24" x2="86" y2="88" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#FFFFFF"/>
-      <stop offset="1" stop-color="#F6F8FB"/>
+
+    <!-- Super-ellipse / Squircle Border Gradient -->
+    <linearGradient id="border-grad-light" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#E2E8F0" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#CBD5E1" stop-opacity="0.4"/>
     </linearGradient>
+
+    <!-- Left Fluid Ribbon Gradient (Professional Tech Blue/Cyan) -->
+    <linearGradient id="left-ribbon-grad-light" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06B6D4"/>
+      <stop offset="100%" stop-color="#2563EB"/>
+    </linearGradient>
+
+    <!-- Right Fluid Ribbon Gradient (Professional Tech Royal/Indigo) -->
+    <linearGradient id="right-ribbon-grad-light" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2563EB"/>
+      <stop offset="100%" stop-color="#4F46E5"/>
+    </linearGradient>
+
+    <!-- Specular Highlight Gradient -->
+    <linearGradient id="highlight-grad-light" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.0"/>
+    </linearGradient>
+
+    <!-- Soft Grey-Indigo Shadow for Overlap -->
+    <filter id="overlap-shadow-light" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="-3" dy="6" stdDeviation="6" flood-color="#0F172A" flood-opacity="0.2"/>
+    </filter>
+
+    <!-- Soft core glow -->
+    <filter id="core-glow-light" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
   </defs>
-  <rect x="12" y="14" width="88" height="84" rx="18" fill="#F7FAFC"/>
-  <rect x="12" y="14" width="88" height="84" rx="18" stroke="url(#mark-light)" stroke-width="4"/>
-  <rect x="24" y="28" width="64" height="56" rx="10" fill="url(#screen-light)" stroke="#D9E2EC" stroke-width="2"/>
-  <path d="M37 48L48 56L37 64" stroke="#14213D" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M57 66H74" stroke="#00A7A5" stroke-width="5" stroke-linecap="round"/>
-  <circle cx="72" cy="42" r="5" fill="#F2A93B"/>
-  <path d="M72 47V57C72 62 68 66 63 66H57" stroke="#3478F6" stroke-width="3" stroke-linecap="round"/>
-  <text x="120" y="72" fill="#14213D" font-family="Inter, 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="56" font-weight="800" letter-spacing="0">yode</text>
+
+  <!-- Embed Scale-Down Icon inside Logo -->
+  <g transform="translate(14, 14) scale(0.164)">
+    <!-- Squircle App Icon Base -->
+    <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#bg-grad-light)"/>
+    <rect x="32" y="32" width="448" height="448" rx="108" fill="none" stroke="url(#border-grad-light)" stroke-width="1.5"/>
+
+    <!-- Main Corporate Ribbon Y-Mark -->
+    <g>
+      <!-- Left Fluid Ribbon -->
+      <path d="M 140 160 C 140 135, 175 135, 195 160 C 225 195, 256 240, 256 280 L 256 365 C 256 395, 220 395, 220 365 L 220 285 C 177 240, 140 190, 140 160 Z" fill="url(#left-ribbon-grad-light)" opacity="0.98"/>
+
+      <!-- Right Fluid Ribbon -->
+      <path d="M 372 160 C 372 135, 337 135, 317 160 C 287 195, 256 240, 256 280 L 256 365 C 256 395, 292 395, 292 365 L 292 285 C 335 240, 372 190, 372 160 Z" fill="url(#right-ribbon-grad-light)" filter="url(#overlap-shadow-light)" opacity="0.98"/>
+
+      <!-- Specular highlights -->
+      <path d="M 144 163 C 144 150, 168 150, 185 170 C 215 205, 246 250, 246 290" fill="none" stroke="url(#highlight-grad-light)" stroke-width="4" stroke-linecap="round" opacity="0.75"/>
+      <path d="M 368 163 C 368 150, 344 150, 327 170 C 297 205, 266 250, 266 290" fill="none" stroke="url(#highlight-grad-light)" stroke-width="4" stroke-linecap="round" opacity="0.75"/>
+
+    </g>
+
+    <!-- Core light core -->
+    <circle cx="256" cy="280" r="3.5" fill="#FFFFFF" opacity="0.95" filter="url(#core-glow-light)"/>
+  </g>
+
+  <!-- Wordmark -->
+  <text x="120" y="74" fill="#0F172A" font-family="Inter, 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="56" font-weight="800" letter-spacing="-0.03em">yode</text>
 </svg>

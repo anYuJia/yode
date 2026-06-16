@@ -1,6 +1,6 @@
 [package]
 name = "yode-desktop"
-version = "0.0.19"
+version = "1.0.0"
 edition = "2021"
 description = "Yode desktop shell"
 license = "MIT"

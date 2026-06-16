@@ -1,22 +1,86 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 112 112" role="img" aria-labelledby="title desc">
-  <title id="title">Yode icon</title>
-  <desc id="desc">A terminal window with an agent node.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Yode Icon</title>
+  <desc id="desc">A premium, corporate-grade 3D fluid ribbon Y-logo with a clean white ceramic background, sized perfectly for the macOS Dock.</desc>
   <defs>
-    <linearGradient id="icon-mark" x1="14" y1="18" x2="98" y2="98" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#2DD4BF"/>
-      <stop offset="0.55" stop-color="#3478F6"/>
-      <stop offset="1" stop-color="#FFD166"/>
+    <!-- Background: Premium white to light ceramic grey gradient -->
+    <linearGradient id="bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#F1F5F9"/>
     </linearGradient>
-    <linearGradient id="icon-screen" x1="24" y1="24" x2="88" y2="88" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#172033"/>
-      <stop offset="1" stop-color="#0B1020"/>
+
+    <!-- Super-ellipse / Squircle Border (Subtle light hairline bezel) -->
+    <linearGradient id="border-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#E2E8F0" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#CBD5E1" stop-opacity="0.4"/>
     </linearGradient>
+
+    <!-- Left Ribbon: Professional Teal to Royal Blue -->
+    <linearGradient id="left-ribbon-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06B6D4"/>
+      <stop offset="100%" stop-color="#2563EB"/>
+    </linearGradient>
+
+    <!-- Right Ribbon: Royal Blue to Deep Indigo -->
+    <linearGradient id="right-ribbon-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2563EB"/>
+      <stop offset="100%" stop-color="#4F46E5"/>
+    </linearGradient>
+
+    <!-- Specular Highlight (Soft white glaze for professional gloss) -->
+    <linearGradient id="highlight-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.75"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.0"/>
+    </linearGradient>
+
+    <!-- Soft Grey-Indigo Shadow for Overlap -->
+    <filter id="overlap-shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="-3" dy="6" stdDeviation="6" flood-color="#0F172A" flood-opacity="0.2"/>
+    </filter>
+
+    <!-- Soft core glow -->
+    <filter id="core-glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
   </defs>
-  <rect x="10" y="10" width="92" height="92" rx="22" fill="#0B1020"/>
-  <rect x="10" y="10" width="92" height="92" rx="22" stroke="url(#icon-mark)" stroke-width="5"/>
-  <rect x="24" y="28" width="64" height="56" rx="12" fill="url(#icon-screen)" stroke="#27324A" stroke-width="2"/>
-  <path d="M38 48L50 56L38 64" stroke="#F8FAFC" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M59 67H76" stroke="#2DD4BF" stroke-width="6" stroke-linecap="round"/>
-  <circle cx="74" cy="42" r="5.5" fill="#FFD166"/>
-  <path d="M74 48V57C74 63 70 67 64 67H59" stroke="#70A5FF" stroke-width="3.5" stroke-linecap="round"/>
+
+  <!-- Squircle App Icon Base (Resized to 400x400 for standard macOS Dock margin padding) -->
+  <rect x="56" y="56" width="400" height="400" rx="92" fill="url(#bg-grad)"/>
+  <rect x="56" y="56" width="400" height="400" rx="92" fill="none" stroke="url(#border-grad)" stroke-width="1.5"/>
+
+  <!-- Main Corporate Ribbon Y-Mark -->
+  <g>
+    <!-- Left Fluid Ribbon (Underneath) -->
+    <path d="M 140 160 
+             C 140 135, 175 135, 195 160 
+             C 225 195, 256 240, 256 280 
+             L 256 365 
+             C 256 395, 220 395, 220 365 
+             L 220 285 
+             C 177 240, 140 190, 140 160 Z" 
+          fill="url(#left-ribbon-grad)" 
+          opacity="0.98"/>
+
+    <!-- Right Fluid Ribbon (Overlapping with clean shadow) -->
+    <path d="M 372 160 
+             C 372 135, 337 135, 317 160 
+             C 287 195, 256 240, 256 280 
+             L 256 365 
+             C 256 395, 292 395, 292 365 
+             L 292 285 
+             C 335 240, 372 190, 372 160 Z" 
+          fill="url(#right-ribbon-grad)" 
+          filter="url(#overlap-shadow)"
+          opacity="0.98"/>
+
+    <!-- Specular Contours (Adds premium 3D depth) -->
+    <path d="M 144 163 C 144 150, 168 150, 185 170 C 215 205, 246 250, 246 290" fill="none" stroke="url(#highlight-grad)" stroke-width="4" stroke-linecap="round" opacity="0.75"/>
+    <path d="M 368 163 C 368 150, 344 150, 327 170 C 297 205, 266 250, 266 290" fill="none" stroke="url(#highlight-grad)" stroke-width="4" stroke-linecap="round" opacity="0.75"/>
+  </g>
+
+  <!-- Glowing Light Core (Very subtle) -->
+  <circle cx="256" cy="280" r="3.5" fill="#FFFFFF" opacity="0.95" filter="url(#core-glow)"/>
 </svg>

@@ -65,9 +65,26 @@ impl BashTool {
         let redirected_files = redirection_targets(command, working_dir);
         let mut changed_files = modified_files;
         for target in redirected_files {
-            let display = target.display().to_string();
-            if !changed_files.iter().any(|path| path == &display) {
-                changed_files.push(display);
+            let target_abs = if target.is_absolute() {
+                target.clone()
+            } else {
+                working_dir.join(&target)
+            };
+            let target_norm = std::fs::canonicalize(&target_abs).unwrap_or(target_abs);
+
+            let already_exists = changed_files.iter().any(|path| {
+                let p = std::path::Path::new(path);
+                let p_abs = if p.is_absolute() {
+                    p.to_path_buf()
+                } else {
+                    working_dir.join(p)
+                };
+                let p_norm = std::fs::canonicalize(&p_abs).unwrap_or(p_abs);
+                p_norm == target_norm
+            });
+
+            if !already_exists {
+                changed_files.push(target.display().to_string());
             }
         }
 

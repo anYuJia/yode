@@ -222,7 +222,8 @@ mod tests {
         );
 
         let recorded = history.lock().await;
-        assert!(recorded.contains(&path));
+        let normalized_path = super::normalize_history_path(path.to_str().unwrap());
+        assert!(recorded.contains(&normalized_path));
 
         let _ = tokio::fs::remove_file(&path).await;
     }

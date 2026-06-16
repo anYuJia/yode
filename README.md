@@ -54,7 +54,7 @@ curl -fsSL https://raw.githubusercontent.com/anYuJia/yode/main/install.sh | bash
 ### Cargo
 
 ```bash
-cargo install --git https://github.com/anYuJia/yode.git --tag v0.0.19
+cargo install --git https://github.com/anYuJia/yode.git --tag v1.0.0
 ```
 
 ### Windows
