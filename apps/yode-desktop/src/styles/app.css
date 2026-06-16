@@ -2886,11 +2886,50 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   padding: 8px 0 0 28px;
 }
 
+.edit-summary-file-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
 .edit-summary-file {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
+  width: 100%;
   min-height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.edit-summary-file.interactive {
+  cursor: pointer;
+  transition-property: color, transform;
+  transition-duration: 160ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+.edit-summary-file.static {
+  cursor: default;
+}
+
+.edit-summary-file.interactive:hover .edit-summary-file-target,
+.edit-summary-file.interactive:focus-visible .edit-summary-file-target {
+  color: var(--process-text-strong);
+}
+
+.edit-summary-file.interactive:focus-visible {
+  outline: none;
+}
+
+.edit-summary-file.interactive:active {
+  transform: scale(0.96);
 }
 
 .edit-summary-file-name {
@@ -2910,12 +2949,27 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   gap: 6px;
   color: color-mix(in oklch, var(--accent), white 18%);
   font-weight: 650;
+  transition: color 160ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 .edit-summary-file-target span:last-child {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.edit-summary-file-side {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+}
+
+.edit-summary-file-diff {
+  min-width: 0;
+  padding-left: 24px;
+  animation: activity-items-enter 180ms cubic-bezier(0.2, 0, 0, 1) both;
 }
 
 .edit-summary-diffs {

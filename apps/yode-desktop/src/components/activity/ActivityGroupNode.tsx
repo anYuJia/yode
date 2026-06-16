@@ -305,7 +305,8 @@ function mergeEditSummaryItems(items: Array<Extract<TimelineItem, { kind: "activ
 
 export function EditSummaryNode({ node, appLang }: { node: Extract<TimelineItem, { kind: "edit_summary" }>; appLang: string }) {
   const isZh = appLang === "zh";
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(true);
+  const [expandedDiffIds, setExpandedDiffIds] = useState<Set<string>>(() => new Set());
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const rows = mergeEditSummaryItems(node.items).map((item) => ({
     item,
@@ -337,6 +338,72 @@ export function EditSummaryNode({ node, appLang }: { node: Extract<TimelineItem,
       console.error(error);
     }
   };
+  const toggleFileDiff = (id: string) => {
+    setExpandedDiffIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    setIsExpanded(true);
+    setExpandedDiffIds(new Set());
+  }, [node.id]);
+
+  const fileRows = rows.map(({ item, parsed, add, del }) => {
+    const filename = item.filename || parsed.filename || displayToolName(item.tool);
+    const preview = item.metadata?.diff_preview;
+    const previewLines = (parsed.diffPreview || "")
+      .split("\n")
+      .filter((line) => line.startsWith("+") || line.startsWith("-"));
+    const removed = Array.isArray(preview?.removed)
+      ? preview.removed.map(String)
+      : previewLines.filter((line) => line.startsWith("-")).map((line) => line.slice(1));
+    const added = Array.isArray(preview?.added)
+      ? preview.added.map(String)
+      : previewLines.filter((line) => line.startsWith("+")).map((line) => line.slice(1));
+    const artifactPath = typeof item.metadata?.diff_artifact_path === "string"
+      ? item.metadata.diff_artifact_path
+      : "";
+    const fullAddedCount = Number(item.metadata?.full_added_line_count);
+    const fullRemovedCount = Number(item.metadata?.full_removed_line_count);
+    const moreRemoved = Number(preview?.more_removed || 0);
+    const moreAdded = Number(preview?.more_added || 0);
+    const totalPreviewLines = removed.length + added.length;
+    const totalFullLines =
+      (Number.isFinite(fullRemovedCount) ? fullRemovedCount : removed.length + moreRemoved) +
+      (Number.isFinite(fullAddedCount) ? fullAddedCount : added.length + moreAdded);
+    const hasStructuredDiff = item.status !== "blocked" && (removed.length > 0 || added.length > 0);
+    const diffText = item.status === "blocked" ? item.result || item.body : parsed.diffPreview || item.result || item.body;
+    const diffCopyText = hasStructuredDiff
+      ? [
+        ...removed.map((line: string) => `-${line}`),
+        ...added.map((line: string) => `+${line}`)
+      ].join("\n")
+      : diffText;
+
+    return {
+      item,
+      filename,
+      add,
+      del,
+      isBlocked: item.status === "blocked",
+      hasDiff: Boolean(diffText || hasStructuredDiff),
+      artifactPath,
+      totalPreviewLines,
+      totalFullLines: totalFullLines || totalPreviewLines,
+      removed,
+      added,
+      hasStructuredDiff,
+      diffText: diffText || "",
+      diffCopyText: diffCopyText || ""
+    };
+  });
 
   return (
     <div className="edit-summary-card">
@@ -366,85 +433,59 @@ export function EditSummaryNode({ node, appLang }: { node: Extract<TimelineItem,
 
       {isExpanded ? (
         <div className="edit-summary-files">
-          {rows.map(({ item, parsed, add, del }) => {
-            const filename = item.filename || parsed.filename || displayToolName(item.tool);
-            const isBlocked = item.status === "blocked";
+          {fileRows.map((row) => {
+            const isFileExpanded = expandedDiffIds.has(row.item.id);
             return (
-              <div className="edit-summary-file" key={item.id}>
-                <span className="edit-summary-file-name">
-                  <span>{isBlocked ? (isZh ? "未写入" : "Blocked") : isZh ? "已编辑" : "Edited"}</span>
-                  <span className="edit-summary-file-target">
-                    {filename ? getFileIcon(filename) : null}
-                    <span>{filename}</span>
+              <div className="edit-summary-file-entry" key={row.item.id}>
+                <button
+                  type="button"
+                  className={`edit-summary-file ${row.hasDiff ? "interactive" : "static"}`}
+                  aria-expanded={isFileExpanded}
+                  onClick={() => row.hasDiff && toggleFileDiff(row.item.id)}
+                >
+                  <span className="edit-summary-file-name">
+                    <span>{row.isBlocked ? (isZh ? "未写入" : "Blocked") : isZh ? "已编辑" : "Edited"}</span>
+                    <span className="edit-summary-file-target">
+                      {row.filename ? getFileIcon(row.filename) : null}
+                      <span>{row.filename}</span>
+                    </span>
                   </span>
-                </span>
-                {isBlocked ? (
-                  <span className="edit-summary-file-stats">
-                    <em className="diff-del">阻塞</em>
+                  <span className="edit-summary-file-side">
+                    {row.isBlocked ? (
+                      <span className="edit-summary-file-stats">
+                        <em className="diff-del">阻塞</em>
+                      </span>
+                    ) : (
+                      <span className="edit-summary-file-stats">
+                        <em className="diff-add">+{row.add}</em>
+                        <em className="diff-del">-{row.del}</em>
+                      </span>
+                    )}
+                    {row.hasDiff ? (
+                      isFileExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />
+                    ) : null}
                   </span>
-                ) : (
-                  <span className="edit-summary-file-stats">
-                    <em className="diff-add">+{add}</em>
-                    <em className="diff-del">-{del}</em>
-                  </span>
-                )}
+                </button>
+                {isFileExpanded && row.hasDiff ? (
+                  <div className="edit-summary-file-diff">
+                    <EditDiffPanel
+                      id={row.item.id}
+                      filename={row.filename}
+                      isZh={isZh}
+                      copied={copiedId === row.item.id}
+                      onCopy={copyDiff}
+                      artifactPath={row.artifactPath}
+                      totalPreviewLines={row.totalPreviewLines}
+                      totalFullLines={row.totalFullLines}
+                      removed={row.removed}
+                      added={row.added}
+                      hasStructuredDiff={row.hasStructuredDiff}
+                      diffText={row.diffText}
+                      diffCopyText={row.diffCopyText}
+                    />
+                  </div>
+                ) : null}
               </div>
-            );
-          })}
-        </div>
-      ) : null}
-
-      {isExpanded ? (
-        <div className="edit-summary-diffs">
-          {rows.map(({ item, parsed, add, del }) => {
-            const filename = item.filename || parsed.filename || displayToolName(item.tool);
-            const preview = item.metadata?.diff_preview;
-            const previewLines = (parsed.diffPreview || "")
-              .split("\n")
-              .filter((line) => line.startsWith("+") || line.startsWith("-"));
-            const removed = Array.isArray(preview?.removed)
-              ? preview.removed.map(String)
-              : previewLines.filter((line) => line.startsWith("-")).map((line) => line.slice(1));
-            const added = Array.isArray(preview?.added)
-              ? preview.added.map(String)
-              : previewLines.filter((line) => line.startsWith("+")).map((line) => line.slice(1));
-            const artifactPath = typeof item.metadata?.diff_artifact_path === "string"
-              ? item.metadata.diff_artifact_path
-              : "";
-            const fullAddedCount = Number(item.metadata?.full_added_line_count);
-            const fullRemovedCount = Number(item.metadata?.full_removed_line_count);
-            const moreRemoved = Number(preview?.more_removed || 0);
-            const moreAdded = Number(preview?.more_added || 0);
-            const totalPreviewLines = removed.length + added.length;
-            const totalFullLines =
-              (Number.isFinite(fullRemovedCount) ? fullRemovedCount : removed.length + moreRemoved) +
-              (Number.isFinite(fullAddedCount) ? fullAddedCount : added.length + moreAdded);
-            const hasStructuredDiff = item.status !== "blocked" && (removed.length > 0 || added.length > 0);
-            const diffText = item.status === "blocked" ? item.result || item.body : parsed.diffPreview || item.result || item.body;
-            if (!diffText && !hasStructuredDiff) return null;
-            const diffCopyText = hasStructuredDiff
-              ? [
-                ...removed.map((line: string) => `-${line}`),
-                ...added.map((line: string) => `+${line}`)
-              ].join("\n")
-              : diffText;
-            return (
-              <EditDiffPanel
-                key={`${item.id}-diff`}
-                id={item.id}
-                filename={filename}
-                isZh={isZh}
-                copied={copiedId === item.id}
-                onCopy={copyDiff}
-                artifactPath={artifactPath}
-                totalPreviewLines={totalPreviewLines}
-                totalFullLines={totalFullLines || totalPreviewLines}
-                removed={removed}
-                added={added}
-                hasStructuredDiff={hasStructuredDiff}
-                diffText={diffText}
-                diffCopyText={diffCopyText}
-              />
             );
           })}
         </div>
