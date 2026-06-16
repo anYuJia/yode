@@ -477,6 +477,8 @@ export function EditSummaryNode({ node, appLang }: { node: Extract<TimelineItem,
                       artifactPath={row.artifactPath}
                       totalPreviewLines={row.totalPreviewLines}
                       totalFullLines={row.totalFullLines}
+                      addedCount={row.add}
+                      removedCount={row.del}
                       removed={row.removed}
                       added={row.added}
                       hasStructuredDiff={row.hasStructuredDiff}
@@ -503,6 +505,8 @@ function EditDiffPanel({
   artifactPath,
   totalPreviewLines,
   totalFullLines,
+  addedCount,
+  removedCount,
   removed,
   added,
   hasStructuredDiff,
@@ -517,6 +521,8 @@ function EditDiffPanel({
   artifactPath: string;
   totalPreviewLines: number;
   totalFullLines: number;
+  addedCount: number;
+  removedCount: number;
   removed: string[];
   added: string[];
   hasStructuredDiff: boolean;
@@ -550,29 +556,36 @@ function EditDiffPanel({
   };
 
   const copyText = showFullDiff && fullDiff ? fullDiff : diffCopyText;
+  const previewRows = [
+    ...removed.map((line: string, index: number) => ({ type: "removed" as const, line, index })),
+    ...added.map((line: string, index: number) => ({ type: "added" as const, line, index }))
+  ];
 
   return (
     <div className="edit-diff">
-      <button
-        type="button"
-        className="edit-diff-copy"
-        aria-label={isZh ? `复制 ${filename} 的 diff` : `Copy diff for ${filename}`}
-        title={isZh ? "复制 diff" : "Copy diff"}
-        onClick={() => onCopy(copyText, id)}
-      >
-        {copied ? <Check size={14} /> : <Copy size={14} />}
-      </button>
+      <div className="edit-diff-head">
+        <div className="edit-diff-title">
+          <span>{filename}</span>
+          <em className="diff-add">+{addedCount}</em>
+          <em className="diff-del">-{removedCount}</em>
+        </div>
+        <button
+          type="button"
+          className="edit-diff-copy"
+          aria-label={isZh ? `复制 ${filename} 的 diff` : `Copy diff for ${filename}`}
+          title={isZh ? "复制 diff" : "Copy diff"}
+          onClick={() => onCopy(copyText, id)}
+        >
+          {copied ? <Check size={14} /> : <Copy size={14} />}
+        </button>
+      </div>
+      
       {hasStructuredDiff ? (
         <div className="edit-diff-lines">
-          {removed.map((line: string, index: number) => (
-            <div className="edit-diff-line removed" key={`${id}-removed-${index}`}>
-              <span className="edit-diff-gutter">-</span>
-              <span className="edit-diff-content">{line || "\u00a0"}</span>
-            </div>
-          ))}
-          {added.map((line: string, index: number) => (
-            <div className="edit-diff-line added" key={`${id}-added-${index}`}>
-              <span className="edit-diff-gutter">+</span>
+          {previewRows.map(({ type, line, index }) => (
+            <div className={`edit-diff-line ${type}`} key={`${id}-${type}-${index}`}>
+              <span className="edit-diff-number">{index + 1}</span>
+              <span className="edit-diff-gutter">{type === "added" ? "+" : "-"}</span>
               <span className="edit-diff-content">{line || "\u00a0"}</span>
             </div>
           ))}
@@ -580,8 +593,8 @@ function EditDiffPanel({
             <div className="edit-diff-artifact-note">
               <span>
                 {isZh
-                  ? `这里显示 ${totalPreviewLines} 行预览，完整 diff ${totalFullLines} 行`
-                  : `Showing ${totalPreviewLines} preview lines, full diff has ${totalFullLines} lines`}
+                  ? `预览 ${totalPreviewLines} 行，完整 diff ${totalFullLines} 行`
+                  : `Previewing ${totalPreviewLines} lines, full diff has ${totalFullLines} lines`}
               </span>
               {artifactPath ? <code>{artifactPath}</code> : null}
               {artifactPath ? (

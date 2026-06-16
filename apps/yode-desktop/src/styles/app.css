@@ -2982,47 +2982,77 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 .edit-diff {
   position: relative;
   overflow: hidden;
-  border: 1px solid color-mix(in oklch, var(--line-soft), transparent 8%);
-  border-radius: 10px;
-  background: color-mix(in oklch, var(--panel), black 3%);
-  box-shadow: 0 10px 28px color-mix(in oklch, black, transparent 92%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 9px;
+  background: #262936;
+  box-shadow: 0 14px 32px color-mix(in oklch, black, transparent 86%);
+}
+
+.edit-diff-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 38px;
+  padding: 0 12px 0 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: #343541;
+}
+
+.edit-diff-title {
+  display: inline-flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 10px;
+  color: rgba(245, 247, 255, 0.78);
+  font-size: 13px;
+  font-weight: 560;
+}
+
+.edit-diff-title span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .edit-diff-copy {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 2;
   display: inline-grid;
-  width: 30px;
-  height: 30px;
-  min-width: 30px;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
   place-items: center;
-  border: 1px solid color-mix(in oklch, var(--line-soft), transparent 24%);
-  border-radius: 7px;
-  background: color-mix(in oklch, var(--panel), transparent 8%);
-  color: var(--text-muted);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(245, 247, 255, 0.58);
   cursor: pointer;
-  box-shadow: 0 8px 18px color-mix(in oklch, black, transparent 93%);
+  transition-property: background-color, color, transform;
+  transition-duration: 160ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
 }
 
 .edit-diff-copy:hover,
 .edit-diff-copy:focus-visible {
-  border-color: color-mix(in oklch, var(--line), transparent 22%);
-  background: color-mix(in oklch, var(--field), transparent 8%);
-  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(245, 247, 255, 0.9);
   outline: none;
+}
+
+.edit-diff-copy:active {
+  transform: scale(0.96);
 }
 
 .edit-diff-lines {
   max-height: min(520px, 58vh);
   overflow: auto;
   overscroll-behavior: contain;
-  padding: 8px 0 8px;
-  background: color-mix(in oklch, var(--field), black 2%);
+  padding: 0 0 8px;
+  background: #252837;
   font-family: var(--font-code);
   font-size: 13px;
-  line-height: 1.55;
+  line-height: 1.52;
   tab-size: 2;
 }
 
@@ -3038,39 +3068,56 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 
 .edit-diff-line {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-columns: 58px 34px minmax(0, 1fr);
   min-width: max-content;
-  color: var(--process-text);
+  color: rgba(245, 247, 255, 0.82);
 }
 
 .edit-diff-line.added {
-  background: color-mix(in oklch, var(--success), transparent 84%);
+  background: rgba(76, 255, 137, 0.12);
 }
 
 .edit-diff-line.removed {
-  background: color-mix(in oklch, var(--error), transparent 84%);
+  background: rgba(255, 95, 95, 0.12);
+}
+
+.edit-diff-number {
+  display: inline-flex;
+  justify-content: flex-end;
+  padding: 0 14px 0 10px;
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  color: rgba(245, 247, 255, 0.54);
+  user-select: none;
 }
 
 .edit-diff-gutter {
   display: inline-flex;
   justify-content: center;
-  border-right: 1px solid color-mix(in oklch, var(--line-soft), transparent 30%);
-  color: var(--text-muted);
+  color: rgba(245, 247, 255, 0.48);
   user-select: none;
 }
 
 .edit-diff-line.added .edit-diff-gutter {
-  color: var(--success);
+  color: #4cff89;
 }
 
 .edit-diff-line.removed .edit-diff-gutter {
-  color: var(--error);
+  color: #ff6b6b;
+}
+
+.edit-diff-line.added .edit-diff-number {
+  color: #4cff89;
+}
+
+.edit-diff-line.removed .edit-diff-number {
+  color: #ff6b6b;
 }
 
 .edit-diff-content {
   min-width: 0;
   padding: 0 14px;
   white-space: pre;
+  color: rgba(245, 247, 255, 0.82);
 }
 
 .edit-diff-artifact-note {
@@ -3079,9 +3126,9 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   flex-wrap: wrap;
   gap: 10px;
   min-width: 0;
-  padding: 8px 14px 7px 44px;
-  border-top: 1px solid color-mix(in oklch, var(--line-soft), transparent 38%);
-  color: var(--text-soft);
+  padding: 8px 14px 7px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(245, 247, 255, 0.52);
   font-family: var(--font-sans);
   font-size: 12px;
   line-height: 1.4;
@@ -3097,7 +3144,7 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   min-width: 0;
   max-width: min(420px, 100%);
   overflow: hidden;
-  color: var(--text-muted);
+  color: rgba(245, 247, 255, 0.45);
   font-family: var(--font-code);
   font-size: 11.5px;
   text-overflow: ellipsis;
@@ -3114,7 +3161,7 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: var(--process-accent);
+  color: #ff77dd;
   font: inherit;
   font-size: 12px;
   font-weight: 560;
@@ -3142,8 +3189,8 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 
 .edit-diff-artifact-button:hover,
 .edit-diff-artifact-button:focus-visible {
-  background: color-mix(in oklch, var(--accent), transparent 90%);
-  color: var(--text);
+  background: rgba(255, 119, 221, 0.12);
+  color: #ff9be7;
   outline: none;
 }
 
@@ -3152,19 +3199,21 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 }
 
 .edit-diff-artifact-error {
-  padding: 8px 14px 8px 44px;
+  padding: 8px 14px;
   color: var(--error);
   font-size: 12px;
   line-height: 1.45;
 }
 
 .edit-diff-full {
-  max-height: min(640px, 62vh) !important;
-  margin: 0 !important;
-  border-top: 1px solid color-mix(in oklch, var(--line-soft), transparent 38%);
-  border-radius: 0 !important;
-  background: color-mix(in oklch, var(--field), black 3%) !important;
-  white-space: pre !important;
+  max-height: min(640px, 62vh);
+  margin: 0;
+  padding: 10px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0;
+  background: #202332;
+  color: rgba(245, 247, 255, 0.78);
+  white-space: pre;
 }
 
 .edit-diff pre {
@@ -3173,7 +3222,7 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   overflow: auto;
   overscroll-behavior: contain;
   padding: 10px 52px 10px 12px;
-  color: var(--text-muted);
+  color: rgba(245, 247, 255, 0.78);
   font-family: var(--font-code);
   font-size: 11px;
   line-height: 1.5;
