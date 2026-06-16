@@ -39,6 +39,7 @@ function hasLiveProcessItem(items: TimelineItem[]) {
 }
 
 function isLiveTailStatusItem(item: TimelineItem) {
+  if (item.kind === "reasoning") return item.meta === "running";
   if (item.kind === "process_note") return item.status === "running";
   return false;
 }
@@ -465,9 +466,6 @@ export function ChatWorkspace({
                     <TimelineNode key={item.id} item={item} appLang={appLang} isTurnActive={isTurnActive} />
                   ))}
                   {answerItems.map((item) => (
-                    <TimelineNode key={item.id} item={item} appLang={appLang} isTurnActive={isTurnActive} />
-                  ))}
-                  {tailStatusItems.map((item) => (
                     <TimelineNode key={item.id} item={item} appLang={appLang} isTurnActive={isTurnActive} />
                   ))}
                   {isTurnActive ? (

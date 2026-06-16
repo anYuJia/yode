@@ -3022,8 +3022,9 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 .edit-diff-artifact-note {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
-  min-width: max-content;
+  min-width: 0;
   padding: 8px 14px 7px 44px;
   border-top: 1px solid color-mix(in oklch, var(--line-soft), transparent 38%);
   color: var(--text-soft);
@@ -3032,8 +3033,15 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   line-height: 1.4;
 }
 
+.edit-diff-artifact-note > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .edit-diff-artifact-note code {
-  max-width: 420px;
+  flex: 1 1 220px;
+  min-width: 0;
+  max-width: min(420px, 100%);
   overflow: hidden;
   color: var(--text-muted);
   font-family: var(--font-code);
@@ -3045,8 +3053,10 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 .edit-diff-artifact-button {
   display: inline-flex;
   align-items: center;
+  flex: 0 0 auto;
   min-height: 24px;
   margin-left: auto;
+  padding: 0 2px;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -3054,10 +3064,26 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   font: inherit;
   font-size: 12px;
   font-weight: 560;
+  white-space: nowrap;
   cursor: pointer;
   transition-property: background-color, color, transform;
   transition-duration: 160ms;
   transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+@media (max-width: 720px) {
+  .edit-diff-artifact-note {
+    padding-left: 14px;
+  }
+
+  .edit-diff-artifact-note code {
+    flex-basis: 100%;
+    order: 3;
+  }
+
+  .edit-diff-artifact-button {
+    margin-left: 0;
+  }
 }
 
 .edit-diff-artifact-button:hover,
