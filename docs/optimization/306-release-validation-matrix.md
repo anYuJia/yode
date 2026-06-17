@@ -3,13 +3,13 @@
 ## CI Platform Coverage
 
 - `rust` job runs format, clippy, cargo check, workspace library tests, audit, provider integration tests, compact artifact smoke verification, and benchmark snapshot upload on `ubuntu-latest`.
-- `test-matrix` runs `cargo test --workspace --lib` on `ubuntu-latest`, `macos-latest`, and `windows-latest`.
+- `test-matrix` runs CLI package library tests on `ubuntu-latest`, `macos-latest`, and `windows-latest`.
 - Parity jobs run snapshot, replay, visual/docs, and upload their parity artifact bundles.
 
 ## Required Release Gates
 
-- `cargo test --workspace --lib`
-- `cargo clippy -p yode -p yode-core -p yode-llm -p yode-tools -p yode-tui -p yode-mcp -p yode-agent --no-deps -- -D warnings`
+- `cargo test $YODE_CLI_PACKAGES --lib`
+- `cargo clippy $YODE_CLI_PACKAGES --no-deps -- -D warnings`
 - `bash scripts/parity-ci-local.sh`
 - `bash scripts/release-checklist.sh`
 

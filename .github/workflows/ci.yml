@@ -37,16 +37,16 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Format check
-        run: cargo fmt $YODE_CLI_PACKAGES -- --check
+        run: cargo fmt ${{ env.YODE_CLI_PACKAGES }} -- --check
 
       - name: Clippy
-        run: cargo clippy $YODE_CLI_PACKAGES --no-deps -- -D warnings
+        run: cargo clippy ${{ env.YODE_CLI_PACKAGES }} --no-deps -- -D warnings
 
       - name: Cargo check
-        run: cargo check $YODE_CLI_PACKAGES
+        run: cargo check ${{ env.YODE_CLI_PACKAGES }}
 
       - name: Workspace library tests
-        run: cargo test $YODE_CLI_PACKAGES --lib
+        run: cargo test ${{ env.YODE_CLI_PACKAGES }} --lib
 
       - name: Install cargo-audit
         uses: taiki-e/install-action@cargo-audit
@@ -90,7 +90,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Workspace library tests
-        run: cargo test $YODE_CLI_PACKAGES --lib
+        run: cargo test ${{ env.YODE_CLI_PACKAGES }} --lib
 
   parity-snapshot:
     name: Parity Snapshot
@@ -182,6 +182,7 @@ jobs:
       - name: Run parity visual and docs audits
         run: |
           bash scripts/parity-visual-hardening-audit.sh
+          bash scripts/parity-replay-index-ci.sh
           bash scripts/parity-docs-ci.sh
           bash scripts/parity-visual-report.sh .yode/benchmarks/output-regression-snapshot.md .yode/benchmarks/output-regression-snapshot.md .yode/benchmarks/visual-diff-report.md
           bash scripts/parity-visual-width-report.sh .yode/benchmarks/output-regression-snapshot.md .yode/benchmarks/visual-width-report.md
