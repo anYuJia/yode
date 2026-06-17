@@ -7,13 +7,9 @@ use std::hash::{Hash, Hasher};
 use std::sync::{LazyLock, Mutex};
 use unicode_width::UnicodeWidthStr;
 
-use super::types::{
-    ContainerEnd, InlineEnd, InlineNode, ListItem, MarkdownBlock, MarkdownRenderOptions, TableCell,
-};
-use crate::app::rendering::{
-    parse_code_language, tokenize_code_line_with_language, CodeLanguage, CodeTokenKind,
-};
-use crate::ui::chat::{CODE_BG, DIM, INLINE_CODE_BG, WHITE, YELLOW};
+use super::types::{ContainerEnd, InlineEnd, InlineNode, MarkdownBlock, MarkdownRenderOptions};
+use crate::app::rendering::{tokenize_code_line_with_language, CodeLanguage, CodeTokenKind};
+use crate::ui::chat::{CODE_BG, INLINE_CODE_BG, YELLOW};
 use crate::ui::chat_layout::{manual_wrap, osc8_close_sequence, visible_text_width};
 use crate::ui::highlighted_code::render_highlighted_code_block;
 use crate::ui::palette::{BORDER_MUTED, INFO_COLOR, LIGHT, MUTED, PANEL_ACCENT};

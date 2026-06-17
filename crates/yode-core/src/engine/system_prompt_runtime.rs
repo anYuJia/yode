@@ -157,13 +157,10 @@ fn workspace_top_level_snapshot(cwd: &std::path::Path) -> Option<String> {
             {
                 return None;
             }
-            let marker = entry.file_type().ok().and_then(|kind| {
-                if kind.is_dir() {
-                    Some("/")
-                } else {
-                    Some("")
-                }
-            })?;
+            let marker = entry
+                .file_type()
+                .ok()
+                .map(|kind| if kind.is_dir() { "/" } else { "" })?;
             Some(format!("{name}{marker}"))
         })
         .collect::<Vec<_>>();

@@ -174,7 +174,7 @@ pub(super) fn annotate_tool_result_activity_metadata(
 
     let kind = activity_kind(tool_name, metadata);
     let target = activity_target(tool_name, input, metadata);
-    let label = activity_label(&kind, &target, tool_name);
+    let label = activity_label(kind, &target, tool_name);
     let mut activity = Map::new();
     activity.insert("kind".to_string(), json!(kind));
     activity.insert("label".to_string(), json!(label));

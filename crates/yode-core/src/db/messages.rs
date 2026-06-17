@@ -25,6 +25,7 @@ impl Database {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn save_message_with_metadata(
         &self,
         session_id: &str,
@@ -47,6 +48,7 @@ impl Database {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn save_message_with_images(
         &self,
         session_id: &str,
@@ -69,6 +71,7 @@ impl Database {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn save_message_full(
         &self,
         session_id: &str,

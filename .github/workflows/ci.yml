@@ -16,6 +16,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  YODE_CLI_PACKAGES: -p yode -p yode-core -p yode-llm -p yode-tools -p yode-tui -p yode-mcp -p yode-agent
 
 jobs:
   rust:
@@ -36,16 +37,16 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Format check
-        run: cargo fmt -p yode -p yode-core -p yode-llm -p yode-tools -p yode-tui -p yode-mcp -p yode-agent -- --check
+        run: cargo fmt $YODE_CLI_PACKAGES -- --check
 
       - name: Clippy
-        run: cargo clippy -p yode -p yode-core -p yode-llm -p yode-tools -p yode-tui -p yode-mcp -p yode-agent --no-deps -- -D warnings
+        run: cargo clippy $YODE_CLI_PACKAGES --no-deps -- -D warnings
 
       - name: Cargo check
-        run: cargo check --workspace
+        run: cargo check $YODE_CLI_PACKAGES
 
       - name: Workspace library tests
-        run: cargo test --workspace --lib
+        run: cargo test $YODE_CLI_PACKAGES --lib
 
       - name: Install cargo-audit
         uses: taiki-e/install-action@cargo-audit
@@ -89,7 +90,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Workspace library tests
-        run: cargo test --workspace --lib
+        run: cargo test $YODE_CLI_PACKAGES --lib
 
   parity-snapshot:
     name: Parity Snapshot

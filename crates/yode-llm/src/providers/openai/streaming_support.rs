@@ -163,8 +163,8 @@ fn streaming_delta(current: &str, incoming: &str) -> Option<String> {
     if current.is_empty() {
         return Some(incoming.to_string());
     }
-    if incoming.starts_with(current) {
-        return Some(incoming[current.len()..].to_string());
+    if let Some(delta) = incoming.strip_prefix(current) {
+        return Some(delta.to_string());
     }
 
     let max_overlap = current.len().min(incoming.len());

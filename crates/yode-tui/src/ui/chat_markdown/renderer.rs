@@ -10,7 +10,7 @@ use super::utils::{
     pad_line_to_width, prepend_prefix, render_code_block, render_code_block_header,
     render_inline_code_spans, render_plain_text_lines, TABLE_MAX_ROW_LINES,
 };
-use crate::ui::chat::{DIM, WHITE, YELLOW};
+use crate::ui::chat::{DIM, WHITE};
 use crate::ui::chat_layout::manual_wrap;
 use crate::ui::palette::INFO_COLOR;
 
