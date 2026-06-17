@@ -76,6 +76,22 @@ pub(super) fn desktop_u32_setting(
         .unwrap_or(fallback)
 }
 
+pub(super) fn desktop_string_list_setting(
+    settings: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Vec<String> {
+    settings
+        .get(key)
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(str::to_string))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;

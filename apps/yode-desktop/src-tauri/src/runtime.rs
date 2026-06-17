@@ -26,9 +26,17 @@ use yode_runtime::resolved_provider_id;
 use yode_tools::registry::ToolRegistry;
 use yode_tools::tool::McpResourceProvider;
 
+use crate::browser_settings::{
+    apply_browser_settings_env, browser_settings_from_desktop_settings, normalize_browser_settings,
+    validate_browser_settings,
+};
 use crate::desktop_settings_store::{
-    desktop_bool_setting, desktop_string_setting, desktop_u32_setting, read_desktop_settings,
-    write_desktop_settings,
+    desktop_bool_setting, desktop_string_list_setting, desktop_string_setting,
+    read_desktop_settings, write_desktop_settings,
+};
+use crate::git_settings::{
+    apply_git_settings_env, git_settings_from_desktop_settings, normalize_git_settings,
+    validate_git_settings,
 };
 use crate::license_notices::read_license_notices;
 use crate::protocol::{
@@ -3034,119 +3042,6 @@ fn mcp_statuses_from_servers(
         .collect()
 }
 
-fn browser_settings_from_desktop_settings(
-    settings: &serde_json::Map<String, serde_json::Value>,
-) -> Result<BrowserSettings> {
-    Ok(normalize_browser_settings(BrowserSettings {
-        enabled: desktop_bool_setting(settings, "yode-browser-enabled", true),
-        annotation_screenshots: desktop_string_setting(
-            settings,
-            "yode-browser-annotation-screenshots",
-            "Always include",
-        ),
-        approval_policy: desktop_string_setting(settings, "yode-browser-approval", "Always ask"),
-        blocked_domains: desktop_string_list_setting(settings, "yode-browser-blocked-domains"),
-        allowed_domains: desktop_string_list_setting(settings, "yode-browser-allowed-domains"),
-    }))
-}
-
-fn normalize_browser_settings(mut settings: BrowserSettings) -> BrowserSettings {
-    settings.annotation_screenshots =
-        normalize_browser_choice(&settings.annotation_screenshots, "Always include");
-    settings.approval_policy = normalize_browser_choice(&settings.approval_policy, "Always ask");
-    settings.blocked_domains = normalize_domain_list(settings.blocked_domains);
-    settings.allowed_domains = normalize_domain_list(settings.allowed_domains);
-    settings
-}
-
-fn validate_browser_settings(settings: &BrowserSettings) -> Result<()> {
-    for value in [&settings.annotation_screenshots, &settings.approval_policy] {
-        if value.trim().is_empty() {
-            anyhow::bail!("浏览器策略不能为空。");
-        }
-    }
-    for domain in settings
-        .blocked_domains
-        .iter()
-        .chain(settings.allowed_domains.iter())
-    {
-        if normalize_domain(domain).is_none() {
-            anyhow::bail!("无效域名：{}", domain);
-        }
-    }
-    Ok(())
-}
-
-fn normalize_browser_choice(value: &str, fallback: &str) -> String {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        fallback.to_string()
-    } else {
-        trimmed.to_string()
-    }
-}
-
-fn normalize_domain_list(values: Vec<String>) -> Vec<String> {
-    let mut seen = HashSet::new();
-    let mut result = Vec::new();
-    for value in values {
-        if let Some(domain) = normalize_domain(&value) {
-            if seen.insert(domain.clone()) {
-                result.push(domain);
-            }
-        }
-    }
-    result
-}
-
-fn normalize_domain(value: &str) -> Option<String> {
-    let trimmed = value
-        .trim()
-        .trim_start_matches("http://")
-        .trim_start_matches("https://")
-        .trim_start_matches("*.")
-        .trim_matches('/')
-        .to_ascii_lowercase();
-    let domain = trimmed
-        .split('/')
-        .next()
-        .unwrap_or("")
-        .split(':')
-        .next()
-        .unwrap_or("");
-    if domain.is_empty()
-        || !domain
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '.'))
-        || !domain.contains('.')
-    {
-        return None;
-    }
-    Some(domain.to_string())
-}
-
-fn desktop_string_list_setting(
-    settings: &serde_json::Map<String, serde_json::Value>,
-    key: &str,
-) -> Vec<String> {
-    settings
-        .get(key)
-        .and_then(|value| value.as_array())
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|item| item.as_str().map(str::to_string))
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default()
-}
-
-fn apply_browser_settings_env(settings: &BrowserSettings) {
-    if let Ok(json) = serde_json::to_string(settings) {
-        std::env::set_var("YODE_BROWSER_SETTINGS", json);
-    }
-}
-
 fn hooks_settings_from_desktop_settings(
     settings: &serde_json::Map<String, serde_json::Value>,
 ) -> Result<HooksSettings> {
@@ -3247,73 +3142,6 @@ fn build_desktop_hook_manager(workspace_path: &Path) -> Result<Option<HookManage
         });
     }
     Ok(Some(manager))
-}
-
-fn git_settings_from_desktop_settings(
-    settings: &serde_json::Map<String, serde_json::Value>,
-) -> Result<GitSettings> {
-    Ok(normalize_git_settings(GitSettings {
-        branch_prefix: desktop_string_setting(settings, "yode-git-branch-prefix", "yode/"),
-        merge_method: desktop_string_setting(settings, "yode-git-merge-method", "merge"),
-        show_pr_icons: desktop_bool_setting(settings, "yode-git-show-pr-icons", true),
-        always_force_push: desktop_bool_setting(settings, "yode-git-always-force-push", false),
-        create_draft_prs: desktop_bool_setting(settings, "yode-git-create-draft-prs", true),
-        auto_delete_worktrees: desktop_bool_setting(
-            settings,
-            "yode-git-auto-delete-worktrees",
-            true,
-        ),
-        auto_delete_limit: desktop_u32_setting(settings, "yode-git-auto-delete-limit", 15),
-        commit_instructions: desktop_string_setting(settings, "yode-git-commit-instructions", ""),
-        pr_instructions: desktop_string_setting(settings, "yode-git-pr-instructions", ""),
-    }))
-}
-
-fn normalize_git_settings(mut settings: GitSettings) -> GitSettings {
-    settings.branch_prefix = normalize_branch_prefix(&settings.branch_prefix);
-    settings.merge_method = match settings.merge_method.trim() {
-        "squash" => "squash".to_string(),
-        _ => "merge".to_string(),
-    };
-    settings.auto_delete_limit = settings.auto_delete_limit.clamp(1, 200);
-    settings.commit_instructions = settings.commit_instructions.trim().to_string();
-    settings.pr_instructions = settings.pr_instructions.trim().to_string();
-    settings
-}
-
-fn validate_git_settings(settings: &GitSettings) -> Result<()> {
-    if settings.branch_prefix.is_empty() {
-        anyhow::bail!("分支前缀不能为空。");
-    }
-    if !settings
-        .branch_prefix
-        .chars()
-        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '/' | '-' | '_' | '.'))
-    {
-        anyhow::bail!("分支前缀只能包含字母、数字、斜杠、横线、下划线和点。");
-    }
-    if !matches!(settings.merge_method.as_str(), "merge" | "squash") {
-        anyhow::bail!("无效的合并方式。");
-    }
-    Ok(())
-}
-
-fn normalize_branch_prefix(value: &str) -> String {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return "yode/".to_string();
-    }
-    if trimmed.ends_with('/') || trimmed.ends_with('-') || trimmed.ends_with('_') {
-        trimmed.to_string()
-    } else {
-        format!("{trimmed}/")
-    }
-}
-
-fn apply_git_settings_env(settings: &GitSettings) {
-    if let Ok(json) = serde_json::to_string(settings) {
-        std::env::set_var("YODE_GIT_SETTINGS", json);
-    }
 }
 
 fn computer_use_settings_from_desktop_settings(
