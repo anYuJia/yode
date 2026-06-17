@@ -79,10 +79,7 @@ async fn test_bash_reports_redirected_file_as_modified() {
     let mut ctx = ToolContext::empty();
     ctx.working_dir = Some(dir.path().to_path_buf());
     let result = tool
-        .execute(
-            json!({"command": format!("printf 'hello\\n' > {}", path.display())}),
-            &ctx,
-        )
+        .execute(json!({"command": "printf 'hello\\n' > out.txt"}), &ctx)
         .await
         .unwrap();
 

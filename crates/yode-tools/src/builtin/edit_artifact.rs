@@ -86,7 +86,13 @@ fn render_simple_diff(file_path: &str, removed: &[String], added: &[String]) -> 
 
 fn display_artifact_path(root: &Path, path: &Path) -> String {
     path.strip_prefix(root)
-        .map(|relative| relative.display().to_string())
+        .map(|relative| {
+            relative
+                .components()
+                .map(|component| component.as_os_str().to_string_lossy())
+                .collect::<Vec<_>>()
+                .join("/")
+        })
         .unwrap_or_else(|_| path.display().to_string())
 }
 
