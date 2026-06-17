@@ -25,7 +25,7 @@ jobs:
             runner: ubuntu-latest
           - target: x86_64-apple-darwin
             display_name: macOS Intel
-            runner: macos-13
+            runner: macos-15-intel
           - target: aarch64-apple-darwin
             display_name: macOS Apple Silicon
             runner: macos-14
