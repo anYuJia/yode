@@ -25,6 +25,7 @@ yode-core = { workspace = true }
 yode-llm = { workspace = true }
 yode-tools = { workspace = true }
 yode-mcp = { workspace = true }
+yode-runtime = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }

@@ -1,5 +1,6 @@
 use crate::app_bootstrap::tooling::ToolingSetupMetrics;
 
+#[allow(dead_code)]
 pub(crate) fn append_startup_segment(summary: &mut String, segment: &str) {
     if !segment.trim().is_empty() {
         summary.push(' ');
@@ -7,6 +8,7 @@ pub(crate) fn append_startup_segment(summary: &mut String, segment: &str) {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn append_startup_segments<'a, I>(summary: &mut String, segments: I)
 where
     I: IntoIterator<Item = &'a str>,
@@ -16,6 +18,7 @@ where
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn build_startup_resume_segment(
     db_open_elapsed_ms: u64,
     session_bootstrap_elapsed_ms: u64,
@@ -37,6 +40,7 @@ pub(crate) fn build_startup_resume_segment(
     )
 }
 
+#[allow(dead_code)]
 pub(crate) fn parse_startup_summary_segment(summary: &str, key: &str) -> Option<String> {
     let needle = format!("{}[", key);
     let start = summary.find(&needle)?;

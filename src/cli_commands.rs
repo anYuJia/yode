@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 
+use crate::setup_interactive::run_setup_interactive;
 use crate::{check_workspace_package_versions, Cli, Commands, ProviderAction, UpdateAction};
 
 pub(crate) async fn handle_cli_command(
@@ -12,7 +13,7 @@ pub(crate) async fn handle_cli_command(
         Commands::Provider { action } => {
             match action {
                 ProviderAction::Add => {
-                    yode_core::setup::run_setup_interactive()?;
+                    run_setup_interactive()?;
                 }
                 ProviderAction::List => {
                     println!("已配置的提供商列表:");

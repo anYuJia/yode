@@ -22,6 +22,7 @@ use yode_core::hooks::{HookDefinition, HookManager};
 use yode_core::permission::{PermissionManager, PermissionRule, RuleBehavior, RuleSource};
 use yode_core::session::Session;
 use yode_llm::registry::ProviderRegistry;
+use yode_runtime::resolved_provider_id;
 use yode_tools::registry::ToolRegistry;
 use yode_tools::tool::McpResourceProvider;
 
@@ -32,9 +33,10 @@ use crate::protocol::{
     DesktopMcpState, DesktopMessage, DesktopProvider, DesktopSession, DesktopSettingSetRequest,
     DesktopSettingValue, DesktopWorktree, DiagnosticCheck, GeneralSettings, GitSettings,
     HooksSettings, ImportAiSessionsResult, LicenseNotice, OpenTargetRequest, PersonalizationState,
-    RuntimeState, SendMessageRequest, TerminalExitEvent, TerminalOpenRequest, TerminalOpenResponse,
-    TerminalOutputEvent, TerminalResizeRequest, TerminalRunRequest, TerminalRunResponse,
-    TerminalWriteRequest, TurnAccepted, WorkspaceDiagnosticsResult,
+    RuntimeState, SendMessageRequest, SessionCompactResult, SessionExportResult, TerminalExitEvent,
+    TerminalOpenRequest, TerminalOpenResponse, TerminalOutputEvent, TerminalResizeRequest,
+    TerminalRunRequest, TerminalRunResponse, TerminalWriteRequest, TurnAccepted,
+    WorkspaceDiagnosticsResult,
 };
 
 pub struct DesktopRuntime {
@@ -48,16 +50,22 @@ pub struct DesktopRuntime {
     active_session_id: Mutex<Option<String>>,
     permission_mode: Mutex<String>,
     seq: AtomicU64,
-    confirm_txs: Arc<Mutex<HashMap<(String, String), UnboundedSender<ConfirmResponse>>>>,
-    ask_user_txs: Arc<Mutex<HashMap<(String, String), UnboundedSender<String>>>>,
-    cancel_tokens: Arc<Mutex<HashMap<(String, String), tokio_util::sync::CancellationToken>>>,
-    pending_confirmations: Arc<Mutex<HashMap<(String, String), PendingConfirmation>>>,
+    confirm_txs: ConfirmSenderMap,
+    ask_user_txs: AskUserSenderMap,
+    cancel_tokens: CancelTokenMap,
+    pending_confirmations: PendingConfirmationMap,
     session_permission_rules: Arc<Mutex<HashMap<String, Vec<PermissionRule>>>>,
     terminal_sessions: Mutex<HashMap<String, TerminalSessionState>>,
     pty_sessions: Arc<Mutex<HashMap<String, PtySessionState>>>,
     general_settings: Mutex<GeneralSettings>,
     sleep_guard: Arc<Mutex<Option<Child>>>,
 }
+
+type TurnKey = (String, String);
+type ConfirmSenderMap = Arc<Mutex<HashMap<TurnKey, UnboundedSender<ConfirmResponse>>>>;
+type AskUserSenderMap = Arc<Mutex<HashMap<TurnKey, UnboundedSender<String>>>>;
+type CancelTokenMap = Arc<Mutex<HashMap<TurnKey, tokio_util::sync::CancellationToken>>>;
+type PendingConfirmationMap = Arc<Mutex<HashMap<TurnKey, PendingConfirmation>>>;
 
 #[derive(Debug, Clone)]
 struct PendingConfirmation {
@@ -240,6 +248,99 @@ impl DesktopRuntime {
                 created_at: message.created_at.to_rfc3339(),
             })
             .collect())
+    }
+
+    pub fn sessions_clear_messages(&self, session_id: String) -> Result<()> {
+        if self.db.get_session(&session_id)?.is_none() {
+            anyhow::bail!("session '{}' not found", session_id);
+        }
+        self.db.replace_messages(&session_id, &[])?;
+        self.db.touch_session(&session_id)?;
+        Ok(())
+    }
+
+    pub fn sessions_rename(&self, session_id: String, title: String) -> Result<DesktopSession> {
+        let title = title.trim();
+        if title.is_empty() {
+            anyhow::bail!("session title cannot be empty");
+        }
+        self.db.update_session_name(&session_id, title)?;
+        let session = self
+            .db
+            .get_session(&session_id)?
+            .ok_or_else(|| anyhow::anyhow!("session '{}' not found", session_id))?;
+        let active_session_id = self
+            .active_session_id
+            .lock()
+            .map_err(|_| anyhow::anyhow!("active session lock poisoned"))?
+            .clone();
+        Ok(self.map_session(session, active_session_id.as_deref()))
+    }
+
+    pub fn sessions_export_markdown(&self, session_id: String) -> Result<SessionExportResult> {
+        let session = self
+            .db
+            .get_session(&session_id)?
+            .ok_or_else(|| anyhow::anyhow!("session '{}' not found", session_id))?;
+        let messages = self.db.load_messages(&session_id)?;
+        let root = session
+            .project_root
+            .as_deref()
+            .map(PathBuf::from)
+            .filter(|path| path.is_dir())
+            .unwrap_or_else(|| self.workspace_path.clone());
+        let export_dir = root.join(".yode").join("exports");
+        std::fs::create_dir_all(&export_dir)?;
+        let timestamp = Utc::now().format("%Y%m%d-%H%M%S");
+        let path = export_dir.join(format!(
+            "{}-{}.md",
+            short_session_id(&session_id),
+            timestamp
+        ));
+        std::fs::write(&path, render_session_markdown(&session, &messages))?;
+        Ok(SessionExportResult {
+            path: path.display().to_string(),
+            message_count: messages.len(),
+        })
+    }
+
+    pub fn sessions_compact_local(&self, session_id: String) -> Result<SessionCompactResult> {
+        const KEEP_LAST_MESSAGES: usize = 16;
+
+        let session = self
+            .db
+            .get_session(&session_id)?
+            .ok_or_else(|| anyhow::anyhow!("session '{}' not found", session_id))?;
+        let messages = self.db.load_messages(&session_id)?;
+        let before_count = messages.len();
+        if before_count <= KEEP_LAST_MESSAGES + 1 {
+            return Ok(SessionCompactResult {
+                before_count,
+                after_count: before_count,
+                removed_count: 0,
+                summary: "当前会话还不需要压缩。".to_string(),
+            });
+        }
+
+        let split_at = before_count.saturating_sub(KEEP_LAST_MESSAGES);
+        let (older, recent) = messages.split_at(split_at);
+        let summary = build_local_compaction_summary(&session, older);
+        let mut compacted = Vec::with_capacity(recent.len() + 1);
+        compacted.push(yode_llm::types::Message::system(summary.clone()));
+        compacted.extend(
+            recent
+                .iter()
+                .filter_map(|message| stored_message_to_message(message.clone())),
+        );
+        self.db.replace_messages(&session_id, &compacted)?;
+        self.db.touch_session(&session_id)?;
+
+        Ok(SessionCompactResult {
+            before_count,
+            after_count: compacted.len(),
+            removed_count: before_count.saturating_sub(compacted.len()),
+            summary,
+        })
     }
 
     pub fn sessions_delete(&self, session_id: String) -> Result<()> {
@@ -1510,276 +1611,20 @@ impl DesktopRuntime {
                         Some(event) = event_rx.recv() => event,
                         else => break,
                     };
-                    let (kind, payload) = match event {
-                        EngineEvent::Thinking => {
-                            ("turn_started", json!({ "title": "思考中...", "body": "" }))
+                    let mapped = yode_runtime::engine_event_to_runtime_parts(event);
+                    if let Some(pending_confirmation) = mapped.pending_confirmation.as_ref() {
+                        if let Ok(mut pending) = pending_confirmations_clone.lock() {
+                            pending.insert(
+                                (session_id_str.clone(), turn_id_str.clone()),
+                                PendingConfirmation {
+                                    tool_name: pending_confirmation.tool_name.clone(),
+                                    command: pending_confirmation.command.clone(),
+                                },
+                            );
                         }
-                        EngineEvent::UsageUpdate(usage) => (
-                            "usage_update",
-                            json!({
-                                "title": "用量更新",
-                                "body": format!("输入 {}，输出 {}", usage.prompt_tokens, usage.completion_tokens),
-                                "inputTokens": usage.prompt_tokens,
-                                "outputTokens": usage.completion_tokens,
-                                "status": "running"
-                            }),
-                        ),
-                        EngineEvent::TextDelta(text) => {
-                            ("assistant_text_delta", json!({ "body": text }))
-                        }
-                        EngineEvent::ActionNarrative(text) => (
-                            "action_narrative",
-                            json!({ "body": text, "status": "success" }),
-                        ),
-                        EngineEvent::TextComplete(text) => (
-                            "assistant_text_complete",
-                            json!({ "body": text, "status": "completed" }),
-                        ),
-                        EngineEvent::ReasoningDelta(reasoning) => {
-                            ("assistant_reasoning_delta", json!({ "reasoning": reasoning }))
-                        }
-                        EngineEvent::ReasoningComplete(reasoning) => (
-                            "assistant_reasoning_complete",
-                            json!({ "reasoning": reasoning, "status": "completed" }),
-                        ),
-                        EngineEvent::ToolCallStart {
-                            id,
-                            name,
-                            arguments,
-                        } => (
-                            "tool_started",
-                            json!({
-                                "id": id,
-                                "tool": name,
-                                "title": format!("调用工具: {}", name),
-                                "body": arguments,
-                                "status": "running"
-                            }),
-                        ),
-                        EngineEvent::ToolConfirmRequired {
-                            id,
-                            name,
-                            arguments,
-                        } => {
-                            if let Ok(mut pending) = pending_confirmations_clone.lock() {
-                                pending.insert(
-                                    (session_id_str.clone(), turn_id_str.clone()),
-                                    PendingConfirmation {
-                                        tool_name: name.clone(),
-                                        command: extract_command_for_permission(&name, &arguments),
-                                    },
-                                );
-                            }
-                            (
-                                "tool_confirm_required",
-                                json!({
-                                    "id": id,
-                                    "tool": name,
-                                    "title": format!("请求执行工具: {}", name),
-                                    "body": arguments,
-                                    "meta": "危险操作需要授权"
-                                }),
-                            )
-                        }
-                        EngineEvent::ToolProgress { id, name, progress } => (
-                            "tool_progress",
-                            json!({
-                                "id": id,
-                                "tool": name,
-                                "title": format!("工具进度: {}", name),
-                                "body": progress.message,
-                                "percent": progress.percent,
-                                "status": "running"
-                            }),
-                        ),
-                        EngineEvent::ToolResult { id, name, result } => {
-                            let (status, body) = if result.is_error {
-                                ("blocked", result.content.clone())
-                            } else {
-                                ("success", result.content.clone())
-                            };
-                            (
-                                "tool_result",
-                                json!({
-                                    "id": id,
-                                    "tool": name,
-                                    "title": format!("工具返回: {}", name),
-                                    "body": body,
-                                    "status": status,
-                                    "errorType": result.error_type.map(|kind| format!("{:?}", kind)),
-                                    "recoverable": result.recoverable,
-                                    "suggestion": result.suggestion,
-                                    "metadata": result.metadata
-                                }),
-                            )
-                        }
-                        EngineEvent::TurnComplete(response) => (
-                            "turn_completed",
-                            json!({
-                                "status": "completed",
-                                "body": response.message.content.unwrap_or_default(),
-                                "reasoning": response.message.reasoning.unwrap_or_default(),
-                                "hasToolCalls": !response.message.tool_calls.is_empty(),
-                                "toolCallCount": response.message.tool_calls.len(),
-                                "model": response.model,
-                                "stopReason": response.stop_reason.map(|reason| format!("{:?}", reason)),
-                                "inputTokens": response.usage.prompt_tokens,
-                                "outputTokens": response.usage.completion_tokens,
-                                "totalTokens": response.usage.total_tokens,
-                                "contextPercent": 0
-                            }),
-                        ),
-                        EngineEvent::Error(err_msg) => ("error", json!({ "body": err_msg })),
-                        EngineEvent::Retrying {
-                            error_message,
-                            attempt,
-                            max_attempts,
-                            delay_secs,
-                        } => (
-                            "retrying",
-                            json!({
-                                "title": "正在重试",
-                                "body": error_message,
-                                "attempt": attempt,
-                                "maxAttempts": max_attempts,
-                                "delaySecs": delay_secs,
-                                "status": "running"
-                            }),
-                        ),
-                        EngineEvent::AskUser { id, question } => (
-                            "ask_user",
-                            json!({
-                                "id": id,
-                                "title": "需要用户输入",
-                                "body": question,
-                                "tool": "ask_user",
-                                "meta": "等待用户回答"
-                            }),
-                        ),
-                        EngineEvent::Done => (
-                            "done",
-                            json!({
-                                "title": "完成",
-                                "body": "本轮已完成。",
-                                "status": "completed"
-                            }),
-                        ),
-                        EngineEvent::SubAgentStart { description } => (
-                            "subagent_started",
-                            json!({
-                                "title": "子代理启动",
-                                "body": description,
-                                "tool": "agent",
-                                "status": "running"
-                            }),
-                        ),
-                        EngineEvent::SubAgentComplete { result } => (
-                            "subagent_completed",
-                            json!({
-                                "title": "子代理完成",
-                                "body": result,
-                                "tool": "agent",
-                                "status": "success"
-                            }),
-                        ),
-                        EngineEvent::PlanModeEntered => (
-                            "plan_mode_entered",
-                            json!({ "title": "计划模式", "body": "已进入计划模式。" }),
-                        ),
-                        EngineEvent::PlanApprovalRequired { plan_content } => (
-                            "plan_approval_required",
-                            json!({
-                                "title": "计划需要确认",
-                                "body": plan_content,
-                                "tool": "plan",
-                                "meta": "等待确认"
-                            }),
-                        ),
-                        EngineEvent::PlanModeExited => (
-                            "plan_mode_exited",
-                            json!({ "title": "计划模式", "body": "已退出计划模式。" }),
-                        ),
-                        EngineEvent::ContextCompactionStarted { mode } => (
-                            "context_compaction_started",
-                            json!({
-                                "title": "上下文压缩开始",
-                                "body": mode,
-                                "status": "running"
-                            }),
-                        ),
-                        EngineEvent::ContextCompressed {
-                            mode,
-                            removed,
-                            tool_results_truncated,
-                            summary,
-                            session_memory_path,
-                            transcript_path,
-                        } => (
-                            "context_compressed",
-                            json!({
-                                "title": "上下文已压缩",
-                                "body": summary.unwrap_or_else(|| format!("模式 {}，移除 {} 条，截断 {} 个工具结果。", mode, removed, tool_results_truncated)),
-                                "mode": mode,
-                                "removed": removed,
-                                "toolResultsTruncated": tool_results_truncated,
-                                "sessionMemoryPath": session_memory_path,
-                                "transcriptPath": transcript_path
-                            }),
-                        ),
-                        EngineEvent::CostUpdate {
-                            estimated_cost,
-                            input_tokens,
-                            output_tokens,
-                            cache_write_tokens,
-                            cache_read_tokens,
-                        } => (
-                            "cost_update",
-                            json!({
-                                "title": "成本更新",
-                                "body": format!("${:.4}，输入 {}，输出 {}", estimated_cost, input_tokens, output_tokens),
-                                "estimatedCost": estimated_cost,
-                                "inputTokens": input_tokens,
-                                "outputTokens": output_tokens,
-                                "cacheWriteTokens": cache_write_tokens,
-                                "cacheReadTokens": cache_read_tokens
-                            }),
-                        ),
-                        EngineEvent::BudgetExceeded { cost, limit } => (
-                            "budget_exceeded",
-                            json!({
-                                "title": "预算已超出",
-                                "body": format!("当前成本 ${:.4}，限制 ${:.4}", cost, limit),
-                                "status": "blocked"
-                            }),
-                        ),
-                        EngineEvent::SuggestionReady { suggestion } => (
-                            "suggestion_ready",
-                            json!({ "title": "建议", "body": suggestion }),
-                        ),
-                        EngineEvent::SessionMemoryUpdated {
-                            path,
-                            generated_summary,
-                        } => (
-                            "session_memory_updated",
-                            json!({
-                                "title": "会话记忆已更新",
-                                "body": path,
-                                "generatedSummary": generated_summary
-                            }),
-                        ),
-                        EngineEvent::UpdateAvailable(version) => (
-                            "update_available",
-                            json!({ "title": "发现更新", "body": version }),
-                        ),
-                        EngineEvent::UpdateDownloading => (
-                            "update_downloading",
-                            json!({ "title": "正在下载更新", "body": "" }),
-                        ),
-                        EngineEvent::UpdateDownloaded(version) => (
-                            "update_downloaded",
-                            json!({ "title": "更新已下载", "body": version }),
-                        ),
-                    };
+                    }
+                    let kind = mapped.kind;
+                    let payload = mapped.payload;
 
                     if std::env::var("YODE_ACTION_NARRATIVE_DEBUG")
                         .is_ok_and(|value| value == "1")
@@ -2258,100 +2103,8 @@ fn normalized_provider_model(config: &Config, provider: &str, model: &str) -> (S
     )
 }
 
-fn resolved_provider_id(id: &str, provider: &yode_core::config::ProviderConfig) -> String {
-    let trimmed = id.trim();
-    if !trimmed.is_empty() {
-        return trimmed.to_string();
-    }
-    let base_url = provider
-        .base_url
-        .as_deref()
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    let models = provider.models.join(" ").to_ascii_lowercase();
-    if base_url.contains("ark.cn-") || base_url.contains("volces") || models.contains("doubao") {
-        return "doubao".to_string();
-    }
-    if base_url.contains("xiaomimimo") || models.contains("mimo") {
-        return "xiaomi".to_string();
-    }
-    if base_url.contains("asxs") {
-        return "asxs".to_string();
-    }
-    String::new()
-}
-
 fn bootstrap_providers(config: &Config) -> Arc<ProviderRegistry> {
-    let registry = ProviderRegistry::new();
-    for (name, p_config) in &config.llm.providers {
-        let provider_name = resolved_provider_id(name, p_config);
-        if provider_name.trim().is_empty() || p_config.enabled == Some(false) {
-            continue;
-        }
-        let env_prefix = provider_name.to_uppercase().replace('-', "_");
-        let override_key = format!("{}_API_KEY", env_prefix);
-        let api_key = if let Ok(key) = std::env::var(&override_key) {
-            key
-        } else if let Some(key) = p_config.api_key.clone() {
-            key
-        } else {
-            let fallback_keys = match provider_name.as_str() {
-                "anthropic" => vec!["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"],
-                "openai" => vec!["OPENAI_API_KEY"],
-                "gemini" | "google" => vec!["GOOGLE_API_KEY", "GEMINI_API_KEY"],
-                "deepseek" => vec!["DEEPSEEK_API_KEY"],
-                _ => vec![],
-            };
-            let mut resolved = String::new();
-            for key in fallback_keys {
-                if let Ok(val) = std::env::var(key) {
-                    resolved = val;
-                    break;
-                }
-            }
-            resolved
-        };
-
-        let override_base = format!("{}_BASE_URL", env_prefix);
-        let base_url = if let Ok(url) = std::env::var(&override_base) {
-            url
-        } else if let Some(url) = p_config.base_url.clone() {
-            url
-        } else {
-            match p_config.format.as_str() {
-                "anthropic" => "https://api.anthropic.com".to_string(),
-                "gemini" => "https://generativelanguage.googleapis.com/v1beta".to_string(),
-                _ => "https://api.openai.com/v1".to_string(),
-            }
-        };
-
-        match p_config.format.as_str() {
-            "anthropic" => {
-                registry.register(Arc::new(
-                    yode_llm::providers::anthropic::AnthropicProvider::new(
-                        &provider_name,
-                        &api_key,
-                        &base_url,
-                    ),
-                ));
-            }
-            "gemini" => {
-                let mut provider = yode_llm::providers::gemini::GeminiProvider::new(&api_key);
-                if base_url != "https://generativelanguage.googleapis.com/v1beta" {
-                    provider = provider.with_base_url(&base_url);
-                }
-                registry.register(Arc::new(provider));
-            }
-            _ => {
-                registry.register(Arc::new(yode_llm::providers::openai::OpenAiProvider::new(
-                    &provider_name,
-                    &api_key,
-                    &base_url,
-                )));
-            }
-        }
-    }
-    Arc::new(registry)
+    yode_runtime::bootstrap_registry_only(config)
 }
 
 fn setup_desktop_tooling(
@@ -2447,22 +2200,6 @@ fn configure_desktop_permissions(config: &Config, _workdir: &std::path::Path) ->
         });
     }
     permissions
-}
-
-fn extract_command_for_permission(tool_name: &str, arguments: &str) -> Option<String> {
-    if tool_name != "bash" {
-        return None;
-    }
-
-    serde_json::from_str::<serde_json::Value>(arguments)
-        .ok()
-        .and_then(|value| {
-            value
-                .get("command")
-                .and_then(|command| command.as_str())
-                .map(str::to_string)
-        })
-        .or_else(|| Some(arguments.to_string()))
 }
 
 fn project_label_from_root(project_root: &str) -> Option<String> {
@@ -2600,6 +2337,119 @@ fn title_from_content_or_images(content: &str, image_count: usize) -> String {
         format!("{} 张图片", image_count)
     } else {
         "图片".to_string()
+    }
+}
+
+fn render_session_markdown(session: &Session, messages: &[StoredMessage]) -> String {
+    let title = session
+        .name
+        .as_deref()
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or("Yode 会话导出");
+    let mut output = String::new();
+    output.push_str("# ");
+    output.push_str(title.trim());
+    output.push_str("\n\n");
+    output.push_str(&format!("- Session: `{}`\n", session.id));
+    output.push_str(&format!("- Provider: `{}`\n", session.provider));
+    output.push_str(&format!("- Model: `{}`\n", session.model));
+    if let Some(project_root) = session.project_root.as_deref() {
+        output.push_str(&format!("- Project: `{}`\n", project_root));
+    }
+    output.push_str(&format!("- Exported at: `{}`\n\n", Utc::now().to_rfc3339()));
+
+    for message in messages {
+        output.push_str("## ");
+        output.push_str(role_heading(&message.role));
+        output.push_str("\n\n");
+        if let Some(reasoning) = message
+            .reasoning
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            output.push_str("<details><summary>Reasoning</summary>\n\n");
+            output.push_str(reasoning.trim());
+            output.push_str("\n\n</details>\n\n");
+        }
+        match message
+            .content
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            Some(content) => {
+                output.push_str(content.trim());
+                output.push_str("\n\n");
+            }
+            None => output.push_str("_无文本内容_\n\n"),
+        }
+        if let Some(tool_calls) = message
+            .tool_calls_json
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            output.push_str("```json\n");
+            output.push_str(tool_calls);
+            output.push_str("\n```\n\n");
+        }
+    }
+    output
+}
+
+fn short_session_id(session_id: &str) -> String {
+    session_id.chars().take(8).collect::<String>()
+}
+
+fn build_local_compaction_summary(session: &Session, messages: &[StoredMessage]) -> String {
+    let mut role_counts: HashMap<&str, usize> = HashMap::new();
+    for message in messages {
+        *role_counts.entry(message.role.as_str()).or_default() += 1;
+    }
+    let first_user = messages
+        .iter()
+        .find(|message| message.role == "user")
+        .and_then(|message| message.content.as_deref())
+        .map(compact_summary_line)
+        .unwrap_or_else(|| "未找到早期用户消息。".to_string());
+    let last_assistant = messages
+        .iter()
+        .rev()
+        .find(|message| message.role == "assistant")
+        .and_then(|message| message.content.as_deref())
+        .map(compact_summary_line)
+        .unwrap_or_else(|| "未找到早期助手回复。".to_string());
+
+    format!(
+        "[Context summary] 桌面端已本地压缩较早的会话历史。\n- Session: {}\n- Provider/model: {}/{}\n- Removed messages: {}\n- Role counts: user={}, assistant={}, tool={}, system={}\n- Earliest user intent: {}\n- Latest removed assistant note: {}\n- Note: 这是确定性的本地摘要，用于减少恢复上下文；如需完整原文，请先使用 /export。",
+        session.id,
+        session.provider,
+        session.model,
+        messages.len(),
+        role_counts.get("user").copied().unwrap_or(0),
+        role_counts.get("assistant").copied().unwrap_or(0),
+        role_counts.get("tool").copied().unwrap_or(0),
+        role_counts.get("system").copied().unwrap_or(0),
+        first_user,
+        last_assistant,
+    )
+}
+
+fn compact_summary_line(content: &str) -> String {
+    content
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(220)
+        .collect()
+}
+
+fn role_heading(role: &str) -> &'static str {
+    match role {
+        "user" => "User",
+        "assistant" => "Assistant",
+        "tool" => "Tool",
+        "system" => "System",
+        _ => "Message",
     }
 }
 
@@ -3214,7 +3064,7 @@ fn open_terminal_app(path: &Path) -> Result<()> {
             .arg(path)
             .spawn()
             .context("无法启动 Terminal")?;
-        return Ok(());
+        Ok(())
     }
     #[cfg(target_os = "windows")]
     {
@@ -4121,6 +3971,39 @@ mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    fn test_config() -> Config {
+        toml::from_str(include_str!("../../../../config/default.toml")).unwrap()
+    }
+
+    fn test_runtime(name: &str) -> (DesktopRuntime, PathBuf) {
+        let dir = unique_temp_dir(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        let config = test_config();
+        let db_path = dir.join("sessions.db");
+        let runtime = DesktopRuntime {
+            config: Mutex::new(config),
+            db: Database::open(&db_path).unwrap(),
+            db_path,
+            workspace_path: dir.clone(),
+            provider_registry: Mutex::new(Arc::new(ProviderRegistry::new())),
+            tool_registry: Mutex::new(Arc::new(ToolRegistry::new())),
+            mcp_resource_provider: Mutex::new(None),
+            active_session_id: Mutex::new(None),
+            permission_mode: Mutex::new("default".to_string()),
+            seq: AtomicU64::new(1),
+            confirm_txs: Arc::new(Mutex::new(HashMap::new())),
+            ask_user_txs: Arc::new(Mutex::new(HashMap::new())),
+            cancel_tokens: Arc::new(Mutex::new(HashMap::new())),
+            pending_confirmations: Arc::new(Mutex::new(HashMap::new())),
+            session_permission_rules: Arc::new(Mutex::new(HashMap::new())),
+            terminal_sessions: Mutex::new(HashMap::new()),
+            pty_sessions: Arc::new(Mutex::new(HashMap::new())),
+            general_settings: Mutex::new(default_general_settings()),
+            sleep_guard: Arc::new(Mutex::new(None)),
+        };
+        (runtime, dir)
+    }
+
     fn unique_temp_dir(name: &str) -> PathBuf {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -4160,6 +4043,133 @@ mod tests {
         assert_eq!(content, "+hello\n");
         let _ = std::fs::remove_dir_all(workspace_root);
         let _ = std::fs::remove_dir_all(project_root);
+    }
+
+    #[test]
+    fn sessions_clear_messages_removes_current_history() {
+        let (runtime, dir) = test_runtime("desktop-clear-session");
+        let session = runtime
+            .sessions_create(CreateSessionRequest {
+                title: Some("clear me".to_string()),
+                project_root: None,
+                provider: None,
+                model: None,
+            })
+            .unwrap();
+        runtime
+            .db
+            .save_message(&session.id, "user", Some("hello"), None, None, None)
+            .unwrap();
+        assert_eq!(
+            runtime.sessions_messages(session.id.clone()).unwrap().len(),
+            1
+        );
+
+        runtime.sessions_clear_messages(session.id.clone()).unwrap();
+
+        assert!(runtime.sessions_messages(session.id).unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn sessions_rename_updates_session_title() {
+        let (runtime, dir) = test_runtime("desktop-rename-session");
+        let session = runtime
+            .sessions_create(CreateSessionRequest {
+                title: Some("old".to_string()),
+                project_root: None,
+                provider: None,
+                model: None,
+            })
+            .unwrap();
+
+        let renamed = runtime
+            .sessions_rename(session.id.clone(), "new title".to_string())
+            .unwrap();
+
+        assert_eq!(renamed.title, "new title");
+        assert_eq!(
+            runtime.db.get_session(&session.id).unwrap().unwrap().name,
+            Some("new title".to_string())
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn sessions_export_markdown_writes_transcript() {
+        let (runtime, dir) = test_runtime("desktop-export-session");
+        let session = runtime
+            .sessions_create(CreateSessionRequest {
+                title: Some("export me".to_string()),
+                project_root: Some(dir.display().to_string()),
+                provider: None,
+                model: None,
+            })
+            .unwrap();
+        runtime
+            .db
+            .save_message(&session.id, "user", Some("hello export"), None, None, None)
+            .unwrap();
+        runtime
+            .db
+            .save_message(&session.id, "assistant", Some("hi back"), None, None, None)
+            .unwrap();
+
+        let exported = runtime.sessions_export_markdown(session.id).unwrap();
+        let content = std::fs::read_to_string(&exported.path).unwrap();
+
+        assert_eq!(exported.message_count, 2);
+        assert!(content.contains("# export me"));
+        assert!(content.contains("hello export"));
+        assert!(content.contains("hi back"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn sessions_compact_local_keeps_recent_history() {
+        let (runtime, dir) = test_runtime("desktop-compact-session");
+        let session = runtime
+            .sessions_create(CreateSessionRequest {
+                title: Some("compact me".to_string()),
+                project_root: None,
+                provider: None,
+                model: None,
+            })
+            .unwrap();
+        for index in 0..24 {
+            let role = if index % 2 == 0 { "user" } else { "assistant" };
+            runtime
+                .db
+                .save_message(
+                    &session.id,
+                    role,
+                    Some(&format!("message {index}")),
+                    None,
+                    None,
+                    None,
+                )
+                .unwrap();
+        }
+
+        let compacted = runtime.sessions_compact_local(session.id.clone()).unwrap();
+        let messages = runtime.sessions_messages(session.id).unwrap();
+
+        assert_eq!(compacted.before_count, 24);
+        assert_eq!(compacted.after_count, 17);
+        assert_eq!(messages.len(), 17);
+        assert_eq!(messages[0].role, "system");
+        assert!(messages[0]
+            .content
+            .as_deref()
+            .unwrap_or_default()
+            .contains("[Context summary]"));
+        assert_eq!(
+            messages
+                .last()
+                .and_then(|message| message.content.as_deref()),
+            Some("message 23")
+        );
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

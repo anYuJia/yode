@@ -4,9 +4,9 @@ members = [
     "crates/yode-core",
     "crates/yode-llm",
     "crates/yode-tools",
-    "crates/yode-tui",
     "crates/yode-mcp",
     "crates/yode-agent",
+    "crates/yode-runtime",
 ]
 resolver = "2"
 
@@ -57,8 +57,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # CLI
 clap = { version = "4", features = ["derive"] }
 
-# TUI
-ratatui = { path = "vendor/ratatui" }
+# Terminal helpers
 crossterm = "0.28"
 
 # Database
@@ -77,9 +76,9 @@ base64 = "0.22"
 yode-core = { version = "1.0.0", path = "crates/yode-core" }
 yode-llm = { version = "1.0.0", path = "crates/yode-llm" }
 yode-tools = { version = "1.0.0", path = "crates/yode-tools" }
-yode-tui = { version = "1.0.0", path = "crates/yode-tui" }
 yode-mcp = { version = "1.0.0", path = "crates/yode-mcp" }
 yode-agent = { version = "1.0.0", path = "crates/yode-agent" }
+yode-runtime = { version = "1.0.0", path = "crates/yode-runtime" }
 
 [package]
 name = "yode"
@@ -96,14 +95,15 @@ categories.workspace = true
 yode-core = { workspace = true }
 yode-llm = { workspace = true }
 yode-tools = { workspace = true }
-yode-tui = { workspace = true }
 yode-mcp = { workspace = true }
 yode-agent = { workspace = true }
+yode-runtime = { workspace = true }
 tokio = { workspace = true }
 clap = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
+crossterm = { workspace = true }
 dirs = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

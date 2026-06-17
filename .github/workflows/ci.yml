@@ -16,7 +16,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  YODE_CLI_PACKAGES: -p yode -p yode-core -p yode-llm -p yode-tools -p yode-tui -p yode-mcp -p yode-agent
+  YODE_CLI_PACKAGES: -p yode -p yode-core -p yode-llm -p yode-tools -p yode-mcp -p yode-agent -p yode-runtime -p yode-desktop
 
 jobs:
   rust:
@@ -91,6 +91,38 @@ jobs:
 
       - name: Workspace library tests
         run: cargo test ${{ env.YODE_CLI_PACKAGES }} --lib
+
+  desktop-frontend:
+    name: Desktop Frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+
+      - name: Install frontend dependencies
+        working-directory: apps/yode-desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: Frontend tests
+        working-directory: apps/yode-desktop
+        run: pnpm test
+
+      - name: Frontend build
+        working-directory: apps/yode-desktop
+        run: pnpm build
 
   parity-snapshot:
     name: Parity Snapshot

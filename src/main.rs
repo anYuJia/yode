@@ -1,12 +1,11 @@
 mod app_bootstrap;
 mod chat_mode;
 mod cli_commands;
-mod provider_bootstrap;
+mod setup_interactive;
 
 use std::env;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Instant;
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -14,16 +13,13 @@ use tracing::{info, warn};
 
 use yode_core::config::Config;
 use yode_core::db::Database;
-use yode_core::setup::{has_api_keys_configured, run_setup_interactive};
+use yode_core::setup::has_api_keys_configured;
+
+use crate::setup_interactive::run_setup_interactive;
 
 use crate::app_bootstrap::{
-    append_startup_segments, build_startup_resume_segment, configure_permissions,
-    ensure_session_exists, init_logging, parse_startup_summary_segment, restore_or_create_context,
-    setup_tooling, shutdown_mcp_clients, write_managed_mcp_inventory_artifact,
-    write_mcp_startup_failure_artifact, write_permission_policy_artifact,
-    write_provider_inventory_artifact, write_settings_scope_artifact,
-    write_startup_bundle_manifest_artifact, write_startup_profile_artifact,
-    write_tool_search_activation_artifact, write_tooling_inventory_artifact, StartupProfiler,
+    configure_permissions, ensure_session_exists, init_logging, restore_or_create_context,
+    setup_tooling, StartupProfiler,
 };
 
 #[derive(Parser)]
@@ -193,14 +189,22 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    let Some(chat_message) = cli.chat_message.as_deref() else {
+        println!("Yode 现在以桌面 App 为主。");
+        println!(
+            "请从桌面应用启动完整交互体验；CLI 保留 provider/update/doctor/serve-mcp 和 --chat 等薄入口。"
+        );
+        println!("非交互对话示例: yode --chat \"帮我总结这个项目\"");
+        return Ok(());
+    };
+
     let db_path = config.session_db_path();
-    let db_open_started_at = Instant::now();
     let db_open_task = tokio::task::spawn_blocking(move || Database::open(&db_path));
     let provider_config = config.clone();
     let cli_provider = cli.provider.clone();
     let cli_model = cli.model.clone();
     let provider_bootstrap_task = tokio::task::spawn_blocking(move || {
-        provider_bootstrap::bootstrap_provider_registry(cli_provider, cli_model, &provider_config)
+        yode_runtime::bootstrap_provider_registry(cli_provider, cli_model, &provider_config)
     });
 
     let tooling = setup_tooling(&config, &workdir).await?;
@@ -210,25 +214,20 @@ async fn main() -> Result<()> {
         .await
         .context("Provider bootstrap task failed")??;
     startup_profiler.checkpoint("provider_bootstrap");
-    let provider_registry = provider_bootstrap.provider_registry;
     let provider_name = provider_bootstrap.provider_name;
     let _provider_models = provider_bootstrap.provider_models;
-    let all_provider_models = provider_bootstrap.all_provider_models;
     let provider = provider_bootstrap.provider;
     let model = provider_bootstrap.model;
-    let provider_metrics = provider_bootstrap.metrics;
 
     let db = db_open_task
         .await
         .context("Database open task failed")?
         .context("Failed to open session database")?;
-    let db_open_elapsed_ms = db_open_started_at.elapsed().as_millis() as u64;
     startup_profiler.checkpoint("db_ready");
 
     let permissions = configure_permissions(&config, &workdir);
     startup_profiler.checkpoint("permission_setup");
-    let session_bootstrap_started_at = Instant::now();
-    let (context, restored_messages, restore_report) = restore_or_create_context(
+    let (context, restored_messages, _restore_report) = restore_or_create_context(
         &cli,
         &db,
         workdir,
@@ -237,128 +236,23 @@ async fn main() -> Result<()> {
         config.ui.output_style.clone(),
     )?;
     ensure_session_exists(&db, &context)?;
-    let session_bootstrap_elapsed_ms = session_bootstrap_started_at.elapsed().as_millis() as u64;
     startup_profiler.checkpoint("session_bootstrap");
 
-    // If --chat, run a single non-interactive turn and exit
-    if let Some(chat_message) = cli.chat_message.as_deref() {
-        startup_profiler.checkpoint("ready_chat");
-        startup_profiler.log_summary("chat", &tooling.metrics);
-        return chat_mode::run_noninteractive_chat(chat_mode::NoninteractiveChatRun {
-            chat_message,
-            provider,
-            tool_registry: Arc::clone(&tooling.tool_registry),
-            permissions,
-            context,
-            db,
-            restored_messages,
-            config: &config,
-            mcp_clients: tooling.mcp_clients,
-            mcp_resource_provider: tooling.mcp_resource_provider,
-        })
-        .await;
-    }
-
-    info!(
-        "Starting TUI with provider={}, model={}, session={}",
-        context.provider, context.model, context.session_id
-    );
-    startup_profiler.checkpoint("ready_tui");
-    let mut startup_summary = startup_profiler.summary("tui", &tooling.metrics);
-    let provider_segment = provider_metrics.summary();
-    let resume_segment = build_startup_resume_segment(
-        db_open_elapsed_ms,
-        session_bootstrap_elapsed_ms,
-        restored_messages
-            .as_ref()
-            .map(|messages| messages.len())
-            .unwrap_or(0),
-        restore_report.mode,
-        restore_report.decoded_messages,
-        restore_report.skipped_messages,
-        restore_report.fallback_reason.as_deref(),
-    );
-    append_startup_segments(
-        &mut startup_summary,
-        [provider_segment.as_str(), resume_segment.as_str()],
-    );
-    let _ = parse_startup_summary_segment(&startup_summary, "resume");
-    let _ = write_startup_profile_artifact(
-        &context.working_dir_compat(),
-        &context.session_id,
-        &startup_summary,
-    );
-    let _ = write_tooling_inventory_artifact(
-        &context.working_dir_compat(),
-        &context.session_id,
-        &tooling.metrics,
-        &tooling.tool_registry,
-    );
-    let _ = write_provider_inventory_artifact(
-        &context.working_dir_compat(),
-        &context.session_id,
-        &provider_metrics,
-        &context.provider,
-        &context.model,
-        &all_provider_models,
-    );
-    let _ = write_permission_policy_artifact(
-        &context.working_dir_compat(),
-        &context.session_id,
-        &permissions,
-    );
-    let _ = write_settings_scope_artifact(
-        &context.working_dir_compat(),
-        &context.session_id,
-        &context.working_dir_compat(),
-    );
-    let _ = write_managed_mcp_inventory_artifact(
-        &context.working_dir_compat(),
-        &context.session_id,
-        &context.working_dir_compat(),
-        &tooling.metrics,
-    );
-    let _ = write_tool_search_activation_artifact(
-        &context.working_dir_compat(),
-        &context.session_id,
-        &tooling.metrics,
-        &tooling.tool_registry,
-    );
-    let _ = write_mcp_startup_failure_artifact(
-        &context.working_dir_compat(),
-        &context.session_id,
-        &tooling.metrics,
-    );
-    let _ =
-        write_startup_bundle_manifest_artifact(&context.working_dir_compat(), &context.session_id);
-    startup_profiler.log_summary("tui", &tooling.metrics);
-
-    let skill_cmds: Vec<(String, String)> = tooling
-        .skill_registry
-        .list()
-        .iter()
-        .map(|s| (s.name.clone(), s.description.clone()))
-        .collect();
-    yode_tui::app::run(
+    startup_profiler.checkpoint("ready_chat");
+    startup_profiler.log_summary("chat", &tooling.metrics);
+    chat_mode::run_noninteractive_chat(chat_mode::NoninteractiveChatRun {
+        chat_message,
         provider,
-        Arc::clone(&provider_registry),
-        tooling.tool_registry,
+        tool_registry: Arc::clone(&tooling.tool_registry),
         permissions,
         context,
         db,
         restored_messages,
-        skill_cmds,
-        all_provider_models,
-        Some(startup_summary),
-        tooling.mcp_resource_provider.clone(),
-        &config,
-    )
-    .await?;
-
-    shutdown_mcp_clients(tooling.mcp_clients).await;
-
-    info!("Yode exiting.");
-    Ok(())
+        config: &config,
+        mcp_clients: tooling.mcp_clients,
+        mcp_resource_provider: tooling.mcp_resource_provider,
+    })
+    .await
 }
 
 fn check_workspace_package_versions() -> Result<()> {

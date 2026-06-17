@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use yode_core::permission::PermissionManager;
 use yode_tools::registry::ToolRegistry;
 
-use crate::provider_bootstrap::ProviderBootstrapMetrics;
+use yode_runtime::ProviderBootstrapMetrics;
 
 use super::tooling::ToolingSetupMetrics;
 
@@ -485,9 +485,7 @@ mod tests {
 
     use super::*;
     use crate::app_bootstrap::tooling::McpStartupFailure;
-    use crate::provider_bootstrap::{
-        ProviderBootstrapMetrics, ProviderInventoryEntry, ProviderSourceBreakdown,
-    };
+    use yode_runtime::{ProviderBootstrapMetrics, ProviderInventoryEntry, ProviderSourceBreakdown};
 
     fn temp_project_dir(suffix: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(

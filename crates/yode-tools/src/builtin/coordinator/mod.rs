@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use futures::future::join_all;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use tracing::warn;
 
 use crate::builtin::orchestration_common::{
     persist_coordinator_runtime_artifacts, CoordinatorRuntimeArtifactRequest,
@@ -19,6 +20,16 @@ use self::planning::{
     build_execution_phases, max_parallel_label, normalize_workstreams, render_phase_plan,
     render_phase_timeline,
 };
+
+fn warn_if_team_runtime_failed<T>(operation: &str, result: anyhow::Result<T>) -> Option<T> {
+    match result {
+        Ok(value) => Some(value),
+        Err(err) => {
+            warn!(operation, error = %err, "agent team runtime operation failed");
+            None
+        }
+    }
+}
 
 #[derive(Debug, Deserialize)]
 struct Workstream {
@@ -324,7 +335,10 @@ impl Tool for CoordinateAgentsTool {
                                 if let (Some(dir), Some(snapshot)) =
                                     (ctx.working_dir.as_deref(), manager.snapshot(&team_id))
                                 {
-                                    let _ = persist_agent_team_snapshot(dir, &snapshot);
+                                    warn_if_team_runtime_failed(
+                                        "persist_agent_team_snapshot",
+                                        persist_agent_team_snapshot(dir, &snapshot),
+                                    );
                                 }
                             }
                             Some(messages)
@@ -395,8 +409,38 @@ impl Tool for CoordinateAgentsTool {
                             {
                                 let snapshot = {
                                     let mut manager = manager.lock().await;
-                                    let _ = hydrate_agent_team_manager(dir, &mut manager, &team_id);
-                                    let _ = manager.update_member(
+                                    warn_if_team_runtime_failed(
+                                        "hydrate_agent_team_manager",
+                                        hydrate_agent_team_manager(dir, &mut manager, &team_id),
+                                    );
+                                    warn_if_team_runtime_failed(
+                                        "update_agent_team_member_in_memory",
+                                        manager.update_member(
+                                            &team_id,
+                                            &workstream.id,
+                                            if workstream.run_in_background.unwrap_or(true) {
+                                                "running"
+                                            } else {
+                                                "completed"
+                                            },
+                                            parse_team_task_id(&output),
+                                            Some(output.clone()),
+                                            None,
+                                        ),
+                                    );
+                                    manager.snapshot(&team_id)
+                                };
+                                if let Some(snapshot) = snapshot.as_ref() {
+                                    warn_if_team_runtime_failed(
+                                        "persist_agent_team_snapshot",
+                                        persist_agent_team_snapshot(dir, snapshot),
+                                    );
+                                }
+                            } else if let Some(dir) = ctx.working_dir.as_deref() {
+                                warn_if_team_runtime_failed(
+                                    "update_agent_team_member",
+                                    update_agent_team_member(
+                                        dir,
                                         &team_id,
                                         &workstream.id,
                                         if workstream.run_in_background.unwrap_or(true) {
@@ -407,25 +451,7 @@ impl Tool for CoordinateAgentsTool {
                                         parse_team_task_id(&output),
                                         Some(output.clone()),
                                         None,
-                                    );
-                                    manager.snapshot(&team_id)
-                                };
-                                if let Some(snapshot) = snapshot.as_ref() {
-                                    let _ = persist_agent_team_snapshot(dir, snapshot);
-                                }
-                            } else if let Some(dir) = ctx.working_dir.as_deref() {
-                                let _ = update_agent_team_member(
-                                    dir,
-                                    &team_id,
-                                    &workstream.id,
-                                    if workstream.run_in_background.unwrap_or(true) {
-                                        "running"
-                                    } else {
-                                        "completed"
-                                    },
-                                    parse_team_task_id(&output),
-                                    Some(output.clone()),
-                                    None,
+                                    ),
                                 );
                             }
                             rendered.push(json!({
@@ -443,29 +469,41 @@ impl Tool for CoordinateAgentsTool {
                             {
                                 let snapshot = {
                                     let mut manager = manager.lock().await;
-                                    let _ = hydrate_agent_team_manager(dir, &mut manager, &team_id);
-                                    let _ = manager.update_member(
+                                    warn_if_team_runtime_failed(
+                                        "hydrate_agent_team_manager",
+                                        hydrate_agent_team_manager(dir, &mut manager, &team_id),
+                                    );
+                                    warn_if_team_runtime_failed(
+                                        "update_agent_team_member_in_memory",
+                                        manager.update_member(
+                                            &team_id,
+                                            &workstream.id,
+                                            "failed",
+                                            None,
+                                            Some(format!("{}", err)),
+                                            None,
+                                        ),
+                                    );
+                                    manager.snapshot(&team_id)
+                                };
+                                if let Some(snapshot) = snapshot.as_ref() {
+                                    warn_if_team_runtime_failed(
+                                        "persist_agent_team_snapshot",
+                                        persist_agent_team_snapshot(dir, snapshot),
+                                    );
+                                }
+                            } else if let Some(dir) = ctx.working_dir.as_deref() {
+                                warn_if_team_runtime_failed(
+                                    "update_agent_team_member",
+                                    update_agent_team_member(
+                                        dir,
                                         &team_id,
                                         &workstream.id,
                                         "failed",
                                         None,
                                         Some(format!("{}", err)),
                                         None,
-                                    );
-                                    manager.snapshot(&team_id)
-                                };
-                                if let Some(snapshot) = snapshot.as_ref() {
-                                    let _ = persist_agent_team_snapshot(dir, snapshot);
-                                }
-                            } else if let Some(dir) = ctx.working_dir.as_deref() {
-                                let _ = update_agent_team_member(
-                                    dir,
-                                    &team_id,
-                                    &workstream.id,
-                                    "failed",
-                                    None,
-                                    Some(format!("{}", err)),
-                                    None,
+                                    ),
                                 );
                             }
                             rendered.push(json!({

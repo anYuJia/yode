@@ -290,6 +290,22 @@ pub struct DesktopActionResult {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SessionExportResult {
+    pub path: String,
+    pub message_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionCompactResult {
+    pub before_count: usize,
+    pub after_count: usize,
+    pub removed_count: usize,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PersonalizationState {
     pub personality: String,
     pub custom_instructions: String,

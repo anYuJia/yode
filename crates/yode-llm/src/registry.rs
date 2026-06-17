@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::provider::LlmProvider;
 
@@ -304,32 +304,73 @@ impl ProviderRegistry {
         }
     }
 
+    fn read_providers(&self) -> RwLockReadGuard<'_, HashMap<String, Arc<dyn LlmProvider>>> {
+        self.providers
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn write_providers(&self) -> RwLockWriteGuard<'_, HashMap<String, Arc<dyn LlmProvider>>> {
+        self.providers
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     pub fn register(&self, provider: Arc<dyn LlmProvider>) {
         let name = provider.name().to_string();
-        self.providers.write().unwrap().insert(name, provider);
+        self.write_providers().insert(name, provider);
     }
 
     pub fn get(&self, name: &str) -> Option<Arc<dyn LlmProvider>> {
-        self.providers.read().unwrap().get(name).cloned()
+        self.read_providers().get(name).cloned()
     }
 
     pub fn list(&self) -> Vec<String> {
-        let mut names: Vec<String> = self.providers.read().unwrap().keys().cloned().collect();
+        let mut names: Vec<String> = self.read_providers().keys().cloned().collect();
         names.sort();
         names
     }
 
     pub fn remove(&self, name: &str) -> Option<Arc<dyn LlmProvider>> {
-        self.providers.write().unwrap().remove(name)
+        self.write_providers().remove(name)
     }
 
     pub fn contains(&self, name: &str) -> bool {
-        self.providers.read().unwrap().contains_key(name)
+        self.read_providers().contains_key(name)
     }
 }
 
 impl Default for ProviderRegistry {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    use std::sync::Arc;
+
+    use crate::MockProvider;
+
+    use super::ProviderRegistry;
+
+    #[test]
+    fn registry_recovers_from_poisoned_lock() {
+        let registry = ProviderRegistry::new();
+
+        let poisoned = catch_unwind(AssertUnwindSafe(|| {
+            let _guard = registry.providers.write().unwrap();
+            panic!("poison provider registry for test");
+        }));
+        assert!(poisoned.is_err());
+
+        registry.register(Arc::new(MockProvider::new("mock")));
+
+        assert!(registry.contains("mock"));
+        assert_eq!(registry.list(), vec!["mock".to_string()]);
+        assert!(registry.get("mock").is_some());
+        assert!(registry.remove("mock").is_some());
+        assert!(!registry.contains("mock"));
     }
 }

@@ -27,7 +27,6 @@ uuid = { workspace = true }
 regex = { workspace = true }
 chrono = { workspace = true }
 dirs = { workspace = true }
-crossterm = { workspace = true }
 rusqlite = { workspace = true }
 serde_yaml_ng = { workspace = true }
 reqwest = { workspace = true }

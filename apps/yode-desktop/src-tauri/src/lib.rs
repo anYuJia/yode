@@ -38,6 +38,47 @@ fn sessions_messages(
 }
 
 #[tauri::command]
+fn sessions_clear_messages(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    session_id: String,
+) -> Result<(), String> {
+    runtime
+        .sessions_clear_messages(session_id)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn sessions_rename(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    session_id: String,
+    title: String,
+) -> Result<protocol::DesktopSession, String> {
+    runtime
+        .sessions_rename(session_id, title)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn sessions_export_markdown(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    session_id: String,
+) -> Result<protocol::SessionExportResult, String> {
+    runtime
+        .sessions_export_markdown(session_id)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn sessions_compact_local(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    session_id: String,
+) -> Result<protocol::SessionCompactResult, String> {
+    runtime
+        .sessions_compact_local(session_id)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
 fn project_folder_pick() -> Option<String> {
     rfd::FileDialog::new()
         .pick_folder()
@@ -538,6 +579,10 @@ pub fn run() {
             sessions_list,
             sessions_create,
             sessions_messages,
+            sessions_clear_messages,
+            sessions_rename,
+            sessions_export_markdown,
+            sessions_compact_local,
             project_folder_pick,
             runtime_state_get,
             edit_diff_artifact_read,

@@ -22,7 +22,6 @@ pub(crate) struct McpStartupFailure {
 
 pub(crate) struct ToolingBootstrap {
     pub(crate) tool_registry: Arc<ToolRegistry>,
-    pub(crate) skill_registry: SkillRegistry,
     pub(crate) mcp_clients: Vec<yode_mcp::McpClient>,
     pub(crate) mcp_resource_provider: Option<Arc<dyn McpResourceProvider>>,
     pub(crate) metrics: ToolingSetupMetrics,
@@ -39,6 +38,7 @@ pub(crate) struct ToolingSetupMetrics {
     pub(crate) configured_mcp_server_count: usize,
     pub(crate) connected_mcp_server_count: usize,
     pub(crate) mcp_tool_count: usize,
+    #[allow(dead_code)]
     pub(crate) mcp_startup_failures: Vec<McpStartupFailure>,
     pub(crate) discovered_skill_count: usize,
     pub(crate) active_tool_count: usize,
@@ -257,7 +257,6 @@ pub(crate) async fn setup_tooling(config: &Config, workdir: &Path) -> Result<Too
 
     Ok(ToolingBootstrap {
         tool_registry: Arc::new(tool_registry),
-        skill_registry,
         mcp_clients,
         mcp_resource_provider,
         metrics: ToolingSetupMetrics {
