@@ -911,11 +911,9 @@ impl DesktopRuntime {
     }
 
     pub fn computer_use_pick_application(&self) -> Result<DesktopActionResult> {
-        let mut dialog = rfd::FileDialog::new().set_title("选择始终允许的应用");
+        let dialog = rfd::FileDialog::new().set_title("选择始终允许的应用");
         #[cfg(target_os = "macos")]
-        {
-            dialog = dialog.set_directory("/Applications");
-        }
+        let dialog = dialog.set_directory("/Applications");
         let Some(path) = dialog.pick_folder() else {
             return Ok(DesktopActionResult {
                 ok: false,
@@ -2093,12 +2091,9 @@ impl DesktopRuntime {
                 },
             );
         }
-        if !new_providers
-            .iter()
-            .any(|(id, provider_config)| {
-                resolved_provider_id(id, provider_config) == config.llm.default_provider
-            })
-        {
+        if !new_providers.iter().any(|(id, provider_config)| {
+            resolved_provider_id(id, provider_config) == config.llm.default_provider
+        }) {
             if let Some((provider, config_provider)) = new_providers
                 .iter()
                 .find(|(_, provider)| provider.enabled.unwrap_or(true))
@@ -2226,9 +2221,12 @@ fn normalized_provider_model(config: &Config, provider: &str, model: &str) -> (S
         }
     }
 
-    if let Some(default_provider) = config.llm.providers.get(&config.llm.default_provider).filter(
-        |provider_config| provider_config.enabled.unwrap_or(true),
-    ) {
+    if let Some(default_provider) = config
+        .llm
+        .providers
+        .get(&config.llm.default_provider)
+        .filter(|provider_config| provider_config.enabled.unwrap_or(true))
+    {
         let fallback_model = default_provider
             .models
             .first()
@@ -2248,7 +2246,10 @@ fn normalized_provider_model(config: &Config, provider: &str, model: &str) -> (S
             .first()
             .cloned()
             .unwrap_or_else(|| config.llm.default_model.clone());
-        return (resolved_provider_id(fallback_provider, fallback_config), fallback_model);
+        return (
+            resolved_provider_id(fallback_provider, fallback_config),
+            fallback_model,
+        );
     }
 
     (
@@ -2262,7 +2263,11 @@ fn resolved_provider_id(id: &str, provider: &yode_core::config::ProviderConfig) 
     if !trimmed.is_empty() {
         return trimmed.to_string();
     }
-    let base_url = provider.base_url.as_deref().unwrap_or_default().to_ascii_lowercase();
+    let base_url = provider
+        .base_url
+        .as_deref()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
     let models = provider.models.join(" ").to_ascii_lowercase();
     if base_url.contains("ark.cn-") || base_url.contains("volces") || models.contains("doubao") {
         return "doubao".to_string();
