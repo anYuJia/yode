@@ -720,7 +720,14 @@ fn inspect_command_for_path(project_root: &std::path::Path, path: &std::path::Pa
         .ok()
         .filter(|relative| !relative.as_os_str().is_empty())
         .unwrap_or(path);
-    format!("/inspect artifact {}", display.display())
+    format!("/inspect artifact {}", artifact_command_path(display))
+}
+
+fn artifact_command_path(path: &std::path::Path) -> String {
+    path.components()
+        .map(|component| component.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 fn truncate_visible_width(value: &str, max_width: usize) -> String {
