@@ -1,6 +1,8 @@
 mod browser_settings;
+mod computer_use_settings;
 mod desktop_settings_store;
 mod git_settings;
+mod hook_settings;
 mod license_notices;
 mod protocol;
 mod runtime;
