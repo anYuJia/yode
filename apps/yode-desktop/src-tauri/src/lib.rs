@@ -1,6 +1,7 @@
 mod protocol;
 mod runtime;
 mod session_helpers;
+mod session_import;
 
 use tauri::Manager;
 
