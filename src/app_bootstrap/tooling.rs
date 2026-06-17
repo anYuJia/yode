@@ -38,7 +38,6 @@ pub(crate) struct ToolingSetupMetrics {
     pub(crate) configured_mcp_server_count: usize,
     pub(crate) connected_mcp_server_count: usize,
     pub(crate) mcp_tool_count: usize,
-    #[allow(dead_code)]
     pub(crate) mcp_startup_failures: Vec<McpStartupFailure>,
     pub(crate) discovered_skill_count: usize,
     pub(crate) active_tool_count: usize,

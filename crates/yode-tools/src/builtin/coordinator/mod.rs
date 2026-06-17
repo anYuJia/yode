@@ -237,6 +237,13 @@ impl Tool for CoordinateAgentsTool {
                     messages: Vec::new(),
                 },
             )
+            .inspect_err(|err| {
+                warn!(
+                    operation = "persist_agent_team_snapshot",
+                    error = %err,
+                    "agent team runtime operation failed"
+                );
+            })
             .ok()
         } else {
             ctx.working_dir.as_deref().and_then(|dir| {
@@ -247,6 +254,13 @@ impl Tool for CoordinateAgentsTool {
                     if dry_run { "dry_run" } else { "coordinate" },
                     team_members,
                 )
+                .inspect_err(|err| {
+                    warn!(
+                        operation = "persist_agent_team_runtime",
+                        error = %err,
+                        "agent team runtime operation failed"
+                    );
+                })
                 .ok()
             })
         };
@@ -266,6 +280,13 @@ impl Tool for CoordinateAgentsTool {
                     timeline: &timeline,
                     plan: &plan,
                     results: &[],
+                })
+                .inspect_err(|err| {
+                    warn!(
+                        operation = "persist_coordinator_runtime_artifacts",
+                        error = %err,
+                        "coordinator runtime operation failed"
+                    );
                 })
                 .ok()
             });
@@ -535,6 +556,13 @@ impl Tool for CoordinateAgentsTool {
                 timeline: &timeline,
                 plan: &plan,
                 results: &rendered,
+            })
+            .inspect_err(|err| {
+                warn!(
+                    operation = "persist_coordinator_runtime_artifacts",
+                    error = %err,
+                    "coordinator runtime operation failed"
+                );
             })
             .ok()
         });

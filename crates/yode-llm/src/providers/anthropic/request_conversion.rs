@@ -27,10 +27,7 @@ fn ensure_blocks(content: &mut AnthropicContent) -> &mut Vec<ContentBlock> {
                 text: original,
                 cache_control: None,
             }]);
-            match content {
-                AnthropicContent::Blocks(blocks) => blocks,
-                AnthropicContent::Text(_) => unreachable!(),
-            }
+            ensure_blocks(content)
         }
     }
 }

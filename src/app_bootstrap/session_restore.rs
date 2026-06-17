@@ -12,7 +12,6 @@ use yode_core::session::Session;
 use yode_llm::types::{ContentBlock, Message, Role, ToolCall};
 
 #[derive(Debug, Clone, Default)]
-#[allow(dead_code)]
 pub(crate) struct SessionRestoreReport {
     pub mode: &'static str,
     pub fallback_reason: Option<String>,

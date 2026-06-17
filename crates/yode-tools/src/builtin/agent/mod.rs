@@ -3,6 +3,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::json;
 use serde_json::Value;
+use tracing::warn;
 
 use crate::builtin::team_runtime::{
     hydrate_agent_team_manager, persist_agent_team_runtime, persist_agent_team_snapshot,
@@ -12,6 +13,16 @@ use crate::path_format::display_slash;
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
 pub struct AgentTool;
+
+fn warn_if_agent_runtime_failed<T>(operation: &str, result: anyhow::Result<T>) -> Option<T> {
+    match result {
+        Ok(value) => Some(value),
+        Err(err) => {
+            warn!(operation, error = %err, "agent runtime operation failed");
+            None
+        }
+    }
+}
 
 #[async_trait]
 impl Tool for AgentTool {
@@ -202,7 +213,10 @@ impl Tool for AgentTool {
                     if let (Some(working_dir), Some(snapshot)) =
                         (ctx.working_dir.as_deref(), manager.snapshot(team_id))
                     {
-                        let _ = persist_agent_team_snapshot(working_dir, &snapshot);
+                        warn_if_agent_runtime_failed(
+                            "persist_agent_team_snapshot",
+                            persist_agent_team_snapshot(working_dir, &snapshot),
+                        );
                     }
                 }
                 mailbox
@@ -231,7 +245,12 @@ impl Tool for AgentTool {
                 let artifact_path = if !run_in_background {
                     ctx.working_dir
                         .as_deref()
-                        .and_then(|dir| persist_sub_agent_artifact(dir, &description, &result).ok())
+                        .and_then(|dir| {
+                            warn_if_agent_runtime_failed(
+                                "persist_sub_agent_artifact",
+                                persist_sub_agent_artifact(dir, &description, &result),
+                            )
+                        })
                         .map(|path| display_slash(&path))
                 } else {
                     None
@@ -303,61 +322,71 @@ impl Tool for AgentTool {
                             manager.snapshot(team_id)
                         };
                         snapshot.as_ref().and_then(|snapshot| {
-                            persist_agent_team_snapshot(working_dir, snapshot).ok()
+                            warn_if_agent_runtime_failed(
+                                "persist_agent_team_snapshot",
+                                persist_agent_team_snapshot(working_dir, snapshot),
+                            )
                         })
                     } else {
-                        let _ = persist_agent_team_runtime(
-                            working_dir,
-                            &description,
-                            Some(team_id),
-                            if run_in_background {
-                                "background"
-                            } else {
-                                "foreground"
-                            },
-                            vec![AgentTeamMemberState {
-                                member_id: member_id
-                                    .clone()
-                                    .unwrap_or_else(|| "member-1".to_string()),
-                                description: description.clone(),
-                                subagent_type: subagent_type_clone.clone(),
-                                model: model_clone.clone(),
-                                run_in_background,
-                                allowed_tools: allowed_tools_clone.clone(),
-                                permission_inheritance: if allowed_tools_clone.is_empty() {
-                                    "parent_tool_pool".to_string()
+                        warn_if_agent_runtime_failed(
+                            "persist_agent_team_runtime",
+                            persist_agent_team_runtime(
+                                working_dir,
+                                &description,
+                                Some(team_id),
+                                if run_in_background {
+                                    "background"
                                 } else {
-                                    "explicit_allowlist".to_string()
+                                    "foreground"
                                 },
-                                status: if run_in_background {
-                                    "running".to_string()
-                                } else {
-                                    "completed".to_string()
-                                },
-                                runtime_task_id: parse_background_task_id(&result),
-                                last_result_preview: Some(result.chars().take(240).collect()),
-                                result_artifact_path: artifact_path.clone(),
-                                last_updated_at: Some(
-                                    chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
-                                ),
-                                pending_message_count: 0,
-                                last_message_at: None,
-                            }],
+                                vec![AgentTeamMemberState {
+                                    member_id: member_id
+                                        .clone()
+                                        .unwrap_or_else(|| "member-1".to_string()),
+                                    description: description.clone(),
+                                    subagent_type: subagent_type_clone.clone(),
+                                    model: model_clone.clone(),
+                                    run_in_background,
+                                    allowed_tools: allowed_tools_clone.clone(),
+                                    permission_inheritance: if allowed_tools_clone.is_empty() {
+                                        "parent_tool_pool".to_string()
+                                    } else {
+                                        "explicit_allowlist".to_string()
+                                    },
+                                    status: if run_in_background {
+                                        "running".to_string()
+                                    } else {
+                                        "completed".to_string()
+                                    },
+                                    runtime_task_id: parse_background_task_id(&result),
+                                    last_result_preview: Some(result.chars().take(240).collect()),
+                                    result_artifact_path: artifact_path.clone(),
+                                    last_updated_at: Some(
+                                        chrono::Local::now()
+                                            .format("%Y-%m-%d %H:%M:%S")
+                                            .to_string(),
+                                    ),
+                                    pending_message_count: 0,
+                                    last_message_at: None,
+                                }],
+                            ),
                         );
-                        update_agent_team_member(
-                            working_dir,
-                            team_id,
-                            member_id.as_deref().unwrap_or("member-1"),
-                            if run_in_background {
-                                "running"
-                            } else {
-                                "completed"
-                            },
-                            parse_background_task_id(&result),
-                            Some(result.clone()),
-                            artifact_path.clone(),
+                        warn_if_agent_runtime_failed(
+                            "update_agent_team_member",
+                            update_agent_team_member(
+                                working_dir,
+                                team_id,
+                                member_id.as_deref().unwrap_or("member-1"),
+                                if run_in_background {
+                                    "running"
+                                } else {
+                                    "completed"
+                                },
+                                parse_background_task_id(&result),
+                                Some(result.clone()),
+                                artifact_path.clone(),
+                            ),
                         )
-                        .ok()
                     }
                 } else {
                     None

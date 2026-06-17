@@ -227,7 +227,7 @@ async fn main() -> Result<()> {
 
     let permissions = configure_permissions(&config, &workdir);
     startup_profiler.checkpoint("permission_setup");
-    let (context, restored_messages, _restore_report) = restore_or_create_context(
+    let (context, restored_messages, restore_report) = restore_or_create_context(
         &cli,
         &db,
         workdir,
@@ -237,6 +237,13 @@ async fn main() -> Result<()> {
     )?;
     ensure_session_exists(&db, &context)?;
     startup_profiler.checkpoint("session_bootstrap");
+    info!(
+        restore_mode = restore_report.mode,
+        decoded_messages = restore_report.decoded_messages,
+        skipped_messages = restore_report.skipped_messages,
+        fallback_reason = restore_report.fallback_reason.as_deref().unwrap_or("none"),
+        "Session restore complete"
+    );
 
     startup_profiler.checkpoint("ready_chat");
     startup_profiler.log_summary("chat", &tooling.metrics);
