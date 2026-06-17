@@ -26,6 +26,10 @@ use yode_runtime::resolved_provider_id;
 use yode_tools::registry::ToolRegistry;
 use yode_tools::tool::McpResourceProvider;
 
+use crate::desktop_settings_store::{
+    desktop_bool_setting, desktop_string_setting, desktop_u32_setting, read_desktop_settings,
+    write_desktop_settings,
+};
 use crate::license_notices::read_license_notices;
 use crate::protocol::{
     Bootstrap, BrowserSettings, ComputerUseSettings, ConfigurationState,
@@ -2564,34 +2568,6 @@ fn workspace_dependency_state_path() -> PathBuf {
         .join("desktop-workspace-deps.json")
 }
 
-fn desktop_settings_path() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".yode")
-        .join("desktop-settings.json")
-}
-
-fn read_desktop_settings() -> Result<serde_json::Map<String, serde_json::Value>> {
-    let path = desktop_settings_path();
-    if !path.exists() {
-        return Ok(serde_json::Map::new());
-    }
-    let raw = std::fs::read_to_string(path)?;
-    Ok(serde_json::from_str::<serde_json::Value>(&raw)
-        .ok()
-        .and_then(|value| value.as_object().cloned())
-        .unwrap_or_default())
-}
-
-fn write_desktop_settings(settings: &serde_json::Map<String, serde_json::Value>) -> Result<()> {
-    let path = desktop_settings_path();
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(path, serde_json::to_string_pretty(settings)?)?;
-    Ok(())
-}
-
 fn list_git_worktrees(workspace_path: &Path) -> Result<Vec<DesktopWorktree>> {
     let output = Command::new("git")
         .args(["worktree", "list", "--porcelain"])
@@ -3421,50 +3397,6 @@ fn personalization_state_from_settings(
         enable_memories: desktop_bool_setting(settings, "yode-enable-memories", false),
         skip_tool_chats: desktop_bool_setting(settings, "yode-skip-tool-chats", false),
     })
-}
-
-fn desktop_string_setting(
-    settings: &serde_json::Map<String, serde_json::Value>,
-    key: &str,
-    fallback: &str,
-) -> String {
-    settings
-        .get(key)
-        .and_then(|value| value.as_str())
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or(fallback)
-        .to_string()
-}
-
-fn desktop_bool_setting(
-    settings: &serde_json::Map<String, serde_json::Value>,
-    key: &str,
-    fallback: bool,
-) -> bool {
-    settings
-        .get(key)
-        .and_then(|value| {
-            value
-                .as_bool()
-                .or_else(|| value.as_str().and_then(|raw| raw.parse::<bool>().ok()))
-        })
-        .unwrap_or(fallback)
-}
-
-fn desktop_u32_setting(
-    settings: &serde_json::Map<String, serde_json::Value>,
-    key: &str,
-    fallback: u32,
-) -> u32 {
-    settings
-        .get(key)
-        .and_then(|value| {
-            value
-                .as_u64()
-                .and_then(|raw| u32::try_from(raw).ok())
-                .or_else(|| value.as_str().and_then(|raw| raw.parse::<u32>().ok()))
-        })
-        .unwrap_or(fallback)
 }
 
 fn build_personalization_prompt(state: &PersonalizationState) -> Option<String> {

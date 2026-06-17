@@ -1,3 +1,4 @@
+mod desktop_settings_store;
 mod license_notices;
 mod protocol;
 mod runtime;
