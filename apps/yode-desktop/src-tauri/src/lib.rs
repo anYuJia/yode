@@ -1,3 +1,4 @@
+mod license_notices;
 mod protocol;
 mod runtime;
 mod session_helpers;
