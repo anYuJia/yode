@@ -46,8 +46,22 @@ export function Topbar({
   onModelChange
 }: TopbarProps) {
   const [currentBranch, setCurrentBranch] = useState<string | null>(null);
+  const [providerVersion, setProviderVersion] = useState(0);
   const providerOptions = useMemo(() => {
     return providerOptionsFromStorage(localStorage.getItem(LLM_PROVIDERS_STORAGE_KEY), PROVIDERS_META);
+  }, [providerVersion]);
+  const providerName = useMemo(() => {
+    return providerDisplayName(currentProvider, localStorage.getItem(LLM_PROVIDERS_STORAGE_KEY), PROVIDERS_META);
+  }, [currentProvider, providerVersion]);
+
+  useEffect(() => {
+    const refreshProviders = () => setProviderVersion((version) => version + 1);
+    window.addEventListener("storage", refreshProviders);
+    window.addEventListener("yode-llm-providers-change", refreshProviders);
+    return () => {
+      window.removeEventListener("storage", refreshProviders);
+      window.removeEventListener("yode-llm-providers-change", refreshProviders);
+    };
   }, []);
 
   useEffect(() => {
@@ -82,7 +96,7 @@ export function Topbar({
       <div className="runtime-strip" aria-label="运行状态" style={{ display: "flex", gap: "8px", alignItems: "center" }}>
         <DropdownPill
           icon={<TopbarProviderIcon id={currentProvider} />}
-          label={getProviderName(currentProvider)}
+          label={providerName}
           value={currentProvider}
           options={providerOptions}
           onChange={onProviderChange}
@@ -134,10 +148,6 @@ export function TopbarProviderIcon({ id }: { id: string }) {
       onError={() => setFailed(true)}
     />
   );
-}
-
-function getProviderName(providerId: string) {
-  return providerDisplayName(providerId, localStorage.getItem(LLM_PROVIDERS_STORAGE_KEY), PROVIDERS_META);
 }
 
 interface DropdownPillProps {

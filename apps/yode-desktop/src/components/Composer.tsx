@@ -70,6 +70,7 @@ export function Composer({
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [isDraggingImage, setIsDraggingImage] = useState(false);
   const [attachmentNotice, setAttachmentNotice] = useState("");
+  const [providerVersion, setProviderVersion] = useState(0);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const projectDropdownRef = useRef<HTMLDivElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
@@ -83,7 +84,17 @@ export function Composer({
       localStorage.getItem(LLM_PROVIDERS_STORAGE_KEY),
       PROVIDERS_META
     );
-  }, [currentProvider]);
+  }, [currentProvider, providerVersion]);
+
+  useEffect(() => {
+    const refreshProviders = () => setProviderVersion((version) => version + 1);
+    window.addEventListener("storage", refreshProviders);
+    window.addEventListener("yode-llm-providers-change", refreshProviders);
+    return () => {
+      window.removeEventListener("storage", refreshProviders);
+      window.removeEventListener("yode-llm-providers-change", refreshProviders);
+    };
+  }, []);
 
   const OPTIONS = [
     {

@@ -459,6 +459,7 @@ export function ProvidersSettings({
             const normalized = data.map(normalizeProvider);
             setProviders(normalized);
             localStorage.setItem("yode-llm-providers", JSON.stringify(normalized));
+            window.dispatchEvent(new Event("yode-llm-providers-change"));
           }
         })
         .catch(console.error);
@@ -489,6 +490,7 @@ export function ProvidersSettings({
   const saveProviders = (list: ProviderConfigData[]) => {
     setProviders(list);
     localStorage.setItem("yode-llm-providers", JSON.stringify(list));
+    window.dispatchEvent(new Event("yode-llm-providers-change"));
     if ("__TAURI_INTERNALS__" in window) {
       invoke("config_save_providers", { providers: list }).catch(console.error);
     }
