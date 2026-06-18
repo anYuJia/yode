@@ -21,6 +21,32 @@ function recordFromUnknown(value: unknown): Record<string, unknown> | undefined 
     : undefined;
 }
 
+type ToolTimelineItem =
+  | Extract<TimelineItem, { kind: "tool" }>
+  | Extract<TimelineItem, { kind: "activity_item" }>;
+
+function itemCallId(item: TimelineItem): string | undefined {
+  return (item.kind === "tool" || item.kind === "activity_item") ? item.callId : undefined;
+}
+
+function itemMetadata(item: TimelineItem): unknown {
+  return (item.kind === "tool" || item.kind === "activity_item" || item.kind === "error")
+    ? item.metadata
+    : undefined;
+}
+
+function itemCreatedAt(item: TimelineItem | null | undefined): number | undefined {
+  return typeof item?.createdAt === "number" && Number.isFinite(item.createdAt)
+    ? item.createdAt
+    : undefined;
+}
+
+function reasoningStartedAt(item: TimelineItem): number | undefined {
+  return item.kind === "reasoning" && typeof item.reasoningStartedAt === "number"
+    ? item.reasoningStartedAt
+    : undefined;
+}
+
 function processNoteFingerprint(text: string) {
   return normalizeProcessNoteText(text)
     .replace(/^(我会|我先|我来|接下来|下一步|现在|然后|先|再|接着)/, "")
@@ -113,12 +139,11 @@ function actionNarrativePrefix(turnId?: string) {
 
 function isToolResultLikeItem(item: Extract<TimelineItem, { kind: "tool" }>) {
   if (/工具结果|tool result|result/i.test(item.title || "")) return true;
-  const metadata = (item as any).metadata;
+  const metadata = recordFromUnknown(item.metadata);
   return Boolean(
-    (item as any).callId &&
+    item.callId &&
     item.status === "success" &&
     metadata &&
-    typeof metadata === "object" &&
     (
       metadata.activity ||
       metadata.diff_preview ||
@@ -200,7 +225,7 @@ export function groupEditSummaryItems(items: TimelineItem[]): TimelineItem[] {
       result: item.result,
       tool: item.tool,
       status: item.status,
-    } as any));
+    }));
     if (buffer.length === 0) return;
     next.push({
       id: `edit-summary-${buffer[0].id}`,
@@ -368,7 +393,7 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
   };
 
   const pushProcessNotes = (item: TimelineItem, title?: string, status?: "running" | "success") => {
-    const notes = localizeProcessNotes((item as any).body || "", appLang, 20);
+    const notes = localizeProcessNotes("body" in item ? item.body || "" : "", appLang, 20);
     if (notes.length === 0 && status !== "running") return;
     flushBuffer();
     if (notes.length === 0) {
@@ -423,10 +448,10 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
       }
     } else if (item.kind === "tool") {
       if (isToolResultLikeItem(item)) {
-        const resultCallId = (item as any).callId || item.tool;
+        const resultCallId = item.callId || item.tool;
         if (isRuntimeNoticeText(item.body)) {
           if (resultCallId) {
-            buffer = buffer.filter((bufferItem) => (bufferItem as any).callId !== resultCallId);
+            buffer = buffer.filter((bufferItem) => itemCallId(bufferItem) !== resultCallId);
             removeRenderedToolCall(result, resultCallId);
           }
           continue;
@@ -435,9 +460,9 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
 
         if (resultCallId) {
           for (let i = buffer.length - 1; i >= 0; i--) {
-            if (buffer[i].kind === "tool" && (buffer[i] as any).callId === resultCallId) {
+            if (buffer[i].kind === "tool" && itemCallId(buffer[i]) === resultCallId) {
               buffer[i].result = item.body;
-              buffer[i].metadata = (item as any).metadata ?? (buffer[i] as any).metadata;
+              buffer[i].metadata = item.metadata ?? itemMetadata(buffer[i]);
               buffer[i].status = item.status;
               found = true;
               break;
@@ -449,7 +474,7 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
           for (let i = buffer.length - 1; i >= 0; i--) {
             if (buffer[i].kind === "tool") {
               buffer[i].result = item.body;
-              buffer[i].metadata = (item as any).metadata ?? (buffer[i] as any).metadata;
+              buffer[i].metadata = item.metadata ?? itemMetadata(buffer[i]);
               buffer[i].status = item.status;
               found = true;
               break;
@@ -461,12 +486,12 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
             result,
             item.body,
             resultCallId,
-            (item as any).metadata,
+            item.metadata,
             item.status
           );
         }
         if (!found) {
-          attachToolResultToRenderedItems(result, item.body, undefined, (item as any).metadata, item.status);
+          attachToolResultToRenderedItems(result, item.body, undefined, item.metadata, item.status);
         }
         continue;
       }
@@ -488,8 +513,8 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
             status: item.status,
             filename,
             diff: parsed.diff,
-            callId: (item as any).callId,
-            metadata: (item as any).metadata,
+            callId: item.callId,
+            metadata: item.metadata,
             result: item.result
           });
         });
@@ -512,19 +537,19 @@ export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean
 function removeRenderedToolCall(items: TimelineItem[], callId: string) {
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i];
-    if (item.kind === "activity_item" && (item as any).callId === callId) {
+    if (item.kind === "activity_item" && item.callId === callId) {
       items.splice(i, 1);
       continue;
     }
     if (item.kind === "activity_group") {
-      item.items = item.items.filter((groupItem: any) => groupItem.callId !== callId);
+      item.items = item.items.filter((groupItem) => itemCallId(groupItem) !== callId);
       if (item.items.length === 0) {
         items.splice(i, 1);
       }
       continue;
     }
     if (item.kind === "edit_summary") {
-      item.items = item.items.filter((summaryItem: any) => summaryItem.callId !== callId);
+      item.items = item.items.filter((summaryItem) => summaryItem.callId !== callId);
       if (item.items.length === 0) {
         items.splice(i, 1);
       }
@@ -577,7 +602,7 @@ function attachToolResultToRenderedItems(
   items: TimelineItem[],
   resultBody: string,
   callId?: string,
-  metadata?: any,
+  metadata?: unknown,
   status?: "running" | "success" | "blocked"
 ) {
   if (isRuntimeNoticeText(resultBody)) return false;
@@ -585,7 +610,7 @@ function attachToolResultToRenderedItems(
   for (let i = items.length - 1; i >= 0; i--) {
     const resultItem = items[i];
     if (resultItem.kind === "activity_item" && resultItem.tool) {
-      if (!callId || (resultItem as any).callId === callId) {
+      if (!callId || resultItem.callId === callId) {
         resultItem.result = resultBody;
         resultItem.metadata = metadata ?? resultItem.metadata;
         if (status) resultItem.status = status;
@@ -595,9 +620,9 @@ function attachToolResultToRenderedItems(
       const groupItems = resultItem.items;
       for (let j = groupItems.length - 1; j >= 0; j--) {
         const groupItem = groupItems[j];
-        if (groupItem.kind === "tool" && (!callId || (groupItem as any).callId === callId)) {
+        if (groupItem.kind === "tool" && (!callId || groupItem.callId === callId)) {
           groupItem.result = resultBody;
-          groupItem.metadata = metadata ?? (groupItem as any).metadata;
+          groupItem.metadata = metadata ?? groupItem.metadata;
           if (status) groupItem.status = status;
           return true;
         }
@@ -664,12 +689,11 @@ export function parseDurationFromTitle(title?: string) {
 export function turnStaticDurationSeconds(turn: ConversationTurn) {
   const hasRestoredSpan = turn.items.some((item) =>
     item.kind !== "reasoning" &&
-    typeof (item as any)?.createdAt === "number" &&
-    Number.isFinite((item as any).createdAt)
+    itemCreatedAt(item) !== undefined
   );
   const createdTimes = [turn.userItem, ...turn.items]
-    .map((item) => (item as any)?.createdAt)
-    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+    .map(itemCreatedAt)
+    .filter((value): value is number => value !== undefined);
 
   if (hasRestoredSpan && createdTimes.length >= 2) {
     return Math.max(1, Math.round((Math.max(...createdTimes) - Math.min(...createdTimes)) / 1000));
@@ -1018,7 +1042,7 @@ export function applyDesktopEventToTimelineItems(
                 result: kind === "tool_result" ? nextItem.body || item.result : item.result,
                 status: nextItem.status,
                 meta: nextItem.meta ?? item.meta,
-                metadata: (nextItem as any).metadata ?? (item as any).metadata
+                metadata: nextItem.metadata ?? item.metadata
               }
             : item
         ),
@@ -1114,7 +1138,7 @@ export function applyDesktopEventToTimelineItems(
               title: item.title || "正在思考...",
               meta: "running",
               body: mergeStreamingText(item.body || "", reasoning),
-              reasoningStartedAt: (item as any).reasoningStartedAt || now
+              reasoningStartedAt: reasoningStartedAt(item) || now
             }
           : item
       );
@@ -1155,7 +1179,7 @@ export function applyDesktopEventToTimelineItems(
     if (existingIndex >= 0) {
       return items.map((item, index) => {
         if (index === existingIndex && item.kind === "reasoning") {
-          const start = (item as any).reasoningStartedAt;
+          const start = reasoningStartedAt(item);
           const duration = start ? Math.max(1, Math.round((Date.now() - start) / 1000)) : null;
           return { 
             ...item, 
@@ -1189,7 +1213,7 @@ export function applyDesktopEventToTimelineItems(
       if (item.kind === "reasoning" && turnId && item.id.startsWith(`reasoning-${turnId}-`)) {
         hasReasoningForTurn = true;
         if (item.meta === "running") {
-          const start = (item as any).reasoningStartedAt;
+          const start = reasoningStartedAt(item);
           const duration = start ? Math.max(1, Math.round((Date.now() - start) / 1000)) : null;
           return { ...item, meta: "complete", body: reasoning || item.body, title: duration ? `已思考 ${duration} 秒` : "已思考" };
         }
@@ -1260,7 +1284,7 @@ export function applyDesktopEventToTimelineItems(
     if (existingIndex >= 0) {
       return settledItems.map((item, index) => {
         if (index === existingIndex) {
-          const existingBody = (item as any).body || "";
+          const existingBody = "body" in item ? item.body || "" : "";
           let newBody = errorMessage;
           if (existingBody.includes(errorMessage)) {
             newBody = existingBody;
@@ -1275,7 +1299,7 @@ export function applyDesktopEventToTimelineItems(
             title: errorTitle,
             body: newBody,
             metadata: {
-              ...(item as any).metadata,
+              ...recordFromUnknown(itemMetadata(item)),
               raw: newBody
             }
           };
