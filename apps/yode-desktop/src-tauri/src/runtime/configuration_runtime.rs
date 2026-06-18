@@ -7,7 +7,7 @@ use serde_json::json;
 
 use yode_core::config::Config;
 
-use super::{open_with_destination, DesktopRuntime};
+use super::{settings_runtime::open_with_destination, DesktopRuntime};
 use crate::protocol::{
     ConfigurationState, ConfigurationUpdateRequest, DiagnosticCheck, WorkspaceDiagnosticsResult,
 };

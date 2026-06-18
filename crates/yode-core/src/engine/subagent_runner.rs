@@ -107,7 +107,7 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                 let output_path = tasks_dir.join(format!("agent-{}.log", uuid::Uuid::new_v4()));
                 let output_path_str = output_path.display().to_string();
                 let transcript_path =
-                    latest_transcript_artifact_path(&self.context.working_dir_compat());
+                    latest_transcript_artifact_path(&self.context.working_dir_compat()).await;
                 let (task, mut cancel_rx) = {
                     let mut store = self.runtime_tasks.lock().await;
                     store.create_with_transcript(
