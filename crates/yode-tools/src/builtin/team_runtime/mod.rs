@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tracing::warn;
 pub use yode_agent::{
     build_agent_run_request, evaluate_agent_plan, plan_agent_team, run_ready_agent_steps,
     sync_agent_team_plan_statuses, AgentPlan, AgentPlanBatch, AgentPlanMode, AgentPlanProgress,
@@ -341,7 +342,14 @@ pub fn append_agent_team_message(
                 member.last_message_at = Some(entry.at.clone());
             }
         }
-        let _ = write_agent_team_state(working_dir, &state);
+        if let Err(err) = write_agent_team_state(working_dir, &state) {
+            warn!(
+                team_id,
+                operation = "write_agent_team_state_after_send",
+                error = %err,
+                "agent team runtime operation failed"
+            );
+        }
     }
     Ok(path)
 }
@@ -373,7 +381,15 @@ pub fn consume_agent_team_messages(
                 member.last_updated_at = Some(now_string());
             }
             state.updated_at = now_string();
-            let _ = write_agent_team_state(working_dir, &state);
+            if let Err(err) = write_agent_team_state(working_dir, &state) {
+                warn!(
+                    team_id,
+                    member_id,
+                    operation = "write_agent_team_state_after_consume",
+                    error = %err,
+                    "agent team runtime operation failed"
+                );
+            }
         }
     }
     Ok(messages)
@@ -597,7 +613,13 @@ impl Tool for TeamDeleteTool {
                 team_id = manager.latest_team_id().map(str::to_string);
             }
             if let Some(team_id) = team_id.as_deref() {
-                let _ = manager.delete_team(team_id);
+                if manager.delete_team(team_id).is_none() {
+                    warn!(
+                        team_id,
+                        operation = "delete_agent_team_from_memory",
+                        "agent team runtime delete target was not found in memory"
+                    );
+                }
             }
         }
 
@@ -795,7 +817,15 @@ impl Tool for TeamReceiveTool {
                 (messages, manager.snapshot(team_id))
             };
             if let Some(snapshot) = snapshot.1.as_ref() {
-                let _ = persist_agent_team_snapshot(working_dir, snapshot);
+                if let Err(err) = persist_agent_team_snapshot(working_dir, snapshot) {
+                    warn!(
+                        team_id,
+                        member_id,
+                        operation = "persist_agent_team_snapshot_after_message_read",
+                        error = %err,
+                        "agent team runtime operation failed"
+                    );
+                }
             }
             snapshot.0
         } else if consume {
