@@ -9,6 +9,11 @@ import {
 } from "lucide-react";
 import { Bootstrap } from "../lib/mock";
 import { PROVIDERS_META } from "./settings/ProvidersSettings";
+import {
+  LLM_PROVIDERS_STORAGE_KEY,
+  providerDisplayName,
+  providerOptionsFromStorage
+} from "../lib/llmProviderStorage";
 
 interface TopbarProps {
   bootstrap: Bootstrap;
@@ -40,29 +45,7 @@ export function Topbar({
   onModelChange
 }: TopbarProps) {
   const providerOptions = useMemo(() => {
-    const saved = localStorage.getItem("yode-llm-providers");
-    let list: any[] = [];
-    if (saved) {
-      try {
-        const data = JSON.parse(saved);
-        if (Array.isArray(data)) {
-          list = data;
-        } else if (data && typeof data === "object") {
-          list = Object.values(data);
-        }
-      } catch (e) {}
-    }
-    const enabledProviders = list.filter((p: any) => p && p.enabled);
-    if (enabledProviders.length === 0) {
-      return PROVIDERS_META.map((p) => ({
-        value: p.id,
-        label: p.nameEn
-      }));
-    }
-    return enabledProviders.map((p: any) => ({
-      value: p.id,
-      label: p.name || p.id
-    }));
+    return providerOptionsFromStorage(localStorage.getItem(LLM_PROVIDERS_STORAGE_KEY), PROVIDERS_META);
   }, []);
 
   return (
@@ -134,19 +117,7 @@ export function TopbarProviderIcon({ id }: { id: string }) {
 }
 
 function getProviderName(providerId: string) {
-  const saved = localStorage.getItem("yode-llm-providers");
-  if (saved) {
-    try {
-      const data = JSON.parse(saved);
-      const list = Array.isArray(data) ? data : Object.values(data);
-      const found = list.find((p: any) => p.id === providerId);
-      if (found && found.name) {
-        return found.name;
-      }
-    } catch (e) {}
-  }
-  const preset = PROVIDERS_META.find(p => p.id === providerId);
-  return preset?.name || providerId;
+  return providerDisplayName(providerId, localStorage.getItem(LLM_PROVIDERS_STORAGE_KEY), PROVIDERS_META);
 }
 
 interface DropdownPillProps {

@@ -4,12 +4,14 @@ import {
   lastModelStorageKey,
   modelsForProvider,
   parseStoredProviders,
+  providerDisplayName,
+  providerOptionsFromStorage,
   preferredModelForProvider
 } from "./llmProviderStorage";
 
 const meta = [
-  { id: "openai", defaultModels: ["gpt-5.5", "gpt-5.4"] },
-  { id: "local", defaultModels: ["llama"] }
+  { id: "openai", name: "OpenAI", nameEn: "OpenAI", defaultModels: ["gpt-5.5", "gpt-5.4"] },
+  { id: "local", name: "本地模型", nameEn: "Local", defaultModels: ["llama"] }
 ];
 
 describe("llm provider storage helpers", () => {
@@ -46,5 +48,21 @@ describe("llm provider storage helpers", () => {
 
   it("formats last model storage keys", () => {
     expect(lastModelStorageKey("openai")).toBe("yode-last-model-openai");
+  });
+
+  it("builds enabled provider options from storage", () => {
+    const raw = JSON.stringify([
+      { id: "openai", name: "Custom OpenAI", enabled: true, models: ["gpt"] },
+      { id: "local", name: "Local", enabled: false, models: ["llama"] }
+    ]);
+
+    expect(providerOptionsFromStorage(raw, meta)).toEqual([
+      { value: "openai", label: "Custom OpenAI" }
+    ]);
+  });
+
+  it("falls back to metadata provider names", () => {
+    expect(providerDisplayName("local", null, meta)).toBe("本地模型");
+    expect(providerDisplayName("missing", null, meta)).toBe("missing");
   });
 });

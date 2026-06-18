@@ -15,6 +15,7 @@ import {
 import { PROVIDERS_META } from "./settings/ProvidersSettings";
 import { TopbarProviderIcon } from "./Topbar";
 import { ImageAttachment } from "../lib/mock";
+import { LLM_PROVIDERS_STORAGE_KEY, modelsForProvider } from "../lib/llmProviderStorage";
 
 const MAX_IMAGE_ATTACHMENTS = 8;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -77,24 +78,11 @@ export function Composer({
   const isZh = appLang === "zh";
 
   const modelOptions = useMemo(() => {
-    const saved = localStorage.getItem("yode-llm-providers");
-    let list: any[] = [];
-    if (saved) {
-      try {
-        const data = JSON.parse(saved);
-        if (Array.isArray(data)) {
-          list = data;
-        } else if (data && typeof data === "object") {
-          list = Object.values(data);
-        }
-      } catch (e) {}
-    }
-    const found = list.find((p: any) => p && p.id === currentProvider);
-    if (found && Array.isArray(found.models) && found.models.length > 0) {
-      return found.models;
-    }
-    const meta = PROVIDERS_META.find((p) => p.id === currentProvider);
-    return meta ? meta.defaultModels : [];
+    return modelsForProvider(
+      currentProvider,
+      localStorage.getItem(LLM_PROVIDERS_STORAGE_KEY),
+      PROVIDERS_META
+    );
   }, [currentProvider]);
 
   const OPTIONS = [

@@ -7,6 +7,8 @@ export type ProviderModelsMeta = {
 
 type StoredProvider = {
   id: string;
+  name?: string;
+  enabled?: boolean;
   models: string[];
 };
 
@@ -21,10 +23,15 @@ export function parseStoredProviders(raw: string | null): StoredProvider[] {
     const list = Array.isArray(data) ? data : Object.values(data);
     return list
       .filter(isStoredProvider)
-      .map((provider) => ({
-        id: provider.id,
-        models: provider.models.filter((model) => typeof model === "string")
-      }));
+      .map((provider) => {
+        const parsed: StoredProvider = {
+          id: provider.id,
+          models: provider.models.filter((model) => typeof model === "string")
+        };
+        if (typeof provider.name === "string") parsed.name = provider.name;
+        if (typeof provider.enabled === "boolean") parsed.enabled = provider.enabled;
+        return parsed;
+      });
   } catch {
     return [];
   }
@@ -49,6 +56,33 @@ export function preferredModelForProvider(
   const models = modelsForProvider(provider, rawStoredProviders, providerMeta);
   if (lastUsedModel && models.includes(lastUsedModel)) return lastUsedModel;
   return models[0] || "";
+}
+
+export function providerOptionsFromStorage(
+  rawStoredProviders: string | null,
+  providerMeta: Array<{ id: string; nameEn: string }>
+) {
+  const enabledProviders = parseStoredProviders(rawStoredProviders).filter((provider) => provider.enabled);
+  if (enabledProviders.length === 0) {
+    return providerMeta.map((provider) => ({
+      value: provider.id,
+      label: provider.nameEn
+    }));
+  }
+  return enabledProviders.map((provider) => ({
+    value: provider.id,
+    label: provider.name || provider.id
+  }));
+}
+
+export function providerDisplayName(
+  providerId: string,
+  rawStoredProviders: string | null,
+  providerMeta: Array<{ id: string; name: string }>
+) {
+  const stored = parseStoredProviders(rawStoredProviders).find((provider) => provider.id === providerId);
+  if (stored?.name) return stored.name;
+  return providerMeta.find((provider) => provider.id === providerId)?.name || providerId;
 }
 
 function isStoredProvider(value: unknown): value is StoredProvider {
