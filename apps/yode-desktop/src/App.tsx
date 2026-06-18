@@ -94,19 +94,16 @@ import {
 } from "./lib/projectStorage";
 import {
   computePaneDragSize,
-  INSPECTOR_WIDTH_STORAGE_KEY,
   isPaneCollapsed,
-  loadInitialPaneSize,
   PaneDragState,
   PaneKind,
-  SIDEBAR_WIDTH_STORAGE_KEY,
-  TERMINAL_HEIGHT_STORAGE_KEY
 } from "./lib/paneLayout";
 import {
   lastModelStorageKey,
   LLM_PROVIDERS_STORAGE_KEY,
   preferredModelForProvider
 } from "./lib/llmProviderStorage";
+import { useAppUiStore } from "./lib/appUiStore";
 
 function imageToRequestPayload(image: ImageAttachment) {
   return {
@@ -176,10 +173,10 @@ function formatDurationZh(totalSeconds: number) {
 
 export function App() {
   const [bootstrap, setBootstrap] = useState<Bootstrap>(fallbackBootstrap);
-  const [viewMode, setViewMode] = useState<ViewMode>(() => {
-    return (localStorage.getItem("yode-view-mode") as ViewMode) || "chat";
-  });
-  const [appLang, setAppLang] = useState(() => localStorage.getItem("yode-language") || "zh");
+  const viewMode = useAppUiStore((state) => state.viewMode);
+  const setViewMode = useAppUiStore((state) => state.setViewMode);
+  const appLang = useAppUiStore((state) => state.appLang);
+  const setAppLang = useAppUiStore((state) => state.setAppLang);
   const [draft, setDraft] = useState("");
   const [sessionItems, setSessionItems] = useState<SessionSummary[]>([]);
   const [timelineItems, setTimelineItems] = useState<TimelineItem[]>([]);
@@ -190,9 +187,12 @@ export function App() {
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [terminalOpenByConversation, setTerminalOpenByConversation] = useState<Record<string, boolean>>({});
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [sidebarWidth, setSidebarWidth] = useState(() => loadInitialPaneSize("sidebar", SIDEBAR_WIDTH_STORAGE_KEY));
-  const [inspectorWidth, setInspectorWidth] = useState(() => loadInitialPaneSize("inspector", INSPECTOR_WIDTH_STORAGE_KEY));
-  const [terminalHeight, setTerminalHeight] = useState(() => loadInitialPaneSize("terminal", TERMINAL_HEIGHT_STORAGE_KEY));
+  const sidebarWidth = useAppUiStore((state) => state.sidebarWidth);
+  const setSidebarWidth = useAppUiStore((state) => state.setSidebarWidth);
+  const inspectorWidth = useAppUiStore((state) => state.inspectorWidth);
+  const setInspectorWidth = useAppUiStore((state) => state.setInspectorWidth);
+  const terminalHeight = useAppUiStore((state) => state.terminalHeight);
+  const setTerminalHeight = useAppUiStore((state) => state.setTerminalHeight);
   const [isProcessing, setIsProcessing] = useState(false);
   const [messageQueue, setMessageQueue] = useState<Array<{ content: string; images: ImageAttachment[] }>>([]);
   const [generalSettings, setGeneralSettings] = useState(loadGeneralSettings);
@@ -238,18 +238,6 @@ export function App() {
       document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, []);
-
-  useEffect(() => {
-    localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth));
-  }, [sidebarWidth]);
-
-  useEffect(() => {
-    localStorage.setItem(INSPECTOR_WIDTH_STORAGE_KEY, String(inspectorWidth));
-  }, [inspectorWidth]);
-
-  useEffect(() => {
-    localStorage.setItem(TERMINAL_HEIGHT_STORAGE_KEY, String(terminalHeight));
-  }, [terminalHeight]);
 
   useEffect(() => {
     const onMove = (event: PointerEvent) => {
@@ -1162,7 +1150,6 @@ export function App() {
 
   const handleSetViewMode = (mode: ViewMode) => {
     setViewMode(mode);
-    localStorage.setItem("yode-view-mode", mode);
   };
 
   const handleDeleteSession = (sessionId: string) => {
