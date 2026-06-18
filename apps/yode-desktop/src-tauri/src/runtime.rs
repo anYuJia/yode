@@ -952,6 +952,13 @@ impl DesktopRuntime {
         Ok(normalized)
     }
 
+    pub fn git_current_branch(&self, workspace_path: Option<String>) -> Result<Option<String>> {
+        let workspace_path = workspace_path
+            .map(PathBuf::from)
+            .unwrap_or_else(|| self.workspace_path.clone());
+        current_git_branch(&workspace_path)
+    }
+
     pub fn worktrees_list(&self) -> Result<Vec<DesktopWorktree>> {
         list_git_worktrees(&self.workspace_path)
     }
@@ -2625,6 +2632,22 @@ fn list_git_worktrees(workspace_path: &Path) -> Result<Vec<DesktopWorktree>> {
         }
     }
     Ok(result)
+}
+
+fn current_git_branch(workspace_path: &Path) -> Result<Option<String>> {
+    let output = Command::new("git")
+        .args(["branch", "--show-current"])
+        .current_dir(workspace_path)
+        .output()
+        .context("无法读取当前 git 分支")?;
+    if !output.status.success() {
+        return Ok(None);
+    }
+    let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if branch.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(branch))
 }
 
 fn worktree_record(

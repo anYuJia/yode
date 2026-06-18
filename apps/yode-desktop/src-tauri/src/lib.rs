@@ -374,6 +374,16 @@ fn git_settings_apply(
 }
 
 #[tauri::command]
+fn git_current_branch(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    workspace_path: Option<String>,
+) -> Result<Option<String>, String> {
+    runtime
+        .git_current_branch(workspace_path)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
 fn worktrees_list(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
 ) -> Result<Vec<protocol::DesktopWorktree>, String> {
@@ -623,6 +633,7 @@ pub fn run() {
             hooks_settings_apply,
             git_settings_get,
             git_settings_apply,
+            git_current_branch,
             worktrees_list,
             worktrees_prune_idle,
             worktree_delete,

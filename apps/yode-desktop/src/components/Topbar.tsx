@@ -1,4 +1,5 @@
 import React, { useState, useRef, useMemo, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import {
   ChevronDown,
   MoreHorizontal,
@@ -44,9 +45,28 @@ export function Topbar({
   onProviderChange,
   onModelChange
 }: TopbarProps) {
+  const [currentBranch, setCurrentBranch] = useState<string | null>(null);
   const providerOptions = useMemo(() => {
     return providerOptionsFromStorage(localStorage.getItem(LLM_PROVIDERS_STORAGE_KEY), PROVIDERS_META);
   }, []);
+
+  useEffect(() => {
+    let alive = true;
+    setCurrentBranch(null);
+    if (!workspacePath || !("__TAURI_INTERNALS__" in window)) return;
+
+    invoke<string | null>("git_current_branch", { workspacePath })
+      .then((branch) => {
+        if (alive) setCurrentBranch(branch);
+      })
+      .catch(() => {
+        if (alive) setCurrentBranch(null);
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [workspacePath]);
 
   return (
     <header className="topbar" data-tauri-drag-region>
@@ -55,7 +75,7 @@ export function Topbar({
         {workspacePath && (
           <div className="workspace-path" data-tauri-drag-region>
             <span data-tauri-drag-region>{workspacePath}</span>
-            <span>main</span>
+            {currentBranch ? <span>{currentBranch}</span> : null}
           </div>
         )}
       </div>
