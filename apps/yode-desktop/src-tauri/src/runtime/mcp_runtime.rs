@@ -8,7 +8,7 @@ use yode_core::config::Config;
 use yode_tools::registry::ToolRegistry;
 use yode_tools::tool::McpResourceProvider;
 
-use super::{save_config_to_path, DesktopRuntime};
+use super::{configuration_runtime::save_config_to_path, DesktopRuntime};
 use crate::protocol::{DesktopMcpServer, DesktopMcpServerStatus, DesktopMcpState};
 
 impl DesktopRuntime {
