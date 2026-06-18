@@ -80,13 +80,20 @@ import {
   UsageSnapshot
 } from "./lib/localSlashCommands";
 import { handleDesktopRuntimeEvent } from "./lib/desktopEventHandlers";
+import {
+  ARCHIVED_SESSION_IDS_STORAGE_KEY,
+  dedupeProjectRoots,
+  loadStoredProjectOrder,
+  loadStoredProjectRoots,
+  loadStoredSelectedProjectRoot,
+  normalizeProjectRoot,
+  PROJECT_ORDER_STORAGE_KEY,
+  PROJECT_ROOTS_STORAGE_KEY,
+  SELECTED_PROJECT_ROOT_STORAGE_KEY,
+  STANDALONE_PROJECT_SENTINEL,
+  visibleSessions
+} from "./lib/projectStorage";
 
-const PROJECT_ROOTS_STORAGE_KEY = "yode-project-roots";
-const PROJECT_ORDER_STORAGE_KEY = "yode-project-order";
-const SELECTED_PROJECT_ROOT_STORAGE_KEY = "yode-selected-project-root";
-const ARCHIVED_SESSION_IDS_STORAGE_KEY = "yode-archived-session-ids";
-const DELETED_SESSION_IDS_STORAGE_KEY = "yode-deleted-session-ids";
-const STANDALONE_PROJECT_SENTINEL = "__standalone__";
 const SIDEBAR_WIDTH_STORAGE_KEY = "yode-sidebar-width";
 const INSPECTOR_WIDTH_STORAGE_KEY = "yode-inspector-width";
 const TERMINAL_HEIGHT_STORAGE_KEY = "yode-terminal-height";
@@ -138,79 +145,12 @@ function loadGeneralSettingsPayload() {
   };
 }
 
-function loadStoredProjectRoots(): string[] {
-  try {
-    const raw = localStorage.getItem(PROJECT_ROOTS_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return dedupeProjectRoots(parsed.filter((value): value is string => typeof value === "string"));
-  } catch {
-    return [];
-  }
-}
-
-function loadStoredProjectOrder(): string[] {
-  try {
-    const raw = localStorage.getItem(PROJECT_ORDER_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return dedupeProjectRoots(parsed.filter((value): value is string => typeof value === "string"));
-  } catch {
-    return [];
-  }
-}
-
-function loadStoredSelectedProjectRoot(): string | null | undefined {
-  const raw = localStorage.getItem(SELECTED_PROJECT_ROOT_STORAGE_KEY);
-  if (raw === null) return undefined;
-  return raw === STANDALONE_PROJECT_SENTINEL ? null : raw;
-}
-
 function imageToRequestPayload(image: ImageAttachment) {
   return {
     base64: image.base64,
     mediaType: image.mediaType,
     name: image.name
   };
-}
-
-function normalizeProjectRoot(root: string | null | undefined) {
-  const trimmed = root?.trim();
-  return trimmed ? trimmed : null;
-}
-
-function dedupeProjectRoots(roots: Array<string | null | undefined>) {
-  const seen = new Set<string>();
-  const unique: string[] = [];
-  roots.forEach((root) => {
-    const normalized = normalizeProjectRoot(root);
-    if (!normalized || seen.has(normalized)) return;
-    seen.add(normalized);
-    unique.push(normalized);
-  });
-  return unique;
-}
-
-function loadStoredStringArray(key: string): string[] {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((value): value is string => typeof value === "string");
-  } catch {
-    return [];
-  }
-}
-
-function visibleSessions(sessions: SessionSummary[]) {
-  const hiddenIds = new Set([
-    ...loadStoredStringArray(ARCHIVED_SESSION_IDS_STORAGE_KEY),
-    ...loadStoredStringArray(DELETED_SESSION_IDS_STORAGE_KEY),
-  ]);
-  return sessions.filter((session) => !hiddenIds.has(session.id));
 }
 
 function refreshProviderCache() {
