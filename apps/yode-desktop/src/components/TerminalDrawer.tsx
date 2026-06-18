@@ -199,7 +199,9 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId,
     terminal.loadAddon(fitAddon);
     const dataDisposable = terminal.onData((data) => {
       if (!isTauri) {
-        terminal.write(data === "\r" ? "\r\n" : data);
+        if (data === "\r") {
+          terminal.writeln("\r\n\x1b[2m终端需要在 Tauri 桌面端中连接真实 PTY。\x1b[0m");
+        }
         return;
       }
       void invoke("terminal_write", {
@@ -252,7 +254,7 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId,
     if (handle.backendOpened) return;
     handle.backendOpened = true;
     if (!isTauri) {
-      handle.terminal.writeln("\x1b[2m这是非桌面环境的终端预览。打开 Tauri 桌面端后会连接真实 PTY。\x1b[0m");
+      handle.terminal.writeln("\x1b[2m终端未连接。请在 Tauri 桌面端中使用真实 PTY。\x1b[0m");
       return;
     }
     void invoke("terminal_open", {

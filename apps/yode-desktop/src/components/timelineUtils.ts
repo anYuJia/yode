@@ -1,4 +1,4 @@
-import { TimelineItem, SessionSummary, DesktopMessage } from "../lib/mock";
+import { TimelineItem, SessionSummary, DesktopMessage } from "../lib/desktopTypes";
 import {
   isRuntimeNoticeText,
   parseToolDetails,

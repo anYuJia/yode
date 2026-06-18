@@ -1,4 +1,4 @@
-import { SessionSummary } from "./mock";
+import { SessionSummary } from "./desktopTypes";
 
 export const PROJECT_ROOTS_STORAGE_KEY = "yode-project-roots";
 export const PROJECT_ORDER_STORAGE_KEY = "yode-project-order";

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Check, CornerDownLeft, ShieldQuestion, TerminalSquare } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
-import { TimelineItem } from "../../lib/mock";
+import { TimelineItem } from "../../lib/desktopTypes";
 
 export function PermissionActions({
   item,

@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, CircleDot, Copy, Pencil, Check } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
-import { TimelineItem } from "../../lib/mock";
+import { TimelineItem } from "../../lib/desktopTypes";
 import { ActivityLeafNode } from "./ActivityLeafNode";
 import { getFileIcon } from "../FileIcon";
 import {

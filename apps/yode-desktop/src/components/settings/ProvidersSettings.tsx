@@ -17,7 +17,7 @@ import {
   X
 } from "lucide-react";
 import { CustomSelect } from "../CustomSelect";
-import { Bootstrap, DefaultLlm } from "../../lib/mock";
+import { Bootstrap, DefaultLlm } from "../../lib/desktopTypes";
 
 interface ProviderConfigData {
   id: string;

@@ -14,7 +14,7 @@ import {
   FolderPlus,
   Settings
 } from "lucide-react";
-import { SessionSummary } from "../lib/mock";
+import { SessionSummary } from "../lib/desktopTypes";
 import { projectLabelFromPath } from "./timelineUtils";
 
 export type ViewMode = "chat" | "settings";

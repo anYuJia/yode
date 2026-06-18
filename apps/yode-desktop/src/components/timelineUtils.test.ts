@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TimelineItem } from "../lib/mock";
+import { TimelineItem } from "../lib/desktopTypes";
 import { activityGroupPreview, summarizeActivityItems } from "./activity/ToolUtils";
 import { applyDesktopEventToTimelineItems, compileInlineItems, messagesToTimelineItems, splitTurnVisibleItems } from "./timelineUtils";
 

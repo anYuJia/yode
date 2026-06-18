@@ -7,7 +7,7 @@ import {
   STANDALONE_PROJECT_SENTINEL,
   visibleSessions
 } from "./projectStorage";
-import { SessionSummary } from "./mock";
+import { SessionSummary } from "./desktopTypes";
 
 describe("project storage helpers", () => {
   afterEach(() => {

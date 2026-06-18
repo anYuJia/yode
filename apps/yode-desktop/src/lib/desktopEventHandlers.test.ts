@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { handleDesktopRuntimeEvent } from "./desktopEventHandlers";
-import { TimelineItem } from "./mock";
+import { TimelineItem } from "./desktopTypes";
 import { UsageSnapshot } from "./localSlashCommands";
 
 function handlerContext(overrides: Record<string, unknown> = {}) {

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { CircleDot } from "lucide-react";
-import { TimelineItem } from "../../lib/mock";
+import { TimelineItem } from "../../lib/desktopTypes";
 
 const ZH_FALLBACKS = [
   "正在检查刚才的改动...",

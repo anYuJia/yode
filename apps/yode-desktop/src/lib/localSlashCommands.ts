@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import { DesktopMessage, SessionSummary, TimelineItem } from "./mock";
+import { DesktopMessage, SessionSummary, TimelineItem } from "./desktopTypes";
 import { messagesToTimelineItems, upsertActiveSession } from "../components/timelineUtils";
 
 export type UsageSnapshot = {

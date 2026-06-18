@@ -31,7 +31,7 @@ import {
   Plus,
   Trash2
 } from "lucide-react";
-import { Bootstrap } from "../lib/mock";
+import { Bootstrap } from "../lib/desktopTypes";
 import { CustomSelect, CustomSelectOption } from "./CustomSelect";
 import { ColorPicker } from "./ColorPicker";
 

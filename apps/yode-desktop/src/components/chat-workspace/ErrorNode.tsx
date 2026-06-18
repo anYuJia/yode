@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { AlertTriangle, Check, ChevronDown, Copy } from "lucide-react";
-import { TimelineItem } from "../../lib/mock";
+import { TimelineItem } from "../../lib/desktopTypes";
 
 function summarizeError(text: string, appLang: string) {
   const clean = (text || "").replace(/\s+/g, " ").trim();

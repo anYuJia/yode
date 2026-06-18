@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Bot, Check, Clock3, Copy } from "lucide-react";
-import { TimelineItem } from "../../lib/mock";
+import { TimelineItem } from "../../lib/desktopTypes";
 import { ProcessNoteNode } from "./ProcessNoteNode";
 import { ActivityGroupNode, ActivityItemNode, EditSummaryNode } from "../activity/ActivityGroupNode";
 import { InlineToolGroup } from "./InlineToolGroup";

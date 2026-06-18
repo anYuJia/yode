@@ -54,12 +54,10 @@ import {
   DesktopMessage,
   fallbackBootstrap,
   SessionSummary,
-  sessions,
   TimelineItem,
-  timeline,
   TurnAccepted,
   ImageAttachment
-} from "./lib/mock";
+} from "./lib/desktopTypes";
 import { SettingsShell } from "./components/SettingsShell";
 import { TerminalDrawer } from "./components/TerminalDrawer";
 import { PROVIDERS_META } from "./components/settings/ProvidersSettings";
@@ -664,16 +662,13 @@ export function App() {
       .catch(() => {
         setBootstrap(fallbackBootstrap);
         if (!("__TAURI_INTERNALS__" in window)) {
-          const activeSessions = visibleSessions(sessions);
-          const activeSessionId = activeSessions.find((session) => session.active)?.id ?? null;
-
-          setSessionItems(activeSessions);
-          activeSessionIdRef.current = activeSessionId;
-          setActiveSessionId(activeSessionId);
+          setSessionItems([]);
+          activeSessionIdRef.current = null;
+          setActiveSessionId(null);
           setSelectedProjectRoot((current) =>
             current === undefined ? fallbackBootstrap.workspacePath : current
           );
-          setTimelineItems(timeline);
+          setTimelineItems([]);
         }
       });
   };
@@ -1139,7 +1134,7 @@ export function App() {
     setPendingUserQuestion(null);
 
     if (!("__TAURI_INTERNALS__" in window)) {
-      setTimelineItems(timeline);
+      setTimelineItems([]);
       return;
     }
 

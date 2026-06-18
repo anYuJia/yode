@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Search, Download } from "lucide-react";
 import { CustomSelect } from "../../CustomSelect";
-import { Bootstrap } from "../../../lib/mock";
+import { Bootstrap } from "../../../lib/desktopTypes";
 
 type ConfigurationState = {
   scope: string;

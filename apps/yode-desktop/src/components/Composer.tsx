@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { PROVIDERS_META } from "./settings/ProvidersSettings";
 import { TopbarProviderIcon } from "./Topbar";
-import { ImageAttachment } from "../lib/mock";
+import { ImageAttachment } from "../lib/desktopTypes";
 import { LLM_PROVIDERS_STORAGE_KEY, modelsForProvider } from "../lib/llmProviderStorage";
 
 const MAX_IMAGE_ATTACHMENTS = 8;

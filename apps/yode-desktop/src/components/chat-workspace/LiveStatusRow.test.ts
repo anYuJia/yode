@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TimelineItem } from "../../lib/mock";
+import { TimelineItem } from "../../lib/desktopTypes";
 import { liveStatusTextForItems } from "./LiveStatusRow";
 
 describe("LiveStatusRow status text", () => {

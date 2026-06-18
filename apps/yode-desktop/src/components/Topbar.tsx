@@ -7,7 +7,7 @@ import {
   PanelRight,
   Check
 } from "lucide-react";
-import { Bootstrap } from "../lib/mock";
+import { Bootstrap } from "../lib/desktopTypes";
 import { PROVIDERS_META } from "./settings/ProvidersSettings";
 import {
   LLM_PROVIDERS_STORAGE_KEY,

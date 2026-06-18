@@ -1,5 +1,5 @@
 import React from "react";
-import { TimelineItem } from "../lib/mock";
+import { TimelineItem } from "../lib/desktopTypes";
 
 interface RunInspectorProps {
   isProcessing: boolean;

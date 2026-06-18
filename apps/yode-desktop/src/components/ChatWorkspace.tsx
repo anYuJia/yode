@@ -1,6 +1,6 @@
 import React, { useState, useRef, useMemo, useLayoutEffect, useEffect } from "react";
 import { Bot } from "lucide-react";
-import { ImageAttachment, TimelineItem } from "../lib/mock";
+import { ImageAttachment, TimelineItem } from "../lib/desktopTypes";
 import {
   isIntermediateAssistantItem,
   compileInlineItems,

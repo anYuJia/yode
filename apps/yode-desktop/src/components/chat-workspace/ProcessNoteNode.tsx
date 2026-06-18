@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { CircleDot, ChevronDown, ChevronRight } from "lucide-react";
-import { TimelineItem } from "../../lib/mock";
+import { TimelineItem } from "../../lib/desktopTypes";
 import { renderInlineMarkdown } from "./MarkdownContent";
 
 export function ProcessNoteNode({ note, appLang }: { note: Extract<TimelineItem, { kind: "process_note" }>; appLang: string }) {
