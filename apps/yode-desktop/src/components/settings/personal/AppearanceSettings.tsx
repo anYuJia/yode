@@ -20,9 +20,14 @@ function loadStoredNumber(key: string, fallback: number, min: number, max: numbe
   return clampNumber(Number(raw), min, max);
 }
 
+function storedOption<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
+  const raw = localStorage.getItem(key);
+  return allowed.includes(raw as T) ? raw as T : fallback;
+}
+
 export function AppearanceSettings() {
   const [themeMode, setThemeMode] = useState<"light" | "dark" | "system">(
-    () => (localStorage.getItem("yode-theme-mode") as any) || "dark"
+    () => storedOption("yode-theme-mode", ["light", "dark", "system"] as const, "dark")
   );
   const [themeName, setThemeName] = useState(
     () => localStorage.getItem("yode-theme-name") || "Dracula"
@@ -54,7 +59,7 @@ export function AppearanceSettings() {
     () => localStorage.getItem("yode-use-pointers") === "true"
   );
   const [reduceMotion, setReduceMotion] = useState<"system" | "on" | "off">(
-    () => (localStorage.getItem("yode-reduce-motion") as any) || "system"
+    () => storedOption("yode-reduce-motion", ["system", "on", "off"] as const, "system")
   );
   const [uiFontSize, setUiFontSize] = useState(() => {
     return loadStoredNumber("yode-ui-font-size", 13, 10, 18);
@@ -81,7 +86,7 @@ export function AppearanceSettings() {
     return loadStoredNumber("yode-inspector-font-size", 12, 10, 18);
   });
   const [diffMarkers, setDiffMarkers] = useState<"color" | "symbols">(
-    () => (localStorage.getItem("yode-diff-markers") as any) || "color"
+    () => storedOption("yode-diff-markers", ["color", "symbols"] as const, "color")
   );
   const [fontSmoothing, setFontSmoothing] = useState(() => {
     const val = localStorage.getItem("yode-font-smoothing");
@@ -160,7 +165,7 @@ export function AppearanceSettings() {
     Linear: { bg: "#FFFFFF", fg: "#121214", accent: "#5E6AD2" }
   };
 
-  const saveItem = (key: string, val: any) => {
+  const saveItem = (key: string, val: unknown) => {
     localStorage.setItem(key, String(val));
   };
 

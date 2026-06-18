@@ -29,6 +29,13 @@ function normalizeAppName(value: string): string | null {
   return name;
 }
 
+function storedInstallStatus(key: string): InstallStatus {
+  const raw = localStorage.getItem(key);
+  return raw === "installed" || raw === "installing" || raw === "uninstalled"
+    ? raw
+    : "uninstalled";
+}
+
 export function ComputerUseSettingsSettings({
   isZh,
   t
@@ -37,10 +44,10 @@ export function ComputerUseSettingsSettings({
   t: (zh: string, en: string) => string;
 }) {
   const [anyAppStatus, setAnyAppStatus] = useState<InstallStatus>(() => {
-    return (localStorage.getItem("yode-computer-use-anyapp") as any) || "uninstalled";
+    return storedInstallStatus("yode-computer-use-anyapp");
   });
   const [chromeStatus, setChromeStatus] = useState<InstallStatus>(() => {
-    return (localStorage.getItem("yode-computer-use-chrome") as any) || "uninstalled";
+    return storedInstallStatus("yode-computer-use-chrome");
   });
   const [allowedApps, setAllowedApps] = useState<string[]>(() => {
     const saved = localStorage.getItem("yode-computer-use-allowed-apps");

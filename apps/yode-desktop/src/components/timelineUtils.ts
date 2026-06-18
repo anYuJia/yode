@@ -783,13 +783,14 @@ export function parseToolCalls(raw: string | null | undefined): Array<{ id?: str
 }
 
 export function desktopEventToTimelineItem(
-  payload: any,
+  payload: unknown,
   eventKind?: string
 ): TimelineItem {
-  const outer = payload && typeof payload === "object" && "payload" in payload ? payload : null;
-  const inner = outer ? outer.payload : payload;
-  const sessionId = outer ? outer.sessionId : undefined;
-  const turnId = outer ? outer.turnId : undefined;
+  const raw = recordFromUnknown(payload);
+  const outer = raw && "payload" in raw ? raw : undefined;
+  const inner = recordFromUnknown(outer?.payload) ?? raw ?? {};
+  const sessionId = stringValue(outer?.sessionId);
+  const turnId = stringValue(outer?.turnId);
 
   const kind = eventKind ?? stringValue(outer?.kind) ?? stringValue(inner?.kind) ?? stringValue(inner?.type);
   const eventId = stringValue(inner?.id);
@@ -798,9 +799,9 @@ export function desktopEventToTimelineItem(
   const body = stringValue(inner?.body) ?? "";
   const meta = stringValue(inner?.meta);
   const status = stringValue(inner?.status);
-  const metadata = inner?.metadata && typeof inner.metadata === "object" ? inner.metadata : undefined;
+  const metadata = recordFromUnknown(inner.metadata);
 
-  const eventTime = outer?.timestamp ? new Date(outer.timestamp).getTime() : Date.now();
+  const eventTime = stringValue(outer?.timestamp) ? new Date(String(outer?.timestamp)).getTime() : Date.now();
   const createdAt = Number.isFinite(eventTime) ? eventTime : Date.now();
 
   if (kind === "turn_started") {
@@ -950,11 +951,12 @@ function toolResultImageItem(
 
 export function applyDesktopEventToTimelineItems(
   items: TimelineItem[],
-  payload: any,
+  payload: unknown,
   eventKind?: string
 ): TimelineItem[] {
-  const outer = payload && typeof payload === "object" && "payload" in payload ? payload : null;
-  const inner = outer ? outer.payload : payload;
+  const raw = recordFromUnknown(payload);
+  const outer = raw && "payload" in raw ? raw : undefined;
+  const inner = recordFromUnknown(outer?.payload) ?? raw ?? {};
   const kind = eventKind ?? stringValue(outer?.kind) ?? stringValue(inner?.kind) ?? stringValue(inner?.type);
   const title = stringValue(inner?.title) ?? "Yode";
   const body = stringValue(inner?.body) ?? "";

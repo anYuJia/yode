@@ -35,7 +35,7 @@ export function ConfigurationSettings({ bootstrap, isZh, t }: { bootstrap: Boots
   const [diagnostics, setDiagnostics] = useState<WorkspaceDiagnosticsResult | null>(null);
   const [busy, setBusy] = useState<"diagnose" | "reinstall" | "save" | null>(null);
 
-  const saveVal = (key: string, val: any) => localStorage.setItem(key, String(val));
+  const saveVal = (key: string, val: unknown) => localStorage.setItem(key, String(val));
 
   const applyConfiguration = async (next?: Partial<ConfigurationState>) => {
     const request = {
