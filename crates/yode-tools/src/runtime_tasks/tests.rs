@@ -120,8 +120,8 @@ fn runtime_task_store_keeps_transcript_backlink() {
     );
 }
 
-#[test]
-fn latest_transcript_artifact_prefers_newest_compaction_timestamp() {
+#[tokio::test]
+async fn latest_transcript_artifact_prefers_newest_compaction_timestamp() {
     let dir = tempfile::tempdir().unwrap();
     let transcript_dir = dir.path().join(".yode").join("transcripts");
     std::fs::create_dir_all(&transcript_dir).unwrap();
@@ -130,7 +130,7 @@ fn latest_transcript_artifact_prefers_newest_compaction_timestamp() {
     std::fs::write(&older, "# older").unwrap();
     std::fs::write(&newer, "# newer").unwrap();
 
-    let latest = latest_transcript_artifact_path(dir.path()).unwrap();
+    let latest = latest_transcript_artifact_path(dir.path()).await.unwrap();
     assert_eq!(latest, newer.display().to_string());
 }
 

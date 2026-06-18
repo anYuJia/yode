@@ -1,13 +1,15 @@
 use std::path::Path;
 
-pub fn latest_transcript_artifact_path(project_root: &Path) -> Option<String> {
+pub async fn latest_transcript_artifact_path(project_root: &Path) -> Option<String> {
     let dir = project_root.join(".yode").join("transcripts");
-    let mut entries = std::fs::read_dir(&dir)
-        .ok()?
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("md"))
-        .collect::<Vec<_>>();
+    let mut read_dir = tokio::fs::read_dir(&dir).await.ok()?;
+    let mut entries = Vec::new();
+    while let Ok(Some(entry)) = read_dir.next_entry().await {
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) == Some("md") {
+            entries.push(path);
+        }
+    }
     entries.sort_by_key(|path| std::cmp::Reverse(transcript_sort_key(path)));
     entries
         .into_iter()

@@ -181,7 +181,7 @@ pub(crate) async fn execute_background_shell(
     tokio::fs::create_dir_all(&tasks_dir).await?;
     let output_path = tasks_dir.join(format!("{}-{}.log", spec.task_kind, Uuid::new_v4()));
     let output_path_str = output_path.display().to_string();
-    let transcript_path = crate::runtime_tasks::latest_transcript_artifact_path(working_dir);
+    let transcript_path = crate::runtime_tasks::latest_transcript_artifact_path(working_dir).await;
     let description = format!(
         "{}: {}",
         spec.description_prefix,
