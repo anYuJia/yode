@@ -115,7 +115,6 @@ import { Sidebar, ViewMode } from "./components/Sidebar";
 import { Topbar } from "./components/Topbar";
 import { ChatWorkspace, PendingUserQuestion } from "./components/ChatWorkspace";
 import {
-  applyDesktopEventToTimelineItems,
   messagesToTimelineItems,
   upsertActiveSession,
   deriveSessionTitle,
@@ -128,6 +127,7 @@ import {
   formatUsageSnapshot,
   UsageSnapshot
 } from "./lib/localSlashCommands";
+import { handleDesktopRuntimeEvent } from "./lib/desktopEventHandlers";
 
 const PROJECT_ROOTS_STORAGE_KEY = "yode-project-roots";
 const PROJECT_ORDER_STORAGE_KEY = "yode-project-order";
@@ -888,69 +888,16 @@ export function App() {
 
     listen<DesktopEvent>("desktop-event", (event) => {
       if (!active) return;
-      const payload = event.payload;
-      const outer = (payload as any).kind ? (payload as DesktopEvent) : null;
-      const kind = outer ? outer.kind : (event as any).kind;
-      const eventSessionId = outer?.sessionId ?? (payload as any).sessionId;
-      if (
-        eventSessionId &&
-        activeSessionIdRef.current &&
-        eventSessionId !== activeSessionIdRef.current
-      ) {
-        return;
-      }
-
-      if (kind === "turn_started") {
-        setIsProcessing(true);
-        if (outer) {
-          setCurrentTurnId(outer.turnId);
-        }
-      } else if (kind === "ask_user" && eventSessionId && (outer?.turnId ?? (payload as any).turnId)) {
-        const askPayload = (payload as any).payload ?? {};
-        sendSystemNotification("Yode 需要你的回复", String(askPayload.body ?? "任务正在等待输入。"), "question");
-        setPendingUserQuestion({
-          sessionId: eventSessionId,
-          turnId: outer?.turnId ?? (payload as any).turnId,
-          title: typeof askPayload.title === "string" ? askPayload.title : undefined,
-          question: String(askPayload.body ?? "请回复问题"),
-          query: askPayload.query && typeof askPayload.query === "object" ? askPayload.query : undefined
-        });
-      } else if (kind === "tool_confirm_required" || kind === "permission") {
-        sendSystemNotification("Yode 请求执行权限", String((payload as any).payload?.body ?? "有操作需要确认。"), "permission");
-      } else if (kind === "usage_update" || kind === "cost_update") {
-        const eventPayload = ((payload as any).payload ?? payload) as Record<string, unknown>;
-        setUsageSnapshot((current) => {
-          const inputTokens = typeof eventPayload.inputTokens === "number" ? eventPayload.inputTokens : current?.inputTokens;
-          const outputTokens = typeof eventPayload.outputTokens === "number" ? eventPayload.outputTokens : current?.outputTokens;
-          return {
-            ...current,
-            estimatedCost: typeof eventPayload.estimatedCost === "number" ? eventPayload.estimatedCost : current?.estimatedCost,
-            inputTokens,
-            outputTokens,
-            totalTokens: typeof eventPayload.totalTokens === "number"
-              ? eventPayload.totalTokens
-              : inputTokens !== undefined || outputTokens !== undefined
-                ? (inputTokens ?? 0) + (outputTokens ?? 0)
-                : current?.totalTokens,
-            cacheWriteTokens: typeof eventPayload.cacheWriteTokens === "number" ? eventPayload.cacheWriteTokens : current?.cacheWriteTokens,
-            cacheReadTokens: typeof eventPayload.cacheReadTokens === "number" ? eventPayload.cacheReadTokens : current?.cacheReadTokens
-          };
-        });
-      } else if (kind === "turn_completed" || kind === "error") {
-        setIsProcessing(false);
-        setPendingUserQuestion(null);
-        if (kind === "turn_completed") {
-          sendSystemNotification("Yode 已完成任务", String((payload as any).payload?.body ?? "本轮运行已完成。").slice(0, 160), "completion");
-        }
-      }
-
-      setTimelineItems((items) =>
-        applyDesktopEventToTimelineItems(
-          items,
-          (payload as any).kind ? (payload as DesktopEvent) : payload,
-          (payload as any).kind ? undefined : (event as any).kind
-        )
-      );
+      handleDesktopRuntimeEvent({
+        activeSessionId: activeSessionIdRef.current,
+        payload: event.payload,
+        sendSystemNotification,
+        setCurrentTurnId,
+        setIsProcessing,
+        setPendingUserQuestion,
+        setTimelineItems,
+        setUsageSnapshot
+      });
     })
       .then((dispose) => {
         if (!active) {
