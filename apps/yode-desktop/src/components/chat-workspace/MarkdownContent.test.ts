@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { marked } from "marked";
 import { preprocessMarkdown } from "./MarkdownContent";
+import { hasCodeBlockContent } from "./codeBlockContent";
 
 describe("preprocessMarkdown", () => {
   function lex(source: string) {
@@ -113,5 +114,12 @@ describe("preprocessMarkdown", () => {
     ].join("\n"));
 
     expect(tokens.some((token) => token.type === "table")).toBe(true);
+  });
+
+  it("treats empty fenced code blocks as non-renderable", () => {
+    expect(hasCodeBlockContent("")).toBe(false);
+    expect(hasCodeBlockContent("\n  \n")).toBe(false);
+    expect(hasCodeBlockContent("\u200B\n")).toBe(false);
+    expect(hasCodeBlockContent("const value = 1;")).toBe(true);
   });
 });

@@ -1,9 +1,11 @@
 import React, { useState, useMemo, useCallback } from "react";
 import { Check, Copy, AlertCircle } from "lucide-react";
 import hljs from "highlight.js/lib/core";
+import { hasCodeBlockContent } from "./codeBlockContent";
 
 export function CodeBlock({ text, lang }: { text: string; lang: string }) {
   const [copied, setCopied] = useState(false);
+  const shouldRender = hasCodeBlockContent(text);
 
   const lines = text.split("\n");
   const truncateIndex = lines.findIndex(line => 
@@ -39,6 +41,10 @@ export function CodeBlock({ text, lang }: { text: string; lang: string }) {
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }, [cleanText]);
+
+  if (!shouldRender) {
+    return null;
+  }
 
   return (
     <div className="code-block-container" style={{ 

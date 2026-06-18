@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import { getFileIcon, fileIconMeta } from "../FileIcon";
 import { CodeBlock } from "./CodeBlock";
+import { hasCodeBlockContent } from "./codeBlockContent";
 import { marked } from "marked";
 
 type MarkdownVariant = "answer" | "process";
@@ -267,6 +268,7 @@ function RenderToken({ token }: { token: any }): React.ReactElement | null {
       return <Tag>{text || <RenderTokens tokens={token.tokens} />}</Tag>;
     }
     case "code": {
+      if (!hasCodeBlockContent(token.text)) return null;
       return <CodeBlock text={token.text} lang={token.lang || ""} />;
     }
     case "list": {
