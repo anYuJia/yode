@@ -46,55 +46,7 @@ import {
 } from "lucide-react";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState, useRef } from "react";
 import { createPortal } from "react-dom";
-import hljs from "highlight.js/lib/core";
-// 按需注册常用语言（轻量化）
-import langBash from "highlight.js/lib/languages/bash";
-import langPython from "highlight.js/lib/languages/python";
-import langRust from "highlight.js/lib/languages/rust";
-import langTypescript from "highlight.js/lib/languages/typescript";
-import langJavascript from "highlight.js/lib/languages/javascript";
-import langJson from "highlight.js/lib/languages/json";
-import langTOML from "highlight.js/lib/languages/ini";
-import langYaml from "highlight.js/lib/languages/yaml";
-import langCSS from "highlight.js/lib/languages/css";
-import langHTML from "highlight.js/lib/languages/xml";
-import langSQL from "highlight.js/lib/languages/sql";
-import langC from "highlight.js/lib/languages/c";
-import langCpp from "highlight.js/lib/languages/cpp";
-import langGo from "highlight.js/lib/languages/go";
-import langJava from "highlight.js/lib/languages/java";
-import langMarkdown from "highlight.js/lib/languages/markdown";
-import langDiff from "highlight.js/lib/languages/diff";
-hljs.registerLanguage("bash", langBash);
-hljs.registerLanguage("sh", langBash);
-hljs.registerLanguage("shell", langBash);
-hljs.registerLanguage("zsh", langBash);
-hljs.registerLanguage("python", langPython);
-hljs.registerLanguage("py", langPython);
-hljs.registerLanguage("rust", langRust);
-hljs.registerLanguage("rs", langRust);
-hljs.registerLanguage("typescript", langTypescript);
-hljs.registerLanguage("ts", langTypescript);
-hljs.registerLanguage("tsx", langTypescript);
-hljs.registerLanguage("javascript", langJavascript);
-hljs.registerLanguage("js", langJavascript);
-hljs.registerLanguage("jsx", langJavascript);
-hljs.registerLanguage("json", langJson);
-hljs.registerLanguage("toml", langTOML);
-hljs.registerLanguage("ini", langTOML);
-hljs.registerLanguage("yaml", langYaml);
-hljs.registerLanguage("yml", langYaml);
-hljs.registerLanguage("css", langCSS);
-hljs.registerLanguage("html", langHTML);
-hljs.registerLanguage("xml", langHTML);
-hljs.registerLanguage("sql", langSQL);
-hljs.registerLanguage("c", langC);
-hljs.registerLanguage("cpp", langCpp);
-hljs.registerLanguage("go", langGo);
-hljs.registerLanguage("java", langJava);
-hljs.registerLanguage("md", langMarkdown);
-hljs.registerLanguage("markdown", langMarkdown);
-hljs.registerLanguage("diff", langDiff);
+import "./lib/highlightLanguages";
 
 import {
   Bootstrap,
