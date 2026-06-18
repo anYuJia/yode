@@ -104,6 +104,11 @@ import {
   SIDEBAR_WIDTH_STORAGE_KEY,
   TERMINAL_HEIGHT_STORAGE_KEY
 } from "./lib/paneLayout";
+import {
+  lastModelStorageKey,
+  LLM_PROVIDERS_STORAGE_KEY,
+  preferredModelForProvider
+} from "./lib/llmProviderStorage";
 
 function imageToRequestPayload(image: ImageAttachment) {
   return {
@@ -120,7 +125,7 @@ function refreshProviderCache() {
   invoke<unknown[]>("config_get_providers")
     .then((providers) => {
       if (Array.isArray(providers)) {
-        localStorage.setItem("yode-llm-providers", JSON.stringify(providers));
+        localStorage.setItem(LLM_PROVIDERS_STORAGE_KEY, JSON.stringify(providers));
       }
     })
     .catch(console.error);
@@ -341,25 +346,12 @@ export function App() {
   };
 
   const handleUpdateProvider = async (provider: string) => {
-    const saved = localStorage.getItem("yode-llm-providers");
-    let models: string[] = [];
-    if (saved) {
-      try {
-        const data = JSON.parse(saved);
-        const list = Array.isArray(data) ? data : Object.values(data);
-        const found = list.find((p: any) => p && p.id === provider);
-        if (found && Array.isArray(found.models)) {
-          models = found.models;
-        }
-      } catch (e) {}
-    }
-    if (models.length === 0) {
-      const meta = PROVIDERS_META.find(p => p.id === provider);
-      models = meta ? meta.defaultModels : [];
-    }
-    const lastModelKey = `yode-last-model-${provider}`;
-    const lastUsedModel = localStorage.getItem(lastModelKey);
-    const defaultModel = (lastUsedModel && models.includes(lastUsedModel)) ? lastUsedModel : (models[0] || "");
+    const defaultModel = preferredModelForProvider(
+      provider,
+      localStorage.getItem(LLM_PROVIDERS_STORAGE_KEY),
+      PROVIDERS_META,
+      localStorage.getItem(lastModelStorageKey(provider))
+    );
 
     if (activeSessionId) {
       setSessionItems((items) =>
@@ -382,7 +374,7 @@ export function App() {
   };
 
   const handleUpdateModel = async (model: string) => {
-    localStorage.setItem(`yode-last-model-${currentProvider}`, model);
+    localStorage.setItem(lastModelStorageKey(currentProvider), model);
 
     if (activeSessionId) {
       setSessionItems((items) =>
