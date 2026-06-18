@@ -80,6 +80,7 @@ import {
   UsageSnapshot
 } from "./lib/localSlashCommands";
 import { handleDesktopRuntimeEvent } from "./lib/desktopEventHandlers";
+import { loadGeneralSettings, loadGeneralSettingsPayload } from "./lib/desktopSettings";
 import {
   ARCHIVED_SESSION_IDS_STORAGE_KEY,
   dedupeProjectRoots,
@@ -107,42 +108,6 @@ function loadStoredNumber(key: string, fallback: number) {
   if (!raw) return fallback;
   const parsed = Number(raw);
   return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-function loadGeneralSettings() {
-  return {
-    bottomPanel: localStorage.getItem("yode-bottom-panel") !== "false",
-    suggestedPrompts: localStorage.getItem("yode-suggested-prompts") !== "false",
-    contextUsage: localStorage.getItem("yode-context-usage") === "true",
-    requireOptEnter: localStorage.getItem("yode-require-opt-enter") === "true",
-    followUpBehavior: localStorage.getItem("yode-follow-up-behavior") || "queue",
-    codeReviewPolicy: localStorage.getItem("yode-code-review-policy") || "inline",
-    completionNotification: localStorage.getItem("yode-completion-notif") || "Only when unfocused",
-    permissionNotification: localStorage.getItem("yode-perm-notif") !== "false",
-    questionNotification: localStorage.getItem("yode-question-notif") !== "false"
-  };
-}
-
-function loadGeneralSettingsPayload() {
-  return {
-    workMode: localStorage.getItem("yode-work-mode") || "coding",
-    defaultFilePermission: localStorage.getItem("yode-def-perm") !== "false",
-    autoReview: localStorage.getItem("yode-auto-review") !== "false",
-    fullAccess: localStorage.getItem("yode-full-access") !== "false",
-    openDestination: localStorage.getItem("yode-open-dest") || "VS Code",
-    showInMenuBar: localStorage.getItem("yode-show-menu-bar") !== "false",
-    bottomPanel: localStorage.getItem("yode-bottom-panel") !== "false",
-    terminalLocation: localStorage.getItem("yode-term-loc") || "bottom",
-    preventSleep: localStorage.getItem("yode-prevent-sleep") === "true",
-    codeReviewPolicy: localStorage.getItem("yode-code-review-policy") || "inline",
-    suggestedPrompts: localStorage.getItem("yode-suggested-prompts") !== "false",
-    contextUsage: localStorage.getItem("yode-context-usage") === "true",
-    followUpBehavior: localStorage.getItem("yode-follow-up-behavior") || "queue",
-    requireOptEnter: localStorage.getItem("yode-require-opt-enter") === "true",
-    completionNotification: localStorage.getItem("yode-completion-notif") || "Only when unfocused",
-    permissionNotification: localStorage.getItem("yode-perm-notif") !== "false",
-    questionNotification: localStorage.getItem("yode-question-notif") !== "false"
-  };
 }
 
 function imageToRequestPayload(image: ImageAttachment) {

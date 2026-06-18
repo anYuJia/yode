@@ -1,5 +1,28 @@
 import { invoke } from "@tauri-apps/api/core";
 
+export type GeneralSettings = {
+  bottomPanel: boolean;
+  suggestedPrompts: boolean;
+  contextUsage: boolean;
+  requireOptEnter: boolean;
+  followUpBehavior: string;
+  codeReviewPolicy: string;
+  completionNotification: string;
+  permissionNotification: boolean;
+  questionNotification: boolean;
+};
+
+export type GeneralSettingsPayload = GeneralSettings & {
+  workMode: string;
+  defaultFilePermission: boolean;
+  autoReview: boolean;
+  fullAccess: boolean;
+  openDestination: string;
+  showInMenuBar: boolean;
+  terminalLocation: string;
+  preventSleep: boolean;
+};
+
 export function isTauriRuntime() {
   return "__TAURI_INTERNALS__" in window;
 }
@@ -31,4 +54,40 @@ export async function saveDesktopSetting<T>(key: string, value: T): Promise<void
   } catch (err) {
     console.error(err);
   }
+}
+
+export function loadGeneralSettings(): GeneralSettings {
+  return {
+    bottomPanel: localStorage.getItem("yode-bottom-panel") !== "false",
+    suggestedPrompts: localStorage.getItem("yode-suggested-prompts") !== "false",
+    contextUsage: localStorage.getItem("yode-context-usage") === "true",
+    requireOptEnter: localStorage.getItem("yode-require-opt-enter") === "true",
+    followUpBehavior: localStorage.getItem("yode-follow-up-behavior") || "queue",
+    codeReviewPolicy: localStorage.getItem("yode-code-review-policy") || "inline",
+    completionNotification: localStorage.getItem("yode-completion-notif") || "Only when unfocused",
+    permissionNotification: localStorage.getItem("yode-perm-notif") !== "false",
+    questionNotification: localStorage.getItem("yode-question-notif") !== "false"
+  };
+}
+
+export function loadGeneralSettingsPayload(): GeneralSettingsPayload {
+  return {
+    workMode: localStorage.getItem("yode-work-mode") || "coding",
+    defaultFilePermission: localStorage.getItem("yode-def-perm") !== "false",
+    autoReview: localStorage.getItem("yode-auto-review") !== "false",
+    fullAccess: localStorage.getItem("yode-full-access") !== "false",
+    openDestination: localStorage.getItem("yode-open-dest") || "VS Code",
+    showInMenuBar: localStorage.getItem("yode-show-menu-bar") !== "false",
+    bottomPanel: localStorage.getItem("yode-bottom-panel") !== "false",
+    terminalLocation: localStorage.getItem("yode-term-loc") || "bottom",
+    preventSleep: localStorage.getItem("yode-prevent-sleep") === "true",
+    codeReviewPolicy: localStorage.getItem("yode-code-review-policy") || "inline",
+    suggestedPrompts: localStorage.getItem("yode-suggested-prompts") !== "false",
+    contextUsage: localStorage.getItem("yode-context-usage") === "true",
+    followUpBehavior: localStorage.getItem("yode-follow-up-behavior") || "queue",
+    requireOptEnter: localStorage.getItem("yode-require-opt-enter") === "true",
+    completionNotification: localStorage.getItem("yode-completion-notif") || "Only when unfocused",
+    permissionNotification: localStorage.getItem("yode-perm-notif") !== "false",
+    questionNotification: localStorage.getItem("yode-question-notif") !== "false"
+  };
 }
