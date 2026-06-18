@@ -32,26 +32,7 @@ export function WorktreesSettingsSettings({
   });
   const [statusText, setStatusText] = useState("");
 
-  const [worktrees, setWorktrees] = useState<WorktreeInfo[]>(() => {
-    const saved = localStorage.getItem("yode-worktrees-list");
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        // use defaults
-      }
-    }
-    return [
-      { id: "1", branch: "feature/auth", path: "/Users/pyu/code/yode/.worktrees/feature-auth", status: "Active", size: "142 MB" },
-      { id: "2", branch: "fix/sidebar-flash", path: "/Users/pyu/code/yode/.worktrees/fix-sidebar-flash", status: "Idle", size: "98 MB" },
-      { id: "3", branch: "refactor/db-migration", path: "/Users/pyu/code/yode/.worktrees/refactor-db-migration", status: "Idle", size: "210 MB" }
-    ];
-  });
-
-  const saveWorktrees = (list: WorktreeInfo[]) => {
-    setWorktrees(list);
-    void saveDesktopSetting("yode-worktrees-list", list);
-  };
+  const [worktrees, setWorktrees] = useState<WorktreeInfo[]>([]);
 
   const updateVal = (key: string, val: any) => {
     void saveDesktopSetting(key, val);
@@ -70,7 +51,7 @@ export function WorktreesSettingsSettings({
           setStatusText(t("读取 git 工作树失败。", "Failed to load git worktrees."));
         });
     } else {
-      void loadDesktopSetting("yode-worktrees-list", worktrees).then(setWorktrees);
+      setWorktrees([]);
     }
   }, []);
 
@@ -82,9 +63,7 @@ export function WorktreesSettingsSettings({
 
   const handlePruneIdle = async () => {
     if (!isTauriRuntime()) {
-      const activeOnes = worktrees.filter((w) => w.status === "Active");
-      saveWorktrees(activeOnes);
-      setStatusText(t("已在预览模式中清理闲置工作树记录。", "Pruned idle worktree records in preview mode."));
+      setStatusText(t("请在桌面端中清理真实工作树。", "Open the desktop app to prune real worktrees."));
       return;
     }
     try {
@@ -117,8 +96,7 @@ export function WorktreesSettingsSettings({
           setStatusText(t("删除工作树失败。", "Failed to delete worktree."));
         }
       } else {
-        const updated = worktrees.filter((w) => w.id !== id);
-        saveWorktrees(updated);
+        setStatusText(t("请在桌面端中删除真实工作树。", "Open the desktop app to delete real worktrees."));
       }
     }
   };
