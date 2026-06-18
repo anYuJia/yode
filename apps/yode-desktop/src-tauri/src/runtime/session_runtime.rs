@@ -7,7 +7,7 @@ use uuid::Uuid;
 use yode_core::config::Config;
 use yode_core::session::Session;
 
-use super::{normalized_provider_model, DesktopRuntime};
+use super::{provider_runtime::normalized_provider_model, DesktopRuntime};
 use crate::protocol::{
     CreateSessionRequest, DesktopImageOutput, DesktopMessage, DesktopSession, SessionCompactResult,
     SessionExportResult,
