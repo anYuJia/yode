@@ -123,6 +123,11 @@ import {
   ConversationTurn
 } from "./components/timelineUtils";
 import { findShortcutAction, loadShortcutBindings } from "./lib/keyboardShortcuts";
+import {
+  executeLocalSlashCommand,
+  formatUsageSnapshot,
+  UsageSnapshot
+} from "./lib/localSlashCommands";
 
 const PROJECT_ROOTS_STORAGE_KEY = "yode-project-roots";
 const PROJECT_ORDER_STORAGE_KEY = "yode-project-order";
@@ -133,27 +138,6 @@ const STANDALONE_PROJECT_SENTINEL = "__standalone__";
 const SIDEBAR_WIDTH_STORAGE_KEY = "yode-sidebar-width";
 const INSPECTOR_WIDTH_STORAGE_KEY = "yode-inspector-width";
 const TERMINAL_HEIGHT_STORAGE_KEY = "yode-terminal-height";
-
-type UsageSnapshot = {
-  estimatedCost?: number;
-  inputTokens?: number;
-  outputTokens?: number;
-  totalTokens?: number;
-  cacheWriteTokens?: number;
-  cacheReadTokens?: number;
-};
-
-type SessionExportResult = {
-  path: string;
-  messageCount: number;
-};
-
-type SessionCompactResult = {
-  beforeCount: number;
-  afterCount: number;
-  removedCount: number;
-  summary: string;
-};
 
 function clampNumber(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -333,24 +317,6 @@ function formatDurationZh(totalSeconds: number) {
   if (minutes <= 0) return `${seconds} 秒`;
   if (seconds <= 0) return `${minutes} 分钟`;
   return `${minutes} 分 ${seconds} 秒`;
-}
-
-function formatUsageSnapshot(snapshot: UsageSnapshot | null, appLang: string) {
-  const isZh = appLang === "zh";
-  if (!snapshot) {
-    return isZh ? "当前会话还没有收到 token 或成本统计。" : "No token or cost statistics have been received for this session yet.";
-  }
-  const input = snapshot.inputTokens ?? 0;
-  const output = snapshot.outputTokens ?? 0;
-  const total = snapshot.totalTokens ?? input + output;
-  const cacheWrite = snapshot.cacheWriteTokens ?? 0;
-  const cacheRead = snapshot.cacheReadTokens ?? 0;
-  const cost = typeof snapshot.estimatedCost === "number"
-    ? `$${snapshot.estimatedCost.toFixed(4)}`
-    : isZh ? "暂未估算" : "not estimated";
-  return isZh
-    ? `输入 ${input.toLocaleString()}，输出 ${output.toLocaleString()}，合计 ${total.toLocaleString()} tokens。缓存写入 ${cacheWrite.toLocaleString()}，缓存读取 ${cacheRead.toLocaleString()}。估算成本：${cost}。`
-    : `Input ${input.toLocaleString()}, output ${output.toLocaleString()}, total ${total.toLocaleString()} tokens. Cache write ${cacheWrite.toLocaleString()}, cache read ${cacheRead.toLocaleString()}. Estimated cost: ${cost}.`;
 }
 
 export function App() {
@@ -1162,293 +1128,28 @@ export function App() {
   }
 
   async function handleLocalSlashCommand(content: string) {
-    if (!content.startsWith("/")) return false;
-    const trimmedCommand = content.slice(1).trim();
-    const [rawCommand] = trimmedCommand.split(/\s+/, 1);
-    const command = rawCommand.toLowerCase();
-    const commandArgs = trimmedCommand.slice(rawCommand.length).trim();
-    const isZh = appLang === "zh";
-
-    switch (command) {
-      case "new": {
-        handleCreateSession(selectedProjectRoot);
-        return true;
-      }
-      case "clear": {
-        if (!activeSessionId) {
-          handleCreateSession(selectedProjectRoot);
-          appendLocalCommandResult(
-            isZh ? "已清空" : "Cleared",
-            isZh ? "已开启一个新的空白对话。" : "Started a new empty chat."
-          );
-          return true;
-        }
-        try {
-          await invoke("sessions_clear_messages", {
-            sessionId: activeSessionId,
-            session_id: activeSessionId
-          });
-          setTimelineItems([]);
-          setUsageSnapshot(null);
-          setMessageQueue([]);
-          setPendingUserQuestion(null);
-          appendLocalCommandResult(
-            isZh ? "已清空" : "Cleared",
-            isZh ? "当前会话消息已清空。" : "The current session messages have been cleared."
-          );
-        } catch (err) {
-          appendLocalCommandResult(
-            isZh ? "清空失败" : "Clear failed",
-            String(err)
-          );
-        }
-        return true;
-      }
-      case "help":
-      case "?": {
-        appendLocalCommandResult(
-          isZh ? "桌面命令" : "Desktop commands",
-          isZh
-            ? [
-                "当前可用：",
-                "/clear - 清空当前会话消息",
-                "/compact - 压缩较早的会话历史",
-                "/export - 导出当前会话为 Markdown",
-                "/new - 开启一个新对话",
-                "/cost - 查看最近一次 token 与成本统计",
-                "/model - 查看当前模型",
-                "/permission <default|auto|bypass|plan> - 切换权限模式",
-                "/rename <标题> - 重命名当前会话",
-                "/sessions - 查看最近会话",
-                "/status - 查看当前会话、模型、权限和运行状态",
-                "/help - 显示这份命令列表",
-                "",
-                "更多桌面原生命令会继续补齐。"
-              ].join("\n")
-            : [
-                "Available now:",
-                "/clear - clear messages in the current session",
-                "/compact - compact older session history",
-                "/export - export the current session as Markdown",
-                "/new - start a new chat",
-                "/cost - show the latest token and cost statistics",
-                "/model - show the current model",
-                "/permission <default|auto|bypass|plan> - switch permission mode",
-                "/rename <title> - rename the current session",
-                "/sessions - show recent sessions",
-                "/status - show the current session, model, permission mode, and run state",
-                "/help - show this command list",
-                "",
-                "More native desktop commands will continue to land here."
-              ].join("\n")
-        );
-        return true;
-      }
-      case "export": {
-        if (!activeSessionId) {
-          appendLocalCommandResult(
-            isZh ? "无法导出" : "Cannot export",
-            isZh ? "当前还没有已保存的会话。" : "There is no saved active session yet."
-          );
-          return true;
-        }
-        try {
-          const exported = await invoke<SessionExportResult>("sessions_export_markdown", {
-            sessionId: activeSessionId,
-            session_id: activeSessionId
-          });
-          appendLocalCommandResult(
-            isZh ? "会话已导出" : "Session exported",
-            isZh
-              ? `已导出 ${exported.messageCount} 条消息。\n${exported.path}`
-              : `Exported ${exported.messageCount} messages.\n${exported.path}`
-          );
-        } catch (err) {
-          appendLocalCommandResult(
-            isZh ? "导出失败" : "Export failed",
-            String(err)
-          );
-        }
-        return true;
-      }
-      case "compact": {
-        if (!activeSessionId) {
-          appendLocalCommandResult(
-            isZh ? "无法压缩" : "Cannot compact",
-            isZh ? "当前还没有已保存的会话。" : "There is no saved active session yet."
-          );
-          return true;
-        }
-        try {
-          const compacted = await invoke<SessionCompactResult>("sessions_compact_local", {
-            sessionId: activeSessionId,
-            session_id: activeSessionId
-          });
-          const refreshed = await invoke<DesktopMessage[]>("sessions_messages", {
-            sessionId: activeSessionId,
-            session_id: activeSessionId
-          });
-          setTimelineItems(messagesToTimelineItems(refreshed));
-          appendLocalCommandResult(
-            compacted.removedCount > 0
-              ? isZh ? "会话已压缩" : "Session compacted"
-              : isZh ? "无需压缩" : "No compaction needed",
-            isZh
-              ? [
-                  `压缩前：${compacted.beforeCount} 条`,
-                  `压缩后：${compacted.afterCount} 条`,
-                  `移除：${compacted.removedCount} 条`,
-                  "",
-                  compacted.summary
-                ].join("\n")
-              : [
-                  `Before: ${compacted.beforeCount} messages`,
-                  `After: ${compacted.afterCount} messages`,
-                  `Removed: ${compacted.removedCount} messages`,
-                  "",
-                  compacted.summary
-                ].join("\n")
-          );
-        } catch (err) {
-          appendLocalCommandResult(
-            isZh ? "压缩失败" : "Compaction failed",
-            String(err)
-          );
-        }
-        return true;
-      }
-      case "permission": {
-        const normalizedMode = commandArgs.toLowerCase();
-        const modeMap: Record<string, string> = {
-          default: "default",
-          ask: "default",
-          auto: "accept-edits",
-          "accept-edits": "accept-edits",
-          acceptedits: "accept-edits",
-          bypass: "bypass",
-          trust: "bypass",
-          plan: "plan"
-        };
-        const nextMode = modeMap[normalizedMode];
-        if (!nextMode) {
-          appendLocalCommandResult(
-            isZh ? "权限模式" : "Permission mode",
-            isZh
-              ? "用法：/permission default|auto|bypass|plan"
-              : "Usage: /permission default|auto|bypass|plan"
-          );
-          return true;
-        }
-        try {
-          await invoke("permission_mode_set", { mode: nextMode });
-          setPermissionMode(nextMode);
-          appendLocalCommandResult(
-            isZh ? "权限模式已更新" : "Permission mode updated",
-            nextMode
-          );
-        } catch (err) {
-          appendLocalCommandResult(
-            isZh ? "权限模式更新失败" : "Permission update failed",
-            String(err)
-          );
-        }
-        return true;
-      }
-      case "rename": {
-        if (!activeSessionId) {
-          appendLocalCommandResult(
-            isZh ? "无法重命名" : "Cannot rename",
-            isZh ? "当前还没有已保存的会话。" : "There is no saved active session yet."
-          );
-          return true;
-        }
-        if (!commandArgs) {
-          appendLocalCommandResult(
-            isZh ? "重命名" : "Rename",
-            isZh ? "用法：/rename 新标题" : "Usage: /rename New title"
-          );
-          return true;
-        }
-        try {
-          const renamed = await invoke<SessionSummary>("sessions_rename", {
-            sessionId: activeSessionId,
-            session_id: activeSessionId,
-            title: commandArgs
-          });
-          setSessionItems((items) => upsertActiveSession(items, renamed));
-          appendLocalCommandResult(
-            isZh ? "已重命名" : "Renamed",
-            renamed.title
-          );
-        } catch (err) {
-          appendLocalCommandResult(
-            isZh ? "重命名失败" : "Rename failed",
-            String(err)
-          );
-        }
-        return true;
-      }
-      case "cost": {
-        appendLocalCommandResult(isZh ? "用量与成本" : "Usage and cost", formatUsageSnapshot(usageSnapshot, appLang));
-        return true;
-      }
-      case "model": {
-        appendLocalCommandResult(
-          isZh ? "当前模型" : "Current model",
-          `${currentProvider} / ${currentModel}`
-        );
-        return true;
-      }
-      case "sessions": {
-        const visible = sessionItems.slice(0, 12);
-        const body = visible.length === 0
-          ? isZh ? "暂无会话。" : "No sessions yet."
-          : visible.map((session, index) => {
-              const marker = session.id === activeSessionId ? "*" : " ";
-              const model = session.provider && session.model ? ` (${session.provider}/${session.model})` : "";
-              return `${marker} ${index + 1}. ${session.title}${model}`;
-            }).join("\n");
-        appendLocalCommandResult(isZh ? "最近会话" : "Recent sessions", body);
-        return true;
-      }
-      case "status": {
-        const project = selectedProjectRoot === null
-          ? isZh ? "独立对话" : "Standalone"
-          : selectedProjectRoot ?? bootstrap.workspacePath;
-        appendLocalCommandResult(
-          isZh ? "当前状态" : "Current status",
-          isZh
-            ? [
-                `会话：${activeSession?.title ?? "新对话"}`,
-                `模型：${currentProvider} / ${currentModel}`,
-                `权限：${permissionMode}`,
-                `项目：${project}`,
-                `运行：${isProcessing ? "进行中" : "空闲"}`,
-                `时间线：${timelineItems.length} 条`
-              ].join("\n")
-            : [
-                `Session: ${activeSession?.title ?? "New chat"}`,
-                `Model: ${currentProvider} / ${currentModel}`,
-                `Permission: ${permissionMode}`,
-                `Project: ${project}`,
-                `Run: ${isProcessing ? "running" : "idle"}`,
-                `Timeline: ${timelineItems.length} items`
-              ].join("\n")
-        );
-        return true;
-      }
-      case "review":
-        return false;
-      default: {
-        appendLocalCommandResult(
-          isZh ? "未知命令" : "Unknown command",
-          isZh
-            ? `桌面 app 还不支持 /${command}。输入 /help 查看当前可用命令。`
-            : `The desktop app does not support /${command} yet. Type /help to see available commands.`
-        );
-        return true;
-      }
-    }
+    return executeLocalSlashCommand(content, {
+      activeSession,
+      activeSessionId,
+      appLang,
+      bootstrapWorkspacePath: bootstrap.workspacePath,
+      currentModel,
+      currentProvider,
+      isProcessing,
+      permissionMode,
+      selectedProjectRoot,
+      sessionItems,
+      timelineItemCount: timelineItems.length,
+      usageSnapshot,
+      appendResult: appendLocalCommandResult,
+      createSession: handleCreateSession,
+      clearMessageQueue: () => setMessageQueue([]),
+      setPendingUserQuestion,
+      setPermissionMode,
+      setSessionItems,
+      setTimelineItems,
+      setUsageSnapshot
+    });
   }
 
   async function handleSendMessage() {
