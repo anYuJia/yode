@@ -94,21 +94,16 @@ import {
   STANDALONE_PROJECT_SENTINEL,
   visibleSessions
 } from "./lib/projectStorage";
-
-const SIDEBAR_WIDTH_STORAGE_KEY = "yode-sidebar-width";
-const INSPECTOR_WIDTH_STORAGE_KEY = "yode-inspector-width";
-const TERMINAL_HEIGHT_STORAGE_KEY = "yode-terminal-height";
-
-function clampNumber(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
-}
-
-function loadStoredNumber(key: string, fallback: number) {
-  const raw = localStorage.getItem(key);
-  if (!raw) return fallback;
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
+import {
+  computePaneDragSize,
+  INSPECTOR_WIDTH_STORAGE_KEY,
+  isPaneCollapsed,
+  loadInitialPaneSize,
+  PaneDragState,
+  PaneKind,
+  SIDEBAR_WIDTH_STORAGE_KEY,
+  TERMINAL_HEIGHT_STORAGE_KEY
+} from "./lib/paneLayout";
 
 function imageToRequestPayload(image: ImageAttachment) {
   return {
@@ -192,9 +187,9 @@ export function App() {
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [terminalOpenByConversation, setTerminalOpenByConversation] = useState<Record<string, boolean>>({});
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [sidebarWidth, setSidebarWidth] = useState(() => clampNumber(loadStoredNumber(SIDEBAR_WIDTH_STORAGE_KEY, 232), 180, 420));
-  const [inspectorWidth, setInspectorWidth] = useState(() => clampNumber(loadStoredNumber(INSPECTOR_WIDTH_STORAGE_KEY, 260), 220, 460));
-  const [terminalHeight, setTerminalHeight] = useState(() => clampNumber(loadStoredNumber(TERMINAL_HEIGHT_STORAGE_KEY, 280), 180, 520));
+  const [sidebarWidth, setSidebarWidth] = useState(() => loadInitialPaneSize("sidebar", SIDEBAR_WIDTH_STORAGE_KEY));
+  const [inspectorWidth, setInspectorWidth] = useState(() => loadInitialPaneSize("inspector", INSPECTOR_WIDTH_STORAGE_KEY));
+  const [terminalHeight, setTerminalHeight] = useState(() => loadInitialPaneSize("terminal", TERMINAL_HEIGHT_STORAGE_KEY));
   const [isProcessing, setIsProcessing] = useState(false);
   const [messageQueue, setMessageQueue] = useState<Array<{ content: string; images: ImageAttachment[] }>>([]);
   const [generalSettings, setGeneralSettings] = useState(loadGeneralSettings);
@@ -213,8 +208,8 @@ export function App() {
       [terminalConversationKey]: open
     }));
   };
-  const [draggingPane, setDraggingPane] = useState<null | "sidebar" | "inspector" | "terminal">(null);
-  const dragStateRef = useRef<{ startX: number; startY: number; startSidebarWidth: number; startInspectorWidth: number; startTerminalHeight: number } | null>(null);
+  const [draggingPane, setDraggingPane] = useState<PaneKind | null>(null);
+  const dragStateRef = useRef<PaneDragState | null>(null);
   const dragCaptureRef = useRef<{ target: Element; pointerId: number } | null>(null);
 
   useEffect(() => {
@@ -257,25 +252,22 @@ export function App() {
     const onMove = (event: PointerEvent) => {
       if (!draggingPane || !dragStateRef.current) return;
       const drag = dragStateRef.current;
-      const minSidebar = 180;
-      const maxSidebar = 420;
-      const minInspector = 220;
-      const maxInspector = 460;
-      const minTerminal = 180;
-      const maxTerminal = Math.floor(window.innerHeight * 0.75);
+      const next = computePaneDragSize(
+        draggingPane,
+        drag,
+        { clientX: event.clientX, clientY: event.clientY },
+        window.innerHeight
+      );
 
       if (draggingPane === "sidebar") {
-        const next = clampNumber(drag.startSidebarWidth + (event.clientX - drag.startX), minSidebar, maxSidebar);
         setSidebarWidth(next);
-        setSidebarOpen(next > minSidebar + 8);
+        setSidebarOpen(!isPaneCollapsed("sidebar", next));
       } else if (draggingPane === "inspector") {
-        const next = clampNumber(drag.startInspectorWidth - (event.clientX - drag.startX), minInspector, maxInspector);
         setInspectorWidth(next);
-        setInspectorOpen(next > minInspector + 8);
+        setInspectorOpen(!isPaneCollapsed("inspector", next));
       } else if (draggingPane === "terminal") {
-        const next = clampNumber(drag.startTerminalHeight - (event.clientY - drag.startY), minTerminal, maxTerminal);
         setTerminalHeight(next);
-        if (next <= minTerminal + 8) {
+        if (isPaneCollapsed("terminal", next)) {
           setTerminalOpenForCurrentConversation(false);
         }
       }
@@ -312,7 +304,7 @@ export function App() {
     };
   }, [draggingPane, sidebarWidth, inspectorWidth, terminalHeight]);
 
-  const beginPaneDrag = (pane: "sidebar" | "inspector" | "terminal", event: React.PointerEvent) => {
+  const beginPaneDrag = (pane: PaneKind, event: React.PointerEvent) => {
     if (event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
