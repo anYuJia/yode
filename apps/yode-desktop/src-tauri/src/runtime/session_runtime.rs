@@ -12,8 +12,9 @@ use yode_core::engine::AgentEngine;
 use yode_core::session::Session;
 
 use super::{
-    configure_desktop_permissions, personalization_runtime::build_personalization_prompt,
-    provider_runtime::normalized_provider_model, DesktopRuntime,
+    personalization_runtime::build_personalization_prompt,
+    provider_runtime::normalized_provider_model, turn_runtime::configure_desktop_permissions,
+    DesktopRuntime,
 };
 use crate::hook_settings::build_desktop_hook_manager;
 use crate::protocol::{
