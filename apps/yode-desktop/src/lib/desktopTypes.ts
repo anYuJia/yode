@@ -45,7 +45,7 @@ export type TimelineItem =
       createdAt?: number;
       meta?: string;
       result?: string;
-      metadata?: any;
+      metadata?: unknown;
     }
 
   | {
@@ -80,7 +80,7 @@ export type TimelineItem =
       title: string;
       body: string;
       createdAt?: number;
-      metadata?: any;
+      metadata?: unknown;
     }
   | {
       id: string;
@@ -103,7 +103,7 @@ export type TimelineItem =
       filename?: string;
       diff?: string;
       result?: string;
-      metadata?: any;
+      metadata?: unknown;
       createdAt?: number;
     }
   | {
@@ -120,7 +120,7 @@ export type TimelineItem =
       icon: string;
       type: "explore" | "search" | "edit" | "run" | "other";
       status: "running" | "success";
-      items?: any[];
+      items?: TimelineItem[];
       createdAt?: number;
     };
 
@@ -140,7 +140,7 @@ export type DesktopMessage = {
   reasoning?: string | null;
   toolCallsJson?: string | null;
   toolCallId?: string | null;
-  metadata?: any;
+  metadata?: unknown;
   images?: Array<{
     base64: string;
     mediaType: string;

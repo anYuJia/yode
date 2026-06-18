@@ -15,6 +15,12 @@ export function normalizeProcessNoteText(text: string) {
     .trim();
 }
 
+function recordFromUnknown(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
 function processNoteFingerprint(text: string) {
   return normalizeProcessNoteText(text)
     .replace(/^(我会|我先|我来|接下来|下一步|现在|然后|先|再|接着)/, "")
@@ -923,7 +929,7 @@ function toolResultImageItem(
   item: Extract<TimelineItem, { kind: "tool" }>,
   turnId?: string
 ): TimelineItem | null {
-  const metadata = item.metadata && typeof item.metadata === "object" ? item.metadata : null;
+  const metadata = recordFromUnknown(item.metadata);
   const imageUrl = metadata?.image_url || metadata?.imageUrl;
   if (typeof imageUrl !== "string" || !imageUrl.startsWith("data:image/")) {
     return null;

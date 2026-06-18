@@ -16,6 +16,12 @@ function classifyActivityTool(item: any) {
   return getActivityDescriptor(item).kind;
 }
 
+function recordFromUnknown(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
 function notifyTimelineLayoutChanged() {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent("yode:timeline-layout-change"));
@@ -353,8 +359,9 @@ export function EditSummaryNode({ node, appLang }: { node: Extract<TimelineItem,
   const fileRows = rows.map(({ item, parsed, add, del }) => {
     const filename = item.filename || parsed.filename || "";
     const displayName = filename || displayToolName(item.tool);
-    const preview = item.metadata?.diff_preview;
-    const full = item.metadata?.diff_full;
+    const metadata = recordFromUnknown(item.metadata);
+    const preview = recordFromUnknown(metadata?.diff_preview);
+    const full = recordFromUnknown(metadata?.diff_full);
     const previewLines = (parsed.diffPreview || "")
       .split("\n")
       .filter((line) => line.startsWith("+") || line.startsWith("-"));
@@ -369,11 +376,11 @@ export function EditSummaryNode({ node, appLang }: { node: Extract<TimelineItem,
     const hasInlineFullDiff = fullRemoved.length > 0 || fullAdded.length > 0;
     const removed = hasInlineFullDiff ? fullRemoved : previewRemoved;
     const added = hasInlineFullDiff ? fullAdded : previewAdded;
-    const artifactPath = !hasInlineFullDiff && typeof item.metadata?.diff_artifact_path === "string"
-      ? item.metadata.diff_artifact_path
+    const artifactPath = !hasInlineFullDiff && typeof metadata?.diff_artifact_path === "string"
+      ? metadata.diff_artifact_path
       : "";
-    const fullAddedCount = Number(item.metadata?.full_added_line_count);
-    const fullRemovedCount = Number(item.metadata?.full_removed_line_count);
+    const fullAddedCount = Number(metadata?.full_added_line_count);
+    const fullRemovedCount = Number(metadata?.full_removed_line_count);
     const moreRemoved = hasInlineFullDiff ? 0 : Number(preview?.more_removed || 0);
     const moreAdded = hasInlineFullDiff ? 0 : Number(preview?.more_added || 0);
     const totalPreviewLines = removed.length + added.length;
