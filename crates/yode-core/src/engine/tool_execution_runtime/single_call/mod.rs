@@ -123,7 +123,8 @@ impl AgentEngine {
             &prepared.original_params,
             &tool_call.arguments,
             prepared.input_changed_by_hook,
-        );
+        )
+        .await;
 
         if let Some(outcome) = self
             .handle_permission_action(

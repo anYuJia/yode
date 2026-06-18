@@ -47,17 +47,19 @@ impl AgentEngine {
                 let input_changed_by_hook = *params != original_input;
                 let effective_arguments_snapshot =
                     serde_json::to_string(params).unwrap_or_else(|_| tool_arguments.to_string());
-                let (summary_path, state_path) = self.write_hook_defer_artifact(
-                    tool_name,
-                    working_dir,
-                    params,
-                    &original_input,
-                    &effective_arguments_snapshot,
-                    tool_arguments,
-                    input_changed_by_hook,
-                    &reason,
-                    result.source_hook_command.as_deref(),
-                );
+                let (summary_path, state_path) = self
+                    .write_hook_defer_artifact(
+                        tool_name,
+                        working_dir,
+                        params,
+                        &original_input,
+                        &effective_arguments_snapshot,
+                        tool_arguments,
+                        input_changed_by_hook,
+                        &reason,
+                        result.source_hook_command.as_deref(),
+                    )
+                    .await;
                 return Some(ToolResult::success_with_metadata(
                     format!(
                         "Deferred by hook: {}.\nSummary: {}\nState: {}\nResume by retrying the tool call after the external action completes.",
@@ -105,7 +107,7 @@ impl AgentEngine {
         clippy::too_many_arguments,
         reason = "hook defer artifacts intentionally capture original/effective input snapshots and hook provenance"
     )]
-    fn write_hook_defer_artifact(
+    async fn write_hook_defer_artifact(
         &self,
         tool_name: &str,
         working_dir: &str,
@@ -122,7 +124,7 @@ impl AgentEngine {
             .working_dir_compat()
             .join(".yode")
             .join("hooks");
-        if std::fs::create_dir_all(&dir).is_err() {
+        if tokio::fs::create_dir_all(&dir).await.is_err() {
             return (None, None);
         }
         let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
@@ -156,11 +158,12 @@ impl AgentEngine {
             tool_name,
             state_path.display(),
         );
-        let summary_ok = std::fs::write(&summary_path, summary).is_ok();
-        let state_ok = std::fs::write(
+        let summary_ok = tokio::fs::write(&summary_path, summary).await.is_ok();
+        let state_ok = tokio::fs::write(
             &state_path,
             serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()),
         )
+        .await
         .is_ok();
         (
             summary_ok.then(|| summary_path.display().to_string()),

@@ -32,11 +32,19 @@ impl AgentEngine {
 
         prepared.refresh_metadata(tool_call);
 
-        self.recovery_gate_outcome(tool_call, &prepared.started_at)
-            .or_else(|| self.invalid_path_outcome(tool_call, prepared))
-            .or_else(|| self.language_mismatch_outcome(tool_call, prepared))
-            .or_else(|| self.unread_file_edit_outcome(tool_call, prepared, working_dir))
-            .or_else(|| self.bash_guard_outcome(tool_call, prepared))
+        if let Some(outcome) = self.recovery_gate_outcome(tool_call, &prepared.started_at) {
+            return Some(outcome);
+        }
+        if let Some(outcome) = self.invalid_path_outcome(tool_call, prepared) {
+            return Some(outcome);
+        }
+        if let Some(outcome) = self.language_mismatch_outcome(tool_call, prepared) {
+            return Some(outcome);
+        }
+        if let Some(outcome) = self.unread_file_edit_outcome(tool_call, prepared, working_dir) {
+            return Some(outcome);
+        }
+        self.bash_guard_outcome(tool_call, prepared).await
     }
 
     fn recovery_gate_outcome(
@@ -159,7 +167,7 @@ impl AgentEngine {
         ))
     }
 
-    fn bash_guard_outcome(
+    async fn bash_guard_outcome(
         &mut self,
         tool_call: &ToolCall,
         prepared: &PreparedToolExecution,
@@ -200,7 +208,8 @@ impl AgentEngine {
                 &prepared.original_params,
                 &tool_call.arguments,
                 prepared.input_changed_by_hook,
-            );
+            )
+            .await;
             return Some(Self::immediate_tool_outcome(
                 tool_call,
                 &prepared.started_at,

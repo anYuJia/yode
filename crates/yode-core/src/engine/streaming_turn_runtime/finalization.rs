@@ -139,7 +139,8 @@ impl AgentEngine {
                             err
                         )));
                         self.complete_tool_turn_artifact();
-                        self.complete_turn_runtime_artifact(response.stop_reason.as_ref());
+                        self.complete_turn_runtime_artifact(response.stop_reason.as_ref())
+                            .await;
                         let _ = event_tx.send(EngineEvent::Done);
                         return Ok(StreamFinalizeAction::Break);
                     }
@@ -175,7 +176,8 @@ impl AgentEngine {
                 debug!("Streaming turn complete with no tool calls; finishing turn.");
                 self.maybe_refresh_live_session_memory(Some(event_tx));
                 self.complete_tool_turn_artifact();
-                self.complete_turn_runtime_artifact(response.stop_reason.as_ref());
+                self.complete_turn_runtime_artifact(response.stop_reason.as_ref())
+                    .await;
                 let _ = event_tx.send(EngineEvent::TurnComplete(response));
                 let _ = event_tx.send(EngineEvent::Done);
                 return Ok(StreamFinalizeAction::Break);
@@ -190,7 +192,7 @@ impl AgentEngine {
         }
 
         self.complete_tool_turn_artifact();
-        self.complete_turn_runtime_artifact(None);
+        self.complete_turn_runtime_artifact(None).await;
         let _ = event_tx.send(EngineEvent::Done);
         Ok(StreamFinalizeAction::Break)
     }

@@ -162,7 +162,8 @@ impl AgentEngine {
                         &prepared.original_params,
                         &tool_call.arguments,
                         prepared.input_changed_by_hook,
-                    );
+                    )
+                    .await;
                     let denied_ctx = HookContext {
                         event: HookEvent::PermissionDenied.to_string(),
                         session_id: self.context.session_id.clone(),

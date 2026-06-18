@@ -115,7 +115,7 @@ impl AgentEngine {
         clippy::too_many_arguments,
         reason = "permission artifacts persist both original and hook-mutated inputs for recovery auditability"
     )]
-    pub(super) fn write_permission_artifact(
+    pub(super) async fn write_permission_artifact(
         &mut self,
         source: &str,
         tool_name: &str,
@@ -132,7 +132,7 @@ impl AgentEngine {
             .working_dir_compat()
             .join(".yode")
             .join("hooks");
-        if std::fs::create_dir_all(&dir).is_err() {
+        if tokio::fs::create_dir_all(&dir).await.is_err() {
             return;
         }
         let path = dir.join("latest-permission.json");
@@ -167,10 +167,11 @@ impl AgentEngine {
             "original_arguments_snapshot": original_arguments,
             "input_changed_by_hook": input_changed_by_hook,
         });
-        if std::fs::write(
+        if tokio::fs::write(
             &path,
             serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()),
         )
+        .await
         .is_ok()
         {
             self.last_permission_artifact_path = Some(path.display().to_string());
