@@ -88,6 +88,17 @@ fn sessions_compact_local(
 }
 
 #[tauri::command]
+async fn sessions_compact_engine(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    session_id: String,
+) -> Result<protocol::SessionCompactResult, String> {
+    runtime
+        .sessions_compact_engine(session_id)
+        .await
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
 fn project_folder_pick() -> Option<String> {
     rfd::FileDialog::new()
         .pick_folder()
@@ -602,6 +613,7 @@ pub fn run() {
             sessions_rename,
             sessions_export_markdown,
             sessions_compact_local,
+            sessions_compact_engine,
             project_folder_pick,
             runtime_state_get,
             edit_diff_artifact_read,

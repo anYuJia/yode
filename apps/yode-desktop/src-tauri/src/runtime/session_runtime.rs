@@ -2,12 +2,20 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
+use tokio::sync::mpsc::unbounded_channel;
 use uuid::Uuid;
 
 use yode_core::config::Config;
+use yode_core::context::AgentContext;
+use yode_core::db::Database;
+use yode_core::engine::AgentEngine;
 use yode_core::session::Session;
 
-use super::{provider_runtime::normalized_provider_model, DesktopRuntime};
+use super::{
+    configure_desktop_permissions, personalization_runtime::build_personalization_prompt,
+    provider_runtime::normalized_provider_model, DesktopRuntime,
+};
+use crate::hook_settings::build_desktop_hook_manager;
 use crate::protocol::{
     CreateSessionRequest, DesktopImageOutput, DesktopMessage, DesktopSession, SessionCompactResult,
     SessionExportResult,
@@ -173,6 +181,115 @@ impl DesktopRuntime {
             before_count,
             after_count: compacted.len(),
             removed_count: before_count.saturating_sub(compacted.len()),
+            summary,
+        })
+    }
+
+    pub async fn sessions_compact_engine(
+        &self,
+        session_id: String,
+    ) -> Result<SessionCompactResult> {
+        let session = self
+            .db
+            .get_session(&session_id)?
+            .ok_or_else(|| anyhow::anyhow!("session '{}' not found", session_id))?;
+        let before_count = self.db.load_messages(&session_id)?.len();
+
+        let config = self
+            .config
+            .lock()
+            .map_err(|_| anyhow::anyhow!("config lock poisoned"))?
+            .clone();
+        let provider = self
+            .provider_registry
+            .lock()
+            .map_err(|_| anyhow::anyhow!("registry lock poisoned"))?
+            .get(&session.provider)
+            .ok_or_else(|| {
+                anyhow::anyhow!("Provider '{}' not found in registry", session.provider)
+            })?;
+        let tools = self
+            .tool_registry
+            .lock()
+            .map_err(|_| anyhow::anyhow!("tool registry lock poisoned"))?
+            .clone();
+        let mcp_resource_provider = self
+            .mcp_resource_provider
+            .lock()
+            .map_err(|_| anyhow::anyhow!("mcp resource provider lock poisoned"))?
+            .clone();
+
+        let workspace_path = session
+            .project_root
+            .as_deref()
+            .filter(|root| !root.trim().is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| self.workspace_path.clone());
+        let mut permissions = configure_desktop_permissions(&config, &workspace_path);
+        if let Ok(active_mode_guard) = self.permission_mode.lock() {
+            if let Ok(mode) = active_mode_guard.parse::<yode_core::permission::PermissionMode>() {
+                permissions.set_mode(mode);
+            }
+        }
+        if let Ok(rules) = self.session_permission_rules.lock() {
+            if let Some(session_rules) = rules.get(&session.id) {
+                permissions.add_rules(session_rules.clone());
+            }
+        }
+
+        let mut context = AgentContext::resume(
+            session.id.clone(),
+            workspace_path,
+            session.provider.clone(),
+            session.model.clone(),
+        );
+        let personalization = self.personalization_state()?;
+        context.project_memory_enabled = personalization.enable_memories
+            && session
+                .project_root
+                .as_deref()
+                .is_some_and(|root| !root.trim().is_empty());
+        context.skip_tool_assisted_memory = personalization.skip_tool_chats;
+        context.personalization_prompt = build_personalization_prompt(&personalization);
+        context.output_style = config.ui.output_style.clone();
+
+        let restored_messages = self
+            .db
+            .load_messages(&session.id)?
+            .into_iter()
+            .filter_map(stored_message_to_message)
+            .collect();
+        let hook_manager = build_desktop_hook_manager(&self.workspace_path)?;
+        let db = Database::open(&self.db_path)?;
+        let mut engine = AgentEngine::new(provider, tools, permissions, context);
+        engine.set_database(db);
+        if let Some(hook_manager) = hook_manager {
+            engine.set_hook_manager(hook_manager);
+        }
+        if let Some(mcp) = mcp_resource_provider {
+            engine.set_mcp_resource_provider(mcp);
+        }
+        engine.set_mcp_resource_policy(yode_tools::tool::McpResourcePolicy {
+            allow: config.mcp.resource_allow.clone(),
+            deny: config.mcp.resource_deny.clone(),
+        });
+        engine.restore_messages(restored_messages);
+
+        let (event_tx, _event_rx) = unbounded_channel();
+        let compacted = engine.force_compact(event_tx).await;
+        let runtime = engine.runtime_state();
+        let after_count = self.db.load_messages(&session_id)?.len();
+        let summary = if compacted {
+            runtime
+                .last_compaction_summary_excerpt
+                .unwrap_or_else(|| "已完成 engine-level 手动压缩。".to_string())
+        } else {
+            "当前会话还不需要压缩。".to_string()
+        };
+        Ok(SessionCompactResult {
+            before_count,
+            after_count,
+            removed_count: before_count.saturating_sub(after_count),
             summary,
         })
     }

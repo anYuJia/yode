@@ -187,7 +187,7 @@ export async function executeLocalSlashCommand(
         return true;
       }
       try {
-        const compacted = await invoke<SessionCompactResult>("sessions_compact_local", {
+        const compacted = await invoke<SessionCompactResult>("sessions_compact_engine", {
           sessionId: context.activeSessionId,
           session_id: context.activeSessionId
         });
