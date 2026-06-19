@@ -201,10 +201,13 @@ fn open_target(
 }
 
 #[tauri::command]
-fn import_ai_sessions(
+async fn import_ai_sessions(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
 ) -> Result<protocol::ImportAiSessionsResult, String> {
-    runtime.import_ai_sessions().map_err(|err| err.to_string())
+    runtime
+        .import_ai_sessions()
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]

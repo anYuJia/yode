@@ -6,13 +6,16 @@ use uuid::Uuid;
 use yode_core::db::Database;
 use yode_core::session::Session;
 
-pub(super) fn collect_import_files(paths: Vec<PathBuf>) -> Vec<PathBuf> {
+pub(super) async fn collect_import_files(paths: Vec<PathBuf>) -> Vec<PathBuf> {
     let mut files = Vec::new();
     let mut stack = paths;
     while let Some(path) = stack.pop() {
-        if path.is_dir() {
-            if let Ok(entries) = std::fs::read_dir(&path) {
-                for entry in entries.flatten() {
+        let Ok(metadata) = tokio::fs::metadata(&path).await else {
+            continue;
+        };
+        if metadata.is_dir() {
+            if let Ok(mut entries) = tokio::fs::read_dir(&path).await {
+                while let Ok(Some(entry)) = entries.next_entry().await {
                     stack.push(entry.path());
                 }
             }
@@ -31,13 +34,14 @@ pub(super) fn collect_import_files(paths: Vec<PathBuf>) -> Vec<PathBuf> {
     files
 }
 
-pub(super) fn import_one_ai_session(
+pub(super) async fn import_one_ai_session(
     db: &Database,
     path: &Path,
     provider: &str,
     model: &str,
 ) -> Result<Option<Session>> {
-    let text = std::fs::read_to_string(path)
+    let text = tokio::fs::read_to_string(path)
+        .await
         .with_context(|| format!("无法读取导入文件 {}", path.display()))?;
     let messages = parse_import_messages(&text, path);
     if messages.is_empty() {
