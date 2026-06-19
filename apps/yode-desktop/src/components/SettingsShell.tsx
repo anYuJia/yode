@@ -31,7 +31,7 @@ import {
   Plus,
   Trash2
 } from "lucide-react";
-import { Bootstrap } from "../lib/desktopTypes";
+import { Bootstrap, SessionSummary } from "../lib/desktopTypes";
 import { CustomSelect, CustomSelectOption } from "./CustomSelect";
 import { ColorPicker } from "./ColorPicker";
 
@@ -69,7 +69,7 @@ type LicenseNotice = {
 type ImportAiSessionsResult = {
   imported: number;
   skipped: number;
-  sessions: any[];
+  sessions: SessionSummary[];
 };
 
 function clampNumber(value: number, min: number, max: number) {

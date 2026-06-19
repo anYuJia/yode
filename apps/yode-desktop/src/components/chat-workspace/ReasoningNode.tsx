@@ -2,7 +2,12 @@ import React, { useState, useEffect } from "react";
 import { ChevronDown, ChevronRight, CircleDot, Brain } from "lucide-react";
 
 interface ReasoningNodeProps {
-  item: any;
+  item: {
+    id: string;
+    title: string;
+    body: string;
+    meta?: string;
+  };
   appLang: string;
 }
 

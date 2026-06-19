@@ -1,6 +1,6 @@
 mod render;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
@@ -435,6 +435,16 @@ pub struct TeamReceiveTool;
 pub struct TeamMonitorTool;
 pub struct TeamRunReadyTool;
 
+async fn run_team_disk_io<T, F>(operation: &'static str, work: F) -> Result<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T> + Send + 'static,
+{
+    tokio::task::spawn_blocking(work)
+        .await
+        .with_context(|| format!("{operation} blocking task failed"))?
+}
+
 #[async_trait]
 impl Tool for TeamCreateTool {
     fn name(&self) -> &str {
@@ -527,9 +537,20 @@ impl Tool for TeamCreateTool {
                         messages: Vec::new(),
                     })
             };
-            persist_agent_team_snapshot(working_dir, &snapshot)?
+            let working_dir = working_dir.clone();
+            run_team_disk_io("persist_agent_team_snapshot", move || {
+                persist_agent_team_snapshot(&working_dir, &snapshot)
+            })
+            .await?
         } else {
-            persist_agent_team_runtime(working_dir, goal, team_id, mode, members)?
+            let working_dir = working_dir.clone();
+            let goal = goal.to_string();
+            let team_id = team_id.map(str::to_string);
+            let mode = mode.to_string();
+            run_team_disk_io("persist_agent_team_runtime", move || {
+                persist_agent_team_runtime(&working_dir, &goal, team_id.as_deref(), &mode, members)
+            })
+            .await?
         };
         Ok(ToolResult::success_with_metadata(
             format!(
@@ -623,10 +644,22 @@ impl Tool for TeamDeleteTool {
             }
         }
 
-        let team_id = team_id
-            .or_else(|| latest_team_id_from_disk(working_dir))
-            .ok_or_else(|| anyhow::anyhow!("No agent team runtime found to delete."))?;
-        let removed_paths = delete_agent_team_runtime(working_dir, &team_id)?;
+        let team_id = if let Some(team_id) = team_id {
+            team_id
+        } else {
+            let working_dir = working_dir.clone();
+            run_team_disk_io("latest_team_id_from_disk", move || {
+                Ok(latest_team_id_from_disk(&working_dir))
+            })
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("No agent team runtime found to delete."))?
+        };
+        let working_dir = working_dir.clone();
+        let team_id_for_delete = team_id.clone();
+        let removed_paths = run_team_disk_io("delete_agent_team_runtime", move || {
+            delete_agent_team_runtime(&working_dir, &team_id_for_delete)
+        })
+        .await?;
         Ok(ToolResult::success_with_metadata(
             format!(
                 "Agent team deleted: {} ({} artifacts removed)",
@@ -703,7 +736,16 @@ impl Tool for SendMessageTool {
             .working_dir
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Working directory not set"))?;
-        let (team_id, target) = resolve_send_message_route(&params, working_dir)?;
+        let (team_id, target) = if string_param(&params, "team_id", "team_name").is_some() {
+            resolve_send_message_route(&params, working_dir)?
+        } else {
+            let params = params.clone();
+            let working_dir = working_dir.clone();
+            run_team_disk_io("resolve_send_message_route", move || {
+                resolve_send_message_route(&params, &working_dir)
+            })
+            .await?
+        };
         let message = message_param(&params)?;
         let kind = params
             .get("kind")
@@ -718,11 +760,23 @@ impl Tool for SendMessageTool {
                     .snapshot(&team_id)
                     .ok_or_else(|| anyhow::anyhow!("Team '{}' not found.", team_id))?
             };
-            persist_agent_team_snapshot(working_dir, &snapshot)?
-                .messages_path
-                .ok_or_else(|| anyhow::anyhow!("Team message artifact missing"))?
+            let working_dir = working_dir.clone();
+            run_team_disk_io("persist_agent_team_snapshot", move || {
+                persist_agent_team_snapshot(&working_dir, &snapshot)
+            })
+            .await?
+            .messages_path
+            .ok_or_else(|| anyhow::anyhow!("Team message artifact missing"))?
         } else {
-            append_agent_team_message(working_dir, &team_id, &target, kind, &message)?
+            let working_dir = working_dir.clone();
+            let team_id = team_id.clone();
+            let target = target.clone();
+            let kind = kind.to_string();
+            let message = message.clone();
+            run_team_disk_io("append_agent_team_message", move || {
+                append_agent_team_message(&working_dir, &team_id, &target, &kind, &message)
+            })
+            .await?
         };
         Ok(ToolResult::success_with_metadata(
             format!("Team message recorded: {}", path.display()),
@@ -817,7 +871,14 @@ impl Tool for TeamReceiveTool {
                 (messages, manager.snapshot(team_id))
             };
             if let Some(snapshot) = snapshot.1.as_ref() {
-                if let Err(err) = persist_agent_team_snapshot(working_dir, snapshot) {
+                let working_dir = working_dir.clone();
+                let snapshot = snapshot.clone();
+                if let Err(err) = run_team_disk_io(
+                    "persist_agent_team_snapshot_after_message_read",
+                    move || persist_agent_team_snapshot(&working_dir, &snapshot),
+                )
+                .await
+                {
                     warn!(
                         team_id,
                         member_id,
@@ -829,18 +890,30 @@ impl Tool for TeamReceiveTool {
             }
             snapshot.0
         } else if consume {
-            consume_agent_team_messages(working_dir, team_id, member_id, max_items)?
+            let working_dir = working_dir.clone();
+            let team_id = team_id.to_string();
+            let member_id = member_id.to_string();
+            run_team_disk_io("consume_agent_team_messages", move || {
+                consume_agent_team_messages(&working_dir, &team_id, &member_id, max_items)
+            })
+            .await?
         } else {
-            load_team_messages(working_dir, team_id)
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|message| message.target == "all" || message.target == member_id)
-                .rev()
-                .take(max_items)
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-                .collect()
+            let working_dir = working_dir.clone();
+            let team_id = team_id.to_string();
+            let member_id = member_id.to_string();
+            run_team_disk_io("load_team_messages", move || {
+                Ok(load_team_messages(&working_dir, &team_id)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|message| message.target == "all" || message.target == member_id)
+                    .rev()
+                    .take(max_items)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect())
+            })
+            .await?
         };
 
         let content = if messages.is_empty() {
@@ -999,7 +1072,11 @@ impl Tool for TeamRunReadyTool {
                 .ok_or_else(|| anyhow::anyhow!("Team '{}' not found.", team_id))?;
             (report, snapshot)
         };
-        let artifacts = persist_agent_team_snapshot(working_dir, &snapshot)?;
+        let working_dir_for_persist = working_dir.clone();
+        let artifacts = run_team_disk_io("persist_agent_team_snapshot", move || {
+            persist_agent_team_snapshot(&working_dir_for_persist, &snapshot)
+        })
+        .await?;
         Ok(ToolResult::success_with_metadata(
             format!(
                 "Ready team steps processed.\nLaunched: {}\nReady: {}\nBlocked: {}\nMonitor: {}",
@@ -1097,24 +1174,37 @@ impl Tool for TeamMonitorTool {
                         ctx.runtime_tasks.as_ref(),
                         include_messages,
                     )?,
-                    Some(persist_agent_team_snapshot(working_dir, &snapshot)?),
+                    {
+                        let working_dir = working_dir.clone();
+                        Some(
+                            run_team_disk_io("persist_agent_team_snapshot", move || {
+                                persist_agent_team_snapshot(&working_dir, &snapshot)
+                            })
+                            .await?,
+                        )
+                    },
                 )
             } else {
-                (
-                    render_agent_team_monitor(
-                        working_dir,
-                        team_id,
-                        ctx.runtime_tasks.as_ref(),
+                let working_dir_for_render = working_dir.clone();
+                let team_id_for_render = team_id.map(str::to_string);
+                let runtime_tasks = ctx.runtime_tasks.clone();
+                run_team_disk_io("render_agent_team_monitor", move || {
+                    let rendered = render_agent_team_monitor(
+                        &working_dir_for_render,
+                        team_id_for_render.as_deref(),
+                        runtime_tasks.as_ref(),
                         include_messages,
-                    )?,
-                    if let Some(team_id) = team_id {
-                        load_agent_team_state(working_dir, team_id)?
-                            .map(|state| write_agent_team_state(working_dir, &state))
+                    )?;
+                    let artifacts = if let Some(team_id) = team_id_for_render.as_deref() {
+                        load_agent_team_state(&working_dir_for_render, team_id)?
+                            .map(|state| write_agent_team_state(&working_dir_for_render, &state))
                             .transpose()?
                     } else {
                         None
-                    },
-                )
+                    };
+                    Ok((rendered, artifacts))
+                })
+                .await?
             };
         Ok(ToolResult::success_with_metadata(
             rendered,

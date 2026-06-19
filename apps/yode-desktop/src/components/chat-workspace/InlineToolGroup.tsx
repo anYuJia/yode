@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import { ChevronDown } from "lucide-react";
+import { TimelineItem } from "../../lib/desktopTypes";
 
-export function InlineToolGroup({ label, items, appLang }: { label: string; items: any[]; appLang: string }) {
+export function InlineToolGroup({ label, items, appLang }: { label: string; items: TimelineItem[]; appLang: string }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   return (
@@ -44,10 +45,12 @@ export function InlineToolGroup({ label, items, appLang }: { label: string; item
           gap: "6px",
           fontSize: "11.5px"
         }}>
-          {items.map((item, idx) => (
-            <div key={idx} style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-              <div style={{ fontWeight: "600", color: "var(--text)" }}>{item.title}</div>
-              {item.body && (
+          {items.map((item) => {
+            const body = "body" in item ? item.body : "";
+            return (
+            <div key={item.id} style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+              <div style={{ fontWeight: "600", color: "var(--text)" }}>{"title" in item ? item.title : label}</div>
+              {body && (
                 <pre style={{
                   margin: "2px 0 0",
                   padding: "6px",
@@ -61,11 +64,12 @@ export function InlineToolGroup({ label, items, appLang }: { label: string; item
                   color: "var(--text-muted)",
                   border: "1px solid var(--line-soft)"
                 }}>
-                  {item.body.length > 300 ? item.body.substring(0, 300) + "..." : item.body}
+                  {body.length > 300 ? body.substring(0, 300) + "..." : body}
                 </pre>
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
