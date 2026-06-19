@@ -249,24 +249,14 @@ impl ToolRegistry {
 
     /// List deferred tools (name, tool).
     pub fn list_deferred(&self) -> Vec<(String, Arc<dyn Tool>)> {
-        self.deferred
-            .read()
-            .unwrap_or_else(|poisoned| {
-                tracing::warn!(lock = "deferred", "Recovering poisoned tool registry lock");
-                poisoned.into_inner()
-            })
+        read_lock(&self.deferred, "deferred")
             .iter()
             .map(|(name, tool)| (name.clone(), Arc::clone(tool)))
             .collect()
     }
 
     pub fn definitions(&self) -> Vec<ToolDefinition> {
-        self.tools
-            .read()
-            .unwrap_or_else(|poisoned| {
-                tracing::warn!(lock = "tools", "Recovering poisoned tool registry lock");
-                poisoned.into_inner()
-            })
+        read_lock(&self.tools, "tools")
             .values()
             .map(|tool| tool.definition())
             .collect()
@@ -307,15 +297,7 @@ impl ToolRegistry {
 
     pub fn duplicate_registrations(&self) -> Vec<DuplicateToolRegistration> {
         let mut items = self
-            .duplicate_registrations
-            .read()
-            .unwrap_or_else(|poisoned| {
-                tracing::warn!(
-                    lock = "duplicate_registrations",
-                    "Recovering poisoned tool registry lock"
-                );
-                poisoned.into_inner()
-            })
+            .read_duplicate_registrations()
             .values()
             .cloned()
             .collect::<Vec<_>>();
@@ -356,6 +338,12 @@ impl ToolRegistry {
             "Duplicate tool registration blocked"
         );
         true
+    }
+
+    fn read_duplicate_registrations(
+        &self,
+    ) -> RwLockReadGuard<'_, HashMap<String, DuplicateToolRegistration>> {
+        read_lock(&self.duplicate_registrations, "duplicate_registrations")
     }
 }
 
