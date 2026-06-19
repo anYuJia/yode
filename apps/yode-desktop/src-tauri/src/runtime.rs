@@ -19,16 +19,15 @@ use crate::desktop_settings_store::read_desktop_settings;
 use crate::git_settings::{apply_git_settings_env, git_settings_from_desktop_settings};
 use crate::license_notices::read_license_notices;
 use crate::protocol::{
-    Bootstrap, DesktopActionResult, DesktopWorktree, GeneralSettings, ImportAiSessionsResult,
-    LicenseNotice, RuntimeState,
+    Bootstrap, DesktopActionResult, DesktopWorktree, GeneralSettings, LicenseNotice, RuntimeState,
 };
-use crate::session_import::{collect_import_files, import_one_ai_session};
 use crate::worktree::{
     current_git_branch, delete_worktree, list_git_worktrees, prune_idle_worktrees,
 };
 
 mod configuration_runtime;
 mod edit_diff_runtime;
+mod import_runtime;
 mod mcp_runtime;
 mod personalization_runtime;
 mod provider_runtime;
@@ -184,47 +183,6 @@ impl DesktopRuntime {
             .map_err(|_| anyhow::anyhow!("permission mode lock poisoned"))?;
         *active_mode = parsed.to_string();
         Ok(())
-    }
-
-    pub async fn import_ai_sessions(&self) -> Result<ImportAiSessionsResult> {
-        let Some(paths) = rfd::FileDialog::new()
-            .set_title("选择要导入的 AI 会话文件或目录")
-            .add_filter("会话文件", &["json", "jsonl", "md", "markdown", "txt"])
-            .pick_files()
-        else {
-            return Ok(ImportAiSessionsResult {
-                imported: 0,
-                skipped: 0,
-                sessions: Vec::new(),
-            });
-        };
-
-        let (provider, model) = {
-            let config = self
-                .config
-                .lock()
-                .map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
-            self.default_llm_for_new_session(&config)?
-        };
-
-        let mut imported_sessions = Vec::new();
-        let mut skipped = 0usize;
-        for file in collect_import_files(paths).await {
-            match import_one_ai_session(&self.db, &file, &provider, &model).await {
-                Ok(Some(session)) => imported_sessions.push(self.map_session(session, None)),
-                Ok(None) => skipped += 1,
-                Err(err) => {
-                    tracing::warn!("Failed to import {}: {}", file.display(), err);
-                    skipped += 1;
-                }
-            }
-        }
-
-        Ok(ImportAiSessionsResult {
-            imported: imported_sessions.len(),
-            skipped,
-            sessions: imported_sessions,
-        })
     }
 
     pub fn license_notices(&self) -> Result<Vec<LicenseNotice>> {
