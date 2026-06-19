@@ -68,12 +68,13 @@ fn sessions_rename(
 }
 
 #[tauri::command]
-fn sessions_export_markdown(
+async fn sessions_export_markdown(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
     session_id: String,
 ) -> Result<protocol::SessionExportResult, String> {
     runtime
         .sessions_export_markdown(session_id)
+        .await
         .map_err(|err| err.to_string())
 }
 

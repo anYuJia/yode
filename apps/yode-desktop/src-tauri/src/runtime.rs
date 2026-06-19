@@ -536,8 +536,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
-    #[test]
-    fn sessions_export_markdown_writes_transcript() {
+    #[tokio::test]
+    async fn sessions_export_markdown_writes_transcript() {
         let (runtime, dir) = test_runtime("desktop-export-session");
         let session = runtime
             .sessions_create(CreateSessionRequest {
@@ -556,7 +556,7 @@ mod tests {
             .save_message(&session.id, "assistant", Some("hi back"), None, None, None)
             .unwrap();
 
-        let exported = runtime.sessions_export_markdown(session.id).unwrap();
+        let exported = runtime.sessions_export_markdown(session.id).await.unwrap();
         let content = std::fs::read_to_string(&exported.path).unwrap();
 
         assert_eq!(exported.message_count, 2);

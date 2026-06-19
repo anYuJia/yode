@@ -120,7 +120,10 @@ impl DesktopRuntime {
         Ok(self.map_session(session, active_session_id.as_deref()))
     }
 
-    pub fn sessions_export_markdown(&self, session_id: String) -> Result<SessionExportResult> {
+    pub async fn sessions_export_markdown(
+        &self,
+        session_id: String,
+    ) -> Result<SessionExportResult> {
         let session = self
             .db
             .get_session(&session_id)?
@@ -133,14 +136,14 @@ impl DesktopRuntime {
             .filter(|path| path.is_dir())
             .unwrap_or_else(|| self.workspace_path.clone());
         let export_dir = root.join(".yode").join("exports");
-        std::fs::create_dir_all(&export_dir)?;
+        tokio::fs::create_dir_all(&export_dir).await?;
         let timestamp = Utc::now().format("%Y%m%d-%H%M%S");
         let path = export_dir.join(format!(
             "{}-{}.md",
             short_session_id(&session_id),
             timestamp
         ));
-        std::fs::write(&path, render_session_markdown(&session, &messages))?;
+        tokio::fs::write(&path, render_session_markdown(&session, &messages)).await?;
         Ok(SessionExportResult {
             path: path.display().to_string(),
             message_count: messages.len(),
