@@ -91,9 +91,9 @@ impl DesktopRuntime {
         open_with_destination("VS Code", &path)
     }
 
-    pub fn diagnose_workspace(&self) -> Result<WorkspaceDiagnosticsResult> {
+    pub async fn diagnose_workspace(&self) -> Result<WorkspaceDiagnosticsResult> {
         let report_dir = self.workspace_path.join(".yode").join("diagnostics");
-        std::fs::create_dir_all(&report_dir)?;
+        tokio::fs::create_dir_all(&report_dir).await?;
         let report_path = report_dir.join(format!(
             "diagnostics-{}.md",
             Utc::now().format("%Y%m%d-%H%M%S")
@@ -106,25 +106,26 @@ impl DesktopRuntime {
                 check.status, check.name, check.detail
             ));
         }
-        std::fs::write(&report_path, report)?;
+        tokio::fs::write(&report_path, report).await?;
         Ok(WorkspaceDiagnosticsResult {
             report_path: report_path.display().to_string(),
             checks,
         })
     }
 
-    pub fn reinstall_workspace(&self) -> Result<WorkspaceDiagnosticsResult> {
+    pub async fn reinstall_workspace(&self) -> Result<WorkspaceDiagnosticsResult> {
         let cache_dir = self.workspace_path.join(".yode").join("workspace");
-        if cache_dir.exists() {
-            std::fs::remove_dir_all(&cache_dir)?;
+        if tokio::fs::try_exists(&cache_dir).await? {
+            tokio::fs::remove_dir_all(&cache_dir).await?;
         }
-        std::fs::create_dir_all(&cache_dir)?;
-        std::fs::write(
+        tokio::fs::create_dir_all(&cache_dir).await?;
+        tokio::fs::write(
             cache_dir.join("README.txt"),
             "Yode workspace dependencies are managed here.\n",
-        )?;
-        set_workspace_dependency_state(true)?;
-        self.diagnose_workspace()
+        )
+        .await?;
+        set_workspace_dependency_state_async(true).await?;
+        self.diagnose_workspace().await
     }
 
     fn config_path_for_scope(&self, scope: ConfigScope) -> PathBuf {
@@ -233,6 +234,22 @@ fn set_workspace_dependency_state(expose: bool) -> Result<()> {
             "updatedAt": Utc::now().to_rfc3339()
         }))?,
     )?;
+    Ok(())
+}
+
+async fn set_workspace_dependency_state_async(expose: bool) -> Result<()> {
+    let path = workspace_dependency_state_path();
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    tokio::fs::write(
+        path,
+        serde_json::to_string_pretty(&json!({
+            "exposeDependencies": expose,
+            "updatedAt": Utc::now().to_rfc3339()
+        }))?,
+    )
+    .await?;
     Ok(())
 }
 

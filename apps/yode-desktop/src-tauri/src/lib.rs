@@ -241,17 +241,23 @@ fn configuration_open_file(
 }
 
 #[tauri::command]
-fn workspace_diagnose(
+async fn workspace_diagnose(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
 ) -> Result<protocol::WorkspaceDiagnosticsResult, String> {
-    runtime.diagnose_workspace().map_err(|err| err.to_string())
+    runtime
+        .diagnose_workspace()
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-fn workspace_reinstall(
+async fn workspace_reinstall(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
 ) -> Result<protocol::WorkspaceDiagnosticsResult, String> {
-    runtime.reinstall_workspace().map_err(|err| err.to_string())
+    runtime
+        .reinstall_workspace()
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
