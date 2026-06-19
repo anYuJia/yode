@@ -149,8 +149,8 @@ impl DesktopRuntime {
         })
     }
 
-    pub fn edit_diff_artifact_read(&self, path: String) -> Result<String> {
-        read_edit_diff_artifact_from_roots(&path, &self.edit_diff_artifact_roots()?)
+    pub async fn edit_diff_artifact_read(&self, path: String) -> Result<String> {
+        read_edit_diff_artifact_from_roots(&path, &self.edit_diff_artifact_roots()?).await
     }
 
     fn edit_diff_artifact_roots(&self) -> Result<Vec<PathBuf>> {
@@ -285,7 +285,7 @@ impl DesktopRuntime {
     }
 }
 
-fn read_edit_diff_artifact_from_roots(path: &str, roots: &[PathBuf]) -> Result<String> {
+async fn read_edit_diff_artifact_from_roots(path: &str, roots: &[PathBuf]) -> Result<String> {
     let clean = path.trim();
     if clean.is_empty() {
         anyhow::bail!("diff artifact path is empty");
@@ -312,10 +312,10 @@ fn read_edit_diff_artifact_from_roots(path: &str, roots: &[PathBuf]) -> Result<S
     let mut candidate_roots = Vec::new();
     for root in roots {
         candidate_roots.push(root.clone());
-        if let Ok(entries) = std::fs::read_dir(root) {
-            for entry in entries.flatten() {
+        if let Ok(mut entries) = tokio::fs::read_dir(root).await {
+            while let Some(entry) = entries.next_entry().await? {
                 let path = entry.path();
-                if path.is_dir() {
+                if entry.file_type().await?.is_dir() {
                     candidate_roots.push(path);
                 }
             }
@@ -327,7 +327,7 @@ fn read_edit_diff_artifact_from_roots(path: &str, roots: &[PathBuf]) -> Result<S
         let allowed_dir = root.join(".yode").join("edit-diffs");
         searched.push(allowed_dir.display().to_string());
         let target = root.join(relative);
-        let canonical_target = match target.canonicalize() {
+        let canonical_target = match tokio::fs::canonicalize(&target).await {
             Ok(path) => path,
             Err(err) => {
                 last_error = Some(
@@ -336,7 +336,7 @@ fn read_edit_diff_artifact_from_roots(path: &str, roots: &[PathBuf]) -> Result<S
                 continue;
             }
         };
-        let canonical_allowed = match allowed_dir.canonicalize() {
+        let canonical_allowed = match tokio::fs::canonicalize(&allowed_dir).await {
             Ok(path) => path,
             Err(err) => {
                 last_error = Some(
@@ -353,13 +353,15 @@ fn read_edit_diff_artifact_from_roots(path: &str, roots: &[PathBuf]) -> Result<S
             continue;
         }
 
-        let metadata = std::fs::metadata(&canonical_target)
+        let metadata = tokio::fs::metadata(&canonical_target)
+            .await
             .with_context(|| format!("Failed to inspect {}", canonical_target.display()))?;
         if metadata.len() > 2 * 1024 * 1024 {
             anyhow::bail!("diff artifact is too large to display");
         }
 
-        return std::fs::read_to_string(&canonical_target)
+        return tokio::fs::read_to_string(&canonical_target)
+            .await
             .with_context(|| format!("Failed to read {}", canonical_target.display()));
     }
 
@@ -467,8 +469,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn edit_diff_artifact_read_searches_session_project_roots() {
+    #[tokio::test]
+    async fn edit_diff_artifact_read_searches_session_project_roots() {
         let workspace_root = unique_temp_dir("workspace-root");
         let project_root = unique_temp_dir("project-root");
         let artifact_dir = project_root.join(".yode").join("edit-diffs");
@@ -479,6 +481,7 @@ mod tests {
             ".yode/edit-diffs/example.diff",
             &[workspace_root.clone(), project_root.clone()],
         )
+        .await
         .unwrap();
 
         assert_eq!(content, "+hello\n");
@@ -613,8 +616,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
-    #[test]
-    fn edit_diff_artifact_read_rejects_parent_components() {
+    #[tokio::test]
+    async fn edit_diff_artifact_read_rejects_parent_components() {
         let project_root = unique_temp_dir("project-root");
         let artifact_dir = project_root.join(".yode").join("edit-diffs");
         std::fs::create_dir_all(&artifact_dir).unwrap();
@@ -623,6 +626,7 @@ mod tests {
             ".yode/edit-diffs/../secret.diff",
             &[project_root.clone()],
         )
+        .await
         .unwrap_err()
         .to_string();
 

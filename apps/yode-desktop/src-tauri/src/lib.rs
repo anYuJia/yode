@@ -114,12 +114,13 @@ fn runtime_state_get(
 }
 
 #[tauri::command]
-fn edit_diff_artifact_read(
+async fn edit_diff_artifact_read(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
     path: String,
 ) -> Result<String, String> {
     runtime
         .edit_diff_artifact_read(path)
+        .await
         .map_err(|err| err.to_string())
 }
 
