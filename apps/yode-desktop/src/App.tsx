@@ -224,15 +224,18 @@ export function App() {
   const [projectRoots, setProjectRoots] = useState<string[]>(() => loadStoredProjectRoots());
   const [projectOrder, setProjectOrder] = useState<string[]>(() => loadStoredProjectOrder());
   const [selectedProjectRoot, setSelectedProjectRoot] = useState<string | null | undefined>(() => loadStoredSelectedProjectRoot());
-  const [inspectorOpen, setInspectorOpen] = useState(true);
-  const [terminalOpenByConversation, setTerminalOpenByConversation] = useState<Record<string, boolean>>({});
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const inspectorOpen = useAppUiStore((state) => state.inspectorOpen);
+  const setInspectorOpen = useAppUiStore((state) => state.setInspectorOpen);
+  const sidebarOpen = useAppUiStore((state) => state.sidebarOpen);
+  const setSidebarOpen = useAppUiStore((state) => state.setSidebarOpen);
   const sidebarWidth = useAppUiStore((state) => state.sidebarWidth);
   const setSidebarWidth = useAppUiStore((state) => state.setSidebarWidth);
   const inspectorWidth = useAppUiStore((state) => state.inspectorWidth);
   const setInspectorWidth = useAppUiStore((state) => state.setInspectorWidth);
   const terminalHeight = useAppUiStore((state) => state.terminalHeight);
   const setTerminalHeight = useAppUiStore((state) => state.setTerminalHeight);
+  const terminalOpenByConversation = useAppUiStore((state) => state.terminalOpenByConversation);
+  const setTerminalOpenForConversation = useAppUiStore((state) => state.setTerminalOpenForConversation);
   const [isProcessing, setIsProcessing] = useState(false);
   const [messageQueue, setMessageQueue] = useState<Array<{ content: string; images: ImageAttachment[] }>>([]);
   const [generalSettings, setGeneralSettings] = useState(loadGeneralSettings);
@@ -246,10 +249,7 @@ export function App() {
   const terminalConversationKey = activeSessionId ?? "__draft__";
   const terminalOpen = terminalOpenByConversation[terminalConversationKey] ?? false;
   const setTerminalOpenForCurrentConversation = (open: boolean) => {
-    setTerminalOpenByConversation((current) => ({
-      ...current,
-      [terminalConversationKey]: open
-    }));
+    setTerminalOpenForConversation(terminalConversationKey, open);
   };
   const [draggingPane, setDraggingPane] = useState<PaneKind | null>(null);
   const dragStateRef = useRef<PaneDragState | null>(null);
@@ -1290,11 +1290,11 @@ export function App() {
           break;
         case "toggle_sidebar":
           event.preventDefault();
-          setSidebarOpen((open) => !open);
+          setSidebarOpen(!sidebarOpen);
           break;
         case "toggle_side_panel":
           event.preventDefault();
-          setInspectorOpen((open) => !open);
+          setInspectorOpen(!inspectorOpen);
           break;
         case "open_terminal":
           event.preventDefault();
