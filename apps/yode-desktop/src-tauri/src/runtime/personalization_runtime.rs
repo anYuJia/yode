@@ -6,7 +6,8 @@ use serde_json::json;
 
 use super::DesktopRuntime;
 use crate::desktop_settings_store::{
-    desktop_bool_setting, desktop_string_setting, read_desktop_settings, write_desktop_settings,
+    desktop_bool_setting, desktop_string_setting, read_desktop_settings,
+    write_desktop_settings_async,
 };
 use crate::protocol::{DesktopActionResult, PersonalizationState};
 
@@ -15,7 +16,7 @@ impl DesktopRuntime {
         personalization_state_from_settings(&read_desktop_settings()?)
     }
 
-    pub fn personalization_reset_memories(&self) -> Result<DesktopActionResult> {
+    pub async fn personalization_reset_memories(&self) -> Result<DesktopActionResult> {
         let mut removed = 0usize;
         for root in self.memory_roots()? {
             for path in [
@@ -23,21 +24,23 @@ impl DesktopRuntime {
                 yode_core::session_memory::live_session_memory_path(&root),
                 root.join("MEMORY.md"),
             ] {
-                if path.exists() {
-                    std::fs::remove_file(&path).with_context(|| {
+                if tokio::fs::try_exists(&path).await? {
+                    tokio::fs::remove_file(&path).await.with_context(|| {
                         format!("Failed to remove memory file: {}", path.display())
                     })?;
                     removed += 1;
                 }
             }
             let memory_dir = root.join(".yode").join("memory");
-            if memory_dir.exists() {
-                std::fs::remove_dir_all(&memory_dir).with_context(|| {
-                    format!(
-                        "Failed to remove memory directory: {}",
-                        memory_dir.display()
-                    )
-                })?;
+            if tokio::fs::try_exists(&memory_dir).await? {
+                tokio::fs::remove_dir_all(&memory_dir)
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "Failed to remove memory directory: {}",
+                            memory_dir.display()
+                        )
+                    })?;
                 removed += 1;
             }
         }
@@ -45,7 +48,7 @@ impl DesktopRuntime {
         let mut settings = read_desktop_settings()?;
         settings.insert("yode-enable-memories".to_string(), json!(false));
         settings.insert("yode-skip-tool-chats".to_string(), json!(false));
-        write_desktop_settings(&settings)?;
+        write_desktop_settings_async(&settings).await?;
 
         Ok(DesktopActionResult {
             ok: true,

@@ -32,6 +32,17 @@ pub(super) fn write_desktop_settings(
     Ok(())
 }
 
+pub(super) async fn write_desktop_settings_async(
+    settings: &serde_json::Map<String, serde_json::Value>,
+) -> Result<()> {
+    let path = desktop_settings_path();
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    tokio::fs::write(path, serde_json::to_string_pretty(settings)?).await?;
+    Ok(())
+}
+
 pub(super) fn desktop_string_setting(
     settings: &serde_json::Map<String, serde_json::Value>,
     key: &str,

@@ -290,11 +290,12 @@ fn personalization_state_get(
 }
 
 #[tauri::command]
-fn personalization_reset_memories(
+async fn personalization_reset_memories(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
 ) -> Result<protocol::DesktopActionResult, String> {
     runtime
         .personalization_reset_memories()
+        .await
         .map_err(|err| err.to_string())
 }
 
