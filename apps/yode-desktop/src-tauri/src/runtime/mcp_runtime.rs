@@ -8,7 +8,7 @@ use yode_core::config::Config;
 use yode_tools::registry::ToolRegistry;
 use yode_tools::tool::McpResourceProvider;
 
-use super::{configuration_runtime::save_config_to_path, DesktopRuntime};
+use super::{configuration_runtime::save_config_to_path_async, DesktopRuntime};
 use crate::protocol::{DesktopMcpServer, DesktopMcpServerStatus, DesktopMcpState};
 
 impl DesktopRuntime {
@@ -26,16 +26,20 @@ impl DesktopRuntime {
         })
     }
 
-    pub fn mcp_servers_save(&self, servers: Vec<DesktopMcpServer>) -> Result<DesktopMcpState> {
+    pub async fn mcp_servers_save(
+        &self,
+        servers: Vec<DesktopMcpServer>,
+    ) -> Result<DesktopMcpState> {
         validate_desktop_mcp_servers(&servers)?;
-        {
+        let config_to_save = {
             let mut config = self
                 .config
                 .lock()
                 .map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
             config.mcp.servers = desktop_mcp_servers_to_config(&servers)?;
-            save_config_to_path(&config, &self.user_config_path())?;
-        }
+            config.clone()
+        };
+        save_config_to_path_async(&config_to_save, &self.user_config_path()).await?;
         self.reload_desktop_tooling()?;
         self.mcp_servers_state()
     }

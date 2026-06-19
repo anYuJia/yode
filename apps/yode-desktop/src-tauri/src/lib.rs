@@ -314,12 +314,13 @@ fn mcp_servers_state(
 }
 
 #[tauri::command]
-fn mcp_servers_save(
+async fn mcp_servers_save(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
     servers: Vec<protocol::DesktopMcpServer>,
 ) -> Result<protocol::DesktopMcpState, String> {
     runtime
         .mcp_servers_save(servers)
+        .await
         .map_err(|err| err.to_string())
 }
 

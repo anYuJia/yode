@@ -156,15 +156,7 @@ pub(super) fn load_desktop_config(workspace_path: &Path) -> Result<Config> {
     }
 }
 
-pub(super) fn save_config_to_path(config: &Config, path: &Path) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(path, toml::to_string_pretty(config)?)?;
-    Ok(())
-}
-
-async fn save_config_to_path_async(config: &Config, path: &Path) -> Result<()> {
+pub(super) async fn save_config_to_path_async(config: &Config, path: &Path) -> Result<()> {
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
