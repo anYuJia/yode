@@ -15,9 +15,7 @@ use crate::computer_use_settings::{
     application_display_name, computer_use_settings_from_desktop_settings,
     normalize_computer_use_settings, validate_computer_use_settings,
 };
-use crate::desktop_settings_store::{
-    read_desktop_settings, write_desktop_settings, write_desktop_settings_async,
-};
+use crate::desktop_settings_store::{read_desktop_settings, write_desktop_settings_async};
 use crate::git_settings::{
     apply_git_settings_env, git_settings_from_desktop_settings, normalize_git_settings,
     validate_git_settings,
@@ -135,7 +133,10 @@ impl DesktopRuntime {
         browser_settings_from_desktop_settings(&read_desktop_settings()?)
     }
 
-    pub fn browser_settings_apply(&self, settings: BrowserSettings) -> Result<BrowserSettings> {
+    pub async fn browser_settings_apply(
+        &self,
+        settings: BrowserSettings,
+    ) -> Result<BrowserSettings> {
         validate_browser_settings(&settings)?;
         let normalized = normalize_browser_settings(settings);
         let mut desktop_settings = read_desktop_settings()?;
@@ -159,7 +160,7 @@ impl DesktopRuntime {
             "yode-browser-allowed-domains".to_string(),
             json!(normalized.allowed_domains),
         );
-        write_desktop_settings(&desktop_settings)?;
+        write_desktop_settings_async(&desktop_settings).await?;
         apply_browser_settings_env(&normalized);
         Ok(normalized)
     }
@@ -168,13 +169,13 @@ impl DesktopRuntime {
         hooks_settings_from_desktop_settings(&read_desktop_settings()?)
     }
 
-    pub fn hooks_settings_apply(&self, settings: HooksSettings) -> Result<HooksSettings> {
+    pub async fn hooks_settings_apply(&self, settings: HooksSettings) -> Result<HooksSettings> {
         let normalized = normalize_hooks_settings(settings);
         validate_hooks_settings(&normalized)?;
         let mut desktop_settings = read_desktop_settings()?;
         desktop_settings.insert("yode-hooks-enabled".to_string(), json!(normalized.enabled));
         desktop_settings.insert("yode-hooks-list".to_string(), json!(normalized.hooks));
-        write_desktop_settings(&desktop_settings)?;
+        write_desktop_settings_async(&desktop_settings).await?;
         Ok(normalized)
     }
 
@@ -182,7 +183,7 @@ impl DesktopRuntime {
         git_settings_from_desktop_settings(&read_desktop_settings()?)
     }
 
-    pub fn git_settings_apply(&self, settings: GitSettings) -> Result<GitSettings> {
+    pub async fn git_settings_apply(&self, settings: GitSettings) -> Result<GitSettings> {
         let normalized = normalize_git_settings(settings);
         validate_git_settings(&normalized)?;
         let mut desktop_settings = read_desktop_settings()?;
@@ -222,7 +223,7 @@ impl DesktopRuntime {
             "yode-git-pr-instructions".to_string(),
             json!(normalized.pr_instructions),
         );
-        write_desktop_settings(&desktop_settings)?;
+        write_desktop_settings_async(&desktop_settings).await?;
         apply_git_settings_env(&normalized);
         Ok(normalized)
     }
@@ -293,7 +294,7 @@ impl DesktopRuntime {
         computer_use_settings_from_desktop_settings(&read_desktop_settings()?)
     }
 
-    pub fn computer_use_settings_apply(
+    pub async fn computer_use_settings_apply(
         &self,
         settings: ComputerUseSettings,
     ) -> Result<ComputerUseSettings> {
@@ -312,7 +313,7 @@ impl DesktopRuntime {
             "yode-computer-use-allowed-apps".to_string(),
             json!(normalized.allowed_apps),
         );
-        write_desktop_settings(&desktop_settings)?;
+        write_desktop_settings_async(&desktop_settings).await?;
         Ok(normalized)
     }
 }

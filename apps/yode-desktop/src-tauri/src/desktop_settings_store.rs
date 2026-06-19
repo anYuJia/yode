@@ -21,17 +21,6 @@ pub(super) fn read_desktop_settings() -> Result<serde_json::Map<String, serde_js
         .unwrap_or_default())
 }
 
-pub(super) fn write_desktop_settings(
-    settings: &serde_json::Map<String, serde_json::Value>,
-) -> Result<()> {
-    let path = desktop_settings_path();
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(path, serde_json::to_string_pretty(settings)?)?;
-    Ok(())
-}
-
 pub(super) async fn write_desktop_settings_async(
     settings: &serde_json::Map<String, serde_json::Value>,
 ) -> Result<()> {

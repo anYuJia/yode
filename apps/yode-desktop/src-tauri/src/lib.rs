@@ -358,12 +358,13 @@ fn browser_settings_get(
 }
 
 #[tauri::command]
-fn browser_settings_apply(
+async fn browser_settings_apply(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
     settings: protocol::BrowserSettings,
 ) -> Result<protocol::BrowserSettings, String> {
     runtime
         .browser_settings_apply(settings)
+        .await
         .map_err(|err| err.to_string())
 }
 
@@ -375,12 +376,13 @@ fn hooks_settings_get(
 }
 
 #[tauri::command]
-fn hooks_settings_apply(
+async fn hooks_settings_apply(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
     settings: protocol::HooksSettings,
 ) -> Result<protocol::HooksSettings, String> {
     runtime
         .hooks_settings_apply(settings)
+        .await
         .map_err(|err| err.to_string())
 }
 
@@ -392,12 +394,13 @@ fn git_settings_get(
 }
 
 #[tauri::command]
-fn git_settings_apply(
+async fn git_settings_apply(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
     settings: protocol::GitSettings,
 ) -> Result<protocol::GitSettings, String> {
     runtime
         .git_settings_apply(settings)
+        .await
         .map_err(|err| err.to_string())
 }
 
@@ -472,12 +475,13 @@ fn computer_use_settings_get(
 }
 
 #[tauri::command]
-fn computer_use_settings_apply(
+async fn computer_use_settings_apply(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
     settings: protocol::ComputerUseSettings,
 ) -> Result<protocol::ComputerUseSettings, String> {
     runtime
         .computer_use_settings_apply(settings)
+        .await
         .map_err(|err| err.to_string())
 }
 
