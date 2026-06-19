@@ -82,14 +82,7 @@ import { loadGeneralSettings, loadGeneralSettingsPayload } from "./lib/desktopSe
 import {
   ARCHIVED_SESSION_IDS_STORAGE_KEY,
   dedupeProjectRoots,
-  loadStoredProjectOrder,
-  loadStoredProjectRoots,
-  loadStoredSelectedProjectRoot,
   normalizeProjectRoot,
-  PROJECT_ORDER_STORAGE_KEY,
-  PROJECT_ROOTS_STORAGE_KEY,
-  SELECTED_PROJECT_ROOT_STORAGE_KEY,
-  STANDALONE_PROJECT_SENTINEL,
   visibleSessions
 } from "./lib/projectStorage";
 import {
@@ -221,9 +214,13 @@ export function App() {
   const [sessionItems, setSessionItems] = useState<SessionSummary[]>([]);
   const [timelineItems, setTimelineItems] = useState<TimelineItem[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const [projectRoots, setProjectRoots] = useState<string[]>(() => loadStoredProjectRoots());
-  const [projectOrder, setProjectOrder] = useState<string[]>(() => loadStoredProjectOrder());
-  const [selectedProjectRoot, setSelectedProjectRoot] = useState<string | null | undefined>(() => loadStoredSelectedProjectRoot());
+  const projectRoots = useAppUiStore((state) => state.projectRoots);
+  const setProjectRoots = useAppUiStore((state) => state.setProjectRoots);
+  const projectOrder = useAppUiStore((state) => state.projectOrder);
+  const setProjectOrder = useAppUiStore((state) => state.setProjectOrder);
+  const selectedProjectRoot = useAppUiStore((state) => state.selectedProjectRoot);
+  const setSelectedProjectRoot = useAppUiStore((state) => state.setSelectedProjectRoot);
+  const reloadProjectStorage = useAppUiStore((state) => state.reloadProjectStorage);
   const inspectorOpen = useAppUiStore((state) => state.inspectorOpen);
   const setInspectorOpen = useAppUiStore((state) => state.setInspectorOpen);
   const sidebarOpen = useAppUiStore((state) => state.sidebarOpen);
@@ -464,13 +461,8 @@ export function App() {
   }, [generalSettings]);
 
   useEffect(() => {
-    localStorage.setItem(PROJECT_ROOTS_STORAGE_KEY, JSON.stringify(projectRoots));
-  }, [projectRoots]);
-
-  useEffect(() => {
     const handleProjectRootsChanged = () => {
-      setProjectRoots(loadStoredProjectRoots());
-      setProjectOrder(loadStoredProjectOrder());
+      reloadProjectStorage();
     };
     window.addEventListener("yode-project-roots-changed", handleProjectRootsChanged);
     window.addEventListener("storage", handleProjectRootsChanged);
@@ -478,19 +470,7 @@ export function App() {
       window.removeEventListener("yode-project-roots-changed", handleProjectRootsChanged);
       window.removeEventListener("storage", handleProjectRootsChanged);
     };
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem(PROJECT_ORDER_STORAGE_KEY, JSON.stringify(projectOrder));
-  }, [projectOrder]);
-
-  useEffect(() => {
-    if (selectedProjectRoot === undefined) return;
-    localStorage.setItem(
-      SELECTED_PROJECT_ROOT_STORAGE_KEY,
-      selectedProjectRoot === null ? STANDALONE_PROJECT_SENTINEL : selectedProjectRoot
-    );
-  }, [selectedProjectRoot]);
+  }, [reloadProjectStorage]);
 
   // Load theme & settings on startup to avoid styling flashes
   useEffect(() => {
