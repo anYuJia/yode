@@ -103,7 +103,7 @@ impl DesktopRuntime {
         })
     }
 
-    pub fn browser_clear_data(&self) -> Result<DesktopActionResult> {
+    pub async fn browser_clear_data(&self) -> Result<DesktopActionResult> {
         let mut cleared = Vec::new();
         for path in [
             self.workspace_path.join(".yode").join("browser-cache"),
@@ -112,11 +112,11 @@ impl DesktopRuntime {
                 .join(".yode")
                 .join("browser-data"),
         ] {
-            if path.exists() {
-                std::fs::remove_dir_all(&path)?;
+            if tokio::fs::try_exists(&path).await? {
+                tokio::fs::remove_dir_all(&path).await?;
                 cleared.push(path.display().to_string());
             }
-            std::fs::create_dir_all(&path)?;
+            tokio::fs::create_dir_all(&path).await?;
         }
         Ok(DesktopActionResult {
             ok: true,

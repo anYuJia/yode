@@ -334,10 +334,13 @@ fn mcp_servers_reload(
 }
 
 #[tauri::command]
-fn browser_clear_data(
+async fn browser_clear_data(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
 ) -> Result<protocol::DesktopActionResult, String> {
-    runtime.browser_clear_data().map_err(|err| err.to_string())
+    runtime
+        .browser_clear_data()
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
