@@ -1,18 +1,27 @@
 import React, { useLayoutEffect, useState } from "react";
 import { ChevronDown, ChevronRight, CircleDot } from "lucide-react";
+import type { TimelineItem } from "../../lib/desktopTypes";
 import { getFileIcon, getCommandIcon } from "../FileIcon";
 import { getActivityDescriptor, displayToolName } from "./ToolUtils";
+
+type ActivityToolItem = Extract<TimelineItem, { kind: "tool" }> & { count?: number };
 
 function notifyTimelineLayoutChanged() {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent("yode:timeline-layout-change"));
 }
 
-function parseJsonObject(text?: string): any | null {
+function recordFromUnknown(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function parseJsonObject(text?: string): Record<string, unknown> | null {
   if (!text) return null;
   try {
     const parsed = JSON.parse(text);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+    return recordFromUnknown(parsed) ?? null;
   } catch {
     return null;
   }
@@ -25,11 +34,16 @@ function splitReadableText(text?: string) {
     .filter(Boolean);
 }
 
-function PlanModeDetail({ item, appLang }: { item: any; appLang: string }) {
+function summarizedToolCount(item: TimelineItem): number {
+  if (item.kind !== "tool" || !("count" in item)) return 0;
+  return typeof item.count === "number" && Number.isFinite(item.count) ? item.count : 0;
+}
+
+function PlanModeDetail({ item, appLang }: { item: ActivityToolItem; appLang: string }) {
   const isZh = appLang === "zh";
   const params = parseJsonObject(item.body);
   const allowedPrompts = Array.isArray(params?.allowedPrompts)
-    ? params.allowedPrompts.filter((entry: any) => entry && typeof entry === "object")
+    ? params.allowedPrompts.filter((entry): entry is Record<string, unknown> => Boolean(recordFromUnknown(entry)))
     : [];
   const isExit = item.tool === "exit_plan_mode";
   const planSteps = isZh
@@ -74,9 +88,9 @@ function PlanModeDetail({ item, appLang }: { item: any; appLang: string }) {
             {isZh ? "已允许的操作范围" : "Allowed action scope"}
           </div>
           <div className="activity-tool-chips">
-            {allowedPrompts.map((entry: any, index: number) => (
-              <span key={`${entry.tool || "tool"}-${index}`} className="activity-tool-chip">
-                <span>{entry.tool || "tool"}</span>
+            {allowedPrompts.map((entry, index) => (
+              <span key={`${String(entry.tool || "tool")}-${index}`} className="activity-tool-chip">
+                <span>{String(entry.tool || "tool")}</span>
                 {entry.prompt ? <strong>{String(entry.prompt)}</strong> : null}
               </span>
             ))}
@@ -141,7 +155,7 @@ function JsonDetail({ text, appLang, tone = "neutral" }: { text: string; appLang
   );
 }
 
-function ToolDetail({ item, appLang }: { item: any; appLang: string }) {
+function ToolDetail({ item, appLang }: { item: ActivityToolItem; appLang: string }) {
   if (item.tool === "enter_plan_mode" || item.tool === "exit_plan_mode") {
     return <PlanModeDetail item={item} appLang={appLang} />;
   }
@@ -188,11 +202,11 @@ function ToolDetail({ item, appLang }: { item: any; appLang: string }) {
   );
 }
 
-export function ActivityLeafNode({ item, appLang }: { item: any; appLang: string }) {
+export function ActivityLeafNode({ item, appLang }: { item: TimelineItem; appLang: string }) {
   const isZh = appLang === "zh";
   const [isExpanded, setIsExpanded] = useState(false);
 
-  const hasBodyOrResult = !!(item.body || item.result);
+  const hasBodyOrResult = item.kind === "tool" && Boolean(item.body || item.result);
 
   useLayoutEffect(() => {
     notifyTimelineLayoutChanged();
@@ -237,6 +251,7 @@ export function ActivityLeafNode({ item, appLang }: { item: any; appLang: string
   if (item.kind === "tool") {
     const descriptor = getActivityDescriptor(item);
     const isRunning = item.status === "running";
+    const count = summarizedToolCount(item);
     
     let label = "";
     let value = descriptor.filename
@@ -280,8 +295,8 @@ export function ActivityLeafNode({ item, appLang }: { item: any; appLang: string
               {displayToolName(item.tool)}
             </span>
           )}
-          {item.count > 1 && (
-            <span className="activity-leaf-count">x{item.count}</span>
+          {count > 1 && (
+            <span className="activity-leaf-count">x{count}</span>
           )}
           {hasBodyOrResult && (
             isExpanded ? <ChevronDown size={11} className="activity-chevron" /> : <ChevronRight size={11} className="activity-chevron" />

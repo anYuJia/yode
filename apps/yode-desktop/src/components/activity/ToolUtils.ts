@@ -1,3 +1,20 @@
+import type { TimelineItem } from "../../lib/desktopTypes";
+
+type ActivityToolItem = Extract<TimelineItem, { kind: "tool" }>;
+type CountedActivityToolItem = ActivityToolItem & { count?: number };
+type ToolDetailsItem = {
+  tool: string;
+  body?: string;
+  title?: string;
+  metadata?: unknown;
+};
+
+function recordFromUnknown(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
 export function isRuntimeNoticeText(text?: string) {
   if (!text) return false;
   return /limit instead of re-reading|budget notice|budget warning|checkpoint:|tool calls used|工具调用提醒|summariz(?:e|ing) current findings|most efficient next step|aggregate budget exceeded|context overflow|full result .* omitted|content omitted to prevent context overflow/i.test(text);
@@ -45,8 +62,12 @@ export function looksLikeShellCommand(text: string) {
     /(\s&&\s|\s\|\s|\s;\s|^\.\/|^\w+=\S+\s+\w+)/.test(clean);
 }
 
-export function shouldHideActivityItem(item: any) {
-  return isRuntimeNoticeText(item?.title) || isRuntimeNoticeText(item?.body) || isRuntimeNoticeText(item?.result);
+export function shouldHideActivityItem(item: TimelineItem) {
+  return (
+    ("title" in item && isRuntimeNoticeText(item.title)) ||
+    ("body" in item && isRuntimeNoticeText(item.body)) ||
+    ("result" in item && isRuntimeNoticeText(item.result))
+  );
 }
 
 export function isThinkingStatusTitle(title?: string) {
@@ -67,10 +88,11 @@ export type ActivityDescriptor = {
   modifiedFiles: string[];
 };
 
-function stringField(object: any, keys: string[]) {
-  if (!object || typeof object !== "object") return "";
+function stringField(object: unknown, keys: string[]) {
+  const record = recordFromUnknown(object);
+  if (!record) return "";
   for (const key of keys) {
-    const value = object[key];
+    const value = record[key];
     if (typeof value === "string" && value.trim()) return value.trim();
   }
   return "";
@@ -93,12 +115,13 @@ function normalizeActivityKind(value: string): ActivityKind {
   return "other";
 }
 
-function inferActivityKind(tool: string, title: string, parsed: ReturnType<typeof parseToolDetails>, metadata: any): ActivityKind {
-  const activityKind = stringField(metadata?.activity, ["kind", "type"]);
+function inferActivityKind(tool: string, title: string, parsed: ReturnType<typeof parseToolDetails>, metadata: unknown): ActivityKind {
+  const metadataRecord = recordFromUnknown(metadata);
+  const activityKind = stringField(metadataRecord?.activity, ["kind", "type"]);
   if (activityKind) return normalizeActivityKind(activityKind);
 
   const name = `${tool} ${title}`.toLowerCase();
-  if (parsed.modifiedFiles.length > 0 || parsed.diff || metadata?.diff_preview) return "edit";
+  if (parsed.modifiedFiles.length > 0 || parsed.diff || metadataRecord?.diff_preview) return "edit";
   if (/write|edit|replace|patch|modify|create|写入|修改|编辑|替换/.test(name)) return "edit";
   if (/run|command|bash|shell|execute|cmd|sh|运行|执行/.test(name)) return "run";
   if (/search|grep|url|web|网页|搜索/.test(name)) return "search";
@@ -106,7 +129,7 @@ function inferActivityKind(tool: string, title: string, parsed: ReturnType<typeo
   return "other";
 }
 
-export function parseToolDetails(item: { tool: string; body: string; title: string; metadata?: any }) {
+export function parseToolDetails(item: ToolDetailsItem) {
   let filename = "";
   let lineRange = "";
   let diff = "";
@@ -116,7 +139,7 @@ export function parseToolDetails(item: { tool: string; body: string; title: stri
 
   const body = (item.body || "").trim();
   const title = (item.title || "").trim();
-  const metadata = item.metadata && typeof item.metadata === "object" ? item.metadata : null;
+  const metadata = recordFromUnknown(item.metadata);
 
   if (isRuntimeNoticeText(body) || isRuntimeNoticeText(title)) {
     return { filename, lineRange, diff, command, diffPreview, modifiedFiles };
@@ -145,8 +168,8 @@ export function parseToolDetails(item: { tool: string; body: string; title: stri
       }
     }
 
-    const preview = metadata.diff_preview;
-    if (preview && typeof preview === "object") {
+    const preview = recordFromUnknown(metadata.diff_preview);
+    if (preview) {
       const removed = Array.isArray(preview.removed) ? preview.removed.map(String) : [];
       const added = Array.isArray(preview.added) ? preview.added.map(String) : [];
       const moreRemoved = Number(preview.more_removed || 0);
@@ -165,32 +188,45 @@ export function parseToolDetails(item: { tool: string; body: string; title: stri
   }
 
   try {
-    const parsed = JSON.parse(body);
-    const rawPath = parsed.file_path || parsed.path || parsed.TargetFile || parsed.AbsolutePath || parsed.Path || parsed.Target || parsed.SearchPath || parsed.TargetContentFile;
-    if (rawPath && typeof rawPath === "string") {
-      filename = rawPath.substring(rawPath.lastIndexOf('/') + 1);
-    }
+    const parsed = recordFromUnknown(JSON.parse(body));
+    if (parsed) {
+      const rawPath = parsed.file_path || parsed.path || parsed.TargetFile || parsed.AbsolutePath || parsed.Path || parsed.Target || parsed.SearchPath || parsed.TargetContentFile;
+      if (rawPath && typeof rawPath === "string") {
+        filename = rawPath.substring(rawPath.lastIndexOf('/') + 1);
+      }
 
-    const start = parsed.StartLine;
-    const end = parsed.EndLine;
-    if (start !== undefined && end !== undefined) {
-      lineRange = `#L${start}-${end}`;
-    } else if (start !== undefined) {
-      lineRange = `#L${start}`;
-    }
+      const start = parsed.StartLine;
+      const end = parsed.EndLine;
+      if (start !== undefined && end !== undefined) {
+        lineRange = `#L${start}-${end}`;
+      } else if (start !== undefined) {
+        lineRange = `#L${start}`;
+      }
 
-    const parsedCommand = parsed.CommandLine || parsed.command || parsed.cmd || parsed.shell_command;
-    if (typeof parsedCommand === "string" && parsedCommand.trim()) {
-      command = parsedCommand.trim();
-    }
+      const parsedCommand = parsed.CommandLine || parsed.command || parsed.cmd || parsed.shell_command;
+      if (typeof parsedCommand === "string" && parsedCommand.trim()) {
+        command = parsedCommand.trim();
+      }
 
-    if (item.tool?.includes("replace") || item.tool?.includes("write") || item.tool?.includes("edit")) {
-      const target = parsed.TargetContent || parsed.targetContent || "";
-      const replacement = parsed.ReplacementContent || parsed.replacementContent || parsed.CodeContent || parsed.codeContent || parsed.content || parsed.file_content || "";
-      if (target || replacement) {
-        const targetLines = target ? target.split("\n").length : 0;
-        const replacementLines = replacement ? replacement.split("\n").length : 0;
-        diff = `+${replacementLines} -${targetLines}`;
+      if (item.tool?.includes("replace") || item.tool?.includes("write") || item.tool?.includes("edit")) {
+        const target = typeof parsed.TargetContent === "string"
+          ? parsed.TargetContent
+          : typeof parsed.targetContent === "string"
+            ? parsed.targetContent
+            : "";
+        const replacement = [
+          parsed.ReplacementContent,
+          parsed.replacementContent,
+          parsed.CodeContent,
+          parsed.codeContent,
+          parsed.content,
+          parsed.file_content,
+        ].find((value): value is string => typeof value === "string") || "";
+        if (target || replacement) {
+          const targetLines = target ? target.split("\n").length : 0;
+          const replacementLines = replacement ? replacement.split("\n").length : 0;
+          diff = `+${replacementLines} -${targetLines}`;
+        }
       }
     }
   } catch (e) {
@@ -239,7 +275,7 @@ export function parseToolDetails(item: { tool: string; body: string; title: stri
   }
 
   if (!filename && title) {
-    const parts = item.title.split(/[\s/\\]+/);
+    const parts = title.split(/[\s/\\]+/);
     const lastPart = parts[parts.length - 1];
     if (lastPart && lastPart.includes(".") && !lastPart.includes("]")) {
       filename = lastPart;
@@ -249,10 +285,10 @@ export function parseToolDetails(item: { tool: string; body: string; title: stri
   return { filename, lineRange, diff, command, diffPreview, modifiedFiles };
 }
 
-export function getActivityDescriptor(item: { tool: string; body: string; title: string; metadata?: any }): ActivityDescriptor {
+export function getActivityDescriptor(item: ToolDetailsItem): ActivityDescriptor {
   const parsed = parseToolDetails(item);
-  const metadata = item.metadata && typeof item.metadata === "object" ? item.metadata : null;
-  const activity = metadata?.activity && typeof metadata.activity === "object" ? metadata.activity : null;
+  const metadata = recordFromUnknown(item.metadata);
+  const activity = recordFromUnknown(metadata?.activity);
   const parsedBody = parseJsonObject(item.body);
 
   const command = stringField(activity, ["command"]) || parsed.command;
@@ -290,9 +326,9 @@ export function getActivityDescriptor(item: { tool: string; body: string; title:
   };
 }
 
-export function summarizeActivityItems(items: any[]) {
-  const summarized: any[] = [];
-  const seen = new Map<string, any>();
+export function summarizeActivityItems(items: TimelineItem[]) {
+  const summarized: TimelineItem[] = [];
+  const seen = new Map<string, CountedActivityToolItem>();
 
   for (const item of expandBatchActivityItems(items)) {
     if (shouldHideActivityItem(item)) continue;
@@ -317,7 +353,7 @@ export function summarizeActivityItems(items: any[]) {
       continue;
     }
 
-    const next = { ...item, count: 1 };
+    const next: CountedActivityToolItem = { ...item, count: 1 };
     seen.set(key, next);
     summarized.push(next);
   }
@@ -325,18 +361,18 @@ export function summarizeActivityItems(items: any[]) {
   return summarized;
 }
 
-function parseJsonObject(text?: string) {
+function parseJsonObject(text?: string): Record<string, unknown> | null {
   if (!text || typeof text !== "string") return null;
   try {
     const parsed = JSON.parse(text);
-    return parsed && typeof parsed === "object" ? parsed : null;
+    return recordFromUnknown(parsed) ?? null;
   } catch {
     return null;
   }
 }
 
-function expandBatchActivityItems(items: any[]) {
-  const expanded: any[] = [];
+function expandBatchActivityItems(items: TimelineItem[]) {
+  const expanded: TimelineItem[] = [];
 
   for (const item of items) {
     if (item?.kind !== "tool" || item.tool !== "batch") {
@@ -351,9 +387,10 @@ function expandBatchActivityItems(items: any[]) {
       continue;
     }
 
-    invocations.forEach((invocation: any, index: number) => {
+    invocations.forEach((rawInvocation, index) => {
+      const invocation = recordFromUnknown(rawInvocation);
       const toolName = typeof invocation?.tool_name === "string" ? invocation.tool_name : "tool";
-      const params = invocation?.params && typeof invocation.params === "object" ? invocation.params : {};
+      const params = recordFromUnknown(invocation?.params) ?? {};
       expanded.push({
         ...item,
         id: `${item.id}-batch-${index}`,
@@ -368,7 +405,7 @@ function expandBatchActivityItems(items: any[]) {
   return expanded;
 }
 
-export function activityItemSummary(item: any) {
+export function activityItemSummary(item: TimelineItem) {
   if (item.kind !== "tool") return "";
   const descriptor = getActivityDescriptor(item);
   if (descriptor.kind === "search" && descriptor.target) return descriptor.target;
@@ -385,7 +422,7 @@ function compactTarget(text: string) {
   return `${normalized.slice(0, 55)}...`;
 }
 
-function uniqueTargets(items: any[], max = 2) {
+function uniqueTargets(items: CountedActivityToolItem[], max = 2) {
   const labels: string[] = [];
   let total = 0;
 
@@ -399,7 +436,7 @@ function uniqueTargets(items: any[], max = 2) {
   return { labels, total: total || items.length };
 }
 
-function groupPhrase(items: any[], kind: ActivityKind, appLang: string) {
+function groupPhrase(items: CountedActivityToolItem[], kind: ActivityKind, appLang: string) {
   const isZh = appLang === "zh";
   const { labels, total } = uniqueTargets(items);
   if (labels.length === 0) return "";
@@ -426,9 +463,9 @@ function groupPhrase(items: any[], kind: ActivityKind, appLang: string) {
   return `execute ${targets}`;
 }
 
-export function activityGroupPreview(items: any[], appLang: string) {
+export function activityGroupPreview(items: TimelineItem[], appLang: string) {
   const isZh = appLang === "zh";
-  const tools = items.filter((item) => item.kind === "tool");
+  const tools = items.filter((item): item is CountedActivityToolItem => item.kind === "tool");
   const phrases = (["read", "search", "run", "edit", "mcp", "image", "other"] as ActivityKind[])
     .map((kind) => groupPhrase(
       tools.filter((item) => getActivityDescriptor(item).kind === kind),

@@ -145,6 +145,46 @@ function parseDurationFromTitle(title?: string) {
   return null;
 }
 
+function recordFromUnknown(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function timelineCreatedAt(item: TimelineItem | null | undefined): number | undefined {
+  return typeof item?.createdAt === "number" && Number.isFinite(item.createdAt)
+    ? item.createdAt
+    : undefined;
+}
+
+type ArchivedChat = {
+  id: string;
+  title: string;
+  date: string;
+  project: string;
+};
+
+function isArchivedChat(value: unknown): value is ArchivedChat {
+  const record = recordFromUnknown(value);
+  return Boolean(
+    record &&
+    typeof record.id === "string" &&
+    typeof record.title === "string" &&
+    typeof record.date === "string" &&
+    typeof record.project === "string"
+  );
+}
+
+function parseArchivedChats(raw: string | null): ArchivedChat[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter(isArchivedChat) : [];
+  } catch {
+    return [];
+  }
+}
+
 function turnStaticDurationSeconds(turn: ConversationTurn) {
   for (const item of turn.items) {
     if (item.kind === "reasoning") {
@@ -154,8 +194,8 @@ function turnStaticDurationSeconds(turn: ConversationTurn) {
   }
 
   const createdTimes = [turn.userItem, ...turn.items]
-    .map((item) => (item as any)?.createdAt)
-    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+    .map(timelineCreatedAt)
+    .filter((value): value is number => value !== undefined);
   if (createdTimes.length >= 2) {
     return Math.max(1, Math.round((Math.max(...createdTimes) - Math.min(...createdTimes)) / 1000));
   }
@@ -1171,12 +1211,7 @@ export function App() {
 
     // 2. Get and update yode-archived-chats
     const savedChats = localStorage.getItem("yode-archived-chats");
-    let archivedChats: any[] = [];
-    if (savedChats) {
-      try {
-        archivedChats = JSON.parse(savedChats);
-      } catch (e) {}
-    }
+    const archivedChats = parseArchivedChats(savedChats);
     if (!archivedChats.some(c => c.id === sessionId)) {
       archivedChats.push({
         id: sessionId,

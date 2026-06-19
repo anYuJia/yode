@@ -55,28 +55,33 @@ describe("ToolUtils activity descriptors", () => {
   it("deduplicates repeated tool items by descriptor target", () => {
     const items = summarizeActivityItems([
       {
+        id: "read-1",
         kind: "tool",
         tool: "read_file",
         title: "查看文件",
         body: "",
+        status: "success",
         metadata: { activity: { kind: "read", target: "app.css", file_path: "app.css" } }
       },
       {
+        id: "read-2",
         kind: "tool",
         tool: "read_file",
         title: "查看文件",
         body: "",
+        status: "success",
         metadata: { activity: { kind: "read", target: "app.css", file_path: "app.css" } }
       }
     ]);
 
     expect(items).toHaveLength(1);
-    expect(items[0].count).toBe(2);
+    expect("count" in items[0] ? items[0].count : undefined).toBe(2);
   });
 
   it("builds an action-oriented preview from real tool targets", () => {
     const items = summarizeActivityItems([
       {
+        id: "read-cargo",
         kind: "tool",
         tool: "read_file",
         title: "查看文件",
@@ -84,6 +89,7 @@ describe("ToolUtils activity descriptors", () => {
         status: "success"
       },
       {
+        id: "grep-preview",
         kind: "tool",
         tool: "grep",
         title: "内容搜索",
@@ -91,6 +97,7 @@ describe("ToolUtils activity descriptors", () => {
         status: "success"
       },
       {
+        id: "run-status",
         kind: "tool",
         tool: "exec_command",
         title: "运行命令",
@@ -107,6 +114,7 @@ describe("ToolUtils activity descriptors", () => {
   it("separates completed group label parts in Chinese", () => {
     const items = summarizeActivityItems([
       {
+        id: "read-cargo",
         kind: "tool",
         tool: "read_file",
         title: "查看文件",
@@ -114,6 +122,7 @@ describe("ToolUtils activity descriptors", () => {
         status: "success"
       },
       {
+        id: "run-status",
         kind: "tool",
         tool: "exec_command",
         title: "运行命令",

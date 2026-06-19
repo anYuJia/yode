@@ -12,7 +12,13 @@ import {
   activityGroupPreview
 } from "./ToolUtils";
 
-function classifyActivityTool(item: any) {
+type ActivityGroupItem = Extract<TimelineItem, { kind: "activity_group" }>;
+type ActivityToolItem = Extract<TimelineItem, { kind: "tool" }>;
+type ActivityEditItem = Extract<TimelineItem, { kind: "activity_item" }>;
+type EditSummaryItem = Extract<TimelineItem, { kind: "edit_summary" }>;
+type ToolDescriptorItem = ActivityToolItem | ActivityEditItem;
+
+function classifyActivityTool(item: ToolDescriptorItem) {
   return getActivityDescriptor(item).kind;
 }
 
@@ -32,9 +38,9 @@ function noun(count: number, zhSingular: string, enSingular: string, enPlural: s
   return `${count} ${count === 1 ? enSingular : enPlural}`;
 }
 
-export function buildActivityGroupLabel(items: any[], appLang: string, isRunning: boolean) {
+export function buildActivityGroupLabel(items: TimelineItem[], appLang: string, isRunning: boolean) {
   const isZh = appLang === "zh";
-  const tools = items.filter((item) => item.kind === "tool");
+  const tools = items.filter((item): item is ActivityToolItem => item.kind === "tool");
   const exploreTools = tools.filter((item) => classifyActivityTool(item) === "read");
   const searchTools = tools.filter((item) => classifyActivityTool(item) === "search");
   const runTools = tools.filter((item) => classifyActivityTool(item) === "run");
@@ -87,9 +93,9 @@ export function buildActivityGroupLabel(items: any[], appLang: string, isRunning
   return parts.join(isZh ? "，" : ", ");
 }
 
-export function ActivityGroupNode({ group, appLang, isTurnActive }: { group: any; appLang: string; isTurnActive?: boolean }) {
+export function ActivityGroupNode({ group, appLang, isTurnActive }: { group: ActivityGroupItem; appLang: string; isTurnActive?: boolean }) {
   const isZh = appLang === "zh";
-  const visibleItems = useMemo(() => summarizeActivityItems(group.items || []), [group.items]);
+  const visibleItems = useMemo<TimelineItem[]>(() => summarizeActivityItems(group.items || []), [group.items]);
   const isRunning = group.status === "running";
   const shouldAutoExpand = isRunning && visibleItems.length > 0 && visibleItems.length <= 4;
   const [isExpanded, setIsExpanded] = useState(shouldAutoExpand);
@@ -120,7 +126,7 @@ export function ActivityGroupNode({ group, appLang, isTurnActive }: { group: any
 
   if (visibleItems.length === 0 && !isRunning) return null;
 
-  const count = visibleItems.filter((item: any) => item.kind === "tool").length || 1;
+  const count = visibleItems.filter((item) => item.kind === "tool").length || 1;
   const displayedItems = isExpanded && isRunning && visibleItems.length > 8
     ? [...visibleItems.slice(0, 4), ...visibleItems.slice(-3)]
     : visibleItems;
@@ -154,7 +160,7 @@ export function ActivityGroupNode({ group, appLang, isTurnActive }: { group: any
 
       {isExpanded && (
         <div className="activity-group-items">
-          {displayedItems.map((item: any, idx: number) => (
+          {displayedItems.map((item, idx) => (
             <ActivityLeafNode key={item.id || idx} item={item} appLang={appLang} />
           ))}
           {hiddenCount > 0 && (
@@ -163,7 +169,9 @@ export function ActivityGroupNode({ group, appLang, isTurnActive }: { group: any
             </div>
           )}
           {isRunning && (() => {
-            const runningItem = visibleItems.find((item: any) => item.status === "running" || item.meta === "running");
+            const runningItem = visibleItems.find((item) =>
+              ("status" in item && item.status === "running") || ("meta" in item && item.meta === "running")
+            );
             let statusText = isZh ? "正在处理..." : "Working..";
             if (runningItem) {
               if (runningItem.kind === "reasoning") {
@@ -198,7 +206,7 @@ export function ActivityGroupNode({ group, appLang, isTurnActive }: { group: any
   );
 }
 
-export function ActivityItemNode({ node, appLang }: { node: any; appLang: string }) {
+export function ActivityItemNode({ node, appLang }: { node: ActivityEditItem; appLang: string }) {
   const isZh = appLang === "zh";
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -254,31 +262,31 @@ export function ActivityItemNode({ node, appLang }: { node: any; appLang: string
   );
 }
 
-function diffCountsForEdit(item: Extract<TimelineItem, { kind: "activity_item" }>) {
+function diffCountsForEdit(item: ActivityEditItem) {
   if (item.status === "blocked") {
-    return { add: 0, del: 0, parsed: parseToolDetails(item as any) };
+    return { add: 0, del: 0, parsed: parseToolDetails(item) };
   }
-  const parsed = parseToolDetails(item as any);
+  const parsed = parseToolDetails(item);
   const raw = item.diff || parsed.diff || "";
   const add = Number(raw.match(/\+(\d+)/)?.[1] || 0);
   const del = Number(raw.match(/-(\d+)/)?.[1] || 0);
   return { add, del, parsed };
 }
 
-function mergeEditSummaryItems(items: Array<Extract<TimelineItem, { kind: "activity_item" }>>) {
-  const merged = new Map<string, Extract<TimelineItem, { kind: "activity_item" }>>();
+function mergeEditSummaryItems(items: ActivityEditItem[]) {
+  const merged = new Map<string, ActivityEditItem>();
 
   for (const item of items) {
-    const parsed = parseToolDetails(item as any);
+    const parsed = parseToolDetails(item);
     const filename = item.filename || parsed.filename || "";
-    const key = (item as any).callId || `${item.tool}:${filename || item.id}`;
+    const key = item.callId || `${item.tool}:${filename || item.id}`;
     const existing = merged.get(key);
     if (!existing) {
       merged.set(key, item);
       continue;
     }
 
-    const existingParsed = parseToolDetails(existing as any);
+    const existingParsed = parseToolDetails(existing);
     const itemScore =
       (item.metadata ? 4 : 0) +
       (item.result ? 2 : 0) +
@@ -292,7 +300,7 @@ function mergeEditSummaryItems(items: Array<Extract<TimelineItem, { kind: "activ
 
     const preferred = itemScore >= existingScore ? item : existing;
     const secondary = preferred === item ? existing : item;
-    const mergedItem: Extract<TimelineItem, { kind: "activity_item" }> = {
+    const mergedItem: ActivityEditItem = {
       ...preferred,
       body: preferred.body && preferred.body.trim().startsWith("{")
         ? preferred.body
@@ -302,14 +310,14 @@ function mergeEditSummaryItems(items: Array<Extract<TimelineItem, { kind: "activ
       result: secondary.result || preferred.result,
       metadata: (secondary.metadata ?? preferred.metadata) || preferred.metadata,
       status: secondary.status === "blocked" ? "blocked" : preferred.status,
-    } as Extract<TimelineItem, { kind: "activity_item" }>;
+    };
     merged.set(key, mergedItem);
   }
 
   return Array.from(merged.values());
 }
 
-export function EditSummaryNode({ node, appLang }: { node: Extract<TimelineItem, { kind: "edit_summary" }>; appLang: string }) {
+export function EditSummaryNode({ node, appLang }: { node: EditSummaryItem; appLang: string }) {
   const isZh = appLang === "zh";
   const [isExpanded, setIsExpanded] = useState(true);
   const [expandedDiffIds, setExpandedDiffIds] = useState<Set<string>>(() => new Set());
