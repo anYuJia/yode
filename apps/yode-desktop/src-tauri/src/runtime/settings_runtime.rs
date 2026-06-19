@@ -15,7 +15,9 @@ use crate::computer_use_settings::{
     application_display_name, computer_use_settings_from_desktop_settings,
     normalize_computer_use_settings, validate_computer_use_settings,
 };
-use crate::desktop_settings_store::{read_desktop_settings, write_desktop_settings};
+use crate::desktop_settings_store::{
+    read_desktop_settings, write_desktop_settings, write_desktop_settings_async,
+};
 use crate::git_settings::{
     apply_git_settings_env, git_settings_from_desktop_settings, normalize_git_settings,
     validate_git_settings,
@@ -90,13 +92,13 @@ impl DesktopRuntime {
         })
     }
 
-    pub fn desktop_setting_set(
+    pub async fn desktop_setting_set(
         &self,
         request: DesktopSettingSetRequest,
     ) -> Result<DesktopSettingValue> {
         let mut settings = read_desktop_settings()?;
         settings.insert(request.key.clone(), request.value.clone());
-        write_desktop_settings(&settings)?;
+        write_desktop_settings_async(&settings).await?;
         Ok(DesktopSettingValue {
             key: request.key,
             value: Some(request.value),

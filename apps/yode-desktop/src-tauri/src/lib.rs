@@ -275,12 +275,13 @@ fn desktop_setting_get(
 }
 
 #[tauri::command]
-fn desktop_setting_set(
+async fn desktop_setting_set(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
     request: protocol::DesktopSettingSetRequest,
 ) -> Result<protocol::DesktopSettingValue, String> {
     runtime
         .desktop_setting_set(request)
+        .await
         .map_err(|err| err.to_string())
 }
 
