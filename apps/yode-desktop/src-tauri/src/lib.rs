@@ -225,22 +225,24 @@ fn configuration_state_get(
 }
 
 #[tauri::command]
-fn configuration_update(
+async fn configuration_update(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
     request: protocol::ConfigurationUpdateRequest,
 ) -> Result<protocol::ConfigurationState, String> {
     runtime
         .configuration_update(request)
+        .await
         .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-fn configuration_open_file(
+async fn configuration_open_file(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
     scope: String,
 ) -> Result<(), String> {
     runtime
         .open_configuration_file(scope)
+        .await
         .map_err(|err| err.to_string())
 }
 

@@ -36,7 +36,7 @@ impl DesktopRuntime {
         })
     }
 
-    pub fn configuration_update(
+    pub async fn configuration_update(
         &self,
         request: ConfigurationUpdateRequest,
     ) -> Result<ConfigurationState> {
@@ -54,13 +54,17 @@ impl DesktopRuntime {
                 .map_err(|_| anyhow::anyhow!("permission mode lock poisoned"))?;
             *runtime_mode = permission_mode.to_string();
         }
-        let mut config = self
-            .config
-            .lock()
-            .map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
-        config.permissions.default_mode = Some(permission_mode.to_string());
-        save_config_to_path(&config, &self.config_path_for_scope(scope))?;
-        set_workspace_dependency_state(request.expose_dependencies)?;
+        let config_path = self.config_path_for_scope(scope);
+        let config_to_save = {
+            let mut config = self
+                .config
+                .lock()
+                .map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
+            config.permissions.default_mode = Some(permission_mode.to_string());
+            config.clone()
+        };
+        save_config_to_path_async(&config_to_save, &config_path).await?;
+        set_workspace_dependency_state_async(request.expose_dependencies).await?;
         Ok(ConfigurationState {
             scope: request.scope,
             approval_policy: request.approval_policy,
@@ -71,22 +75,23 @@ impl DesktopRuntime {
         })
     }
 
-    pub fn open_configuration_file(&self, scope: String) -> Result<()> {
+    pub async fn open_configuration_file(&self, scope: String) -> Result<()> {
         let path = if scope.to_lowercase().contains("project") {
             self.project_config_path()
         } else {
             self.user_config_path()
         };
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
+            tokio::fs::create_dir_all(parent).await?;
         }
-        if !path.exists() {
-            let config = self
-                .config
-                .lock()
-                .map_err(|_| anyhow::anyhow!("config lock poisoned"))?
-                .clone();
-            save_config_to_path(&config, &path)?;
+        if !tokio::fs::try_exists(&path).await? {
+            let config = {
+                self.config
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("config lock poisoned"))?
+                    .clone()
+            };
+            save_config_to_path_async(&config, &path).await?;
         }
         open_with_destination("VS Code", &path)
     }
@@ -159,6 +164,14 @@ pub(super) fn save_config_to_path(config: &Config, path: &Path) -> Result<()> {
     Ok(())
 }
 
+async fn save_config_to_path_async(config: &Config, path: &Path) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    tokio::fs::write(path, toml::to_string_pretty(config)?).await?;
+    Ok(())
+}
+
 fn permission_mode_from_configuration(
     approval_policy: &str,
     sandbox_settings: &str,
@@ -220,21 +233,6 @@ fn load_workspace_dependency_state() -> bool {
                 .and_then(|value| value.as_bool())
         })
         .unwrap_or(true)
-}
-
-fn set_workspace_dependency_state(expose: bool) -> Result<()> {
-    let path = workspace_dependency_state_path();
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(
-        path,
-        serde_json::to_string_pretty(&json!({
-            "exposeDependencies": expose,
-            "updatedAt": Utc::now().to_rfc3339()
-        }))?,
-    )?;
-    Ok(())
 }
 
 async fn set_workspace_dependency_state_async(expose: bool) -> Result<()> {
