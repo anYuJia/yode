@@ -17,7 +17,7 @@ export function PersonalizationSettings({ isZh, t }: { isZh: boolean; t: (zh: st
   const [skipToolChats, setSkipToolChats] = useState(() => localStorage.getItem("yode-skip-tool-chats") === "true");
   const [statusText, setStatusText] = useState("");
 
-  const saveVal = (key: string, val: any) => {
+  const saveVal = (key: string, val: unknown) => {
     void saveDesktopSetting(key, val);
   };
 

@@ -31,6 +31,10 @@ interface ProviderConfigData {
   icon?: string;
 }
 
+function isProviderFormat(value: string): value is ProviderConfigData["format"] {
+  return value === "openai" || value === "gemini" || value === "anthropic";
+}
+
 type ProviderTemplate = Omit<ProviderConfigData, "enabled" | "apiKey"> & {
   note: string;
   group: "global" | "china" | "gateway" | "local";
@@ -345,18 +349,22 @@ function templateFor(id: string) {
   return BUILT_IN_PROVIDERS.find((p) => p.id === id);
 }
 
-function normalizeProvider(raw: any): ProviderConfigData {
-  const preset = templateFor(raw.id) || templateFor(raw.name?.toLowerCase?.());
+function normalizeProvider(raw: unknown): ProviderConfigData {
+  const provider = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  const rawId = typeof provider.id === "string" ? provider.id : "";
+  const rawName = typeof provider.name === "string" ? provider.name : "";
+  const rawFormat = typeof provider.format === "string" ? provider.format : "";
+  const preset = templateFor(rawId) || templateFor(rawName.toLowerCase());
   return {
-    id: String(raw.id || raw.name || crypto.randomUUID()),
-    name: String(raw.name || preset?.name || raw.id || "自定义提供商"),
-    format: raw.format === "anthropic" || raw.format === "gemini" ? raw.format : "openai",
-    enabled: raw.enabled ?? true,
-    apiKey: raw.apiKey || "",
-    baseUrl: raw.baseUrl || preset?.baseUrl || "",
-    models: Array.isArray(raw.models) ? raw.models : preset?.models || [],
-    gradient: raw.gradient || preset?.gradient || "linear-gradient(135deg, #707782 0%, #4B525B 100%)",
-    icon: raw.icon || preset?.icon
+    id: String(rawId || rawName || crypto.randomUUID()),
+    name: String(rawName || preset?.name || rawId || "自定义提供商"),
+    format: rawFormat === "anthropic" || rawFormat === "gemini" ? rawFormat : "openai",
+    enabled: typeof provider.enabled === "boolean" ? provider.enabled : true,
+    apiKey: typeof provider.apiKey === "string" ? provider.apiKey : "",
+    baseUrl: typeof provider.baseUrl === "string" ? provider.baseUrl : preset?.baseUrl || "",
+    models: Array.isArray(provider.models) ? provider.models.map(String) : preset?.models || [],
+    gradient: typeof provider.gradient === "string" ? provider.gradient : preset?.gradient || "linear-gradient(135deg, #707782 0%, #4B525B 100%)",
+    icon: typeof provider.icon === "string" ? provider.icon : preset?.icon
   };
 }
 
@@ -847,7 +855,9 @@ export function ProvidersSettings({
                 <span><Globe size={12} />{t("接口格式", "Format")}</span>
                 <CustomSelect
                   value={formFormat}
-                  onChange={(value: any) => setFormFormat(value)}
+                  onChange={(value) => {
+                    if (isProviderFormat(value)) setFormFormat(value);
+                  }}
                   options={[
                     { value: "openai", label: "OpenAI compatible", avatarText: "OP" },
                     { value: "anthropic", label: "Anthropic", avatarText: "AN" },

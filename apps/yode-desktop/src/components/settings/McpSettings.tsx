@@ -14,6 +14,10 @@ interface McpServer {
   disabled: boolean;
 }
 
+function isMcpTransport(value: string): value is McpServer["transport"] {
+  return value === "stdio" || value === "sse" || value === "http" || value === "websocket";
+}
+
 interface McpServerStatus {
   name: string;
   state: "configured" | "ready" | "failed" | "disabled" | string;
@@ -469,7 +473,9 @@ export function McpSettingsSettings({
                 </label>
                 <CustomSelect
                   value={formTransport}
-                  onChange={(val: any) => setFormTransport(val)}
+                  onChange={(value) => {
+                    if (isMcpTransport(value)) setFormTransport(value);
+                  }}
                   options={[
                     { value: "stdio", label: "Stdio (Standard I/O)", avatarText: "🐚" },
                     { value: "sse", label: "SSE (Server-Sent Events)", avatarText: "📡" },

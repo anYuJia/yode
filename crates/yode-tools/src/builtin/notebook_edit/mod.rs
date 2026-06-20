@@ -111,7 +111,7 @@ impl Tool for NotebookEditTool {
         let cell_type = params.get("cell_type").and_then(|v| v.as_str());
 
         // Read and parse
-        let content = std::fs::read_to_string(notebook_path)?;
+        let content = tokio::fs::read_to_string(notebook_path).await?;
         let mut notebook: Value = serde_json::from_str(&content)?;
 
         let cells = notebook
@@ -179,7 +179,7 @@ impl Tool for NotebookEditTool {
 
         // Write back
         let updated_content = serde_json::to_string_pretty(&notebook)?;
-        std::fs::write(notebook_path, &updated_content)?;
+        tokio::fs::write(notebook_path, &updated_content).await?;
 
         Ok(ToolResult::success(format!(
             "Notebook {} updated successfully ({}).",

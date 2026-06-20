@@ -37,21 +37,22 @@ const DEFAULT_HOOKS: HookEntry[] = [
   }
 ];
 
-function normalizeHookEntry(raw: any): HookEntry | null {
+function normalizeHookEntry(raw: unknown): HookEntry | null {
   if (!raw || typeof raw !== "object") return null;
-  const name = String(raw.name || "").trim();
-  const command = String(raw.command || "").trim();
-  const events = Array.isArray(raw.events) ? raw.events.map(String).filter(Boolean) : [];
+  const entry = raw as Record<string, unknown>;
+  const name = String(entry.name || "").trim();
+  const command = String(entry.command || "").trim();
+  const events = Array.isArray(entry.events) ? entry.events.map(String).filter(Boolean) : [];
   if (!name || !command || events.length === 0) return null;
-  const toolFilterRaw = raw.toolFilter ?? raw.tool_filter;
+  const toolFilterRaw = entry.toolFilter ?? entry.tool_filter;
   const toolFilter = Array.isArray(toolFilterRaw) ? toolFilterRaw.map(String).filter(Boolean) : undefined;
   return {
     name,
     command,
     events,
-    timeoutSecs: Number(raw.timeoutSecs ?? raw.timeout_secs) || 10,
-    canBlock: Boolean(raw.canBlock ?? raw.can_block),
-    disabled: Boolean(raw.disabled),
+    timeoutSecs: Number(entry.timeoutSecs ?? entry.timeout_secs) || 10,
+    canBlock: Boolean(entry.canBlock ?? entry.can_block),
+    disabled: Boolean(entry.disabled),
     toolFilter: toolFilter && toolFilter.length > 0 ? toolFilter : undefined
   };
 }

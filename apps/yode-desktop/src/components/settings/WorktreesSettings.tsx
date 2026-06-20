@@ -34,7 +34,7 @@ export function WorktreesSettingsSettings({
 
   const [worktrees, setWorktrees] = useState<WorktreeInfo[]>([]);
 
-  const updateVal = (key: string, val: any) => {
+  const updateVal = (key: string, val: unknown) => {
     void saveDesktopSetting(key, val);
   };
 
