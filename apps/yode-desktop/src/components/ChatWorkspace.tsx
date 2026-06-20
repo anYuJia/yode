@@ -56,6 +56,27 @@ function hasRunningVisibleItem(items: TimelineItem[]) {
   });
 }
 
+function timelineBodyLength(item: TimelineItem) {
+  return "body" in item ? item.body.length : 0;
+}
+
+function timelineResultLength(item: TimelineItem) {
+  return "result" in item && item.result ? item.result.length : 0;
+}
+
+function timelineStatus(item: TimelineItem) {
+  return "status" in item ? item.status : "";
+}
+
+function timelineMeta(item: TimelineItem) {
+  return "meta" in item ? item.meta || "" : "";
+}
+
+function timelineMetadataLength(item: TimelineItem) {
+  if (!("metadata" in item) || item.metadata == null) return 0;
+  return JSON.stringify(item.metadata).length;
+}
+
 interface ChatWorkspaceProps {
   draft: string;
   timelineItems: TimelineItem[];
@@ -164,7 +185,7 @@ export function ChatWorkspace({
         if (
           item.kind === "tool" ||
           item.kind === "reasoning" ||
-          (item as any).kind === "process_note" ||
+          item.kind === "process_note" ||
           (item.kind === "assistant" && isIntermediateAssistantItem(item))
         ) {
           currentTurn.hasIntermediate = true;
@@ -301,11 +322,11 @@ export function ChatWorkspace({
   const timelineContentHash = useMemo(() => {
     return timelineItems.map(item => [
       item.id,
-      (item as any).body?.length || 0,
-      (item as any).result?.length || 0,
-      (item as any).status || "",
-      (item as any).meta || "",
-      JSON.stringify((item as any).metadata || {}).length
+      timelineBodyLength(item),
+      timelineResultLength(item),
+      timelineStatus(item),
+      timelineMeta(item),
+      timelineMetadataLength(item)
     ].join(":")).join("|");
   }, [timelineItems]);
 

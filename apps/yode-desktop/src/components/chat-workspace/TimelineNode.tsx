@@ -154,11 +154,7 @@ export function TimelineNode({ item, appLang, isTurnActive }: { item: TimelineIt
         <div className="node-header">
           <h2>{item.title}</h2>
         </div>
-        {item.kind === "assistant" ? (
-          <MarkdownContent text={item.body} variant="answer" />
-        ) : "body" in item ? (
-          <p>{(item as any).body}</p>
-        ) : null}
+        <MarkdownContent text={item.body} variant="answer" />
       </div>
     </article>
   );

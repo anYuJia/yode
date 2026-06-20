@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -20,6 +20,16 @@ pub struct ReadMcpResourceTool;
 pub struct CleanupMcpResourceArtifactsTool;
 
 const DEFAULT_MCP_RESOURCE_ARTIFACT_RETENTION: usize = 120;
+
+async fn run_mcp_resource_disk_io<T, F>(operation: &'static str, work: F) -> Result<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T> + Send + 'static,
+{
+    tokio::task::spawn_blocking(work)
+        .await
+        .with_context(|| format!("{operation} blocking task failed"))?
+}
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct McpResourceCacheStats {
@@ -324,12 +334,21 @@ impl Tool for ReadMcpResourceTool {
 
         let cache_key = (server.to_string(), uri.to_string());
         if !refresh {
-            if let Ok(mut cache) = MCP_RESOURCE_CACHE.lock() {
-                if let Some(content) = cache.reads.get(&cache_key).cloned() {
-                    cache.stats.read_hits = cache.stats.read_hits.saturating_add(1);
-                    return render_read_resource_result(server, uri, content, ctx);
+            let cached_content = {
+                if let Ok(mut cache) = MCP_RESOURCE_CACHE.lock() {
+                    if let Some(content) = cache.reads.get(&cache_key).cloned() {
+                        cache.stats.read_hits = cache.stats.read_hits.saturating_add(1);
+                        Some(content)
+                    } else {
+                        cache.stats.read_misses = cache.stats.read_misses.saturating_add(1);
+                        None
+                    }
+                } else {
+                    None
                 }
-                cache.stats.read_misses = cache.stats.read_misses.saturating_add(1);
+            };
+            if let Some(content) = cached_content {
+                return render_read_resource_result(server, uri, content, ctx).await;
             }
         }
 
@@ -338,18 +357,19 @@ impl Tool for ReadMcpResourceTool {
             cache.reads.insert(cache_key, content.clone());
             cache.stats.cached_read_entries = cache.reads.len();
         }
-        render_read_resource_result(server, uri, content, ctx)
+        render_read_resource_result(server, uri, content, ctx).await
     }
 }
 
-fn render_read_resource_result(
+async fn render_read_resource_result(
     server: &str,
     uri: &str,
     read: McpResourceRead,
     ctx: &ToolContext,
 ) -> Result<ToolResult> {
     let mut content = read.content;
-    let artifact_write = persist_mcp_resource_blob_artifacts(server, uri, &read.blobs, ctx)?;
+    let artifact_write =
+        persist_mcp_resource_blob_artifacts_async(server, uri, &read.blobs, ctx).await?;
     if !artifact_write.paths.is_empty() {
         content.push_str("\n\nArtifacts:\n");
         for artifact in &artifact_write.paths {
@@ -384,7 +404,7 @@ fn render_read_resource_result(
     }
 }
 
-fn persist_mcp_resource_blob_artifacts(
+async fn persist_mcp_resource_blob_artifacts_async(
     server: &str,
     uri: &str,
     blobs: &[McpResourceBlob],
@@ -393,11 +413,33 @@ fn persist_mcp_resource_blob_artifacts(
     if blobs.is_empty() {
         return Ok(McpResourceArtifactWrite::default());
     }
-    let Some(working_dir) = ctx.working_dir.as_deref() else {
+    let Some(working_dir) = ctx.working_dir.clone() else {
         return Ok(McpResourceArtifactWrite::default());
     };
+    let session_id = ctx
+        .session_id
+        .clone()
+        .unwrap_or_else(|| "session".to_string());
+    let server = server.to_string();
+    let uri = uri.to_string();
+    let blobs = blobs.to_vec();
+    run_mcp_resource_disk_io("persist_mcp_resource_blob_artifacts", move || {
+        persist_mcp_resource_blob_artifacts(&server, &uri, &blobs, &working_dir, &session_id)
+    })
+    .await
+}
 
-    let session_id = ctx.session_id.as_deref().unwrap_or("session");
+fn persist_mcp_resource_blob_artifacts(
+    server: &str,
+    uri: &str,
+    blobs: &[McpResourceBlob],
+    working_dir: &Path,
+    session_id: &str,
+) -> Result<McpResourceArtifactWrite> {
+    if blobs.is_empty() {
+        return Ok(McpResourceArtifactWrite::default());
+    }
+
     let short_session = short_session_id(session_id);
     let timestamp = unix_timestamp_secs();
     let retention = mcp_resource_artifact_retention();
@@ -627,7 +669,11 @@ impl Tool for CleanupMcpResourceArtifactsTool {
             .ok_or_else(|| anyhow::anyhow!("working directory not available"))?;
         let keep =
             cleanup_keep_from_params(&params).unwrap_or_else(mcp_resource_artifact_retention);
-        let cleanup = cleanup_mcp_resource_artifacts(working_dir, keep)?;
+        let working_dir = working_dir.to_path_buf();
+        let cleanup = run_mcp_resource_disk_io("cleanup_mcp_resource_artifacts", move || {
+            cleanup_mcp_resource_artifacts(&working_dir, keep)
+        })
+        .await?;
         Ok(ToolResult::success_with_metadata(
             format!(
                 "MCP resource artifact cleanup complete: removed={} kept={} retention={} dir={}",
