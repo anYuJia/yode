@@ -3,6 +3,7 @@ import { getFileIcon, fileIconMeta } from "../FileIcon";
 import { CodeBlock } from "./CodeBlock";
 import { hasCodeBlockContent } from "./codeBlockContent";
 import { marked } from "marked";
+import type { Token, Tokens } from "marked";
 
 type MarkdownVariant = "answer" | "process";
 
@@ -250,7 +251,7 @@ export function renderInlineMarkdown(text: string) {
   return <RenderTokens tokens={tokens} />;
 }
 
-function RenderTokens({ tokens }: { tokens: any[] }) {
+function RenderTokens({ tokens }: { tokens: Token[] }) {
   return (
     <>
       {tokens.map((token, index) => (
@@ -260,22 +261,29 @@ function RenderTokens({ tokens }: { tokens: any[] }) {
   );
 }
 
-function RenderToken({ token }: { token: any }): React.ReactElement | null {
+function childTokens(tokens?: Token[]) {
+  return tokens ?? [];
+}
+
+function RenderToken({ token }: { token: Token }): React.ReactElement | null {
   switch (token.type) {
     case "heading": {
-      const Tag = `h${Math.min(token.depth, 4)}` as keyof JSX.IntrinsicElements;
-      const text = typeof token.text === "string" ? stripHeadingMarker(token.text) : "";
-      return <Tag>{text || <RenderTokens tokens={token.tokens} />}</Tag>;
+      const heading = token as Tokens.Heading;
+      const Tag = `h${Math.min(heading.depth, 4)}` as keyof JSX.IntrinsicElements;
+      const text = stripHeadingMarker(heading.text);
+      return <Tag>{text || <RenderTokens tokens={childTokens(heading.tokens)} />}</Tag>;
     }
     case "code": {
-      if (!hasCodeBlockContent(token.text)) return null;
-      return <CodeBlock text={token.text} lang={token.lang || ""} />;
+      const code = token as Tokens.Code;
+      if (!hasCodeBlockContent(code.text)) return null;
+      return <CodeBlock text={code.text} lang={code.lang || ""} />;
     }
     case "list": {
-      const ListTag = token.ordered ? "ol" : "ul";
+      const list = token as Tokens.List;
+      const ListTag = list.ordered ? "ol" : "ul";
       return (
-        <ListTag style={{ paddingLeft: "20px", listStyleType: token.ordered ? "decimal" : "disc" }}>
-          {token.items.map((item: any, idx: number) => (
+        <ListTag style={{ paddingLeft: "20px", listStyleType: list.ordered ? "decimal" : "disc" }}>
+          {list.items.map((item, idx) => (
             <li key={idx}>
               {item.task && (
                 <input
@@ -285,31 +293,32 @@ function RenderToken({ token }: { token: any }): React.ReactElement | null {
                   style={{ marginRight: "6px", verticalAlign: "middle" }}
                 />
               )}
-              <RenderTokens tokens={item.tokens} />
+              <RenderTokens tokens={childTokens(item.tokens)} />
             </li>
           ))}
         </ListTag>
       );
     }
     case "table": {
+      const table = token as Tokens.Table;
       return (
         <div className="markdown-table-wrapper" style={{ overflowX: "auto", margin: "12px 0" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
             <thead>
               <tr style={{ borderBottom: "2px solid var(--line)" }}>
-                {token.header.map((cell: any, i: number) => (
+                {table.header.map((cell, i) => (
                   <th key={i} style={{ padding: "8px", textAlign: cell.align || "left", fontWeight: "bold" }}>
-                    <RenderTokens tokens={cell.tokens} />
+                    <RenderTokens tokens={childTokens(cell.tokens)} />
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {token.rows.map((row: any, ri: number) => (
+              {table.rows.map((row, ri) => (
                 <tr key={ri} style={{ borderBottom: "1px solid var(--line-soft)" }}>
-                  {row.map((cell: any, ci: number) => (
+                  {row.map((cell, ci) => (
                     <td key={ci} style={{ padding: "8px", textAlign: cell.align || "left" }}>
-                      <RenderTokens tokens={cell.tokens} />
+                      <RenderTokens tokens={childTokens(cell.tokens)} />
                     </td>
                   ))}
                 </tr>
@@ -323,23 +332,23 @@ function RenderToken({ token }: { token: any }): React.ReactElement | null {
       return <hr style={{ border: "0", borderTop: "1px solid var(--line-soft)", margin: "16px 0" }} />;
     }
     case "paragraph": {
-      const headingMatch = typeof token.text === "string"
-        ? token.text.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/)
-        : null;
+      const paragraph = token as Tokens.Paragraph;
+      const headingMatch = paragraph.text.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
       if (headingMatch) {
         const Tag = `h${Math.min(headingMatch[1].length, 4)}` as keyof JSX.IntrinsicElements;
         return <Tag>{stripHeadingMarker(headingMatch[2])}</Tag>;
       }
       return (
         <p>
-          <RenderTokens tokens={token.tokens} />
+          <RenderTokens tokens={childTokens(paragraph.tokens)} />
         </p>
       );
     }
     case "blockquote": {
+      const blockquote = token as Tokens.Blockquote;
       return (
         <blockquote style={{ borderLeft: "4px solid var(--line-soft)", paddingLeft: "12px", margin: "8px 0", color: "var(--text-muted)" }}>
-          <RenderTokens tokens={token.tokens} />
+          <RenderTokens tokens={childTokens(blockquote.tokens)} />
         </blockquote>
       );
     }
@@ -347,43 +356,50 @@ function RenderToken({ token }: { token: any }): React.ReactElement | null {
       return null;
     }
     case "strong": {
+      const strong = token as Tokens.Strong;
       return (
         <strong>
-          <RenderTokens tokens={token.tokens} />
+          <RenderTokens tokens={childTokens(strong.tokens)} />
         </strong>
       );
     }
     case "em": {
+      const em = token as Tokens.Em;
       return (
         <em>
-          <RenderTokens tokens={token.tokens} />
+          <RenderTokens tokens={childTokens(em.tokens)} />
         </em>
       );
     }
     case "codespan": {
-      return renderCodespan(token.text);
+      const codespan = token as Tokens.Codespan;
+      return renderCodespan(codespan.text);
     }
     case "link": {
+      const link = token as Tokens.Link;
       return (
-        <a href={token.href} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", textDecoration: "underline" }}>
-          <RenderTokens tokens={token.tokens} />
+        <a href={link.href} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", textDecoration: "underline" }}>
+          <RenderTokens tokens={childTokens(link.tokens)} />
         </a>
       );
     }
     case "image": {
-      return <img src={token.href} alt={token.text} style={{ maxWidth: "100%", height: "auto" }} />;
+      const image = token as Tokens.Image;
+      return <img src={image.href} alt={image.text} style={{ maxWidth: "100%", height: "auto" }} />;
     }
     case "text": {
-      if (token.tokens && token.tokens.length > 0) {
-        return <RenderTokens tokens={token.tokens} />;
+      const text = token as Tokens.Text;
+      if (text.tokens && text.tokens.length > 0) {
+        return <RenderTokens tokens={text.tokens} />;
       }
-      return <>{token.text}</>;
+      return <>{text.text}</>;
     }
     case "br": {
       return <br />;
     }
     case "html": {
-      return <>{token.text}</>;
+      const html = token as Tokens.HTML;
+      return <>{html.text}</>;
     }
     default: {
       if ("tokens" in token && token.tokens) {

@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { marked } from "marked";
+import type { Token, Tokens } from "marked";
 import { preprocessMarkdown } from "./MarkdownContent";
 import { hasCodeBlockContent } from "./codeBlockContent";
+
+function isCodeToken(token: Token): token is Tokens.Code {
+  return token.type === "code";
+}
 
 describe("preprocessMarkdown", () => {
   function lex(source: string) {
@@ -23,8 +28,8 @@ describe("preprocessMarkdown", () => {
     const processed = preprocessMarkdown(source);
     const tokens = marked.lexer(processed);
     const codeText = tokens
-      .filter((token) => token.type === "code")
-      .map((token: any) => token.text || "")
+      .filter(isCodeToken)
+      .map((token) => token.text || "")
       .join("\n");
     const hasList = tokens.some((token) => token.type === "list");
     const nonCodeText = tokens
@@ -52,8 +57,8 @@ describe("preprocessMarkdown", () => {
       const source = ["```", "app/ ├── api/routes/", "├── services/", "", tail].join("\n");
       const tokens = lex(source);
       const codeText = tokens
-        .filter((token) => token.type === "code")
-        .map((token: any) => token.text || "")
+        .filter(isCodeToken)
+        .map((token) => token.text || "")
         .join("\n");
       const nonCodeText = tokens
         .filter((token) => token.type !== "code")
@@ -74,7 +79,7 @@ describe("preprocessMarkdown", () => {
     ].join("\n");
     const processed = preprocessMarkdown(source);
     const tokens = marked.lexer(processed);
-    const codeTokens = tokens.filter((token) => token.type === "code") as any[];
+    const codeTokens = tokens.filter(isCodeToken);
 
     expect(codeTokens).toHaveLength(1);
     expect(codeTokens[0].text).toContain("**亮点**");
@@ -96,8 +101,8 @@ describe("preprocessMarkdown", () => {
     const processed = preprocessMarkdown(source);
     const tokens = marked.lexer(processed);
     const codeText = tokens
-      .filter((token) => token.type === "code")
-      .map((token: any) => token.text || "")
+      .filter(isCodeToken)
+      .map((token) => token.text || "")
       .join("\n");
 
     expect(processed).toContain("```text\nsrc/scanners/system/");

@@ -3,6 +3,11 @@ import { TimelineItem } from "../lib/desktopTypes";
 import { activityGroupPreview, summarizeActivityItems } from "./activity/ToolUtils";
 import { applyDesktopEventToTimelineItems, compileInlineItems, messagesToTimelineItems, splitTurnVisibleItems } from "./timelineUtils";
 
+function expectActivityGroup(item: TimelineItem): Extract<TimelineItem, { kind: "activity_group" }> {
+  expect(item.kind).toBe("activity_group");
+  return item as Extract<TimelineItem, { kind: "activity_group" }>;
+}
+
 const tool = (
   id: string,
   activity: Record<string, unknown>,
@@ -165,10 +170,12 @@ describe("timeline activity grouping", () => {
     const grouped = compileInlineItems([
       batchItem
     ]);
-    const visibleItems = summarizeActivityItems((grouped[0] as any).items || []);
+    const group = expectActivityGroup(grouped[0]);
+    const visibleItems = summarizeActivityItems(group.items);
     const preview = activityGroupPreview(visibleItems, "zh");
+    const visibleTools = visibleItems.filter((item): item is Extract<TimelineItem, { kind: "tool" }> => item.kind === "tool");
 
-    expect(visibleItems.map((item: any) => item.tool)).toEqual(["read_file", "grep"]);
+    expect(visibleTools.map((item) => item.tool)).toEqual(["read_file", "grep"]);
     expect(preview).toContain("Cargo.toml");
     expect(preview).not.toContain("batch");
     expect(grouped).toHaveLength(1);
@@ -398,7 +405,7 @@ describe("timeline activity grouping", () => {
       type: "run",
       label: "已运行 1 条命令"
     });
-    expect((grouped[0] as any).items[0]).toMatchObject({
+    expect(expectActivityGroup(grouped[0]).items[0]).toMatchObject({
       result: "M app.css",
       metadata: {
         activity: {
