@@ -6,6 +6,7 @@ export const SELECTED_PROJECT_ROOT_STORAGE_KEY = "yode-selected-project-root";
 export const ARCHIVED_SESSION_IDS_STORAGE_KEY = "yode-archived-session-ids";
 export const ARCHIVED_CHATS_STORAGE_KEY = "yode-archived-chats";
 export const DELETED_SESSION_IDS_STORAGE_KEY = "yode-deleted-session-ids";
+export const ENVIRONMENT_PROJECTS_STORAGE_KEY = "yode-environments-projects";
 export const STANDALONE_PROJECT_SENTINEL = "__standalone__";
 
 export type ArchivedChatInfo = {
@@ -15,12 +16,46 @@ export type ArchivedChatInfo = {
   project: string;
 };
 
+export type ProjectEnvironment = {
+  name: string;
+  subtext?: string;
+  path?: string;
+  setupCommand?: string;
+  execMode?: "host" | "docker" | "virtualenv";
+  envVars?: Array<{ key: string; value: string }>;
+};
+
+export function projectLabelFromPath(path: string) {
+  const trimmed = path.trim();
+  if (!trimmed) return "项目";
+  const parts = trimmed.split(/[\\/]+/).filter(Boolean);
+  return parts[parts.length - 1] || trimmed;
+}
+
+function ownerFromPath(path: string) {
+  const parts = path.split(/[\\/]+/).filter(Boolean);
+  return parts.length >= 2 ? parts[parts.length - 2] : undefined;
+}
+
 export function loadStoredProjectRoots(): string[] {
   return loadStoredProjectRootsByKey(PROJECT_ROOTS_STORAGE_KEY);
 }
 
 export function loadStoredProjectOrder(): string[] {
   return loadStoredProjectRootsByKey(PROJECT_ORDER_STORAGE_KEY);
+}
+
+export function loadRealProjectRoots() {
+  const roots = loadStoredProjectRoots();
+  const order = loadStoredProjectOrder();
+  return dedupeProjectRoots([...order.filter((root) => roots.includes(root)), ...roots]);
+}
+
+export function saveRealProjectRoots(roots: string[]) {
+  const deduped = dedupeProjectRoots(roots);
+  saveStoredStringArray(PROJECT_ROOTS_STORAGE_KEY, deduped);
+  saveStoredStringArray(PROJECT_ORDER_STORAGE_KEY, deduped);
+  window.dispatchEvent(new CustomEvent("yode-project-roots-changed", { detail: deduped }));
 }
 
 export function loadStoredSelectedProjectRoot(): string | null | undefined {
@@ -44,6 +79,60 @@ export function dedupeProjectRoots(roots: Array<string | null | undefined>) {
     unique.push(normalized);
   });
   return unique;
+}
+
+export function normalizeProjectEnvironment(project: ProjectEnvironment): ProjectEnvironment | null {
+  const path = normalizeProjectRoot(project.path);
+  const name = project.name?.trim() || (path ? projectLabelFromPath(path) : "");
+  if (!path) return null;
+  return {
+    ...project,
+    name,
+    subtext: project.subtext?.trim() || ownerFromPath(path),
+    path,
+    execMode: project.execMode || "host",
+    setupCommand: project.setupCommand || "",
+    envVars: project.envVars || []
+  };
+}
+
+export function mergeProjectEnvironments(
+  savedProjects: ProjectEnvironment[],
+  roots: string[]
+): ProjectEnvironment[] {
+  const byPath = new Map<string, ProjectEnvironment>();
+  savedProjects.forEach((project) => {
+    const normalized = normalizeProjectEnvironment(project);
+    if (normalized?.path) byPath.set(normalized.path, normalized);
+  });
+
+  return roots.map((root) => {
+    return byPath.get(root) ?? {
+      name: projectLabelFromPath(root),
+      subtext: ownerFromPath(root),
+      path: root,
+      execMode: "host" as const,
+      setupCommand: "",
+      envVars: []
+    };
+  });
+}
+
+export function normalizeProjectEnvironments(projects: ProjectEnvironment[]): ProjectEnvironment[] {
+  return projects
+    .map(normalizeProjectEnvironment)
+    .filter((project): project is ProjectEnvironment => project !== null);
+}
+
+export function loadStoredProjectEnvironments(roots = loadRealProjectRoots()): ProjectEnvironment[] {
+  try {
+    const raw = localStorage.getItem(ENVIRONMENT_PROJECTS_STORAGE_KEY);
+    if (!raw) return mergeProjectEnvironments([], roots);
+    const parsed: unknown = JSON.parse(raw);
+    return mergeProjectEnvironments(Array.isArray(parsed) ? (parsed as ProjectEnvironment[]) : [], roots);
+  } catch {
+    return mergeProjectEnvironments([], roots);
+  }
 }
 
 export function loadStoredStringArray(key: string): string[] {

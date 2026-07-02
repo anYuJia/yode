@@ -2,95 +2,17 @@ import React, { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Folder, Plus, X, Trash2 } from "lucide-react";
 import { loadDesktopSetting, saveDesktopSetting } from "../../lib/desktopSettings";
-import { projectLabelFromPath } from "../timelineUtils";
-
-interface ProjectEnvironment {
-  name: string;
-  subtext?: string;
-  path?: string;
-  setupCommand?: string;
-  execMode?: "host" | "docker" | "virtualenv";
-  envVars?: Array<{ key: string; value: string }>;
-}
-
-const PROJECT_ROOTS_STORAGE_KEY = "yode-project-roots";
-const PROJECT_ORDER_STORAGE_KEY = "yode-project-order";
-
-function readStringArrayStorage(key: string): string[] {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-function dedupeStrings(values: Array<string | null | undefined>) {
-  const seen = new Set<string>();
-  const result: string[] = [];
-  values.forEach((value) => {
-    const trimmed = value?.trim();
-    if (!trimmed || seen.has(trimmed)) return;
-    seen.add(trimmed);
-    result.push(trimmed);
-  });
-  return result;
-}
-
-function ownerFromPath(path: string) {
-  const parts = path.split("/").filter(Boolean);
-  return parts.length >= 2 ? parts[parts.length - 2] : undefined;
-}
-
-function normalizeProject(project: ProjectEnvironment): ProjectEnvironment | null {
-  const path = project.path?.trim();
-  const name = project.name?.trim() || (path ? projectLabelFromPath(path) : "");
-  if (!path) return null;
-  return {
-    ...project,
-    name,
-    subtext: project.subtext?.trim() || (path ? ownerFromPath(path) : undefined),
-    path: path || undefined,
-    execMode: project.execMode || "host",
-    setupCommand: project.setupCommand || "",
-    envVars: project.envVars || []
-  };
-}
-
-function mergeProjects(savedProjects: ProjectEnvironment[], roots: string[]) {
-  const byPath = new Map<string, ProjectEnvironment>();
-  savedProjects.forEach((project) => {
-    const normalized = normalizeProject(project);
-    if (!normalized) return;
-    byPath.set(normalized.path!, normalized);
-  });
-
-  return roots.map((root) => {
-    return byPath.get(root) ?? {
-      name: projectLabelFromPath(root),
-      subtext: ownerFromPath(root),
-      path: root,
-      execMode: "host" as const,
-      setupCommand: "",
-      envVars: []
-    };
-  });
-}
-
-function loadRealProjectRoots() {
-  const roots = readStringArrayStorage(PROJECT_ROOTS_STORAGE_KEY);
-  const order = readStringArrayStorage(PROJECT_ORDER_STORAGE_KEY);
-  return dedupeStrings([...order.filter((root) => roots.includes(root)), ...roots]);
-}
-
-function saveRealProjectRoots(roots: string[]) {
-  const deduped = dedupeStrings(roots);
-  localStorage.setItem(PROJECT_ROOTS_STORAGE_KEY, JSON.stringify(deduped));
-  localStorage.setItem(PROJECT_ORDER_STORAGE_KEY, JSON.stringify(deduped));
-  window.dispatchEvent(new CustomEvent("yode-project-roots-changed", { detail: deduped }));
-}
+import {
+  ENVIRONMENT_PROJECTS_STORAGE_KEY,
+  ProjectEnvironment,
+  dedupeProjectRoots,
+  loadRealProjectRoots,
+  loadStoredProjectEnvironments,
+  mergeProjectEnvironments,
+  normalizeProjectEnvironments,
+  projectLabelFromPath,
+  saveRealProjectRoots
+} from "../../lib/projectStorage";
 
 export function EnvironmentsSettingsSettings({
   isZh,
@@ -99,18 +21,7 @@ export function EnvironmentsSettingsSettings({
   isZh: boolean;
   t: (zh: string, en: string) => string;
 }) {
-  const [projects, setProjects] = useState<ProjectEnvironment[]>(() => {
-    const saved = localStorage.getItem("yode-environments-projects");
-    const roots = loadRealProjectRoots();
-    if (saved) {
-      try {
-        return mergeProjects(JSON.parse(saved), roots);
-      } catch (e) {
-        return mergeProjects([], roots);
-      }
-    }
-    return mergeProjects([], roots);
-  });
+  const [projects, setProjects] = useState<ProjectEnvironment[]>(() => loadStoredProjectEnvironments());
 
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
   const [statusText, setStatusText] = useState("");
@@ -121,17 +32,17 @@ export function EnvironmentsSettingsSettings({
   const [formPath, setFormPath] = useState("");
 
   const saveProjects = (list: ProjectEnvironment[], syncRoots = true) => {
-    const normalized = list.map(normalizeProject).filter((project): project is ProjectEnvironment => project !== null);
+    const normalized = normalizeProjectEnvironments(list);
     setProjects(normalized);
-    void saveDesktopSetting("yode-environments-projects", normalized);
+    void saveDesktopSetting(ENVIRONMENT_PROJECTS_STORAGE_KEY, normalized);
     if (syncRoots) {
       saveRealProjectRoots(normalized.map((project) => project.path).filter((path): path is string => Boolean(path)));
     }
   };
 
   useEffect(() => {
-    void loadDesktopSetting("yode-environments-projects", projects).then((savedProjects) => {
-      const merged = mergeProjects(savedProjects, loadRealProjectRoots());
+    void loadDesktopSetting(ENVIRONMENT_PROJECTS_STORAGE_KEY, projects).then((savedProjects) => {
+      const merged = mergeProjectEnvironments(savedProjects, loadRealProjectRoots());
       saveProjects(merged);
     });
   }, []);
@@ -164,9 +75,9 @@ export function EnvironmentsSettingsSettings({
     });
     const root = pickedRoot?.trim();
     if (!root) return;
-    const nextRoots = dedupeStrings([...loadRealProjectRoots(), root]);
+    const nextRoots = dedupeProjectRoots([...loadRealProjectRoots(), root]);
     saveRealProjectRoots(nextRoots);
-    const merged = mergeProjects(projects, nextRoots);
+    const merged = mergeProjectEnvironments(projects, nextRoots);
     saveProjects(merged);
     const index = merged.findIndex((project) => project.path === root);
     setExpandedIndex(index >= 0 ? index : null);
