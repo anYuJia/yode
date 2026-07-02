@@ -213,7 +213,7 @@ pub(crate) async fn execute_background_shell(
             store.update_progress(&task_id, format!("Running {}", command_display));
         }
 
-        let stdout_file = match std::fs::File::create(&output_path_spawn) {
+        let stdout_file = match tokio::fs::File::create(&output_path_spawn).await {
             Ok(file) => file,
             Err(err) => {
                 runtime_tasks
@@ -223,7 +223,7 @@ pub(crate) async fn execute_background_shell(
                 return;
             }
         };
-        let stderr_file = match stdout_file.try_clone() {
+        let stderr_file = match stdout_file.try_clone().await {
             Ok(file) => file,
             Err(err) => {
                 runtime_tasks.lock().await.mark_failed(
@@ -233,6 +233,8 @@ pub(crate) async fn execute_background_shell(
                 return;
             }
         };
+        let stdout_file = stdout_file.into_std().await;
+        let stderr_file = stderr_file.into_std().await;
 
         let mut child = match Command::new(&executable)
             .args(&args)
