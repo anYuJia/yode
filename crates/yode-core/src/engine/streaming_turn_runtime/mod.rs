@@ -50,7 +50,7 @@ impl AgentEngine {
         cancel_token: Option<CancellationToken>,
     ) -> Result<()> {
         self.current_query_source = source;
-        self.rebuild_system_prompt();
+        self.rebuild_system_prompt_async().await;
         self.append_turn_setup_context(user_input).await;
         self.record_turn_user_input_with_images(user_input, images);
         self.reset_turn_runtime_state();

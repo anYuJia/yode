@@ -10,7 +10,7 @@ impl AgentEngine {
         mut confirm_rx: mpsc::UnboundedReceiver<ConfirmResponse>,
     ) -> Result<()> {
         self.current_query_source = source;
-        self.rebuild_system_prompt();
+        self.rebuild_system_prompt_async().await;
         let _ = event_tx.send(EngineEvent::Thinking);
         self.append_turn_setup_context(user_input).await;
         self.record_turn_user_input(user_input);

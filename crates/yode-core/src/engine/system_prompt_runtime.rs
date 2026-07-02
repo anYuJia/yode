@@ -5,6 +5,25 @@ impl AgentEngine {
     /// and update the first message in the conversation history.
     pub(super) fn rebuild_system_prompt(&mut self) {
         let system_prompt_build = Self::build_system_prompt_for_context(&self.context);
+        self.apply_system_prompt_build(system_prompt_build);
+    }
+
+    /// Rebuild the system prompt without blocking the async turn runtime on
+    /// git, instruction, memory, or workspace snapshot reads.
+    pub(super) async fn rebuild_system_prompt_async(&mut self) {
+        let context = self.context.clone();
+        match tokio::task::spawn_blocking(move || Self::build_system_prompt_for_context(&context))
+            .await
+        {
+            Ok(system_prompt_build) => self.apply_system_prompt_build(system_prompt_build),
+            Err(err) => {
+                warn!("Failed to rebuild system prompt in blocking task: {}", err);
+                self.rebuild_system_prompt();
+            }
+        }
+    }
+
+    fn apply_system_prompt_build(&mut self, system_prompt_build: SystemPromptBuild) {
         let system_prompt = system_prompt_build.prompt;
 
         self.system_prompt = system_prompt.clone();
