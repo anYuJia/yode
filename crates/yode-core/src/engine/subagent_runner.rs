@@ -47,7 +47,7 @@ impl SubAgentRunner for SubAgentRunnerImpl {
 
         Box::pin(async move {
             let parent_working_dir = self.context.working_dir_compat();
-            let subagent_context = prepare_subagent_context(&self.context, &options)?;
+            let subagent_context = prepare_subagent_context(&self.context, &options).await?;
             let prompt = inject_team_runtime_context(
                 prompt,
                 &self.team_runtime,
@@ -630,7 +630,7 @@ async fn inject_team_runtime_context(
     )
 }
 
-fn prepare_subagent_context(
+async fn prepare_subagent_context(
     context: &AgentContext,
     options: &SubAgentOptions,
 ) -> Result<AgentContext> {
@@ -642,10 +642,7 @@ fn prepare_subagent_context(
     let target_cwd = if let Some(cwd) = options.cwd.as_ref() {
         Some(cwd.clone())
     } else if options.isolation.as_deref() == Some("worktree") {
-        Some(create_agent_worktree(
-            &context.working_dir_compat(),
-            &options.description,
-        )?)
+        Some(create_agent_worktree(&context.working_dir_compat(), &options.description).await?)
     } else if let Some(isolation) = options.isolation.as_deref() {
         return Err(anyhow::anyhow!(
             "Unsupported sub-agent isolation mode '{}'.",
@@ -722,11 +719,15 @@ fn stable_prompt_fingerprint(prompt: &str) -> String {
     format!("{hash:016x}")
 }
 
-fn create_agent_worktree(root: &std::path::Path, description: &str) -> Result<std::path::PathBuf> {
-    let git_root_output = std::process::Command::new("git")
+async fn create_agent_worktree(
+    root: &std::path::Path,
+    description: &str,
+) -> Result<std::path::PathBuf> {
+    let git_root_output = tokio::process::Command::new("git")
         .args(["rev-parse", "--show-toplevel"])
         .current_dir(root)
         .output()
+        .await
         .map_err(|err| anyhow::anyhow!("Failed to locate git root: {}", err))?;
     if !git_root_output.status.success() {
         return Err(anyhow::anyhow!(
@@ -748,13 +749,14 @@ fn create_agent_worktree(root: &std::path::Path, description: &str) -> Result<st
     };
     let branch = format!("yode-{}", name);
     let worktree_dir = git_root.join(".yode").join("agent-worktrees").join(&name);
-    std::fs::create_dir_all(
+    tokio::fs::create_dir_all(
         worktree_dir
             .parent()
             .ok_or_else(|| anyhow::anyhow!("Invalid worktree path."))?,
-    )?;
+    )
+    .await?;
 
-    let output = std::process::Command::new("git")
+    let output = tokio::process::Command::new("git")
         .args([
             "worktree",
             "add",
@@ -765,6 +767,7 @@ fn create_agent_worktree(root: &std::path::Path, description: &str) -> Result<st
         ])
         .current_dir(&git_root)
         .output()
+        .await
         .map_err(|err| anyhow::anyhow!("Failed to create sub-agent worktree: {}", err))?;
     if !output.status.success() {
         return Err(anyhow::anyhow!(
@@ -1103,8 +1106,8 @@ mod tests {
         assert_eq!(member.runtime_task_id.as_deref(), Some(task.id.as_str()));
     }
 
-    #[test]
-    fn subagent_context_applies_cwd_override() {
+    #[tokio::test]
+    async fn subagent_context_applies_cwd_override() {
         let dir = tempfile::tempdir().unwrap();
         let child = dir.path().join("child");
         std::fs::create_dir_all(&child).unwrap();
@@ -1119,14 +1122,14 @@ mod tests {
             ..Default::default()
         };
 
-        let sub_context = prepare_subagent_context(&context, &options).unwrap();
+        let sub_context = prepare_subagent_context(&context, &options).await.unwrap();
 
         assert_eq!(sub_context.working_dir_compat(), child);
         assert_eq!(context.working_dir_compat(), dir.path());
     }
 
-    #[test]
-    fn subagent_context_carries_invocation_scope() {
+    #[tokio::test]
+    async fn subagent_context_carries_invocation_scope() {
         let dir = tempfile::tempdir().unwrap();
         let context = AgentContext::new(
             dir.path().to_path_buf(),
@@ -1141,7 +1144,7 @@ mod tests {
             ..Default::default()
         };
 
-        let sub_context = prepare_subagent_context(&context, &options).unwrap();
+        let sub_context = prepare_subagent_context(&context, &options).await.unwrap();
 
         assert_eq!(
             sub_context.subagent_description.as_deref(),
