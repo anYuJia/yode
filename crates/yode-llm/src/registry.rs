@@ -1,5 +1,7 @@
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::Arc;
+
+use parking_lot::RwLock;
 
 use crate::provider::LlmProvider;
 
@@ -304,39 +306,27 @@ impl ProviderRegistry {
         }
     }
 
-    fn read_providers(&self) -> RwLockReadGuard<'_, HashMap<String, Arc<dyn LlmProvider>>> {
-        self.providers
-            .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
-    fn write_providers(&self) -> RwLockWriteGuard<'_, HashMap<String, Arc<dyn LlmProvider>>> {
-        self.providers
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
     pub fn register(&self, provider: Arc<dyn LlmProvider>) {
         let name = provider.name().to_string();
-        self.write_providers().insert(name, provider);
+        self.providers.write().insert(name, provider);
     }
 
     pub fn get(&self, name: &str) -> Option<Arc<dyn LlmProvider>> {
-        self.read_providers().get(name).cloned()
+        self.providers.read().get(name).cloned()
     }
 
     pub fn list(&self) -> Vec<String> {
-        let mut names: Vec<String> = self.read_providers().keys().cloned().collect();
+        let mut names: Vec<String> = self.providers.read().keys().cloned().collect();
         names.sort();
         names
     }
 
     pub fn remove(&self, name: &str) -> Option<Arc<dyn LlmProvider>> {
-        self.write_providers().remove(name)
+        self.providers.write().remove(name)
     }
 
     pub fn contains(&self, name: &str) -> bool {
-        self.read_providers().contains_key(name)
+        self.providers.read().contains_key(name)
     }
 }
 
@@ -360,7 +350,7 @@ mod tests {
         let registry = ProviderRegistry::new();
 
         let poisoned = catch_unwind(AssertUnwindSafe(|| {
-            let _guard = registry.providers.write().unwrap();
+            let _guard = registry.providers.write();
             panic!("poison provider registry for test");
         }));
         assert!(poisoned.is_err());

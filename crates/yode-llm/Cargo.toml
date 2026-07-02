@@ -19,3 +19,4 @@ eventsource-stream = { workspace = true }
 futures = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
+parking_lot = { workspace = true }

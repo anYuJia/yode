@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
-    Arc, RwLock, RwLockReadGuard, RwLockWriteGuard,
+    Arc,
 };
 
+use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use serde::{Deserialize, Serialize};
 
 use crate::tool::{Tool, ToolDefinition};
@@ -353,18 +354,12 @@ impl Default for ToolRegistry {
     }
 }
 
-fn read_lock<'a, T>(lock: &'a RwLock<T>, name: &'static str) -> RwLockReadGuard<'a, T> {
-    lock.read().unwrap_or_else(|poisoned| {
-        tracing::warn!(lock = name, "Recovering poisoned tool registry lock");
-        poisoned.into_inner()
-    })
+fn read_lock<'a, T>(lock: &'a RwLock<T>, _name: &'static str) -> RwLockReadGuard<'a, T> {
+    lock.read()
 }
 
-fn write_lock<'a, T>(lock: &'a RwLock<T>, name: &'static str) -> RwLockWriteGuard<'a, T> {
-    lock.write().unwrap_or_else(|poisoned| {
-        tracing::warn!(lock = name, "Recovering poisoned tool registry lock");
-        poisoned.into_inner()
-    })
+fn write_lock<'a, T>(lock: &'a RwLock<T>, _name: &'static str) -> RwLockWriteGuard<'a, T> {
+    lock.write()
 }
 
 #[cfg(test)]
@@ -469,10 +464,10 @@ mod tests {
     }
 
     #[test]
-    fn registry_recovers_poisoned_locks() {
+    fn registry_continues_after_panic_while_locked() {
         let registry = ToolRegistry::new();
         let _ = catch_unwind(AssertUnwindSafe(|| {
-            let _guard = registry.tools.write().expect("lock tools");
+            let _guard = registry.tools.write();
             panic!("poison registry tools lock");
         }));
 

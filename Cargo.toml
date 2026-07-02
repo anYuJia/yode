@@ -71,6 +71,7 @@ globset = "0.4"
 dirs = "6"
 similar = "2"
 base64 = "0.22"
+parking_lot = "0.12"
 
 # Internal crates
 yode-core = { version = "1.0.0", path = "crates/yode-core" }
