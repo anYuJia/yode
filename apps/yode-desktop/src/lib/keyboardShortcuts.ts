@@ -7,7 +7,10 @@ export type ShortcutBinding = {
   keys: string[];
 };
 
+export type ShortcutBindingOverride = Pick<ShortcutBinding, "id" | "keys">;
+
 export const KEYBOARD_SHORTCUTS_STORAGE_KEY = "yode-keyboard-shortcuts";
+export const KEYBOARD_SHORTCUTS_CHANGE_EVENT = "yode-keyboard-shortcuts-change";
 
 export const DEFAULT_SHORTCUT_BINDINGS: ShortcutBinding[] = [
   { id: "archive", cmdZh: "归档对话", cmdEn: "Archive chat", descZh: "归档当前活动的对话", descEn: "Archive the current chat", keys: ["⇧⌘A"] },
@@ -72,11 +75,15 @@ export function loadShortcutBindings(): ShortcutBinding[] {
   }
 }
 
+export function shortcutBindingOverridesFromBindings(bindings: ShortcutBinding[]): ShortcutBindingOverride[] {
+  return bindings.map((binding) => ({ id: binding.id, keys: binding.keys }));
+}
+
 export function shortcutBindingsFromOverrides(overrides: unknown): ShortcutBinding[] {
   if (!Array.isArray(overrides)) return DEFAULT_SHORTCUT_BINDINGS;
   const overrideMap = new Map(
     overrides
-      .filter((item): item is { id: string; keys: string[] } =>
+      .filter((item): item is ShortcutBindingOverride =>
         Boolean(item) && typeof item.id === "string" && Array.isArray(item.keys)
       )
       .map((item) => [item.id, item.keys.filter((key): key is string => typeof key === "string")])
@@ -88,9 +95,9 @@ export function shortcutBindingsFromOverrides(overrides: unknown): ShortcutBindi
 }
 
 export function saveShortcutBindings(bindings: ShortcutBinding[]) {
-  const payload = bindings.map((binding) => ({ id: binding.id, keys: binding.keys }));
+  const payload = shortcutBindingOverridesFromBindings(bindings);
   localStorage.setItem(KEYBOARD_SHORTCUTS_STORAGE_KEY, JSON.stringify(payload));
-  window.dispatchEvent(new Event("yode-keyboard-shortcuts-change"));
+  window.dispatchEvent(new Event(KEYBOARD_SHORTCUTS_CHANGE_EVENT));
 }
 
 export function normalizeShortcutLabel(label: string) {

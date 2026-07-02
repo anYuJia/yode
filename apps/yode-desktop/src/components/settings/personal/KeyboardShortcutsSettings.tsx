@@ -5,6 +5,7 @@ import {
   KEYBOARD_SHORTCUTS_STORAGE_KEY,
   loadShortcutBindings,
   normalizeShortcutLabel,
+  shortcutBindingOverridesFromBindings,
   saveShortcutBindings,
   ShortcutBinding,
   shortcutBindingsFromOverrides,
@@ -34,8 +35,7 @@ export function KeyboardShortcutsSettings({ isZh, t }: { isZh: boolean; t: (zh: 
       if (!overrides) return;
       const next = shortcutBindingsFromOverrides(overrides);
       setBindings(next);
-      localStorage.setItem(KEYBOARD_SHORTCUTS_STORAGE_KEY, JSON.stringify(next.map((item) => ({ id: item.id, keys: item.keys }))));
-      window.dispatchEvent(new Event("yode-keyboard-shortcuts-change"));
+      saveShortcutBindings(next);
     });
   }, []);
 
@@ -54,7 +54,7 @@ export function KeyboardShortcutsSettings({ isZh, t }: { isZh: boolean; t: (zh: 
   const persist = (next: ShortcutBinding[], message?: string) => {
     setBindings(next);
     saveShortcutBindings(next);
-    void saveDesktopSetting(KEYBOARD_SHORTCUTS_STORAGE_KEY, next.map((binding) => ({ id: binding.id, keys: binding.keys })));
+    void saveDesktopSetting(KEYBOARD_SHORTCUTS_STORAGE_KEY, shortcutBindingOverridesFromBindings(next));
     if (message) setStatusText(message);
   };
 
