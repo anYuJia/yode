@@ -235,6 +235,28 @@ pub fn discover_plugin_hooks(project_root: &std::path::Path) -> PluginHookDiscov
     discovery
 }
 
+pub async fn discover_plugin_hooks_async(project_root: &std::path::Path) -> PluginHookDiscovery {
+    let mut discovery = PluginHookDiscovery::default();
+    let registry = crate::plugins::PluginRegistry::discover_async(project_root).await;
+    for path in registry.enabled_hook_paths() {
+        let hook_paths = expand_hook_contribution_async(path).await;
+        for hook_path in hook_paths {
+            match tokio::fs::read_to_string(&hook_path)
+                .await
+                .map_err(|err| format!("failed to read {}: {}", hook_path.display(), err))
+                .and_then(|content| {
+                    toml::from_str::<HookConfig>(&content).map_err(|err| {
+                        format!("invalid hook manifest {}: {}", hook_path.display(), err)
+                    })
+                }) {
+                Ok(config) => discovery.hooks.extend(config.hooks),
+                Err(message) => discovery.diagnostics.push(message),
+            }
+        }
+    }
+    discovery
+}
+
 fn expand_hook_contribution(path: PathBuf) -> Vec<PathBuf> {
     if path.is_dir() {
         let mut paths = std::fs::read_dir(path)
@@ -244,6 +266,34 @@ fn expand_hook_contribution(path: PathBuf) -> Vec<PathBuf> {
             .map(|entry| entry.path())
             .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("toml"))
             .collect::<Vec<_>>();
+        paths.sort();
+        return paths;
+    }
+
+    if path.extension().and_then(|ext| ext.to_str()) == Some("toml") {
+        vec![path]
+    } else {
+        Vec::new()
+    }
+}
+
+async fn expand_hook_contribution_async(path: PathBuf) -> Vec<PathBuf> {
+    if tokio::fs::metadata(&path)
+        .await
+        .map(|metadata| metadata.is_dir())
+        .unwrap_or(false)
+    {
+        let mut entries = match tokio::fs::read_dir(path).await {
+            Ok(entries) => entries,
+            Err(_) => return Vec::new(),
+        };
+        let mut paths = Vec::new();
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) == Some("toml") {
+                paths.push(path);
+            }
+        }
         paths.sort();
         return paths;
     }

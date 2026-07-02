@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use anyhow::Result;
-use yode_core::hooks::{HookDefinition, HookManager};
+use yode_core::hooks::{discover_plugin_hooks_async, HookDefinition, HookManager};
 
 use crate::desktop_settings_store::{desktop_bool_setting, read_desktop_settings_async};
 use crate::protocol::{DesktopHookEntry, HooksSettings};
@@ -53,6 +53,10 @@ pub(super) async fn build_desktop_hook_manager(
     }
 
     let mut manager = HookManager::new(workspace_path.to_path_buf());
+    let plugin_hooks = discover_plugin_hooks_async(workspace_path).await;
+    for hook in plugin_hooks.hooks {
+        manager.register(hook);
+    }
     for hook in hooks_settings.hooks {
         if hook.disabled {
             continue;
