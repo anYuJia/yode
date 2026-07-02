@@ -133,6 +133,30 @@ pub fn write_tool_turn_artifact(
     Ok(path)
 }
 
+pub async fn write_tool_turn_artifact_async(
+    project_root: &Path,
+    session_id: &str,
+    artifact: &ToolTurnArtifact,
+) -> Result<PathBuf> {
+    let dir = tool_artifacts_dir(project_root);
+    tokio::fs::create_dir_all(&dir)
+        .await
+        .with_context(|| format!("Failed to create tool artifact dir: {}", dir.display()))?;
+
+    let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+    let short_session: String = session_id.chars().take(8).collect();
+    let path = dir.join(format!(
+        "{}-tools-turn-{:04}-{}.md",
+        short_session, artifact.turn_index, timestamp
+    ));
+
+    tokio::fs::write(&path, render_tool_turn_artifact(artifact))
+        .await
+        .with_context(|| format!("Failed to write tool artifact file: {}", path.display()))?;
+
+    Ok(path)
+}
+
 pub fn render_tool_turn_artifact(artifact: &ToolTurnArtifact) -> String {
     let mut output = String::new();
     output.push_str("# Tool Turn Artifact\n\n");

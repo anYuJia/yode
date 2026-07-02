@@ -56,7 +56,7 @@ impl AgentEngine {
         self.reset_turn_runtime_state();
 
         loop {
-            if self.turn_cancelled(cancel_token.as_ref(), &event_tx) {
+            if self.turn_cancelled(cancel_token.as_ref(), &event_tx).await {
                 return Ok(());
             }
 

@@ -169,7 +169,7 @@ impl AgentEngine {
             }
 
             self.maybe_refresh_live_session_memory(Some(&event_tx));
-            self.complete_tool_turn_artifact();
+            self.complete_tool_turn_artifact_async().await;
             self.complete_turn_runtime_artifact(response.stop_reason.as_ref())
                 .await;
             let _ = event_tx.send(EngineEvent::TurnComplete(response));

@@ -13,7 +13,7 @@ impl AgentEngine {
         if !parallel.is_empty() {
             if let Some(token) = cancel_token {
                 if token.is_cancelled() {
-                    self.complete_tool_turn_artifact();
+                    self.complete_tool_turn_artifact_async().await;
                     let _ = event_tx.send(EngineEvent::Done);
                     return Ok(());
                 }
@@ -29,7 +29,7 @@ impl AgentEngine {
         for tool_call in &sequential {
             if let Some(token) = cancel_token {
                 if token.is_cancelled() {
-                    self.complete_tool_turn_artifact();
+                    self.complete_tool_turn_artifact_async().await;
                     let _ = event_tx.send(EngineEvent::Done);
                     return Ok(());
                 }

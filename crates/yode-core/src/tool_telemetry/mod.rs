@@ -7,7 +7,9 @@ use tokio::sync::mpsc;
 use yode_llm::types::ToolCall;
 use yode_tools::tool::ToolResult;
 
-use crate::tool_runtime::{write_tool_turn_artifact, ToolPoolArtifactView, ToolTurnArtifact};
+#[cfg(test)]
+use crate::tool_runtime::write_tool_turn_artifact;
+use crate::tool_runtime::{write_tool_turn_artifact_async, ToolPoolArtifactView, ToolTurnArtifact};
 
 use super::{
     AgentEngine, EngineEvent, ToolExecutionTrace, TOOL_BUDGET_NOTICE, TOOL_BUDGET_WARNING,
@@ -690,6 +692,7 @@ impl AgentEngine {
         self.current_tool_execution_traces.push(trace);
     }
 
+    #[cfg(test)]
     pub(super) fn complete_tool_turn_artifact(&mut self) {
         if self.current_tool_execution_traces.is_empty() {
             self.current_tool_turn_started_at = None;
@@ -747,6 +750,74 @@ impl AgentEngine {
             &self.context.session_id,
             &artifact,
         ) {
+            self.last_tool_turn_artifact_path = Some(path.display().to_string());
+        }
+
+        self.last_tool_turn_completed_at = artifact.completed_at.clone();
+        self.last_tool_turn_traces = self.current_tool_execution_traces.clone();
+        self.current_tool_execution_traces.clear();
+        self.current_tool_turn_started_at = None;
+    }
+
+    pub(super) async fn complete_tool_turn_artifact_async(&mut self) {
+        if self.current_tool_execution_traces.is_empty() {
+            self.current_tool_turn_started_at = None;
+            return;
+        }
+
+        let total_calls = self.current_tool_execution_traces.len() as u32;
+        let success_count = self
+            .current_tool_execution_traces
+            .iter()
+            .filter(|trace| trace.success)
+            .count() as u32;
+        let failed_count = total_calls.saturating_sub(success_count);
+        let mut current_error_type_counts = BTreeMap::new();
+        for trace in &self.current_tool_execution_traces {
+            if let Some(kind) = trace.error_type.as_ref() {
+                *current_error_type_counts.entry(kind.clone()).or_insert(0) += 1;
+            }
+        }
+        let inventory = self.tools.inventory();
+        let tool_pool_snapshot = self.build_tool_pool_snapshot();
+
+        let artifact = ToolTurnArtifact {
+            turn_index: self.tool_turn_counter,
+            started_at: self.current_tool_turn_started_at.clone(),
+            completed_at: Some(Self::now_timestamp()),
+            total_calls,
+            success_count,
+            failed_count,
+            total_output_bytes: self.total_tool_results_bytes,
+            truncated_results: self.current_turn_truncated_results,
+            progress_events: self.current_turn_tool_progress_events,
+            parallel_batches: self.current_turn_parallel_batches,
+            parallel_calls: self.current_turn_parallel_calls,
+            max_parallel_batch_size: self.current_turn_max_parallel_batch_size,
+            budget_notice_emitted: self.current_turn_budget_notice_emitted,
+            budget_warning_emitted: self.current_turn_budget_warning_emitted,
+            last_budget_warning: self.last_tool_budget_warning.clone(),
+            latest_repeated_failure: self.latest_repeated_tool_failure.clone(),
+            error_type_counts: current_error_type_counts,
+            tool_pool: Some(ToolPoolArtifactView::from_snapshot(
+                &tool_pool_snapshot,
+                inventory.activation_count,
+                inventory.last_activated_tool,
+            )),
+            calls: self
+                .current_tool_execution_traces
+                .iter()
+                .map(ToolExecutionTrace::to_view)
+                .collect(),
+        };
+
+        if let Ok(path) = write_tool_turn_artifact_async(
+            &self.context.working_dir_compat(),
+            &self.context.session_id,
+            &artifact,
+        )
+        .await
+        {
             self.last_tool_turn_artifact_path = Some(path.display().to_string());
         }
 

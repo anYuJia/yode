@@ -138,7 +138,7 @@ impl AgentEngine {
                             "流式响应为空，非流式补偿也失败: {}",
                             err
                         )));
-                        self.complete_tool_turn_artifact();
+                        self.complete_tool_turn_artifact_async().await;
                         self.complete_turn_runtime_artifact(response.stop_reason.as_ref())
                             .await;
                         let _ = event_tx.send(EngineEvent::Done);
@@ -175,7 +175,7 @@ impl AgentEngine {
                 }
                 debug!("Streaming turn complete with no tool calls; finishing turn.");
                 self.maybe_refresh_live_session_memory(Some(event_tx));
-                self.complete_tool_turn_artifact();
+                self.complete_tool_turn_artifact_async().await;
                 self.complete_turn_runtime_artifact(response.stop_reason.as_ref())
                     .await;
                 let _ = event_tx.send(EngineEvent::TurnComplete(response));
@@ -191,7 +191,7 @@ impl AgentEngine {
             return Ok(StreamFinalizeAction::Continue);
         }
 
-        self.complete_tool_turn_artifact();
+        self.complete_tool_turn_artifact_async().await;
         self.complete_turn_runtime_artifact(None).await;
         let _ = event_tx.send(EngineEvent::Done);
         Ok(StreamFinalizeAction::Break)

@@ -32,7 +32,7 @@ impl AgentEngine {
                 "Request failed after 1 attempt: {}",
                 summarize_retry_error(&err)
             )));
-            self.complete_tool_turn_artifact();
+            self.complete_tool_turn_artifact_async().await;
             let _ = event_tx.send(EngineEvent::Done);
             return Err(err).context("LLM chat request failed");
         }
@@ -57,7 +57,7 @@ impl AgentEngine {
                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                     if let Some(token) = cancel_token {
                         if token.is_cancelled() {
-                            self.complete_tool_turn_artifact();
+                            self.complete_tool_turn_artifact_async().await;
                             let _ = event_tx.send(EngineEvent::Done);
                             return Ok(StreamRetryAction::ReturnOk);
                         }
@@ -68,7 +68,7 @@ impl AgentEngine {
 
             if let Some(token) = cancel_token {
                 if token.is_cancelled() {
-                    self.complete_tool_turn_artifact();
+                    self.complete_tool_turn_artifact_async().await;
                     let _ = event_tx.send(EngineEvent::Done);
                     return Ok(StreamRetryAction::ReturnOk);
                 }
@@ -151,7 +151,7 @@ impl AgentEngine {
                 {
                     self.push_and_persist_assistant_message(&assistant_msg);
                 }
-                self.complete_tool_turn_artifact();
+                self.complete_tool_turn_artifact_async().await;
                 let _ = event_tx.send(EngineEvent::Done);
                 return Ok(StreamRetryAction::ReturnOk);
             }
@@ -207,7 +207,7 @@ impl AgentEngine {
                 "Request failed after {} attempts: {}",
                 total_attempts, final_error_summary
             )));
-            self.complete_tool_turn_artifact();
+            self.complete_tool_turn_artifact_async().await;
             let _ = event_tx.send(EngineEvent::Done);
             return Err(anyhow::anyhow!(
                 "Request failed after {} attempts: {}",

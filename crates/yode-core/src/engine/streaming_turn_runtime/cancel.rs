@@ -1,13 +1,13 @@
 use super::*;
 
 impl AgentEngine {
-    pub(in crate::engine) fn turn_cancelled(
+    pub(in crate::engine) async fn turn_cancelled(
         &mut self,
         cancel_token: Option<&CancellationToken>,
         event_tx: &mpsc::UnboundedSender<EngineEvent>,
     ) -> bool {
         if cancel_token.is_some_and(|token| token.is_cancelled()) {
-            self.complete_tool_turn_artifact();
+            self.complete_tool_turn_artifact_async().await;
             let _ = event_tx.send(EngineEvent::Done);
             return true;
         }
@@ -36,7 +36,7 @@ impl AgentEngine {
                     .to_string(),
             ));
         }
-        self.complete_tool_turn_artifact();
+        self.complete_tool_turn_artifact_async().await;
         let _ = event_tx.send(EngineEvent::Done);
         true
     }
