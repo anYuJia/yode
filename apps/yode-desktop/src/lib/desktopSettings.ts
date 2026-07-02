@@ -57,6 +57,13 @@ export type BrowserSettings = {
   allowedDomains: string[];
 };
 
+export type PersonalizationSettings = {
+  personality: string;
+  customInstructions: string;
+  enableMemories: boolean;
+  skipToolChats: boolean;
+};
+
 export const DEFAULT_GIT_SETTINGS: GitSettings = {
   branchPrefix: "yode/",
   mergeMethod: "merge",
@@ -75,6 +82,13 @@ export const DEFAULT_BROWSER_SETTINGS: BrowserSettings = {
   approvalPolicy: "Always ask",
   blockedDomains: [],
   allowedDomains: []
+};
+
+export const DEFAULT_PERSONALIZATION_SETTINGS: PersonalizationSettings = {
+  personality: "Friendly",
+  customInstructions: "",
+  enableMemories: false,
+  skipToolChats: false
 };
 
 const CONFIGURATION_STORAGE_KEYS = {
@@ -109,6 +123,13 @@ const BROWSER_STORAGE_KEYS = {
   approvalPolicy: "yode-browser-approval",
   blockedDomains: "yode-browser-blocked-domains",
   allowedDomains: "yode-browser-allowed-domains"
+} as const;
+
+const PERSONALIZATION_STORAGE_KEYS = {
+  personality: "yode-personality",
+  customInstructions: "yode-custom-instructions",
+  enableMemories: "yode-enable-memories",
+  skipToolChats: "yode-skip-tool-chats"
 } as const;
 
 export function isTauriRuntime() {
@@ -308,6 +329,46 @@ export function saveBrowserSettings(settings: BrowserSettings): void {
   localStorage.setItem(BROWSER_STORAGE_KEYS.approvalPolicy, settings.approvalPolicy);
   localStorage.setItem(BROWSER_STORAGE_KEYS.blockedDomains, JSON.stringify(settings.blockedDomains));
   localStorage.setItem(BROWSER_STORAGE_KEYS.allowedDomains, JSON.stringify(settings.allowedDomains));
+}
+
+export function loadPersonalizationSettings(): PersonalizationSettings {
+  return {
+    personality:
+      localStorage.getItem(PERSONALIZATION_STORAGE_KEYS.personality) || DEFAULT_PERSONALIZATION_SETTINGS.personality,
+    customInstructions:
+      localStorage.getItem(PERSONALIZATION_STORAGE_KEYS.customInstructions) ||
+      DEFAULT_PERSONALIZATION_SETTINGS.customInstructions,
+    enableMemories: localStorage.getItem(PERSONALIZATION_STORAGE_KEYS.enableMemories) === "true",
+    skipToolChats: localStorage.getItem(PERSONALIZATION_STORAGE_KEYS.skipToolChats) === "true"
+  };
+}
+
+export async function loadPersistedPersonalizationSettings(
+  fallback = DEFAULT_PERSONALIZATION_SETTINGS
+): Promise<PersonalizationSettings> {
+  return {
+    personality: await loadDesktopSetting(PERSONALIZATION_STORAGE_KEYS.personality, fallback.personality),
+    customInstructions: await loadDesktopSetting(
+      PERSONALIZATION_STORAGE_KEYS.customInstructions,
+      fallback.customInstructions
+    ),
+    enableMemories: await loadDesktopSetting(PERSONALIZATION_STORAGE_KEYS.enableMemories, fallback.enableMemories),
+    skipToolChats: await loadDesktopSetting(PERSONALIZATION_STORAGE_KEYS.skipToolChats, fallback.skipToolChats)
+  };
+}
+
+export function savePersonalizationSettings(settings: PersonalizationSettings): void {
+  localStorage.setItem(PERSONALIZATION_STORAGE_KEYS.personality, settings.personality);
+  localStorage.setItem(PERSONALIZATION_STORAGE_KEYS.customInstructions, settings.customInstructions);
+  localStorage.setItem(PERSONALIZATION_STORAGE_KEYS.enableMemories, String(settings.enableMemories));
+  localStorage.setItem(PERSONALIZATION_STORAGE_KEYS.skipToolChats, String(settings.skipToolChats));
+}
+
+export function savePersonalizationSetting<K extends keyof PersonalizationSettings>(
+  key: K,
+  value: PersonalizationSettings[K]
+): Promise<void> {
+  return saveDesktopSetting(PERSONALIZATION_STORAGE_KEYS[key], value);
 }
 
 export function saveGeneralSettingValue(key: string, value: string | boolean) {

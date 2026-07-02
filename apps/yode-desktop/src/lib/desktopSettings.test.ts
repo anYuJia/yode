@@ -3,15 +3,19 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_BROWSER_SETTINGS,
   DEFAULT_GIT_SETTINGS,
+  DEFAULT_PERSONALIZATION_SETTINGS,
   loadBrowserSettings,
   loadGitSettings,
   loadConfigurationSettings,
   loadGeneralSettings,
   loadGeneralSettingsPayload,
+  loadPersonalizationSettings,
   loadWorktreesSettings,
   saveBrowserSettings,
   saveConfigurationSettings,
   saveGitSettings,
+  savePersonalizationSetting,
+  savePersonalizationSettings,
   saveWorktreesSetting
 } from "./desktopSettings";
 
@@ -308,6 +312,72 @@ describe("desktop settings helpers", () => {
       "yode-browser-approval": "Never allow",
       "yode-browser-blocked-domains": JSON.stringify(["blocked.example"]),
       "yode-browser-allowed-domains": JSON.stringify(["allowed.example"])
+    });
+  });
+
+  it("loads personalization settings defaults from local storage", () => {
+    stubLocalStorage(() => null);
+
+    expect(loadPersonalizationSettings()).toEqual(DEFAULT_PERSONALIZATION_SETTINGS);
+  });
+
+  it("loads personalization settings overrides", () => {
+    stubLocalStorage((key) => {
+      const values: Record<string, string> = {
+        "yode-personality": "Concise",
+        "yode-custom-instructions": "Prefer direct answers",
+        "yode-enable-memories": "true",
+        "yode-skip-tool-chats": "true"
+      };
+      return values[key] ?? null;
+    });
+
+    expect(loadPersonalizationSettings()).toEqual({
+      personality: "Concise",
+      customInstructions: "Prefer direct answers",
+      enableMemories: true,
+      skipToolChats: true
+    });
+  });
+
+  it("saves personalization settings through the shared helper", () => {
+    const saved = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      setItem: (key: string, value: string) => saved.set(key, value)
+    });
+
+    savePersonalizationSettings({
+      personality: "Professional",
+      customInstructions: "Use Simplified Chinese",
+      enableMemories: true,
+      skipToolChats: false
+    });
+
+    expect(Object.fromEntries(saved)).toEqual({
+      "yode-personality": "Professional",
+      "yode-custom-instructions": "Use Simplified Chinese",
+      "yode-enable-memories": "true",
+      "yode-skip-tool-chats": "false"
+    });
+  });
+
+  it("saves single personalization settings through mapped keys", async () => {
+    const saved = new Map<string, string>();
+    vi.stubGlobal("window", {});
+    vi.stubGlobal("localStorage", {
+      setItem: (key: string, value: string) => saved.set(key, value)
+    });
+
+    await savePersonalizationSetting("personality", "Friendly");
+    await savePersonalizationSetting("customInstructions", "Keep it short");
+    await savePersonalizationSetting("enableMemories", true);
+    await savePersonalizationSetting("skipToolChats", true);
+
+    expect(Object.fromEntries(saved)).toEqual({
+      "yode-personality": "Friendly",
+      "yode-custom-instructions": "Keep it short",
+      "yode-enable-memories": "true",
+      "yode-skip-tool-chats": "true"
     });
   });
 });

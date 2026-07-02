@@ -1,29 +1,26 @@
 import React, { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { CustomSelect } from "../../CustomSelect";
-import { isTauriRuntime, loadDesktopSetting, saveDesktopSetting } from "../../../lib/desktopSettings";
-
-type PersonalizationState = {
-  personality: string;
-  customInstructions: string;
-  enableMemories: boolean;
-  skipToolChats: boolean;
-};
+import {
+  DEFAULT_PERSONALIZATION_SETTINGS,
+  isTauriRuntime,
+  loadPersistedPersonalizationSettings,
+  loadPersonalizationSettings,
+  PersonalizationSettings as PersonalizationSettingsState,
+  savePersonalizationSetting
+} from "../../../lib/desktopSettings";
 
 export function PersonalizationSettings({ isZh, t }: { isZh: boolean; t: (zh: string, en: string) => string }) {
-  const [personality, setPersonality] = useState(() => localStorage.getItem("yode-personality") || "Friendly");
-  const [customInstructions, setCustomInstructions] = useState(() => localStorage.getItem("yode-custom-instructions") || "");
-  const [enableMemories, setEnableMemories] = useState(() => localStorage.getItem("yode-enable-memories") === "true");
-  const [skipToolChats, setSkipToolChats] = useState(() => localStorage.getItem("yode-skip-tool-chats") === "true");
+  const initialSettings = loadPersonalizationSettings();
+  const [personality, setPersonality] = useState(initialSettings.personality);
+  const [customInstructions, setCustomInstructions] = useState(initialSettings.customInstructions);
+  const [enableMemories, setEnableMemories] = useState(initialSettings.enableMemories);
+  const [skipToolChats, setSkipToolChats] = useState(initialSettings.skipToolChats);
   const [statusText, setStatusText] = useState("");
-
-  const saveVal = (key: string, val: unknown) => {
-    void saveDesktopSetting(key, val);
-  };
 
   useEffect(() => {
     if (isTauriRuntime()) {
-      void invoke<PersonalizationState>("personalization_state_get")
+      void invoke<PersonalizationSettingsState>("personalization_state_get")
         .then((state) => {
           setPersonality(state.personality);
           setCustomInstructions(state.customInstructions);
@@ -31,18 +28,19 @@ export function PersonalizationSettings({ isZh, t }: { isZh: boolean; t: (zh: st
           setSkipToolChats(state.skipToolChats);
         })
         .catch(() => {
-          void loadDesktopSetting("yode-personality", personality).then(setPersonality);
-          void loadDesktopSetting("yode-custom-instructions", customInstructions).then(setCustomInstructions);
-          void loadDesktopSetting("yode-enable-memories", enableMemories).then(setEnableMemories);
-          void loadDesktopSetting("yode-skip-tool-chats", skipToolChats).then(setSkipToolChats);
+          void loadPersistedPersonalizationSettings(DEFAULT_PERSONALIZATION_SETTINGS).then(applySettingsToState);
         });
       return;
     }
-    void loadDesktopSetting("yode-personality", personality).then(setPersonality);
-    void loadDesktopSetting("yode-custom-instructions", customInstructions).then(setCustomInstructions);
-    void loadDesktopSetting("yode-enable-memories", enableMemories).then(setEnableMemories);
-    void loadDesktopSetting("yode-skip-tool-chats", skipToolChats).then(setSkipToolChats);
+    void loadPersistedPersonalizationSettings(DEFAULT_PERSONALIZATION_SETTINGS).then(applySettingsToState);
   }, []);
+
+  const applySettingsToState = (settings: PersonalizationSettingsState) => {
+    setPersonality(settings.personality);
+    setCustomInstructions(settings.customInstructions);
+    setEnableMemories(settings.enableMemories);
+    setSkipToolChats(settings.skipToolChats);
+  };
 
   return (
     <div className="appearance-container" style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
@@ -56,7 +54,7 @@ export function PersonalizationSettings({ isZh, t }: { isZh: boolean; t: (zh: st
             value={personality}
             onChange={(val) => {
               setPersonality(val);
-              saveVal("yode-personality", val);
+              void savePersonalizationSetting("personality", val);
             }}
             options={[
               { value: "Friendly", label: t("友好热情", "Friendly") },
@@ -92,7 +90,7 @@ export function PersonalizationSettings({ isZh, t }: { isZh: boolean; t: (zh: st
             value={customInstructions}
             onChange={(e) => {
               setCustomInstructions(e.target.value);
-              saveVal("yode-custom-instructions", e.target.value);
+              void savePersonalizationSetting("customInstructions", e.target.value);
             }}
             style={{
               width: "100%",
@@ -110,7 +108,7 @@ export function PersonalizationSettings({ isZh, t }: { isZh: boolean; t: (zh: st
           />
           <button
             onClick={() => {
-              saveVal("yode-custom-instructions", customInstructions);
+              void savePersonalizationSetting("customInstructions", customInstructions);
               setStatusText(t("全局指令已保存到桌面设置。", "Global instructions saved to desktop settings."));
             }}
             className="secondary-button"
@@ -154,7 +152,7 @@ export function PersonalizationSettings({ isZh, t }: { isZh: boolean; t: (zh: st
                 checked={enableMemories}
                 onChange={(e) => {
                   setEnableMemories(e.target.checked);
-                  saveVal("yode-enable-memories", e.target.checked);
+                  void savePersonalizationSetting("enableMemories", e.target.checked);
                 }}
               />
               <span className="switch-slider" />
@@ -176,7 +174,7 @@ export function PersonalizationSettings({ isZh, t }: { isZh: boolean; t: (zh: st
                 checked={skipToolChats}
                 onChange={(e) => {
                   setSkipToolChats(e.target.checked);
-                  saveVal("yode-skip-tool-chats", e.target.checked);
+                  void savePersonalizationSetting("skipToolChats", e.target.checked);
                 }}
               />
               <span className="switch-slider" />
@@ -199,8 +197,8 @@ export function PersonalizationSettings({ isZh, t }: { isZh: boolean; t: (zh: st
                   } else {
                     setStatusText(t("长期记忆设置已重置。", "Memory settings reset."));
                   }
-                  saveVal("yode-enable-memories", false);
-                  saveVal("yode-skip-tool-chats", false);
+                  void savePersonalizationSetting("enableMemories", false);
+                  void savePersonalizationSetting("skipToolChats", false);
                   setEnableMemories(false);
                   setSkipToolChats(false);
                 } catch (err) {
