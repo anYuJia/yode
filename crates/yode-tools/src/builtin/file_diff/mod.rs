@@ -2,7 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use tokio::process::Command;
 
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolErrorType, ToolResult};
 
@@ -115,6 +115,7 @@ impl Tool for FileDiffTool {
             .arg(&file_b_arg)
             .current_dir(working_dir)
             .output()
+            .await
             .map_err(|e| anyhow::anyhow!("Failed to run diff: {}", e))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
