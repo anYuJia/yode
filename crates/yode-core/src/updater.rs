@@ -23,6 +23,18 @@ const MAX_DOWNLOAD_RETRIES: u32 = 3;
 const LOCK_TIMEOUT_MS: u64 = 5 * 60 * 1_000;
 const VERSION_RETENTION_COUNT: usize = 2;
 
+fn warn_if_remove_file_failed(path: &PathBuf, label: &str) {
+    if let Err(err) = std::fs::remove_file(path) {
+        warn!("Failed to remove {} {:?}: {}", label, path, err);
+    }
+}
+
+async fn warn_if_remove_file_failed_async(path: PathBuf, label: &'static str) {
+    if let Err(err) = fs::remove_file(&path).await {
+        warn!("Failed to remove {} {:?}: {}", label, path, err);
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum UpdateError {
     #[error("Another update process is running (lock held by PID {0})")]
@@ -218,7 +230,11 @@ impl Updater {
                     )
                     .await
                     {
-                        let _ = fs::remove_file(&filepath).await;
+                        warn_if_remove_file_failed_async(
+                            filepath.clone(),
+                            "invalid update download",
+                        )
+                        .await;
                         let _ = self.release_lock().await;
                         return Err(err);
                     }
@@ -234,7 +250,8 @@ impl Updater {
                 Err(e) => {
                     warn!("Download attempt {} failed: {}", attempt, e);
                     last_error = Some(e);
-                    let _ = fs::remove_file(&filepath).await;
+                    warn_if_remove_file_failed_async(filepath.clone(), "failed update download")
+                        .await;
 
                     if attempt < MAX_DOWNLOAD_RETRIES {
                         info!("Retrying download in 1 second...");
@@ -345,7 +362,7 @@ impl Updater {
         let old_exe = current_exe.with_extension("old");
 
         if old_exe.exists() {
-            let _ = std::fs::remove_file(&old_exe);
+            warn_if_remove_file_failed(&old_exe, "stale updater backup");
         }
 
         std::fs::rename(&current_exe, &old_exe)
@@ -353,7 +370,9 @@ impl Updater {
 
         if let Err(e) = std::fs::copy(&new_bin_path, &current_exe) {
             error!("Failed to copy new binary: {}. Rolling back...", e);
-            let _ = std::fs::rename(&old_exe, &current_exe);
+            if let Err(rollback_err) = std::fs::rename(&old_exe, &current_exe) {
+                error!("Failed to restore updater backup: {}", rollback_err);
+            }
             return Err(e.into());
         }
 
@@ -363,12 +382,14 @@ impl Updater {
             if let Ok(metadata) = std::fs::metadata(&current_exe) {
                 let mut perms = metadata.permissions();
                 perms.set_mode(0o755);
-                let _ = std::fs::set_permissions(&current_exe, perms);
+                if let Err(err) = std::fs::set_permissions(&current_exe, perms) {
+                    warn!("Failed to set executable permissions on update: {}", err);
+                }
             }
         }
 
-        let _ = std::fs::remove_file(&old_exe);
-        let _ = std::fs::remove_file(&update_path);
+        warn_if_remove_file_failed(&old_exe, "updater backup");
+        warn_if_remove_file_failed(&update_path, "applied update archive");
 
         info!("Update applied successfully. Version updated to latest.");
         Ok(true)
