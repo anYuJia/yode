@@ -1,11 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  DEFAULT_GIT_SETTINGS,
+  loadGitSettings,
   loadConfigurationSettings,
   loadGeneralSettings,
   loadGeneralSettingsPayload,
   loadWorktreesSettings,
   saveConfigurationSettings,
+  saveGitSettings,
   saveWorktreesSetting
 } from "./desktopSettings";
 
@@ -174,6 +177,72 @@ describe("desktop settings helpers", () => {
       "yode-worktrees-auto-delete-session-end": "false",
       "yode-worktrees-preserve-uncommitted": "false",
       "yode-worktrees-clean-unused-cache": "true"
+    });
+  });
+
+  it("loads git settings defaults from local storage", () => {
+    stubLocalStorage(() => null);
+
+    expect(loadGitSettings()).toEqual(DEFAULT_GIT_SETTINGS);
+  });
+
+  it("loads git settings overrides", () => {
+    stubLocalStorage((key) => {
+      const values: Record<string, string> = {
+        "yode-git-branch-prefix": "codex/",
+        "yode-git-merge-method": "squash",
+        "yode-git-show-pr-icons": "false",
+        "yode-git-always-force-push": "true",
+        "yode-git-create-draft-prs": "false",
+        "yode-git-auto-delete-worktrees": "false",
+        "yode-git-auto-delete-limit": "7",
+        "yode-git-commit-instructions": "Use conventional commits",
+        "yode-git-pr-instructions": "Include screenshots"
+      };
+      return values[key] ?? null;
+    });
+
+    expect(loadGitSettings()).toEqual({
+      branchPrefix: "codex/",
+      mergeMethod: "squash",
+      showPrIcons: false,
+      alwaysForcePush: true,
+      createDraftPrs: false,
+      autoDeleteWorktrees: false,
+      autoDeleteLimit: 7,
+      commitInstructions: "Use conventional commits",
+      prInstructions: "Include screenshots"
+    });
+  });
+
+  it("saves git settings through the shared helper", () => {
+    const saved = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      setItem: (key: string, value: string) => saved.set(key, value)
+    });
+
+    saveGitSettings({
+      branchPrefix: "codex/",
+      mergeMethod: "squash",
+      showPrIcons: false,
+      alwaysForcePush: true,
+      createDraftPrs: false,
+      autoDeleteWorktrees: false,
+      autoDeleteLimit: 7,
+      commitInstructions: "Use conventional commits",
+      prInstructions: "Include screenshots"
+    });
+
+    expect(Object.fromEntries(saved)).toEqual({
+      "yode-git-branch-prefix": "codex/",
+      "yode-git-merge-method": "squash",
+      "yode-git-show-pr-icons": "false",
+      "yode-git-always-force-push": "true",
+      "yode-git-create-draft-prs": "false",
+      "yode-git-auto-delete-worktrees": "false",
+      "yode-git-auto-delete-limit": "7",
+      "yode-git-commit-instructions": "Use conventional commits",
+      "yode-git-pr-instructions": "Include screenshots"
     });
   });
 });

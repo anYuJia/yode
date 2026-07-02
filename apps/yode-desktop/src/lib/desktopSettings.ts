@@ -37,6 +37,30 @@ export type WorktreesSettings = {
   cleanUnusedCache: boolean;
 };
 
+export type GitSettings = {
+  branchPrefix: string;
+  mergeMethod: string;
+  showPrIcons: boolean;
+  alwaysForcePush: boolean;
+  createDraftPrs: boolean;
+  autoDeleteWorktrees: boolean;
+  autoDeleteLimit: number;
+  commitInstructions: string;
+  prInstructions: string;
+};
+
+export const DEFAULT_GIT_SETTINGS: GitSettings = {
+  branchPrefix: "yode/",
+  mergeMethod: "merge",
+  showPrIcons: true,
+  alwaysForcePush: false,
+  createDraftPrs: true,
+  autoDeleteWorktrees: true,
+  autoDeleteLimit: 15,
+  commitInstructions: "",
+  prInstructions: ""
+};
+
 const CONFIGURATION_STORAGE_KEYS = {
   scope: "yode-config-scope",
   approvalPolicy: "yode-config-approval",
@@ -49,6 +73,18 @@ const WORKTREES_STORAGE_KEYS = {
   autoDeleteOnSessionEnd: "yode-worktrees-auto-delete-session-end",
   preserveUncommitted: "yode-worktrees-preserve-uncommitted",
   cleanUnusedCache: "yode-worktrees-clean-unused-cache"
+} as const;
+
+const GIT_STORAGE_KEYS = {
+  branchPrefix: "yode-git-branch-prefix",
+  mergeMethod: "yode-git-merge-method",
+  showPrIcons: "yode-git-show-pr-icons",
+  alwaysForcePush: "yode-git-always-force-push",
+  createDraftPrs: "yode-git-create-draft-prs",
+  autoDeleteWorktrees: "yode-git-auto-delete-worktrees",
+  autoDeleteLimit: "yode-git-auto-delete-limit",
+  commitInstructions: "yode-git-commit-instructions",
+  prInstructions: "yode-git-pr-instructions"
 } as const;
 
 export function isTauriRuntime() {
@@ -165,6 +201,46 @@ export function saveWorktreesSetting<K extends keyof WorktreesSettings>(
   value: WorktreesSettings[K]
 ): Promise<void> {
   return saveDesktopSetting(WORKTREES_STORAGE_KEYS[key], value);
+}
+
+export function loadGitSettings(): GitSettings {
+  return {
+    branchPrefix: localStorage.getItem(GIT_STORAGE_KEYS.branchPrefix) || DEFAULT_GIT_SETTINGS.branchPrefix,
+    mergeMethod: localStorage.getItem(GIT_STORAGE_KEYS.mergeMethod) || DEFAULT_GIT_SETTINGS.mergeMethod,
+    showPrIcons: localStorage.getItem(GIT_STORAGE_KEYS.showPrIcons) !== "false",
+    alwaysForcePush: localStorage.getItem(GIT_STORAGE_KEYS.alwaysForcePush) === "true",
+    createDraftPrs: localStorage.getItem(GIT_STORAGE_KEYS.createDraftPrs) !== "false",
+    autoDeleteWorktrees: localStorage.getItem(GIT_STORAGE_KEYS.autoDeleteWorktrees) !== "false",
+    autoDeleteLimit: Number(localStorage.getItem(GIT_STORAGE_KEYS.autoDeleteLimit) || DEFAULT_GIT_SETTINGS.autoDeleteLimit),
+    commitInstructions: localStorage.getItem(GIT_STORAGE_KEYS.commitInstructions) || DEFAULT_GIT_SETTINGS.commitInstructions,
+    prInstructions: localStorage.getItem(GIT_STORAGE_KEYS.prInstructions) || DEFAULT_GIT_SETTINGS.prInstructions
+  };
+}
+
+export async function loadPersistedGitSettings(fallback = DEFAULT_GIT_SETTINGS): Promise<GitSettings> {
+  return {
+    branchPrefix: await loadDesktopSetting(GIT_STORAGE_KEYS.branchPrefix, fallback.branchPrefix),
+    mergeMethod: await loadDesktopSetting(GIT_STORAGE_KEYS.mergeMethod, fallback.mergeMethod),
+    showPrIcons: await loadDesktopSetting(GIT_STORAGE_KEYS.showPrIcons, fallback.showPrIcons),
+    alwaysForcePush: await loadDesktopSetting(GIT_STORAGE_KEYS.alwaysForcePush, fallback.alwaysForcePush),
+    createDraftPrs: await loadDesktopSetting(GIT_STORAGE_KEYS.createDraftPrs, fallback.createDraftPrs),
+    autoDeleteWorktrees: await loadDesktopSetting(GIT_STORAGE_KEYS.autoDeleteWorktrees, fallback.autoDeleteWorktrees),
+    autoDeleteLimit: await loadDesktopSetting(GIT_STORAGE_KEYS.autoDeleteLimit, fallback.autoDeleteLimit),
+    commitInstructions: await loadDesktopSetting(GIT_STORAGE_KEYS.commitInstructions, fallback.commitInstructions),
+    prInstructions: await loadDesktopSetting(GIT_STORAGE_KEYS.prInstructions, fallback.prInstructions)
+  };
+}
+
+export function saveGitSettings(settings: GitSettings): void {
+  localStorage.setItem(GIT_STORAGE_KEYS.branchPrefix, settings.branchPrefix);
+  localStorage.setItem(GIT_STORAGE_KEYS.mergeMethod, settings.mergeMethod);
+  localStorage.setItem(GIT_STORAGE_KEYS.showPrIcons, JSON.stringify(settings.showPrIcons));
+  localStorage.setItem(GIT_STORAGE_KEYS.alwaysForcePush, JSON.stringify(settings.alwaysForcePush));
+  localStorage.setItem(GIT_STORAGE_KEYS.createDraftPrs, JSON.stringify(settings.createDraftPrs));
+  localStorage.setItem(GIT_STORAGE_KEYS.autoDeleteWorktrees, JSON.stringify(settings.autoDeleteWorktrees));
+  localStorage.setItem(GIT_STORAGE_KEYS.autoDeleteLimit, JSON.stringify(settings.autoDeleteLimit));
+  localStorage.setItem(GIT_STORAGE_KEYS.commitInstructions, settings.commitInstructions);
+  localStorage.setItem(GIT_STORAGE_KEYS.prInstructions, settings.prInstructions);
 }
 
 export function saveGeneralSettingValue(key: string, value: string | boolean) {

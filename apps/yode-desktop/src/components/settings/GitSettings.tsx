@@ -1,42 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { isTauriRuntime, loadDesktopSetting } from "../../lib/desktopSettings";
-
-type GitSettingsState = {
-  branchPrefix: string;
-  mergeMethod: string;
-  showPrIcons: boolean;
-  alwaysForcePush: boolean;
-  createDraftPrs: boolean;
-  autoDeleteWorktrees: boolean;
-  autoDeleteLimit: number;
-  commitInstructions: string;
-  prInstructions: string;
-};
-
-const DEFAULT_GIT_SETTINGS: GitSettingsState = {
-  branchPrefix: "yode/",
-  mergeMethod: "merge",
-  showPrIcons: true,
-  alwaysForcePush: false,
-  createDraftPrs: true,
-  autoDeleteWorktrees: true,
-  autoDeleteLimit: 15,
-  commitInstructions: "",
-  prInstructions: ""
-};
-
-function persistGitSettingsFallback(settings: GitSettingsState) {
-  localStorage.setItem("yode-git-branch-prefix", settings.branchPrefix);
-  localStorage.setItem("yode-git-merge-method", settings.mergeMethod);
-  localStorage.setItem("yode-git-show-pr-icons", JSON.stringify(settings.showPrIcons));
-  localStorage.setItem("yode-git-always-force-push", JSON.stringify(settings.alwaysForcePush));
-  localStorage.setItem("yode-git-create-draft-prs", JSON.stringify(settings.createDraftPrs));
-  localStorage.setItem("yode-git-auto-delete-worktrees", JSON.stringify(settings.autoDeleteWorktrees));
-  localStorage.setItem("yode-git-auto-delete-limit", JSON.stringify(settings.autoDeleteLimit));
-  localStorage.setItem("yode-git-commit-instructions", settings.commitInstructions);
-  localStorage.setItem("yode-git-pr-instructions", settings.prInstructions);
-}
+import {
+  DEFAULT_GIT_SETTINGS,
+  GitSettings,
+  isTauriRuntime,
+  loadGitSettings,
+  loadPersistedGitSettings,
+  saveGitSettings
+} from "../../lib/desktopSettings";
 
 export function GitSettingsSettings({
   isZh,
@@ -45,40 +16,23 @@ export function GitSettingsSettings({
   isZh: boolean;
   t: (zh: string, en: string) => string;
 }) {
-  const [branchPrefix, setBranchPrefix] = useState(() => {
-    return localStorage.getItem("yode-git-branch-prefix") || "yode/";
-  });
-  const [mergeMethod, setMergeMethod] = useState(() => {
-    return localStorage.getItem("yode-git-merge-method") || "merge";
-  });
-  const [showPrIcons, setShowPrIcons] = useState(() => {
-    return localStorage.getItem("yode-git-show-pr-icons") !== "false";
-  });
-  const [alwaysForcePush, setAlwaysForcePush] = useState(() => {
-    return localStorage.getItem("yode-git-always-force-push") === "true";
-  });
-  const [createDraftPrs, setCreateDraftPrs] = useState(() => {
-    return localStorage.getItem("yode-git-create-draft-prs") !== "false";
-  });
-  const [autoDeleteWorktrees, setAutoDeleteWorktrees] = useState(() => {
-    return localStorage.getItem("yode-git-auto-delete-worktrees") !== "false";
-  });
-  const [autoDeleteLimit, setAutoDeleteLimit] = useState(() => {
-    return Number(localStorage.getItem("yode-git-auto-delete-limit") || "15");
-  });
-  const [commitInstructions, setCommitInstructions] = useState(() => {
-    return localStorage.getItem("yode-git-commit-instructions") || "";
-  });
-  const [prInstructions, setPrInstructions] = useState(() => {
-    return localStorage.getItem("yode-git-pr-instructions") || "";
-  });
+  const initialSettings = loadGitSettings();
+  const [branchPrefix, setBranchPrefix] = useState(initialSettings.branchPrefix);
+  const [mergeMethod, setMergeMethod] = useState(initialSettings.mergeMethod);
+  const [showPrIcons, setShowPrIcons] = useState(initialSettings.showPrIcons);
+  const [alwaysForcePush, setAlwaysForcePush] = useState(initialSettings.alwaysForcePush);
+  const [createDraftPrs, setCreateDraftPrs] = useState(initialSettings.createDraftPrs);
+  const [autoDeleteWorktrees, setAutoDeleteWorktrees] = useState(initialSettings.autoDeleteWorktrees);
+  const [autoDeleteLimit, setAutoDeleteLimit] = useState(initialSettings.autoDeleteLimit);
+  const [commitInstructions, setCommitInstructions] = useState(initialSettings.commitInstructions);
+  const [prInstructions, setPrInstructions] = useState(initialSettings.prInstructions);
   const [statusText, setStatusText] = useState("");
 
   useEffect(() => {
     const loadSettings = async () => {
       if (isTauriRuntime()) {
         try {
-          const settings = await invoke<GitSettingsState>("git_settings_get");
+          const settings = await invoke<GitSettings>("git_settings_get");
           applySettingsToState(settings);
           setStatusText(t("Git 设置已连接到运行时。", "Git settings are connected to the runtime."));
           return;
@@ -86,28 +40,12 @@ export function GitSettingsSettings({
           console.error(err);
         }
       }
-      applySettingsToState({
-        branchPrefix: await loadDesktopSetting("yode-git-branch-prefix", DEFAULT_GIT_SETTINGS.branchPrefix),
-        mergeMethod: await loadDesktopSetting("yode-git-merge-method", DEFAULT_GIT_SETTINGS.mergeMethod),
-        showPrIcons: await loadDesktopSetting("yode-git-show-pr-icons", DEFAULT_GIT_SETTINGS.showPrIcons),
-        alwaysForcePush: await loadDesktopSetting("yode-git-always-force-push", DEFAULT_GIT_SETTINGS.alwaysForcePush),
-        createDraftPrs: await loadDesktopSetting("yode-git-create-draft-prs", DEFAULT_GIT_SETTINGS.createDraftPrs),
-        autoDeleteWorktrees: await loadDesktopSetting(
-          "yode-git-auto-delete-worktrees",
-          DEFAULT_GIT_SETTINGS.autoDeleteWorktrees
-        ),
-        autoDeleteLimit: await loadDesktopSetting("yode-git-auto-delete-limit", DEFAULT_GIT_SETTINGS.autoDeleteLimit),
-        commitInstructions: await loadDesktopSetting(
-          "yode-git-commit-instructions",
-          DEFAULT_GIT_SETTINGS.commitInstructions
-        ),
-        prInstructions: await loadDesktopSetting("yode-git-pr-instructions", DEFAULT_GIT_SETTINGS.prInstructions)
-      });
+      applySettingsToState(await loadPersistedGitSettings(DEFAULT_GIT_SETTINGS));
     };
     void loadSettings();
   }, []);
 
-  const currentSettings = (): GitSettingsState => ({
+  const currentSettings = (): GitSettings => ({
     branchPrefix,
     mergeMethod,
     showPrIcons,
@@ -119,7 +57,7 @@ export function GitSettingsSettings({
     prInstructions
   });
 
-  const applySettingsToState = (settings: GitSettingsState) => {
+  const applySettingsToState = (settings: GitSettings) => {
     setBranchPrefix(settings.branchPrefix);
     setMergeMethod(settings.mergeMethod);
     setShowPrIcons(settings.showPrIcons);
@@ -131,13 +69,13 @@ export function GitSettingsSettings({
     setPrInstructions(settings.prInstructions);
   };
 
-  const applyGitSettings = async (nextSettings: GitSettingsState, message?: string) => {
+  const applyGitSettings = async (nextSettings: GitSettings, message?: string) => {
     try {
       if (isTauriRuntime()) {
-        const applied = await invoke<GitSettingsState>("git_settings_apply", { settings: nextSettings });
+        const applied = await invoke<GitSettings>("git_settings_apply", { settings: nextSettings });
         applySettingsToState(applied);
       } else {
-        persistGitSettingsFallback(nextSettings);
+        saveGitSettings(nextSettings);
         applySettingsToState(nextSettings);
       }
       setStatusText(message ?? t("Git 设置已保存。", "Git settings saved."));
