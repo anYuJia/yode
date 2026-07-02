@@ -5,6 +5,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
+use tracing::warn;
 
 use yode_agent::AgentTeamManager;
 use yode_llm::provider::LlmProvider;
@@ -562,29 +563,41 @@ async fn sync_team_runtime_update(
 
     let snapshot = {
         let mut manager = manager.lock().await;
-        let _ = hydrate_agent_team_manager(working_dir, &mut manager, team_id);
-        let _ = manager.update_member(
-            team_id,
-            member_id,
-            status,
-            runtime_task_id.clone(),
-            result_preview.clone(),
-            result_artifact_path.clone(),
+        record_team_runtime_error(
+            "hydrate_agent_team_manager",
+            hydrate_agent_team_manager(working_dir, &mut manager, team_id),
+        );
+        record_team_runtime_error(
+            "update_agent_team_member_in_memory",
+            manager.update_member(
+                team_id,
+                member_id,
+                status,
+                runtime_task_id.clone(),
+                result_preview.clone(),
+                result_artifact_path.clone(),
+            ),
         );
         manager.snapshot(team_id)
     };
 
     if let Some(snapshot) = snapshot.as_ref() {
-        let _ = persist_agent_team_snapshot(working_dir, snapshot);
+        record_team_runtime_error(
+            "persist_agent_team_snapshot",
+            persist_agent_team_snapshot(working_dir, snapshot),
+        );
     } else {
-        let _ = update_agent_team_member(
-            working_dir,
-            team_id,
-            member_id,
-            status,
-            runtime_task_id,
-            result_preview,
-            result_artifact_path,
+        record_team_runtime_error(
+            "update_agent_team_member",
+            update_agent_team_member(
+                working_dir,
+                team_id,
+                member_id,
+                status,
+                runtime_task_id,
+                result_preview,
+                result_artifact_path,
+            ),
         );
     }
 }
@@ -601,11 +614,17 @@ async fn inject_team_runtime_context(
     };
     let messages = {
         let mut manager = manager.lock().await;
-        let _ = hydrate_agent_team_manager(working_dir, &mut manager, team_id);
+        record_team_runtime_error(
+            "hydrate_agent_team_manager",
+            hydrate_agent_team_manager(working_dir, &mut manager, team_id),
+        );
         let messages = manager.consume_message_context(team_id, member_id, 8);
         if !messages.is_empty() {
             if let Some(snapshot) = manager.snapshot(team_id) {
-                let _ = persist_agent_team_snapshot(working_dir, &snapshot);
+                record_team_runtime_error(
+                    "persist_agent_team_snapshot",
+                    persist_agent_team_snapshot(working_dir, &snapshot),
+                );
             }
         }
         messages
@@ -628,6 +647,16 @@ async fn inject_team_runtime_context(
         "Team runtime:\n- team_id: {}\n- member_id: {}\n- Use `team_receive` with this team_id/member_id to check messages sent while you are running.\n\nTeam mailbox:\n{}\n\nTask:\n{}",
         team_id, member_id, mailbox, prompt
     )
+}
+
+fn record_team_runtime_error<T>(operation: &str, result: anyhow::Result<T>) -> Option<T> {
+    match result {
+        Ok(value) => Some(value),
+        Err(err) => {
+            warn!(operation, error = %err, "agent team runtime operation failed");
+            None
+        }
+    }
 }
 
 async fn prepare_subagent_context(
