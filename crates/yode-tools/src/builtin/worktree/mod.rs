@@ -2,6 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use tokio::process::Command;
 
 use crate::path_format::display_slash;
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
@@ -95,7 +96,7 @@ impl Tool for EnterWorktreeTool {
 
         tokio::fs::create_dir_all(working_dir.join(".yode").join("worktrees")).await?;
 
-        let output = std::process::Command::new("git")
+        let output = Command::new("git")
             .arg("worktree")
             .arg("add")
             .arg(&worktree_dir)
@@ -104,6 +105,7 @@ impl Tool for EnterWorktreeTool {
             .arg("HEAD")
             .current_dir(working_dir)
             .output()
+            .await
             .map_err(|e| anyhow::anyhow!("Failed to run git worktree add: {}", e))?;
 
         if !output.status.success() {
@@ -219,10 +221,11 @@ impl Tool for ExitWorktreeTool {
 
         if action == "remove" {
             if !discard_changes {
-                let status = std::process::Command::new("git")
+                let status = Command::new("git")
                     .args(["status", "--porcelain"])
                     .current_dir(&worktree_dir)
-                    .output();
+                    .output()
+                    .await;
 
                 if let Ok(output) = status {
                     let changes = String::from_utf8_lossy(&output.stdout);
@@ -236,7 +239,7 @@ impl Tool for ExitWorktreeTool {
                 }
             }
 
-            let _ = std::process::Command::new("git")
+            let _ = Command::new("git")
                 .args([
                     "worktree",
                     "remove",
@@ -244,12 +247,14 @@ impl Tool for ExitWorktreeTool {
                     "--force",
                 ])
                 .current_dir(&original_dir)
-                .output();
+                .output()
+                .await;
 
-            let _ = std::process::Command::new("git")
+            let _ = Command::new("git")
                 .args(["branch", "-D", &branch_name])
                 .current_dir(&original_dir)
-                .output();
+                .output()
+                .await;
         }
 
         {
