@@ -26,8 +26,8 @@ impl AgentEngine {
 
         match tokio::runtime::Handle::try_current() {
             Ok(handle) => {
-                drop(handle.spawn_blocking(move || {
-                    write_chat_request_debug_artifact_file(path, rendered);
+                drop(handle.spawn(async move {
+                    write_chat_request_debug_artifact_file_async(path, rendered).await;
                 }));
             }
             Err(_) => {
@@ -197,6 +197,27 @@ impl AgentEngine {
             }
             .normalized(),
         )
+    }
+}
+
+async fn write_chat_request_debug_artifact_file_async(path: PathBuf, rendered: String) {
+    let Some(debug_dir) = path.parent() else {
+        warn!(
+            "Failed to resolve chat request debug dir for {}",
+            path.display()
+        );
+        return;
+    };
+
+    if let Err(err) = tokio::fs::create_dir_all(debug_dir).await {
+        warn!("Failed to create chat request debug dir: {}", err);
+        return;
+    }
+
+    if let Err(err) = tokio::fs::write(&path, rendered).await {
+        warn!("Failed to write chat request debug artifact: {}", err);
+    } else {
+        info!("Wrote chat request debug artifact: {}", path.display());
     }
 }
 
